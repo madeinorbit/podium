@@ -12,6 +12,13 @@ import { FLOW_CSS } from '@/lib/issueColors'
 import { usePhaseMorph } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 
+/** How far the selected row's bridge notch hangs off the row's right edge, in
+ *  px. EXPORTED because the work-list scroller has to reserve exactly this much
+ *  head-room past the aside edge: whatever the notch overhangs and the scroller
+ *  does not reserve is scrollable overflow, and the column then scrolls sideways
+ *  on every selection (POD-761). See `SidebarUnified`'s `work-scroll`. */
+export const BRIDGE_NOTCH_W = 10
+
 /** The status word's own state colour (POD-725 §3). Only the lockup is tinted —
  *  the rest of line 2 stays `--muted-foreground`, so the row says its state in
  *  one word rather than colouring a whole sentence.
@@ -358,8 +365,10 @@ export function WorkRowShell({
             // Var-driven gradient over the row's own --issue scope: a fresh
             // colour pick animates the notch through the registered --issue
             // transition — gradient images themselves can't interpolate.
-            className="pointer-events-none absolute top-[9px] right-[-10px] bottom-[9px] w-[10px] rounded-r-[3px]"
+            className="pointer-events-none absolute top-[9px] bottom-[9px] rounded-r-[3px]"
             style={{
+              right: -BRIDGE_NOTCH_W,
+              width: BRIDGE_NOTCH_W,
               background: `linear-gradient(90deg, color-mix(in srgb, var(--issue) ${hex ? 85 : 75}%, transparent), color-mix(in srgb, var(--issue) ${hex ? 12 : 10}%, transparent))`,
             }}
           />

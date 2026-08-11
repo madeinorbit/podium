@@ -18,6 +18,7 @@ import { UnifiedIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
+import { BRIDGE_NOTCH_W } from './WorkRowShell'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
@@ -60,10 +61,21 @@ export function SidebarUnified(): JSX.Element {
           nobody asked about. What is left is the 9px spacer that was always
           here, so the list starts where it always did. */}
       <div className="h-[9px] flex-none" aria-hidden="true" />
-      {/* The scroll container leaves 5px of horizontal head-room past the aside
-          edge (negative margin + matching padding) so the selected row's bridge
-          notch can paint OVER the aside border into the engraved column —
-          overflow clips at the padding box, so the notch survives (#41).
+      {/* The scroll container leaves horizontal head-room past the aside edge
+          (negative margin + matching padding) so the selected row's bridge notch
+          can paint OVER the aside border into the engraved column — overflow
+          clips at the padding box, so the notch survives (#41).
+
+          THE HEAD-ROOM IS THE NOTCH'S WIDTH, NOT A PIXEL LESS (POD-761). It was
+          5px against a 10px notch, so half the notch fell outside the padding
+          box — where it was not painted but WAS scrollable overflow, and every
+          selected row gave the column a 5px sideways scroll. Anything that hangs
+          off a row's right edge has to fit in here, or it comes back as scroll.
+          `overflow-x-clip` holds that line: it makes the head-room a PAINTING
+          allowance rather than a scrollable one, since `overflow-y: auto` alone
+          computes the x axis to `auto`. (Chrome computes the pair to `hidden`,
+          which still measures overflow — hence the width match above, which is
+          what actually removes it.)
           The padding matches the negative margin exactly now (POD-725): rows are
           FULL-BLEED bands, so the list has no side inset of its own and each row
           owns its 14px text inset. No row gap either — rows are separated by
@@ -71,8 +83,8 @@ export function SidebarUnified(): JSX.Element {
           clusters repo + snoozed/done as one unit. */}
       <div
         data-testid="work-scroll"
-        className="scroll-none flex min-h-0 flex-1 flex-col overflow-y-auto pb-2.5"
-        style={{ marginRight: -5, paddingRight: 5 }}
+        className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
+        style={{ marginRight: -BRIDGE_NOTCH_W, paddingRight: BRIDGE_NOTCH_W }}
       >
         <WorkSections derivation={derivation} />
       </div>
