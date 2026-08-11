@@ -148,6 +148,45 @@ describe('useUpdateState update action', () => {
     expect(calls).toBeGreaterThanOrEqual(3)
   })
 
+  /**
+   * The fleet read used to happen ONCE at mount and swallow its failure, so a
+   * read that failed before the session was established (a 401 on the live
+   * server) left `behind: 0` for the life of the page — and with it, no server
+   * or machine places in the dialog, only "This app". The retry is what makes
+   * those places appear at all.
+   */
+  it('recovers the fleet after a failed first read, so the places appear', async () => {
+    vi.useFakeTimers()
+    try {
+      setupTransport()
+      let calls = 0
+      mocks.query.mockImplementation(async () => {
+        calls += 1
+        if (calls === 1) throw new Error('unauthorized')
+        return { total: 2, behind: 2, converging: 0, failed: 0, targetVersion: '0.4.2' }
+      })
+
+      const results: UpdateStateResult[] = []
+      render(<Probe onResult={(result) => results.push(result)} liveFleet />)
+
+      // The first read failed: nothing knows of any machine yet.
+      await vi.advanceTimersByTimeAsync(0)
+      expect(results.at(-1)?.fleet.behind ?? 0).toBe(0)
+
+      // The idle refresh recovers it without a reload or any user action.
+      await vi.advanceTimersByTimeAsync(30_000)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls).toBeGreaterThanOrEqual(2)
+      expect(results.at(-1)?.fleet.behind).toBe(2)
+
+      const view = results.at(-1)?.view
+      const places = view && 'places' in view ? view.places.map((place) => place.kind) : []
+      expect(places).toContain('machines')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('moves the shared dialog to a translated, actionable server failure', async () => {
     setupTransport()
     mocks.mutate.mockRejectedValueOnce(
