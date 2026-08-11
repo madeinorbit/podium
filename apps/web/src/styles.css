@@ -1630,11 +1630,11 @@ html[data-density="balanced"] .header-quota-pools {
    Deliberately narrows §2's issue-colour channel on this one surface; the ID
    square in the rail keeps its own colour, because it identifies one issue.
 
-   Written in TOKENS, not a dark literal: the dock body takes --engraved (§4's
-   own name for "recessed column, flat, no issue tint") and the icon rail takes
-   --rail — so the right edge steps AWAY from the workspace in every theme, deep
-   navy on the dark ground and the darkest stone on paper, where a hard-coded
-   dark value would have been a hole. Same tonal ordering as the POD-491
+   Written in TOKENS, not a dark literal: the dock body takes --engraved (§2's
+   own name for "flat, steps away from the work, no issue tint") and the icon
+   rail takes --rail — so the right edge steps AWAY from the workspace in every
+   theme, the dock tone on the dark ground and the darkest stone on paper, where
+   a hard-coded dark value would have been a hole. Same tonal ordering as the POD-491
    artifact, whose dock sits a step under the pane and whose icon rail sits
    under the dock. */
 .right-dock-shell {
@@ -1806,7 +1806,7 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 16px 0;
   /* --rail, the tier that exists for exactly this and had never been spent.
      The rail is the furthest chrome from the work, so it takes the deepest step
-     in whichever direction the theme's ramp runs: rail navy on the dark ground,
+     in whichever direction the theme's ramp runs: #1e2024 on the dark ground,
      the darkest stone on paper. It wore --bar (the frame tier) while the paper
      theme's frame was still the darkest thing in the window; now that the bar
      lifts, --bar would have made the rail brighter than the columns it edges. */
