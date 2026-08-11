@@ -292,7 +292,7 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     // The child's session is still counted: two agents, one harness kind.
     const fleet = parentRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
     expect(fleet).toBeTruthy()
-    expect(fleet.getAttribute('aria-label')).toBe('2 live agents')
+    expect(fleet.getAttribute('aria-label')).toBe('2 agents')
     expect(fleet.querySelectorAll('[data-agent-kind]')).toHaveLength(1)
     expect(fleet.querySelector('[data-testid="issue-fleet-total"]')?.textContent).toBe('2')
   })
@@ -307,7 +307,7 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     const fleet = draftRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
     expect(fleet).toBeTruthy()
-    expect(fleet.getAttribute('aria-label')).toBe('1 live agent')
+    expect(fleet.getAttribute('aria-label')).toBe('1 agent')
     expect(fleet.querySelector('[data-agent-kind="claude-code"]')).toBeTruthy()
     // A lone agent shows its tile and no total — the number would say nothing.
     expect(fleet.querySelector('[data-testid="issue-fleet-total"]')).toBeNull()

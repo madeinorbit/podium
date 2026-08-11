@@ -1,5 +1,9 @@
-import { deriveGitStamp } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueGitState, SessionMeta } from '@podium/model'
+import {
+  deriveFleetPresence,
+  deriveGitStamp,
+  FLEET_KIND_LIMIT,
+} from '@podium/client-core/viewmodels'
+import type { IssueGitState, SessionMeta } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, space } from '../theme/theme'
@@ -13,18 +17,25 @@ import { kindTone } from './spine'
  * not say one on the phone.
  */
 
-/** How many distinct harness tiles a fleet stack shows before the total alone
- *  carries the rest — kinds, not sessions, exactly as the desktop stacks them. */
-const FLEET_KIND_LIMIT = 3
+/** The ghost a PARKED harness wears (POD-756): its process was stopped to free
+ *  memory, the agent is still on the task. One tone for every kind — the fact
+ *  being drawn is "this one is asleep", not which harness it is. The kind's own
+ *  letter stays: a parked Codex is still a Codex. */
+const PARKED_TONE = { fg: color.textFaint, bg: alpha(color.textDim, 0.1) }
 
 /**
  * The mission's execution presence: a stack of real harness-kind tiles, the
- * live agent total once there is more than one, and `×N` for native (in-process
+ * agent total once there is more than one, and `×N` for native (in-process
  * Task) children.
  *
  * Kinds, not sessions. A nine-agent mission running three harnesses shows three
  * tiles and a `9` — the stack answers "who is here", the number answers "how
  * many". Everything is derived from the row's bubbled session set.
+ *
+ * Who counts as here is `deriveFleetPresence`'s call, shared with the desktop
+ * row (POD-756): a PARKED agent is on the task and draws a ghost tile. The
+ * phone used to filter hibernation out exactly as the sidebar did, so a fleet
+ * the memory reaper had put to sleep read as an empty one.
  */
 export function FleetSummary({
   sessions,
@@ -36,27 +47,15 @@ export function FleetSummary({
   unread?: boolean
   ground?: string
 }) {
-  const live = sessions.filter(
-    (s) => !s.archived && s.status !== 'exited' && s.status !== 'hibernated',
-  )
-  if (live.length === 0) return null
-  const kinds: AgentKind[] = []
-  for (const session of live) {
-    if (!kinds.includes(session.agentKind)) kinds.push(session.agentKind)
-  }
-  const shown = kinds.slice(0, FLEET_KIND_LIMIT)
-  const nativeCount = live.reduce((sum, s) => sum + (s.agentState?.nativeSubagentCount ?? 0), 0)
+  const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
+  if (present.length === 0) return null
+  const shown = tiles.slice(0, FLEET_KIND_LIMIT)
   return (
-    <View
-      accessibilityRole="image"
-      accessibilityLabel={`${live.length} live agent${live.length === 1 ? '' : 's'}${
-        nativeCount > 0 ? `, ${nativeCount} native children` : ''
-      }`}
-      style={styles.fleet}
-    >
+    <View accessibilityRole="image" accessibilityLabel={label} style={styles.fleet}>
       <View style={styles.stack}>
-        {shown.map((kind, index) => {
-          const t = kindTone(kind)
+        {shown.map(({ kind, parked }, index) => {
+          const tone = kindTone(kind)
+          const t = parked ? { ...tone, ...PARKED_TONE } : tone
           return (
             <View
               key={kind}
@@ -78,7 +77,7 @@ export function FleetSummary({
           )
         })}
       </View>
-      {live.length > 1 ? <Text style={styles.fleetTotal}>{live.length}</Text> : null}
+      {present.length > 1 ? <Text style={styles.fleetTotal}>{present.length}</Text> : null}
       {nativeCount > 0 ? <Text style={styles.native}>{`×${nativeCount}`}</Text> : null}
     </View>
   )

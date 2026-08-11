@@ -1,5 +1,6 @@
 import { type AgentKind, type SessionMeta, spawnedByParentSessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
+import { sessionPresentOnTask } from './fleet'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase } from './session-status'
 import type { IssueNavigationModel } from './slices/issues'
@@ -81,8 +82,9 @@ export interface MissionProgress {
   wait: number
 }
 
-const openSession = (session: SessionMeta): boolean =>
-  !session.archived && session.status !== 'exited'
+/** The mission's name for {@link sessionPresentOnTask} — one presence rule for
+ *  the whole client (POD-756), spelled once in `./fleet`. */
+const openSession = sessionPresentOnTask
 
 /**
  * A session that is no longer working: retired, or holding a finished turn.

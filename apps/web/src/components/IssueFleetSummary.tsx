@@ -12,7 +12,16 @@
  * overlapping left, then a `+N` chip, then the native-subagent multiplier. Per
  * kind tint (POD-293) comes from `@/lib/agent-tone`, which also owns the mark —
  * icon, tint and tone are one question about one key.
+ *
+ * WHO IT DRAWS is `deriveFleetPresence`'s call (POD-756), shared with the
+ * sidebar row and the phone row: agents on the task, parked ones ghosted rather
+ * than dropped, archived and exited ones gone. The card used to tile every
+ * session handed to it, so a task with one agent and three retired ones claimed
+ * four. POD-744 still owns the remaining disagreement — whether the tiles are
+ * one per SESSION (here) or one per harness KIND (the row) — and when it lands,
+ * this maps `presence.tiles` instead of `presence.present`.
  */
+import { deriveFleetPresence, sessionParked } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import type { JSX } from 'react'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
@@ -36,20 +45,11 @@ export function IssueFleetSummary({
   size?: number
   className?: string
 }): JSX.Element | null {
-  if (sessions.length === 0) return null
-  const shown = sessions.slice(0, max)
-  const overflow = Math.max(0, sessions.length - shown.length)
-  const nativeCount = sessions.reduce(
-    (sum, session) => sum + (session.agentState?.nativeSubagentCount ?? 0),
-    0,
-  )
-  const label = [
-    `${sessions.length} agent${sessions.length === 1 ? '' : 's'}`,
-    nativeCount > 0 ? `${nativeCount} native subagent${nativeCount === 1 ? '' : 's'}` : null,
-    unread ? 'new update' : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  const { present, nativeCount, label: presenceLabel } = deriveFleetPresence(sessions)
+  if (present.length === 0) return null
+  const shown = present.slice(0, max)
+  const overflow = Math.max(0, present.length - shown.length)
+  const label = unread ? `${presenceLabel} · new update` : presenceLabel
   const glyph = Math.round(size * 0.63)
   return (
     <span
@@ -61,7 +61,9 @@ export function IssueFleetSummary({
     >
       {shown.map((session, index) => {
         const AgentIcon = agentIconFor(session.agentKind)
-        const tileTint = agentFleetTileTint(session.agentKind)
+        // A parked agent is still on the task, drawn ghosted (POD-756).
+        const parked = sessionParked(session)
+        const tileTint = agentFleetTileTint(session.agentKind, parked)
         // The row's unopened-update dot rides the corner of the LAST tile (the
         // concept's `.av .unreaddot`): tight to the glyph at -3px, ringed in the
         // row background — reads as "this fleet has something new", not a third
@@ -71,6 +73,7 @@ export function IssueFleetSummary({
           <span
             key={session.sessionId}
             data-agent-kind={session.agentKind}
+            data-parked={parked ? '' : undefined}
             className={cn(
               'relative flex items-center justify-center rounded-[6px] border',
               tileTint,

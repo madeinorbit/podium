@@ -1,5 +1,7 @@
 import {
+  deriveFleetPresence,
   draftIssueLabel,
+  FLEET_KIND_LIMIT,
   type IssueNavigationModel,
   isDraftAgentVessel,
   missionProgress,
@@ -14,7 +16,7 @@ import {
   rowWaitingCount,
   type UnifiedIssueRow as UnifiedIssueRowView,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueColorSlot, IssueId, SessionId, SessionMeta } from '@podium/model'
+import type { IssueColorSlot, IssueId, SessionId, SessionMeta } from '@podium/model'
 import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { AlarmClock, Pin } from 'lucide-react'
@@ -34,20 +36,20 @@ import { RowProgressMeter } from './row-progress'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
 
-/** How many distinct harness tiles a fleet stack shows before the total alone
- *  carries the rest. The approved artifact stacks kinds, not agents — three is
- *  what its widest mission renders. */
-const FLEET_KIND_LIMIT = 3
-
 /**
  * The mission's execution presence, in the approved artifact's `fleet-summary`
- * anatomy: a stack of REAL harness-kind tiles, the live agent total once there
- * is more than one, and `×N` for native (in-process Task) children.
+ * anatomy: a stack of REAL harness-kind tiles, the agent total once there is
+ * more than one, and `×N` for native (in-process Task) children.
  *
  * Kinds, not sessions. A nine-agent mission running three harnesses shows three
  * tiles and a `9`, not nine tiles — the question the stack answers is "who is
  * here", and the number answers "how many". Everything is client-derived from
  * the row's bubbled session set; nothing is stored on the issue.
+ *
+ * WHO COUNTS as here is `deriveFleetPresence`'s call, not this component's
+ * (POD-756): a PARKED agent is on the task and draws a ghosted tile. This row
+ * used to filter hibernation out, which meant the stack rendered the reaper's
+ * queue — every Codex agent in the fleet was parked, so no issue showed one.
  */
 function FleetSummary({
   sessions,
@@ -59,26 +61,9 @@ function FleetSummary({
    *  as "this agent has something new", never a free-floating third dot. */
   unread?: boolean
 }): JSX.Element | null {
-  const live = sessions.filter(
-    (session) =>
-      !session.archived && session.status !== 'exited' && session.status !== 'hibernated',
-  )
-  if (live.length === 0) return null
-  const kinds: AgentKind[] = []
-  for (const session of live) {
-    if (!kinds.includes(session.agentKind)) kinds.push(session.agentKind)
-  }
-  const shown = kinds.slice(0, FLEET_KIND_LIMIT)
-  const nativeCount = live.reduce(
-    (sum, session) => sum + (session.agentState?.nativeSubagentCount ?? 0),
-    0,
-  )
-  // The artifact's tooltip, verbatim in structure: the two facts the stack
-  // itself compresses. Leads are not in it — a coordinator is the Flight Deck's
-  // fact, and repeating it here spent a third clause on a glyph cluster.
-  const label = `${live.length} live agent${live.length === 1 ? '' : 's'}${
-    nativeCount > 0 ? ` · ${nativeCount} native children` : ''
-  }`
+  const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
+  if (present.length === 0) return null
+  const shown = tiles.slice(0, FLEET_KIND_LIMIT)
   return (
     <span
       className="ml-0.5 flex flex-none items-center gap-[5px]"
@@ -88,12 +73,13 @@ function FleetSummary({
       data-testid="issue-fleet-summary"
     >
       <span className="flex items-center pl-1">
-        {shown.map((kind, index) => {
+        {shown.map(({ kind, parked }, index) => {
           const AgentIcon = agentIconFor(kind)
           // Per-kind tint (POD-293): Claude wears its clay, other harnesses a
           // quiet navy — solid fills so stacked tiles don't ghost through each
           // other. A table keyed by kind, not a comparison (see @/lib/agent-tone).
-          const tileTint = agentFleetTileTint(kind)
+          // A parked kind drops the brand for the muted pair (POD-756).
+          const tileTint = agentFleetTileTint(kind, parked)
           // The row's unopened-update dot rides the corner of the LAST tile (the
           // artifact's `.fleet-tile .dot`): tight to the glyph at -3px, ringed in
           // the row background — "this fleet has something new", not a third
@@ -103,6 +89,7 @@ function FleetSummary({
             <span
               key={kind}
               data-agent-kind={kind}
+              data-parked={parked ? '' : undefined}
               className={cn(
                 'relative flex size-[18px] items-center justify-center rounded-[5px] border',
                 tileTint,
@@ -122,12 +109,12 @@ function FleetSummary({
           )
         })}
       </span>
-      {live.length > 1 && (
+      {present.length > 1 && (
         <span
           className="font-mono text-[9.5px] tabular-nums text-text-dim"
           data-testid="issue-fleet-total"
         >
-          {live.length}
+          {present.length}
         </span>
       )}
       {nativeCount > 0 && (
