@@ -657,8 +657,8 @@ describe('idle-session cap', () => {
       const sessions = [session(asSessionId('known-idle')), shell(asSessionId('old-shell'))]
       const { service, parked, shellParked } = harness({
         sessions,
-        maxIdleSessions: 1,
-        // Shell policy off — shell is neither counted nor parked.
+        
+        idleShellMinutes: null,
       })
 
       service.onHostMetrics(asMachineId('local'), sample(10))

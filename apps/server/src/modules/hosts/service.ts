@@ -359,7 +359,7 @@ export class HostsService {
       return
     }
     console.info(
-      `[podium] idle-shell ${idleShellMinutes}h on ${this.deps.machineName(machineId)} — parking shell session ${target.sessionId}`,
+      `[podium] idle-shell ${idleShellMinutes}m on ${this.deps.machineName(machineId)} — parking shell session ${target.sessionId}`,
     )
   }
 
