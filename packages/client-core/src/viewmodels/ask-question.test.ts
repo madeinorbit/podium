@@ -1,6 +1,11 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { isPreviewLayout, latestPendingQuestion, parseAskQuestions } from './ask-question'
+import {
+  isPreviewLayout,
+  latestPendingQuestion,
+  optionPreview,
+  parseAskQuestions,
+} from './ask-question'
 
 function ask(id: string, overrides: Partial<TranscriptItem> = {}): TranscriptItem {
   return {
@@ -50,6 +55,30 @@ describe('ask question view model', () => {
     ],
   ])('is %s → %s', (_name, question, expected) => {
     expect(isPreviewLayout(question)).toBe(expected)
+  })
+
+  // What to DRAW, as opposed to what dialog is on screen. A blank preview flips
+  // the native layout but has nothing in it, so the card must not open a well
+  // for it (POD-708).
+  it('offers a preview only when there is something to draw', () => {
+    const [q] = parseAskQuestions(
+      JSON.stringify({
+        questions: [
+          {
+            question: 'Which layout?',
+            options: [
+              { label: 'Left', preview: 'a\nb' },
+              { label: 'Right', preview: '   ' },
+              { label: 'Neither' },
+            ],
+          },
+        ],
+      }),
+    )
+    expect(optionPreview(q?.options[0])).toBe('a\nb')
+    expect(optionPreview(q?.options[1])).toBeUndefined()
+    expect(optionPreview(q?.options[2])).toBeUndefined()
+    expect(optionPreview(undefined)).toBeUndefined()
   })
 
   it('finds the last unanswered question and ignores answered ones', () => {

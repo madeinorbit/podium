@@ -33,6 +33,15 @@ export function isPreviewLayout(q: Pick<AskQuestion, 'multiSelect' | 'options'>)
   return !q.multiSelect && q.options.some((o) => (o.preview ?? '') !== '')
 }
 
+/** This option's preview if there is one worth DRAWING — present and not blank.
+ *  Deliberately stricter than {@link isPreviewLayout}'s `!== ''` test, which
+ *  answers a different question: what the native dialog does (whitespace still
+ *  flips it) versus what the card should render (whitespace is nothing). */
+export function optionPreview(option: AskOption | undefined): string | undefined {
+  const p = option?.preview
+  return typeof p === 'string' && p.trim() !== '' ? p : undefined
+}
+
 /**
  * One question's answer on its way to the server: the listed options it picked
  * (1-based), or free text through the native Other entry — plus the SHAPE of the

@@ -265,7 +265,11 @@ describe('AskUserQuestionCard', () => {
         />,
       ),
     )
+    // A previewed question is browsed before it is answered (POD-708), so the
+    // click selects and the send delivers. What is asserted here is the SHAPE
+    // that reaches the server, which is unchanged.
     await act(async () => options()[1]?.click())
+    await act(async () => sendButton()?.click())
     expect(onAnswer).toHaveBeenCalledWith({
       choices: [{ optionIndices: [2], previewLayout: true }],
     })
@@ -361,5 +365,102 @@ describe('AskUserQuestionCard', () => {
     )
     expect(options()).toHaveLength(0)
     expect(container.textContent).toContain('Which runtime?')
+  })
+
+  // -------------------------------------------------------------------------
+  // Option previews (POD-708). The mockup is the comparison, so the card has to
+  // let you look at one option while another is selected — which is exactly the
+  // thing commit-on-click cannot do.
+  // -------------------------------------------------------------------------
+
+  const DRAWN = [
+    {
+      question: 'How far should the cache go?',
+      header: 'Scope',
+      options: [
+        { label: 'Cache-first (Recommended)', preview: 'FRAME 1\n[ cached transcript ]' },
+        { label: 'Cold state only', preview: 'FRAME 1\n[ skeleton rows ]' },
+      ],
+    },
+  ]
+  const well = (): HTMLElement | null =>
+    container.querySelector<HTMLElement>('[data-testid="ask-preview"]')
+
+  it('a lone single-select stops committing on click once an option has a preview', async () => {
+    const onAnswer = vi.fn(async () => {})
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask(DRAWN)}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={onAnswer}
+        />,
+      ),
+    )
+    await act(async () => options()[1]?.click())
+    // Selected, not sent — browsing must never answer.
+    expect(onAnswer).not.toHaveBeenCalled()
+    expect(options()[1]?.getAttribute('aria-checked')).toBe('true')
+    await act(async () => sendButton()?.click())
+    // previewLayout rides along because the same condition that opens the well
+    // here changes the dialog the server has to type into (POD-770).
+    expect(onAnswer).toHaveBeenCalledWith({
+      choices: [{ optionIndices: [2], previewLayout: true }],
+    })
+  })
+
+  it('shows the recommended option first and follows hover to another', () => {
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask(DRAWN)}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={async () => {}}
+        />,
+      ),
+    )
+    expect(well()?.textContent).toContain('cached transcript')
+    act(() => {
+      const target = options()[1]
+      if (target) fireEvent.mouseEnter(target)
+    })
+    expect(well()?.textContent).toContain('skeleton rows')
+    // …and hovering is still not answering.
+    expect(options()[1]?.getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('keeps the mockup on a parked card, which has no pointer to follow', () => {
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask(DRAWN)}
+          cls=""
+          index={0}
+          livePending={false}
+          onAnswer={async () => {}}
+        />,
+      ),
+    )
+    expect(container.querySelector('[data-testid="ask-readonly"]')).toBeTruthy()
+    expect(well()?.textContent).toContain('cached transcript')
+  })
+
+  it('gives a lone question its header chip, which only the rail carries otherwise', () => {
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask(DRAWN)}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={async () => {}}
+        />,
+      ),
+    )
+    expect(container.textContent).toContain('Scope')
   })
 })

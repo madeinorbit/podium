@@ -408,15 +408,68 @@ function askQuestionPreview(input: unknown): string {
   return q ? truncate(q, 160) : 'AskUserQuestion'
 }
 
-/** JSON-stringify a tool input, capped so a pathological payload can't bloat the
- *  transcript. Returns undefined on failure (the card just falls back to the row). */
+/** How much stored JSON one AskUserQuestion may spend. Generous, because option
+ *  previews are legitimately large — a mockup runs to a few kB on its own. */
+const ASK_INPUT_MAX = 32_000
+/** Preview budgets tried in turn once a payload is over the cap, shortest last.
+ *  0 removes the field. */
+const PREVIEW_BUDGETS = [4000, 1200, 300, 0]
+
+/**
+ * JSON-stringify an AskUserQuestion input, capped so a pathological payload
+ * can't bloat the transcript.
+ *
+ * The cap sheds content rather than dropping the payload, because the payload IS
+ * the card: `toolInputJson` is what makes chat render an answerable question
+ * instead of a collapsed tool row, so returning undefined costs the operator the
+ * ability to answer at all — a far worse outcome than a shortened mockup. Option
+ * previews are the heavy part and the least load-bearing, so they are trimmed
+ * (then removed) first, and only a payload whose questions alone overflow gives
+ * up. Returns undefined on failure.
+ */
 function safeJsonString(input: unknown): string | undefined {
   try {
     const s = JSON.stringify(input)
-    return s.length > 8000 ? undefined : s
+    if (s === undefined) return undefined
+    if (s.length <= ASK_INPUT_MAX) return s
   } catch {
     return undefined
   }
+  for (const budget of PREVIEW_BUDGETS) {
+    try {
+      const s = JSON.stringify(withPreviewBudget(input, budget))
+      if (s !== undefined && s.length <= ASK_INPUT_MAX) return s
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
+}
+
+/** Copy an ask input with every option preview cut to `budget` characters (0
+ *  drops the field). Anything not shaped like questions/options is passed
+ *  through untouched — this is a size valve, not a validator. */
+function withPreviewBudget(input: unknown, budget: number): unknown {
+  if (typeof input !== 'object' || input === null) return input
+  const root = input as Record<string, unknown>
+  if (!Array.isArray(root.questions)) return input
+  const questions = root.questions.map((q) => {
+    if (typeof q !== 'object' || q === null) return q
+    const question = q as Record<string, unknown>
+    if (!Array.isArray(question.options)) return q
+    const options = question.options.map((o) => {
+      if (typeof o !== 'object' || o === null) return o
+      const option = o as Record<string, unknown>
+      if (typeof option.preview !== 'string') return o
+      const { preview, ...rest } = option
+      if (budget <= 0) return rest
+      return preview.length <= budget
+        ? option
+        : { ...rest, preview: `${preview.slice(0, budget)}\n…` }
+    })
+    return { ...question, options }
+  })
+  return { ...root, questions }
 }
 
 function blockContentToText(content: unknown): string {

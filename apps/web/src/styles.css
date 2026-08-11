@@ -4255,6 +4255,44 @@ html[data-density="balanced"] .header-quota-pools {
   display: block;
   color: #06b6d4;
 }
+
+/* ---------------------------------------------------------------------------
+   Option preview (POD-708) — the mockup an AskUserQuestion option carries.
+
+   A well, not a card: the same engraved recipe as the You bubble, so the
+   evidence reads as carved into the question rather than floated beside it.
+   Everything here defends the drawing. Box glyphs are hand-aligned at a fixed
+   pitch, so the text may never wrap (`pre`, scroll instead), may never be
+   letter-spaced, and may never have adjacent characters fused by a ligature —
+   any of the three turns a diagram into rubble. Line-height is unitless and
+   tight for the same reason: vertical box runs must meet across rows.
+   --------------------------------------------------------------------------- */
+.ask-preview {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--muted);
+  padding: 9px 11px;
+  box-shadow:
+    inset 0 3px 7px -2px var(--carve-engraved),
+    inset 0 -1px 0 color-mix(in oklab, var(--border) 45%, transparent);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.ask-preview pre {
+  margin: 0;
+  white-space: pre;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 1.34;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
+  tab-size: 2;
+  color: var(--muted-foreground);
+}
+
 /* Copy button injected into every rendered code block (COPY_BUTTON in markdown.ts).
    Icon is a CSS mask (an inline lucide "copy" SVG) so it never depends on DOMPurify
    keeping inline SVG markup. Hover-revealed, top-right, inside the pre's window bar. */
