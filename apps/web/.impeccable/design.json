@@ -5,7 +5,7 @@
   "extensions": {
     "colorMeta": {
       "superade-yellow": { "role": "primary", "displayName": "Superade Yellow", "canonical": "#f5c518", "tonalRamp": ["#332902", "#5c4a05", "#8a6f08", "#b8940c", "#e0b512", "#f5c518", "#f9d95e", "#fdf0b8"] },
-      "royal-blue": { "role": "primary", "displayName": "Royal Blue (light variant lead)", "canonical": "#1d4ed8", "tonalRamp": ["#0a1440", "#122566", "#183a9e", "#1d4ed8", "#3b6ae6", "#6b8ff0", "#a3bcf7", "#d8e2fc"] },
+      "royal-blue": { "role": "primary", "displayName": "Royal Blue (success)", "canonical": "#1d4ed8", "tonalRamp": ["#0a1440", "#122566", "#183a9e", "#1d4ed8", "#3b6ae6", "#6b8ff0", "#a3bcf7", "#d8e2fc"] },
       "alert-red": { "role": "secondary", "displayName": "Alert Red", "canonical": "#e5303f", "tonalRamp": ["#3a0a0e", "#661218", "#9e1c26", "#cc2734", "#e5303f", "#ee6470", "#f5a0a8", "#fbd6da"] },
       "accent-blue": { "role": "secondary", "displayName": "Accent Blue", "canonical": "#2a62f0", "tonalRamp": ["#0a1840", "#122a66", "#1c439e", "#2657cc", "#2a62f0", "#6f9dff", "#9cb8ff", "#d3e0ff"] },
       "dark-ink": { "role": "neutral", "displayName": "Dark Ink", "canonical": "#16171a", "tonalRamp": ["#16171a", "#191a1e", "#1b1d21", "#202228", "#23262d", "#2c3038", "#3a3f48", "#6f7580"] },
@@ -20,10 +20,12 @@
       "mono": { "displayName": "Terminal Mono", "purpose": "Terminal output 10.5px/1.7; timers 9px tabular-nums." }
     },
     "shadows": [
-      { "name": "engraved", "value": "inset 3px 0 6px -3px rgb(0 0 0 / 0.85), inset -3px 0 6px -3px rgb(0 0 0 / 0.85), inset 0 3px 6px -3px rgb(0 0 0 / 0.85)", "purpose": "Recessed middle column — depth carved inward." },
-      { "name": "engraved-bar", "value": "inset 2px 0 5px -2px rgb(0 0 0 / 0.85), inset -2px 0 5px -2px rgb(0 0 0 / 0.85)", "purpose": "Folded 44px vertical bar." },
-      { "name": "bar-drop", "value": "0 5px 10px -5px rgb(0 0 0 / 0.9)", "purpose": "Tight fold-shadow below compact section bars." },
-      { "name": "popover", "value": "0 14px 34px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.5)", "purpose": "The only lifted tier: transient overlays." }
+      { "name": "sheet", "value": "0 0 0 1px color-mix(in srgb, var(--carve-drop) 70%, transparent), 0 2px 4px color-mix(in srgb, var(--carve-drop) 50%, transparent), 0 20px 44px -20px var(--carve-popover-far)", "purpose": "The stage, and nothing else — the window's one resting elevation (POD-725)." },
+      { "name": "popover", "value": "0 14px 34px var(--carve-popover-far), 0 2px 8px var(--carve-popover-near)", "purpose": "The transient tier: menus, pickers, drag ghosts, the save bar." },
+      { "name": "inset-carve", "value": "inset 0 3px 7px -2px var(--carve-engraved), inset 0 -1px 0 color-mix(in oklab, var(--border) 45%, transparent)", "purpose": "A field pressed INTO its surface — the operator's prompt, the standby panel. All that survives of the engraved idiom." },
+      { "name": "engraved", "value": "inset 3px 0 6px -3px var(--carve-engraved), inset -3px 0 6px -3px var(--carve-engraved), inset 0 3px 6px -3px var(--carve-engraved)", "purpose": "RETIRED (POD-725): the recessed middle column became the gutter-and-sheet. Token still defined, paints nothing." },
+      { "name": "engraved-bar", "value": "inset 2px 0 5px -2px var(--carve-engraved), inset -2px 0 5px -2px var(--carve-engraved)", "purpose": "RETIRED (POD-725): the folded bar keeps the deck's own gradient and inset instead." },
+      { "name": "bar-drop", "value": "0 5px 10px -5px var(--carve-drop)", "purpose": "RETIRED: no compact section bar casts a fold shadow any more." }
     ],
     "motion": [
       { "name": "phase-crossfade", "value": "0.4s", "purpose": "Issue-color crossfade via registered --issue @property; gated on prefers-reduced-motion." },
@@ -79,7 +81,7 @@
       "refersTo": "label",
       "description": "Machine-voice section label (WORK, TRAY).",
       "html": "<span class=\"ds-label-mono\">Tray</span>",
-      "css": ".ds-label-mono { font-family: 'Geist Mono Variable', ui-monospace, monospace; font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #7a84a0; }"
+      "css": ".ds-label-mono { font-family: 'Geist Mono Variable', ui-monospace, monospace; font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #949aa4; }"
     },
     {
       "name": "Quota Chip",
@@ -96,7 +98,7 @@
     "keyCharacteristics": [
       "Compact 12px-base type scale; density is a feature, not a compromise",
       "One brand yellow used as signal, never as decoration",
-      "Surfaces carved into the chassis (inset shadows, hairline seams), not floated above it",
+      "Surfaces separated by tonal tier and hairline seam; the window spends exactly one resting elevation, and it is spent on the stage",
       "Issue colors as translucent tints over surfaces, never flat fills",
       "Stillness means 'needs you' — the only perpetual motion is an agent actually working"
     ],
@@ -105,14 +107,16 @@
       { "name": "The Tint, Never Fill Rule", "body": "Issue colors color-mix into their base surface at prescribed percentages. A flat fill of an issue color is prohibited.", "section": "colors" },
       { "name": "The Reserved Hues Rule", "body": "Terracotta (Claude), the motion colors, and the theme's signal hues are excluded from the issue palette so state and identity never collide.", "section": "colors" },
       { "name": "The Machine Voice Rule", "body": "Anything the system says about itself — labels, timers, counts, IDs, terminal — is Geist Mono. Anything addressed to the human is Geist Sans.", "section": "typography" },
-      { "name": "The Carved Rule", "body": "If a resting surface needs to look different from its neighbor, change its tone or engrave it — never lift it. Drop shadows are for things that will disappear.", "section": "elevation" }
+      { "name": "The Carved Rule (amended, POD-725)", "body": "If a resting surface needs to look different from its neighbor, change its tone or draw a hairline; it may not lift. The stage sheet is the single exception, and it is not a licence — the sheet reads as elevated because it is the only thing that does. Drop shadows are otherwise for things that will disappear.", "section": "elevation" },
+      { "name": "The Frame Lifts (POD-725, POD-737)", "body": "Both themes step UP from their ground rather than cutting the chrome into it, and the stage ends up the brightest surface in each. Dark Ink: ground #16171a → work list and dock #191a1e → bar #1b1d21 → rail #1e2024 → tab strip #202228 → sheet #23262d → chip #252830. Paper: rail #eceae4 → ground #f2f1ed → work list #f4f3f0 → bar #f7f7f5 → tab strip #faf9f7 → sheet #ffffff. The old navy ramp ran the other way, with the bar as the darkest tier.", "section": "elevation" },
+      { "name": "Carving in light (Paper, POD-725)", "body": "The carve ink is the theme's, never black: Paper carves in #1d1c19 at 7% (engraved) and 10% (drop), because tone already groups the chrome in ~1 L-point steps. Only the two genuinely floating inks go deep — --carve-popover-far at 30%, for the popover and the stage sheet.", "section": "elevation" }
     ],
     "dos": [
       "Do use Superade Yellow only where action or attention is being asked — The Signal Rule.",
-      "Do tint issue-colored surfaces with color-mix over their base at the prescribed percentages; pair every colored surface with its quieter slate fallback.",
+      "Do tint issue-colored surfaces with color-mix over their base at the prescribed percentages; pair every colored surface with its quieter Flow Grey fallback.",
       "Do keep controls on the compact scale: 32px buttons, 12px type, 4px spacing grid, 6-10px radii.",
       "Do put machine voice (labels, timers, IDs, counts) in Geist Mono with tabular-nums where digits tick.",
-      "Do carve depth inward — tonal tiers, hairline seams, engraved insets; reserve drop shadows for transient overlays.",
+      "Do separate surfaces by tonal tier and hairline seam, and carve inward when a field must read as pressed in; reserve drop shadows for the stage and for what will disappear.",
       "Do honor prefers-reduced-motion: the issue-color crossfade and phase morphs already gate on it; new motion must too."
     ],
     "donts": [
@@ -122,7 +126,9 @@
       "Don't let it feel like Electron-app blandness — a website in a frame; the shell is an instrument with native manners.",
       "Don't flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is neutral ink, yellow, red, blue.",
       "Don't add perpetual motion beyond the working spinner and timer; stillness is the 'needs you' signal and must stay legible.",
-      "Don't use white text on Superade Yellow — ink on yellow is always Dark Ink."
+      "Don't use white text on Superade Yellow — ink on yellow is always Dark Ink; and don't put #f5c518 in a text token at all (gold writes on ink, ochre on paper).",
+      "Don't re-hue the neutrals. The dark chassis is neutral ink and the light one is warm stone; a tinted chrome competes with the issue-accent channel, whose whole premise is that a hue on a surface was chosen by somebody.",
+      "Don't add a second resting shadow. The stage sheet is the window's one elevation, and it only reads as one while nothing else at rest casts anything."
     ]
   }
 }

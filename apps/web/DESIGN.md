@@ -117,7 +117,7 @@ This system explicitly rejects the SaaS dashboard cliché (metric-card grids, gr
 **Key Characteristics:**
 - Compact 12px-base type scale; density is a feature, not a compromise
 - One brand yellow used as signal, never as decoration
-- Surfaces carved into the chassis (inset shadows, hairline seams), not floated above it
+- Surfaces separated by tonal tier and hairline seam; the window spends exactly one resting elevation, and it is spent on the stage
 - Issue colors as translucent tints over surfaces, never flat fills
 - Stillness means "needs you" — the only perpetual motion is an agent actually working
 
@@ -140,9 +140,11 @@ Team colors: a neutral dark-ink chassis, Superade Yellow signal, with red and bl
 - **Flow Grey** (#949aa4 dark / #85817a paper): The neutral issue-accent default when an issue has no assigned color; runs the same tint mechanics, quieter. It must be a TRUE neutral of its own ground — it was Flow Slate (#94a3b8) while the chassis was navy, and a blue-grey default over neutral ink reads as a blue somebody chose. `FLOW_SLATE` in `lib/issueColors.ts` keeps the old hex as a JS-mixer fallback only; call sites use `FLOW_CSS` / `var(--flow)`.
 
 ### Neutral
-- **Dark Ink** (#16171a): App background (dark), and the darkest thing in the window. The surface tiers step UP from it, so the frame lifts rather than recedes (as on Paper, inverting the old navy ramp): Engraved (#191a1e, recessed columns and the right dock), Bar (#1b1d21, command bar and status strip), Rail (#1e2024, the icon rail), Tabstrip (#202228), Panel (#23262d, the stage sheet, cards, popovers), Chip (#252830, raised buttons and badges), Secondary (#2c3038, active pills and the raised cell in a well).
+- **Dark Ink** (#16171a): App background (dark), and the darkest thing in the window. The surface tiers step UP from it, so the frame lifts rather than recedes (as on Paper, inverting the old navy ramp): Engraved (#191a1e, the work list and the right dock — a flat surface that steps AWAY from the work, and never an issue tint; the name outlived the groove, see §4), Bar (#1b1d21, command bar and status strip), Rail (#1e2024, the icon rail), Tabstrip (#202228), Panel (#23262d, the stage sheet, cards, popovers), Chip (#252830, raised buttons and badges), Secondary (#2c3038, active pills and the raised cell in a well).
 - **Ink ramp**: Strong (#f2f3f5, selected titles/headers) → Ink (#d7dae0, body) → Muted (#a8adb6, secondary) → Label Grey (#949aa4, mono section labels) → Dim (#848a94, timestamps/sub-lines) → Faint (#6f7580, micro hints). 16.5 · 13.1 · 8.1 · 6.5 · 5.3 · 3.9 against the ground. Step down deliberately; never invent an in-between grey.
 - **Seams**: Border / Hairline Bar (#26292f, panel seams and bar edges), Hairline Soft (#24272d, inner dividers and row rules), Border Strong (#3a3f48, chip borders, idle composer).
+- **Paper** (#f2f1ed): App background (light), and warm stone rather than cool glass — every surface sits at hue ≈ 80–90 and chroma 0.003–0.010. Daylight's neutrals were hue 264 at near-zero chroma: correct, careful and completely anonymous, because a light UI with no warmth reads as an unlit dark theme rather than as paper. Its tiers run the same direction as Dark Ink's, but the ground is not the extreme — the icon rail, furthest from the work, sits DEEPEST: Rail (#eceae4), Ground (#f2f1ed), Column (#f4f3f0, the work list), Bar (#f7f7f5, command bar and status strip), Tabstrip (#faf9f7), Sheet/Card/Chip (#ffffff, the one true white).
+- **The one ink** (#1d1c19): Paper is written from a single warm near-black — every neutral, every seam and every carve alpha is that ink at an alpha, so nothing in the light window is a cool grey. Text ramp at 100 / 82 / 68 / 48 / 40% (14.9 · 9.9 · 6.2 · 3.2 · 2.6 against the ground; the last is micro hints only); seams at 7 / 11 / 14% (#eeede8 row rules → #e6e5e0 panel seams → #e2e0d9 chip rims).
 
 ### Named Rules
 **The Signal Rule.** Yellow marks the primary action or the thing waiting on you — one voice per screen region. If yellow appears somewhere nothing is asked of the operator, it is wrong.
@@ -151,7 +153,7 @@ Team colors: a neutral dark-ink chassis, Superade Yellow signal, with red and bl
 
 A tint may never carry its surface past the surface *above* it in the ramp. Every mix walks toward a lighter color, and the Dark Ink ramp leaves only three levels between the tab strip (`#202228`) and the sheet it is cut into (`#23262d`) — so the strip's dose is capped at 2–3, not the handoff's 18, or the recess reads as a raised band. The workspace gutter takes no tint at all: since POD-725 it is the ground the sheet lies on, not a surface, and ground is the one thing an issue color has nothing to say about.
 
-The percentages above are the *dark* values; a hue mixed into a light base saturates about twice as fast, so light themes scale them rather than restating them. Two variables do it globally — `--issue-tint-scale` (0.5% in Daylight, so 28 → 14) and `--issue-line-scale` (0.85%) — consumed by the `issue-mix-*` / `issue-hairline-*` utilities, so no call site carries a per-theme percentage. Hairlines scale *down*, not up: measured against both grounds, a mid-lightness hue reads more strongly on paper than on the dark ground, not less.
+The percentages above are the *dark* values; a hue mixed into a light base saturates about twice as fast, so light themes scale them rather than restating them. Two variables do it globally — `--issue-tint-scale` and `--issue-line-scale`, consumed by the `issue-mix-*` / `issue-hairline-*` utilities — so no call site carries a per-theme percentage. **Dark Ink runs both at 1%**, which is what makes the numbers above literal. **Paper runs the tint at 0.4% and the line at 0.8%** (28 → 11), down from Daylight's 0.5% (POD-725): the issue palette is the Tailwind-500 ramp, chosen against a dark ground, and a saturated hue mixed into warm stone reads about twice as loud as the same mix into cool grey — at 0.5% a teal issue turned the middle of the window green. Hairlines scale *down*, not up: measured against both grounds, a mid-lightness hue reads more strongly on paper than on the dark ground, not less.
 
 **The Reserved Hues Rule.** Terracotta (Claude), the motion colors, and the theme's signal hues are excluded from the issue palette so state and identity never collide.
 
@@ -182,21 +184,32 @@ The step was 18px between POD-591 and POD-635, and the reversal is worth keeping
 
 ## 4. Elevation
 
-**Carved, not floating.** Depth goes inward: the middle column is engraved into the chassis with pure-black inset shadows (`inset ±3px 0 6px -3px rgb(0 0 0 / 0.85)` plus a top inset), sections separate by hairline seams and tonal tier (Bar below Engraved below Panel), and surfaces at rest cast nothing. Only transient overlays may lift: popovers use `0 14px 34px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.5)`; compact section bars cast a tight drop (`0 5px 10px -5px rgb(0 0 0 / 0.9)`) to read as a fold, not a float.
+**One elevation, spent on the stage.** The window separates by tonal tier and hairline seam; where depth exists it goes inward. Exactly one resting surface floats — the stage sheet, a 12px-radius card lying in its own gutter under the window's single real drop shadow — and that is precisely what makes the elevation legible: a shadow means something here because nothing else at rest casts one. Beyond it, only transient overlays lift, and they lift because they will disappear.
+
+**The frame lifts (POD-725, POD-737).** Both themes step UP from their ground rather than cutting the chrome into it, and the stage ends up the brightest surface in each:
+
+- **Dark Ink** — ground `#16171a` → work list and right dock `#191a1e` → command bar and status strip `#1b1d21` → icon rail `#1e2024` → tab strip `#202228` → **stage sheet, panels, popovers `#23262d`** → raised chip `#252830` → active cell `#2c3038`. Eight tiers across ≈10 L-points.
+- **Paper** — icon rail `#eceae4` → ground `#f2f1ed` → work list `#f4f3f0` → command bar and status strip `#f7f7f5` → tab strip `#faf9f7` → **stage sheet, cards, chips, popovers `#ffffff`**. Six tiers across ≈6 L-points, with the rail — furthest from the work — set deepest rather than highest.
+
+The old navy ramp ran the other way: `--bar` was the darkest thing in the window and every column read as cut into it. Paper inverted it first, because on a light ground the inverted order has no way to be stated at all; POD-737 then brought the dark theme with it, and the wells flipped along with the bar (see §5).
 
 ### Shadow Vocabulary
-- **Engraved** (`inset 3px 0 6px -3px …, inset -3px 0 6px -3px …, inset 0 3px 6px -3px rgb(0 0 0 / 0.85)`): The recessed Tray/Super-agent column, on a flat `--engraved` surface (no issue tint).
-- **Engraved bar** (`inset 2px 0 5px -2px rgb(0 0 0 / 0.85) ×2`): The folded 44px vertical bar.
-- **Bar drop** (`0 5px 10px -5px rgb(0 0 0 / 0.9)`): Below compact section bars.
-- **Popover** (`0 14px 34px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.5)`): Menus, color pickers — the only lifted tier.
+- **Sheet** (`--shadow-sheet`): The stage, and nothing else. Three layers — a 1px contact ring, a `0 2px 4px` near shadow that gives the edge weight, and `0 20px 44px -20px` of long cast that puts air under it. Built on `--carve-drop` and `--carve-popover-far`, so it blackens on ink and warms on paper.
+- **Popover** (`--shadow-popover`, `0 14px 34px var(--carve-popover-far), 0 2px 8px var(--carve-popover-near)`): Menus, color pickers, drag ghosts, the Settings save bar — the transient tier.
+- **Inset carve** (`--carve-engraved` as `inset 0 3px 7–8px -2px` plus a 1px lit bottom edge): The operator's prompt and the standby panel — a field that has to read as pressed INTO its surface. This is what survives of the engraved idiom: an ink for wells, not a groove around columns.
+- **The wells** (`--well-floor` / `-lip` / `-rim` / `-lit`, and the `--well-cell-*` inversion): The command bar's mode and instrument containers carry their own bevel contract — see §5, The Wells.
+
+`--shadow-engraved`, `--shadow-engraved-bar` and `--shadow-bar-drop` are still defined in `index.css` and no longer paint anything. POD-725 replaced the recessed middle column with the gutter-and-sheet, and the flight deck now states itself with an issue fade over the card tone under a 3px issue inset — a lit top edge, not a groove.
 
 ### Named Rules
-**The Carved Rule.** If a resting surface needs to look different from its neighbor, change its tone or engrave it — never lift it. Drop shadows are for things that will disappear.
+**The Carved Rule (amended, POD-725).** If a resting surface needs to look different from its neighbor, change its tone or draw a hairline; it may not lift. The stage sheet is the single exception, and it is not a licence — the sheet reads as elevated *because* it is the only thing that does, so a second resting shadow anywhere in the window costs the first one its meaning. Drop shadows are otherwise for things that will disappear.
 
-**Carving in light (Daylight).** The rule holds; the material changes. Three things follow from a light ground:
-- **The carve ink is the theme's, never black.** Black at 0.85 on paper reads as dirt, not depth. Themes set `--carve-engraved` / `--carve-drop` / `--carve-popover-*`; the shadow *geometry* stays shared. Daylight carves in `#0e1626` at 26%.
-- **The tonal ramp compresses.** Light UIs separate with **line, not tone** — Daylight's seven tiers span 6.2 L-points against the dark theme's 12.4, so hairlines carry the separation and the engraved groove becomes the depth rather than supporting it. That is why its carve is *stronger* (26%) than a wider ramp would need (22%).
-- **Still nothing lifts at rest.** Floating a white card on grey is the light-mode default and the thing to refuse; it is what makes a product look like every other tool.
+**Carving in light (Paper, POD-725).** The rule holds; the material changes. Three things follow from a light ground:
+- **The carve ink is the theme's, never black.** Black at 0.85 on paper reads as dirt, not depth. Themes override `--carve-engraved` / `--carve-drop` / `--carve-popover-*` in their own ink; the shadow *geometry* stays shared. Paper carves in `#1d1c19` at **7%** (engraved) and **10%** (drop) — every alpha is the one ink, exactly.
+- **Carve lightly, because tone already groups.** This reverses Daylight, which treated tonal tiering as a dark-mode idiom, leaned on hairlines alone, and then needed a 26% groove to do all the separating — which is how one palette came out flat and grubby at once. Paper tiers its chrome by tone in steps of about one L-point, so tone GROUPS and the hairline still CUTS, and the groove is left as an edge rather than a shadow.
+- **The floating inks are the exception to carving lightly.** A popover and the stage sheet are the only things genuinely above the page, and on paper a cast must be deep enough to be a shadow rather than a smudge: `--carve-popover-far` is 30%, four times the engraved ink.
+
+What Daylight was right to refuse is still refused: a *field* of white cards floating on grey is the light-mode default and the thing that makes a product look like every other tool. Paper floats one card, once, over the work.
 
 ## 5. Components
 
@@ -215,7 +228,7 @@ Refined and restrained: quiet borders, subtle states, nothing decorative. Every 
 ### Cards / Containers
 - **Corner Style:** Tray cards 10px; rows and ID squares 7px; the composer field 9px.
 - **Background:** Panel on the chassis; Chip when raised (popovers, chip buttons).
-- **Shadow Strategy:** None at rest (see The Carved Rule); engraved when recessed.
+- **Shadow Strategy:** None at rest — the stage sheet holds the window's only resting elevation (see The Carved Rule). A field that must read as pressed in takes the `--carve-engraved` inset; it never lifts instead.
 - **Border:** 1px seam (#26292f); Border Strong for chip borders and the idle composer.
 - **Internal Padding:** Tight 4px grid — rows pad 10–14px horizontally, sections gap 10–12px.
 
@@ -243,14 +256,14 @@ mark │ mode tabs │ ─ │ mode-contextual slot │ ⇠gap⇢ │ instrument
 3. **The instrument well.** Host and quota in ONE well divided by hairlines, never loose readouts on the bar: one object with internal structure reads as an instrument, five evenly-spaced numbers read as a website's account row. Always visible, in every mode.
 4. **Utilities.** Usage and Settings as 28px icon cells at the far right, after a hairline, followed by the native window controls on Windows/Linux. The only bare cells on the bar — everything else belongs to a well or the slot.
 
-**Surface:** `--bar`, the darkest tier — one step below the panels beneath it, so every column reads as carved INTO the chassis. **Rhythm:** one 10px gap between every zone, seams 18px tall centred in it; containers are 30px, loose controls 28px, cells inside a container 26px. Three heights, one gap — a bar whose spacings all differ reads as assembled rather than composed.
+**Surface:** `--bar`, one step ABOVE the ground in both themes (#1b1d21 on ink, #f7f7f5 on paper) — the frame lifts off the chassis rather than being cut into it, and the carving is spent *inside* the bar, on its wells. It read the other way until POD-737, when the bar was the darkest tier and every column below it was meant to look engraved. **Rhythm:** one 10px gap between every zone, seams 18px tall centred in it; containers are 30px, loose controls 28px, cells inside a container 26px. Three heights, one gap — a bar whose spacings all differ reads as assembled rather than composed.
 
 **The Wells (signature).** Modes on the left and instruments on the right are the same object: 30px, 8px radius, 2px inset, carved into the bar. It is the WELL that stops a row of glyphs reading as hyperlinks — not a container drawn around the selected one, which just makes the selection look like a button. The floor sits a hair BELOW its bar on both grounds (black at 17% on ink, the theme ink at 4.5% on paper) and the recess is sharpened by the edges — a dark lip along the top, a lit one along the bottom. It used to sit ABOVE on dark, because the navy bar was itself the darkest thing in the window and a groove had nothing left to darken into; POD-737 lifted the bar off the ground, so the groove now goes where a groove goes. The raised cell inside inverts exactly that bevel. Never ring a well all the way round; an outline around a group is one big button.
 
 **Narrow behaviour:** the bar gives up words before it gives up data, and data before controls. In order: tool labels at 1180px and the QUOTA group label with them; the hostname at 1100px; the numbers on *quiet* pools at 1024px; mode labels and the MEM mark at 940px, tooltips carrying the names. A number that crossed a threshold is never shed, and no control is ever removed. Nothing is ever clipped — the well truncates the hostname, not the percentages.
 
 ### The Sheet Tier
-Utilities are visited and left, so they open as a **bounded inset sheet over a held shell** (≤1180px, centred, gapped from the command bar and status strip), never as a route that replaces the window. The chrome stays *visible* around and behind them and deliberately not *operable* — the sheet is `aria-modal` and the backdrop closes it, because a surface carrying an unsaved edit has to be the only thing you can act on. Esc, the backdrop and the ✕ all close, returning to the mode you came from — and the keyboard route is stated on the ✕'s own tooltip rather than as a free-standing keycap, because the system has no keycap component and two ways to say "close" in one corner is one too many. A sheet is the one thing licensed to lift — The Carved Rule reserves drop shadows for what will disappear. Inside, panes fill the sheet and the measure caps the *text*, never the pane.
+Utilities are visited and left, so they open as a **bounded inset sheet over a held shell** (≤1180px, centred, gapped from the command bar and status strip), never as a route that replaces the window. The chrome stays *visible* around and behind them and deliberately not *operable* — the sheet is `aria-modal` and the backdrop closes it, because a surface carrying an unsaved edit has to be the only thing you can act on. Esc, the backdrop and the ✕ all close, returning to the mode you came from — and the keyboard route is stated on the ✕'s own tooltip rather than as a free-standing keycap, because the system has no keycap component and two ways to say "close" in one corner is one too many. A utility sheet lifts because it will disappear, which is exactly what The Carved Rule reserves drop shadows for — the stage's own sheet is the other, and the only resting one. Inside, panes fill the sheet and the measure caps the *text*, never the pane.
 
 **A sheet is sized by its content, in both axes — and the size is computed, not asserted.** Vertically, `app-sheet-fit` ends the sheet where its content ends (Usage: one screen of figures); a browsing surface like Settings earns the full height. Horizontally, a sheet asks for rail + seam + padding + form and no more — Settings resolves to 1141px, not the shared 1180, because nothing in it can reach past its form column and the difference was a dead column. Write that as a `calc()` over the parts (`--settings-rail-w`, `--settings-pane-pad`, `--settings-form-w`), never as one number with the arithmetic in a comment: the parts move — POD-407's type change moved every one of them — and a comment does not. A frame wider or taller than anything that can fill it is the "content stopped halfway" tell moved inside the sheet.
 
@@ -264,7 +277,7 @@ Utilities are visited and left, so they open as a **bounded inset sheet over a h
 24px, `--bar`, mono at label scale. Closes the frame at the bottom: a page ends by scrolling off into nothing, a window closes. It carries only what is window-scoped and unstated elsewhere — how many agents are computing, which task the window is pointed at, and link health while it is degraded. **Not branch or commit state:** `GitStamp` owns that in four densities and its rule is that one git fact is never restated in two places.
 
 ### The Issue-Color Channel (signature)
-Every issue-tinted surface derives from one `--issue` custom property scoped per subtree, mixed over its base surface (`issue-mix-*` utilities), with a derived text ramp per scope. Reselecting or recoloring crossfades every derived mix together over 0.4s via a registered `@property`. Uncolored issues run identical mechanics in Flow Slate, slightly quieter.
+Every issue-tinted surface derives from one `--issue` custom property scoped per subtree, mixed over its base surface (`issue-mix-*` utilities), with a derived text ramp per scope. Reselecting or recoloring crossfades every derived mix together over 0.4s via a registered `@property`. Uncolored issues run identical mechanics in Flow Grey (`--flow`), slightly quieter.
 
 **The color belongs to the mission (POD-697).** A slot is set on top-level tasks only — the ones the left sidebar lists — because what the color does is tell missions apart in that column. Everything downstream (flight deck, terminal tint, tab squares, rail notch) is that one color flowing down the mission, so a sub-task holds no slot of its own and offers no picker: it would be a second, competing statement of the same thing. Sub-tasks inherit from the nearest colored ancestor, which is the mission root.
 
@@ -279,10 +292,10 @@ The braille spinner (10-frame CSS `content` animation) plus a counting mono time
 
 ### Do:
 - **Do** use Superade Yellow only where action or attention is being asked — The Signal Rule.
-- **Do** tint issue-colored surfaces with `color-mix` over their base at the prescribed percentages; pair every colored surface with its quieter slate fallback.
+- **Do** tint issue-colored surfaces with `color-mix` over their base at the prescribed percentages; pair every colored surface with its quieter Flow Grey fallback.
 - **Do** keep controls on the compact scale: 32px buttons, 12px type, 4px spacing grid, 6–10px radii.
 - **Do** put machine voice (labels, timers, IDs, counts) in Geist Mono with `tabular-nums` where digits tick.
-- **Do** carve depth inward — tonal tiers, hairline seams, engraved insets; reserve drop shadows for transient overlays.
+- **Do** separate surfaces by tonal tier and hairline seam, and carve inward when a field must read as pressed in; reserve drop shadows for the stage and for what will disappear.
 - **Do** honor `prefers-reduced-motion`: the issue-color crossfade and phase morphs already gate on it; new motion must too.
 
 ### Don't:
@@ -292,4 +305,6 @@ The braille spinner (10-frame CSS `content` animation) plus a counting mono time
 - **Don't** let it feel like Electron-app blandness — a website in a frame; the shell is an instrument with native manners (real pointer cursors, no text selection on chrome, safe-area aware).
 - **Don't** flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is neutral ink, yellow, red, blue.
 - **Don't** add perpetual motion that is not gated on the working spinner's own predicate; stillness is the "needs you" signal and must stay legible.
-- **Don't** use white text on Superade Yellow — ink on yellow is always Dark Ink.
+- **Don't** use white text on Superade Yellow — ink on yellow is always Dark Ink; and don't put #f5c518 in a text token at all (gold writes on ink, ochre on paper).
+- **Don't** re-hue the neutrals. The dark chassis is neutral ink and the light one is warm stone; a tinted chrome competes with the issue-accent channel, whose whole premise is that a hue on a surface was chosen by somebody.
+- **Don't** add a second resting shadow. The stage sheet is the window's one elevation, and it only reads as one while nothing else at rest casts anything.
