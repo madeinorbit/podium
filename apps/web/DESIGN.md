@@ -1,31 +1,32 @@
 ---
 name: Podium
-description: Mission control for coding agents — navy-and-yellow instrument UI, refined and restrained
+description: Mission control for coding agents — ink-and-yellow instrument UI, refined and restrained
 colors:
   superade-yellow: "#f5c518"
-  race-navy: "#0a0f1c"
-  panel-navy: "#121b30"
-  chip-navy: "#16223c"
-  engraved-navy: "#070b16"
-  bar-navy: "#050912"
-  tabstrip-navy: "#0c1322"
-  rail-navy: "#0e1626"
+  attention-gold: "#e3ba52"
+  dark-ink: "#16171a"
+  panel-ink: "#23262d"
+  chip-ink: "#252830"
+  engraved-ink: "#191a1e"
+  bar-ink: "#1b1d21"
+  tabstrip-ink: "#202228"
+  rail-ink: "#1e2024"
   alert-red: "#e5303f"
-  live-mint: "#3eb489"
-  accent-blue: "#2f6bff"
+  accent-blue: "#2a62f0"
+  live-blue: "#6f9dff"
   royal-blue: "#1d4ed8"
-  ink-strong: "#f3f3f8"
-  ink: "#d7d7e0"
-  ink-muted: "#9a9aa8"
-  ink-dim: "#6c7690"
-  ink-faint: "#525c78"
-  label-grey: "#7a84a0"
-  seam: "#243356"
-  hairline-soft: "#1e2a4c"
-  hairline-bar: "#283a66"
-  border-strong: "#364a78"
+  ink-strong: "#f2f3f5"
+  ink: "#d7dae0"
+  ink-muted: "#a8adb6"
+  ink-dim: "#848a94"
+  ink-faint: "#6f7580"
+  label-grey: "#949aa4"
+  seam: "#26292f"
+  hairline-soft: "#24272d"
+  hairline-bar: "#26292f"
+  border-strong: "#3a3f48"
   claude-terracotta: "#d97757"
-  flow-slate: "#94a3b8"
+  flow-grey: "#949aa4"
   ochre: "#8a6200"
   ochre-rim: "#c8990a"
   paper-ground: "#f2f1ed"
@@ -76,12 +77,12 @@ rounded:
 components:
   button-primary:
     backgroundColor: "{colors.superade-yellow}"
-    textColor: "{colors.race-navy}"
+    textColor: "{colors.dark-ink}"
     rounded: "{rounded.lg}"
     height: "32px"
     padding: "0 10px"
   button-outline:
-    backgroundColor: "{colors.chip-navy}"
+    backgroundColor: "{colors.chip-ink}"
     textColor: "{colors.ink}"
     rounded: "{rounded.lg}"
     height: "32px"
@@ -97,7 +98,7 @@ components:
     height: "32px"
     padding: "0 10px"
   input:
-    backgroundColor: "{colors.race-navy}"
+    backgroundColor: "{colors.dark-ink}"
     textColor: "{colors.ink}"
     rounded: "{rounded.md}"
     padding: "8px 10px"
@@ -109,7 +110,7 @@ components:
 
 **Creative North Star: "The Podium"**
 
-A stage where the work performs and the operator conducts. Dozens of agents run at once; the interface is the podium the conductor stands on — everything visible at a glance, nothing shouting for attention it hasn't earned. Superade Yellow (#f5c518) is the winner's color: it marks the primary action and the one thing that needs you now, against a deep race-navy chassis. The system is fast, calm, precise, technical — Linear-grade density and instant interactions, with terminal honesty at its core: real PTYs framed by chrome that recedes.
+A stage where the work performs and the operator conducts. Dozens of agents run at once; the interface is the podium the conductor stands on — everything visible at a glance, nothing shouting for attention it hasn't earned. Superade Yellow (#f5c518) is the winner's color: it marks the primary action and the one thing that needs you now, against a neutral dark-ink chassis. The system is fast, calm, precise, technical — Linear-grade density and instant interactions, with terminal honesty at its core: real PTYs framed by chrome that recedes.
 
 This system explicitly rejects the SaaS dashboard cliché (metric-card grids, gradient accents, marketing gloss), the AI-chat startup look (bubbles, sparkles, purple gradients), enterprise DevOps sprawl (cluttered toolbars, inconsistent panels), and Electron-app blandness (a website in a frame). Podium is an instrument, not a website.
 
@@ -122,32 +123,33 @@ This system explicitly rejects the SaaS dashboard cliché (metric-card grids, gr
 
 ## 2. Colors
 
-Team colors: deep navy chassis, Superade Yellow signal, with red and blue as the only other voices. The dark variant is the signature look; the light variant ("Paper", POD-725, replacing POD-372's "Daylight") mirrors its mechanics rather than inverting its hexes — yellow leads in both.
+Team colors: a neutral dark-ink chassis, Superade Yellow signal, with red and blue as the only other voices. The dark variant is the signature look; the light variant ("Paper", POD-725, replacing POD-372's "Daylight") mirrors its mechanics rather than inverting its hexes — yellow leads in both. The dark chassis was a deep race navy through POD-725; POD-737 ("Dark Ink") took the hue out of it, so that a hue on a surface always MEANS something — which is the premise the issue-accent channel rests on.
 
 ### Primary
-- **Superade Yellow** (#f5c518): The brand color. Primary buttons, the active ring, quota warnings, and "waiting on you" attention states in the dark theme. On yellow, ink is always Race Navy — never white.
+- **Superade Yellow** (#f5c518): The brand color. Primary buttons, the active ring, and every yellow FILL — the dots, the spines, the one primary button per region. On yellow, ink is always Dark Ink — never white.
+- **Attention Gold** (#e3ba52): Superade Yellow as *ink*, for the dark variant. Same split Paper makes with ochre, one tier up: yellow fills, gold writes. `--attention` and `--warning` are `color:` in a dozen places (waiting-on-decision, needs-review, dirty-file counts); pure #f5c518 as running text against neutral ink reads as a highlighter smear, and gold measures 9.9:1.
 - **Ochre** (#8a6200): Superade Yellow as *ink*, for the light variant only. Yellow fills; ochre writes — #f5c518 as text is 1.6:1 on paper and must never be assigned to a text token (`--attention` is a `color:` in six places, so in light it takes the ochre). Daylight also gave the yellow fill a 1px ochre rim for silhouette; Paper drops it (`--primary-rim: transparent`) — against warm stone the fill has an edge without one, and the rim only muddied it.
-- **Accent Blue** (#2a62f0) carries info and live in the light variant; **Royal Blue** (#1d4ed8) carries success. Two blues, not one: the mission gauge puts a done band and a running band adjacent in a single meter, so a shared hue would leave the counts inside them as the only difference. Blue does not carry primary: that call was reversed in POD-372 and stands. A blue-primary light theme is indistinguishable from every other tool, and the premise was wrong. The rule was never yellow *text*; it is Race Navy ink on a yellow fill, which measures 11.1:1. Yellow's problem on paper is edge, not contrast.
+- **Accent Blue** (#2a62f0) carries info and live in the light variant; **Royal Blue** (#1d4ed8) carries success. Two blues, not one: the mission gauge puts a done band and a running band adjacent in a single meter, so a shared hue would leave the counts inside them as the only difference. Blue does not carry primary: that call was reversed in POD-372 and stands. A blue-primary light theme is indistinguishable from every other tool, and the premise was wrong. The rule was never yellow *text*; it is dark ink on a yellow fill, which measures 11.1:1. Yellow's problem on paper is edge, not contrast.
 
 ### Secondary
 - **Alert Red** (#e5303f): Destructive actions and alerts only (amended by POD-100/POD-166: live agent activity moved to calm blue). Use sparingly so it stays alarming.
-- **Accent Blue** (#2f6bff): Success, host health, info, quota meters. Superade has no green; blue is the calm "all good." Live agent activity (spinner + timer, working dots) reads a lighter calm blue (#6f9dff) on dark surfaces.
+- **Accent Blue** (#2a62f0): Success, host health, info, quota meters — the settled fill. Superade has no green; blue is the calm "all good." What is MOVING takes the lighter **Live Blue** (#6f9dff): spinner, counting timer, working dots, live rings.
 
 ### Tertiary
 - **Claude Terracotta** (#d97757): Reserved for the Claude brand — agent icons, cursor blocks, ⏺ glyphs. Never an issue color, never a UI accent.
-- **Flow Slate** (#94a3b8): The neutral issue-accent default when an issue has no assigned color; runs the same tint mechanics, quieter.
+- **Flow Grey** (#949aa4 dark / #85817a paper): The neutral issue-accent default when an issue has no assigned color; runs the same tint mechanics, quieter. It must be a TRUE neutral of its own ground — it was Flow Slate (#94a3b8) while the chassis was navy, and a blue-grey default over neutral ink reads as a blue somebody chose. `FLOW_SLATE` in `lib/issueColors.ts` keeps the old hex as a JS-mixer fallback only; call sites use `FLOW_CSS` / `var(--flow)`.
 
 ### Neutral
-- **Race Navy** (#0a0f1c): App background (dark). The whole surface-tier family is navy: Engraved (#070b16, recessed columns), Bar (#050912, section bars), Tabstrip (#0c1322), Rail (#0e1626), Panel (#121b30, cards/sidebar), Chip (#16223c, raised buttons and popovers).
-- **Ink ramp**: Strong (#f3f3f8, selected titles/headers) → Ink (#d7d7e0, body) → Muted (#9a9aa8, secondary) → Dim (#6c7690, timestamps/sub-lines) → Faint (#525c78, micro hints) → Label Grey (#7a84a0, mono section labels). Step down deliberately; never invent an in-between grey.
-- **Seams**: Border (#243356, panel seams), Hairline Soft (#1e2a4c, inner dividers), Hairline Bar (#283a66), Border Strong (#364a78, chip borders, idle composer).
+- **Dark Ink** (#16171a): App background (dark), and the darkest thing in the window. The surface tiers step UP from it, so the frame lifts rather than recedes (as on Paper, inverting the old navy ramp): Engraved (#191a1e, recessed columns and the right dock), Bar (#1b1d21, command bar and status strip), Rail (#1e2024, the icon rail), Tabstrip (#202228), Panel (#23262d, the stage sheet, cards, popovers), Chip (#252830, raised buttons and badges), Secondary (#2c3038, active pills and the raised cell in a well).
+- **Ink ramp**: Strong (#f2f3f5, selected titles/headers) → Ink (#d7dae0, body) → Muted (#a8adb6, secondary) → Label Grey (#949aa4, mono section labels) → Dim (#848a94, timestamps/sub-lines) → Faint (#6f7580, micro hints). 16.5 · 13.1 · 8.1 · 6.5 · 5.3 · 3.9 against the ground. Step down deliberately; never invent an in-between grey.
+- **Seams**: Border / Hairline Bar (#26292f, panel seams and bar edges), Hairline Soft (#24272d, inner dividers and row rules), Border Strong (#3a3f48, chip borders, idle composer).
 
 ### Named Rules
 **The Signal Rule.** Yellow marks the primary action or the thing waiting on you — one voice per screen region. If yellow appears somewhere nothing is asked of the operator, it is wrong.
 
 **The Tint, Never Fill Rule.** Issue colors color-mix into their base surface at prescribed percentages (workspace pane 10–12%, tab strip 18%, selected row 28%, hairlines 30–50%). A flat fill of an issue color is prohibited.
 
-The percentages above are the *dark* values; a hue mixed into a light base saturates about twice as fast, so light themes scale them rather than restating them. Two variables do it globally — `--issue-tint-scale` (0.5% in Daylight, so 28 → 14) and `--issue-line-scale` (0.85%) — consumed by the `issue-mix-*` / `issue-hairline-*` utilities, so no call site carries a per-theme percentage. Hairlines scale *down*, not up: measured against both grounds, a mid-lightness hue reads more strongly on paper than on navy, not less.
+The percentages above are the *dark* values; a hue mixed into a light base saturates about twice as fast, so light themes scale them rather than restating them. Two variables do it globally — `--issue-tint-scale` (0.5% in Daylight, so 28 → 14) and `--issue-line-scale` (0.85%) — consumed by the `issue-mix-*` / `issue-hairline-*` utilities, so no call site carries a per-theme percentage. Hairlines scale *down*, not up: measured against both grounds, a mid-lightness hue reads more strongly on paper than on the dark ground, not less.
 
 **The Reserved Hues Rule.** Terracotta (Claude), the motion colors, and the theme's signal hues are excluded from the issue palette so state and identity never collide.
 
@@ -200,7 +202,7 @@ Refined and restrained: quiet borders, subtle states, nothing decorative. Every 
 
 ### Buttons
 - **Shape:** Gently rounded (6px, `rounded-lg`); 32px tall default, 28px `sm`, 24px `xs`, matching icon-square sizes.
-- **Primary:** Superade Yellow fill, Race Navy text, 500 weight; hover dims to 80% opacity of the fill.
+- **Primary:** Superade Yellow fill, Dark Ink text, 500 weight; hover dims to 80% opacity of the fill.
 - **Hover / Focus:** All variants transition ~150ms; focus is a 3px ring at 50% ring color with a solid ring-colored border; active presses down 1px (`translate-y-px`).
 - **Outline / Secondary / Ghost:** Outline uses the input border over a translucent chip fill; secondary mixes 5% foreground into its surface on hover; ghost only gains a muted wash. Destructive is a 10–20% red tint with red text — never a solid red slab.
 
@@ -210,9 +212,9 @@ Refined and restrained: quiet borders, subtle states, nothing decorative. Every 
 
 ### Cards / Containers
 - **Corner Style:** Tray cards 10px; rows and ID squares 7px; the composer field 9px.
-- **Background:** Panel Navy on the chassis; Chip Navy when raised (popovers, chip buttons).
+- **Background:** Panel on the chassis; Chip when raised (popovers, chip buttons).
 - **Shadow Strategy:** None at rest (see The Carved Rule); engraved when recessed.
-- **Border:** 1px seam (#243356); Border Strong for chip borders and the idle composer.
+- **Border:** 1px seam (#26292f); Border Strong for chip borders and the idle composer.
 - **Internal Padding:** Tight 4px grid — rows pad 10–14px horizontally, sections gap 10–12px.
 
 ### Inputs / Fields
@@ -234,14 +236,14 @@ Refined and restrained: quiet borders, subtle states, nothing decorative. Every 
 mark │ mode tabs │ ─ │ mode-contextual slot │ ⇠gap⇢ │ instrument well │ ─ │ utilities
 ```
 
-1. **Mode tabs.** One per tool (Work, Tasks, Workflows, Specs, Automations): a 13px glyph plus an 11.5px label in a 26px cell, all cells inside **one 30px well** (see The Wells). The ACTIVE cell is the well's raised one — Chip Navy at 85%, lit along its top edge, Strong ink; the rest are bare at Dim ink. **No yellow anywhere in the switcher:** the well already answers "you are here", and a permanently-lit brand hairline in the chrome is the exact spend The Signal Rule guards. A count that is genuinely waiting on you (Tasks' proposals) keeps Attention ink, as bare tabular digits — never a filled badge, which is a consumer notification and has no home in this system.
+1. **Mode tabs.** One per tool (Work, Tasks, Workflows, Specs, Automations): a 13px glyph plus an 11.5px label in a 26px cell, all cells inside **one 30px well** (see The Wells). The ACTIVE cell is the well's raised one — Secondary at 85%, lit along its top edge, Strong ink; the rest are bare at Dim ink. **No yellow anywhere in the switcher:** the well already answers "you are here", and a permanently-lit brand hairline in the chrome is the exact spend The Signal Rule guards. A count that is genuinely waiting on you (Tasks' proposals) keeps Attention ink, as bare tabular digits — never a filled badge, which is a consumer notification and has no home in this system.
 2. **The dynamic centre** (`ToolbarSlot`). Belongs to the active mode, filled by portal from the view that owns the state. **A control earns it only when its scope is the whole mode AND no column already owns it.** Work renders nothing here — starting an agent belongs to the sidebar's spawn row, adding a session to the tab strip's `+`, splitting to the glyph beside it, and branch state to `GitStamp`'s four densities — and an empty centre is evidence the workspace is well organised, not an omission. Tasks fills it with search / Flatten / Filter / Display / New Task, which is why it no longer needs bars of its own.
 3. **The instrument well.** Host and quota in ONE well divided by hairlines, never loose readouts on the bar: one object with internal structure reads as an instrument, five evenly-spaced numbers read as a website's account row. Always visible, in every mode.
 4. **Utilities.** Usage and Settings as 28px icon cells at the far right, after a hairline, followed by the native window controls on Windows/Linux. The only bare cells on the bar — everything else belongs to a well or the slot.
 
 **Surface:** `--bar`, the darkest tier — one step below the panels beneath it, so every column reads as carved INTO the chassis. **Rhythm:** one 10px gap between every zone, seams 18px tall centred in it; containers are 30px, loose controls 28px, cells inside a container 26px. Three heights, one gap — a bar whose spacings all differ reads as assembled rather than composed.
 
-**The Wells (signature).** Modes on the left and instruments on the right are the same object: 30px, 8px radius, 2px inset, carved into the bar. It is the WELL that stops a row of glyphs reading as hyperlinks — not a container drawn around the selected one, which just makes the selection look like a button. Because `--bar` is already near-black, a groove cannot be a darker tone: its floor sits a hair ABOVE the bar (Chip Navy at 30%) and the recess comes from the edges — a dark lip along the top, a lit one along the bottom. The raised cell inside inverts exactly that bevel. Never ring a well all the way round; an outline around a group is one big button.
+**The Wells (signature).** Modes on the left and instruments on the right are the same object: 30px, 8px radius, 2px inset, carved into the bar. It is the WELL that stops a row of glyphs reading as hyperlinks — not a container drawn around the selected one, which just makes the selection look like a button. The floor sits a hair BELOW its bar on both grounds (black at 17% on ink, the theme ink at 4.5% on paper) and the recess is sharpened by the edges — a dark lip along the top, a lit one along the bottom. It used to sit ABOVE on dark, because the navy bar was itself the darkest thing in the window and a groove had nothing left to darken into; POD-737 lifted the bar off the ground, so the groove now goes where a groove goes. The raised cell inside inverts exactly that bevel. Never ring a well all the way round; an outline around a group is one big button.
 
 **Narrow behaviour:** the bar gives up words before it gives up data, and data before controls. In order: tool labels at 1180px and the QUOTA group label with them; the hostname at 1100px; the numbers on *quiet* pools at 1024px; mode labels and the MEM mark at 940px, tooltips carrying the names. A number that crossed a threshold is never shed, and no control is ever removed. Nothing is ever clipped — the well truncates the hostname, not the percentages.
 
@@ -284,6 +286,6 @@ The braille spinner (10-frame CSS `content` animation) plus a counting mono time
 - **Don't** drift toward the AI-chat startup look: bubbly chat-first layouts, sparkle icons, purple gradients, mascot energy.
 - **Don't** ship enterprise-DevOps-console sprawl: cluttered toolbars, inconsistent panels, Jenkins/Grafana utilitarianism.
 - **Don't** let it feel like Electron-app blandness — a website in a frame; the shell is an instrument with native manners (real pointer cursors, no text selection on chrome, safe-area aware).
-- **Don't** flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is navy, yellow, red, blue.
+- **Don't** flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is neutral ink, yellow, red, blue.
 - **Don't** add perpetual motion that is not gated on the working spinner's own predicate; stillness is the "needs you" signal and must stay legible.
-- **Don't** use white text on Superade Yellow — ink on yellow is always Race Navy.
+- **Don't** use white text on Superade Yellow — ink on yellow is always Dark Ink.

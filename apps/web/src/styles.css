@@ -122,10 +122,11 @@ body {
 }
 /* THE COMMAND BAR (POD-365, remeasured POD-725) — 48px, four zones over
    independently folding columns: mode tabs │ mode-contextual slot │ instrument │
-   utilities. Its surface is --bar, the frame tier: on navy that is the DARKEST
-   tone in the window and the columns read as carved into the chassis; on paper
-   the ordering inverts and the bar sits just ABOVE the ground, because chrome
-   nearest the light is what a paper UI lifts. Same token, both readings. */
+   utilities. Its surface is --bar, the frame tier, and BOTH grounds now lift it
+   just above their own: #1b1d21 over the ink theme's #16171a, #f7f7f5 over
+   paper's #f2f1ed. (It was the darkest tone in the window while the dark theme
+   was navy, and the columns read as carved into the chassis; Dark Ink inverted
+   that ramp, POD-737.) Same token, one reading. */
 .desktop-topbar {
   display: flex;
   flex: 0 0 var(--topbar-h);
@@ -173,9 +174,10 @@ body {
      same bevel, so the two edges tell you which way each surface faces. (A ring
      all the way round is an outline, and an outline around a row of glyphs is
      one big button.) Which way the FLOOR goes is per-ground and lives in the
-     --well-* tokens: above the bar on navy, where a groove catches ambient light
-     a near-black wash could not show; below it on paper, where there is no
-     ambient left to catch. */
+     --well-* tokens: below the bar on both grounds now that the bar is lifted
+     off the deepest tier in each (POD-737) — it sat ABOVE on the old navy
+     chassis, where a groove had to catch ambient light a near-black wash could
+     not show. */
   background: var(--well-floor);
   box-shadow:
     inset 0 1px 1px var(--well-lip),
@@ -5768,7 +5770,8 @@ a.ref-link--session::before {
    the command bar's WELL and uses it as a field:
 
      · it is grooved into the pane's own ground (the --well-* tokens carry the
-       per-ground recipe — floor a hair ABOVE on navy, a hair BELOW on paper);
+       per-ground recipe — a floor a hair BELOW its ground on both, since
+       POD-737 lifted the dark frame off the deepest tier);
      · it is inset from all four edges instead of welded to the bottom by a
        full-width seam, so it reads as an object ON the pane, not as its base;
      · the thread DISSOLVES into the ground above it (::before) rather than

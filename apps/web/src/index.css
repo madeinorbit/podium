@@ -560,64 +560,96 @@
   --issue-line-scale: 0.8%;
 }
 
-/* ── Superade preset — dark (from the "Podium Superman" design mock: deep navy,
-      Superman yellow #f5c518 primary, red #e5303f alerts) ─────────────────────────── */
+/* ── Superade preset — dark ("Dark Ink") [POD-737] ────────────────────────────────
+   The dark theme is neutral ink, not navy. It was deep navy (#0a0f1c ground,
+   #121b30 card) because the first Superade mock painted the chrome in the brand's
+   blue; the Dark Ink mock drops the hue from the neutrals entirely and keeps the
+   blue for what MOVES. Three rules:
+
+   1. NEUTRAL, NOT NAVY. Every surface and every line is a cool-neutral ink
+      (chroma ≤ 10 across the ramp). A tinted ground competes with the issue-accent
+      channel — the whole point of that channel is that a hue on a surface MEANS
+      something, and navy chrome meant nothing while looking like it did.
+   2. THE FRAME LIFTS. The tier order inverts the old navy ramp, the same way
+      Paper's does: background #16171a is the darkest thing in the window and the
+      stage sheet #23262d the brightest, with the title bar and status strip
+      raised just above the ground (#1b1d21). Wells therefore cut DOWNWARD now —
+      the --well-* block below flips with them.
+      background 16171a · sidebar/dock 191a1e · bar 1b1d21 · rail/muted 1e2024 ·
+      tabstrip 202228 · card 23262d · chip 252830 · secondary 2c3038.
+   3. YELLOW FILLS, GOLD WRITES. Same split Paper makes, one tier up: #f5c518
+      stays the fill (buttons, dots, spines) and #e3ba52 — the mock's own value —
+      does every attention/warning `color:`. Pure yellow as running text at this
+      size reads as a highlighter smear against neutral ink.
+
+   Blue keeps its two jobs from the mock: #6f9dff is what is MOVING (spinners,
+   live rings, meters) and #2a62f0 the settled fill behind them. Still no green;
+   red stays reserved for alerts and destructive. */
 [data-theme="superade"].dark {
   --radius: 0.375rem;
-  --background: #0a0f1c;
-  --foreground: #d7d7e0;
-  --card: #121b30;
-  --card-foreground: #d7d7e0;
-  --popover: #121b30;
-  --popover-foreground: #d7d7e0;
+  --background: #16171a;
+  --foreground: #d7dae0;
+  --card: #23262d;
+  --card-foreground: #d7dae0;
+  --popover: #23262d;
+  --popover-foreground: #d7dae0;
   --primary: #f5c518;
-  --primary-foreground: #0a0f1c;
-  --secondary: #223564;
-  --secondary-foreground: #f3f3f8;
-  --muted: #17223c;
-  --muted-foreground: #9a9aa8;
-  --accent: #1c2a4e;
-  --accent-foreground: #f3f3f8;
+  --primary-foreground: #16171a;
+  --secondary: #2c3038;
+  --secondary-foreground: #f2f3f5;
+  --muted: #1e2024;
+  --muted-foreground: #a8adb6;
+  --accent: #2a2d33;
+  --accent-foreground: #f2f3f5;
   --destructive: #e5303f;
-  --border: #243356;
-  --input: #364a78;
+  --border: #26292f;
+  --input: #2a2d33;
   --ring: #f5c518;
-  /* The Superman mock has no green at all: host-health dots and quota meters
-     render in its blue (#2f6bff). Live agent activity reads calm blue too
-     (POD-166 R10) — red stays reserved for alerts/destructive. */
-  --success: #2f6bff;
-  --warning: #f5c518;
+  /* No green: host-health dots and quota meters render in the mock's blue.
+     Live agent activity reads calm blue too (POD-166 R10). */
+  --success: #2a62f0;
+  --warning: #e3ba52;
   --live: #6f9dff;
-  --info: #2f6bff;
-  --sidebar: #0f1626;
-  --sidebar-foreground: #d7d7e0;
+  --info: #2a62f0;
+  --sidebar: #191a1e;
+  --sidebar-foreground: #d7dae0;
   --sidebar-primary: #f5c518;
-  --sidebar-primary-foreground: #0a0f1c;
-  --sidebar-accent: #223564;
-  --sidebar-accent-foreground: #f3f3f8;
-  --sidebar-border: #1e2a4c;
+  --sidebar-primary-foreground: #16171a;
+  --sidebar-accent: #2c3038;
+  --sidebar-accent-foreground: #f2f3f5;
+  --sidebar-border: #24272d;
   --sidebar-ring: #f5c518;
 
-  /* Redesign tokens — derived navy equivalents (non-breaking). */
-  --engraved: #070b16;
-  --bar: #050912;
-  --tabstrip: #0c1322;
-  --rail: #0e1626;
-  --chip: #16223c;
-  --hairline-soft: #1e2a4c;
-  --hairline-bar: #283a66;
-  --border-strong: #364a78;
-  --text-strong: #f3f3f8;
-  /* Shell-secondary text must remain readable on the #0a0f1c ground. The old
-     faint token was 2.88:1 and made ordinary metadata look disabled. */
-  --text-dim: #818ba5;
-  --text-faint: #737e9a;
-  --label: #8b94ac;
-  --attention: #f5c518;
+  /* Surface tiers — the mock's own values (rule 2). The right dock takes the
+     same tone as the work list (both are #191a1e in the mock) and the icon rail,
+     furthest from the work, steps up to the chip tier rather than down. */
+  --engraved: #191a1e;
+  --bar: #1b1d21;
+  --tabstrip: #202228;
+  --rail: #1e2024;
+  --chip: #252830;
+
+  /* The seams, three visible steps: row rules → panel/bar seams → chip rims. */
+  --hairline-soft: #24272d;
+  --hairline-bar: #26292f;
+  --border-strong: #3a3f48;
+
+  /* The text ramp. Ratios vs --background: 16.5 · 13.1 · 8.1 · 6.5 · 5.3 · 3.9.
+     Shell-secondary text must remain readable on the #16171a ground — the tier
+     under --label is where metadata lives, so it holds above 5:1 and only the
+     faint tier (timestamps, micro-hints) drops to the mock's #6f7580. */
+  --text-strong: #f2f3f5;
+  --text-dim: #848a94;
+  --text-faint: #6f7580;
+  --label: #949aa4;
+  /* Gold writes (9.9:1); --primary above keeps the fill (rule 3). */
+  --attention: #e3ba52;
   --attention-foreground: #161006;
   --claude: #d97757;
-  --flow: #94a3b8;
-  --flow-foreground: #141a24;
+  /* The no-colour flow is a true neutral, not slate: a blue-grey default tint
+     over neutral ink reads as an issue colour nobody chose. */
+  --flow: #949aa4;
+  --flow-foreground: #16171a;
 
   /* Restore the dark-ground values for everything the light block above
      introduces — `[data-theme="superade"]` matches this element too, so an
@@ -628,11 +660,23 @@
   --carve-drop: rgb(0 0 0 / 0.9);
   --carve-popover-far: rgb(0 0 0 / 0.65);
   --carve-popover-near: rgb(0 0 0 / 0.5);
-  --well-floor: color-mix(in srgb, var(--secondary) 30%, transparent);
-  --well-lip: rgb(0 0 0 / 0.75);
-  --well-rim: rgb(0 0 0 / 0.35);
+  /* The wells cut DOWNWARD now (rule 2). On navy the frame was the darkest thing
+     in the window, so a groove had to sit ABOVE its bar to show at all; with the
+     bar lifted to #1b1d21 the floor can go where a groove actually goes — the
+     mock's instrument well is #16171a in a #1b1d21 bar, which is this black at
+     17%, and its rim is a LIGHT hairline (#26292f) rather than a black one. The
+     lip and the lit edge keep the bevel: dark along the top, light along the
+     bottom, inverted again by the raised cell. Literal rgb() rather than
+     color-mix on a token — Lightning CSS emits a no-color-mix fallback that
+     collapses an alpha mix to the OPAQUE colour, which would paint the groove as
+     a solid slab. */
+  --well-floor: rgb(0 0 0 / 0.17);
+  --well-lip: rgb(0 0 0 / 0.5);
+  --well-rim: rgb(255 255 255 / 0.06);
   --well-lit: rgb(255 255 255 / 0.05);
   --well-hover: rgb(255 255 255 / 0.045);
+  /* ≈ #292c34 over the floor — the mock's raised cell (#2c3038), reached as a
+     mix so the cell tracks --secondary wherever the well is used. */
   --well-cell: color-mix(in srgb, var(--secondary) 85%, transparent);
   --well-cell-lit: rgb(255 255 255 / 0.07);
   --well-cell-lip: rgb(0 0 0 / 0.35);

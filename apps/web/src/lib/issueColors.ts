@@ -73,16 +73,20 @@ export function issueSquareFg(hex: string): string {
 }
 
 /** The neutral no-colour flow, as a literal hex — for JS colour MATH only
- *  (mixHex and friends, which cannot resolve a custom property). Equal to the
- *  --flow token in every DARK preset; the light presets each carry their own,
- *  and the Paper light theme's is a warm taupe rather than this slate, because
- *  a blue-grey flow over warm stone is what makes that palette look broken. */
+ *  (mixHex and friends, which cannot resolve a custom property). It is the
+ *  --flow token of the podium/shadcn dark presets; each Superade variant now
+ *  carries its own, because a flow that reads as "no colour chosen" has to
+ *  match its ground — a warm taupe on Paper's stone (a blue-grey there is what
+ *  makes that palette look broken) and a true grey on Dark Ink's neutral, where
+ *  this slate would read as a blue somebody picked. Every CALL SITE should use
+ *  FLOW_CSS below; this hex is the last-resort value for a JS mixer, and the
+ *  one place it survives (terminal appearance) mixes it at 9%. */
 export const FLOW_SLATE = '#94a3b8'
 
 /** The same flow, as a CSS <color> that follows the active theme. Use this
  *  ANYWHERE the value lands in CSS — a `style` value, a color-mix() string, a
  *  custom-property assignment — so the no-colour flow stays warm on paper and
- *  slate on navy. Only fall back to FLOW_SLATE when the value must be a real
+ *  neutral on ink. Only fall back to FLOW_SLATE when the value must be a real
  *  hex a JS mixer can read. */
 export const FLOW_CSS = 'var(--flow)'
 

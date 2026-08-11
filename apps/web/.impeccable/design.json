@@ -7,10 +7,10 @@
       "superade-yellow": { "role": "primary", "displayName": "Superade Yellow", "canonical": "#f5c518", "tonalRamp": ["#332902", "#5c4a05", "#8a6f08", "#b8940c", "#e0b512", "#f5c518", "#f9d95e", "#fdf0b8"] },
       "royal-blue": { "role": "primary", "displayName": "Royal Blue (light variant lead)", "canonical": "#1d4ed8", "tonalRamp": ["#0a1440", "#122566", "#183a9e", "#1d4ed8", "#3b6ae6", "#6b8ff0", "#a3bcf7", "#d8e2fc"] },
       "alert-red": { "role": "secondary", "displayName": "Alert Red", "canonical": "#e5303f", "tonalRamp": ["#3a0a0e", "#661218", "#9e1c26", "#cc2734", "#e5303f", "#ee6470", "#f5a0a8", "#fbd6da"] },
-      "accent-blue": { "role": "secondary", "displayName": "Accent Blue", "canonical": "#2f6bff", "tonalRamp": ["#0a1840", "#122a66", "#1c439e", "#2657cc", "#2f6bff", "#638fff", "#9cb8ff", "#d3e0ff"] },
-      "race-navy": { "role": "neutral", "displayName": "Race Navy", "canonical": "#0a0f1c", "tonalRamp": ["#050912", "#0a0f1c", "#121b30", "#1c2a4c", "#2c3e66", "#4a5c86", "#7c8aa8", "#c2c9d9"] },
+      "accent-blue": { "role": "secondary", "displayName": "Accent Blue", "canonical": "#2a62f0", "tonalRamp": ["#0a1840", "#122a66", "#1c439e", "#2657cc", "#2a62f0", "#6f9dff", "#9cb8ff", "#d3e0ff"] },
+      "dark-ink": { "role": "neutral", "displayName": "Dark Ink", "canonical": "#16171a", "tonalRamp": ["#16171a", "#191a1e", "#1b1d21", "#202228", "#23262d", "#2c3038", "#3a3f48", "#6f7580"] },
       "claude-terracotta": { "role": "tertiary", "displayName": "Claude Terracotta (reserved)", "canonical": "#d97757", "tonalRamp": ["#36160c", "#5e2817", "#8c3f26", "#b45a3a", "#d97757", "#e39a82", "#eec0b0", "#f8e2da"] },
-      "flow-slate": { "role": "tertiary", "displayName": "Flow Slate", "canonical": "#94a3b8", "tonalRamp": ["#1a2028", "#2e3844", "#475466", "#64748b", "#7c8ba0", "#94a3b8", "#b8c2d0", "#dde2e9"] }
+      "flow-grey": { "role": "tertiary", "displayName": "Flow Grey", "canonical": "#949aa4", "tonalRamp": ["#1e2024", "#2c3038", "#3a3f48", "#575d67", "#6f7580", "#848a94", "#949aa4", "#d7dae0"] }
     },
     "typographyMeta": {
       "headline": { "displayName": "Headline", "purpose": "Section headers, strong ink." },
@@ -37,17 +37,17 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Superade Yellow signal action; navy ink, presses down 1px.",
+      "description": "Superade Yellow signal action; dark ink, presses down 1px.",
       "html": "<button class=\"ds-btn-primary\">Start agent</button>",
-      "css": ".ds-btn-primary { background: #f5c518; color: #0a0f1c; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms, transform 150ms; } .ds-btn-primary:hover { background: rgba(245,197,24,0.8); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: none; border-color: #f5c518; box-shadow: 0 0 0 3px rgba(245,197,24,0.5); }"
+      "css": ".ds-btn-primary { background: #f5c518; color: #16171a; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms, transform 150ms; } .ds-btn-primary:hover { background: rgba(245,197,24,0.8); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: none; border-color: #f5c518; box-shadow: 0 0 0 3px rgba(245,197,24,0.5); }"
     },
     {
       "name": "Outline Button",
       "kind": "button",
       "refersTo": "button-outline",
-      "description": "Neutral action chip on the navy chassis.",
+      "description": "Neutral action chip on the dark-ink chassis.",
       "html": "<button class=\"ds-btn-outline\">Open board</button>",
-      "css": ".ds-btn-outline { background: rgba(54,74,120,0.3); color: #d7d7e0; height: 32px; padding: 0 10px; border: 1px solid #364a78; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms; } .ds-btn-outline:hover { background: rgba(54,74,120,0.5); color: #f3f3f8; } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(245,197,24,0.35); }"
+      "css": ".ds-btn-outline { background: #252830; color: #d7dae0; height: 32px; padding: 0 10px; border: 1px solid #3a3f48; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms; } .ds-btn-outline:hover { background: #2c3038; color: #f2f3f5; } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(245,197,24,0.35); }"
     },
     {
       "name": "Ghost Button",
@@ -55,7 +55,7 @@
       "refersTo": "button-ghost",
       "description": "Chrome-level quiet action; gains only a muted wash.",
       "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
-      "css": ".ds-btn-ghost { background: transparent; color: #9a9aa8; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms, color 150ms; } .ds-btn-ghost:hover { background: #16223c; color: #f3f3f8; } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(245,197,24,0.35); }"
+      "css": ".ds-btn-ghost { background: transparent; color: #a8adb6; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms, color 150ms; } .ds-btn-ghost:hover { background: #252830; color: #f2f3f5; } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(245,197,24,0.35); }"
     },
     {
       "name": "Destructive Button",
@@ -71,7 +71,7 @@
       "refersTo": "input",
       "description": "Compact field on the app background; ring focus, no glow.",
       "html": "<input class=\"ds-input\" placeholder=\"Search issues…\" />",
-      "css": ".ds-input { width: 100%; background: #0a0f1c; color: #d7d7e0; padding: 8px 10px; border: 1px solid #364a78; border-radius: 4.8px; font: 400 14px/1.4 'Geist Variable', sans-serif; transition: box-shadow 150ms; } .ds-input::placeholder { color: #6c7690; } .ds-input:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(245,197,24,0.4); }"
+      "css": ".ds-input { width: 100%; background: #16171a; color: #d7dae0; padding: 8px 10px; border: 1px solid #3a3f48; border-radius: 4.8px; font: 400 14px/1.4 'Geist Variable', sans-serif; transition: box-shadow 150ms; } .ds-input::placeholder { color: #6f7580; } .ds-input:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(245,197,24,0.4); }"
     },
     {
       "name": "Mono Section Label",
@@ -87,12 +87,12 @@
       "refersTo": "input",
       "description": "Header chip: dim mono-adjacent text plus a 34x3.5px meter.",
       "html": "<span class=\"ds-quota-chip\">claude <span class=\"ds-meter\"><span class=\"ds-meter-fill\"></span></span></span>",
-      "css": ".ds-quota-chip { display: inline-flex; align-items: center; gap: 6px; color: #6c7690; font: 400 10.5px/1 'Geist Variable', sans-serif; white-space: nowrap; } .ds-meter { display: inline-block; width: 34px; height: 3.5px; border-radius: 2px; background: #223564; overflow: hidden; } .ds-meter-fill { display: block; width: 60%; height: 100%; background: #2f6bff; }"
+      "css": ".ds-quota-chip { display: inline-flex; align-items: center; gap: 6px; color: #6f7580; font: 400 10.5px/1 'Geist Variable', sans-serif; white-space: nowrap; } .ds-meter { display: inline-block; width: 34px; height: 3.5px; border-radius: 2px; background: #3a3f48; overflow: hidden; } .ds-meter-fill { display: block; width: 60%; height: 100%; background: #6f9dff; }"
     }
   ],
   "narrative": {
     "northStar": "The Podium",
-    "overview": "A stage where the work performs and the operator conducts. Dozens of agents run at once; the interface is the podium the conductor stands on — everything visible at a glance, nothing shouting for attention it hasn't earned. Superade Yellow is the winner's color: it marks the primary action and the one thing that needs you now, against a deep race-navy chassis. Fast, calm, precise, technical — Linear-grade density and instant interactions, with terminal honesty at its core.",
+    "overview": "A stage where the work performs and the operator conducts. Dozens of agents run at once; the interface is the podium the conductor stands on — everything visible at a glance, nothing shouting for attention it hasn't earned. Superade Yellow is the winner's color: it marks the primary action and the one thing that needs you now, against a neutral dark-ink chassis. Fast, calm, precise, technical — Linear-grade density and instant interactions, with terminal honesty at its core.",
     "keyCharacteristics": [
       "Compact 12px-base type scale; density is a feature, not a compromise",
       "One brand yellow used as signal, never as decoration",
@@ -120,9 +120,9 @@
       "Don't drift toward the AI-chat startup look: bubbly chat-first layouts, sparkle icons, purple gradients, mascot energy.",
       "Don't ship enterprise-DevOps-console sprawl: cluttered toolbars, inconsistent panels, Jenkins/Grafana utilitarianism.",
       "Don't let it feel like Electron-app blandness — a website in a frame; the shell is an instrument with native manners.",
-      "Don't flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is navy, yellow, red, blue.",
+      "Don't flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is neutral ink, yellow, red, blue.",
       "Don't add perpetual motion beyond the working spinner and timer; stillness is the 'needs you' signal and must stay legible.",
-      "Don't use white text on Superade Yellow — ink on yellow is always Race Navy."
+      "Don't use white text on Superade Yellow — ink on yellow is always Dark Ink."
     ]
   }
 }
