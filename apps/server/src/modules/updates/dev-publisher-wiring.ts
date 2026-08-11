@@ -124,8 +124,21 @@ export function wireDevBundlePublisher(deps: {
       void publisher
         .requestBuild(explicit)
         .then(() => publishTarget())
-        .catch((error) => {
-          console.warn('[podium] development bundle build failed:', error)
+        .catch((error: unknown) => {
+          // A refused build is a normal state on a working checkout (`/version`
+          // asks on every read), so log each distinct reason once rather than
+          // once per request.
+          //
+          // PRIVATE, and only that: this reason reaches the server's console
+          // and nothing else. No client, and no /version response, can see that
+          // a build was refused or why. A public building/failed readiness
+          // state is real work and belongs with the epic's update-status
+          // surface (POD-1883), not smuggled in behind a log line.
+          const diagnostic =
+            publisher.unavailable() ?? (error instanceof Error ? error.message : String(error))
+          if (diagnostic === unavailableDiagnostic) return
+          unavailableDiagnostic = diagnostic
+          console.warn('[podium] development bundle unavailable:', diagnostic)
         })
     },
     registerRoute: (app) => {

@@ -2,6 +2,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
   buildDevBundle,
+  classifySourceIdentity,
   createDevBundlePublisher,
   type DevBundleLock,
   decideDevBuild,
@@ -81,6 +82,84 @@ describe('decideDevBuild', () => {
       build: false,
       reason: 'not-a-source-run',
     })
+  })
+})
+
+/** `git status --porcelain=v1 -z` output: NUL-terminated, never quoted. */
+function nul(...fields: string[]): string {
+  return fields.map((field) => field + '\0').join('')
+}
+
+describe('classifySourceIdentity', () => {
+  it('accepts a checkout that is exactly HEAD', () => {
+    expect(classifySourceIdentity('')).toEqual({ clean: true, offending: [] })
+  })
+
+  it('rejects modified, staged, deleted and renamed tracked source', () => {
+    // A rename is `XY <destination>` followed by `<source>` as its own field.
+    const porcelain = nul(
+      ' M apps/server/src/server.ts',
+      'M  packages/protocol/src/index.ts',
+      ' D apps/cli/src/gone.ts',
+      'R  apps/cli/src/new.ts',
+      'apps/cli/src/old.ts',
+    )
+    expect(classifySourceIdentity(porcelain)).toEqual({
+      clean: false,
+      offending: [
+        'apps/server/src/server.ts',
+        'packages/protocol/src/index.ts',
+        'apps/cli/src/gone.ts',
+        'apps/cli/src/new.ts',
+        'apps/cli/src/old.ts',
+      ],
+    })
+  })
+
+  it('reports both ends of a rename, so an allowed destination cannot hide it', () => {
+    // Renaming source INTO dist-bun still removes it from where HEAD has it.
+    expect(
+      classifySourceIdentity(nul('R  dist-bun/old.ts', 'apps/cli/src/old.ts')).offending,
+    ).toEqual(['apps/cli/src/old.ts'])
+  })
+
+  it('reports only the destination of a copy, whose source is unchanged', () => {
+    expect(
+      classifySourceIdentity(nul('C  apps/cli/src/copy.ts', 'apps/cli/src/keep.ts')).offending,
+    ).toEqual(['apps/cli/src/copy.ts'])
+  })
+
+  it('rejects untracked source, which bun build would compile in', () => {
+    expect(classifySourceIdentity(nul('?? apps/server/src/modules/updates/scratch.ts'))).toEqual({
+      clean: false,
+      offending: ['apps/server/src/modules/updates/scratch.ts'],
+    })
+  })
+
+  it('allows the build to write its own dist-bun outputs', () => {
+    const porcelain = nul(
+      '?? dist-bun/podium-headless-dev+aaaaaaa.tar.gz',
+      '?? dist-bun/podium-headless-dev+aaaaaaa.tar.gz.sig',
+    )
+    expect(classifySourceIdentity(porcelain)).toEqual({ clean: true, offending: [] })
+  })
+
+  it('takes paths raw, with no quoting or escaping to undo', () => {
+    // The newline format would render these quoted and C-escaped.
+    expect(
+      classifySourceIdentity(nul('?? apps/web/a b.ts', '?? apps/web/tab\ta.ts')).offending,
+    ).toEqual(['apps/web/a b.ts', 'apps/web/tab\ta.ts'])
+  })
+
+  it('is not fooled by a path containing the newline format rename delimiter', () => {
+    // ` -> ` is a legal substring of a filename. With `-z` there is nothing to
+    // split on, so neither of these can be mistaken for the other shape.
+    expect(classifySourceIdentity(nul('?? apps/web/a -> b.ts')).offending).toEqual([
+      'apps/web/a -> b.ts',
+    ])
+    expect(
+      classifySourceIdentity(nul('R  apps/web/x -> y.ts', 'apps/web/old -> name.ts')).offending,
+    ).toEqual(['apps/web/x -> y.ts', 'apps/web/old -> name.ts'])
   })
 })
 
@@ -233,6 +312,7 @@ describe('buildDevBundle', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       isSourceRun: true,
+      readSourceStatus: () => '',
       root: '/repo/podium',
       headSha: () => 'aaaaaaa',
       signingKey,
@@ -267,6 +347,7 @@ describe('buildDevBundle', () => {
     const events: string[] = []
     const publisher = createDevBundlePublisher({
       isSourceRun: true,
+      readSourceStatus: () => '',
       headSha: () => head,
       lock: lockFixture(events),
       now: () => 100_000,
@@ -285,6 +366,75 @@ describe('buildDevBundle', () => {
     expect(publisher.current()?.version).toBe('dev+aaaaaaa')
   })
 
+  it('refuses to build or restore anything from a dirty checkout', async () => {
+    const { bytes, signature, signingKey } = signedFixture()
+    let builds = 0
+    let reads = 0
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      root: '/repo/podium',
+      headSha: () => 'aaaaaaa',
+      signingKey,
+      readSourceStatus: () => nul(' M apps/server/src/server.ts', '?? dist-bun/keep.tar.gz'),
+      readFile: async () => {
+        reads++
+        return bytes
+      },
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        builds++
+        return { bytes, signature }
+      },
+    })
+
+    await expect(publisher.requestBuild(true)).rejects.toThrow(
+      /does not match HEAD \(aaaaaaa\).*apps\/server\/src\/server\.ts/s,
+    )
+    // Neither compiled, nor republished an artifact left over from that sha.
+    expect(builds).toBe(0)
+    expect(reads).toBe(0)
+    expect(publisher.current()).toBeNull()
+    expect(publisher.target()).toBeUndefined()
+    expect(publisher.unavailable()).toContain('apps/server/src/server.ts')
+  })
+
+  it('refuses when the checkout cannot be verified at all', async () => {
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      headSha: () => 'aaaaaaa',
+      readSourceStatus: () => {
+        throw new Error('not a git repository')
+      },
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        throw new Error('should not build')
+      },
+    })
+
+    await expect(publisher.requestBuild(true)).rejects.toThrow(
+      /could not verify the source checkout.*not a git repository/s,
+    )
+  })
+
+  it('clears the diagnostic once the checkout is clean again', async () => {
+    const { bytes, signature } = signedFixture()
+    let porcelain = nul(' M apps/server/src/server.ts')
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      headSha: () => 'aaaaaaa',
+      readSourceStatus: () => porcelain,
+      lock: lockFixture([]),
+      spawnBuild: async ({ version }) => ({ path: '/stage/' + version, bytes, signature }),
+    })
+
+    await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
+    porcelain = ''
+    await publisher.requestBuild(true)
+
+    expect(publisher.current()?.version).toBe('dev+aaaaaaa')
+    expect(publisher.unavailable()).toBeUndefined()
+  })
+
   it('coalesces concurrent explicit requests into one build', async () => {
     const { bytes, signature } = signedFixture()
     let resolveBuild!: () => void
@@ -295,6 +445,7 @@ describe('buildDevBundle', () => {
     const publisher = createDevBundlePublisher({
       isSourceRun: true,
       headSha: () => 'aaaaaaa',
+      readSourceStatus: () => '',
       lock: lockFixture([]),
       spawnBuild: async ({ version }) => {
         builds++
@@ -306,7 +457,7 @@ describe('buildDevBundle', () => {
     const first = publisher.requestBuild(true)
     const second = publisher.requestBuild(true)
     expect(second).toBe(first)
-    await Promise.resolve()
+    await new Promise((resolve) => setImmediate(resolve))
     expect(builds).toBe(1)
     resolveBuild()
     await first

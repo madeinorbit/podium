@@ -53,6 +53,123 @@ export function decideDevBuild(ctx: DevBuildDecisionContext): BuildDecision {
   return { build: true }
 }
 
+/**
+ * SOURCE IDENTITY.
+ *
+ * A development bundle is published as `dev+<sha>`, and every consumer — the
+ * daemon that downloads it, the operator reading /version — takes that string
+ * to mean "this was compiled from that commit". `scripts/build-bun.ts` compiles
+ * the LIVE working tree, so an edited checkout would ship code that is not that
+ * commit under a name that claims it is.
+ *
+ * This establishes SOURCE identity, not build reproducibility: two builds of
+ * the same clean checkout can still differ byte for byte (bun version, resolved
+ * dependencies, embedded paths). The guarantee is only that the source compiled
+ * was the named commit — which is the claim `dev+<sha>` actually makes.
+ *
+ * So the check is fail-closed and runs before restore, before build, before
+ * publication. Anything git reports as a difference from HEAD blocks it.
+ *
+ * WHAT IS ALLOWED. Ignored paths never appear in `git status --porcelain`, so
+ * everything .gitignore covers — `node_modules/`, `dist-bun/`, the local
+ * signing key — is allowed by construction and needs no list. The explicit
+ * prefixes below are the build's own outputs, allowed even if they stop being
+ * ignored, because the build writes them itself and they are not compiled in.
+ * Untracked source files ARE a difference: `bun build` follows imports, so a
+ * new untracked module can end up in the bytes.
+ */
+export const DEV_BUNDLE_ALLOWED_DIRTY_PREFIXES = ['dist-bun/'] as const
+
+export interface SourceIdentityStatus {
+  clean: boolean
+  /** Repository-relative paths that make the tree differ from HEAD. */
+  offending: string[]
+}
+
+/**
+ * Pure classification of `git status --porcelain=v1 -z --untracked-files=all`.
+ *
+ * NUL-delimited, deliberately: the newline form quotes and C-escapes unusual
+ * paths and separates a rename with a literal ` -> `, which a path may itself
+ * contain — an identity gate must not have to guess where a filename ends. In
+ * `-z` output every path is a raw, unquoted field, and a rename or copy emits
+ * its DESTINATION in the status field and its SOURCE as the next field.
+ */
+export function classifySourceIdentity(
+  porcelain: string,
+  allowedPrefixes: readonly string[] = DEV_BUNDLE_ALLOWED_DIRTY_PREFIXES,
+): SourceIdentityStatus {
+  const fields = porcelain.split('\0')
+  const offending: string[] = []
+  const add = (path: string) => {
+    if (path === '') return
+    if (allowedPrefixes.some((prefix) => path === prefix || path.startsWith(prefix))) return
+    if (!offending.includes(path)) offending.push(path)
+  }
+  for (let index = 0; index < fields.length; index++) {
+    const field = fields[index] ?? ''
+    if (field === '') continue
+    const status = field.slice(0, 2)
+    add(field.slice(3))
+    if (status.includes('R') || status.includes('C')) {
+      // Consume the paired source field either way; a rename moves the source
+      // away from where HEAD has it, so BOTH ends differ and an allowed
+      // destination must not hide a disallowed origin. A copy leaves its
+      // source untouched.
+      const source = fields[++index] ?? ''
+      if (status.includes('R')) add(source)
+    }
+  }
+  return { clean: offending.length === 0, offending }
+}
+
+function defaultReadSourceStatus(root: string): string {
+  return String(
+    execFileSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
+      cwd: root,
+      encoding: 'utf8',
+    }),
+  )
+}
+
+export function sourceIdentityDiagnostic(sha: string, offending: string[]): string {
+  const shown = offending.slice(0, 5)
+  const more = offending.length - shown.length
+  return (
+    'development bundle unavailable: the source checkout does not match HEAD (' +
+    sha +
+    '), so a dev+' +
+    sha +
+    ' artifact would not have been compiled from that commit. Commit or stash: ' +
+    shown.join(', ') +
+    (more > 0 ? ' (+' + more + ' more)' : '')
+  )
+}
+
+/**
+ * Throws unless the checkout is exactly HEAD. A git failure is itself a refusal
+ * — an unreadable status cannot establish identity.
+ */
+export function assertSourceMatchesHead(
+  root: string,
+  sha: string,
+  readSourceStatus: (root: string) => string = defaultReadSourceStatus,
+): void {
+  let porcelain: string
+  try {
+    porcelain = readSourceStatus(root)
+  } catch (error) {
+    throw new Error(
+      'development bundle unavailable: could not verify the source checkout against HEAD (' +
+        sha +
+        '): ' +
+        (error instanceof Error ? error.message : String(error)),
+    )
+  }
+  const status = classifySourceIdentity(porcelain)
+  if (!status.clean) throw new Error(sourceIdentityDiagnostic(sha, status.offending))
+}
+
 export const DEV_BUNDLE_LOCK_NAME = 'podium:dev-bundle'
 export const DEV_ARTIFACT_ROUTE = '/updates/dev-bundle'
 
@@ -330,17 +447,25 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
   debounceMs?: number
   artifactUrl?: string | ((version: string) => string)
   platform?: string
+  /** Seam for tests; defaults to `git status --porcelain` in `root`. */
+  readSourceStatus?: (root: string) => string
 }
 
 export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   requestBuild(explicit?: boolean): Promise<BuiltDevBundle | null>
   current(): BuiltDevBundle | null
   target(): UpdateTarget | undefined
+  /**
+   * Why there is no current bundle, when the last attempt refused or failed.
+   * Consumed only by the server's own logging; it is not exposed to clients.
+   */
+  unavailable(): string | undefined
 } {
   let current: BuiltDevBundle | null = null
   let builtSha: string | null = null
   let lastAttemptAt: number | null = null
   let inFlight: Promise<BuiltDevBundle> | null = null
+  let unavailable: string | undefined
   const now = deps.now ?? Date.now
   const debounceMs = deps.debounceMs ?? 60_000
 
@@ -362,6 +487,10 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         if (!decision.build) return inFlight ?? Promise.resolve(current)
 
         lastAttemptAt = now()
+        // Fail closed BEFORE restoring or compiling: a dirty checkout cannot
+        // produce a dev+<sha> build of that commit, and an artifact left in
+        // dist-bun must not be restored under a tree that has since diverged.
+        assertSourceMatchesHead(deps.root ?? SOURCE_ROOT, headSha, deps.readSourceStatus)
         // A restart loses only the in-memory descriptor, not the signed bytes.
         // Restore an exact-HEAD artifact first; compile only when it is absent
         // or no longer verifies under this server's persisted update key.
@@ -371,11 +500,18 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
                 (existing) => existing ?? buildDevBundle({ ...deps, headSha }),
               )
             : buildDevBundle({ ...deps, headSha })
-        ).then((built) => {
-          current = built
-          builtSha = headSha
-          return built
-        })
+        ).then(
+          (built) => {
+            current = built
+            builtSha = headSha
+            unavailable = undefined
+            return built
+          },
+          (error: unknown) => {
+            unavailable = error instanceof Error ? error.message : String(error)
+            throw error
+          },
+        )
         inFlight = requested
         void requested.then(
           () => {
@@ -387,10 +523,12 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         )
         return requested
       } catch (error) {
+        unavailable = error instanceof Error ? error.message : String(error)
         return Promise.reject(error)
       }
     },
     current: () => current,
+    unavailable: () => unavailable,
     target: () => {
       if (!current) return undefined
       const artifactUrl =
