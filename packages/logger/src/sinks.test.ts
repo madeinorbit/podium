@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LogLevel } from './levels'
 import type { LogRecord } from './record'
-import { buildRecord } from './record'
+import { buildRecord, setRecordFreezing } from './record'
 import {
   addSink,
   clearSinks,
@@ -208,6 +208,40 @@ describe('fail-open', () => {
     expect(getSinks()).toHaveLength(1)
     expect(seen).toHaveLength(1)
     expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('the no-mutation contract', () => {
+  afterEach(() => {
+    setRecordFreezing(null)
+  })
+
+  it('catches a MUTATING sink under development, in its own test run', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    setRecordFreezing(true)
+    const ring = collector('ring', 'trace')
+    // The violation is invisible without the freeze: this sink rewrites a
+    // record every other sink and the ring-buffer snapshot also hold, so the
+    // corruption would surface as a wrong crash payload weeks later, nowhere
+    // near the sink that caused it.
+    addSink({
+      name: 'mutator',
+      write: (r: LogRecord) => {
+        r.msg = 'rewritten'
+      },
+    })
+    addSink(ring.sink)
+
+    dispatch(record('error'), 'info')
+
+    expect(getSinks().map((s) => s.name)).toEqual(['ring'])
+    expect(String(warn.mock.calls[0]?.[0])).toContain('mutator')
+    expect(ring.seen[0]?.msg).toBe('m')
+  })
+
+  it('does NOT freeze in production, so the hot path pays nothing', () => {
+    setRecordFreezing(false)
+    expect(Object.isFrozen(record('error'))).toBe(false)
   })
 })
 

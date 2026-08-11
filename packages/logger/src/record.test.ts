@@ -76,6 +76,14 @@ describe('buildRecord', () => {
     expect(record.role).toBe('daemon')
   })
 
+  it('freezes records under the ambient test env, with nothing opting in', () => {
+    // Deliberately does NOT call setRecordFreezing: this asserts the ENV
+    // DETECTION, not the override. Without it the whole no-mutation guard
+    // would be inert everywhere except the one test that forces it on, which
+    // is the failure mode of every dev-only check.
+    expect(Object.isFrozen(buildRecord({ ...base, fields: {}, context: {} }))).toBe(true)
+  })
+
   it('stamps an ISO-8601 timestamp with millisecond precision', () => {
     const record = buildRecord({ ...base, fields: {}, context: {} })
     expect(record.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)

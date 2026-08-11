@@ -134,8 +134,52 @@ export interface BuildRecordInput {
 }
 
 /**
+ * Should built records be frozen? Cached, because this is decided by the
+ * environment once and then asked on every record.
+ */
+let freezeRecords: boolean | null = null
+
+function ambientFlag(name: string): string | undefined {
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+  return proc?.env?.[name]
+}
+
+function shouldFreeze(): boolean {
+  if (freezeRecords === null) {
+    const env = ambientFlag('NODE_ENV')
+    freezeRecords =
+      ambientFlag('PODIUM_LOG_FREEZE') === '1' || env === 'test' || env === 'development'
+  }
+  return freezeRecords
+}
+
+/**
+ * Force record freezing on or off; `null` restores the environment default.
+ *
+ * Exists so a test can assert BOTH halves of the policy — that a mutating sink
+ * is caught under development, and that production does not pay for the check.
+ */
+export function setRecordFreezing(on: boolean | null): void {
+  freezeRecords = on
+}
+
+/**
  * Assemble one record. Key insertion order is the wire order: `ts`, `level`,
  * `ns`, `msg` lead every line so a tail of raw NDJSON is readable by eye.
+ *
+ * Under `NODE_ENV=test`/`development` (or `PODIUM_LOG_FREEZE=1`) the finished
+ * record is FROZEN. `Sink.write` forbids mutating a record — every sink and
+ * every ring-buffer snapshot share the same object, so one mutation rewrites
+ * another sink's history — but nothing enforced that, and a violation would
+ * have surfaced as a wrong crash payload weeks later rather than as a failure
+ * in the offending sink's own test run.
+ *
+ * Frozen, a mutating sink throws (modules are strict mode), fail-open disables
+ * it, and the existing local warning names it. The cost is deliberately not
+ * paid in production: one cached boolean, and no freeze on the hot path.
+ *
+ * The freeze is SHALLOW — a nested field object is still mutable — so this
+ * catches the common violation, not every one.
  */
 export function buildRecord(input: BuildRecordInput): LogRecord {
   const record: LogRecord = {
@@ -159,7 +203,7 @@ export function buildRecord(input: BuildRecordInput): LogRecord {
     record[key] = value
   }
   if (input.fields.err !== undefined) record.err = serializeError(input.fields.err)
-  return record
+  return shouldFreeze() ? Object.freeze(record) : record
 }
 
 /**
