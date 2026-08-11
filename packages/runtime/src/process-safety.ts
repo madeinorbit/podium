@@ -8,36 +8,48 @@
  * one bad frame/session, not global corruption. A genuinely wedged process is the
  * job of the systemd watchdog (Type=notify + WatchdogSec, see sd-notify.ts), not of
  * tearing everyone down on the first stray throw.
+ *
+ * The net reports through `@podium/logger`, so a survived crash is a structured
+ * record with a serialized `err` in the same rotated file as everything else,
+ * rather than a `console.error` whose stack was only ever readable by eye.
  */
+import { createLogger } from '@podium/logger'
 
 export interface SafetyHandlers {
   onUnhandledRejection(reason: unknown): void
   onUncaughtException(err: unknown): void
 }
 
-/** Pure handler pair, injected logger — kept out of `process.on` so it's unit-testable. */
-export function makeSafetyHandlers(
-  label: string,
-  log: (msg: string, err: unknown) => void,
-): SafetyHandlers {
+/** The one logger method the net uses. Narrow, so a test can pass a spy. */
+export interface SafetyLog {
+  error(msg: string, fields?: Record<string, unknown>): void
+}
+
+/**
+ * Pure handler pair, injected logger — kept out of `process.on` so it's unit-testable.
+ *
+ * The label lives in the logger's NAMESPACE rather than in the message: the
+ * caller builds `createLogger('<label>:safety-net')`, so every record is already
+ * attributed and a query can group by it.
+ */
+export function makeSafetyHandlers(log: SafetyLog): SafetyHandlers {
   const safelyLog = (msg: string, err: unknown): void => {
     try {
-      log(msg, err)
+      log.error(msg, { err })
     } catch {
       // A broken log sink must never become the fatal error we were trying to swallow.
     }
   }
   return {
-    onUnhandledRejection: (reason) =>
-      safelyLog(`[podium:${label}] unhandledRejection (surviving)`, reason),
-    onUncaughtException: (err) => safelyLog(`[podium:${label}] uncaughtException (surviving)`, err),
+    onUnhandledRejection: (reason) => safelyLog('unhandledRejection (surviving)', reason),
+    onUncaughtException: (err) => safelyLog('uncaughtException (surviving)', err),
   }
 }
 
 /** Wire the crash net onto the live process. Call once at entrypoint startup. */
 export function installProcessSafetyNet(label: string): void {
-  const { onUnhandledRejection, onUncaughtException } = makeSafetyHandlers(label, (msg, err) =>
-    console.error(msg, err),
+  const { onUnhandledRejection, onUncaughtException } = makeSafetyHandlers(
+    createLogger(`${label}:safety-net`),
   )
   process.on('unhandledRejection', onUnhandledRejection)
   process.on('uncaughtException', onUncaughtException)

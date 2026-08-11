@@ -26,7 +26,7 @@ declared closed set.
 
 ```
 L0 — model
-  @podium/logger                browser-safe
+  @podium/logger                neutral
                                 deps: nothing — this is the leaf
   @podium/model                 browser-safe
                                 deps: nothing — this is the leaf
@@ -47,7 +47,7 @@ L2 — kernels / ports
   @podium/pty                   node-only, host capability — importable only by @podium/daemon, scripts/
                                 deps: @podium/model, @podium/protocol, @podium/runtime
   @podium/runtime               neutral
-                                deps: @podium/model, @podium/protocol
+                                deps: @podium/logger, @podium/model, @podium/protocol
   @podium/sync                  neutral
                                 deps: @podium/commands, @podium/model, @podium/protocol, @podium/runtime
   @podium/telemetry             neutral

@@ -22,6 +22,7 @@
     "./local-machine": "./src/local-machine.ts",
     "./auth-store": "./src/auth-store.ts",
     "./session-mint": "./src/session-mint.ts",
+    "./logging": "./src/logging.ts",
     "./process-safety": "./src/process-safety.ts",
     "./sd-notify": "./src/sd-notify.ts",
     "./boot": "./src/boot.ts",
@@ -38,6 +39,7 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "zod": "^3.24.0"

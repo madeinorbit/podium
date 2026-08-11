@@ -297,13 +297,24 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
 
   // The second L0 leaf, and it has to be one: every layer logs, so a logger at
   // any higher layer would be an upward import from somewhere. Dependency-free
-  // by construction (not even zod) and browser-safe — the record shape is plain
-  // objects and the only IO it does is through a sink somebody else registers.
-  // Node-only sinks (file, rotation, stdout) land behind a `./node` subpath in
-  // chunk 2, which is what keeps this tag honest as the package grows.
+  // by construction — not even zod.
+  //
+  // NEUTRAL since POD-1901, and the retag is the honest half of adding the
+  // `./node` subpath. The barrel is still browser-safe and still a declared
+  // BROWSER_ENTRYPOINT; what changed is that `./node` (the file and stdout
+  // sinks) now exists beside it, so the package genuinely has two halves — the
+  // same shape as `packages/telemetry` and `packages/sync`.
+  //
+  // Why the tag had to move rather than stay `browser-safe` with a subpath
+  // bolted on: rule `manifest-browser-reach` (a) only fires when the TARGET is
+  // neutral. Left tagged browser-safe, any browser-safe workspace could import
+  // `@podium/logger/node` and no gate would say a word — the closure check only
+  // walks the barrel, which of course never reaches it. Tagged neutral, the
+  // declared entrypoint list becomes the enforced surface and that import is
+  // refused at the boundary check. The tag is strictly stronger, not weaker.
   'packages/logger': {
     layer: 0,
-    platform: 'browser-safe',
+    platform: 'neutral',
     features: ['logging'],
     deps: [],
   },
@@ -351,7 +362,10 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     platform: 'neutral',
     features: ['config', 'sqlite', 'git-port', 'connectivity', 'auth-store', 'settings'],
     // Node-runtime plumbing that may reach the pure leaves and nothing else.
-    deps: ['packages/protocol', 'packages/model'],
+    // `packages/logger` joined that set in POD-1901: `src/logging.ts` is the
+    // composition root that joins the logger's sinks to this package's log dir,
+    // which is knowledge neither leaf can hold on its own.
+    deps: ['packages/protocol', 'packages/model', 'packages/logger'],
   },
   // The sync kernel. NEUTRAL, and this is a CLASSIFICATION change rather than a
   // code change (POD-307; the decision POD-374 and POD-375 both declined to make
@@ -549,11 +563,27 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
  * slipped through.
  */
 export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
-  // packages/logger — the WHOLE package. It is tagged browser-safe rather than
-  // neutral, so the bare specifier is the entire surface and this entry is what
-  // holds it there: chunk 2's file/rotation/stdout sinks must arrive behind a
-  // `./node` subpath, and the day one of them is imported from the barrel this
-  // audit is what says no.
+  // packages/logger — the barrel, and ONLY the barrel. Since POD-1901 the
+  // package also has a `./node` subpath (the file and stdout sinks), so it takes
+  // TWO guards to describe the surface and each covers a path the other cannot:
+  //
+  //   THIS ROW guards the barrel's own closure, and it does so REGARDLESS OF THE
+  //     PLATFORM TAG — audit-browser-reach.ts reads BROWSER_ENTRYPOINTS and
+  //     never consults `tagsFor`. So "the day a node sink is re-exported from
+  //     the barrel, this audit says no" was true when it was written and is
+  //     still true now.
+  //
+  //   THE `neutral` TAG guards the OTHER path this row cannot see: a browser-safe
+  //     workspace importing `@podium/logger/node` DIRECTLY, never touching the
+  //     barrel at all. That is rule `manifest-browser-reach` (a) in
+  //     check-boundaries.ts, and it returns early unless the target workspace is
+  //     tagged neutral — which is why the tag had to move when the subpath
+  //     arrived, and why leaving it `browser-safe` would have left that import
+  //     guarded by nothing at all.
+  //
+  // Both are needed once a package is two-halved. Dropping either one leaves a
+  // reachable path with no gate on it, and a gate that does not APPLY is worse
+  // than one that applies and is wrong: there is no output to inspect.
   ['@podium/logger', 'packages/logger/src/index.ts'],
   // packages/runtime — the root barrel only. Every node-only concern (config,
   // sqlite, git, connectivity, auth-store) lives behind its own subpath, which

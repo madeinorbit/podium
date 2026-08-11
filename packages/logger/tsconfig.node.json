@@ -1,0 +1,14 @@
+{
+  // The `./node` subpath ONLY (packages/logger/src/node): the file and stdout
+  // sinks, which import `node:fs` and touch `process.stdout`. It is a second
+  // project rather than `types: ["node"]` on the package tsconfig because the
+  // point of the split is that the browser-safe half CANNOT see those globals —
+  // one merged project would type `process.env` for the whole package and hand
+  // the barrel back the footgun tsconfig.json exists to remove.
+  //
+  // Files under `src/` that these import (record, sinks, levels) are pulled in
+  // transitively and therefore checked twice, under both type spaces. That is
+  // the intended reading: the shared core has to be correct in both.
+  "extends": "../../tooling/tsconfig/node.json",
+  "include": ["src/node"]
+}

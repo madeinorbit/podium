@@ -4,6 +4,13 @@
   // UNDECLARED on purpose, so the two places that read env have to reach it off
   // globalThis with an explicit cast rather than typing `process.env` and
   // shipping a Node global to the web bundle by accident.
+  //
+  // `src/node` — the `./node` subpath's file and stdout sinks — is EXCLUDED and
+  // covered by tsconfig.node.json instead. That exclusion is half the guard on
+  // the browser entrypoint, and the useful half: a `node:fs` import that drifted
+  // up into `src/` stops compiling here, before check-boundaries or
+  // audit-browser-reach has to catch it in CI.
   "extends": "../../tooling/tsconfig/dom.json",
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/node"]
 }

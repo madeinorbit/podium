@@ -5,7 +5,13 @@
  * (the combined dev host went without a crash net for a while purely through
  * divergence). What the kernel guarantees, in order:
  *
- *  - Crash net FIRST (installProcessSafetyNet, audit P0-1): an un-caught rejection
+ *  - Logging sinks FIRST (configureProcessLogging): the crash net and every boot
+ *    message now report through `@podium/logger`, and a logger with no sink
+ *    registered discards what it is given. So the sink has to exist before the
+ *    first thing that might need to say something does. This is cheap and
+ *    IO-free — the file sink opens lazily on its first record — so it does not
+ *    meaningfully delay the crash net behind it.
+ *  - Crash net SECOND (installProcessSafetyNet, audit P0-1): an un-caught rejection
  *    or escaped throw — a dead socket's send, a throw from a PTY data callback —
  *    must log-and-survive, not terminate the process and drop every session.
  *  - Boot watchdog: under host memory pressure startup can intermittently wedge
@@ -24,7 +30,11 @@
  *    SIGTERM until systemd SIGKILLs. Racing `close()` against `closeTimeoutMs`
  *    keeps shutdown prompt; on Node the close resolves first, so it's a no-op.
  *  - Stays alive (`await new Promise(() => {})`) until a signal arrives.
+ *  - Drains the log sink on the way out, after close() and before exit, so the
+ *    last records of a clean shutdown are on disk rather than in a dead process.
  */
+import { createLogger } from '@podium/logger'
+import { configureProcessLogging, type ProcessLogging } from './logging'
 import { installProcessSafetyNet } from './process-safety'
 import { startWatchdog } from './sd-notify'
 
@@ -35,7 +45,9 @@ export interface BootHandle {
 export interface BootSpec<H extends BootHandle = BootHandle> {
   /** 'server' | 'daemon' | 'host' — used in log prefixes. */
   name: string
-  /** Default true: installProcessSafetyNet(name) FIRST, before anything else. */
+  /** Default true: register this role's log sink FIRST, before anything else. */
+  logging?: boolean
+  /** Default true: installProcessSafetyNet(name), immediately after logging. */
   safetyNet?: boolean
   /** null disables; default Number(process.env.PODIUM_BOOT_TIMEOUT_MS ?? 45_000). */
   bootTimeoutMs?: number | null
@@ -56,23 +68,37 @@ export interface BootSpec<H extends BootHandle = BootHandle> {
 export interface BootProc {
   exit: (code: number) => void
   onSignal: (signal: 'SIGINT' | 'SIGTERM', handler: () => void) => void
+  /**
+   * Register the process's log sink and bind its context. Returns the handle the
+   * shutdown drain uses, or undefined when the caller runs its own logging.
+   * A seam like the others: a unit test must not write to the real log dir.
+   */
+  configureLogging: (role: string) => ProcessLogging | undefined
   installSafetyNet: (name: string) => void
   startWatchdog: () => (() => void) | undefined
-  log: (msg: string) => void
-  error: (msg: string) => void
+  /**
+   * Boot's own diagnostics. `fields` is structured context, NOT interpolation:
+   * the message stays a constant so it can be grouped, and the varying parts
+   * (role, timeout, the error) are queryable columns.
+   */
+  log: (msg: string, fields?: Record<string, unknown>) => void
+  error: (msg: string, fields?: Record<string, unknown>) => void
   /** Never resolves in production — the entrypoint stays alive until a signal. */
   stayAlive: () => Promise<void>
 }
+
+const bootLog = createLogger('runtime:boot')
 
 const realProc: BootProc = {
   exit: (code) => process.exit(code),
   onSignal: (signal, handler) => {
     process.on(signal, handler)
   },
+  configureLogging: (role) => configureProcessLogging({ role }),
   installSafetyNet: installProcessSafetyNet,
   startWatchdog,
-  log: (msg) => console.log(msg),
-  error: (msg) => console.error(msg),
+  log: (msg, fields) => bootLog.info(msg, fields),
+  error: (msg, fields) => bootLog.error(msg, fields),
   stayAlive: () => new Promise<void>(() => {}),
 }
 
@@ -80,7 +106,9 @@ export async function bootProcess<H extends BootHandle>(
   spec: BootSpec<H>,
   proc: BootProc = realProc,
 ): Promise<void> {
-  // Crash net BEFORE anything else — even the boot watchdog setup.
+  // Sinks before the crash net, crash net before everything else — see the
+  // header. Both are cheap and neither does IO at this point.
+  const logging = spec.logging === false ? undefined : proc.configureLogging(spec.name)
   if (spec.safetyNet !== false) proc.installSafetyNet(spec.name)
 
   const bootTimeoutMs =
@@ -97,7 +125,8 @@ export async function bootProcess<H extends BootHandle>(
       : setTimeout(() => {
           bootTimedOut = true
           proc.error(
-            `[podium:${spec.name}] boot did not complete within ${bootTimeoutMs}ms (host memory pressure?) — exiting for systemd to retry`,
+            'boot did not complete in time (host memory pressure?) — exiting for systemd to retry',
+            { role: spec.name, bootTimeoutMs },
           )
           proc.exit(1)
         }, bootTimeoutMs)
@@ -116,13 +145,10 @@ export async function bootProcess<H extends BootHandle>(
       // getter) or a throwing proc.error must not skip the exit with the
       // recovery timer already cleared.
       try {
-        let detail: string
-        try {
-          detail = err instanceof Error ? (err.stack ?? err.message) : String(err)
-        } catch {
-          detail = '<unprintable error>'
-        }
-        proc.error(`[podium:${spec.name}] boot failed: ${detail}`)
+        // `err` goes through as a field: the logger's serializer owns flattening
+        // it, and a hostile .stack/.message getter throwing there is caught by
+        // the same guard that already protected the interpolated version.
+        proc.error('boot failed', { role: spec.name, err })
       } finally {
         proc.exit(1)
       }
@@ -131,7 +157,15 @@ export async function bootProcess<H extends BootHandle>(
   }
   if (bootWatchdog !== undefined) clearTimeout(bootWatchdog)
   if (bootTimedOut) return
-  if (spec.readyMessage) proc.log(spec.readyMessage(handle))
+  if (spec.readyMessage) {
+    proc.log(spec.readyMessage(handle), {
+      role: spec.name,
+      // Where this process's own records are going. Under systemd or detached
+      // this is the only line that says so, and it is the first question anyone
+      // debugging a quiet service asks.
+      ...(logging ? { logs: logging.destination } : {}),
+    })
+  }
 
   const stopWatchdog = spec.watchdog !== false ? proc.startWatchdog() : undefined
 
@@ -155,9 +189,23 @@ export async function bootProcess<H extends BootHandle>(
         }),
       ])
     } catch (err) {
-      proc.error(`[podium:${spec.name}] close() failed during shutdown: ${String(err)}`)
+      proc.error('close() failed during shutdown', { role: spec.name, err })
     } finally {
       if (closeTimer !== undefined) clearTimeout(closeTimer)
+      // Drain LAST, after the close-failure record above has been emitted, and
+      // inside the finally so a failed close still gets its logs to disk. Both
+      // steps are best-effort: a sink that cannot be drained must not be the
+      // reason a SIGTERM'd process fails to exit.
+      try {
+        await logging?.flush()
+      } catch {
+        // Nothing left to report it to — the sink is what broke.
+      }
+      try {
+        logging?.close()
+      } catch {
+        // As above.
+      }
       proc.exit(0)
     }
   }

@@ -5,11 +5,21 @@ import { type BootHandle, type BootProc, bootProcess } from './boot'
 function makeProc() {
   const handlers = new Map<string, () => void>()
   const stopWatchdog = vi.fn()
+  // A fake sink handle. The real one registers a file sink under ~/.podium/logs;
+  // a unit test must not write there, which is why configureLogging is a seam.
+  const logging = {
+    mode: 'detached' as const,
+    sink: { name: 'fake', write: vi.fn() },
+    destination: '/tmp/fake/server.ndjson',
+    flush: vi.fn(async () => {}),
+    close: vi.fn(),
+  }
   const proc: BootProc = {
     exit: vi.fn(),
     onSignal: (signal, handler) => {
       handlers.set(signal, handler)
     },
+    configureLogging: vi.fn(() => logging),
     installSafetyNet: vi.fn(),
     startWatchdog: vi.fn(() => stopWatchdog),
     log: vi.fn(),
@@ -17,7 +27,7 @@ function makeProc() {
     // Resolves immediately so bootProcess returns in tests (prod never resolves).
     stayAlive: () => Promise.resolve(),
   }
-  return { proc, handlers, stopWatchdog }
+  return { proc, handlers, stopWatchdog, logging }
 }
 
 describe('bootProcess', () => {
@@ -29,7 +39,8 @@ describe('bootProcess', () => {
     )
     await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(1))
     expect(proc.error).toHaveBeenCalledWith(
-      '[podium:daemon] boot did not complete within 10ms (host memory pressure?) — exiting for systemd to retry',
+      'boot did not complete in time (host memory pressure?) — exiting for systemd to retry',
+      { role: 'daemon', bootTimeoutMs: 10 },
     )
   })
 
@@ -49,7 +60,90 @@ describe('bootProcess', () => {
     expect(proc.exit).not.toHaveBeenCalled()
     expect(proc.installSafetyNet).toHaveBeenCalledWith('server')
     expect(proc.startWatchdog).toHaveBeenCalledTimes(1)
-    expect(proc.log).toHaveBeenCalledWith('up on 1234')
+    expect(proc.log).toHaveBeenCalledWith('up on 1234', {
+      role: 'server',
+      logs: '/tmp/fake/server.ndjson',
+    })
+  })
+
+  it('registers the log sink BEFORE the crash net, so a survived crash has somewhere to go', async () => {
+    const { proc } = makeProc()
+    const order: string[] = []
+    vi.mocked(proc.configureLogging).mockImplementation(() => {
+      order.push('logging')
+      return undefined
+    })
+    vi.mocked(proc.installSafetyNet).mockImplementation(() => {
+      order.push('safety-net')
+    })
+    await bootProcess(
+      { name: 'server', bootTimeoutMs: null, start: async () => ({ close: () => {} }) },
+      proc,
+    )
+    expect(proc.configureLogging).toHaveBeenCalledWith('server')
+    expect(order).toEqual(['logging', 'safety-net'])
+  })
+
+  it('logging: false opts out, and the shutdown drain tolerates having no handle', async () => {
+    const { proc, handlers } = makeProc()
+    await bootProcess(
+      {
+        name: 'host',
+        logging: false,
+        bootTimeoutMs: null,
+        start: async () => ({ close: () => {} }),
+      },
+      proc,
+    )
+    expect(proc.configureLogging).not.toHaveBeenCalled()
+    handlers.get('SIGTERM')?.()
+    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
+  })
+
+  it('drains the log sink on shutdown, after close() and before exit', async () => {
+    const { proc, handlers, logging } = makeProc()
+    const closed: string[] = []
+    await bootProcess(
+      {
+        name: 'server',
+        bootTimeoutMs: null,
+        start: async () => ({
+          close: () => {
+            closed.push('handle')
+          },
+        }),
+      },
+      proc,
+    )
+    vi.mocked(proc.exit).mockImplementation(() => {
+      closed.push('exit')
+    })
+    logging.flush.mockImplementation(async () => {
+      closed.push('flush')
+    })
+    logging.close.mockImplementation(async () => {
+      closed.push('close')
+    })
+    handlers.get('SIGTERM')?.()
+    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
+    // The last records of a clean shutdown must be durable before the process
+    // goes away — and the handle's own close() has to have run first, so
+    // anything it logged is included.
+    expect(closed).toEqual(['handle', 'flush', 'close', 'exit'])
+  })
+
+  it('a sink that cannot be drained still exits 0 — logging never blocks a SIGTERM', async () => {
+    const { proc, handlers, logging } = makeProc()
+    logging.flush.mockRejectedValue(new Error('disk gone'))
+    logging.close.mockImplementation(() => {
+      throw new Error('fd gone')
+    })
+    await bootProcess(
+      { name: 'server', bootTimeoutMs: null, start: async () => ({ close: () => {} }) },
+      proc,
+    )
+    handlers.get('SIGTERM')?.()
+    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
   })
 
   it('shutdown is bounded: a close() that never resolves still exits 0 within closeTimeoutMs', async () => {
@@ -91,9 +185,10 @@ describe('bootProcess', () => {
     )
     handlers.get('SIGTERM')?.()
     await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
-    expect(proc.error).toHaveBeenCalledWith(
-      expect.stringContaining('close() failed during shutdown'),
-    )
+    expect(proc.error).toHaveBeenCalledWith('close() failed during shutdown', {
+      role: 'server',
+      err: expect.objectContaining({ message: 'bind gone' }),
+    })
   })
 
   it('shutdown still exits 0 when close() throws synchronously', async () => {
@@ -125,9 +220,17 @@ describe('bootProcess', () => {
       proc,
     )
     expect(proc.exit).toHaveBeenCalledWith(1)
-    expect(proc.error).toHaveBeenCalledWith(expect.stringContaining('boot failed: '))
+    // The error travels as a FIELD, not interpolated into the message: the
+    // logger's serializer owns flattening it to {name, message, stack}.
+    expect(proc.error).toHaveBeenCalledWith('boot failed', {
+      role: 'daemon',
+      err: expect.objectContaining({ message: 'no socket' }),
+    })
     await new Promise((r) => setTimeout(r, 40))
-    expect(proc.error).not.toHaveBeenCalledWith(expect.stringContaining('did not complete'))
+    expect(proc.error).not.toHaveBeenCalledWith(
+      expect.stringContaining('did not complete'),
+      expect.anything(),
+    )
     expect(proc.exit).toHaveBeenCalledTimes(1)
   })
 
@@ -147,7 +250,7 @@ describe('bootProcess', () => {
     void done
     resolveStart({ close: () => {} })
     await new Promise((r) => setTimeout(r, 20))
-    expect(proc.log).not.toHaveBeenCalledWith('should never log')
+    expect(proc.log).not.toHaveBeenCalled()
     expect(proc.exit).toHaveBeenCalledTimes(1)
     expect(proc.startWatchdog).not.toHaveBeenCalled()
   })
@@ -178,6 +281,7 @@ describe('shutdown hardening (Codex round-2)', () => {
       onSignal: (signal, handler) => {
         handlers.set(signal, handler)
       },
+      configureLogging: vi.fn(() => undefined),
       installSafetyNet: vi.fn(),
       startWatchdog: vi.fn(() => () => {
         throw new Error('cleanup boom')
