@@ -1536,7 +1536,10 @@ html[data-density="balanced"] .header-quota-pools {
      surface that is now just the gap between two objects has nothing to be
      about. The colour it carried moved to where the design puts it: the flight
      deck's fade, the selected row's band, and the active tab's dot and ring.
-     (Overrides the index.css color-mix; kept there for the mobile pane.) */
+     The index.css wash this replaced is now DELETED, not overridden: its slate
+     half was a descendant selector that outranked this rule, so the gutter kept
+     the tint whenever the mission had no colour. `.native-agents-pane` has one
+     consumer (Workspace.tsx) and mobile is not it. */
   display: flex;
   padding: 12px 12px 12px 14px;
   background-color: var(--background);

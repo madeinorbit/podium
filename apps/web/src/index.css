@@ -690,9 +690,12 @@
    the issue's palette colour (lib/issueColors.ts); unset, it inherits the
    neutral slate --flow. The percentages come straight from the handoff:
      selected sidebar row 28 (over card) · pane header 24 (over background) ·
-     tab strip 18 (over tabstrip) · rail fade 16 ·
-     attention rows 11–13 · workspace pane 10–12 ·
+     rail fade 16 · attention rows 11–13 ·
      hairlines 30–50 · selection rings 35.
+   A dose is also CAPPED BY THE NEXT SURFACE UP (POD-748): a mix always walks
+   toward a lighter colour, so a tint that carries its surface past the one above
+   it inverts the ramp. The tab strip is the tight one — three levels under the
+   sheet on Dark Ink — and runs at 1–3 (Workspace.tsx), not the handoff's 18.
    Two surfaces are deliberately OUTSIDE this channel. The Superagent pane stays
    a flat --engraved surface in both modes. And the RIGHT DOCK, with its icon
    rail, is a dark default (POD-516 item 9, styles.css `.right-dock-shell`): the
@@ -945,14 +948,17 @@
 /* ── Native agents pane (.design/specs/native-pane.md) ───────────────────────
    The pane's chrome is tinted by the selected issue via the --issue channel
    (slate --flow when uncoloured); its derived text shades come from the
-   .issue-scope ramp above, inherited from the shell root. The pane surface is
-   12% coloured / 9% slate over the app background (§2.6). */
-.native-agents-pane {
-  background-color: color-mix(in srgb, var(--issue) 12%, var(--background));
-}
-[data-issue-colored='false'] .native-agents-pane {
-  background-color: color-mix(in srgb, var(--issue) 9%, var(--background));
-}
+   .issue-scope ramp above, inherited from the shell root.
+   The pane SURFACE is no longer tinted. POD-725 turned the stage into a sheet
+   and made this element the ground around it, so styles.css `.native-agents-pane`
+   paints it flat --background. The 12%/9% wash that used to live here outlived
+   that: it was written as a bare class and a `[data-issue-colored='false']`
+   descendant, and the slate half (0-2-0) outranked the styles.css override
+   (0-1-0) no matter which file loaded last — so an uncoloured mission's gutter
+   rendered #212326 where the Dark Ink mock draws its ground at #16171a, and a
+   coloured one rendered the mock's value. The ground is not a tintable surface;
+   the colour it used to carry lives in the deck's fade, the selected row's band
+   and the active tab's dot and ring. */
 /* Tab leading square: the 7×7 issue-colour dot (radius 2.5px). Beats the
    unlayered `.dot` circle rule in styles.css by specificity while keeping the
    `.dot.parked + .worker-label` hibernated-row hook intact. */

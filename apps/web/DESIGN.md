@@ -147,7 +147,9 @@ Team colors: a neutral dark-ink chassis, Superade Yellow signal, with red and bl
 ### Named Rules
 **The Signal Rule.** Yellow marks the primary action or the thing waiting on you — one voice per screen region. If yellow appears somewhere nothing is asked of the operator, it is wrong.
 
-**The Tint, Never Fill Rule.** Issue colors color-mix into their base surface at prescribed percentages (workspace pane 10–12%, tab strip 18%, selected row 28%, hairlines 30–50%). A flat fill of an issue color is prohibited.
+**The Tint, Never Fill Rule.** Issue colors color-mix into their base surface at prescribed percentages (selected row 28%, hairlines 30–50%, pane header 24%). A flat fill of an issue color is prohibited.
+
+A tint may never carry its surface past the surface *above* it in the ramp. Every mix walks toward a lighter color, and the Dark Ink ramp leaves only three levels between the tab strip (`#202228`) and the sheet it is cut into (`#23262d`) — so the strip's dose is capped at 2–3, not the handoff's 18, or the recess reads as a raised band. The workspace gutter takes no tint at all: since POD-725 it is the ground the sheet lies on, not a surface, and ground is the one thing an issue color has nothing to say about.
 
 The percentages above are the *dark* values; a hue mixed into a light base saturates about twice as fast, so light themes scale them rather than restating them. Two variables do it globally — `--issue-tint-scale` (0.5% in Daylight, so 28 → 14) and `--issue-line-scale` (0.85%) — consumed by the `issue-mix-*` / `issue-hairline-*` utilities, so no call site carries a per-theme percentage. Hairlines scale *down*, not up: measured against both grounds, a mid-lightness hue reads more strongly on paper than on the dark ground, not less.
 

@@ -592,7 +592,14 @@ function PaneChrome({
           The tint survives at a dose you read as tone rather than colour, because
           it is still how a SPLIT says which pane is live (The Carved Rule: said
           in tone, not with a ring around it) — and it still lifts when a pane is
-          about to receive a dragged tab, which is the one moment it must shout. */}
+          about to receive a dragged tab, which is the one moment it must shout.
+          The doses are BOUNDED BY THE SHEET (POD-748). Every mix here walks the
+          strip toward a lighter colour, and on the Dark Ink ramp there are only
+          three levels between the strip (#202228) and the sheet it is cut into
+          (#23262d) — so the old focused dose put the strip at #25272d, ABOVE the
+          card, and the recess read as a raised band. Focus is worth at most the
+          two levels that keep it under the sheet; an unfocused strip is the
+          mock's own flat value. The drag target is the one state allowed out. */}
       <div
         ref={setNodeRef}
         data-testid="native-tab-strip"
@@ -604,8 +611,8 @@ function PaneChrome({
           isOver
             ? 'issue-mix-24 issue-mix-slate-18'
             : focused
-              ? 'issue-mix-6 issue-mix-slate-4'
-              : 'issue-mix-2 issue-mix-slate-0',
+              ? 'issue-mix-3 issue-mix-slate-2'
+              : 'issue-mix-1 issue-mix-slate-0',
         )}
       >
         <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
