@@ -100,28 +100,50 @@ describe('openTab — the preview tab', () => {
   })
 
   it('re-opening the preview tab is just an activate', () => {
-    let ws = preview(preview(emptyWorkspace('k'), 'a'), 'b')
-    ws = permanent(ws, 'kept')
+    let ws = permanent(emptyWorkspace('k'), 'kept')
+    ws = preview(ws, 'a')
     ws = preview(ws, 'b')
-    expect(pane(ws, 'p1').tabs).toEqual(['b', 'kept'])
+    ws = preview(ws, 'b')
+    expect(pane(ws, 'p1').tabs).toEqual(['kept', 'b'])
     expect(ws.previewTabId).toBe('b')
     expect(pane(ws, 'p1').active).toBe('b')
   })
 
-  it('opening a tab that is already PERMANENT activates it and leaves the preview alone', () => {
+  // The temporary tab is held only while it is in front of you: landing on the
+  // kept tab is walking away from the glance, so the glance closes.
+  it('opening a tab that is already PERMANENT activates it and retires the preview', () => {
     let ws = permanent(emptyWorkspace('k'), 'kept')
     ws = preview(ws, 'temp')
     ws = preview(ws, 'kept')
-    expect(ws.previewTabId).toBe('temp')
-    expect(pane(ws, 'p1').tabs).toEqual(['kept', 'temp'])
+    expect(ws.previewTabId).toBeNull()
+    expect(pane(ws, 'p1').tabs).toEqual(['kept'])
     expect(pane(ws, 'p1').active).toBe('kept')
   })
 
-  it('a permanent open of the preview promotes it in place — no reorder', () => {
-    let ws = permanent(emptyWorkspace('k'), 'first')
+  it('a permanent open of a NEW tab retires the preview it lands beside', () => {
+    let ws = permanent(emptyWorkspace('k'), 'kept')
     ws = preview(ws, 'temp')
-    ws = permanent(ws, 'second')
+    ws = permanent(ws, 'fresh')
+    expect(pane(ws, 'p1').tabs).toEqual(['kept', 'fresh'])
+    expect(ws.previewTabId).toBeNull()
+    expect(pane(ws, 'p1').active).toBe('fresh')
+  })
+
+  it('retires a preview that was the pane’s only tab', () => {
+    let ws = preview(emptyWorkspace('k'), 'temp')
+    ws = permanent(ws, 'kept')
+    expect(pane(ws, 'p1').tabs).toEqual(['kept'])
+    expect(ws.previewTabId).toBeNull()
+  })
+
+  it('a permanent open of the preview promotes it in place — no reorder', () => {
+    let ws = permanent(permanent(emptyWorkspace('k'), 'first'), 'second')
+    ws = preview(ws, 'temp')
+    // A drag is arrangement, not navigation: it moves the temporary tab into
+    // the middle of the strip and leaves it temporary.
+    ws = step(ws, (w) => moveTab(w, 'temp', 'p1', 1))
     expect(pane(ws, 'p1').tabs).toEqual(['first', 'temp', 'second'])
+    expect(ws.previewTabId).toBe('temp')
     ws = permanent(ws, 'temp')
     expect(ws.previewTabId).toBeNull()
     expect(pane(ws, 'p1').tabs).toEqual(['first', 'temp', 'second'])
@@ -136,7 +158,7 @@ describe('openTab — the preview tab', () => {
     expect(ws.previewTabId).toBeNull()
   })
 
-  it('keeps at most one preview across panes: the older one becomes permanent', () => {
+  it('keeps at most one preview across panes: the older one is retired', () => {
     let ws = permanent(emptyWorkspace('k'), 'a')
     ws = permanent(ws, 'b')
     ws = step(ws, (w) => splitPane(w, 'p1', 'row', { tabId: 'b' }))
@@ -144,8 +166,9 @@ describe('openTab — the preview tab', () => {
     expect(ws.previewTabId).toBe('left')
     ws = step(ws, (w) => openTab(w, 'right', { permanent: false, paneId: 'p2' }))
     expect(ws.previewTabId).toBe('right')
-    // 'left' is still open — it stopped being temporary, it was not closed.
-    expect(pane(ws, 'p1').tabs).toContain('left')
+    // Previewing in the other pane is walking away from 'left': it goes rather
+    // than staying behind as a tab nobody asked to keep.
+    expect(pane(ws, 'p1').tabs).toEqual(['a'])
     expect(pane(ws, 'p2').tabs).toEqual(['b', 'right'])
   })
 
@@ -167,6 +190,33 @@ describe('promoteTab / activateTab / focusPane', () => {
     expect(pane(ws, 'p1').tabs).toEqual(before)
     expect(promoteTab(ws, 'a')).toBe(ws)
     expect(promoteTab(ws, 'unknown')).toBe(ws)
+  })
+
+  // POD-740: the strip used to keep an italic tab you had walked away from —
+  // marked temporary, behaving permanent.
+  it('switching to another tab retires an unpromoted preview', () => {
+    let ws = permanent(emptyWorkspace('k'), 'kept')
+    ws = preview(ws, 'temp')
+    ws = step(ws, (w) => activateTab(w, 'kept'))
+    expect(allTabIds(ws)).toEqual(['kept'])
+    expect(ws.previewTabId).toBeNull()
+    expect(pane(ws, 'p1').active).toBe('kept')
+  })
+
+  it('a promoted preview survives the switch', () => {
+    let ws = permanent(emptyWorkspace('k'), 'kept')
+    ws = preview(ws, 'temp')
+    ws = step(ws, (w) => promoteTab(w, 'temp')) // the operator typed into it
+    ws = step(ws, (w) => activateTab(w, 'kept'))
+    expect(allTabIds(ws)).toEqual(['kept', 'temp'])
+  })
+
+  it('activating the preview itself keeps it', () => {
+    let ws = permanent(emptyWorkspace('k'), 'kept')
+    ws = preview(ws, 'temp')
+    ws = step(ws, (w) => activateTab(w, 'temp'))
+    expect(allTabIds(ws)).toEqual(['kept', 'temp'])
+    expect(ws.previewTabId).toBe('temp')
   })
 
   it('activating a tab moves focus to its pane; an unknown tab is inert', () => {
@@ -526,6 +576,7 @@ describe('a whole session of edits keeps the layout valid', () => {
     ws = preview(ws, 's2')
     ws = permanent(ws, 's2')
     ws = preview(ws, 's3')
+    ws = permanent(ws, 's3') // kept, so the rest of the session still has it
     ws = step(ws, (w) => splitPane(w, w.focusedPaneId, 'row', { tabId: 's2' }))
     ws = permanent(ws, 's4')
     ws = step(ws, (w) => moveTab(w, 's4', 'p1', 0))

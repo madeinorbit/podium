@@ -12,7 +12,9 @@
  *  1. AT MOST ONE PREVIEW TAB per workspace, and it is always a member of a
  *     pane. The preview is the tab you get by selecting a session in the flight
  *     deck; selecting another session reuses it, so the operator cycles through
- *     ONE temporary tab instead of accumulating a strip of them.
+ *     ONE temporary tab instead of accumulating a strip of them. And it is held
+ *     only while the operator is LOOKING at it: moving to any other tab without
+ *     promoting it retires the view ({@link retirePreview}).
  *  2. A TAB ID LIVES IN EXACTLY ONE PANE. Panes are views onto disjoint sets of
  *     tabs, so "which pane is this tab in" always has one answer.
  *  3. THE LAYOUT IS NEVER EMPTY. `root` always contains at least one leaf,
@@ -236,18 +238,44 @@ export function emptyWorkspace(key: WorkspaceKey): WorkspaceLayout {
 }
 
 /**
+ * RETIRE A TEMPORARY TAB THE OPERATOR WALKED AWAY FROM.
+ *
+ * Italic means "on loan": the tab exists because you glanced at a session, and
+ * it survives exactly as long as you are looking at it. Landing on any OTHER tab
+ * without having promoted it (typed into the session, or double-clicked it in
+ * the flight deck) closes the view — the glance is over.
+ *
+ * This is where we part company with file editors, which keep the preview tab
+ * until the next preview replaces it. Their preview is a file you can re-open
+ * from a tree in one keystroke; ours is a running agent whose tab, left behind,
+ * reads as part of the working set while being marked as not part of it. One
+ * temporary tab, and only while it is in front of you.
+ *
+ * The next-preview REPLACEMENT path never comes here: it reuses the strip slot
+ * rather than closing it, which is what makes cycling feel like one tab.
+ */
+function retirePreview(ws: WorkspaceLayout, keepTabId: TabId): WorkspaceLayout {
+  const preview = ws.previewTabId
+  if (preview === null || preview === keepTabId) return ws
+  // closeTab clears `previewTabId`, re-homes the pane's active tab and collapses
+  // a pane the retirement emptied — all three are its job, not ours.
+  return closeTab(ws, preview)
+}
+
+/**
  * THE function the flight deck calls.
  *
  * `permanent: false` — the preview open. If the target pane already holds the
  * preview tab, the new tab REPLACES it in the same strip position (that is what
- * makes cycling through sessions feel like one tab); otherwise it is appended.
- * Opening the tab that is already the preview is just an activate, and opening a
- * tab that is already open as a PERMANENT tab activates it and leaves the
- * preview alone — a session you deliberately kept is not silently recycled.
+ * makes cycling through sessions feel like one tab); otherwise it is appended
+ * and any preview living elsewhere is retired. Opening the tab that is already
+ * the preview is just an activate; opening a tab that is already open as a
+ * PERMANENT tab activates it — the kept tab stays kept, and the temporary one
+ * the operator is leaving behind goes.
  *
  * `permanent: true` — promotes in place when the tab IS the preview (no move, so
  * the strip does not jump under the cursor), appends when it is not open, and
- * activates either way.
+ * activates either way; a preview it is landing next to is retired.
  */
 export function openTab(
   ws: WorkspaceLayout,
@@ -258,9 +286,10 @@ export function openTab(
   if (opts.paneId !== undefined && !ws.panes[opts.paneId]) return ws
   const existing = paneOfTab(ws, tabId)
   if (existing) {
+    // Already open: `activateTab` retires the temporary tab this open is walking
+    // away from (none, when the tab being opened IS it), and a permanent open of
+    // the preview itself promotes it.
     const activated = activateTab(ws, tabId)
-    // Already open: a permanent open promotes it, a preview open leaves the
-    // preview flag exactly as it was.
     if (opts.permanent && activated.previewTabId === tabId) {
       return { ...activated, previewTabId: null }
     }
@@ -271,17 +300,23 @@ export function openTab(
   if (!target) return ws
   const previewIndex =
     !opts.permanent && ws.previewTabId !== null ? target.tabs.indexOf(ws.previewTabId) : -1
-  const tabs =
-    previewIndex >= 0
-      ? target.tabs.map((id, index) => (index === previewIndex ? tabId : id))
-      : [...target.tabs, tabId]
-  const next = withPane(ws, { ...target, tabs, activeTabId: tabId })
+  if (previewIndex >= 0) {
+    const tabs = target.tabs.map((id, index) => (index === previewIndex ? tabId : id))
+    const next = withPane(ws, { ...target, tabs, activeTabId: tabId })
+    return { ...next, focusedPaneId: targetId, previewTabId: tabId }
+  }
+  // Appending, so the old preview is one the operator is landing away from: it
+  // goes, which can empty (and collapse) the pane it lived in — hence the fresh
+  // lookup of the pane we are appending to.
+  const base = retirePreview(ws, tabId)
+  const hostId = base.panes[targetId] ? targetId : base.focusedPaneId
+  const host = base.panes[hostId]
+  if (!host) return ws
+  const next = withPane(base, { ...host, tabs: [...host.tabs, tabId], activeTabId: tabId })
   return {
     ...next,
-    focusedPaneId: targetId,
-    // ≤1 preview per workspace: a preview living in ANOTHER pane is not moved or
-    // closed, it simply stops being temporary.
-    previewTabId: opts.permanent ? ws.previewTabId : tabId,
+    focusedPaneId: hostId,
+    previewTabId: opts.permanent ? null : tabId,
   }
 }
 
@@ -292,12 +327,24 @@ export function promoteTab(ws: WorkspaceLayout, tabId: TabId): WorkspaceLayout {
   return { ...ws, previewTabId: null }
 }
 
-/** Make `tabId` the active tab of its pane, and focus that pane. */
-export function activateTab(ws: WorkspaceLayout, tabId: TabId): WorkspaceLayout {
+/** Make `tabId` the active tab of its pane, and focus that pane — the mechanics
+ *  alone, no retirement. A DRAG lands here: rearranging the strip is not walking
+ *  away from the temporary tab, and a reorder that silently closed a neighbour
+ *  is the surprise the "dragging never promotes" rule exists to avoid. */
+function focusTab(ws: WorkspaceLayout, tabId: TabId): WorkspaceLayout {
   const pane = paneOfTab(ws, tabId)
   if (!pane) return ws
   if (pane.activeTabId === tabId && ws.focusedPaneId === pane.id) return ws
   return { ...withPane(ws, { ...pane, activeTabId: tabId }), focusedPaneId: pane.id }
+}
+
+/** Make `tabId` the active tab of its pane, and focus that pane. Arriving from
+ *  ANOTHER tab retires the temporary one being left behind. */
+export function activateTab(ws: WorkspaceLayout, tabId: TabId): WorkspaceLayout {
+  if (!paneOfTab(ws, tabId)) return ws
+  // Re-read inside `focusTab`: closing the old preview can have re-homed its
+  // pane's active tab, or collapsed the pane it lived in entirely.
+  return focusTab(retirePreview(ws, tabId), tabId)
 }
 
 /**
@@ -356,8 +403,8 @@ export function moveTab(
     const rest = from.tabs.filter((id) => id !== tabId)
     const index = Math.max(0, Math.min(Math.trunc(toIndex), rest.length))
     const tabs = [...rest.slice(0, index), tabId, ...rest.slice(index)]
-    if (tabs.every((id, i) => id === from.tabs[i])) return activateTab(ws, tabId)
-    return activateTab(withPane(ws, { ...from, tabs }), tabId)
+    if (tabs.every((id, i) => id === from.tabs[i])) return focusTab(ws, tabId)
+    return focusTab(withPane(ws, { ...from, tabs }), tabId)
   }
   const sourceIndex = from.tabs.indexOf(tabId)
   const sourceTabs = from.tabs.filter((id) => id !== tabId)

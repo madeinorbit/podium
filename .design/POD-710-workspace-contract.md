@@ -33,6 +33,7 @@ Operator decisions already locked in (do not re-litigate):
 | Question | Answer |
 |---|---|
 | What promotes a preview tab? | **Any input into the session** (keystroke / paste / send) **or a double-click in the flight deck.** Nothing else — not scrolling, not merely opening a second tab, not dragging. |
+| What happens to an unpromoted one? | **It is retired the moment you move to another tab** (POD-740 — this row amends the editor behaviour the rest of this document assumed, where the preview lingers until the next one replaces it). Cycling still REPLACES it in place; a drag is arrangement and leaves it alone. |
 | Coming back to a task | **Restore exactly, and survive reload.** |
 | Single click on a *task* row in the deck | **Toggle its fold *and* open a preview tab for its lead session.** |
 | One unit of work in the progress bar | **A task (sub-issue) in the mission.** |
