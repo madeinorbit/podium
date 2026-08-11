@@ -6003,11 +6003,143 @@ a.ref-link--session::before {
   );
 }
 
-/* The mission gauge's markup lives in MissionGauge.tsx and is Tailwind end to
-   end (POD-725 rebuilt it as ONE well — a tinted extent, a 2px datum rule along
-   that extent's floor, and the reading in full-strength ink inside the well).
-   The band-per-state CSS that used to live here — `.gauge-band` with its
-   container rungs, and the denser `.gauge-hatch` its blocked band wore — went
-   with the split readout it drew. `.deck-hatch` above is still live: a blocked
-   task strip in the deck wears it, so "stopped" remains one texture in the app. */
+/* ── THE MISSION GAUGE — "the split readout" (POD-710) ───────────────────────
+   The flight deck's mission bar is a row of bands, one per state, each sized by
+   how many tasks it holds and each carrying its own count INSIDE itself. A band
+   with no work in it is not rendered at all — not a sliver, not a zero — so a
+   one-task mission reads `1 RUNNING` across the whole track and says one thing
+   once. `MissionGauge.tsx` owns the markup and the reasoning.
+
+   THE NARROW LADDER. The deck column is resizable from 300px, so a band running
+   out of room is routine. It sheds the way the command bar sheds (DESIGN.md §5):
+   WORDS BEFORE DATA, DATA BEFORE MATERIAL, NOTHING EVER CLIPPED.
+
+       `4 DONE`  →  `4`  →  bare material (colour / hatch / floor rule)
+
+   Each band is its OWN inline-size container, so the rung is the band's width,
+   not the column's: a wide `6 DONE` can keep its noun while the one-task band
+   beside it is already down to a numeral, which is the honest reading of who
+   has the room.
+
+   The rungs are the text's own measure, checked in a browser: Geist Mono
+   advances 0.6em, so a character at 9px with 0.06em tracking costs ~6px. Each
+   word rung is its label with a single-digit count plus ten of breathing room,
+   of which a second digit spends six; the count's own rung is keyed on how many
+   digits it actually has, so `128` never lands in a box sized for `4`. They are
+   min-width rungs ONLY, so a browser without container queries lands on bare
+   material rather than on clipped text — and the full sentence is on the
+   gauge's aria-label and title at every rung either way. */
+.gauge-band {
+  position: relative;
+  container: gauge-band / inline-size;
+  display: flex;
+  flex: 0 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: flex-grow 0.3s ease-out;
+}
+/* Two devices per band, not one: a 26% tint says roughly how much, a saturated
+   2px rule along the floor says exactly where it ends. That is also what keeps
+   done and running apart in Daylight, where Accent Blue and the working blue
+   sit close enough that hue alone would not carry it. */
+.gauge-band[data-s="done"] {
+  background-color: color-mix(in srgb, var(--success) 26%, transparent);
+  box-shadow: inset 0 -2px 0 var(--success);
+  color: var(--text-strong);
+}
+.gauge-band[data-s="run"] {
+  background-color: color-mix(in srgb, var(--live) 26%, transparent);
+  box-shadow: inset 0 -2px 0 var(--live);
+  color: var(--text-strong);
+}
+/* Blocked's ground is `.gauge-hatch`; its floor rule is the theme's own
+   foreground, never a hue. */
+.gauge-band[data-s="block"] {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--foreground) 34%, transparent);
+  color: var(--text-dim);
+}
+.gauge-band[data-s="wait"] {
+  background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--text-faint);
+}
+/* Over the sweep, never under it. */
+.gauge-band-text {
+  position: relative;
+}
+/* The count is the datum, so it is the loud half of the label: DESIGN.md §3 puts
+   badge counts at 9px/700. Pinned here rather than borrowed from `<b>`'s UA
+   weight. */
+.gauge-band-count {
+  font-weight: 700;
+}
+/* The base state is the LAST rung: material only. Every rung above it is opt-in. */
+.gauge-band-count,
+.gauge-band-word {
+  display: none;
+}
+@container gauge-band (min-width: 8px) {
+  .gauge-band-count[data-w="1"] {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 14px) {
+  .gauge-band-count[data-w="2"] {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 20px) {
+  .gauge-band-count[data-w="3"] {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 46px) {
+  .gauge-band[data-s="done"] .gauge-band-word {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 52px) {
+  .gauge-band[data-s="wait"] .gauge-band-word {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 64px) {
+  .gauge-band[data-s="run"] .gauge-band-word,
+  .gauge-band[data-s="block"] .gauge-band-word {
+    display: inline;
+  }
+}
+/* THE GAUGE'S BLOCKED GROUND (POD-710).
+   The same idea as `.deck-hatch`, and deliberately the same 135° rhythm —
+   "stopped" is ONE texture in this app — one step denser and one step tighter,
+   because the deck strip wears it across a 28px row while the gauge wears it in
+   a 22px band, where a 4/8px 5% hatch resolves to nothing. Still hueless: the
+   theme's own foreground, no warning tone, because blocked work asks the
+   operator for nothing and amber is what asking looks like. */
+.gauge-hatch {
+  background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    color-mix(in srgb, var(--foreground) 13%, transparent) 3px 6px
+  );
+}
+@media (prefers-reduced-motion: reduce) {
+  /* A band resizing is structural motion, but it is still motion. */
+  .gauge-band {
+    transition: none;
+  }
+}
 

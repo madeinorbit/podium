@@ -457,10 +457,13 @@
   --border: #e6e5e0;
   --input: #e2e0d9;
   --ring: #c8990a;
-  /* Superade has no green: success reads in its blue, as in the dark variant,
-     and that blue is the SAME one that means "an agent is working" — one
-     forward-motion hue for the whole theme. */
-  --success: #2a62f0;
+  /* Superade has no green: success reads in its blue, as in the dark variant.
+     TWO blues, though, not one. They were briefly the same value, which broke
+     the mission gauge — its done and running bands sit adjacent in one meter and
+     would have been the identical colour, leaving the counts inside them as the
+     only difference. Royal Blue is the settled state, Accent Blue the moving
+     one; both are already in the brand vocabulary (DESIGN.md §2). */
+  --success: #1d4ed8;
   --warning: #8a6200;
   --live: #2a62f0;
   --info: #2a62f0;
