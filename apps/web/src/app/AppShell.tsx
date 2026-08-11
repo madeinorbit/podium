@@ -264,6 +264,13 @@ function AppBody(): JSX.Element {
       mergeQueue: mergeQueueEnabled,
     })
   const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
+  // What the dock RENDERS, which outlives what the rail says is open: the panel
+  // has to still be there to slide back out under the rail. The column tells us
+  // when that exit is over, so the closed dock holds no live panel (POD-769).
+  const [dockPanel, setDockPanel] = useState<RightPanelTab | null>(visibleRightPanel)
+  useEffect(() => {
+    if (visibleRightPanel) setDockPanel(visibleRightPanel)
+  }, [visibleRightPanel])
 
   const setFlightDeckCollapsed = (collapsed: boolean): void => {
     uiState.set(SUPERAGENT_MODE_KEY, collapsed ? 'folded' : 'open')
@@ -487,7 +494,7 @@ function AppBody(): JSX.Element {
               </div>
             )}
             <MainViewOutlet workspace={<Workspace />} view={baseView} />
-            {workspaceActive && visibleRightPanel && (
+            {workspaceActive && (
               <ResizableColumn
                 storageKey="podium:rightdock:width"
                 min={280}
@@ -495,13 +502,17 @@ function AppBody(): JSX.Element {
                 defaultWidth={316}
                 handleLabel="Resize right dock"
                 handleSide="left"
+                collapsed={!visibleRightPanel}
+                onCollapsed={() => setDockPanel(null)}
                 className="max-w-[45vw]"
               >
                 {/* No issue tint: the dock is a dark default surface (POD-516
                   item 9) — see `.right-dock-shell` in styles.css. */}
-                <aside className="right-dock-shell">
-                  <RightDock tab={visibleRightPanel} onClose={() => setRightPanel(null)} />
-                </aside>
+                {dockPanel && (
+                  <aside className="right-dock-shell">
+                    <RightDock tab={dockPanel} onClose={() => setRightPanel(null)} />
+                  </aside>
+                )}
               </ResizableColumn>
             )}
             {workspaceActive && (
