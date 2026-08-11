@@ -1393,13 +1393,19 @@ html[data-density="balanced"] .header-quota-pools {
    was the one that looked least like Podium. This is that surface built out of
    the shell's own parts:
 
-     · THE FIELD IS A WELL. The command bar's signature control at full width.
-       Its floor is `--bar`, the darkest tier — a groove is a per-ground call
-       (DESIGN §"The Wells"), and on `--chip`, the LIGHTEST tier, a recess has
-       to go down in tone, not up the way it does on the near-black bar.
-     · THE SELECTED ROW IS THE WELL'S RAISED CELL. The same bevel the active
-       mode tab wears, from the same `--well-cell-*` tokens, so it flips with
-       the ground for free.
+     · THE FIELD IS A WELL. The command bar's signature control at full width,
+       down to its recipe: `--well-floor` under the same three insets
+       `.topbar-well` wears. The floor is the TOKEN and never a tier name — POD-737
+       lifted the bar off the deepest tier in both grounds, so which direction a
+       groove cuts is a per-ground call the `--well-*` values already carry. A
+       literal `--bar` here was right for one week and wrong the moment the
+       chassis changed.
+     · THE SELECTED ROW IS A RAISED CELL on `--secondary` — the same fill the
+       active mode tab takes, under the `--well-cell-*` bevel. Not `--well-cell`
+       itself: on paper that token resolves to `--card`, which is correct for a
+       cell sitting in the BAR and invisible here, where the panel is already
+       white. The bevel flips with the ground; the fill has to differ from the
+       surface it sits on, and only `--secondary` does that in both.
      · GROUPS SPEAK MONO. Section labels are the Label role — the same voice the
        overlay menus and the colour picker name their regions in.
      · ONE YELLOW THING. `.cmdk-row-cap` marks what Enter will do, on the row it
@@ -1410,12 +1416,13 @@ html[data-density="balanced"] .header-quota-pools {
    patched: `top`, `transform`, `padding`, `gap`, `display` and `max-width` all
    have a utility to beat.
    ───────────────────────────────────────────────────────────────────────────*/
-.cmdk-scrim {
-  /* One step deeper than the shared 10% backdrop. The palette takes the whole
-     window's attention for the two seconds it is open; the dialogs that share
-     the default are inspectors you read the page around. */
-  background: rgb(0 0 0 / 0.3);
-}
+/* The palette keeps the SHARED backdrop rather than inventing a deeper one.
+   A literal black scrim was one step darker on the old navy chassis and simply
+   wrong on Paper — "black at 0.85 on paper reads as dirt, not depth" is the
+   light theme's founding rule, and there is no scrim TOKEN to deepen it with.
+   A color-mix over --carve-popover-* would theme correctly and collapse to an
+   opaque black wall on the Lightning CSS fallback path the well tokens already
+   document. The blur plus the popover lift separate the palette; that is enough. */
 .cmdk-panel {
   top: 13vh;
   left: 50%;
@@ -1479,10 +1486,12 @@ html[data-density="balanced"] .header-quota-pools {
   height: 46px;
   margin: 7px 7px 0;
   padding: 0 13px;
-  border-radius: 8px;
-  background: var(--bar);
+  /* `--radius-composer` by name: this is the field you type into, which is the
+     role that radius was cut for. */
+  border-radius: var(--radius-composer);
+  background: var(--well-floor);
   box-shadow:
-    inset 0 1px 2px var(--well-lip),
+    inset 0 1px 1px var(--well-lip),
     inset 0 0 0 1px var(--well-rim),
     inset 0 -1px 0 var(--well-lit);
 }
@@ -1497,12 +1506,14 @@ html[data-density="balanced"] .header-quota-pools {
   background: transparent;
   color: var(--text-strong);
   font-family: inherit;
-  font-size: 14.5px;
+  /* The reading role, by name — so the field tracks compact density instead of
+     staying 14.5px while every row around it shrinks. */
+  font-size: var(--shell-type-reading);
   letter-spacing: -0.005em;
   outline: none;
 }
 .cmdk-input::placeholder {
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 /* Gated on a search actually being in flight — the same predicate the agent
    spinner runs on, which is what licenses motion here at all (DESIGN §5). */
@@ -1545,7 +1556,7 @@ html[data-density="balanced"] .header-quota-pools {
 .cmdk-group-count {
   margin-left: auto;
   flex: none;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
@@ -1563,11 +1574,19 @@ html[data-density="balanced"] .header-quota-pools {
   cursor: pointer;
   text-align: left;
 }
+/* The pressable contract brightens anything carrying aria-selected / data-active
+   by 8%, and `.topbar-mode` already opts out for exactly this reason: it is the
+   right reflex for a glyph button and wrong for a control whose fill IS a
+   specified tone. Here it would also have lifted the ↵ cap's Superade Yellow
+   off spec — the one colour in the surface allowed to be exact. */
+.cmdk-row {
+  filter: none;
+}
 .cmdk-row:hover {
   background: var(--well-hover);
 }
 .cmdk-row[data-active] {
-  background: var(--well-cell);
+  background: var(--secondary);
   box-shadow:
     inset 0 1px 0 var(--well-cell-lit),
     inset 0 0 0 1px var(--well-cell-lip);
@@ -1591,13 +1610,10 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .cmdk-row-ref {
   flex: none;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-size: 9px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-}
-.cmdk-row[data-active] .cmdk-row-ref {
-  color: var(--muted-foreground);
 }
 .cmdk-row-title {
   min-width: 0;
@@ -1614,7 +1630,7 @@ html[data-density="balanced"] .header-quota-pools {
   max-width: 40%;
   flex: none;
   overflow: hidden;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-family: var(--font-mono);
   font-size: 9px;
   font-variant-numeric: tabular-nums;
@@ -1679,7 +1695,7 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 0 12px;
   border-top: 1px solid var(--hairline-soft);
   background: var(--bar);
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-family: var(--font-mono);
   font-size: 9px;
   font-variant-numeric: tabular-nums;

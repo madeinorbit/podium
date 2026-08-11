@@ -736,7 +736,6 @@ function PaletteDialog({
       <DialogContent
         aria-label="Command palette"
         showCloseButton={false}
-        overlayClassName="cmdk-scrim"
         className="cmdk-panel"
       >
         <DialogTitle className="sr-only">Command palette</DialogTitle>
