@@ -18,7 +18,7 @@ import { Composer } from './Composer'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
 import { SessionActionCard } from './SessionActionCard'
-import { SessionLifecycle } from './SessionLifecycle'
+import { MobileSessionLifecycle } from './SessionLifecycle'
 import { TaskSheet } from './TaskSheet'
 import { type PendingTurn, TranscriptList } from './TranscriptList'
 import { EmptyState } from './ui'
@@ -213,7 +213,7 @@ export function SessionConversation({
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <SessionLifecycle
+      <MobileSessionLifecycle
         session={session}
         hasTranscript={hasTranscript}
         onResume={store.resurrectSession}
