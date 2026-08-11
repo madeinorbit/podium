@@ -493,6 +493,10 @@ export class SessionLifecycle {
   terminalProofStatus(sessionId: SessionId): TerminalProofStatus {
     return this.terminalProof.proofStatus(sessionId)
   }
+  /** Age-backstop park for a session quiet past its deadline [POD-1884]. */
+  parkStaleSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string } {
+    return this.sessionTeardown.parkStaleSession(input)
+  }
   /** Park a live session: kill process, keep row/transcript/resume ref. */
   hibernateSession(input: { sessionId: SessionId; requireTerminalProof?: boolean }): {
     ok: boolean
