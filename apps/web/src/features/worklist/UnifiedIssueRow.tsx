@@ -425,7 +425,13 @@ export function UnifiedIssueRow({
                 internal
               </span>
             )}
-            {!draftAgentOnly && <FleetSummary sessions={fleetSessions} unread={unread} />}
+            {/* One rule, no exceptions: an agent on this issue or anywhere in its
+                subtree shows here. Drafts used to be carved out on the grounds
+                that their row already WAS the agent — true when the sidebar was
+                the only column, but the Flight Deck owns the tree now and the
+                draft row kept nothing but an issue square, so the one row that
+                is purely an agent was the one row that never named one. */}
+            <FleetSummary sessions={fleetSessions} unread={unread} />
             {issue.pinned && (
               <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}

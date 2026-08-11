@@ -84,6 +84,7 @@ vi.mock('@/app/store', () => {
       },
       sess('s-parent', 'parent', 'idle'),
       sess('s-child', 'child', 'idle'),
+      { ...sess('s-draft', 'draft', 'working'), name: 'Push the commits' },
     ],
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
@@ -134,6 +135,8 @@ vi.mock('@/app/store', () => {
       issue('review-only', 'Review without branch', { stage: 'review' }),
       issue('parent', 'Nested parent', { childCount: 1, color: 'pink' }),
       issue('child', 'Nested child', { parentId: 'parent', audience: 'agent' }),
+      // A draft vessel: no title of its own, no worktree, one agent inside it.
+      issue('draft', 'Draft', { draft: true }),
     ],
     trpc: {
       settings: {
@@ -189,7 +192,7 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(groups).toHaveLength(1)
     // Repo name, then the group's size pushed to the right edge (POD-725).
     expect(groups[0]?.firstElementChild?.textContent).toBe('repo')
-    expect(groups[0]?.querySelector('[data-testid="project-group-count"]')?.textContent).toBe('7')
+    expect(groups[0]?.querySelector('[data-testid="project-group-count"]')?.textContent).toBe('8')
     // Both issues render exactly once, inside the group.
     expect(screen.getAllByText('Fully working issue')).toHaveLength(1)
     expect(screen.getAllByText('Partly working issue')).toHaveLength(1)
@@ -292,6 +295,22 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(fleet.getAttribute('aria-label')).toBe('2 live agents')
     expect(fleet.querySelectorAll('[data-agent-kind]')).toHaveLength(1)
     expect(fleet.querySelector('[data-testid="issue-fleet-total"]')?.textContent).toBe('2')
+  })
+
+  // POD-741: the fleet stack has ONE rule — an agent on the issue or anywhere in
+  // its subtree shows. A draft vessel used to be the exception, which left the
+  // row that is nothing but an agent as the only row that never named one.
+  it('stacks the agent on a draft vessel row too', () => {
+    render(<SidebarUnified />)
+    const draftRow = screen
+      .getByText('Push the commits')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    const fleet = draftRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
+    expect(fleet).toBeTruthy()
+    expect(fleet.getAttribute('aria-label')).toBe('1 live agent')
+    expect(fleet.querySelector('[data-agent-kind="claude-code"]')).toBeTruthy()
+    // A lone agent shows its tile and no total — the number would say nothing.
+    expect(fleet.querySelector('[data-testid="issue-fleet-total"]')).toBeNull()
   })
 
   it('shows unmerged done work as a tint-only branch attention chip', () => {
