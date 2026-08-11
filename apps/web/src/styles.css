@@ -2297,10 +2297,14 @@ html[data-density="balanced"] .header-quota-pools {
    alignment without visual noise.
    ─────────────────────────────────────────────────────────────────────────── */
 
-/* 8px each side = the design's 16px block gap between two adjacent blocks,
-   which is the beat the document is set on. It was 12/12: a 24px gap read as
-   air between separate messages rather than as paragraph spacing inside one
-   answer, which is what these rows usually are.
+/* THE BEAT. 11px each side = a 22px gap between two adjacent blocks, which is
+   the rhythm the document is set on. It has been 12 (24px, read as air between
+   separate messages rather than as spacing inside one answer) and then 8 (16px,
+   which at the restored 13.5/23 narration was under a line of leading and let
+   consecutive blocks run together into one slab). 22px is a line of the document
+   plus its own paragraph space: adjacent blocks separate without the exchange
+   losing its grouping, and it still leaves the `open` seam room to be visibly
+   larger than it.
 
    THE PANE IS THE MEASURE (POD-747). There used to be two nested caps here — a
    44em one on the row and a 62ch one on the prose inside it — and the result was
@@ -2319,8 +2323,8 @@ html[data-density="balanced"] .header-quota-pools {
   display: flex;
   flex-direction: row;
   gap: 0;
-  padding-top: 8px;
-  padding-bottom: 8px;
+  padding-top: 11px;
+  padding-bottom: 11px;
 }
 
 /* Flat Field (POD-159): the rails are gone — agent output lies flat on the
@@ -2362,7 +2366,7 @@ html[data-density="balanced"] .header-quota-pools {
 .transcript-you {
   --transcript-ground: var(--card);
   --transcript-you-bg: var(--transcript-ground);
-  padding-bottom: 16px;
+  padding-bottom: 19px;
   border-bottom: 1px solid var(--hairline-soft);
 }
 .transcript-you .chat-md {
@@ -2388,94 +2392,21 @@ html[data-density="balanced"] .header-quota-pools {
   margin-bottom: 9px;
 }
 
-/* The pinned request becomes a context shelf — but a SHELF, not a two-line
-   stub. The collapsed cap was 2.95em, which against the brief's own 22.95px
-   line is one line and three quarters: a two-line prompt arrived pre-truncated,
-   faded out mid-sentence, with a "Read more" for the four words it was hiding
-   (POD-747). Nothing was gained by that — a brief is one to three lines in the
-   overwhelming case, and the clamp exists to stop a PASTED wall of text
-   blanketing the answer while it is pinned, not to shorten ordinary typing.
+/* THE BRIEF IS NEVER CUT (POD-747). There was a clamp here — 2.95em, one line
+   and three quarters of the brief's own 22.95px setting — so a two-line prompt
+   arrived pre-truncated behind a fade with a "Read more" for the four words it
+   was hiding. Raising the cap only moves the line at which the same thing
+   happens, so there is no cap: a brief is the one thing in the feed the reader
+   wrote themselves, and hiding part of it to buy space in their own conversation
+   was never a trade worth making. The ellipsis, the fade, the toggle and the
+   height math all went with it, and the class is a plain wrapper now.
 
-   So the cap is whichever is larger: five lines of the brief's own setting, or
-   a quarter of the chat viewport. Every ordinary prompt now renders whole and
-   shows no control at all; only a genuinely long one clamps, and then the fade
-   and the toggle are telling the truth about something worth expanding. Both
-   terms are stable while the pane is, which is what the sticky pin needs — the
-   row must not change height as it sticks and unsticks. */
-.transcript-you-clamp {
-  --transcript-prompt-chrome: 66px;
-  /* 13.5px × 1.7, the brief's line box. Stated so the cap moves if the type does. */
-  --transcript-brief-line: 22.95px;
-}
-.transcript-you-clamp[data-clamped="true"] {
-  position: relative;
-  overflow: hidden;
-  max-height: max(
-    calc(var(--transcript-brief-line) * 5),
-    calc(var(--chat-viewport-h, 100dvh) * 0.25)
-  );
-}
-/* Expanded is bounded too, and scrolls inside itself. A prompt taller than the
-   scrollport cannot pin its top — it scrolls away with the content, taking the
-   "Show less" control with it and leaving the reader walled in exactly as
-   before. Three fifths keeps the row pinnable, so the control stays reachable
-   and the conversation stays visible underneath. */
-.transcript-you-clamp:not([data-clamped="true"]) {
-  overflow-y: auto;
-  max-height: max(
-    8rem,
-    calc(var(--chat-viewport-h, 100dvh) * 0.6 - var(--transcript-prompt-chrome))
-  );
-}
-/* Mark the cut with an ellipsis over a fade into the panel, so the clamp reads
-   as "there is more" and never as a message that ends mid-sentence.
-   Keyed on `data-cut`, NOT on `data-clamped` (POD-376): the cap is applied to
-   every collapsed prompt to hold the row's height steady as it sticks, but only
-   a prompt that is genuinely hiding something may be faded — and that is the
-   same verdict that renders the "Read more" toggle. The two cannot disagree,
-   which is what produced a greyed-out last line with no way to reveal it. */
-.transcript-you-clamp[data-cut="true"]::after {
-  content: "…";
-  display: flex;
-  align-items: flex-end;
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  /* Two lines tall and opaque by two thirds of the way down (POD-747). The cap
-     is a fraction of the viewport, so the cut almost never lands on a line
-     boundary — at 34px with a gradient that only reached the ground at its very
-     bottom, the ascenders of the clipped line showed through as a ghost rule
-     across the whole column. It has to be tall enough to swallow a full line
-     and solid before it gets there. */
-  height: 46px;
-  pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--transcript-you-bg) 62%);
-  color: var(--muted-foreground);
-  font-size: 15px;
-  line-height: 1;
-}
-/* The expand control rides in the label row: an expanded prompt runs taller
-   than the viewport, so a control under the text would be out of reach exactly
-   when the reader wants to collapse it again. */
-.transcript-you-more {
-  margin-left: auto;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: var(--muted-foreground);
-  transition: color 120ms ease;
-}
-.transcript-you-more:hover {
-  color: var(--text-strong, var(--foreground));
-}
-@media (prefers-reduced-motion: reduce) {
-  .transcript-you-more {
-    transition: none;
-  }
-}
+   Nor is there a scroll bound, which was the next thing tried: a brief sliced
+   off mid-sentence at the edge of a scroll box reads as truncated whatever the
+   scrollbar says, and it takes the hairline that ends the brief out of view with
+   it. What the cap was protecting — a pasted wall of text blanketing the feed
+   while it is pinned — is handled in ChatBlockView instead, by NOT PINNING a
+   brief too tall to pin. See `usePinnable`. */
 
 /* The final answer is a typographic step, not an attention state. Yellow is
    withheld until the operator is actually asked to act. */
@@ -3686,9 +3617,14 @@ html[data-density="balanced"] .header-quota-pools {
    Which row is which is decided in TranscriptFeed, where the whole sequence is
    visible. Margin, not padding, on the opener: the prompt row is `position:
    sticky` and its offset is measured from its border box, so spacing it this
-   way cannot move where it pins. */
+   way cannot move where it pins.
+
+   The seam has to stay visibly larger than the beat or the structure collapses
+   into one uniform gap, which is the state this replaced. At an 11px beat that
+   makes the exchange seam 22 + 34 = 56px against 22px between blocks inside one
+   — a ratio a reader resolves at a glance, without a rule or a box (POD-747). */
 .transcript-turn-open {
-  margin-top: 22px;
+  margin-top: 34px;
 }
 .transcript-turn-bind {
   padding-top: 2px;
@@ -3753,7 +3689,7 @@ html[data-density="balanced"] .header-quota-pools {
   justify-content: flex-end;
 }
 .transcript-cold-turn + .transcript-cold-turn {
-  margin-top: 22px; /* `.transcript-turn-open`'s own seam. */
+  margin-top: 34px; /* `.transcript-turn-open`'s own seam. */
 }
 /* The mono label above each half of the exchange, at the real label's box and
    its Muted ink. */

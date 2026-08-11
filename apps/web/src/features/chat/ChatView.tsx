@@ -8,8 +8,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useReplicaIssues } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { ChatComposer } from './ChatComposer'
-import { isChatInteractable } from './chat-interactable'
 import { ChatRail } from './ChatRail'
+import { isChatInteractable } from './chat-interactable'
 import { ImageLightbox } from './ImageLightbox'
 import { OpenTodosNotice, stoppedWithOpenTodos, useIssueTodos } from './TodoBridge'
 import { TranscriptFeed } from './TranscriptFeed'
@@ -178,11 +178,11 @@ export function ChatView({
     working: chat.activity?.tone === 'working',
   })
 
-  // Publish the scroller's own height so a sticky operator prompt can cap
-  // itself at a fraction of the chat viewport in CSS (POD-1368 — the clamp
-  // itself is `.transcript-you-clamp` in styles.css, driven by ChatBlockView).
-  // Setting a custom property here is loop-safe: the scroller is sized by its
-  // flex parent, so nothing it publishes can feed back into its own box.
+  // Publish the scroller's own height so an operator prompt can decide whether
+  // it is short enough to take the sticky pin (POD-1368; `usePinnable` in
+  // ChatBlockView reads this off the inherited custom property). Setting one
+  // here is loop-safe: the scroller is sized by its flex parent, so nothing it
+  // publishes can feed back into its own box.
   const { scrollerRef } = chat
   useEffect(() => {
     const el = scrollerRef.current
