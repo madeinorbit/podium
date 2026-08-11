@@ -116,6 +116,34 @@ persistent sink's threshold still exist in the buffer — that is the point:
 `debug`/`trace` context is available for the minute that mattered, paid for
 only in memory, and shipped only when a crash event fires.
 
+### Emission gate (addendum, ratified during chunk 1)
+
+A record is constructed and dispatched when **any registered sink would
+accept it** — the loosest threshold wins. The namespace/global level is not
+an emission gate; it configures the sinks that follow config.
+
+This is what makes "the ring buffer keeps every level, always" literally
+true: with a buffer registered at `trace`, `debug` records still reach it
+while the console sits at `warn`. The consequence, which downstream chunks
+inherit: `PODIUM_LOG_LEVEL` and `PODIUM_LOG` steer the console/file/forward
+sinks and never quieten the flight recorder. They are verbosity controls,
+not a global mute.
+
+Cost follows from this: call sites materialise a record whenever the buffer
+is registered. Hot paths (daemon PTY frames, feed rebuilds) must therefore
+guard `trace`/`debug` calls with the logger's level predicate rather than
+assume the level check is free.
+
+### Browser entrypoint constraint (addendum, ratified during chunk 1)
+
+`@podium/logger` is a declared browser entrypoint in the architecture
+manifest, and its tsconfig extends `dom.json` rather than `node.json` so
+`process` stays untyped (env reads go through `globalThis` with an explicit
+cast). All Node-only sinks — file, rotation, stdout — must therefore live
+behind the `./node` subpath. Importing them from the barrel is what
+`scripts/audit-browser-reach.ts` exists to refuse; this is a hard
+constraint, not a style preference.
+
 ### Storage and rotation
 
 - **Detached mode:** file sink writes NDJSON to `~/.podium/logs/<role>.ndjson`

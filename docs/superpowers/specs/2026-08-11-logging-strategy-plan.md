@@ -44,8 +44,14 @@ tripping browser-reach audit, `bun run test` green.
 ## Chunk 2 — Server sinks, rotation, and adoption
 
 **Blockers:** chunk 1.
-**Scope:** Node/Bun-only sinks in a `@podium/logger/node` subpath (keeps the
-root browser-safe), plus adoption in the server-family processes.
+**Scope:** Node/Bun-only sinks in a `@podium/logger/node` subpath, plus
+adoption in the server-family processes.
+
+The subpath is a hard constraint, not a style choice: chunk 1 registered
+`@podium/logger` as a declared browser entrypoint whose tsconfig extends
+`dom.json`, so a Node-only import reachable from the barrel is exactly what
+`scripts/audit-browser-reach.ts` refuses. See the browser-entrypoint
+addendum in the design spec.
 
 - **File sink:** NDJSON to `~/.podium/logs/<role>.ndjson` (via existing
   `logDir()` in `packages/runtime/src/run-registry.ts`), size-based rotation
