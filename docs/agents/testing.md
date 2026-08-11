@@ -8,10 +8,10 @@ accumulate overlapping lanes merely to say more commands were run.
 
 At the end of an ordinary runtime-affecting task, run:
 
-    bun run test:agent
+    bun run test
 
-This is the lean confidence gate. It runs four exact hermetic boot/configuration files with one
-worker:
+This is the lean confidence gate. It runs cached, lock-free typecheck, then four exact hermetic
+boot/configuration files with one worker:
 
 | Test file | What it cheaply protects |
 | --- | --- |
@@ -20,14 +20,14 @@ worker:
 | `apps/daemon/src/connection-state.test.ts` | Daemon connection-state startup contract |
 | `scripts/test-configuration.test.ts` | Lane membership, exclusions, hermetic setup, and the lean gate's own composition |
 
-It does not run typecheck, the package sweep, repository rewrite audits, real processes, PTYs,
-ports, browsers, performance probes, or agent CLIs. It deliberately does not enter the shared
-validation queue: this bounded one-worker probe must not wait behind or delay heavyweight suites.
+It does not run the package sweep, repository rewrite audits, real processes, PTYs,
+ports, browsers, performance probes, or agent CLIs. It deliberately does not take `test:heavy`: this bounded one-worker probe neither waits behind
+nor delays heavyweight suites.
 Docs, copy, fonts, formatting, and generated artifacts may skip it when they cannot affect
 runtime; say so in the handoff.
 
 Only add a specialized lane when the diff matches a trigger below. If that specialized lane
-already proves the relevant basic wiring, use it instead of `test:agent`; otherwise run the
+already proves the relevant basic wiring, use it instead of `test`; otherwise run the
 two commands once each, sequentially, at the end. “More confidence” without a concrete risk
 is not a reason to add a lane.
 
@@ -37,11 +37,12 @@ is not a reason to add a lane.
 
 | Command | Tests live in / selection rule | Also executed by | Run when |
 | --- | --- | --- | --- |
-| `bun run test:agent` | The four exact files above via the `node` project in `vitest.unit.config.ts` | No parent command; lock-free | Default end-of-task gate for ordinary runtime code |
-| `bun run test` | Package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, and `scripts/*`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts` | `test:unit`; `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
-| `bun run test:unit` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer `test` when a full sweep is intentionally required |
-| `bun run test:web` | `apps/web/**/*.{test,spec}.*` through `apps/web/vitest.config.ts` | `test:cached`; full `test` | A broad web package change where a few exact tests cannot represent the risk |
-| `bun run test:mobile` | `apps/mobile/**/*.{test,spec}.*` through `apps/mobile/vitest.config.ts` | `test:cached`; full `test` | A broad mobile package change |
+| `bun run test` | Cached lock-free workspace typecheck, then the four exact files above via the `node` project in `vitest.unit.config.ts` | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
+| `bun run test:agent` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer the conventional `bun run test` |
+| `bun run test:full` | Cached lock-free typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, and `scripts/*`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts` | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
+| `bun run test:unit` | The exhaustive package sweep without the leading typecheck | `test:full` tail | Compatibility/diagnosis only; prefer `test:full` when a full sweep is intentionally required |
+| `bun run test:web` | `apps/web/**/*.{test,spec}.*` through `apps/web/vitest.config.ts` | `test:cached`; full `test:full` | A broad web package change where a few exact tests cannot represent the risk |
+| `bun run test:mobile` | `apps/mobile/**/*.{test,spec}.*` through `apps/mobile/vitest.config.ts` | `test:cached`; full `test:full` | A broad mobile package change |
 | `bun run test:cached` | The web and mobile package tasks above | No parent command | A deliberately cross-client change; never as generic confidence |
 | `bun run test:affected` | Turbo package tasks for changed package sources and dependents; root/process files are uncovered | No parent command | Optional package-wide checkpoint when the selected set is known to be useful; not a mandatory agent gate |
 | `bun run test:related -- <files>` | Unit tests reachable in Vitest's import graph from the named files; root `node` and `normalized-wire` projects | No parent command | A regression needs exact unit evidence or the user explicitly asks for focused tests |
@@ -52,15 +53,15 @@ is not a reason to add a lane.
 ### Server package shards
 
 The generated `apps/server/test-shards.json` is the authoritative file roster. Each shard is
-independently Turbo-cached inside the server aggregate used by `bun run test`.
+independently Turbo-cached inside the server aggregate used by `bun run test:full`.
 
 | Command | Tests live in / config | Also executed by | Run when |
 | --- | --- | --- | --- |
-| `bun run --cwd apps/server test:contracts` | Generated contracts roster; `apps/server/vitest.contracts.config.ts` | Server aggregate → full `test` | Request/response contracts, schemas, command parsing, validation |
-| `bun run --cwd apps/server test:store` | Generated store roster; `apps/server/vitest.store.config.ts` | Server aggregate → full `test` | Database access, migrations, repositories, durable state |
-| `bun run --cwd apps/server test:services` | Generated services roster; `apps/server/vitest.services.config.ts` | Server aggregate → full `test` | Server service logic without a real process boundary |
-| `bun run --cwd apps/server test:boundary` | Generated boundary roster; `apps/server/vitest.boundary.config.ts` | Server aggregate → full `test` | Routers, auth boundaries, external-facing composition |
-| `bun run --cwd apps/server test:normalized-wire` | Generated normalized-wire roster; `apps/server/vitest.normalized-wire.config.ts` | Server aggregate → full `test` | Normalized wire encoding and its bounded benchmark guard |
+| `bun run --cwd apps/server test:contracts` | Generated contracts roster; `apps/server/vitest.contracts.config.ts` | Server aggregate → full `test:full` | Request/response contracts, schemas, command parsing, validation |
+| `bun run --cwd apps/server test:store` | Generated store roster; `apps/server/vitest.store.config.ts` | Server aggregate → full `test:full` | Database access, migrations, repositories, durable state |
+| `bun run --cwd apps/server test:services` | Generated services roster; `apps/server/vitest.services.config.ts` | Server aggregate → full `test:full` | Server service logic without a real process boundary |
+| `bun run --cwd apps/server test:boundary` | Generated boundary roster; `apps/server/vitest.boundary.config.ts` | Server aggregate → full `test:full` | Routers, auth boundaries, external-facing composition |
+| `bun run --cwd apps/server test:normalized-wire` | Generated normalized-wire roster; `apps/server/vitest.normalized-wire.config.ts` | Server aggregate → full `test:full` | Normalized wire encoding and its bounded benchmark guard |
 | `bun run --cwd apps/server test:unsharded` | Old whole-package configs | No parent command | Diagnose a suspected shard/configuration discrepancy only |
 
 ### Explicit process, browser, rewrite, and performance lanes
@@ -80,7 +81,7 @@ independently Turbo-cached inside the server aggregate used by `bun run test`.
 | `bun run test:perf:frontend` | Frontend large-state benchmark in `apps/web/vitest.frontend-perf.config.ts` | CI unit job | Large-state rendering/projection work or scheduled performance monitoring |
 | `bun run test:perf:sync` | Sync scaling benchmark in `packages/sync/vitest.perf.config.ts` | No parent command | Explicit sync scaling investigation on a bounded/dedicated host; deliberately quadratic |
 | `bun run perf:typing` | `tests/e2e/typing-latency-bench.ts` against a live environment | No parent command | Typing/terminal latency work only |
-| `bun run oracle` | Sequential `typecheck`, full `test`, `test:integration`, `test:e2e`, `test:multi-instance` from `scripts/oracle.ts` | No parent command | Rewrite phase boundary, release candidate, or explicit request; never a normal merge gate |
+| `bun run oracle` | Sequential full `test:full`, `test:integration`, `test:e2e`, `test:multi-instance` from `scripts/oracle.ts` | No parent command | Rewrite phase boundary, release candidate, or explicit request; never a normal merge gate |
 
 Files named `*.bench.test.ts` are excluded from generic package-owned and root node-unit
 collection. A dedicated project may explicitly re-add a bounded guard such as the server's
@@ -182,7 +183,7 @@ interrupted process still has the 30-minute TTL as the recovery path.
 
 Automatic heavy/watch lease acquisition is identity-gated on `PODIUM_SESSION_ID`. CI and
 other non-session runs retain the safe worker default but do not serialize against live sessions;
-a dedicated host can opt out explicitly with `PODIUM_TEST_WORKERS=auto bun run test`.
+a dedicated host can opt out explicitly with `PODIUM_TEST_WORKERS=auto bun run test:full`.
 
 A human running validation in a terminal without `PODIUM_SESSION_ID` takes no automatic
 budget lease and can still collide with an agent run. On the shared host, run validation

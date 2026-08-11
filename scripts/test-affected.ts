@@ -26,7 +26,7 @@
  *      so a dangling node_modules/@podium can't serve a stale cached green (POD-1343).
  *
  * This lane is a fast approximation for the inner loop. It does NOT replace
- * `bun run test` before a commit. See AGENTS.md "Affected-only tests".
+ * `bun run test:full` before a deliberately exhaustive check. See AGENTS.md "Affected-only tests".
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -311,7 +311,7 @@ async function main() {
   )
   console.error('\nthis lane does NOT run, at any time:')
   for (const lane of NOT_COVERED) console.error(`  ${lane}`)
-  console.error('run `bun run test` before you commit.\n')
+  console.error('run `bun run test:full` when an exhaustive sweep is required.\n')
 
   if (uncovered.length > 0 && !allowUncovered) {
     console.error(
@@ -322,7 +322,7 @@ async function main() {
     if (uncovered.length > 25) console.error(`  … and ${uncovered.length - 25} more`)
     console.error(
       '\nRun the full lane instead:\n' +
-        '  bun run test\n\n' +
+        '  bun run test:full\n\n' +
         'or, once you have run it yourself and want the fast loop back:\n' +
         '  bun run test:affected -- --allow-uncovered',
     )

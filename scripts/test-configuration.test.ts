@@ -380,13 +380,15 @@ describe('test lane configuration', () => {
     expect(sync.scripts['test:perf:apply-scaling']).toContain('validation-admission.ts heavy')
   })
 
-  it('routes the default unit lane through cached package tasks', () => {
+  it('keeps the conventional default lean and the exhaustive lane explicit', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
-    expect(pkg.scripts.test).toBe('bun run typecheck && bun scripts/test.ts')
+    expect(pkg.scripts.test).toContain('bun run typecheck &&')
+    expect(pkg.scripts['test:agent']).toBe('bun run test')
+    expect(pkg.scripts['test:full']).toBe('bun run typecheck && bun scripts/test.ts')
     expect(pkg.scripts['test:unit']).toBe('bun scripts/test.ts')
-    expect(pkg.scripts.test).not.toContain('vitest.unit.config.ts')
+    expect(pkg.scripts.test).toContain('vitest.unit.config.ts')
     expect(pkg.scripts.test).not.toContain('test:web')
     expect(pkg.scripts.test).not.toContain('test:bun:unit')
     expect(pkg.scripts.test).not.toContain('test:integration')
@@ -410,15 +412,15 @@ describe('test lane configuration', () => {
     }
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
-    expect(pkg.scripts['test:agent']).toContain('bun run typecheck &&')
+    expect(pkg.scripts.test).toContain('bun run typecheck &&')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
-    expect(pkg.scripts['test:agent']).toContain('--maxWorkers=1')
-    expect(pkg.scripts['test:agent']).not.toContain('validation-admission.ts')
-    expect(pkg.scripts['test:agent']).toContain('packages/runtime/src/boot.test.ts')
-    expect(pkg.scripts['test:agent']).toContain('apps/server/src/router.setup.test.ts')
-    expect(pkg.scripts['test:agent']).toContain('apps/daemon/src/connection-state.test.ts')
-    expect(pkg.scripts['test:agent']).toContain('scripts/test-configuration.test.ts')
-    expect(pkg.scripts['test:agent']).not.toContain('scripts/test.ts')
+    expect(pkg.scripts.test).toContain('--maxWorkers=1')
+    expect(pkg.scripts.test).not.toContain('validation-admission.ts')
+    expect(pkg.scripts.test).toContain('packages/runtime/src/boot.test.ts')
+    expect(pkg.scripts.test).toContain('apps/server/src/router.setup.test.ts')
+    expect(pkg.scripts.test).toContain('apps/daemon/src/connection-state.test.ts')
+    expect(pkg.scripts.test).toContain('scripts/test-configuration.test.ts')
+    expect(pkg.scripts.test).not.toContain('scripts/test.ts')
   })
 
   it('keeps rewrite migration tests out of routine package validation', () => {
