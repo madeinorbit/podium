@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decideForce, fingerprint } from './typecheck'
+import { assessWorkspaceLinks, decideForce, fingerprint } from './typecheck'
 
 describe('decideForce', () => {
   it('plain run forwards args untouched and stays cached', () => {
@@ -77,5 +77,25 @@ describe('fingerprint', () => {
 
   it('is stable for identical environments', () => {
     expect(fingerprint({ ...base })).toBe(fingerprint(base))
+  })
+})
+
+describe('assessWorkspaceLinks', () => {
+  it('allows stale links for deleted workspaces when healthy links remain', () => {
+    expect(
+      assessWorkspaceLinks(['model:packages/model', 'domain!DANGLING', 'agent-bridge!DANGLING']),
+    ).toEqual({
+      healthy: ['model:packages/model'],
+      dangling: ['domain!DANGLING', 'agent-bridge!DANGLING'],
+      external: [],
+      error: null,
+    })
+  })
+
+  it('refuses an uninstalled checkout and external workspace targets', () => {
+    expect(assessWorkspaceLinks(['domain!DANGLING']).error).toContain('no usable')
+    expect(assessWorkspaceLinks(['model:packages/model', 'runtime!EXTERNAL']).error).toContain(
+      'outside this checkout',
+    )
   })
 })

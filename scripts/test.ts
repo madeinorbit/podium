@@ -25,7 +25,7 @@
  */
 import { join } from 'node:path'
 import { runWithHeavyTestLease } from './test-heavy'
-import { decideForce, readCensus, turboEnv } from './typecheck'
+import { assessWorkspaceLinks, decideForce, readCensus, turboEnv } from './typecheck'
 
 const REFUSAL = `\
 uncached test run refused.
@@ -91,13 +91,11 @@ export function decideTestAdmission(argv: string[]): {
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
-  const healthy = census.links.filter((l) => !l.includes('!'))
-  const broken = census.links.filter((l) => l.includes('!'))
-  if (healthy.length === 0 || broken.length > 0) {
+  const links = assessWorkspaceLinks(census.links)
+  if (links.error) {
     console.error(
-      'test refused: node_modules/@podium must contain only usable, in-checkout workspace ' +
-        'links; a missing, dangling, or external link makes a cached green unsafe ' +
-        '(POD-1343). Run `bun install` first.',
+      `test refused: ${links.error}; a cached green there would be unsafe (POD-1343). ` +
+        'Run `bun install` first.',
     )
     process.exit(1)
   }

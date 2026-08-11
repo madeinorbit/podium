@@ -31,7 +31,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { readCensus, turboEnv } from './typecheck'
+import { assessWorkspaceLinks, readCensus, turboEnv } from './typecheck'
 
 /** Runs a git command, returning trimmed stdout, or null if git exited non-zero. */
 export type Git = (args: string[]) => string | null
@@ -270,10 +270,10 @@ async function main() {
   }
 
   const census = readCensus(root)
-  if (census.links.filter((l) => !l.endsWith('!DANGLING')).length === 0) {
+  const links = assessWorkspaceLinks(census.links)
+  if (links.error) {
     console.error(
-      'test:affected refused: node_modules/@podium has no usable workspace links — this ' +
-        'checkout is not installed, and a green here would not be evidence (POD-1343). ' +
+      `test:affected refused: ${links.error}; a green there would not be evidence (POD-1343). ` +
         'Run `bun install` first.',
     )
     process.exit(1)
