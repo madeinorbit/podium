@@ -304,10 +304,18 @@ export function MachinesPanel({
   // compared against for the "update available" badge [POD-838].
   const serverAppVersion = useServerAppVersion(trpc)
   const transferStatus = useServerTransferStatus(trpc)
+  const transferTargetEligibility = new Map(
+    transferStatus.snapshot?.targetEligibility.map((target) => [target.targetMachineId, target]) ?? [],
+  )
   const eligibleTransferTargets = new Set(
-    transferStatus.snapshot?.targetEligibility
+    [...transferTargetEligibility.values()]
       .filter((target) => target.eligible)
-      .map((target) => target.targetMachineId) ?? [],
+      .map((target) => target.targetMachineId),
+  )
+  const unsupportedTransferTargets = new Set(
+    [...transferTargetEligibility.values()]
+      .filter((target) => target.eligible === false && target.reason === 'unsupported')
+      .map((target) => target.targetMachineId),
   )
   const activeTransferMachine =
     machines.find((machine) => machine.id === transferStatus.snapshot?.transfer?.targetMachineId) ??
@@ -492,6 +500,7 @@ export function MachinesPanel({
               onTransferServer={
                 eligibleTransferTargets.has(m.id) ? () => setServerTransferTarget(m) : null
               }
+              serverTransferUnsupported={unsupportedTransferTargets.has(m.id)}
               showOwnershipTransfer={showOwnershipTransfer}
               // Inline "Enable": only on this device's own row, only while it is offline
               // (online means the daemon is already running) [spec:SP-3701].
@@ -942,6 +951,7 @@ function MachineRow({
   hosting = null,
   onFindRepos = null,
   onTransferServer = null,
+  serverTransferUnsupported = false,
   showOwnershipTransfer = false,
   serverAppVersion = null,
   convergence = null,
@@ -958,6 +968,8 @@ function MachineRow({
   onFindRepos?: (() => void) | null
   /** Open the server-transfer confirmation for this online target. */
   onTransferServer?: (() => void) | null
+  /** The online target cannot transfer until its Podium wire version matches the server. */
+  serverTransferUnsupported?: boolean
   /** Keep the implemented multi-user ownership flow dormant until that product ships. */
   showOwnershipTransfer?: boolean
   /** POD-838: the server's own build version; null while unknown. */
@@ -1180,16 +1192,27 @@ function MachineRow({
         </>
       )}
 
-      {onTransferServer && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="flex-none"
-          onClick={onTransferServer}
-        >
-          Make server
-        </Button>
+      {(onTransferServer || serverTransferUnsupported) && (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="flex-none"
+            disabled={serverTransferUnsupported}
+            title={
+              serverTransferUnsupported
+                ? 'Update this machine to the same Podium version as the server first.'
+                : undefined
+            }
+            onClick={onTransferServer ?? undefined}
+          >
+            Make server
+          </Button>
+          {serverTransferUnsupported && (
+            <span className="settings-micro flex-none text-warning">Same version required</span>
+          )}
+        </>
       )}
 
       {/* Transfer ownership — OWNER ONLY (POD-1495); see `mayTransfer` above. */}

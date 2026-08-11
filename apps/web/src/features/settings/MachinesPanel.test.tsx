@@ -442,10 +442,11 @@ describe('MachinesPanel server transfer', () => {
     return statusQuery
   }
 
-  it('renders Make server only from server-computed eligibility', async () => {
+  it('renders eligible targets and explains version-incompatible targets', async () => {
     storeState.machines = [
       machine({ id: asMachineId('target'), name: 'vps', online: false, owned: false }),
       machine({ id: asMachineId('other'), name: 'owned laptop', online: true, owned: true }),
+      machine({ id: asMachineId('old'), name: 'old daemon', online: true }),
     ]
     setServerTransferTrpc(
       vi.fn(),
@@ -454,13 +455,17 @@ describe('MachinesPanel server transfer', () => {
           targetEligibility: [
             { targetMachineId: 'target', eligible: true },
             { targetMachineId: 'other', eligible: false, reason: 'current-server' },
+            { targetMachineId: 'old', eligible: false, reason: 'unsupported' },
           ],
         }),
       ),
     )
     render(<MachinesPanel />)
 
-    expect(await screen.findAllByRole('button', { name: 'Make server' })).toHaveLength(1)
+    const actions = await screen.findAllByRole('button', { name: 'Make server' })
+    expect(actions).toHaveLength(2)
+    expect(actions.filter((action) => action.hasAttribute('disabled'))).toHaveLength(1)
+    expect(screen.getByText('Same version required')).toBeTruthy()
   })
 
   it('requires a new public URL and the exact confirmation phrase', async () => {
