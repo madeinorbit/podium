@@ -6,10 +6,10 @@ import {
   resolveActiveWorktree,
 } from '@podium/client-core/viewmodels'
 import {
-  CircleDot,
   FolderTree,
   GitBranch,
   ListOrdered,
+  ListTree,
   type LucideIcon,
   Mail,
   Sparkles,
@@ -35,7 +35,11 @@ import { useReplicaIssues, useStoreSelector } from './store'
 export type { RightPanelTab } from './shell-state'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
-  { id: 'issue', label: 'Task', icon: CircleDot },
+  // A LIST glyph, not a task glyph (POD-743): this cell opens an explorer
+  // over every task in the repo, so an icon that stands for one issue — and,
+  // before this, the selected issue's own ID square wearing its status badge —
+  // named the wrong thing and claimed a relationship the panel no longer has.
+  { id: 'issue', label: 'Tasks', icon: ListTree },
   { id: 'superagent', label: 'Superagent', icon: Sparkles },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'files', label: 'Files', icon: FolderTree },

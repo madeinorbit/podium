@@ -1,19 +1,10 @@
-import {
-  aggregateMotionPhase,
-  type MotionPhase,
-  motionPhase,
-  portfolioActionableCount,
-} from '@podium/client-core/viewmodels'
-import type { IssueColorSlot } from '@podium/model'
+import { portfolioActionableCount } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
-import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { StatusBadge } from '@/lib/motion'
 import { useFeature } from '@/lib/use-feature'
-import { cn } from '@/lib/utils'
 import { RIGHT_PANELS } from './RightDock'
 import { type RightPanelTab, rightPanelAllowed } from './shell-state'
-import type { IssueViewModel } from './store'
 import { useReplicaIssues, useStoreSelector } from './store'
 
 /** The rail sits on the flat --bar tier (POD-516 item 9: the right dock is a
@@ -21,18 +12,18 @@ import { useReplicaIssues, useStoreSelector } from './store'
  *  out of it, so this must name the rail's ACTUAL surface. */
 const RAIL_SURFACE = 'var(--rail)'
 
-function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
-  if (waitingCount > 0) return { kind: 'count', count: waitingCount }
-  if (phase === 'working') return { kind: 'spinner' }
-  if (phase === 'done') return { kind: 'check' }
-  return null
-}
-
 /**
- * The 44px right rail (handoff §2.5): the selected issue's ID square — the
- * designed bordered/filled square language, carrying the waiting/working
- * corner badge — toggling the Issue dock panel, then the Superagent/Git/Files/
- * Shell panel cells.
+ * The 44px right rail (handoff §2.5): one cell per dock panel — Tasks,
+ * Superagent, Git, Files, Shell, Messages, Queues.
+ *
+ * The Tasks cell used to be the SELECTED ISSUE'S ID SQUARE, wearing that
+ * issue's colour and its working/waiting corner badge, because the panel it
+ * opened was one issue's inspector. It opens an explorer over every task in the
+ * repo now (POD-743), so it is an ordinary rail cell with a list glyph: a
+ * coloured square would name a task this panel is not about, and a status badge
+ * would report on an agent it is not showing. Recolouring an issue was the ID
+ * square's other job here; the Colour submenu on every issue's context menu
+ * (POD-380) is where that lives.
  *
  * The Superagent is a rail cell now that the Flight Deck owns the center
  * column it used to live in. Its cell carries the PORTFOLIO attention count —
@@ -51,15 +42,11 @@ function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | nu
  * how the operator finds their place here.
  */
 export function RightRail({
-  issue,
   rightPanel,
   onPanelChange,
-  onColorChange,
 }: {
-  issue?: IssueViewModel
   rightPanel: RightPanelTab | null
   onPanelChange: (panel: RightPanelTab | null) => void
-  onColorChange?: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
   const sessions = useStoreSelector((store) => store.sessions)
   const allIssues = useReplicaIssues()
@@ -81,72 +68,33 @@ export function RightRail({
       messages: messagesPanelEnabled,
       mergeQueue: mergeQueueEnabled,
     })
-  const memberIds = new Set(issue?.memberSessionIds ?? [])
-  const memberSessions = sessions.filter((session) => memberIds.has(session.sessionId))
-  const phase = issue ? aggregateMotionPhase(memberSessions) : 'queued'
-  const waitingCount = issue
-    ? memberSessions.filter((session) => motionPhase(session) === 'waiting').length
-    : 0
   return (
     <nav aria-label="Panels" className="right-rail" data-testid="right-rail">
-      {issue && onColorChange ? (
-        <IdSquare
-          issue={issue}
-          state={phase}
-          selected={rightPanel === 'issue'}
-          badge={railBadge(phase, waitingCount)}
-          ringColor={RAIL_SURFACE}
-          titleHint={`${idSquareLabel(issue).full} · ${issue.title} — task panel`}
-          onPrimary={() => onPanelChange(rightPanel === 'issue' ? null : 'issue')}
-          primaryOnly
-          onColorChange={onColorChange}
-        />
-      ) : (
+      {RIGHT_PANELS.filter((panel) => panelAllowed(panel.id)).map((panel) => (
         <button
           data-pressable
+          key={panel.id}
           type="button"
-          aria-label="Task"
-          aria-pressed={rightPanel === 'issue'}
-          title="Task"
-          onClick={() => onPanelChange(rightPanel === 'issue' ? null : 'issue')}
-          className={cn(
-            // No selected issue: the square language's resting (dashed) look.
-            // Deliberately NOT .right-rail-cell — its unlayered border:0 would
-            // beat the utility border.
-            'flex size-[26px] flex-none cursor-pointer items-center justify-center rounded-[7px] border border-dashed border-text-dim bg-secondary font-mono text-[8px] font-semibold text-label opacity-65 hover:opacity-100',
-            rightPanel === 'issue' && 'text-primary opacity-100',
-          )}
+          aria-label={panel.label}
+          aria-pressed={rightPanel === panel.id}
+          title={panel.label}
+          onClick={() => onPanelChange(rightPanel === panel.id ? null : panel.id)}
+          // `.right-rail-cell` is unlayered and sets no `position`, so the
+          // utility `relative` is safe here (unlike a border — see above).
+          // The open panel's raised, ringed, issue-coloured cell lives in
+          // `.right-rail-cell[aria-pressed="true"]` (styles.css), so the rail's
+          // one "you are here" recipe is written in one place.
+          className="right-rail-cell relative"
         >
-          #—
-        </button>
-      )}
-      {RIGHT_PANELS.filter((panel) => panel.id !== 'issue' && panelAllowed(panel.id)).map(
-        (panel) => (
-          <button
-            data-pressable
-            key={panel.id}
-            type="button"
-            aria-label={panel.label}
-            aria-pressed={rightPanel === panel.id}
-            title={panel.label}
-            onClick={() => onPanelChange(rightPanel === panel.id ? null : panel.id)}
-            // `.right-rail-cell` is unlayered and sets no `position`, so the
-            // utility `relative` is safe here (unlike a border — see above).
-            // The open panel's raised, ringed, issue-coloured cell lives in
-            // `.right-rail-cell[aria-pressed="true"]` (styles.css), so the rail's
-            // one "you are here" recipe is written in one place.
-            className="right-rail-cell relative"
-          >
-            <panel.icon size={17} strokeWidth={1.7} aria-hidden="true" />
-            {/* The same corner badge the ID square above renders, from the same
+          <panel.icon size={17} strokeWidth={1.7} aria-hidden="true" />
+          {/* The same corner badge the ID square above renders, from the same
                 component — one geometry, one colour, one morph, one phrasing
                 for "N waiting on you" across the whole rail. */}
-            {panel.id === 'superagent' && (
-              <StatusBadge kind="count" count={pending} ringColor={RAIL_SURFACE} />
-            )}
-          </button>
-        ),
-      )}
+          {panel.id === 'superagent' && (
+            <StatusBadge kind="count" count={pending} ringColor={RAIL_SURFACE} />
+          )}
+        </button>
+      ))}
     </nav>
   )
 }

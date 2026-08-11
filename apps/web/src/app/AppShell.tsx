@@ -1,5 +1,4 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
@@ -189,7 +188,6 @@ function AppBody(): JSX.Element {
     paletteOpen,
     setPaletteOpen,
     uiState,
-    trpc,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -200,7 +198,6 @@ function AppBody(): JSX.Element {
       paletteOpen: s.paletteOpen,
       setPaletteOpen: s.setPaletteOpen,
       uiState: s.uiState,
-      trpc: s.trpc,
     }),
     shallowEqual,
   )
@@ -411,11 +408,6 @@ function AppBody(): JSX.Element {
   )
   const issueAccent = effectiveHex ?? FLOW_CSS
   const issueStyle = { '--issue': issueAccent } as CSSProperties
-  // One colour-pick handler for every shell surface showing the ID square.
-  const changeIssueColor = selectedIssue
-    ? (color: IssueColorSlot | null) =>
-        trpc.issues.update.mutate({ id: selectedIssue.id, patch: { color } })
-    : undefined
 
   return (
     <OperatorFocusProvider missionId={selectedIssueId}>
@@ -508,12 +500,7 @@ function AppBody(): JSX.Element {
               </ResizableColumn>
             )}
             {workspaceActive && (
-              <RightRail
-                issue={selectedIssue}
-                rightPanel={visibleRightPanel}
-                onPanelChange={setRightPanel}
-                onColorChange={changeIssueColor}
-              />
+              <RightRail rightPanel={visibleRightPanel} onPanelChange={setRightPanel} />
             )}
           </div>
           <StatusStrip />
