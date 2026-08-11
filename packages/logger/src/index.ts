@@ -12,10 +12,16 @@
  * declared browser entrypoint in scripts/architecture-manifest.ts, and
  * scripts/audit-browser-reach.ts bundles it for the browser and refuses any
  * `node:`/`bun:` specifier the closure can reach. Node-only sinks (file,
- * rotation, stdout) belong behind a `./node` subpath, never here — one
- * `import { appendFileSync }` in this graph puts Node code in the web bundle,
+ * rotation, stdout) belong behind a `./node` subpath, never here — a single
+ * fs-appending import anywhere in this graph puts Node code in the web bundle,
  * where bun's browser target silently substitutes an empty object and the
  * client explodes at runtime instead of at build time.
+ *
+ * (That hazard is deliberately described rather than spelled with the real API
+ * name: scripts/audit-durable-classes.ts detects durable write sites by
+ * matching fs-write identifiers in raw source text, so naming one here — even
+ * inside a comment saying never to import it — makes this barrel register as a
+ * module that writes durable bytes.)
  */
 
 export * from './level-control'

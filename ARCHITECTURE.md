@@ -26,6 +26,8 @@ declared closed set.
 
 ```
 L0 — model
+  @podium/logger                browser-safe
+                                deps: nothing — this is the leaf
   @podium/model                 browser-safe
                                 deps: nothing — this is the leaf
 
