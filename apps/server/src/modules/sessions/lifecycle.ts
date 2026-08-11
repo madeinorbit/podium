@@ -240,7 +240,7 @@ export class SessionLifecycle {
   private readonly activityFlushTimer = setInterval(() => this.repository.flushActivity(), 12_000)
   constructor(private readonly deps: SessionLifecycleDeps) {
     // ORDER UNCHANGED — body lives in session-wiring.ts as a verbatim move.
-    // scripts/server-construction-order.ts does not walk this interior (POD-1411).
+    // scripts/server-construction-order.ts walks that interior (POD-1411).
     wireSessionLifecycle(this, deps)
   }
   private prepareInboxSend(...args: any[]): void {

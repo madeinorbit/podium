@@ -1,9 +1,14 @@
 /**
  * SESSION LIFECYCLE WIRING (POD-1396).
  *
- * Constructor body, moved verbatim — ORDER UNCHANGED. server-construction-order.ts
- * walks only the RELAY root (POD-1411); a green construction-order doc does NOT
- * prove this interior was preserved. Trust the diff.
+ * Constructor body, moved verbatim — ORDER UNCHANGED.
+ *
+ * This function is an ENROLLED composition site in
+ * scripts/server-construction-order.ts (POD-1411). Because the write surface is
+ * an any-cast, TypeScript's definite-assignment analysis does NOT cover this
+ * body; that audit is what checks its order instead. It fails when a value read
+ * eagerly here — a direct `bag.x` argument — is assigned further down. Reads
+ * inside a closure are deferred and stay legal.
  *
  * Private fields written through a single any-cast. Dispose: none here
  * (activityFlushTimer stays a field initializer on SessionLifecycle).
@@ -219,9 +224,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // SessionStart takes view, repository and state as direct references, so it
   // must be built after all three exist. The compiler caught this when it was
   // placed with the other POD-1396 modules near the top of the constructor
-  // ("Property 'view' is used before being assigned") — worth recording
-  // because scripts/server-construction-order.ts walks only the RELAY root and
-  // would NOT have caught a reordering in here (POD-1411).
+  // ("Property 'view' is used before being assigned"). That compiler check no
+  // longer runs here — the any-cast write surface disabled it — so the
+  // construction-order audit now enforces the same rule (POD-1411). Moving this
+  // block above `bag.view` fails `bun scripts/server-construction-order.ts`.
   bag.sessionStart = new SessionStart({
     store: bag.store,
     view: bag.view,
