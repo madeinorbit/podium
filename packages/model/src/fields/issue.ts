@@ -35,13 +35,6 @@
  */
 
 import { z } from 'zod'
-import {
-  IssueIdField,
-  MachineIdField,
-  RepoIdField,
-  SessionIdField,
-  UserIdField,
-} from '../ids'
 // The shared vocabulary layer (POD-1141). Imported from the LEAF module, never
 // from `../entities/issue`: that import is what made the two files mutually
 // dependent, and because these are zod schema VALUES evaluated at module load it
@@ -55,6 +48,7 @@ import {
   IssueStage,
   IssueType,
 } from '../entities/issue-vocabulary'
+import { IssueIdField, MachineIdField, RepoIdField, SessionIdField, UserIdField } from '../ids'
 import { Attribution } from './attribution'
 import { OpStreamDocument } from './op-stream'
 import { Revision } from './primitives'
@@ -238,6 +232,8 @@ export const IssueWorkspace = z.object({
 })
 export type IssueWorkspace = z.infer<typeof IssueWorkspace>
 
+/** Atomic destination used when a handoff moves all workspace coordinates. */
+export type IssueRehomeTarget = Record<'machineId' | 'repoPath' | 'worktreePath', string>
 /** WHAT THIS ISSUE'S SESSIONS LAUNCH WITH ('auto' = the agent decides).
  *  Harness-scoped defaults and per-issue overrides RESOLVE THROUGH these — that
  *  is resolution logic, not new vocabulary, and it does not belong here. */

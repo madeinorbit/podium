@@ -40,7 +40,7 @@ import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionActionCard } from '../components/SessionActionCard'
-import { SessionLifecycle } from '../components/SessionLifecycle'
+import { MobileSessionLifecycle } from '../components/SessionLifecycle'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
@@ -386,88 +386,89 @@ export function SessionScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <SessionLifecycle
+        <MobileSessionLifecycle
           session={session}
           hasTranscript={hasTranscript}
           onResume={store.resurrectSession}
           onRemove={store.killSession}
         />
         {readOnly && !hasTranscript ? null : (
-        <BootstrapCrossfade
-          resolved={loaded || items.length > 0}
-          placeholder={<TranscriptSkeleton />}
-        >
-          <PullToRefreshBoundary
-            connected={connected}
-            refreshing={refreshing}
-            onRefresh={onRefresh}
+          <BootstrapCrossfade
+            resolved={loaded || items.length > 0}
+            placeholder={<TranscriptSkeleton />}
           >
-            <TranscriptList
-              items={items}
-              live={session?.status === 'live'}
-              assetContext={{
-                httpOrigin: store.httpOrigin,
-                sessionId,
-                cwd: session.cwd,
-              }}
-              pendingTurns={pendingTurns}
-              onRetryPending={retry}
-              onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
-              bottomInset={composerHeight}
-              todos={todoProgress}
-              onOpenTodos={issue ? () => setPeekIssue(issue) : undefined}
-              showOpenTodos={session.agentState?.phase === 'idle'}
-              streaming={
-                activity?.tone === 'working' &&
-                items.at(-1)?.role === 'assistant' &&
-                items.at(-1)?.answer !== true
-              }
-              tail={{
-                label:
-                  activity?.label ??
-                  (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
-                tone: activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle',
-                since: session.agentState?.since,
-              }}
-              refreshControl={refreshControl}
-              refreshAccessibilityProps={refreshAccessibilityProps}
-              emptyComponent={
-                // An offer is itself the thing to act on — do not tell the
-                // operator the session is empty underneath a pending decision.
-                loaded && items.length === 0 && pendingTurns.length === 0 && !session.offer ? (
-                  <EmptyState
-                    fill
-                    title="No transcript yet"
-                    body="Send a message to get things moving."
-                  />
-                ) : undefined
-              }
-              onAnswer={async (answer) => {
-                await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, ...answer })
-              }}
-              onLoadOlder={loadOlder}
-              onRefPress={(ref) => {
-                const seq = Number(ref.slice(4))
-                const target = issues.find((i) => i.seq === seq)
-                if (target) setPeekIssue(target)
-              }}
-              footer={
-                session.offer ? (
-                  <SessionActionCard
-                    offer={session.offer}
-                    evidenceCount={offerArtifacts.length}
-                    onAction={(prompt) => store.resumeAndSend(session.sessionId, prompt)}
-                    onOpenEvidence={
-                      issue
-                        ? () => router.push(`/issue/${encodeURIComponent(issue.id)}`)
-                        : undefined
-                    }
-                  />
-                ) : undefined
-              }
-            />
-          </PullToRefreshBoundary>
-        </BootstrapCrossfade>
+            <PullToRefreshBoundary
+              connected={connected}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            >
+              <TranscriptList
+                items={items}
+                live={session?.status === 'live'}
+                assetContext={{
+                  httpOrigin: store.httpOrigin,
+                  sessionId,
+                  cwd: session.cwd,
+                }}
+                pendingTurns={pendingTurns}
+                onRetryPending={retry}
+                onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
+                bottomInset={composerHeight}
+                todos={todoProgress}
+                onOpenTodos={issue ? () => setPeekIssue(issue) : undefined}
+                showOpenTodos={session.agentState?.phase === 'idle'}
+                streaming={
+                  activity?.tone === 'working' &&
+                  items.at(-1)?.role === 'assistant' &&
+                  items.at(-1)?.answer !== true
+                }
+                tail={{
+                  label:
+                    activity?.label ??
+                    (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
+                  tone:
+                    activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle',
+                  since: session.agentState?.since,
+                }}
+                refreshControl={refreshControl}
+                refreshAccessibilityProps={refreshAccessibilityProps}
+                emptyComponent={
+                  // An offer is itself the thing to act on — do not tell the
+                  // operator the session is empty underneath a pending decision.
+                  loaded && items.length === 0 && pendingTurns.length === 0 && !session.offer ? (
+                    <EmptyState
+                      fill
+                      title="No transcript yet"
+                      body="Send a message to get things moving."
+                    />
+                  ) : undefined
+                }
+                onAnswer={async (answer) => {
+                  await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, ...answer })
+                }}
+                onLoadOlder={loadOlder}
+                onRefPress={(ref) => {
+                  const seq = Number(ref.slice(4))
+                  const target = issues.find((i) => i.seq === seq)
+                  if (target) setPeekIssue(target)
+                }}
+                footer={
+                  session.offer ? (
+                    <SessionActionCard
+                      offer={session.offer}
+                      evidenceCount={offerArtifacts.length}
+                      onAction={(prompt) => store.resumeAndSend(session.sessionId, prompt)}
+                      onOpenEvidence={
+                        issue
+                          ? () => router.push(`/issue/${encodeURIComponent(issue.id)}`)
+                          : undefined
+                      }
+                    />
+                  ) : undefined
+                }
+              />
+            </PullToRefreshBoundary>
+          </BootstrapCrossfade>
         )}
         {/* The composer floats OVER the feed rather than ending it [POD-502]:
             messages run under the capsule and dissolve into the scrim above

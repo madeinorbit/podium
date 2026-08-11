@@ -374,6 +374,7 @@ function UsageTrace({
           <button
             type="button"
             className="usage-measure-button"
+            data-pressable
             data-active={measure === 'cost' || undefined}
             aria-pressed={measure === 'cost'}
             onClick={() => setMeasure('cost')}
@@ -383,6 +384,7 @@ function UsageTrace({
           <button
             type="button"
             className="usage-measure-button"
+            data-pressable
             data-active={measure === 'tokens' || undefined}
             aria-pressed={measure === 'tokens'}
             onClick={() => setMeasure('tokens')}

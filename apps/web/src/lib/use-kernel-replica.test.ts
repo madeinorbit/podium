@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
 import { indexedDB } from 'fake-indexeddb'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import { openKernelAssembly } from './kernelReplica'
 import { resolveReplicaPrincipal, useKernelReplica } from './use-kernel-replica'
@@ -87,7 +87,7 @@ describe('private replica boot failure', () => {
     })
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    const { result } = renderHook(() =>
+    const { result, unmount } = renderHook(() =>
       useKernelReplica({ trpc: {} as Trpc, resolvePrincipal, openAssembly }),
     )
 
@@ -98,5 +98,6 @@ describe('private replica boot failure', () => {
       })
     })
     expect(globalThis.__podiumReplicaPath).toBeUndefined()
+    unmount()
   })
 })

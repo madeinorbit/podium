@@ -172,10 +172,14 @@ export function isTestFile(file: string): boolean {
  * named `scripts` and inherit L5's "may import anything".
  */
 const APP_BUILD_TIER_RE = /^apps\/[^/]+\/scripts\//
+/** Workspace-local Vite/Vitest configs are build-tier composition, not shipped
+ * application or package source. They may consume shared repository tooling
+ * without creating a runtime dependency from the workspace back into scripts. */
+const WORKSPACE_TOOLING_RE = /^(?:apps|packages)\/[^/]+\/(?:vite|vitest)\.config\.ts$/
 
 /** Workspace a repo-relative file path belongs to: 'apps/x', 'packages/y' or 'scripts'. */
 export function workspaceOf(file: string): string {
-  if (APP_BUILD_TIER_RE.test(file)) return 'scripts'
+  if (APP_BUILD_TIER_RE.test(file) || WORKSPACE_TOOLING_RE.test(file)) return 'scripts'
   const parts = file.split('/')
   if (parts[0] === 'apps' || parts[0] === 'packages') return `${parts[0]}/${parts[1]}`
   if (parts[0] === 'scripts') return 'scripts'

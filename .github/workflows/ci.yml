@@ -214,9 +214,8 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-      # abduco backs the PTY/session layer these lanes exercise.
-      - name: system deps (abduco)
-        run: sudo apt-get update && sudo apt-get install -y abduco
+      # Podium builds its vendored abduco on first use; Ubuntu 24.04 no longer
+      # provides the package in the runner's configured apt repositories.
       # The exception to --ignore-scripts above: node-pty's native addon must
       # exist for lanes that spawn real PTYs.
       - run: bun install --frozen-lockfile
@@ -264,11 +263,8 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-      # abduco backs the PTY/session layer; the harness relay these suites drive
-      # spawns real sessions, and node-pty's addon must exist — so, like the
-      # oracle job, this installs WITH scripts.
-      - name: system deps (abduco)
-        run: sudo apt-get update && sudo apt-get install -y abduco
+      # The harness relay builds Podium's vendored abduco on first use; node-pty
+      # still needs install scripts below for its native addon.
       - run: bun install --frozen-lockfile
       # The config declares chromium and webkit projects; both browsers plus
       # their OS deps have to be present or every suite errors on setup.

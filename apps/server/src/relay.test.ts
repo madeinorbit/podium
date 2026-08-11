@@ -3226,6 +3226,7 @@ describe('hibernation', () => {
         maxIdleSessions: null,
         idleMinutes: 1,
         idleShellMinutes: null,
+        backstopMinutes: null,
       },
     })
     const sessionId = liveSession(reg, daemon)
@@ -3276,6 +3277,7 @@ describe('hibernation', () => {
         maxIdleSessions: null,
         idleMinutes: 1,
         idleShellMinutes: null,
+        backstopMinutes: null,
       },
     })
     const sessionId = liveSession(reg, daemon)
@@ -3318,6 +3320,7 @@ describe('hibernation', () => {
         maxIdleSessions: null,
         idleMinutes: 1,
         idleShellMinutes: null,
+        backstopMinutes: null,
       },
     })
     const sessionId = liveSession(reg, daemon)

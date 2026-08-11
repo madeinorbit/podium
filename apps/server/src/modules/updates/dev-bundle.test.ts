@@ -484,6 +484,10 @@ describe('buildDevBundle', () => {
   })
 
   it('coalesces concurrent explicit requests into one build', async () => {
+    let resolveBuildStarted!: () => void
+    const buildStarted = new Promise<void>((resolve) => {
+      resolveBuildStarted = resolve
+    })
     const { bytes, signature } = signedFixture()
     let resolveBuild!: () => void
     const buildDone = new Promise<void>((resolve) => {
@@ -498,6 +502,7 @@ describe('buildDevBundle', () => {
       lock: lockFixture([]),
       spawnBuild: async ({ version }) => {
         builds++
+        resolveBuildStarted()
         await buildDone
         return { path: '/stage/' + version, bytes, signature }
       },
@@ -506,7 +511,7 @@ describe('buildDevBundle', () => {
     const first = publisher.requestBuild(true)
     const second = publisher.requestBuild(true)
     expect(second).toBe(first)
-    await new Promise((resolve) => setImmediate(resolve))
+    await buildStarted
     expect(builds).toBe(1)
     resolveBuild()
     await first

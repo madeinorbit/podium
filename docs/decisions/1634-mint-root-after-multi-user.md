@@ -1,10 +1,12 @@
 # POD-1634 — The mint root after multi-user landed
 
-**Status:** Decided 2026-08-04
-**Decision:** Neither ending offered is honestly available at this layer. The tripwire stays RED and is not touched. The binding is real work with a named mechanism, filed separately.
+**Status:** Amended by operator decision 2026-08-11
+**Decision:** The Part 1 fail-closed account-count mitigation below is accepted. The deliberately red schema tripwire is retired; full host isolation remains future architecture work.
 **Supersedes nothing; completes** POD-1604 (which reached the same verdict and stopped).
 **ADR:** [ADR 3 D14](../adr/0003-command-security.md) · **Prior:** [POD-1402](1402-host-local-mint-trust.md)
 
+
+**Operator amendment (2026-08-11):** `mint-session` now refuses before writing when more than one account exists. The operator accepts this bounded mitigation and retirement of the deliberately red tripwire. It removes the supported helper path, not the underlying same-OS-user database-write capability; the historical analysis below remains as rationale for the future full mitigation.
 Measured on `issue/1634-bind-the-mint-or-narrow-its-tripwire` at `79ac3f586`.
 
 ## The question

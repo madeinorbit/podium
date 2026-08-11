@@ -5,6 +5,8 @@
 **Reopen:** POD-1067 (multi-user) — instrument in `HOST_LOCAL_MINT_TRUST` + tripwire tests  
 **ADR:** [ADR 3 D14](../adr/0003-command-security.md)
 
+**Operator amendment (2026-08-11):** Multi-user reopened this decision. The accepted interim boundary is now a fail-closed helper: `mint-session` refuses before writing whenever the instance contains more than one account. This removes the supported escalation path but does not stop a same-OS-user process from writing the database directly; full containment still requires OS/process separation. The historical tripwire is retired in favor of direct tests of this guard.
+
 ## Fact (executed, not inferred)
 
 From a constrained agent shell on the live instance (session with

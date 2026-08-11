@@ -123,6 +123,7 @@ describe('daemon update grant over the live server socket', () => {
         },
       }
       const updates = server.registry.modules.updates
+      server.registry.modules.machines.setUpdateChannel(machineId, 'dev')
       updates.setTarget(target)
       expect(updates.tick()).toEqual([machineId])
 

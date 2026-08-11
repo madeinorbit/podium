@@ -1,8 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": [
-    "//"
-  ],
+  "extends": ["//"],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -326,6 +324,7 @@
         "src/modules/issues/service/test-plumbing.ts",
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",
+        "src/modules/issues/service/worktree-gc.ts",
         "src/modules/issues/wire-memo.test.ts",
         "src/modules/layout/feed.test.ts",
         "src/modules/layout/service.test.ts",
@@ -667,6 +666,7 @@
         "src/modules/issues/service/test-plumbing.ts",
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",
+        "src/modules/issues/service/worktree-gc.ts",
         "src/modules/issues/trpc.ts",
         "src/modules/layout/authz.test.ts",
         "src/modules/layout/authz.ts",
@@ -1104,6 +1104,7 @@
         "src/modules/issues/service/test-plumbing.ts",
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",
+        "src/modules/issues/service/worktree-gc.ts",
         "src/modules/issues/trpc.ts",
         "src/modules/layout/authz.ts",
         "src/modules/layout/service.ts",
@@ -1489,6 +1490,7 @@
         "src/modules/issues/service/reads.ts",
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",
+        "src/modules/issues/service/worktree-gc.ts",
         "src/modules/layout/service.ts",
         "src/modules/lock/registry.ts",
         "src/modules/lock/service.ts",

@@ -982,7 +982,11 @@ describe('publish-computed-fanout: the anchor behind its ZERO_BY_DESIGN exemptio
 
 describe('against the live repo', () => {
   const repoRoot = REPO_ROOT
-  const results = runAudit(loadContext(repoRoot))
+  // Loading also strips every source file. Keep one immutable live-tree context
+  // for every detector in this suite so two focused lanes can share the host
+  // without repeated filesystem walks tripping the per-test watchdog.
+  const liveContext = loadContext(repoRoot)
+  const results = runAudit(liveContext)
 
   it('every check still binds to a real anchor', () => {
     // A check that silently stops matching (a rename, a moved file) would read
@@ -1142,7 +1146,7 @@ describe('against the live repo', () => {
     // detector parses instead: a scan that stopped matching cannot produce these
     // numbers, and a zero that means "the regex broke" is this audit's own worst
     // failure mode.
-    const sites = entityIdSites(loadContext(repoRoot))
+    const sites = entityIdSites(liveContext)
     expect(sites.length).toBeGreaterThan(MIN_ID_FIELD_SITES)
     // The raw class reaching zero must not take the BRANDED class with it: every
     // site POD-301 flipped is still here, counted as branded. If both went quiet
@@ -1157,7 +1161,7 @@ describe('against the live repo', () => {
     // success — but a broken parser or an empty vocabulary would produce the same
     // zero. This asserts the population, which cannot be zero while the repo has
     // any entity-shaped declaration at all.
-    const declarations = entityShapedDeclarations(loadContext(repoRoot))
+    const declarations = entityShapedDeclarations(liveContext)
     expect(declarations.length, 'the detector parsed NO entity-shaped declaration').toBeGreaterThan(
       20,
     )
@@ -1186,7 +1190,7 @@ describe('against the live repo', () => {
     // tables would report the same zero as a schema with no partition column.
     // These are floors, not pins — adding a table or a column must not red the
     // suite, only losing the ability to see them.
-    const cols = physicalTableColumns(loadContext(repoRoot))
+    const cols = physicalTableColumns(liveContext)
     expect(new Set(cols.map((c) => c.table)).size, 'parsed NO physical table').toBeGreaterThan(50)
     expect(cols.length, 'parsed NO table column').toBeGreaterThan(400)
     // And it reads the SQL name, not just the key — `machine_id` under
@@ -1299,7 +1303,8 @@ describe('reexport-shims: the anchor behind its ZERO_BY_DESIGN exemption', () =>
       String.raw`export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[^\n]*?\})\s+from\s*['"]([^'"]+)['"]\s*;?`,
     )
     const wrapped = REEXPORT_SHIM_CONTROLS.wrapped?.[0]
-    if (wrapped === undefined) throw new Error('REEXPORT_SHIM_CONTROLS.wrapped must carry a control')
+    if (wrapped === undefined)
+      throw new Error('REEXPORT_SHIM_CONTROLS.wrapped must carry a control')
     expect(missing).toContain(wrapped)
   })
 

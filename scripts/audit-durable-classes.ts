@@ -453,6 +453,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Pidfiles under `<stateDir>/run` and the detached-component logs under `<stateDir>/logs`. Process supervision: a pidfile describes a RUNNING PROCESS, is meaningless after a reboot, and names nothing anybody owns.',
     },
     {
+      file: 'packages/runtime/src/transfer-lifecycle.ts',
+      reason:
+        'Atomically rewrites the already-classified host config and daemon identity during a server-role transfer, plus a transfer-scoped rollback copy that is deleted after the operation. It introduces no independently owned durable entity.',
+    },
+    {
       file: 'packages/runtime/src/connectivity.ts',
       reason:
         '`<stateDir>/connectivity.json` is a cache of the last reachability probe, rewritten on every check and correct only for an instant. Deleting it changes nothing except that the next probe has no prior to compare against.',

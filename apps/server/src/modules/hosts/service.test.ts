@@ -657,7 +657,7 @@ describe('idle-session cap', () => {
       const sessions = [session(asSessionId('known-idle')), shell(asSessionId('old-shell'))]
       const { service, parked, shellParked } = harness({
         sessions,
-
+        maxIdleSessions: null,
         idleShellMinutes: null,
       })
 

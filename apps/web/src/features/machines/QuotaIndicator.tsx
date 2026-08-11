@@ -50,28 +50,25 @@ const PACE: Record<QuotaPace, string> = {
   hot: 'text-destructive',
 }
 
+const QUOTA_HARNESS_ICONS: Record<AccountQuotaGroup['agent'], typeof ClaudeCodeIcon | null> = {
+  'claude-code': ClaudeCodeIcon,
+  codex: OpenAIcon,
+  grok: GrokIcon,
+  opencode: OpenCodeIcon,
+  cursor: CursorIcon,
+  shell: null,
+}
+
 /** A provider silhouette for the dense header pool; color stays on quota state. */
 function QuotaHarnessIcon({ agent }: { agent: AccountQuotaGroup['agent'] }): JSX.Element | null {
+  const Icon = QUOTA_HARNESS_ICONS[agent]
   const props = {
     size: 12,
     variant: 'mono' as const,
     className: 'header-harness-icon',
     'aria-hidden': true as const,
   }
-  switch (agent) {
-    case 'claude-code':
-      return <ClaudeCodeIcon {...props} />
-    case 'codex':
-      return <OpenAIcon {...props} />
-    case 'grok':
-      return <GrokIcon {...props} />
-    case 'opencode':
-      return <OpenCodeIcon {...props} />
-    case 'cursor':
-      return <CursorIcon {...props} />
-    case 'shell':
-      return null
-  }
+  return Icon ? <Icon {...props} /> : null
 }
 
 /**
@@ -213,11 +210,7 @@ export function QuotaIndicator({
                   </span>
                 )
                 return (
-                  <span
-                    key={group.key}
-                    className="header-quota-pool"
-                    data-harness={group.agent}
-                  >
+                  <span key={group.key} className="header-quota-pool" data-harness={group.agent}>
                     <QuotaHarnessIcon agent={group.agent} />
                     <span className="header-mark">{agentShortLabel(group.agent)}</span>
                     {/* The fallback rail exists only for a pool that reports

@@ -15,7 +15,9 @@ const priorAppVersion = process.env.PODIUM_APP_VERSION
 
 function harness(requestCoordinatorRestart?: () => void) {
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'updates-test' })
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  const hostMachineId = registry.sessionStore.hostMachineId
+  registry.gateway.attachDaemon(hostMachineId, () => {})
+  registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   const caller = appRouter.createCaller({
@@ -82,6 +84,7 @@ describe('updates tRPC', () => {
       tokenHash: 'flatblock-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
+    registry.modules.machines.setUpdateChannel('flatblock', 'dev')
     registry.modules.machines.setMachineBuild(
       'flatblock',
       { appVersion: '0.4.1' },

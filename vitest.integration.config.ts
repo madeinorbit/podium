@@ -7,7 +7,6 @@ const integrationTests = [
   '**/*e2e*.test.{ts,tsx}',
   '**/*.integration.{test,spec}.{ts,tsx}',
   '**/*.pty.test.{ts,tsx}',
-  'packages/pty/test/pty-behavior/pty-behavior.vitest.test.ts',
   'packages/pty/test/session.test.ts',
   'packages/pty/src/backends/node-pty-backend.test.ts',
   'packages/pty/src/abduco.test.ts',

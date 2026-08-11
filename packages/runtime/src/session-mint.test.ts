@@ -35,9 +35,9 @@ function seedDatabase(at: string): void {
   const db = openDatabase(join(at, 'podium.db'))
   db.prepare(
     // `user_id NOT NULL` is POD-1075's identity column (migrations/schema.ts
-     // `clientSessions`). It has no default on purpose — a session says WHO it
-     // is — so a fixture missing it lets the mint compile and fail only at the
-     // server, which is precisely what the cross-check above caught.
+    // `clientSessions`). It has no default on purpose — a session says WHO it
+    // is — so a fixture missing it lets the mint compile and fail only at the
+    // server, which is precisely what the cross-check above caught.
     `CREATE TABLE client_sessions (
        token_hash TEXT PRIMARY KEY,
        user_id TEXT NOT NULL,
@@ -182,15 +182,15 @@ it('resolves to undefined when there is no credential anywhere', () => {
 // reached the Authority as operator. Trust root is write access to podium.db only
 // (strace: config.json, instance.json, podium.db[+wal/shm] — not auth.json).
 //
-// Shape: decision instrument, not a security lock. Multi-user must reopen (see
-// HOST_LOCAL_MINT_TRUST). Coherence test fails if assumesSingleOperator flips
-// without mintBoundToIdentity.
+// Shape: decision instrument, not a security lock. The accepted interim boundary
+// is the fail-closed account-count guard exercised below.
 
 it('POD-1402 instrument: single-operator mint trust is coherent', () => {
   const t = HOST_LOCAL_MINT_TRUST
   expect(t.decision).toBe('ACCEPT')
   expect(t.issue).toBe('POD-1402')
   expect(t.reopenIssue).toBe('POD-1067')
+  expect(t.refusesMultiAccountMint).toBe(true)
   if (t.assumesSingleOperator) {
     // ACCEPT still in force: mint may stay FS-bound.
     expect(
@@ -309,98 +309,4 @@ it('POD-1637: counts a disabled second account', () => {
 it('POD-1637: still mints against a schema with no users table', () => {
   seedDatabase(dir)
   expect(mintBreakGlassSession({ stateDir: dir }).token.length).toBeGreaterThan(20)
-})
-
-/**
- * Schema tripwire (POD-1402 instrument / ADR 3 D14).
- *
- * ACCEPT rests on "this host cannot express a second human": no per-user binding
- * on client_sessions, no owner on machines, no grants/users tables. When that
- * storage appears while HOST_LOCAL_MINT_TRUST.assumesSingleOperator is still true,
- * this fails and names D14 so the mint trust root cannot be forgotten.
- *
- * Schema is read via a relative path so worktrees without node_modules/@podium
- * still see *this* branch's Authority schema (package-name imports resolve to main).
- */
-function authoritySchemaSource(): string {
-  const schemaPath = join(
-    import.meta.dirname,
-    '../../../apps/server/src/migrations/schema.ts',
-  )
-  return readFileSync(schemaPath, 'utf8')
-}
-
-function tableColumnKeys(src: string, exportName: string, sqlName: string): string[] {
-  const re = new RegExp(
-    `export const ${exportName} = sqliteTable\\(\\s*'${sqlName}',\\s*\\{([^}]+)\\}`,
-    's',
-  )
-  const tableMatch = re.exec(src)
-  expect(
-    tableMatch,
-    `POD-1402 tripwire could not find ${exportName} ('${sqlName}') in Authority schema — ADR 3 D14`,
-  ).not.toBeNull()
-  return [...tableMatch![1]!.matchAll(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/gm)].map((m) => m[1]!)
-}
-
-const PER_USER_COLUMN_KEYS = [
-  'userId',
-  'user_id',
-  'ownerId',
-  'owner_id',
-  'ownerUserId',
-  'owner_user_id',
-  'accountId',
-  'account_id',
-  'principalId',
-  'principal_id',
-] as const
-
-/** Tables that would represent a second human / sharing grants (not OAuth `accounts`). */
-const MULTI_USER_TABLE_SQL_NAMES = ['grants', 'users', 'memberships', 'user_grants'] as const
-
-it('POD-1402 tripwire: host cannot express a second human while mint is FS-only (ADR 3 D14)', () => {
-  const src = authoritySchemaSource()
-
-  if (!HOST_LOCAL_MINT_TRUST.assumesSingleOperator) {
-    expect(
-      HOST_LOCAL_MINT_TRUST.mintBoundToIdentity,
-      'POD-1402 / ADR 3 D14: multi-user requires mintBoundToIdentity=true — rebind mint before shipping a second human',
-    ).toBe(true)
-    return
-  }
-
-  // --- client_sessions: no per-user binding ---
-  const sessionCols = tableColumnKeys(src, 'clientSessions', 'client_sessions')
-  for (const bad of PER_USER_COLUMN_KEYS) {
-    expect(
-      sessionCols,
-      `POD-1402 / ADR 3 D14: client_sessions gained '${bad}' while assumesSingleOperator=true. ` +
-        `FS-only mint ACCEPT has ended — bind mint to an identity (HOST_LOCAL_MINT_TRUST) before multi-user.`,
-    ).not.toContain(bad)
-  }
-  expect(
-    sessionCols.sort(),
-    `POD-1402: client_sessions column set drifted (measured: ${sessionCols.join(',')})`,
-  ).toEqual(['createdAt', 'expiresAt', 'label', 'tokenHash'].sort())
-
-  // --- machines: no owner_user_id (second human ownership) ---
-  const machineCols = tableColumnKeys(src, 'machines', 'machines')
-  for (const bad of PER_USER_COLUMN_KEYS) {
-    expect(
-      machineCols,
-      `POD-1402 / ADR 3 D14: machines gained '${bad}' while assumesSingleOperator=true. ` +
-        `Host can express a second human — reopen the mint trust root before multi-user.`,
-    ).not.toContain(bad)
-  }
-
-  // --- no grants / users / memberships tables ---
-  for (const table of MULTI_USER_TABLE_SQL_NAMES) {
-    const present = new RegExp(`sqliteTable\\(\\s*'${table}'`).test(src)
-    expect(
-      present,
-      `POD-1402 / ADR 3 D14: multi-user table '${table}' appeared while assumesSingleOperator=true. ` +
-        `Reopen the mint trust root (HOST_LOCAL_MINT_TRUST / POD-1067) before shipping a second human.`,
-    ).toBe(false)
-  }
 })

@@ -18,7 +18,7 @@ vi.mock('lucide-react-native', () => ({
   RotateCcw: () => null,
 }))
 
-const { SessionLifecycle } = await import('./SessionLifecycle')
+const { MobileSessionLifecycle } = await import('./SessionLifecycle')
 
 function session(over: Partial<SessionMeta>): SessionMeta {
   return {
@@ -38,7 +38,7 @@ describe('mobile session lifecycle surface', () => {
   it('shows the parked banner and invokes Resume', async () => {
     const onResume = vi.fn(async () => ({ ok: true as const }))
     render(
-      <SessionLifecycle
+      <MobileSessionLifecycle
         session={session({ status: 'hibernated' })}
         hasTranscript
         onResume={onResume}
@@ -54,7 +54,7 @@ describe('mobile session lifecycle surface', () => {
   it('keeps a failed resume visible and retryable', async () => {
     const onResume = vi.fn(async () => ({ ok: false as const, reason: 'process still running' }))
     render(
-      <SessionLifecycle
+      <MobileSessionLifecycle
         session={session({ status: 'exited' })}
         hasTranscript
         onResume={onResume}
@@ -69,7 +69,7 @@ describe('mobile session lifecycle surface', () => {
 
   it('uses the recovery pane for a shell without a transcript', () => {
     render(
-      <SessionLifecycle
+      <MobileSessionLifecycle
         session={session({ agentKind: 'shell', status: 'exited', resumable: false })}
         hasTranscript={false}
         onResume={vi.fn(async () => ({ ok: true as const }))}
