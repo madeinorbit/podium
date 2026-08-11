@@ -120,7 +120,7 @@ import type { AnyCommandContract } from '@podium/commands'
  * work) and the audit checks procedure TYPE rather than name, so a write cannot hide
  * among them by being called a query.
  */
-import { fleetProcedures } from './modules/fleet/trpc'
+import { fleetProcedures, hubRoleGuard } from './modules/fleet/trpc'
 import { MAIL_COMMANDS, type MailProcName } from './modules/messages/registry'
 import { visibleMachinesFor } from './modules/sessions/command-ctx'
 import { sessionFamilyProcedures } from './modules/sessions/trpc'
@@ -410,7 +410,9 @@ export const appRouter = t.router({
       visibleMachinesFor(familyState(ctx).modules, ctx.capability),
     ),
     // rename · revoke · pairingCode — DERIVED (POD-384). All three are hub-role
-    serverTransferStatus: t.procedure.query(({ ctx }) => serverTransferStatusQuery(ctx)),
+    serverTransferStatus: t.procedure
+      .use(hubRoleGuard)
+      .query(({ ctx }) => serverTransferStatusQuery(ctx)),
     // by contract (`serverRole: 'hub'`), which is where the 404 now comes from.
     ...fleet.machines,
   }),
