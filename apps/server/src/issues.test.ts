@@ -1696,6 +1696,82 @@ describe('IssueService.start', () => {
     })
   })
 
+  /**
+   * POD-1898. Resuming onto the machine the issue is ALREADY homed on, where that
+   * machine keeps the repo at its own path: the recorded worktree was compared by
+   * string, judged foreign, and recreated onto the directory that was right there
+   * ("fatal: ... already exists"). Sameness is identity, so the present worktree wins.
+   */
+  it('resume reuses the present worktree when the pin keeps the repo at another path', async () => {
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.findRepoOnMachine = vi.fn((repoPath: string, machineId: string) =>
+      repoPath === '/home/mgw/src/podium' && machineId === 'mach-b'
+        ? '/home/mgw/src/other/podium'
+        : null,
+    )
+    const created = svc.create({
+      repoPath: '/home/mgw/src/podium',
+      title: 'Homed here',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
+    svc.update(created.id, {
+      branch: 'issue/1-homed-here',
+      worktreePath: '/home/mgw/src/other/podium/.worktrees/issue-1-homed-here',
+    })
+    deps.repoOp = vi.fn(async () => ({ ok: true, output: '## issue/1-homed-here' })) as typeof deps.repoOp
+
+    const result = await svc.ensureWorktree(created.id, 'mach-b')
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: 'worktree already present',
+      worktreePath: '/home/mgw/src/other/podium/.worktrees/issue-1-homed-here',
+    })
+    expect(deps.repoOp).not.toHaveBeenCalledWith(
+      'worktreeAddExisting',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('recreate adopts a directory git refuses as already existing when it is our branch', async () => {
+    const { svc, deps } = harness()
+    const created = svc.create({ repoPath: '/r', title: 'Present', startNow: false })
+    svc.update(created.id, { branch: 'issue/1-present' })
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: false, output: "fatal: '/r/.worktrees/issue-1-present' already exists" }
+        : { ok: true, output: '## issue/1-present...origin/issue/1-present' },
+    ) as typeof deps.repoOp
+
+    const result = await svc.ensureWorktree(created.id)
+
+    expect(result).toMatchObject({ ok: true, worktreePath: '/r/.worktrees/issue-1-present' })
+    expect(result.output).toMatch(/already present/)
+    expect(svc.get(created.id)).toMatchObject({
+      worktreePath: '/r/.worktrees/issue-1-present',
+    })
+  })
+
+  it('recreate still fails when the existing path holds some OTHER branch', async () => {
+    const { svc, deps } = harness()
+    const created = svc.create({ repoPath: '/r', title: 'Occupied', startNow: false })
+    svc.update(created.id, { branch: 'issue/1-occupied' })
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: false, output: "fatal: '/r/.worktrees/issue-1-occupied' already exists" }
+        : { ok: true, output: '## some-other-branch' },
+    ) as typeof deps.repoOp
+
+    const result = await svc.ensureWorktree(created.id)
+
+    expect(result).toMatchObject({ ok: false, worktreePath: null })
+    expect(result.output).toMatch(/worktree recreate failed/)
+  })
+
   it('an unpinned issue never consults the cross-machine resolver', async () => {
     const { svc, deps } = harness()
     deps.findRepoOnMachine = vi.fn(() => null)

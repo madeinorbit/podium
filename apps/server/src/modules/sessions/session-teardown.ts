@@ -175,6 +175,46 @@ export class SessionTeardown {
     return { ok: true }
   }
 
+  /**
+   * Age-backstop park (POD-1884, requested by its agent). The same teardown as
+   * {@link parkArchivedSession} — kill the process, keep the row inspectable,
+   * `hibernated` when a cold resume is possible and `exited` otherwise — but it
+   * REPORTS its refusals so the caller can log why a session it selected was
+   * not parked.
+   *
+   * Deliberately no proof and no phase gate. This is the path for a session
+   * that has been quiet for days precisely BECAUSE its terminal proof never
+   * became usable (see `SessionTerminalProof.proofStatus`), and a session wedged
+   * reporting `working` forever is the case the backstop exists to reap. The
+   * caller owns the quiet-for-N-days decision; this method owns the teardown.
+   *
+   * Archiving is an acknowledgment and leaves `readAt` alone; a backstop park is
+   * NOT one, but it also must not resurface days-old sessions as unread, so
+   * `readAt` is likewise untouched.
+   */
+  parkStaleSession({ sessionId }: { sessionId: SessionId }): { ok: boolean; reason?: string } {
+    const session = this.ports.sessions.get(sessionId)
+    if (!session) return { ok: false, reason: 'unknown session' }
+    const running =
+      session.status === 'live' ||
+      session.status === 'starting' ||
+      session.status === 'reconnecting'
+    if (!running) return { ok: false, reason: 'not running' }
+    if (session.agentKind !== 'shell' && !session.resume) {
+      session.status = 'exited'
+      session.exitCode = session.exitCode ?? 0
+    } else {
+      session.status = 'hibernated'
+    }
+    this.ports.autoContinue.onSessionGone(sessionId)
+    session.stoppedAt = new Date(this.ports.now()).toISOString()
+    session.stopReason = 'parent'
+    this.ports.repository.persist(session)
+    this.killStoppedSession(session)
+    this.ports.broadcastSessions()
+    return { ok: true }
+  }
+
   /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
   tryAutoArchiveStoppedObserved(
     observed: {

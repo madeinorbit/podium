@@ -26,12 +26,12 @@
  *      so a dangling node_modules/@podium can't serve a stale cached green (POD-1343).
  *
  * This lane is a fast approximation for the inner loop. It does NOT replace
- * `bun run test` before a commit. See AGENTS.md "Affected-only tests".
+ * `bun run test:full` before a deliberately exhaustive check. See AGENTS.md "Affected-only tests".
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { runWithHeavyTestLease } from './test-heavy'
-import { fingerprint, readCensus } from './typecheck'
+
+import { readCensus, turboEnv } from './typecheck'
 
 /** Runs a git command, returning trimmed stdout, or null if git exited non-zero. */
 export type Git = (args: string[]) => string | null
@@ -290,7 +290,7 @@ async function main() {
   const turboBin = join(root, 'node_modules', '.bin', 'turbo')
   const dry = Bun.spawnSync([turboBin, 'run', 'test', '--concurrency=1', '--dry=json'], {
     cwd: root,
-    env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census) },
+    env: turboEnv(root, census),
   })
   if (dry.exitCode !== 0) {
     console.error(
@@ -311,7 +311,7 @@ async function main() {
   )
   console.error('\nthis lane does NOT run, at any time:')
   for (const lane of NOT_COVERED) console.error(`  ${lane}`)
-  console.error('run `bun run test` before you commit.\n')
+  console.error('run `bun run test:full` when an exhaustive sweep is required.\n')
 
   if (uncovered.length > 0 && !allowUncovered) {
     console.error(
@@ -322,22 +322,22 @@ async function main() {
     if (uncovered.length > 25) console.error(`  … and ${uncovered.length - 25} more`)
     console.error(
       '\nRun the full lane instead:\n' +
-        '  bun run test\n\n' +
+        '  bun run test:full\n\n' +
         'or, once you have run it yourself and want the fast loop back:\n' +
         '  bun run test:affected -- --allow-uncovered',
     )
     process.exit(1)
   }
 
-  process.exit(
-    await runWithHeavyTestLease(
-      [turboBin, 'run', 'test', '--concurrency=1', `--filter=...[${decision.base}]`, ...forward],
-      {
-        cwd: root,
-        env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census) },
-      },
-    ),
+  const proc = Bun.spawn(
+    [turboBin, 'run', 'test', '--concurrency=1', `--filter=...[${decision.base}]`, ...forward],
+    {
+      cwd: root,
+      stdio: ['inherit', 'inherit', 'inherit'],
+      env: turboEnv(root, census),
+    },
   )
+  process.exit(await proc.exited)
 }
 
 if (import.meta.main) await main()

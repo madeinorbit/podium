@@ -25,8 +25,7 @@
  */
 import { join } from 'node:path'
 import { runWithHeavyTestLease } from './test-heavy'
-import { decideForce, fingerprint, readCensus } from './typecheck'
-import { runWithValidationAdmission } from './validation-admission'
+import { decideForce, readCensus, turboEnv } from './typecheck'
 
 const REFUSAL = `\
 uncached test run refused.
@@ -92,11 +91,12 @@ export function decideTestAdmission(argv: string[]): {
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
-  const healthy = census.links.filter((l) => !l.endsWith('!DANGLING'))
-  if (healthy.length === 0) {
+  const healthy = census.links.filter((l) => !l.includes('!'))
+  const broken = census.links.filter((l) => l.includes('!'))
+  if (healthy.length === 0 || broken.length > 0) {
     console.error(
-      'test refused: node_modules/@podium has no usable workspace links — this ' +
-        'checkout is not installed, and a cached green here would not be evidence ' +
+      'test refused: node_modules/@podium must contain only usable, in-checkout workspace ' +
+        'links; a missing, dangling, or external link makes a cached green unsafe ' +
         '(POD-1343). Run `bun install` first.',
     )
     process.exit(1)
@@ -134,15 +134,20 @@ async function main() {
     '--continue=dependencies-successful',
     ...decision.forwardArgs,
   ]
-  const options = {
-    cwd: root,
-    label: admission.shared ? 'focused package tests' : 'full package tests',
-    env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },
+  if (admission.shared) {
+    const proc = Bun.spawn(command, {
+      cwd: root,
+      env: turboEnv(root, census),
+      stdio: ['inherit', 'inherit', 'inherit'],
+    })
+    process.exit(await proc.exited)
   }
   process.exit(
-    admission.shared
-      ? await runWithValidationAdmission('focused', command, options)
-      : await runWithHeavyTestLease(command, options),
+    await runWithHeavyTestLease(command, {
+      cwd: root,
+      label: 'full package tests',
+      env: turboEnv(root, census),
+    }),
   )
 }
 

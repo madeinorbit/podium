@@ -53,10 +53,10 @@ Do not run tests after edits or intermediate commits. Implement the complete cha
 then run **one** validation command at the end. The normal agent gate is:
 
 ```
-bun run test:agent
+bun run test
 ```
 
-It is a tiny, hermetic, one-worker boot-wiring and lane-configuration probe. It is designed to
+It runs cached, lock-free typecheck followed by a tiny, hermetic, one-worker boot-wiring and lane-configuration probe. It is designed to
 answer “is this candidate internally coherent and are the basic runtime pieces still wired?”
 without traversing every package, starting browsers, or taking the whole-host heavy-test lease.
 Docs, copy, fonts, formatting, generated artifacts, and other changes that cannot affect runtime
@@ -71,18 +71,18 @@ browser suites, performance benchmarks, the oracle, and real-agent smoke are nev
 gates.
 
 Do not stack validation commands “for confidence.” If a specialized lane is required, run it
-instead of `test:agent` when it already covers the relevant basic check; otherwise run
-`test:agent` once and the one specialized lane once, sequentially. `test:agent` deliberately
-does not enter the shared admission queue: it must not wait behind or delay heavyweight suites.
+instead of `test` when it already covers the relevant basic check; otherwise run
+`test` once and the one specialized lane once, sequentially. The default `test` deliberately
+does not take `test:heavy`: it neither waits behind nor delays heavyweight suites.
 Never overlap other validation commands in one session.
 
 The complete map from changed paths and behavior to commands—including exact test locations,
 filename patterns, configs, parent commands, caching, and exclusions—is in
 **[docs/agents/testing.md](docs/agents/testing.md)**. Read that file before selecting anything
-other than `test:agent`.
+other than `test`.
 
-`bun run test` remains the exhaustive cached package sweep for scheduled CI, merge batches, and
-explicit requests. It is not the default agent command and is not required before every commit.
+`bun run test:full` is the exhaustive cached package sweep for scheduled CI, merge batches, and
+explicit requests. It is never the default agent command and is not required before every commit.
 `bun run test:rearch` owns the whole-repository rewrite audit tests; they are excluded from the
 normal package sweep.
 

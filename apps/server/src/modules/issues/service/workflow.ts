@@ -663,9 +663,17 @@ export class IssueGitWorkflowModule {
     // already homed on the requested machine AND its repository resolves to the
     // same checkout there. Otherwise it is a stale source-machine path and the
     // target must use its own canonical location.
+    //
+    // Repo sameness is IDENTITY, not string equality (POD-1571 / POD-1898): the same
+    // checkout is registered at a different path per machine, so `row.repoPath` and the
+    // machine-resolved `repoPath` legitimately differ while naming one repository.
+    // Comparing them literally nulled the recorded worktree of an issue already homed
+    // here, skipped the "already present" branch, and recreated onto the live directory
+    // — `fatal: ... already exists`.
     const homeMatches =
       requestedMachineId === undefined ||
-      (row.machineId === requestedMachineId && row.repoPath === repoPath)
+      (row.machineId === requestedMachineId &&
+        this.repoPathOnMachine(row.repoPath, row.machineId) === repoPath)
     const recordedWorktreePath = homeMatches ? row.worktreePath : null
     if (recordedWorktreePath) {
       const st = await this.store.d.repoOp('status', recordedWorktreePath, undefined, machineId)
@@ -708,7 +716,12 @@ export class IssueGitWorkflowModule {
       { path, branch: row.branch },
       machineId,
     )
-    if (!res.ok) {
+    // `already exists` is not a failure when what exists IS this issue's worktree on
+    // this issue's branch (POD-1898): adopt it rather than refusing a resume over a
+    // working copy that is right there. Anything else at that path still fails.
+    const adopted =
+      !res.ok && (await this.worktreeAlreadyThere(res.output, path, row.branch, machineId))
+    if (!res.ok && !adopted) {
       return {
         ok: false,
         output: `worktree recreate failed: ${res.output}`,
@@ -723,10 +736,33 @@ export class IssueGitWorkflowModule {
     this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     return {
       ok: true,
-      output: `recreated worktree ${path} from branch '${row.branch}'`,
+      output: adopted
+        ? `worktree already present at ${path} on branch '${row.branch}'`
+        : `recreated worktree ${path} from branch '${row.branch}'`,
       worktreePath: path,
       issue: this.store.toWire(row),
     }
+  }
+
+  /**
+   * Is the `worktree add` refusal just the worktree we wanted, already there (POD-1898)?
+   *
+   * Only for git's own "already exists" refusal, and only when a status at that path
+   * succeeds AND reports the branch we asked for — an unrelated directory, a detached
+   * head, or another branch checked out there is still a genuine failure.
+   */
+  private async worktreeAlreadyThere(
+    failure: string,
+    path: string,
+    branch: string,
+    machineId: string | undefined,
+  ): Promise<boolean> {
+    if (!/already exists/i.test(failure)) return false
+    const st = await this.store.d.repoOp('status', path, undefined, machineId)
+    if (!st.ok) return false
+    // `git status --porcelain=v1 -b` opens with `## <branch>` (…`...<upstream>` when set).
+    const head = st.output.split('\n')[0]?.match(/^## ([^.\s]\S*?)(?:\.\.\..*)?$/)
+    return head?.[1] === branch
   }
 
   /**

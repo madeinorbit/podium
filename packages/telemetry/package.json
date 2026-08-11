@@ -18,7 +18,7 @@
     "./consent": "./src/consent.ts"
   },
   "scripts": {
-    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/telemetry:typecheck -- tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/telemetry:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "devDependencies": {

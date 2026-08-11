@@ -30,8 +30,8 @@
     "./source-version": "./src/source-version.ts"
   },
   "scripts": {
-    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/runtime:typecheck -- tsgo --noEmit",
-    "typecheck:tsc": "bun ../../scripts/validation-admission.ts typecheck --label @podium/runtime:typecheck:tsc -- tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/runtime:test -- bash -c \"bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun test --conditions=@podium/source test/sqlite.bun.test.ts --test-name-pattern ''\""
   },
   "devDependencies": {

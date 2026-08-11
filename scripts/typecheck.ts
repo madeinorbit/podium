@@ -18,9 +18,9 @@
  *      (110x the cached 2s) on a host shared with a live Podium instance.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { runWithValidationAdmission } from './validation-admission'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { arch, platform, tmpdir } from 'node:os'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 export interface ForceDecision {
   forceRequested: boolean
@@ -100,8 +100,13 @@ export function decideForce(
 
 export interface EnvCensus {
   bunfig: string
-  /** sorted "name" or "name!DANGLING" entries under node_modules/@podium */
+  /** sorted "name:relative-target" or "name!DANGLING" entries under node_modules/@podium */
   links: string[]
+  runtime: {
+    bun: string
+    platform: string
+    arch: string
+  }
 }
 
 /** Environment fingerprint: hashed into the turbo cache key via globalEnv. */
@@ -110,6 +115,8 @@ export function fingerprint(census: EnvCensus): string {
     .update(census.bunfig)
     .update('\0')
     .update(census.links.join(','))
+    .update('\0')
+    .update(`${census.runtime.bun}:${census.runtime.platform}:${census.runtime.arch}`)
     .digest('hex')
 }
 
@@ -122,19 +129,83 @@ export function readCensus(root: string): EnvCensus {
   if (existsSync(dir)) {
     links = readdirSync(dir)
       .sort()
-      .map((name) => (existsSync(join(dir, name, 'package.json')) ? name : `${name}!DANGLING`))
+      .map((name) => {
+        const packageJson = join(dir, name, 'package.json')
+        if (!existsSync(packageJson)) return `${name}!DANGLING`
+        const target = realpathSync(join(dir, name))
+        const rel = relative(realpathSync(root), target)
+        if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+          return `${name}!EXTERNAL`
+        }
+        return `${name}:${rel}`
+      })
   }
-  return { bunfig, links }
+  return {
+    bunfig,
+    links,
+    runtime: {
+      bun: Bun.version,
+      platform: platform(),
+      arch: arch(),
+    },
+  }
+}
+
+function projectCacheIdentity(root: string): string {
+  const dotGit = join(root, '.git')
+  if (!existsSync(dotGit)) return realpathSync(root)
+  const stat = statSync(dotGit)
+  const statTarget = stat.isFile() ? readFileSync(dotGit, 'utf8') : ''
+  const match = statTarget.match(/^gitdir: (.+)$/m)
+  const gitDir = match ? (match[1] ?? '') : dotGit
+  const absoluteGitDir = isAbsolute(gitDir) ? gitDir : resolve(root, gitDir)
+  // A linked worktree's gitfile points at <common-git-dir>/worktrees/<name>.
+  // Resolve this structurally instead of looking for a literal `worktrees` path segment:
+  // bare repositories and Windows path separators are both legitimate.
+  const worktreesParent = resolve(absoluteGitDir, '..', '..')
+  if (
+    stat.isFile() &&
+    absoluteGitDir !== worktreesParent &&
+    resolve(absoluteGitDir, '..').endsWith(`${sep}worktrees`)
+  ) {
+    return realpathSync(worktreesParent)
+  }
+  return realpathSync(absoluteGitDir)
+}
+
+export function sharedTurboCacheDir(root: string): string {
+  const projectKey = createHash('sha256')
+    .update(projectCacheIdentity(root))
+    .digest('hex')
+    .slice(0, 16)
+  const configuredBase = process.env.XDG_CACHE_HOME
+  // XDG_CACHE_HOME is only valid when absolute. Treat a relative value as unset;
+  // resolving it against each worktree would silently produce separate caches.
+  const cacheBase =
+    configuredBase && isAbsolute(configuredBase) ? configuredBase : join(tmpdir(), 'podium-cache')
+  return join(cacheBase, 'podium', 'turbo', projectKey)
+}
+
+export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
+  const cacheDir = process.env.TURBO_CACHE_DIR ?? sharedTurboCacheDir(root)
+  mkdirSync(cacheDir, { recursive: true })
+  return {
+    ...process.env,
+    PODIUM_CHECK_ENV_HASH: fingerprint(census),
+    TURBO_CACHE_DIR: cacheDir,
+    TURBO_FORCE: undefined,
+  }
 }
 
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
-  const healthy = census.links.filter((l) => !l.endsWith('!DANGLING'))
-  if (healthy.length === 0) {
+  const healthy = census.links.filter((l) => !l.includes('!'))
+  const broken = census.links.filter((l) => l.includes('!'))
+  if (healthy.length === 0 || broken.length > 0) {
     console.error(
-      'typecheck refused: node_modules/@podium has no usable workspace links — this ' +
-        'checkout is not installed, and a cached green here would not be evidence ' +
+      'typecheck refused: node_modules/@podium must contain only usable, in-checkout workspace ' +
+        'links; a missing, dangling, or external link makes a cached green unsafe ' +
         '(POD-1343). Run `bun install` first.',
     )
     process.exit(1)
@@ -148,17 +219,15 @@ async function main() {
     process.exit(1)
   }
   if (decision.reason) console.error(`uncached run, reason: ${decision.reason}`)
-  process.exit(
-    await runWithValidationAdmission(
-      'typecheck',
-      [join(root, 'node_modules', '.bin', 'turbo'), 'run', 'typecheck', ...decision.forwardArgs],
-      {
-        cwd: root,
-        label: 'workspace typecheck',
-        env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },
-      },
-    ),
+  const proc = Bun.spawn(
+    [join(root, 'node_modules', '.bin', 'turbo'), 'run', 'typecheck', ...decision.forwardArgs],
+    {
+      cwd: root,
+      stdio: ['inherit', 'inherit', 'inherit'],
+      env: turboEnv(root, census),
+    },
   )
+  process.exit(await proc.exited)
 }
 
 if (import.meta.main) await main()
