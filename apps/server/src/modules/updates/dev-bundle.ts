@@ -155,6 +155,18 @@ export const DEV_BUNDLE_NON_SOURCE_TREES = [
   '.next',
 ] as const
 
+/**
+ * Generated desktop inputs that are deliberately ignored and cannot affect the
+ * headless development bundle. Keep this separate from the porcelain
+ * allowlist: a tracked edit in either tree still differs from HEAD and must
+ * block publication.
+ */
+export const DEV_BUNDLE_IGNORED_SOURCE_ALLOWED_PREFIXES = [
+  ...DEV_BUNDLE_ALLOWED_DIRTY_PREFIXES,
+  'apps/desktop/src-tauri/gen/',
+  'apps/desktop/src-tauri/resources/web/',
+] as const
+
 /** Extensions a bundler resolves from an import specifier. */
 export const DEV_BUNDLE_SOURCE_EXTENSIONS = [
   '.ts',
@@ -175,7 +187,7 @@ export const DEV_BUNDLE_SOURCE_EXTENSIONS = [
  */
 export function classifyIgnoredSourceInputs(
   listing: string,
-  allowedPrefixes: readonly string[] = DEV_BUNDLE_ALLOWED_DIRTY_PREFIXES,
+  allowedPrefixes: readonly string[] = DEV_BUNDLE_IGNORED_SOURCE_ALLOWED_PREFIXES,
 ): string[] {
   const offending: string[] = []
   for (const path of listing.split('\0')) {
@@ -199,6 +211,9 @@ export function classifyIgnoredSourceInputs(
 
 function defaultReadIgnoredSourceInputs(root: string): string {
   const excludes = DEV_BUNDLE_NON_SOURCE_TREES.map((tree) => `:(exclude)**/${tree}/**`)
+  const generatedExcludes = DEV_BUNDLE_IGNORED_SOURCE_ALLOWED_PREFIXES.map(
+    (prefix) => `:(exclude)${prefix}**`,
+  )
   return String(
     execFileSync(
       'git',
@@ -211,6 +226,7 @@ function defaultReadIgnoredSourceInputs(root: string): string {
         '--',
         ...DEV_BUNDLE_SOURCE_TREES,
         ...excludes,
+        ...generatedExcludes,
       ],
       { cwd: root, encoding: 'utf8' },
     ),

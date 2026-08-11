@@ -194,6 +194,21 @@ describe('classifyIgnoredSourceInputs', () => {
     ).toEqual([])
   })
 
+  it('allows generated desktop outputs that cannot affect the headless bundle', () => {
+    expect(
+      classifyIgnoredSourceInputs(
+        nul(
+          'apps/desktop/src-tauri/gen/schemas/acl-manifests.json',
+          'apps/desktop/src-tauri/resources/web/assets/index.js',
+        ),
+      ),
+    ).toEqual([])
+
+    expect(
+      classifyIgnoredSourceInputs(nul('apps/desktop/src/local-override.ts')),
+    ).toEqual(['apps/desktop/src/local-override.ts'])
+  })
+
   it('catches every resolvable extension, once each', () => {
     expect(
       classifyIgnoredSourceInputs(
