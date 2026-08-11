@@ -28,10 +28,13 @@ colors:
   flow-slate: "#94a3b8"
   ochre: "#8a6200"
   ochre-rim: "#c8990a"
-  daylight-paper: "#f5f6f9"
-  daylight-panel: "#f9fafc"
-  daylight-engraved: "#edeff2"
-  daylight-ink: "#0e1626"
+  paper-ground: "#f2f1ed"
+  paper-chrome: "#f7f7f5"
+  paper-column: "#f4f3f0"
+  paper-rail: "#eceae4"
+  paper-sheet: "#ffffff"
+  paper-ink: "#1d1c19"
+  paper-flow: "#85817a"
 typography:
   headline:
     fontFamily: "Geist Variable, sans-serif"
@@ -119,12 +122,12 @@ This system explicitly rejects the SaaS dashboard cliché (metric-card grids, gr
 
 ## 2. Colors
 
-Team colors: deep navy chassis, Superade Yellow signal, with red and blue as the only other voices. The dark variant is the signature look; the light variant ("Daylight", POD-372) mirrors its mechanics rather than inverting its hexes — yellow leads in both.
+Team colors: deep navy chassis, Superade Yellow signal, with red and blue as the only other voices. The dark variant is the signature look; the light variant ("Paper", POD-725, replacing POD-372's "Daylight") mirrors its mechanics rather than inverting its hexes — yellow leads in both.
 
 ### Primary
 - **Superade Yellow** (#f5c518): The brand color. Primary buttons, the active ring, quota warnings, and "waiting on you" attention states in the dark theme. On yellow, ink is always Race Navy — never white.
-- **Ochre** (#8a6200): Superade Yellow as *ink*, for the light variant only. Yellow fills; ochre writes — #f5c518 as text is 1.6:1 on paper and must never be assigned to a text token (`--attention` is a `color:` in six places, so in light it takes the ochre). Its lighter sibling **#c8990a** is `--primary-rim`, the 1px edge that gives the yellow fill a silhouette against paper.
-- **Royal Blue** (#1d4ed8): Info and success in the light variant. It no longer carries primary — that call was reversed in POD-372: a blue-primary light theme is indistinguishable from every other tool, and the premise was wrong. The rule was never yellow *text*; it is Race Navy ink on a yellow fill, which measures 11.1:1. Yellow's problem on paper is edge, not contrast.
+- **Ochre** (#8a6200): Superade Yellow as *ink*, for the light variant only. Yellow fills; ochre writes — #f5c518 as text is 1.6:1 on paper and must never be assigned to a text token (`--attention` is a `color:` in six places, so in light it takes the ochre). Daylight also gave the yellow fill a 1px ochre rim for silhouette; Paper drops it (`--primary-rim: transparent`) — against warm stone the fill has an edge without one, and the rim only muddied it.
+- **Accent Blue** (#2a62f0) carries info, success *and* live in the light variant — one forward-motion hue for the whole theme. Blue does not carry primary: that call was reversed in POD-372 and stands. A blue-primary light theme is indistinguishable from every other tool, and the premise was wrong. The rule was never yellow *text*; it is Race Navy ink on a yellow fill, which measures 11.1:1. Yellow's problem on paper is edge, not contrast.
 
 ### Secondary
 - **Alert Red** (#e5303f): Destructive actions and alerts only (amended by POD-100/POD-166: live agent activity moved to calm blue). Use sparingly so it stays alarming.

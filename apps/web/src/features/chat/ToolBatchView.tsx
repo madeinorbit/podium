@@ -204,7 +204,7 @@ export function ToolBatchView({
   const [open, setOpen] = useState(false)
   const expanded = open || forceOpen
   const rowClass = cn(
-    'transcript-row mx-auto w-full max-w-[960px]',
+    'transcript-row',
     turnClass(turn),
     arrived && 'transcript-arrive',
     highlighted && 'transcript-search-hit',

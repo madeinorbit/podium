@@ -171,17 +171,19 @@ export function RightDock({
   return (
     <DockHeaderSlotProvider value={headerActions}>
       <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
-        <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border px-3.5">
+        {/* 44px, 14px of side padding, 9px between the mark, the name and the
+            close — the Paper shell's head metrics (POD-725 §7). */}
+        <div className="flex h-11 flex-none items-center gap-[9px] border-b border-border px-3.5">
           {/* Keyed on what is named, so switching the inspected task is a one-shot
               200ms morph rather than a snap — the identity is the one thing in
               this bar that changes while you watch it. No perpetual motion. */}
           <span
             key={dockIssue?.id ?? panel.id}
-            className="flex min-w-0 flex-1 animate-in items-center gap-[7px] fade-in slide-in-from-left-1 duration-200 motion-reduce:animate-none"
+            className="flex min-w-0 flex-1 animate-in items-center gap-[9px] fade-in slide-in-from-left-1 duration-200 motion-reduce:animate-none"
           >
             {dockIssue ? (
               // The stage, once, where the panel used to draw it a second time.
-              <StageGlyph stage={dockIssue.stage} size={15} />
+              <StageGlyph stage={dockIssue.stage} size={12} />
             ) : (
               /* Chrome ink, not signal ink: this glyph is lit on every panel, and a
                 permanently-yellow mark where nothing is asked of the operator is
@@ -189,7 +191,7 @@ export function RightDock({
               <panel.icon size={16} className="flex-none text-text-dim" aria-hidden="true" />
             )}
             <span
-              className="truncate text-[15px] font-semibold text-secondary-foreground"
+              className="truncate text-[13.5px] leading-none font-semibold text-text-strong"
               // A dock this narrow truncates most real titles, so the full one
               // has to be one hover away.
               title={dockIssue?.title}
@@ -203,11 +205,11 @@ export function RightDock({
             <Button
               variant="ghost"
               size="icon-sm"
-              className="size-7 flex-none text-muted-foreground"
+              className="size-7 flex-none text-text-dim"
               title={`Close ${panel.label.toLowerCase()} panel`}
               onClick={onClose}
             >
-              <X size={14} aria-hidden="true" />
+              <X size={16} aria-hidden="true" />
             </Button>
           </span>
         </div>

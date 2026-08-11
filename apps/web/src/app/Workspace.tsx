@@ -420,7 +420,12 @@ export function Workspace(): JSX.Element {
   }
 
   return (
-    <section className="native-agents-pane relative flex min-w-0 flex-1 flex-col">
+    // THE SHEET (POD-725). The stage used to be a column like the others; it is
+    // now a sheet lying in a gutter, with the app ground visible around it and
+    // the window's one real drop shadow under it. The pane region, its strips
+    // and its seams are unchanged — the sheet only clips and lifts them.
+    <section className="native-agents-pane relative">
+      <div className="workspace-sheet relative">
       <DndContext
         sensors={sensors}
         collisionDetection={paneCollision}
@@ -499,6 +504,7 @@ export function Workspace(): JSX.Element {
           {dragTab ? <TabGhost tab={dragTab} /> : null}
         </DragOverlay>
       </DndContext>
+      </div>
     </section>
   )
 }
@@ -577,9 +583,16 @@ function PaneChrome({
   const hasPanel = activeTabId !== null && tabs.some((t) => t.id === activeTabId)
   return (
     <div className="pointer-events-none absolute flex flex-col" style={paneBoxStyle(rect)}>
-      {/* Tab strip (native-pane spec §2.2): --section-bar-h tall, issue-tinted
-          over the tabstrip surface, tinted bottom hairline; tabs are stretched to
-          the strip's bottom edge (pt only, no pb). */}
+      {/* Tab strip (POD-725): 38px, the tabstrip surface, a soft bottom hairline,
+          and tabs that are PILLS centred in it rather than browser tabs stretched
+          to its bottom edge. The strip is no longer a tinted band — with the
+          stage now a white sheet, an issue wash across its top edge was the
+          loudest thing in the pane and it said nothing the active tab's own ring
+          and dot do not already say.
+          The tint survives at a dose you read as tone rather than colour, because
+          it is still how a SPLIT says which pane is live (The Carved Rule: said
+          in tone, not with a ring around it) — and it still lifts when a pane is
+          about to receive a dragged tab, which is the one moment it must shout. */}
       <div
         ref={setNodeRef}
         data-testid="native-tab-strip"
@@ -587,16 +600,12 @@ function PaneChrome({
         data-focused={focused ? 'true' : undefined}
         onPointerDownCapture={onFocus}
         className={cn(
-          'pointer-events-auto relative flex h-(--section-bar-h) flex-none items-stretch gap-[2px] border-b issue-hairline-50 issue-hairline-slate-45 issue-base-tabstrip px-[6px] pt-[4px]',
-          // Which pane is live is said in TONE, not with a ring around it (The
-          // Carved Rule): the focused strip keeps its full issue tint, the others
-          // step back toward the bare tabstrip surface. A pane that is about to
-          // receive a dragged tab lifts to the selected-row percentage.
+          'pointer-events-auto relative flex h-[38px] flex-none items-center gap-[4px] border-b border-hairline-soft issue-base-tabstrip px-[10px]',
           isOver
-            ? 'issue-mix-28 issue-mix-slate-22'
+            ? 'issue-mix-24 issue-mix-slate-18'
             : focused
-              ? 'issue-mix-18 issue-mix-slate-14'
-              : 'issue-mix-8 issue-mix-slate-6',
+              ? 'issue-mix-6 issue-mix-slate-4'
+              : 'issue-mix-2 issue-mix-slate-0',
         )}
       >
         <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
@@ -637,7 +646,7 @@ function PaneChrome({
               <button
                 data-pressable
                 type="button"
-                className="flex cursor-pointer items-center self-stretch rounded px-[9px] text-[13px] text-text-dim hover:text-foreground"
+                className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
                 title="New panel"
                 aria-label="New panel"
               >
@@ -649,7 +658,7 @@ function PaneChrome({
             <button
               data-pressable
               type="button"
-              className="flex cursor-pointer items-center self-stretch rounded px-[7px] text-text-dim hover:text-foreground"
+              className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
               title="Split Right"
               aria-label="Split Right"
               onClick={() => onSplit('row')}
@@ -664,7 +673,7 @@ function PaneChrome({
             <button
               data-pressable
               type="button"
-              className="flex cursor-pointer items-center self-stretch rounded px-[7px] text-text-dim hover:text-foreground"
+              className="flex size-[26px] cursor-pointer items-center justify-center rounded-lg text-text-dim hover:bg-secondary hover:text-foreground"
               title="Close pane"
               aria-label="Close pane"
               onClick={onClosePane}
@@ -884,20 +893,25 @@ function SortableTab({
         node.current = el
         setNodeRef(el)
       }}
-      // Chrome-like tab sizing: tabs share the strip evenly, shrink as more open, stop at
-      // a minimum (then the strip scrolls), and never balloon when alone. `group` drives
-      // the hover-reveal of the close control. Active tab (spec §2.2): tinted fill,
-      // tinted hairline (no bottom edge), the 2px issue-colour inset top line.
+      // A PILL, NOT A BROWSER TAB (POD-725). Tabs used to share the strip evenly
+      // and shrink as more opened, which is the file-editor idiom — but an editor
+      // tab is a filename and ours is a running agent with a state dot, a name
+      // and sometimes a badge, and stretched-to-fit made three sessions look like
+      // a segmented control over one document. Content-sized pills scroll instead
+      // of shrinking, so the tenth tab is reachable rather than illegible.
+      // The ACTIVE one is raised onto the card with a real (small) drop and a 1px
+      // issue ring — the one place inside the sheet that borrows the sheet's own
+      // floating idiom, because it is the one thing you are looking at.
       className={cn(
-        'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-[3px] border border-b-0 border-transparent px-0.5',
+        'group relative flex h-[28px] max-w-[220px] flex-none items-center rounded-lg',
         // The overlay carries the tab while it is dragged; what stays behind is
         // the gap it will come back to.
         isDragging ? 'cursor-grabbing opacity-30' : 'cursor-grab',
         active
-          ? 'native-tab-active issue-hairline-50 issue-hairline-slate-45 issue-mix-28 issue-mix-slate-22'
+          ? 'native-tab-active bg-card'
           : isDragging
-            ? 'issue-mix-14'
-            : 'hover:issue-mix-14',
+            ? 'issue-mix-10'
+            : 'hover:issue-mix-8',
       )}
       data-session={tab.id}
       data-preview={preview ? 'true' : undefined}
@@ -923,8 +937,8 @@ function SortableTab({
           data-pressable
           type="button"
           className={cn(
-            'inline-flex min-w-0 flex-1 cursor-[inherit] items-center gap-1.5 rounded-none px-2 py-1 text-[10.5px] whitespace-nowrap',
-            active ? 'font-semibold text-(--issue-text)' : 'text-(--issue-muted-bright)',
+            'inline-flex h-full min-w-0 flex-1 cursor-[inherit] items-center gap-[7px] rounded-lg px-[11px] text-[11.5px] whitespace-nowrap',
+            active ? 'font-semibold text-text-strong' : 'text-text-dim',
             // A temporary tab reads italic and nothing else — no badge, no second
             // colour. It is the same tab, held lightly.
             preview && 'italic',

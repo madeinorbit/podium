@@ -477,7 +477,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   const hasEnvelopes = (envelopeBatch?.envelopes.length ?? 0) > 0
   const bodyTurnClass = turnClass(hasEnvelopes && turn === 'open' ? 'bind' : turn)
   const rowClass = cn(
-    'group transcript-row isolate mx-auto w-full max-w-[960px]',
+    'group transcript-row isolate',
     bodyTurnClass,
     stickyOperator &&
       'sticky -top-6 z-[3] transition-[box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
@@ -486,7 +486,7 @@ export const ChatBlockView = memo(function ChatBlockView({
     dimmed && 'opacity-35',
   )
   const nonStickyRowClass = cn(
-    'transcript-row mx-auto w-full max-w-[960px]',
+    'transcript-row',
     arrived && 'transcript-arrive',
     highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
@@ -737,7 +737,11 @@ export const ChatBlockView = memo(function ChatBlockView({
       >
         {stickyOperator && (
           <div
-            className="pointer-events-none absolute inset-y-0 left-1/2 -z-10 w-screen -translate-x-1/2 bg-background/90 opacity-0 backdrop-blur-sm transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-data-[stuck=true]:opacity-100 motion-reduce:transition-none"
+            // The sheet, not the app background (POD-725): the stage is a card
+            // now, and the brief lost its own panel — so this backdrop is the
+            // only thing occluding the transcript that scrolls under a pinned
+            // prompt, and it has to be the exact tone it is pinned against.
+            className="pointer-events-none absolute inset-y-0 left-1/2 -z-10 w-screen -translate-x-1/2 bg-card/90 opacity-0 backdrop-blur-sm transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-data-[stuck=true]:opacity-100 motion-reduce:transition-none"
             data-sticky-prompt-backdrop
             aria-hidden="true"
           />

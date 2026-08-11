@@ -372,6 +372,7 @@ function UsageTrace({
         </span>
         <fieldset className="usage-measure-toggle" aria-label="Trace measure">
           <button
+            data-pressable
             type="button"
             className="usage-measure-button"
             data-active={measure === 'cost' || undefined}
@@ -381,6 +382,7 @@ function UsageTrace({
             Cost
           </button>
           <button
+            data-pressable
             type="button"
             className="usage-measure-button"
             data-active={measure === 'tokens' || undefined}

@@ -77,7 +77,7 @@ describe('IdSquare identity', () => {
     ).toBe('ENG')
   })
 
-  it('keeps the fixed 26px square, 7px radius and mono 7px type in every state', () => {
+  it('keeps the fixed 26px square, 7px radius and the two-line mono lockup', () => {
     render(
       <IdSquare
         issue={issue({ linearIdentifier: 'pod-128' })}
@@ -93,13 +93,24 @@ describe('IdSquare identity', () => {
     expect(el.getAttribute('style')).toContain('height: 26px')
     expect(el.getAttribute('style')).toContain('border-radius: 7px')
     expect(el.className).toContain('font-mono')
-    expect(el.className).toContain('text-[7px]')
     expect(el.className).toContain('font-semibold')
+    // The number sets the square's size and the prefix recedes to ~65% of it
+    // (POD-725), so the part you cite reads first at every square size.
+    expect(el.style.fontSize).toBe('8.7px')
+    const prefix = el.firstElementChild as HTMLElement
+    expect(prefix.textContent).toBe('POD')
+    expect(prefix.style.fontSize).toBe('5.7px')
+  })
+
+  it('runs the desktop row square at the design’s 10px / 6.5px pair', () => {
+    render(<IdSquare issue={issue({ linearIdentifier: 'POD-9' })} state="working" size={30} onColorChange={vi.fn()} />)
+    expect(square().style.fontSize).toBe('10px')
+    expect((square().firstElementChild as HTMLElement).style.fontSize).toBe('6.5px')
   })
 })
 
 describe('IdSquare square language', () => {
-  it('renders the solid navy square for working and dashed/dimmed for queued or idle', () => {
+  it('renders the recessed neutral square, dashed and dimmed for queued or idle', () => {
     const onColorChange = vi.fn()
     const { rerender } = render(
       <IdSquare issue={issue()} state="working" onColorChange={onColorChange} />,
@@ -108,15 +119,14 @@ describe('IdSquare square language', () => {
     // the theme; the solid/dashed seam still carries the resting distinction.
     expect(square().getAttribute('style')).toContain('border-style: solid')
     expect(square().getAttribute('style')).toContain('border-color: var(--border-strong)')
-    expect(square().getAttribute('style')).toContain('background: var(--chip)')
-    expect(square().getAttribute('style')).toContain('color: var(--foreground)')
+    expect(square().getAttribute('style')).toContain('background: var(--muted)')
+    expect(square().getAttribute('style')).toContain('color: var(--muted-foreground)')
     expect(square().style.opacity).toBe('1')
 
     rerender(<IdSquare issue={issue()} state="queued" onColorChange={onColorChange} />)
     expect(square().getAttribute('style')).toContain('border-style: dashed')
     expect(square().getAttribute('style')).toContain('border-color: var(--border-strong)')
     expect(square().getAttribute('style')).toContain('background: var(--muted)')
-    expect(square().getAttribute('style')).toContain('color: var(--label)')
     expect(square().style.opacity).toBe('0.65')
 
     rerender(<IdSquare issue={issue()} state="idle" onColorChange={onColorChange} />)
@@ -124,20 +134,38 @@ describe('IdSquare square language', () => {
     expect(square().style.opacity).toBe('0.65')
   })
 
-  it('uses a solid issue-colour fill and preserves the selected neutral treatment', () => {
+  it('tints rather than fills with the issue colour, and rims it at the scaled 35% (POD-725)', () => {
     const onColorChange = vi.fn()
     const { rerender } = render(
       <IdSquare issue={issue({ color: 'violet' })} state="queued" onColorChange={onColorChange} />,
     )
-    expect(square().getAttribute('style')).toContain('background: #8b5cf6')
-    expect(square().getAttribute('style')).toContain('border-color: transparent')
+    // A tint over --muted, never a slab of the raw hue: the identity mark must
+    // not be the loudest object in a column of quiet paper rows. Both doses ride
+    // the theme's --issue-*-scale, exactly as the issue-mix-* utilities do.
+    //
+    // The mixes themselves are only assertable in a real engine — happy-dom's
+    // CSS parser DROPS any declaration whose value is a color-mix(), which is
+    // why the coloured square reports no background at all here (the same reason
+    // SidebarUnified.selected-weight leaves the selected row's paint to the
+    // Chromium probe). What this suite can hold is the structural fact: the raw
+    // palette hex is no longer painted anywhere on the square, and the neutral
+    // --muted fill is not what a coloured square falls back to either.
+    expect(square().style.background).not.toContain('#8b5cf6')
+    expect(square().style.background).not.toBe('var(--muted)')
+    expect(square().style.borderColor).not.toBe('transparent')
     expect(square().getAttribute('data-color')).toBe('violet')
     expect(square().style.opacity).toBe('0.65')
 
+    // An uncoloured, unselected square keeps the flat token fill — the tint is
+    // the exception, not the default.
+    rerender(<IdSquare issue={issue()} state="queued" onColorChange={onColorChange} />)
+    expect(square().style.background).toBe('var(--muted)')
+
+    // Selected borrows the no-colour flow and carries NO outer halo: selection
+    // is said by the row's own band and spine, not a second ring here.
     rerender(<IdSquare issue={issue()} state="idle" selected onColorChange={onColorChange} />)
-    expect(square().getAttribute('style')).toContain('border-color: var(--foreground)')
     expect(square().getAttribute('style')).toContain('color: var(--text-strong)')
-    expect(square().getAttribute('style')).toContain('color-mix(in srgb, var(--flow) 30%, transparent)')
+    expect(square().style.boxShadow).toBe('')
     expect(square().style.opacity).toBe('1')
   })
 

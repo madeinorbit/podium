@@ -84,20 +84,31 @@ export function OfferBar({
     <div
       data-testid="offer-bar"
       aria-busy={submitting !== null || undefined}
-      className="rounded-[10px] border border-primary/40 bg-primary/[0.05] px-3.5 py-2.5"
+      // A BLOCK IN THE DOCUMENT, NOT A CARD (POD-725). The offer used to be a
+      // yellow-rimmed, yellow-washed panel — three separate yellow signals for
+      // one request. The design spends the yellow once, on the button the
+      // operator is meant to press, and asks the rest of the block to earn its
+      // weight typographically: an ochre eyebrow, a headline set larger than any
+      // prose above it, and a rule marking where the answer ended and the
+      // question began. That is also what lets the offer sit unchanged in the
+      // chat document, in the native dock and in the issue panel — it brings no
+      // surface of its own to argue with theirs.
+      // font-sans explicitly: the composer region it usually renders inside is
+      // mono end to end (the CLI prompt idiom, POD-159), and an offer is prose —
+      // a question in monospace reads as machine output rather than as someone
+      // asking you something.
+      className="border-t border-hairline-soft pt-4 font-sans"
     >
-      {/* The offer is the turn's single "needs you" surface — it owns the
-          signal color while it is live (Flat Field, POD-159). */}
-      <div className="mb-1 flex items-baseline gap-2 font-mono text-[8.5px] font-medium tracking-[0.12em] text-primary uppercase">
+      <div className="flex items-baseline gap-2 font-mono text-[9px] tracking-[0.16em] text-attention uppercase">
         <Lightbulb size={11} aria-hidden="true" className="self-center" />
         Offer · needs you
       </div>
       {/* First line = the five-second headline; the rest is supporting detail. */}
-      <div className="text-[13px] font-semibold text-foreground">
+      <div className="mt-2.5 text-[15px] leading-[1.5] font-semibold text-text-strong">
         {offer.message.split('\n', 1)[0]}
       </div>
       {offer.message.includes('\n') && (
-        <div className="mt-0.5 max-w-[132ch] text-xs whitespace-pre-wrap text-muted-foreground">
+        <div className="mt-1.5 max-w-[132ch] text-[13px] leading-[1.6] whitespace-pre-wrap text-muted-foreground">
           {offer.message.slice(offer.message.indexOf('\n') + 1)}
         </div>
       )}
@@ -145,7 +156,7 @@ export function OfferBar({
         </div>
       ) : (
         offer.actions.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <div className="mt-3.5 flex flex-wrap items-center gap-x-[18px] gap-y-2">
             {offer.actions.map((action, ai) => (
               <button
                 data-pressable
@@ -158,12 +169,16 @@ export function OfferBar({
                 }
                 title={action.prompt}
                 className={cn(
-                  'inline-flex h-[26px] items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-50',
-                  // The recommended action renders first and primary; the rest
-                  // are quiet outlines so one button reads as the default.
+                  'inline-flex items-center gap-1.5 text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-50',
+                  // ONE BUTTON, THEN ALTERNATIVES. The recommended action is the
+                  // only filled object; every other action is plain text at the
+                  // same size. Outlined runners-up made a row of near-equal
+                  // buttons, which is precisely the "which of these do I press"
+                  // the recommendation exists to answer — and on a white sheet
+                  // three outlines read louder than the one fill they flank.
                   ai === 0
-                    ? 'bg-primary text-primary-foreground hover:opacity-85'
-                    : 'border border-input bg-secondary text-foreground hover:bg-muted',
+                    ? 'btn-primary-rim rounded-lg border bg-primary px-4 py-2 leading-none font-semibold text-primary-foreground hover:opacity-85'
+                    : 'text-muted-foreground hover:text-text-strong',
                 )}
               >
                 <OfferActionLabel label={action.label} pending={submitting === ai} />

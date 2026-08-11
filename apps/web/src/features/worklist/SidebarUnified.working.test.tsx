@@ -187,7 +187,9 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(screen.queryByText('WORK')).toBeNull()
     const groups = screen.getAllByTestId('project-group-label')
     expect(groups).toHaveLength(1)
-    expect(groups[0]?.textContent).toBe('repo')
+    // Repo name, then the group's size pushed to the right edge (POD-725).
+    expect(groups[0]?.firstElementChild?.textContent).toBe('repo')
+    expect(groups[0]?.querySelector('[data-testid="project-group-count"]')?.textContent).toBe('7')
     // Both issues render exactly once, inside the group.
     expect(screen.getAllByText('Fully working issue')).toHaveLength(1)
     expect(screen.getAllByText('Partly working issue')).toHaveLength(1)

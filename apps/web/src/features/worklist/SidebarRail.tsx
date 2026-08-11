@@ -24,7 +24,7 @@ import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { agentBrandText } from '@/lib/agent-tone'
-import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
+import { FLOW_CSS, issueColorHex } from '@/lib/issueColors'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useSidebarDerivation } from './derivation'
@@ -45,7 +45,7 @@ function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | nu
 /** The selected square's bridge notch — same grammar as the wide row's, hung
  *  off the square and reaching across the rail border (handoff 3a). */
 function RailNotch({ hex }: { hex: string | undefined }): JSX.Element {
-  const accent = hex ?? FLOW_SLATE
+  const accent = hex ?? FLOW_CSS
   return (
     <span
       data-testid="bridge-notch"

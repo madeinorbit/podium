@@ -18,7 +18,7 @@ import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
+import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { ShadowComparisonRunner } from '@/lib/shadow/ShadowComparisonRunner'
 import { useFeature } from '@/lib/use-feature'
@@ -285,7 +285,7 @@ function AppBody(): JSX.Element {
   }
   const persistedFlightDeckWidth = (): number => {
     const stored = Number(uiState.get('podium:superagent:width'))
-    return Number.isFinite(stored) && stored >= 300 && stored <= 620 ? stored : 360
+    return Number.isFinite(stored) && stored >= 300 && stored <= 620 ? stored : 366
   }
   const animateFlightDeckWidth = (from: number, to: number, onFinish?: () => void): void => {
     const shell = flightDeckShellRef.current
@@ -422,7 +422,7 @@ function AppBody(): JSX.Element {
   const effectiveHex = effectiveIssueColorHex(selectedIssue, (id) =>
     issues.find((issue) => issue.id === id),
   )
-  const issueAccent = effectiveHex ?? FLOW_SLATE
+  const issueAccent = effectiveHex ?? FLOW_CSS
   const issueStyle = { '--issue': issueAccent } as CSSProperties
   // One colour-pick handler for every shell surface showing the ID square.
   const changeIssueColor = selectedIssue
@@ -489,7 +489,7 @@ function AppBody(): JSX.Element {
                   storageKey="podium:superagent:width"
                   min={300}
                   max={620}
-                  defaultWidth={360}
+                  defaultWidth={366}
                   handleLabel="Resize Flight Deck"
                   className="max-w-[45vw]"
                 >
@@ -504,7 +504,7 @@ function AppBody(): JSX.Element {
               storageKey="podium:rightdock:width"
               min={280}
               max={860}
-              defaultWidth={340}
+              defaultWidth={316}
               handleLabel="Resize right dock"
               handleSide="left"
               className="max-w-[45vw]"

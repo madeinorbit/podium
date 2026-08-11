@@ -67,9 +67,9 @@ export function TopBar(): JSX.Element {
   return (
     <header className="desktop-topbar" data-testid="desktop-topbar" {...dragRegion}>
       <span className="desktop-topbar-logo" {...dragRegion}>
-        <PodiumLogo height={19} className="flex-none" />
+        <PodiumLogo height={18} className="flex-none" />
       </span>
-      <nav className="topbar-well desktop-topbar-nav" aria-label="Primary">
+      <nav className="desktop-topbar-nav" aria-label="Primary">
         <ModeTab
           label="Work"
           target="workspace"
@@ -114,7 +114,9 @@ export function TopBar(): JSX.Element {
       <ToolbarSlotTarget className="desktop-topbar-slot" />
       <span className="desktop-topbar-gap" {...dragRegion} />
       <HeaderHostIndicators />
-      <span className="topbar-seam topbar-seam-static" aria-hidden="true" />
+      {/* No seam here: the bar's 18px zone gap already divides the instrument
+          from the utilities, and a rule between an object with internal
+          hairlines and two loose glyphs read as a third kind of divider. */}
       <div className="desktop-topbar-utilities">
         <UtilityNavItem
           label="Usage & analytics"
@@ -161,7 +163,7 @@ function UtilityNavItem({
       aria-label={label}
       title={label}
       className={cn(
-        'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
+        'flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
         active && 'bg-secondary text-foreground',
       )}
     >

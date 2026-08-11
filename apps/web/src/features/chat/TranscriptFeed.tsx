@@ -199,7 +199,11 @@ export function TranscriptFeed({
       className={cn(
         'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
         // §2.5 feed geometry: 12px/14px padding in the narrow column.
-        compact ? 'px-3.5 pt-3 pb-4' : 'px-5 pt-5 pb-6',
+        // The wide feed is a DOCUMENT (POD-725), so its side margins are set as
+        // a share of the pane rather than a fixed inset: the design's 56px holds
+        // at a full-width stage and gives way gracefully in a split pane, which
+        // a flat 56px would not — it would have eaten a third of a half-pane.
+        compact ? 'px-3.5 pt-3 pb-4' : 'px-[clamp(20px,7.5%,56px)] pt-[26px] pb-5',
         // Only the terminal empty state centres itself. `loading` is bottom-anchored
         // like the conversation it is standing in for (POD-700) — a state that
         // resolves into content must occupy where that content will be.
@@ -336,7 +340,7 @@ export function TranscriptFeed({
             // An optimistic bubble is the operator opening an exchange, and is
             // spaced like one — otherwise the feed's rhythm changes at the
             // moment the real row replaces it.
-            'transcript-row transcript-turn-open mx-auto w-full max-w-[960px]',
+            'transcript-row transcript-turn-open',
             'transcript-pending',
             p.state === 'failed' && 'transcript-pending--failed',
           )}
@@ -373,7 +377,7 @@ export function TranscriptFeed({
       {restoredQueued.map((message) => (
         <div
           key={message.id}
-          className="transcript-row transcript-turn-open mx-auto w-full max-w-[960px]"
+          className="transcript-row transcript-turn-open"
           data-testid="queued-chat-message"
         >
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
@@ -395,7 +399,7 @@ export function TranscriptFeed({
           the overlay exists only mid-turn, so its presence IS the signal, and
           it goes away when the finished item takes over. */}
       {overlay && (
-        <div className="transcript-row mx-auto w-full max-w-[960px]" data-headless-overlay>
+        <div className="transcript-row" data-headless-overlay>
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
           <div className="transcript-body">
             {overlay.text !== undefined && (

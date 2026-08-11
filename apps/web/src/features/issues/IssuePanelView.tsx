@@ -40,6 +40,9 @@ import { copyToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
+  DOCK_BODY,
+  DOCK_ROW,
+  DOCK_STAMP,
   IssueCompactControls,
   IssueDecisionBand,
   IssueGitScope,
@@ -58,7 +61,7 @@ import { StageGlyph } from './issue-glyphs'
 // the bar and as the stage dropdown's own label.
 
 function Hint({ children }: { children: string }): JSX.Element {
-  return <div className="shell-type-secondary py-0.5 text-text-faint italic">{children}</div>
+  return <div className={cn(DOCK_BODY, 'py-0.5 text-text-faint italic')}>{children}</div>
 }
 
 /** Presence-note kind → its mark. The words come from `mission.ts` so the deck
@@ -82,15 +85,19 @@ function PresenceLine({ note }: { note: PresenceNote }): JSX.Element {
   return (
     <div
       className={cn(
-        'shell-type-secondary flex items-center gap-2 px-1 py-1.5',
+        'flex items-center gap-[7px] px-1 py-1.5',
         // `text-attention` is the ink; `-foreground` is what sits ON the amber
-        // fill and is near-black, i.e. invisible on this panel.
-        note.attention ? 'text-attention' : 'text-muted-foreground',
+        // fill and is near-black, i.e. invisible on this panel. An attention
+        // line is its own object in this design — set tighter and bolder than
+        // the prose around it, because it is a statement rather than a reading.
+        note.attention
+          ? 'text-[11.5px] leading-none font-semibold text-attention'
+          : cn(DOCK_BODY, 'text-muted-foreground'),
       )}
       data-testid="dock-presence-note"
       data-presence={note.kind}
     >
-      <Icon size={11} aria-hidden="true" />
+      <Icon size={note.attention ? 14 : 12} className="flex-none" aria-hidden="true" />
       {note.text}
     </div>
   )
@@ -116,17 +123,25 @@ function DockPart({
   children: ReactNode
 }): JSX.Element {
   return (
-    <section className="mb-[18px]" data-testid={testId} data-part={title}>
+    // 14px between sections, the design's own rhythm — close enough that the
+    // scroll reads as one column of work rather than a stack of cards.
+    <section className="mb-3.5" data-testid={testId} data-part={title}>
+      {/* ONE row, always: label (+ its count, riding the label rather than
+          standing apart from it) · the rule that reaches the far edge · the
+          optional fact parked past it. The rule is --border, not
+          --hairline-soft: it is a section seam, not a row rule, and the two
+          tiers exist so a heading never reads at the same weight as the rows
+          under it. */}
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="shell-type-micro font-semibold text-muted-foreground">{title}</span>
-        {count !== undefined && count > 0 && (
-          <span className="shell-type-micro font-mono tabular-nums text-text-dim">{count}</span>
-        )}
-        <span className="h-px flex-1 bg-hairline-soft" aria-hidden="true" />
+        <span className="shell-type-micro flex-none font-semibold text-muted-foreground">
+          {title}
+          {count !== undefined && count > 0 && (
+            <span className="ml-1 font-medium text-text-faint tabular-nums">{count}</span>
+          )}
+        </span>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
         {meta && (
-          <span className="shell-type-micro flex-none font-mono tabular-nums text-text-faint">
-            {meta}
-          </span>
+          <span className={cn(DOCK_STAMP, 'flex-none tabular-nums text-text-faint')}>{meta}</span>
         )}
       </div>
       {children}
@@ -151,9 +166,11 @@ function FoldRow({
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="shell-type-micro w-full px-1 py-1.5 text-left text-muted-foreground hover:text-foreground"
+      // Wholly mono: a fold summary counts things, and half a mono line was the
+      // one place this scroll changed voice mid-sentence.
+      className="w-full px-1 py-1.5 text-left font-mono text-[11px] leading-none text-text-dim hover:text-foreground"
     >
-      <span className="mr-1 font-mono">{open ? '⌄' : '›'}</span>
+      <span className="mr-1">{open ? '⌄' : '›'}</span>
       {label}
     </button>
   )
@@ -185,16 +202,16 @@ function UnifiedRow({
       data-needs-you={needs || undefined}
       title={`${issueDisplayRef(sub)} ${sub.title}`}
       className={cn(
-        'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-1 py-1 text-left shell-type-secondary hover:bg-accent/40',
+        DOCK_ROW,
+        'grid min-h-[30px] w-full grid-cols-[12px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-1 py-1 text-left text-foreground hover:bg-accent/40',
         sub.archived && 'opacity-60',
       )}
     >
-      <StageGlyph stage={sub.stage} size={13} />
+      <StageGlyph stage={sub.stage} size={12} />
       <span className="min-w-0 truncate">
-        <span
-          className="shell-type-micro mr-1.5 font-mono text-muted-foreground"
-          title={issueIdTitle(sub)}
-        >
+        {/* The ref is an address, not part of the sentence — mono, and the
+            faintest ink on the row, so the title is what the eye lands on. */}
+        <span className="mr-1.5 font-mono text-[10px] text-text-faint" title={issueIdTitle(sub)}>
           {issueDisplayRef(sub)}
         </span>
         <span
@@ -207,8 +224,9 @@ function UnifiedRow({
       </span>
       <span
         className={cn(
-          'shell-type-micro flex-none font-mono',
-          needs ? 'font-semibold text-attention' : 'text-text-dim',
+          DOCK_STAMP,
+          'flex-none',
+          needs ? 'font-semibold text-attention' : 'text-text-faint',
         )}
       >
         {meta}
@@ -223,10 +241,20 @@ function UnifiedRow({
  * on screen, which is how it came to say "0 of 1 done" about an issue with no
  * children — a number describing nothing visible.
  *
- * Segment vocabulary is the Flight Deck's mission bar: done in success, running
- * in the calm info blue. A live count is never amber — amber on this branch
- * means "this is asking something of you" and nothing else. Renders nothing at
- * all when there is nothing to count, so an empty list never grows a rule.
+ * Segment vocabulary is the Flight Deck's mission bar, down to the doses: done
+ * in `--success`, running in the working blue `--live`. A live count is never
+ * amber — amber on this branch means "this is asking something of you" and
+ * nothing else. Renders nothing at all when there is nothing to count, so an
+ * empty list never grows a rule.
+ *
+ * THE TRACK IS A WELL, NOT A PILL (POD-725), and a segment is an EXTENT rather
+ * than a filled bar: `--background` ground one tier below the column, a 26%
+ * tint you would struggle to name the hue of, and the exact figure carried by a
+ * solid 2px datum rule along that extent's floor. Same two devices, same
+ * percentages, as `.gauge-band` — a saturated slab here and a well in the deck
+ * would be two kinds of object saying one kind of thing. At 6px there is no
+ * room for the gauge's inner padding or its reading, so the extents meet edge
+ * to edge and the reading stays outside the track.
  */
 function ProgressMeter({
   done,
@@ -243,13 +271,13 @@ function ProgressMeter({
   const pct = (n: number): string => `${(n / total) * 100}%`
   return (
     <div className="mb-2 flex items-center gap-2" data-testid={testId}>
-      <span className="flex h-1 flex-1 overflow-hidden rounded-full bg-secondary">
+      <span className="flex h-1.5 flex-1 overflow-hidden rounded-[3px] bg-background shadow-[inset_0_1px_2px_var(--carve-drop)]">
         <span
-          className="h-full bg-success transition-[width] duration-300"
+          className="h-full bg-success/26 shadow-[inset_0_-2px_0_var(--success)] transition-[width] duration-300"
           style={{ width: pct(done) }}
         />
         <span
-          className="h-full bg-info transition-[width] duration-300"
+          className="h-full bg-live/26 shadow-[inset_0_-2px_0_var(--live)] transition-[width] duration-300"
           style={{ width: pct(run) }}
         />
       </span>
@@ -276,9 +304,9 @@ function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null 
     <DockPart title="Branch & worktree" testId="dock-checkout">
       <IssueGitScope issue={issue} />
       {root && (
-        <div className="shell-type-micro flex items-center gap-1.5 px-1 py-1 text-muted-foreground">
+        <div className="flex items-center gap-1.5 px-1 py-1 font-mono text-[10.5px] leading-[1.6] text-muted-foreground">
           <Folder size={12} className="flex-none" aria-hidden="true" />
-          <span className="min-w-0 truncate font-mono" title={root}>
+          <span className="min-w-0 truncate" title={root}>
             {root}
           </span>
         </div>
@@ -345,24 +373,24 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
   const shown = buildActivityFeed(comments, events).slice(-5).reverse()
   return (
     <DockPart title="Recent activity" count={shown.length}>
-      <div className="flex flex-col gap-1" data-testid="dock-recent-activity">
+      <div className="flex flex-col gap-1.5" data-testid="dock-recent-activity">
         {shown.length === 0 ? (
           <Hint>Nothing has happened here yet.</Hint>
         ) : (
           shown.map((item) => (
             <div
               key={item.id}
-              className="shell-type-secondary flex items-start gap-2 px-1 py-1 text-foreground/80"
+              className={cn(DOCK_ROW, 'flex items-start gap-2 px-1 py-1 text-muted-foreground')}
             >
               {item.kind === 'comment' ? (
-                <MessageSquare size={11} className="mt-1 flex-none text-muted-foreground" />
+                <MessageSquare size={11} className="mt-1 flex-none text-text-faint" />
               ) : (
-                <History size={11} className="mt-1 flex-none text-muted-foreground" />
+                <History size={11} className="mt-1 flex-none text-text-faint" />
               )}
               <span className="min-w-0 flex-1 whitespace-pre-wrap">
                 {item.kind === 'comment' ? item.body : item.line.text}
               </span>
-              <span className="shell-type-micro flex-none font-mono text-text-faint">
+              <span className={cn(DOCK_STAMP, 'mt-0.5 flex-none text-text-faint')}>
                 {relativeTime(item.ts, Date.now())}
               </span>
             </div>
@@ -394,8 +422,8 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
  */
 function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
   return (
-    <header className="flex-none px-3 pt-2.5 pb-3" data-testid="dock-inspect-head">
-      <div className="shell-type-micro flex items-center gap-2 font-mono text-text-dim">
+    <header className="flex-none px-3.5 pt-2.5 pb-3" data-testid="dock-inspect-head">
+      <div className="flex items-center gap-2 font-mono text-[11px] leading-none text-text-dim">
         <button
           data-pressable
           type="button"
@@ -473,7 +501,10 @@ function EvidenceAndChecks({
               <div
                 // biome-ignore lint/suspicious/noArrayIndexKey: todos are positional (1-based index API)
                 key={i}
-                className="shell-type-secondary flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/50"
+                className={cn(
+                  DOCK_BODY,
+                  'flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/50',
+                )}
               >
                 <Checkbox
                   checked={t.done}
@@ -596,10 +627,15 @@ function EvidenceAndChecks({
                 }}
               >
                 <FileText size={14} className="flex-none text-blue-300" />
-                <span className="shell-type-secondary min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                <span
+                  className={cn(
+                    DOCK_ROW,
+                    'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
+                  )}
+                >
                   {label}
                 </span>
-                <span className="shell-type-micro flex-none font-mono text-text-faint">
+                <span className={cn(DOCK_STAMP, 'flex-none text-text-faint')}>
                   {basename(a.path)}
                 </span>
               </Button>
@@ -613,13 +649,13 @@ function EvidenceAndChecks({
           {deferred.map((d) => (
             <div
               key={`${d.addedAt}:${d.text}`}
-              className="shell-type-secondary flex items-baseline gap-2 px-1 py-0.5 text-foreground/80"
+              className={cn(DOCK_BODY, 'flex items-baseline gap-2 px-1 py-0.5 text-foreground/80')}
             >
               {/* A deferred note is a parked idea, not an obligation — amber
                   would claim it needs the operator now. */}
               <span className="size-1 flex-none translate-y-[-2px] rounded-full bg-text-faint" />
               <span className="min-w-0 flex-1">{d.text}</span>
-              <span className="shell-type-micro flex-none font-mono text-text-faint">
+              <span className={cn(DOCK_STAMP, 'flex-none text-text-faint')}>
                 {new Date(d.addedAt).toLocaleDateString()}
               </span>
             </div>
@@ -643,7 +679,12 @@ function IntakeField({
   loading?: boolean
 }): JSX.Element {
   return (
-    <div className="shell-type-secondary grid grid-cols-[52px_minmax(0,1fr)] items-center gap-2 border-t border-border/50 py-2.5">
+    <div
+      className={cn(
+        DOCK_BODY,
+        'grid grid-cols-[52px_minmax(0,1fr)] items-center gap-2 border-t border-border/50 py-2.5',
+      )}
+    >
       <span className="shell-type-micro font-mono text-muted-foreground/80">{label}</span>
       <span className={cn('min-w-0 truncate text-muted-foreground', loading && 'animate-pulse')}>
         {value}
@@ -659,10 +700,10 @@ function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="dock-intake">
       <header
-        className="flex-none border-b border-border/60 px-3 pt-3 pb-3"
+        className="flex-none border-b border-border/60 px-3.5 pt-3 pb-3"
         data-testid="dock-fixed"
       >
-        <div className="shell-type-micro flex items-center gap-2 font-mono text-text-dim">
+        <div className="flex items-center gap-2 font-mono text-[11px] leading-none text-text-dim">
           {session ? (
             <KindIcon kind={session.agentKind} chip />
           ) : (
@@ -674,13 +715,13 @@ function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
         <h2 className="shell-type-reading mt-1.5 font-semibold text-foreground">
           Conversation workspace
         </h2>
-        <p className="shell-type-secondary mt-1.5 text-muted-foreground">
+        <p className={cn(DOCK_BODY, 'mt-1.5 text-muted-foreground')}>
           Start in chat. Task details, plan and team will appear here when the agent structures the
           work.
         </p>
       </header>
       <div
-        className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6"
+        className="min-h-0 flex-1 overflow-y-auto px-3.5 pt-3 pb-6"
         data-testid="dock-scroll"
         data-dock-scroll=""
       >
@@ -830,18 +871,20 @@ export function IssuePanelView({
         <IssueDecisionBand issue={issue} />
       </div>
       <div
-        className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6"
+        className="min-h-0 flex-1 overflow-y-auto px-3.5 pt-3 pb-6"
         data-testid="dock-scroll"
         data-dock-scroll=""
       >
         {/* The task in the author's own words, UNCAPPED (POD-516 r3 #2). It sits
             in the scroll rather than the fixed head precisely so it can be: the
             three-line clamp existed to protect the scroll's height budget, and
-            down here there is no budget to protect. One step up from the shell's
-            12px body — it is the one paragraph on this surface anybody reads. */}
+            down here there is no budget to protect. One step up from the dock's
+            12px body, at prose leading — it is the one paragraph on this surface
+            anybody reads, and `shell-type-primary` would have collapsed that
+            step to half a pixel under compact density. */}
         {issue.description.trim() && (
           <p
-            className="shell-type-primary mb-[18px] whitespace-pre-wrap text-muted-foreground"
+            className="mb-3.5 text-[13px] leading-[1.6] whitespace-pre-wrap text-muted-foreground"
             data-testid="dock-description"
           >
             {issue.description}
@@ -858,7 +901,8 @@ export function IssuePanelView({
         >
           <p
             className={cn(
-              'shell-type-secondary px-1 whitespace-pre-wrap',
+              DOCK_BODY,
+              'px-1 whitespace-pre-wrap',
               issue.activityNotes ? 'text-foreground/85' : 'text-text-faint italic',
             )}
           >

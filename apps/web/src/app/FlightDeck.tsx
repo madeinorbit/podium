@@ -519,8 +519,11 @@ function ReservedSlot({ note, last }: { note: PresenceNote; last: boolean }): JS
         <span
           aria-hidden
           className={cn(
+            // The rim takes the CHIP tier, not the bar's: a dashed line is half
+            // a line to begin with, and the seat hangs on the card column now,
+            // where a hairline meant for the bar tier dashes away to nothing.
             'size-5 flex-none rounded-[6px] border border-dashed',
-            note.attention ? 'border-attention/60' : 'border-hairline-bar',
+            note.attention ? 'border-attention/60' : 'border-border-strong',
           )}
         />
         {note.kind === 'moved' && <ArrowRight size={11} aria-hidden className="flex-none" />}
@@ -717,7 +720,7 @@ function SessionRow({
             // One tier quieter than a task strip, and recessed rather than
             // raised: the strips are the spine, the agents working them are the
             // roster (sidebar-common's row idiom).
-            'group/session shell-type-secondary flex min-h-6 w-full items-center gap-2 rounded-r-md px-2 py-1 text-left text-text-dim hover:text-foreground',
+            'group/session shell-type-secondary flex min-h-6 w-full items-center gap-2 rounded-r-md px-2 py-1 text-left text-muted-foreground hover:text-foreground',
             active && 'text-foreground',
             retired && 'opacity-60',
           )}
@@ -1070,12 +1073,20 @@ function TaskRow({
       data-depth={flat ? undefined : row.depth}
     >
       {!flat && <BranchGuides carries={carries} mid={proposed ? PROPOSED_MID : BAND_MID} />}
-      {/* The strip is a BAND: a tonal step up from the engraved column plus a
-          hairline, never a lift — DESIGN.md's carved rule. Selection is the
-          issue tint over that same engraved base (with its slate pair, so an
-          uncoloured mission still reads) and a 2px inset edge in the issue's own
-          colour, which is this app's focus language rather than the artifact's
-          borrowed blue.
+      {/* The strip is a BAND: a tonal step off the column plus a hairline, never
+          a lift — DESIGN.md's carved rule. The direction of that step follows
+          the column, which is now card rather than engraved (POD-725): a quiet
+          strip sits one tier BELOW the card on `--tabstrip`, and the selected
+          one comes back up to the card.
+          WHAT SAYS "SELECTED" IS THE LINE, NOT THE FILL. The strip carries the
+          issue in three places and only the two thin ones are saturated: a 2px
+          inset edge (the same edge the column wears along its top and the view
+          bar wears under its active label) and the hairline ring, over a ground
+          tint dosed at the tab strip's 18 rather than the sidebar row's 28. The
+          artifact gives the active row no ground tint at all; a mission colour
+          mixed into warm paper reads about twice as loud as it did into cool
+          grey, and a column of strips is the surface that compounds it. Each
+          tint keeps its slate pair, so an uncoloured mission still reads.
           BLOCKED WEARS A HATCH (round 3 §8) — a shallow diagonal rule over
           whatever ground the band already has. No border, no hue: blocked is a
           stopped state, and `--warning` IS `--attention` in this theme, so any
@@ -1084,11 +1095,11 @@ function TaskRow({
           into its full strip rather than snapping (§7c). */}
       <div
         className={cn(
-          'group/task relative flex items-center gap-1 rounded-md border pr-1.5 transition-[background-color,border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
+          'group/task relative flex items-center gap-1 rounded-row border pr-1.5 transition-[background-color,border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
           state.state === 'blocked' && 'deck-hatch',
           selected
-            ? 'issue-mix-28 issue-mix-slate-22 issue-base-engraved issue-hairline-50 issue-hairline-slate-40 shadow-[inset_2px_0_0_var(--issue)]'
-            : 'border-hairline-soft bg-rail hover:border-hairline-bar hover:bg-chip',
+            ? 'issue-mix-18 issue-mix-slate-14 issue-base-card issue-hairline-50 issue-hairline-slate-40 shadow-[inset_2px_0_0_var(--issue)]'
+            : 'border-hairline-soft bg-tabstrip hover:border-hairline-bar hover:bg-chip',
         )}
         style={{ marginLeft: bandLeft, minHeight: proposed ? PROPOSED_BAND : BAND_HEIGHT }}
       >
@@ -1133,7 +1144,7 @@ function TaskRow({
           {/* Ref THEN title, in one truncating label: the ref is how the
               operator addresses the task everywhere else in Podium, and a
               right-aligned ref made the column read right-to-left. */}
-          <span className="shell-type-secondary min-w-0 flex-1 truncate font-medium">
+          <span className="shell-type-secondary min-w-0 flex-1 truncate font-semibold text-text-strong">
             <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
               {issueDisplayRef(row.issue)}
             </span>
@@ -1299,10 +1310,13 @@ function IntakeCanvas({
         <KindIcon kind={kind} chip />
         {session ? sessionDisplayName(session) : 'New session'}
       </div>
-      <h2 className="shell-type-reading mt-2.5 font-semibold tracking-[-0.01em] text-text-strong">
+      {/* The deck's title slot, at the deck's title size — an empty column and a
+          loaded one are the same column, so its one heading does not shrink
+          because there is no mission in it yet. */}
+      <h2 className="mt-2.5 shell-type-column-title font-semibold text-text-strong">
         Ready when you are
       </h2>
-      <p className="shell-type-secondary mt-1.5 leading-[1.5] text-text-dim">
+      <p className="shell-type-secondary mt-[7px] leading-[1.6] text-muted-foreground">
         The agent will organize this workspace as you talk
         {repoName ? ` in ${repoName}` : ''}.
       </p>
@@ -1678,31 +1692,35 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       <Button
         variant="ghost"
         size="icon-sm"
-        className="absolute top-2 right-2 z-20 size-6 text-text-dim"
+        // Centred in the 32px eyebrow row below, which is the row the artifact
+        // puts it in: the chevron is part of the header's line, not a control
+        // floating over the corner of the column.
+        className="absolute top-1 right-2 z-20 size-6 text-text-faint"
         aria-label="Collapse Flight Deck"
         title="Collapse Flight Deck"
         onClick={onCollapse}
       >
-        <ChevronLeft size={12} aria-hidden="true" />
+        <ChevronLeft size={14} aria-hidden="true" />
       </Button>
 
       {root ? (
         <>
           {/* THE MISSION HEADER IS THE ROOT OF THE TREE (round 3 §2, §4, §10).
-              Roomy because it is read once where the strips below are scanned,
-              and now carrying the mission's OWN colour: the issue tint over the
-              tabstrip tier, which is one tonal step up from the engraved column,
-              so the head of the spine reads as the head of the spine. `--issue`
-              is scoped once on `.desktop-shell` and IS the mission's colour, and
-              every tint here is paired with its slate value so an uncoloured
-              mission still reads.
+              Roomy because it is read once where the strips below are scanned.
+              It carries NO fill of its own any more (POD-725): the column ITSELF
+              now runs the mission's colour, from the 3px inset along its top
+              edge down through a tint that flattens into the card tone over
+              240px, so a tinted slab here would only tint the tint. What is left
+              is the geometry the artifact measures — a 32px eyebrow row, then
+              the title block — and the seam under it belongs to the view bar's
+              own top rule rather than to a border here.
               The `1 / 16` that used to sit after the title is gone (§10) — the
               gauge below says it in words. */}
-          <div className="relative flex-none border-b issue-hairline-50 issue-hairline-slate-45 issue-mix-18 issue-mix-slate-14 issue-base-tabstrip px-4 pt-4 pr-11 pb-4">
-            <div className="shell-type-micro flex items-center gap-1.5 font-mono text-text-faint">
+          <div className="relative flex-none">
+            <div className="shell-type-micro flex h-8 items-center gap-1.5 px-4 pr-11 font-mono text-text-dim">
               <StageGlyph stage={root.stage} size={12} />
               <span>{issueDisplayRef(root)}</span>
-              <span className="text-text-dim">{STAGE_LABELS[root.stage].toLowerCase()}</span>
+              <span>{STAGE_LABELS[root.stage].toLowerCase()}</span>
               {/* The mission's own dependency or provenance, in the same chip a
                   strip wears — the header is a node, so it says what a node says. */}
               {rootNote && (
@@ -1711,40 +1729,46 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 </span>
               )}
             </div>
-            <button
-              data-pressable
-              type="button"
-              className="mt-1.5 block w-full min-w-0 text-left"
-              // The header IS the root's strip (round 3 §4), so it takes the
-              // strips' gesture: preview once, promote twice.
-              onClick={() =>
-                rootRow &&
-                headerIntent.press(
-                  () => selectIssue(rootRow, false),
-                  () => selectIssue(rootRow, true),
-                )
-              }
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter' || !rootRow) return
-                event.preventDefault()
-                headerIntent.commit(() => selectIssue(rootRow, true))
-              }}
-              title={`Focus ${issueDisplayRef(root)}`}
-            >
-              <h2 className="shell-type-reading font-semibold tracking-[-0.01em] text-text-strong">
-                {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
-              </h2>
-            </button>
-            <p className="shell-type-secondary mt-2 line-clamp-4 leading-[1.5] text-text-dim">
-              {draftFilling
-                ? drafts[rootSession?.sessionId ?? '']
-                  ? 'Your first prompt is taking shape. This mission will fill in as the conversation develops.'
-                  : 'Start with a message. The mission, plan, and team will fill in here as the agent learns what you need.'
-                : root.description?.trim() ||
-                  root.activityNotes?.trim() ||
-                  'Mission work, agents, and dependencies in one live execution view.'}
-            </p>
-            <MissionGauge progress={progress} live={liveCount} working={workingCount} />
+            <div className="px-4 pt-1 pb-3">
+              <button
+                data-pressable
+                type="button"
+                className="block w-full min-w-0 text-left"
+                // The header IS the root's strip (round 3 §4), so it takes the
+                // strips' gesture: preview once, promote twice.
+                onClick={() =>
+                  rootRow &&
+                  headerIntent.press(
+                    () => selectIssue(rootRow, false),
+                    () => selectIssue(rootRow, true),
+                  )
+                }
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' || !rootRow) return
+                  event.preventDefault()
+                  headerIntent.commit(() => selectIssue(rootRow, true))
+                }}
+                title={`Focus ${issueDisplayRef(root)}`}
+              >
+                {/* The one title in the column, and the only place in the shell
+                    that outgrows the `reading` role: everything under it is a
+                    scanned list, so the mission's name is allowed to be read
+                    from across the desk. 17px is the artifact's own measure. */}
+                <h2 className="shell-type-column-title font-semibold text-text-strong">
+                  {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
+                </h2>
+              </button>
+              <p className="shell-type-secondary mt-[7px] line-clamp-4 leading-[1.6] text-muted-foreground">
+                {draftFilling
+                  ? drafts[rootSession?.sessionId ?? '']
+                    ? 'Your first prompt is taking shape. This mission will fill in as the conversation develops.'
+                    : 'Start with a message. The mission, plan, and team will fill in here as the agent learns what you need.'
+                  : root.description?.trim() ||
+                    root.activityNotes?.trim() ||
+                    'Mission work, agents, and dependencies in one live execution view.'}
+              </p>
+              <MissionGauge progress={progress} live={liveCount} working={workingCount} />
+            </div>
             {/* THE DESCENT. The spine leaves the header on the mission's own
                 rail and is picked up, unbroken, by the view bar and then by the
                 root's agents — whose rail IS this one (see ROOT_BLOCK_INSET). */}
@@ -1754,8 +1778,11 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               style={{ left: ROOT_RAIL }}
             />
           </div>
+          {/* Rules TOP AND BOTTOM, both in the soft tier: the bar is a band cut
+              through the column, and its top rule is the seam the header no
+              longer draws for itself. */}
           <div
-            className="relative flex h-10 flex-none items-center gap-1 border-b border-hairline-bar pr-3"
+            className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-3"
             style={{ paddingLeft: GUTTER }}
           >
             {/* The view bar sits in the spine's gutter rather than across it: its
@@ -1772,9 +1799,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 type="button"
                 key={option.id}
                 aria-pressed={mode === option.id}
+                // THE ACTIVE VIEW IS UNDERLINED IN THE MISSION'S OWN COLOUR, and
+                // the underline runs the bar's full height rather than a pill's.
+                // A filled pill here read as one more raised object competing
+                // with the strips below it; an inset floor rule is the same
+                // device the selected strip wears on its left edge, turned
+                // through ninety degrees, so both say "this one" in one voice.
                 className={cn(
-                  'shell-type-micro inline-flex h-6 items-center gap-1 rounded-md px-2 text-text-dim hover:bg-muted hover:text-text-strong',
-                  mode === option.id && 'bg-muted font-semibold text-text-strong',
+                  'shell-type-micro inline-flex items-center gap-1 self-stretch px-2 font-medium text-text-faint hover:text-text-strong',
+                  mode === option.id && 'text-text-strong shadow-[inset_0_-2px_0_var(--issue)]',
                 )}
                 onClick={() => setMode(option.id)}
               >
@@ -1788,7 +1821,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="size-6 text-text-dim"
+                className="size-6 text-text-faint"
                 aria-pressed={searchOpen}
                 title="Search this mission"
                 onClick={() => {
@@ -1796,12 +1829,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   if (searchOpen) setQuery('')
                 }}
               >
-                <Search size={11} aria-hidden="true" />
+                <Search size={13} aria-hidden="true" />
               </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="size-6 text-text-dim"
+                className="size-6 text-text-faint"
                 title={allFolded ? 'Expand every branch' : 'Fold every branch'}
                 disabled={!anyFoldable}
                 // Both directions write EXPLICIT values for every foldable
@@ -1819,13 +1852,13 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   )
                 }
               >
-                {allFolded ? <ChevronsUpDown size={11} /> : <ChevronsDownUp size={11} />}
+                {allFolded ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
               </Button>
             </div>
           </div>
           {searchOpen && (
             <div
-              className="relative flex h-9 flex-none items-center gap-2 border-b border-hairline-bar pr-3"
+              className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-3"
               style={{ paddingLeft: GUTTER }}
             >
               <span
@@ -1833,7 +1866,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 className="pointer-events-none absolute inset-y-0 w-px bg-hairline-soft"
                 style={{ left: ROOT_RAIL }}
               />
-              <Search size={11} aria-hidden="true" className="flex-none text-text-faint" />
+              <Search size={13} aria-hidden="true" className="flex-none text-text-faint" />
               <input
                 // biome-ignore lint/a11y/noAutofocus: the field exists only while searching
                 autoFocus

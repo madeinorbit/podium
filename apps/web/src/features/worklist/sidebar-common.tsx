@@ -40,7 +40,7 @@ export const SIDEBAR_ASIDE_CLASS =
 export const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
 export const SIDEBAR_WIDTH_MIN = 200
 export const SIDEBAR_WIDTH_MAX = 520
-export const SIDEBAR_WIDTH_DEFAULT = 292
+export const SIDEBAR_WIDTH_DEFAULT = 306
 
 /**
  * A fixed-width column with a drag-to-resize edge (`handleSide`, default right —

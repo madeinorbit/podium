@@ -230,7 +230,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
     // (--section-bar-h, POD-365) so one seam runs across sidebar | tray | tab
     // strip. pr-4 clears the absolutely-positioned collapse control on the
     // sidebar's right edge (translateX(50%) into the content column).
-    <div className="flex h-(--section-bar-h) flex-none items-center gap-2 border-b border-hairline-soft pr-4 pl-2">
+    <div className="flex h-(--section-bar-h) flex-none items-center gap-2 border-b border-hairline-soft pr-4 pl-3">
       <div
         ref={newAgentAnchorRef}
         data-testid="new-agent-button"
@@ -241,9 +241,12 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
         <button
           data-pressable
           type="button"
-          // h-7 rather than py-2 (POD-365: the row is on the shell's datum, so
-          // its control takes a fixed height), painted from the ramp (POD-388).
-          className="flex h-7 w-full min-w-0 items-center gap-2 rounded-lg border border-border-strong bg-chip px-[10px] pr-[32px] text-[12px] leading-[normal] font-medium text-text-strong transition-colors hover:border-text-faint hover:bg-accent disabled:opacity-50"
+          // A fixed height, not py-2 (POD-365: the row is on the shell's datum,
+          // so its control takes one). The design's 30px chip: no rim, a
+          // `--secondary` fill and body ink — on paper that is the rail tone, so
+          // the control reads as a recess in the column rather than a card
+          // floating on it, and `data-pressable` supplies the hover lift.
+          className="flex h-[30px] w-full min-w-0 items-center gap-2 rounded-lg bg-secondary px-[10px] pr-[32px] text-[12px] leading-[normal] font-medium text-foreground disabled:opacity-50"
           disabled={!defaultRepo}
           title={
             defaultTarget
@@ -272,10 +275,10 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
               <button
                 data-pressable
                 type="button"
-                className="absolute top-1/2 right-[9px] flex size-6 -translate-y-1/2 items-center justify-center rounded text-label hover:text-foreground"
+                className="absolute top-1/2 right-[9px] flex size-6 -translate-y-1/2 items-center justify-center rounded text-text-faint hover:text-foreground"
                 aria-label="Choose agent and repo"
               >
-                <ChevronDown size={13} aria-hidden="true" />
+                <ChevronDown size={14} aria-hidden="true" />
               </button>
             }
           />
@@ -296,7 +299,14 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
 }
 
 /** Work-local tools: repository discovery and command search. Global utilities
- *  live in the top bar so they remain reachable outside the Work shell. */
+ *  live in the top bar so they remain reachable outside the Work shell.
+ *
+ *  The Paper design writes these as the bare mono words `new task` and `search`.
+ *  We keep the muted ICONS (operator call): the words would be the only prose in
+ *  a column whose every other line is a task, and two of them at the foot of it
+ *  read as list items rather than tools. What we do take from the design is the
+ *  strip's geometry and the right-aligned ⌘K hint, so the footer still tells you
+ *  the shortcut without spending a control on it. */
 export function AppToolsRow({ className }: { className?: string }): JSX.Element {
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const [repoScanOpen, setRepoScanOpen] = useState(false)
@@ -307,7 +317,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
       active && 'bg-muted text-text-strong',
     )
   return (
-    <div className={cn('flex items-center justify-around', className)}>
+    <div className={cn('flex items-center gap-1', className)}>
       <button
         data-pressable
         type="button"
@@ -330,6 +340,15 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
         >
           <Search size={15} aria-hidden="true" />
         </button>
+      )}
+      {commandPaletteEnabled && (
+        <span
+          className="mono-timer ml-auto flex-none text-[9.5px] text-text-faint"
+          aria-hidden="true"
+          data-testid="palette-hint"
+        >
+          ⌘K
+        </span>
       )}
       {repoScanOpen && (
         <RepoScanFlow
