@@ -1,13 +1,13 @@
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
+import { userCommandPrincipal } from './command-principal'
 import {
   issueMembershipScanCount,
   issueWireBuildCount,
   resetIssueWireBuildCount,
 } from './modules/issues/instrumentation'
-import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import type { IssueRow } from './store'
 import { SessionStore } from './store'
@@ -282,6 +282,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
   it('cold snapshot includes all normalized issue collections for reload bootstrap', () => {
     const { registry, store } = world({ issues: 2, sessions: 0 })
     store.repos.addRepo('/repo', store.hostMachineId)
+    registry.modules.issues.publishRepos()
     registry.modules.issues.addDep('iss_0', 'iss_1')
 
     const snapshot = registry.modules.sessions.syncChangesSince(null)

@@ -9,7 +9,7 @@ type Action = () => MaybePromise
 export interface UpdateActions {
   reload?: Action
   installApp?: Action
-  updateServer?: Action
+  startUpdate?: Action
 }
 
 interface UpdateDialogProps {
@@ -18,11 +18,13 @@ interface UpdateDialogProps {
   onDismiss?: () => void
 }
 
-type ActionName = 'reload' | 'installApp' | 'updateServer'
+type ActionName = 'reload' | 'installApp' | 'startUpdate'
 
 function viewKey(view: UpdateView): string {
   if (view.state === 'none') return 'none'
-  if (view.state === 'failed') return `failed:${view.detail}`
+  if (view.state === 'failed') {
+    return `failed:${view.message}:${view.guidance}:${view.diagnostic ?? ''}`
+  }
   return `${view.state}:${view.version}`
 }
 
@@ -37,6 +39,10 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
   if (view.state === 'none' || dismissed) return null
 
   const canClose = view.state === 'available' || view.state === 'failed'
+  const dismiss = () => {
+    onDismiss?.()
+    setDismissed(true)
+  }
   /**
    * Reload only helps when THIS APP is one of the places being updated. A release
    * that touches only the server or only machines would otherwise offer a button
@@ -118,15 +124,7 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
             {canClose ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  onDismiss?.()
-                  setDismissed(true)
-                }}
-              >
+              <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
                 Later
               </Button>
             ) : null}
@@ -154,15 +152,15 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
                   Install update
                 </Button>
               )}
-              {actions.updateServer && (
+              {actions.startUpdate && (
                 <Button
                   type="button"
                   size="sm"
-                  pending={pendingAction === 'updateServer'}
+                  pending={pendingAction === 'startUpdate'}
                   pendingLabel="Updating…"
-                  onClick={() => void runAction('updateServer', actions.updateServer)}
+                  onClick={() => void runAction('startUpdate', actions.startUpdate)}
                 >
-                  Update server
+                  Update Podium
                 </Button>
               )}
             </div>
@@ -194,12 +192,51 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
               Sessions keep running
             </p>
           </div>
+          {/*
+           * The one state that used to have no way out. Convergence can take
+           * minutes, and this panel sits over the app — including over Settings
+           * → Machines, which is exactly where an operator goes to see or retry
+           * a machine that is stuck. Dismissing hides the panel, not the update:
+           * the wave keeps running and the panel returns when its state changes.
+           */}
+          <div className="flex items-center justify-end border-t border-border bg-muted/30 px-4 py-3">
+            <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
+              Hide
+            </Button>
+          </div>
         </>
       ) : view.state === 'failed' ? (
         <>
           <div className="gap-1 px-4 pt-4 pb-4">
-            <h2 className="text-[14px] font-semibold">Podium update paused</h2>
-            <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.detail}</p>
+            <h2 className="text-[14px] font-semibold">Podium update failed</h2>
+            <p className="mt-1 text-[11px] leading-[1.5] text-muted-foreground">{view.message}</p>
+            <p className="mt-2 text-[11px] leading-[1.5] text-foreground">{view.guidance}</p>
+            {view.diagnostic && (
+              <details className="mt-3 rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px]">
+                <summary className="cursor-pointer font-medium text-muted-foreground">
+                  Technical details
+                </summary>
+                <p className="mt-2 font-mono text-[10px] leading-[1.5] text-muted-foreground">
+                  {view.diagnostic}
+                </p>
+              </details>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
+            <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
+              Dismiss
+            </Button>
+            {actions.startUpdate && (
+              <Button
+                type="button"
+                size="sm"
+                pending={pendingAction === 'startUpdate'}
+                pendingLabel="Trying again…"
+                onClick={() => void runAction('startUpdate', actions.startUpdate)}
+              >
+                Try again
+              </Button>
+            )}
           </div>
         </>
       ) : null}

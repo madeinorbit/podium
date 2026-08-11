@@ -117,12 +117,13 @@ export function contractFieldOnHandler(source: string, file: string): Finding[] 
 }
 
 // ---------------------------------------------------------------------------
-// 2 — the stranded protocol contracts stay absorbed, with no shim behind them
+// 2 — stranded protocol contracts stay absorbed; the unsent envelope stays retired
 // ---------------------------------------------------------------------------
 
 /**
- * POD-311 absorbed four modules out of `@podium/protocol`. Two failure modes end the
- * "ONE contract framework" claim, and they look nothing alike:
+ * POD-311 absorbed four modules out of `@podium/protocol`. The live framework
+ * modules stay absorbed, while the never-sent mutation envelope stays deleted.
+ * The failure modes look different:
  *
  *   · the file comes BACK, and there are two frameworks again;
  *   · a re-export SHIM is left in its place, which is worse, because every call site
@@ -151,6 +152,15 @@ export function strandedContractsReturned(
           'two contract frameworks again',
       })
     }
+  }
+  const retiredEnvelope = 'packages/commands/src/mutations.ts'
+  if (fileExists(retiredEnvelope)) {
+    findings.push({
+      check: 'unused-mutation-envelope-retired',
+      where: retiredEnvelope,
+      detail:
+        'MutationEnvelope/MutationResult were never sent or received; production durable writes use OutboxCommand',
+    })
   }
   const shim = /export \* from '\.\/(commands|session-commands|session-command-plane)'/
   const shimMatch = shim.exec(protocolIndex)
@@ -431,6 +441,14 @@ function probe(): Finding[] {
     'stranded-contracts-absorbed/mutations-shim',
     strandedContractsReturned(() => false, '', "export * from './mutations'\n"),
   )
+  expect(
+    'unused-mutation-envelope-retired/file',
+    strandedContractsReturned(
+      (rel) => rel === 'packages/commands/src/mutations.ts',
+      '',
+      '',
+    ),
+  )
   mustNotFire(
     'stranded-contracts-absorbed',
     strandedContractsReturned(() => false, "export * from './handshake'\n", "export * from './sync'\n"),
@@ -547,6 +565,7 @@ function main(): void {
       `Issue-surface audit: ${findings.length} finding(s). The 3.1 split's claims are:\n` +
         '  · a handler declares kind/target/handler and NOTHING the contract owns\n' +
         '  · the absorbed protocol contracts stay absorbed, with no re-export shim\n' +
+        '  · the never-sent generic mutation envelope stays retired\n' +
         '  · ISSUE_COMMAND_NAMES stays DERIVED from the contract table\n' +
         "  · declared cli/mcp exposure equals the CLI table's actual reach, both ways\n",
     )
@@ -555,7 +574,8 @@ function main(): void {
   }
   console.log(
     'issue-surface audit OK — handlers carry no contract field, the stranded contracts stayed ' +
-      'absorbed with no shim, the name list is derived, exposure matches reach in both directions',
+      'absorbed with no shim, the unused mutation envelope stayed retired, the name list is ' +
+      'derived, exposure matches reach in both directions',
   )
 }
 

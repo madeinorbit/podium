@@ -42,7 +42,11 @@ export function getFeatureStates(
   // and would leave production builds as undefined → 'dev' forever.
   const version = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
   const devMode = version === 'dev'
-  const channel = resolveUpdateChannel(config, env)
+  // Feature visibility has exactly two tiers, so the `dev` fleet channel (POD-1882)
+  // folds into `edge`: it is strictly more permissive than edge, and a dev install
+  // must see at least everything an edge install sees.
+  const fleetChannel = resolveUpdateChannel(config, env)
+  const channel: 'stable' | 'edge' = fleetChannel === 'stable' ? 'stable' : 'edge'
   const overrides = resolveFeatureOverrides(config)
   const user = settings.experimental ?? {}
 

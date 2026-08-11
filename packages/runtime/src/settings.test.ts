@@ -127,11 +127,14 @@ describe('normalizeSettings — idle-session target', () => {
     ).toBeNull()
   })
 
-  it('defaults idleShellHours to off and preserves an explicit hours value', () => {
-    expect(normalizeSettings({}).hibernation.idleShellHours).toBeNull()
-    expect(
-      normalizeSettings({ hibernation: { idleShellHours: 48 } }).hibernation.idleShellHours,
-    ).toBe(48)
+  it('defaults idleShellMinutes to one and migrates legacy hours', () => {
+    expect(normalizeSettings({}).hibernation.idleShellMinutes).toBe(1)
+    expect(normalizeSettings({ hibernation: { idleShellMinutes: 48 } }).hibernation.idleShellMinutes).toBe(48)
+    expect(normalizeSettings({ hibernation: { idleShellHours: 2 } }).hibernation.idleShellMinutes).toBe(120)
+  })
+
+  it('defaults the idle backstop to two days', () => {
+    expect(normalizeSettings({}).hibernation.backstopMinutes).toBe(2 * 24 * 60)
   })
 })
 

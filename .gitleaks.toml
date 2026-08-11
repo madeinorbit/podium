@@ -13,3 +13,10 @@ description = "Known false positives"
 paths = [
   '''perf/webgl-warmset/vendor/.*''',
 ]
+
+# Synthetic credential-like input used to prove the telemetry scrubber removes
+# secrets from errors. Keep this exact value narrow so real token assignments
+# elsewhere remain findings.
+regexes = [
+  '''^sekrit-abc123$''',
+]

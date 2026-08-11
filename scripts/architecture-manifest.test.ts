@@ -23,6 +23,7 @@ import {
   stripComments,
   tagsFor,
   type WorkspaceTags,
+  workspaceOf,
 } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 
@@ -40,7 +41,13 @@ describe('MANIFEST coverage', () => {
     const onDisk: string[] = []
     for (const root of ['apps', 'packages']) {
       for (const entry of readdirSync(join(REPO_ROOT, root), { withFileTypes: true })) {
-        if (entry.isDirectory() && !entry.name.startsWith('.')) onDisk.push(`${root}/${entry.name}`)
+        if (
+          entry.isDirectory() &&
+          !entry.name.startsWith('.') &&
+          existsSync(join(REPO_ROOT, root, entry.name, 'package.json'))
+        ) {
+          onDisk.push(`${root}/${entry.name}`)
+        }
       }
     }
     // A new package that nobody tagged would silently sit outside the matrix —
@@ -52,6 +59,10 @@ describe('MANIFEST coverage', () => {
     expect(tagsFor('scripts')?.layer).toBe(5)
   })
 
+  it('classifies workspace Vite and Vitest configs as build-tier tooling', () => {
+    expect(workspaceOf('apps/web/vite.config.ts')).toBe('scripts')
+    expect(workspaceOf('packages/model/vitest.config.ts')).toBe('scripts')
+  })
   it('owns every feature exactly once', () => {
     expect(duplicateFeatureOwners()).toEqual([])
   })

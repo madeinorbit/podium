@@ -1,0 +1,566 @@
+{
+  "family": "server-transfer",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "ServerTransferAbortRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serverTransferAbortRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferAbortRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferAbortRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serverTransferAbortRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "reason": "reason",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferAbortRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"reason\":\"reason\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferAcknowledgeRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serverTransferAcknowledgeRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferAcknowledgeRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferAcknowledgeRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serverTransferAcknowledgeRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferAcknowledgeRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferChunkRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serverTransferChunkRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "path",
+        "offset": 1,
+        "data": "data",
+        "expectedLength": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferChunkRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"path\":\"path\",\"offset\":1,\"data\":\"data\",\"expectedLength\":1}"
+    },
+    {
+      "schema": "ServerTransferChunkRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serverTransferChunkRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "path",
+        "offset": 1,
+        "data": "data",
+        "expectedLength": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferChunkRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"path\":\"path\",\"offset\":1,\"data\":\"data\",\"expectedLength\":1}"
+    },
+    {
+      "schema": "ServerTransferErrorCode",
+      "variant": "minimal",
+      "wire": "unknown-transfer",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"unknown-transfer\""
+    },
+    {
+      "schema": "ServerTransferErrorCode",
+      "variant": "full",
+      "wire": "unknown-transfer",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"unknown-transfer\""
+    },
+    {
+      "schema": "ServerTransferManifest",
+      "variant": "minimal",
+      "wire": {
+        "formatVersion": 1,
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "sourceInstanceId": "sourceInstanceId",
+        "sourceMachineId": "sourceMachineId",
+        "targetMachineId": "targetMachineId",
+        "sourceFeedId": "sourceFeedId",
+        "sourceFeedEpoch": "sourceFeedEpoch",
+        "appVersion": "appVersion",
+        "schemaVersion": "schemaVersion",
+        "packageBytes": 1,
+        "files": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"formatVersion\":1,\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"sourceInstanceId\":\"sourceInstanceId\",\"sourceMachineId\":\"sourceMachineId\",\"targetMachineId\":\"targetMachineId\",\"sourceFeedId\":\"sourceFeedId\",\"sourceFeedEpoch\":\"sourceFeedEpoch\",\"appVersion\":\"appVersion\",\"schemaVersion\":\"schemaVersion\",\"packageBytes\":1,\"files\":[]}"
+    },
+    {
+      "schema": "ServerTransferManifest",
+      "variant": "full",
+      "wire": {
+        "formatVersion": 1,
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "sourceInstanceId": "sourceInstanceId",
+        "sourceMachineId": "sourceMachineId",
+        "targetMachineId": "targetMachineId",
+        "sourceFeedId": "sourceFeedId",
+        "sourceFeedEpoch": "sourceFeedEpoch",
+        "appVersion": "appVersion",
+        "schemaVersion": "schemaVersion",
+        "packageBytes": 1,
+        "files": [
+          {
+            "path": "files[0].path",
+            "size": 1,
+            "mode": 1,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"formatVersion\":1,\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"sourceInstanceId\":\"sourceInstanceId\",\"sourceMachineId\":\"sourceMachineId\",\"targetMachineId\":\"targetMachineId\",\"sourceFeedId\":\"sourceFeedId\",\"sourceFeedEpoch\":\"sourceFeedEpoch\",\"appVersion\":\"appVersion\",\"schemaVersion\":\"schemaVersion\",\"packageBytes\":1,\"files\":[{\"path\":\"files[0].path\",\"size\":1,\"mode\":1,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}"
+    },
+    {
+      "schema": "ServerTransferManifestEntry",
+      "variant": "minimal",
+      "wire": {
+        "path": "path",
+        "size": 1,
+        "mode": 1,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\",\"size\":1,\"mode\":1,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferManifestEntry",
+      "variant": "full",
+      "wire": {
+        "path": "path",
+        "size": 1,
+        "mode": 1,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\",\"size\":1,\"mode\":1,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferOperation",
+      "variant": "minimal",
+      "wire": "prepare",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"prepare\""
+    },
+    {
+      "schema": "ServerTransferOperation",
+      "variant": "full",
+      "wire": "prepare",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"prepare\""
+    },
+    {
+      "schema": "ServerTransferPrepareRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serverTransferPrepareRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifest": {
+          "formatVersion": 1,
+          "transferId": "00000000-0000-4000-8000-000000000000",
+          "sourceInstanceId": "manifest.sourceInstanceId",
+          "sourceMachineId": "manifest.sourceMachineId",
+          "targetMachineId": "manifest.targetMachineId",
+          "sourceFeedId": "manifest.sourceFeedId",
+          "sourceFeedEpoch": "manifest.sourceFeedEpoch",
+          "appVersion": "manifest.appVersion",
+          "schemaVersion": "manifest.schemaVersion",
+          "packageBytes": 1,
+          "files": []
+        },
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferPrepareRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifest\":{\"formatVersion\":1,\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"sourceInstanceId\":\"manifest.sourceInstanceId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"targetMachineId\":\"manifest.targetMachineId\",\"sourceFeedId\":\"manifest.sourceFeedId\",\"sourceFeedEpoch\":\"manifest.sourceFeedEpoch\",\"appVersion\":\"manifest.appVersion\",\"schemaVersion\":\"manifest.schemaVersion\",\"packageBytes\":1,\"files\":[]},\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferPrepareRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serverTransferPrepareRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifest": {
+          "formatVersion": 1,
+          "transferId": "00000000-0000-4000-8000-000000000000",
+          "sourceInstanceId": "manifest.sourceInstanceId",
+          "sourceMachineId": "manifest.sourceMachineId",
+          "targetMachineId": "manifest.targetMachineId",
+          "sourceFeedId": "manifest.sourceFeedId",
+          "sourceFeedEpoch": "manifest.sourceFeedEpoch",
+          "appVersion": "manifest.appVersion",
+          "schemaVersion": "manifest.schemaVersion",
+          "packageBytes": 1,
+          "files": [
+            {
+              "path": "manifest.files[0].path",
+              "size": 1,
+              "mode": 1,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        },
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferPrepareRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifest\":{\"formatVersion\":1,\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"sourceInstanceId\":\"manifest.sourceInstanceId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"targetMachineId\":\"manifest.targetMachineId\",\"sourceFeedId\":\"manifest.sourceFeedId\",\"sourceFeedEpoch\":\"manifest.sourceFeedEpoch\",\"appVersion\":\"manifest.appVersion\",\"schemaVersion\":\"manifest.schemaVersion\",\"packageBytes\":1,\"files\":[{\"path\":\"manifest.files[0].path\",\"size\":1,\"mode\":1,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferPromoteRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serverTransferPromoteRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "publicUrl": "publicUrl",
+        "targetMode": "server",
+        "idempotencyKey": "idempotencyKey"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\"}"
+    },
+    {
+      "schema": "ServerTransferPromoteRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serverTransferPromoteRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "publicUrl": "publicUrl",
+        "port": 1,
+        "targetMode": "server",
+        "idempotencyKey": "idempotencyKey"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferPromoteRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"publicUrl\":\"publicUrl\",\"port\":1,\"targetMode\":\"server\",\"idempotencyKey\":\"idempotencyKey\"}"
+    },
+    {
+      "schema": "ServerTransferProof",
+      "variant": "minimal",
+      "wire": {
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "targetMachineId": "targetMachineId",
+        "feedId": "feedId",
+        "feedEpoch": "feedEpoch",
+        "schemaVersion": "schemaVersion",
+        "buildVersion": "buildVersion"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\"}"
+    },
+    {
+      "schema": "ServerTransferProof",
+      "variant": "full",
+      "wire": {
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "targetMachineId": "targetMachineId",
+        "feedId": "feedId",
+        "feedEpoch": "feedEpoch",
+        "schemaVersion": "schemaVersion",
+        "buildVersion": "buildVersion"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\"}"
+    },
+    {
+      "schema": "ServerTransferResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serverTransferResult",
+        "requestId": "requestId",
+        "operation": "prepare",
+        "ok": true,
+        "state": "prepared"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferResult\",\"requestId\":\"requestId\",\"operation\":\"prepare\",\"ok\":true,\"state\":\"prepared\"}"
+    },
+    {
+      "schema": "ServerTransferResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serverTransferResult",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "operation": "prepare",
+        "ok": true,
+        "state": "prepared",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceMachineId": "sourceMachineId",
+        "publicUrl": "publicUrl",
+        "path": "path",
+        "offset": 1,
+        "receivedBytes": 1,
+        "idempotent": true,
+        "cleaned": true,
+        "acknowledged": true,
+        "targetCapability": "server-only",
+        "buildVersion": "buildVersion",
+        "wireSchemaDigest": "wireSchemaDigest",
+        "space": {
+          "availableBytes": 1,
+          "requiredBytes": 1,
+          "sufficient": true
+        },
+        "proof": {
+          "transferId": "00000000-0000-4000-8000-000000000000",
+          "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "targetMachineId": "proof.targetMachineId",
+          "feedId": "proof.feedId",
+          "feedEpoch": "proof.feedEpoch",
+          "schemaVersion": "proof.schemaVersion",
+          "buildVersion": "proof.buildVersion"
+        },
+        "servingProof": {
+          "transferId": "00000000-0000-4000-8000-000000000000",
+          "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "targetMachineId": "servingProof.targetMachineId",
+          "feedId": "servingProof.feedId",
+          "feedEpoch": "servingProof.feedEpoch",
+          "schemaVersion": "servingProof.schemaVersion",
+          "buildVersion": "servingProof.buildVersion",
+          "publicUrl": "servingProof.publicUrl",
+          "health": "serving"
+        },
+        "errorCode": "unknown-transfer",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferResult\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"operation\":\"prepare\",\"ok\":true,\"state\":\"prepared\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sourceMachineId\":\"sourceMachineId\",\"publicUrl\":\"publicUrl\",\"path\":\"path\",\"offset\":1,\"receivedBytes\":1,\"idempotent\":true,\"cleaned\":true,\"acknowledged\":true,\"targetCapability\":\"server-only\",\"buildVersion\":\"buildVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"space\":{\"availableBytes\":1,\"requiredBytes\":1,\"sufficient\":true},\"proof\":{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"proof.targetMachineId\",\"feedId\":\"proof.feedId\",\"feedEpoch\":\"proof.feedEpoch\",\"schemaVersion\":\"proof.schemaVersion\",\"buildVersion\":\"proof.buildVersion\"},\"servingProof\":{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"servingProof.targetMachineId\",\"feedId\":\"servingProof.feedId\",\"feedEpoch\":\"servingProof.feedEpoch\",\"schemaVersion\":\"servingProof.schemaVersion\",\"buildVersion\":\"servingProof.buildVersion\",\"publicUrl\":\"servingProof.publicUrl\",\"health\":\"serving\"},\"errorCode\":\"unknown-transfer\",\"error\":\"error\"}"
+    },
+    {
+      "schema": "ServerTransferServingProof",
+      "variant": "minimal",
+      "wire": {
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "targetMachineId": "targetMachineId",
+        "feedId": "feedId",
+        "feedEpoch": "feedEpoch",
+        "schemaVersion": "schemaVersion",
+        "buildVersion": "buildVersion",
+        "publicUrl": "publicUrl",
+        "health": "serving"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"health\":\"serving\"}"
+    },
+    {
+      "schema": "ServerTransferServingProof",
+      "variant": "full",
+      "wire": {
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "targetMachineId": "targetMachineId",
+        "feedId": "feedId",
+        "feedEpoch": "feedEpoch",
+        "schemaVersion": "schemaVersion",
+        "buildVersion": "buildVersion",
+        "publicUrl": "publicUrl",
+        "health": "serving"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetMachineId\":\"targetMachineId\",\"feedId\":\"feedId\",\"feedEpoch\":\"feedEpoch\",\"schemaVersion\":\"schemaVersion\",\"buildVersion\":\"buildVersion\",\"publicUrl\":\"publicUrl\",\"health\":\"serving\"}"
+    },
+    {
+      "schema": "ServerTransferSpaceProof",
+      "variant": "minimal",
+      "wire": {
+        "availableBytes": 1,
+        "requiredBytes": 1,
+        "sufficient": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"availableBytes\":1,\"requiredBytes\":1,\"sufficient\":true}"
+    },
+    {
+      "schema": "ServerTransferSpaceProof",
+      "variant": "full",
+      "wire": {
+        "availableBytes": 1,
+        "requiredBytes": 1,
+        "sufficient": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"availableBytes\":1,\"requiredBytes\":1,\"sufficient\":true}"
+    },
+    {
+      "schema": "ServerTransferState",
+      "variant": "minimal",
+      "wire": "prepared",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"prepared\""
+    },
+    {
+      "schema": "ServerTransferState",
+      "variant": "full",
+      "wire": "prepared",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"prepared\""
+    },
+    {
+      "schema": "ServerTransferStatusRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serverTransferStatusRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferStatusRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "ServerTransferStatusRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serverTransferStatusRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferStatusRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferTargetCapability",
+      "variant": "minimal",
+      "wire": "server-only",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"server-only\""
+    },
+    {
+      "schema": "ServerTransferTargetCapability",
+      "variant": "full",
+      "wire": "server-only",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"server-only\""
+    },
+    {
+      "schema": "ServerTransferValidateRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serverTransferValidateRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferValidateRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ServerTransferValidateRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serverTransferValidateRequest",
+        "requestId": "requestId",
+        "transferId": "00000000-0000-4000-8000-000000000000",
+        "manifestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serverTransferValidateRequest\",\"requestId\":\"requestId\",\"transferId\":\"00000000-0000-4000-8000-000000000000\",\"manifestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    }
+  ]
+}

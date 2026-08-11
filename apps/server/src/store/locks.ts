@@ -12,18 +12,28 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 export const OPERATOR_LOCK_SESSION = 'operator'
 
 /**
- * A lock holder's / waiter's key (POD-362): a real `SessionId`, or one of TWO
- * documented sentinels that are deliberately not session ids —
+ * A lock holder's / waiter's key (POD-362): a real `SessionId`, or a documented
+ * non-session identity —
  * {@link OPERATOR_LOCK_SESSION} here, and `UNKNOWN_RELAY_SESSION` in
  * `modules/lock/registry.ts` (a relayed caller the live map does not know, kept
- * distinct from the operator's null so it can never release an operator lock).
+ * distinct from the operator's null so it can never release an operator lock),
+ * plus `system:<job>` for an in-process server job that no transport can mint.
  *
  * A UNION, not `SessionId`: this file's own `sessionAlive` check special-cases
  * the operator sentinel precisely because it is not a session, so branding it
  * would launder a non-id into the session space. Same discipline as the
  * `MachineId` 'local' carve-out.
  */
-export type LockSessionKey = SessionId | typeof OPERATOR_LOCK_SESSION | 'unknown-session'
+export type SystemLockSession = `system:${string}`
+export type LockSessionKey =
+  | SessionId
+  | typeof OPERATOR_LOCK_SESSION
+  | 'unknown-session'
+  | SystemLockSession
+
+export function isSystemLockSession(value: LockSessionKey): value is SystemLockSession {
+  return value.startsWith('system:')
+}
 
 export interface LockRow {
   repoId: string

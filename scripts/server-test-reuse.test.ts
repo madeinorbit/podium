@@ -176,8 +176,7 @@ it('${name} records what the hermetic setup gave it', () => {
 `
 
   const configSource = (isolate: boolean) => `
-import { defineConfig } from 'vitest/config'
-export default defineConfig({
+export default {
   test: {
     name: 'reuse-probe',
     root: ${JSON.stringify('__FIXTURE__')},
@@ -195,7 +194,7 @@ export default defineConfig({
       ${JSON.stringify(join(repoRoot, 'test-hermetic-reuse-guard.ts'))},
     ],
   },
-})
+}
 `
 
   interface Observation {

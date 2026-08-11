@@ -61,13 +61,16 @@ import {
   type ServerMessage,
   WIRE_VERSION,
 } from '@podium/protocol'
-import { GrantEdgeVisibilityPolicy, type VisibilityStatePort,
+import {
+  GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
+  type VisibilityStatePort,
 } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { attachTestClient } from '../test-support/client-transport'
 import { ClientMux } from './client-mux'
 import type { ClientFeaturePorts } from './client-ports'
+import { feedPrincipalOf } from './client-principal'
 import { type ClientConn, ClientRegistry } from './client-registry'
 import { feedTestPlumbing } from './feed-test-plumbing'
 import type { PresenceRouting } from './presence-routing'
@@ -104,7 +107,11 @@ interface Socket {
  */
 function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]> = new Map()) {
   const registry = new ClientRegistry()
-  const plumbing = feedTestPlumbing({ visibility: issueOwnershipPolicy(owners, grants) })
+  let authorizationRevision = 0
+  const plumbing = feedTestPlumbing({
+    visibility: issueOwnershipPolicy(owners, grants),
+    authorizationRevision: () => authorizationRevision,
+  })
   const ports: ClientFeaturePorts = {
     sessions: {
       onClientAttached: vi.fn(),
@@ -118,16 +125,17 @@ function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]> = ne
       onSessionClientFrame: (_principal, conn: ClientConn, msg) => {
         if (msg.type === 'hello' && msg.caps) conn.caps = new Set(msg.caps)
       },
-      deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
-      onFeedPublished: vi.fn(),
     },
   }
   const mux = new ClientMux({
     registry,
     ports,
     feed: plumbing.serving,
-    presence: { route: vi.fn(), setVisible: vi.fn(), disconnect: vi.fn() } as unknown as
-      PresenceRouting,
+    presence: {
+      route: vi.fn(),
+      setVisible: vi.fn(),
+      disconnect: vi.fn(),
+    } as unknown as PresenceRouting,
     bootstrap: vi.fn(),
   })
 
@@ -143,7 +151,16 @@ function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]> = ne
     return { id, received }
   }
 
-  return { mux, plumbing, registry, signIn }
+  return {
+    mux,
+    plumbing,
+    registry,
+    signIn,
+    changeVisibility: (change: () => void) => {
+      change()
+      authorizationRevision += 1
+    },
+  }
 }
 
 const helloFrom = (clientId: string, caps: string[] = [CAP_METADATA_DELTA]): ClientMessage => ({
@@ -243,7 +260,7 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     expect(coveredButUnnamed(bob, seq, 'issue-alice')).toBe(true)
   })
 
-  it('a genuine removal still reaches its owner as op:\'remove\' — the shape is reachable', async () => {
+  it("a genuine removal still reaches its owner as op:'remove' — the shape is reachable", async () => {
     const owners = new Map([['issue-bob', BOB]])
     const g = gateway(owners)
     const bob = g.signIn(BOB)
@@ -270,15 +287,62 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
 
     // Both, this time. A suite whose every scoped assertion is negative passes
     // against a server that delivers nothing at all to a second connection.
-    expect(changesOn(alice).filter((c) => c.entityId === 'issue-shared').map((c) => c.op)).toEqual([
-      'upsert',
-    ])
-    expect(changesOn(bob).filter((c) => c.entityId === 'issue-shared').map((c) => c.op)).toEqual([
-      'upsert',
-    ])
+    expect(
+      changesOn(alice)
+        .filter((c) => c.entityId === 'issue-shared')
+        .map((c) => c.op),
+    ).toEqual(['upsert'])
+    expect(
+      changesOn(bob)
+        .filter((c) => c.entityId === 'issue-shared')
+        .map((c) => c.op),
+    ).toEqual(['upsert'])
   })
 
-  it('a forged hello.clientId naming another user\'s connection does not move the scope', async () => {
+  it('invalidates a cached world when grant visibility changes without moving the feed head', () => {
+    const owners = new Map([['issue-shared', ALICE]])
+    const grants = new Map([['issue-shared', [BOB]]])
+    const g = gateway(owners, grants)
+    commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
+    const head = g.plumbing.authority.cursor()
+    const bootstrap = vi.spyOn(g.plumbing.authority, 'bootstrap')
+
+    const first = g.signIn(BOB)
+    expect(leakedTo(first, 'issue-shared')).toBe(true)
+    expect(bootstrap).toHaveBeenCalledTimes(1)
+    g.mux.detachClient(first.id)
+
+    // AUTHORITY CHANGES, FEED HEAD DOES NOT. This is the same-timestamp
+    // persistWith shape: the issue upsert can deduplicate while the grant delete
+    // still changes who may see the row.
+    g.changeVisibility(() => grants.set('issue-shared', []))
+    expect(g.plumbing.authority.cursor()).toBe(head)
+
+    const afterRevoke = g.signIn(BOB)
+    expect(bootstrap).toHaveBeenCalledTimes(2)
+    expect(leakedTo(afterRevoke, 'issue-shared')).toBe(false)
+
+    const principal = g.mux.principalOf(afterRevoke.id)
+    expect(principal).toBeDefined()
+    if (principal === undefined) throw new Error('Bob connection lost its authenticated principal')
+    const uncached = g.plumbing.authority.bootstrap(feedPrincipalOf(principal))
+    const served = afterRevoke.received.find(
+      (message): message is Extract<ServerMessage, { type: 'feedBootstrap' }> =>
+        message.type === 'feedBootstrap',
+    )
+    expect(served?.changes.map((change) => [change.entity, change.entityId])).toEqual(
+      uncached.changes.map((change) => [change.entity, change.entityId]),
+    )
+
+    g.mux.detachClient(afterRevoke.id)
+    g.changeVisibility(() => grants.set('issue-shared', [BOB]))
+    expect(g.plumbing.authority.cursor()).toBe(head)
+    const afterGrant = g.signIn(BOB)
+    expect(bootstrap).toHaveBeenCalledTimes(4) // includes the direct uncached comparison
+    expect(leakedTo(afterGrant, 'issue-shared')).toBe(true)
+  })
+
+  it("a forged hello.clientId naming another user's connection does not move the scope", async () => {
     const owners = new Map([
       ['issue-alice', ALICE],
       ['issue-alice2', ALICE],
@@ -323,12 +387,16 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     expect(g.mux.principalOf(bob.id)?.user).toBe(BOB)
     expect(certifiedFrames(bob).length).toBeGreaterThan(0)
     // Alice is unharmed by Bob's frame — the forgery must not detach her either.
-    expect(changesOn(alice).filter((c) => c.entityId === 'issue-alice').map((c) => c.op)).toEqual([
-      'upsert',
-    ])
-    expect(changesOn(alice).filter((c) => c.entityId === 'issue-alice2').map((c) => c.op)).toEqual([
-      'upsert',
-    ])
+    expect(
+      changesOn(alice)
+        .filter((c) => c.entityId === 'issue-alice')
+        .map((c) => c.op),
+    ).toEqual(['upsert'])
+    expect(
+      changesOn(alice)
+        .filter((c) => c.entityId === 'issue-alice2')
+        .map((c) => c.op),
+    ).toEqual(['upsert'])
   })
 
   it('two devices of ONE person share the slice; a second person never joins it', async () => {
@@ -343,12 +411,16 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
 
     // One authority subscription, two connections — `feedPrincipalOf` keys on the
     // user and deliberately drops the device half.
-    expect(changesOn(laptop).filter((c) => c.entityId === 'issue-alice').map((c) => c.op)).toEqual([
-      'upsert',
-    ])
-    expect(changesOn(phone).filter((c) => c.entityId === 'issue-alice').map((c) => c.op)).toEqual([
-      'upsert',
-    ])
+    expect(
+      changesOn(laptop)
+        .filter((c) => c.entityId === 'issue-alice')
+        .map((c) => c.op),
+    ).toEqual(['upsert'])
+    expect(
+      changesOn(phone)
+        .filter((c) => c.entityId === 'issue-alice')
+        .map((c) => c.op),
+    ).toEqual(['upsert'])
     expect(changesOn(bob).filter((c) => c.entityId === 'issue-alice')).toEqual([])
     expect(leakedTo(bob, 'issue-alice')).toBe(false)
   })
@@ -367,8 +439,10 @@ describe('the single-user deployment is not tightened into an empty screen', () 
     commitIssue(g.plumbing, 'issue-only', { id: 'issue-only', title: 'the only issue' })
     await settle()
 
-    expect(changesOn(solo).filter((c) => c.entityId === 'issue-only').map((c) => c.op)).toEqual([
-      'upsert',
-    ])
+    expect(
+      changesOn(solo)
+        .filter((c) => c.entityId === 'issue-only')
+        .map((c) => c.op),
+    ).toEqual(['upsert'])
   })
 })

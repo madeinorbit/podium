@@ -28,6 +28,7 @@ import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { authorize, type Capability, type IssueAccessIndex } from '../../issue-authz'
+import type { IssueAuthorityArbitration } from './authority-arbitration'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
 import { findSessionById } from '../sessions/session-by-id'
 import type {
@@ -52,6 +53,8 @@ export interface IssueCaller {
 export interface IssueCommandDeps {
   /** Fully constructed tracker; command dispatch is activated after features. */
   issues: IssueTrackerCapabilities
+  /** Request-local bridge that binds exp-rev commands to their issue commit. */
+  arbitration: Pick<IssueAuthorityArbitration, 'run'>
   /**
    * Atomic issue/session attach workflow. The L3 application orchestrator owns
    * the shared transaction and carries this transport-derived caller unchanged

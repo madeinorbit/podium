@@ -299,7 +299,8 @@ Framing + role-specific auth strategy modules are ADR 5 / POD-317.
 | MCP | C/c | `POST /mcp` |
 | Agent relay HTTP | C/c | Daemon loopback `/session/<sid>` only (legacy `/agent/`, `/issue/` still accepted) — **not** browser |
 
-`features.state` is control-plane query (not stream). `MutationEnvelope` / `MutationResult` (`mutations.ts`) are control · command (+ entity side-effects); not yet live as a WS frame type.
+`features.state` is control-plane query (not stream). Durable writes use the sync
+package's `OutboxCommand`; there is no generic mutation WS frame type.
 
 #### D6.7 Messaging substrate
 

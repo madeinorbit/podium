@@ -1,12 +1,11 @@
 /**
  * THE WEB COMPOSITION ROOT FOR THE KERNEL REPLICA (POD-1223).
  *
- * POD-376 shipped every piece of this and wired none of them into the app: the
- * frame consumer, the wire mapping, the push/pull bootstrap seam, the client
- * authority port, the IndexedDB adapter and the mode resolver all exist and are
- * verified against a live server in `tests/e2e/feed-v2.e2e.test.ts`. What was
- * missing was the last hop — the object the engine actually reads through. This
- * module assembles the pieces and hands the engine its two ends:
+ * The browser now has one supported replica path. This module composes its frame
+ * consumer, wire mapping, bootstrap seam, authority port, IndexedDB adapter,
+ * read facade, and durable outbox. The retired rollout resolver and TanStack
+ * shadow path no longer sit in front of this root. The module assembles the pieces
+ * and hands the engine its two ends:
  *
  *   `createReplicaFn`  the kernel-backed `Replica` facade (the read model)
  *   `feed`             the `FeedSinkPort` the hub pushes v2 frames into
@@ -36,17 +35,14 @@ import {
 } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
 import {
-  type Replica as ClientReplica,
   createKernelReplica,
   createSideCache,
   FeedAuthorityClient,
   FeedSink,
   PushedBootstrapSource,
   preparePrincipalNamespace,
-  type ReplicaMode,
-  resolveReplicaMode,
 } from '@podium/client-core/replica'
-import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
+import type { FeedServerFrame, FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
 import { actorUser, asUserId } from '@podium/model'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
@@ -60,7 +56,7 @@ import {
   migrateLegacyReplica,
 } from '@podium/sync/adapters/legacy-replica'
 import type { OutboxAttribution } from '@podium/sync/outbox'
-import { Replica as KernelReplica, type ReplicaEvent } from '@podium/sync/replica'
+import { Replica as KernelReplica } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
 
 /** The IndexedDB database the web client's kernel replica lives in. */
@@ -90,13 +86,9 @@ export interface KernelAssembly {
   readonly feed: FeedSinkPort
   /** Real kernel Outbox over this assembly's IndexedDB store. */
   readonly createOutboxFn: CreateEngineOutbox
-  /** The kernel Replica itself — the shadow harness classifies against it. */
-  readonly kernel: KernelReplica
   readonly store: IndexedDbSyncStore
   /** Call once the engine's hub exists. Idempotent. */
   attachHub(hub: SocketHub): void
-  /** Additional kernel-event listener (the shadow harness takes one). */
-  onKernelEvent(listener: (event: ReplicaEvent) => void): () => void
   /** Fail-closed sign-out: erase this principal's IDB and side-cache namespace. */
   erasePrincipalData(): Promise<void>
   dispose(): Promise<void>
@@ -114,6 +106,46 @@ export interface OpenKernelAssemblyOptions {
    * root derives multi-user evidence from existing principal namespace markers;
    * tests can inject unknown/foreign evidence to exercise fail-closed refusal. */
   readonly evidence: LegacyIdentityEvidence
+  /** Test seam for the browser's same-origin cross-tab channel. */
+  readonly broadcastChannelFactory?: (name: string) => KernelBroadcastChannel
+}
+
+export interface KernelBroadcastChannel {
+  onmessage: ((event: MessageEvent<unknown>) => void) | null
+  postMessage(message: unknown): void
+  close(): void
+}
+
+type CrossTabFeedFrame = Extract<FeedServerFrame, { type: 'feedDelta' | 'feedRescope' }>
+
+interface CrossTabFeedMessage {
+  readonly kind: 'podium-kernel-feed'
+  readonly version: 1
+  readonly principal: string
+  readonly frame: CrossTabFeedFrame
+}
+
+const CROSS_TAB_SEEN_LIMIT = 512
+
+function crossTabFrameKey(frame: CrossTabFeedFrame): string {
+  return frame.type === 'feedDelta'
+    ? `${frame.type}\0${frame.feedId}\0${frame.epoch}\0${frame.fromSeq}\0${frame.seq}`
+    : `${frame.type}\0${frame.feedId}\0${frame.epoch}\0${frame.seq}`
+}
+
+function isCrossTabFeedMessage(value: unknown, principal: string): value is CrossTabFeedMessage {
+  if (value === null || typeof value !== 'object') return false
+  const message = value as Partial<CrossTabFeedMessage>
+  if (
+    message.kind !== 'podium-kernel-feed' ||
+    message.version !== 1 ||
+    message.principal !== principal ||
+    message.frame === null ||
+    typeof message.frame !== 'object'
+  ) {
+    return false
+  }
+  return message.frame.type === 'feedDelta' || message.frame.type === 'feedRescope'
 }
 
 /** What the app is owed about a migration that ran — see `summarizeMigrations`. */
@@ -228,16 +260,27 @@ export async function openKernelAssembly(
   options: OpenKernelAssemblyOptions,
 ): Promise<KernelAssembly> {
   const { trpc } = options
+  let unavailableCause: unknown
+  const databaseName = options.databaseName ?? KERNEL_REPLICA_DB
   const store = await IndexedDbSyncStore.open({
     factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
-    databaseName: options.databaseName ?? KERNEL_REPLICA_DB,
+    databaseName,
     onDegraded: (detail: unknown) => {
-      // Degradation is a real state, not an error: the replica keeps working in
-      // memory and `persistent` goes false, which the UI can surface.
+      // Recoverable corruption may cold-start in memory. An unavailable store
+      // is captured here and rejected below; the supported private replica must
+      // never mount without durability.
       options.onDegraded?.(detail)
+      const report = detail as { mode?: unknown; error?: unknown }
+      if (report?.mode === 'unavailable') unavailableCause = report.error
       console.warn('[podium] kernel replica storage degraded', detail)
     },
   })
+  if (store.durability() === 'unavailable') {
+    store.close()
+    throw unavailableCause instanceof Error
+      ? unavailableCause
+      : new Error('private replica storage is unavailable')
+  }
   const enumerateLocalKeys = (): string[] => Object.keys(globalThis.localStorage)
   const namespace = preparePrincipalNamespace({
     storage: globalThis.localStorage,
@@ -350,7 +393,6 @@ export async function openKernelAssembly(
     },
   })
 
-  const listeners = new Set<(event: ReplicaEvent) => void>()
   const createOutboxFn = await openKernelEngineOutbox({
     store: view.outbox,
     principal: options.principal,
@@ -395,23 +437,57 @@ export async function openKernelAssembly(
         (await trpc.sync.feedChangesSince.query({ cursor })) as never,
       bootstraps,
     }),
-    onEvent: (event) => {
-      // ONE callback, fanned out here. The facade needs it to move the read
-      // model; the shadow harness needs it to know when a comparison is worth
-      // sampling. Whoever grabbed `onEvent` for itself would have taken it from
-      // the other.
-      facade.onKernelEvent(event)
-      for (const listener of [...listeners]) {
-        try {
-          listener(event)
-        } catch {
-          // an observer must not break the replica's own application
-        }
-      }
-    },
+    onEvent: (event) => facade.onKernelEvent(event),
   })
 
   const sink = new FeedSink({ replica: kernel, bootstraps })
+  const createBroadcastChannel =
+    options.broadcastChannelFactory ??
+    (typeof globalThis.BroadcastChannel === 'function'
+      ? (name: string) => new globalThis.BroadcastChannel(name)
+      : undefined)
+  const crossTab = createBroadcastChannel?.(`podium.kernel-replica.feed.v1:${databaseName}`)
+  const seenFrames = new Map<string, undefined>()
+  const remember = (key: string): boolean => {
+    if (seenFrames.has(key)) return false
+    seenFrames.set(key, undefined)
+    if (seenFrames.size > CROSS_TAB_SEEN_LIMIT) {
+      const oldest = seenFrames.keys().next().value
+      if (oldest !== undefined) seenFrames.delete(oldest)
+    }
+    return true
+  }
+  const relayFrame = (frame: FeedServerFrame, fromSocket: boolean): void => {
+    // Bootstrap and resync frames belong to this exact socket's state-machine
+    // walk. Ordered deltas and rescopes are the shared client-install
+    // convergence path: either can advance the durable cursor before another
+    // tab's socket delivery reaches its in-memory replica.
+    if (frame.type !== 'feedDelta' && frame.type !== 'feedRescope') {
+      if (fromSocket) sink.frame(frame)
+      return
+    }
+    const key = crossTabFrameKey(frame)
+    if (!remember(key)) return
+    sink.frame(frame)
+    if (fromSocket) {
+      crossTab?.postMessage({
+        kind: 'podium-kernel-feed',
+        version: 1,
+        principal: options.principal,
+        frame,
+      } satisfies CrossTabFeedMessage)
+    }
+  }
+  if (crossTab !== undefined) {
+    crossTab.onmessage = (event) => {
+      if (isCrossTabFeedMessage(event.data, options.principal)) relayFrame(event.data.frame, false)
+    }
+  }
+  const feed: FeedSinkPort = {
+    connected: () => sink.connected(),
+    disconnected: () => sink.disconnected(),
+    frame: (frame) => relayFrame(frame, true),
+  }
 
   return {
     principal: asClientPrincipal(options.principal),
@@ -424,9 +500,8 @@ export async function openKernelAssembly(
       }
       return facade
     },
-    feed: sink,
+    feed,
     createOutboxFn,
-    kernel,
     store,
     attachHub: (attached) => {
       hub = attached
@@ -435,66 +510,16 @@ export async function openKernelAssembly(
         attached.requestFreshWorld()
       }
     },
-    onKernelEvent: (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
     erasePrincipalData: async () => {
       side.dispose()
       namespace.erase()
       await store.erasePrincipal(options.principal)
     },
     dispose: async () => {
+      crossTab?.close()
       side.dispose()
       await store.settled()
       store.close()
     },
-  }
-}
-
-/** `/version` → the scoping grade the mode resolver needs. Never throws: an
- *  unreachable probe is an unknown grade, which the resolver treats as
- *  `device-unscoped` with the reasoning written down in `mode.ts`. */
-export async function fetchFeedScoping(httpOrigin: string): Promise<string | undefined> {
-  try {
-    const res = await fetch(`${httpOrigin}/version`)
-    if (!res.ok) return undefined
-    const body = (await res.json()) as { feedScoping?: unknown }
-    return typeof body.feedScoping === 'string' ? body.feedScoping : undefined
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * The resolved read path for this client. Pure resolution lives in
- * `resolveReplicaMode`; this only gathers its three inputs.
- */
-export interface ResolvedWebReplicaMode {
-  readonly mode: ReplicaMode
-  /** The grade `/version` advertised, carried out so the shadow harness can be
-   *  TOLD whether the authority is scoped instead of inferring it from data. */
-  readonly serverGrade: string | undefined
-}
-
-export async function resolveWebReplicaMode(args: {
-  httpOrigin: string
-  trpc: Trpc
-}): Promise<ResolvedWebReplicaMode> {
-  const [flags, serverGrade] = await Promise.all([
-    // An unreachable features query is FLAGS OFF, which resolves to the shipped
-    // legacy path — the same posture `useFeature` takes on a failed first load.
-    args.trpc.features.state.query().catch(() => null),
-    fetchFeedScoping(args.httpOrigin),
-  ])
-  const enabledFlag = (id: string): boolean =>
-    flags?.flags.find((f) => f.id === id)?.enabled ?? false
-  return {
-    mode: resolveReplicaMode({
-      kernelReplicaEnabled: true,
-      shadowEnabled: enabledFlag('kernel-replica-shadow'),
-      serverGrade,
-    }),
-    serverGrade,
   }
 }

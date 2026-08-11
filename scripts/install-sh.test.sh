@@ -147,8 +147,8 @@ PATH_HOME="$WORK/path-home"; mkdir -p "$PATH_HOME/.config/fish"
 # Pre-create the startup files that SHADOW ~/.profile for their shell, plus the rc files, so
 # the assertions do not depend on which shells happen to be installed on the test host.
 for f in .profile .bashrc .bash_profile .zshrc .zprofile; do printf '# pre-existing\n' > "$PATH_HOME/$f"; done
-env HOME="$PATH_HOME" PODIUM_STATE_DIR="$PATH_HOME/.podium" sh "$ROOT/install.sh" >/dev/null
-env HOME="$PATH_HOME" PODIUM_STATE_DIR="$PATH_HOME/.podium" sh "$ROOT/install.sh" >/dev/null
+env HOME="$PATH_HOME" XDG_CONFIG_HOME="$PATH_HOME/.config" PODIUM_STATE_DIR="$PATH_HOME/.podium" sh "$ROOT/install.sh" >/dev/null
+env HOME="$PATH_HOME" XDG_CONFIG_HOME="$PATH_HOME/.config" PODIUM_STATE_DIR="$PATH_HOME/.podium" sh "$ROOT/install.sh" >/dev/null
 for f in .profile .bashrc .bash_profile .zshrc .zprofile; do
   hits="$(grep -cF '>>> podium installer (PATH) >>>' "$PATH_HOME/$f" || true)"
   test "$hits" = 1 || { echo "FAIL: $f has $hits PATH blocks after two installs (want 1)"; exit 1; }
@@ -178,11 +178,11 @@ fi
 echo "== named install has an independent root and bound command =="
 printf 'keep\n' > "$HOME/.local/share/podium/DEFAULT-SENTINEL"
 rm -f "$WORK/stub.log"
-env -u PODIUM_STATE_DIR PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --instance blue
+env -u PODIUM_STATE_DIR -u PODIUM_DISABLE_SYSTEMD PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --instance blue
 test -x "$HOME/.local/bin/podium-blue" || { echo FAIL: no named launcher; exit 1; }
 test -f "$HOME/.local/share/podium-instances/blue/VERSION" || { echo FAIL: named bundle not installed; exit 1; }
 test -f "$HOME/.local/share/podium/DEFAULT-SENTINEL" || { echo FAIL: named install replaced default bundle; exit 1; }
-env -u PODIUM_STATE_DIR PODIUM_STUB_LOG="$WORK/stub.log" "$HOME/.local/bin/podium-blue" status >/dev/null
+env -u PODIUM_STATE_DIR -u PODIUM_DISABLE_SYSTEMD PODIUM_STUB_LOG="$WORK/stub.log" "$HOME/.local/bin/podium-blue" status >/dev/null
 grep -F 'stub-instance blue status' "$WORK/stub.log" >/dev/null || { echo FAIL: named launcher did not bind identity; exit 1; }
 test -f "$HOME/.local/state/podium/blue/update-channel" || { echo FAIL: named command did not use named state; exit 1; }
 
@@ -329,7 +329,7 @@ UNIT="$HOME/.config/systemd/user"
 
 echo "== named join leaves update waves to its server =="
 rm -rf "$HOME/.local/share/podium-instances/blue" "$HOME/.local/bin/podium-blue" "$HOME/.config/systemd" "$WORK/stub.log"
-named_join_output="$(env -u PODIUM_STATE_DIR PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --instance blue --join TESTTOKEN 2>&1)"
+named_join_output="$(env -u PODIUM_STATE_DIR -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --instance blue --join TESTTOKEN 2>&1)"
 grep -F 'stub-instance blue setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: named join did not route through named command"; exit 1; }
 test -f "$UNIT/podium-blue-daemon.service" || { echo FAIL: named join did not write named daemon unit; exit 1; }
@@ -341,7 +341,7 @@ test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: named join wrote def
 
 echo "== join delegates to podium setup --join and leaves update waves to its server =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"
-default_join_output="$(env PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN 2>&1)"
+default_join_output="$(env -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN 2>&1)"
 grep -F 'stub-setup setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: join did not delegate to podium setup --join --persist systemd"; exit 1; }
 test -f "$UNIT/podium-daemon.service"       || { echo FAIL: join did not write daemon unit; exit 1; }
@@ -352,7 +352,7 @@ test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: attached join wrote 
 
 echo "== join falls back to a manual unit when podium setup fails =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$WORK/stub.log"
-env PODIUM_STUB_JOIN_FAIL=1 PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN
+env -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME PODIUM_STUB_JOIN_FAIL=1 PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN
 grep -F 'stub-join-config join-config TESTTOKEN' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: fallback did not run join-config"; exit 1; }
 test -f "$UNIT/podium-daemon.service"       || { echo FAIL: fallback did not write daemon unit; exit 1; }
@@ -367,7 +367,7 @@ grep -F 'Environment=PATH=%h/.local/bin:' "$UNIT/podium-daemon.service" >/dev/nu
 
 echo "== --no-auto-update skips the timer =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"
-sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update
+env -u PODIUM_DISABLE_SYSTEMD -u XDG_CONFIG_HOME sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update
 test -f "$UNIT/podium-daemon.service"       || { echo FAIL: join did not write daemon unit; exit 1; }
 test ! -e "$UNIT/podium-update-user.timer"  || { echo "FAIL: --no-auto-update wrote the timer anyway"; exit 1; }
 test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: --no-auto-update wrote the update service anyway"; exit 1; }

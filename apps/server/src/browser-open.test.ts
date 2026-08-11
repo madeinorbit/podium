@@ -7,7 +7,6 @@ import {
 } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { ClientPublicationAuthority } from './modules/sessions/session'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
@@ -65,25 +64,6 @@ function request(sessionId: SessionId, requestId: string) {
     url: 'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback',
     callbackTarget: { host: 'localhost' as const, port: 1455, path: '/callback' },
     expiresAt: Date.now() + 60_000,
-  }
-}
-
-function scopedAuthority(
-  principal: string,
-  allowedSessionIds: SessionId[],
-): ClientPublicationAuthority {
-  return {
-    principal,
-    scope: 'personal',
-    serverRole: 'standalone',
-    protocolVersion: 1,
-    global: false,
-    snapshot: () => ({
-      revision: 1,
-      allowedSignature: JSON.stringify(allowedSessionIds),
-      allowedSessionIds,
-    }),
-    sendPrepared: () => {},
   }
 }
 
@@ -172,33 +152,21 @@ describe('remote browser-open routing', () => {
     const owner: ServerMessage[] = []
     const grantee: ServerMessage[] = []
     const unrelated: ServerMessage[] = []
-    const ownerId = attachTestClient(
-      registry.clientGateway,
-      {
-        send: (message) => owner.push(message),
-        userId: FIRST_ADMIN_USER_ID,
-        userRole: 'member',
-      },
-      scopedAuthority('owner', [sessionId]),
-    )
-    const granteeId = attachTestClient(
-      registry.clientGateway,
-      {
-        send: (message) => grantee.push(message),
-        userId: asUserId('user:grantee'),
-        userRole: 'member',
-      },
-      scopedAuthority('grantee', [sessionId]),
-    )
-    const unrelatedId = attachTestClient(
-      registry.clientGateway,
-      {
-        send: (message) => unrelated.push(message),
-        userId: asUserId('user:unrelated'),
-        userRole: 'member',
-      },
-      scopedAuthority('unrelated', []),
-    )
+    const ownerId = attachTestClient(registry.clientGateway, {
+      send: (message) => owner.push(message),
+      userId: FIRST_ADMIN_USER_ID,
+      userRole: 'member',
+    })
+    const granteeId = attachTestClient(registry.clientGateway, {
+      send: (message) => grantee.push(message),
+      userId: asUserId('user:grantee'),
+      userRole: 'member',
+    })
+    const unrelatedId = attachTestClient(registry.clientGateway, {
+      send: (message) => unrelated.push(message),
+      userId: asUserId('user:unrelated'),
+      userRole: 'member',
+    })
     owner.length = 0
     grantee.length = 0
     unrelated.length = 0

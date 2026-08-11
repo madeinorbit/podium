@@ -10,6 +10,7 @@ import {
   type SessionMetaInput,
 } from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
+import { createReplica } from '@podium/client-core/replica'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -142,6 +143,7 @@ function render(): void {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
+        createReplicaFn={() => createReplica()}
         config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
         onFatalError={() => {}}
         // No broadcast-confirm grace in tests: the rollback pin below asserts

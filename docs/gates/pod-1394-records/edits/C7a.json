@@ -1,6 +1,0 @@
-[
-  {
-    "anchor": "    ? `unknown machine '${machineId}'`\n",
-    "replace": "    ? `unknown machine '${machineName ?? machineId}'`\n"
-  }
-]

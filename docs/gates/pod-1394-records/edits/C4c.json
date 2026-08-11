@@ -1,6 +1,0 @@
-[
-  {
-    "anchor": "  return { ...base, op: 'evict' }\n",
-    "replace": "  return { ...base, op: 'remove' }\n"
-  }
-]

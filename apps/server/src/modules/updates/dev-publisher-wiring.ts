@@ -17,10 +17,12 @@
  * all. Every function here then no-ops, which is why `/version` can call
  * `requestBuild` unconditionally without an installed server ever doing work.
  */
-import type { Hono } from 'hono'
+
 import type { UpdateTarget } from '@podium/protocol'
+import type { Hono } from 'hono'
 import { registerDevArtifactRoute } from './artifact-route'
 import { createDevBundlePublisher, developmentHeadSha } from './dev-bundle'
+import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 
 export interface DevPublisherWiring {
   /** Publish the current development target, if there is one. */
@@ -37,36 +39,120 @@ export interface DevPublisherWiring {
   readonly enabled: boolean
 }
 
+export function developmentArtifactUrl(
+  origin: string,
+  version: string,
+  artifactToken: string,
+): string {
+  return `${origin}/updates/dev-bundle/${encodeURIComponent(version)}?token=${encodeURIComponent(artifactToken)}`
+}
+
+export function selectDevelopmentArtifactOrigin(input: {
+  externalOrigin: string | undefined
+  localOrigin: string
+  hasRemoteManagedMachines: boolean
+}): string {
+  if (input.externalOrigin) return input.externalOrigin
+  if (input.hasRemoteManagedMachines) {
+    throw new Error(
+      'development artifact publishing requires PODIUM_DEV_ARTIFACT_BASE_URL or ' +
+        'config.publicUrl while remote managed machines are registered',
+    )
+  }
+  return input.localOrigin
+}
+
 export function wireDevBundlePublisher(deps: {
   /** Absent (an installed server) disables the whole thing. */
   readonly sourceRoot: string | undefined
-  /** Read lazily: the port is not known until the listener binds. */
-  readonly port: () => number
+  /** Validated external origin. Absent is allowed only for same-host publication. */
+  readonly artifactOrigin: string | undefined
+  /** Loopback origin used only when the registered managed fleet is same-host. */
+  readonly localArtifactOrigin: () => string
+  /** Read at publication time so a newly joined remote machine fails closed immediately. */
+  readonly hasRemoteManagedMachines: () => boolean
   readonly artifactToken: string
   readonly signingKey: string
   readonly setTarget: (target: UpdateTarget) => void
-  readonly env?: NodeJS.ProcessEnv
+  /**
+   * Retract the `dev` target and record a reason a client may be shown. Called
+   * whenever this HEAD has no publishable bundle, so the read model never keeps
+   * offering an older commit's.
+   */
+  readonly setTargetUnavailable?: (reason: string) => void
+  readonly locks: DevBundleLockService
 }): DevPublisherWiring {
-  const env = deps.env ?? process.env
-  const publisher = deps.sourceRoot
+  const sourceRoot = deps.sourceRoot
+  const artifactOrigin = deps.artifactOrigin
+  const publisher = sourceRoot
     ? createDevBundlePublisher({
         isSourceRun: true,
-        root: deps.sourceRoot,
-        headSha: () => developmentHeadSha(deps.sourceRoot as string),
+        root: sourceRoot,
+        headSha: () => developmentHeadSha(sourceRoot),
         signingKey: deps.signingKey,
-        artifactUrl: (version) => {
-          const base = (
-            env.PODIUM_DEV_ARTIFACT_BASE_URL ?? 'http://127.0.0.1:' + deps.port()
-          ).replace(/\/$/, '')
-          return `${base}/updates/dev-bundle/${encodeURIComponent(version)}?token=${encodeURIComponent(deps.artifactToken)}`
-        },
+        lock: createServerDevBundleLock(sourceRoot, deps.locks),
+        artifactUrl: (version) =>
+          developmentArtifactUrl(
+            selectDevelopmentArtifactOrigin({
+              externalOrigin: artifactOrigin,
+              localOrigin: deps.localArtifactOrigin(),
+              hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+            }),
+            version,
+            deps.artifactToken,
+          ),
       })
     : undefined
 
+  let unavailableDiagnostic: string | undefined
+  let publishedReason: string | undefined
+
+  /**
+   * Push the publisher's readiness into the shared read model.
+   *
+   * `preparing` deliberately retracts too. A build is in flight precisely
+   * because the existing bundle is not this HEAD, so continuing to advertise it
+   * would be the stale-target problem wearing a progress spinner.
+   */
+  const publishReadiness = (): void => {
+    if (!publisher || !artifactOrigin || !deps.setTargetUnavailable) return
+    const readiness = publisher.readiness()
+    if (readiness.state === 'ready') {
+      publishedReason = undefined
+      return
+    }
+    const reason =
+      readiness.state === 'failed'
+        ? readiness.publicReason
+        : readiness.state === 'preparing'
+          ? `Building the development bundle for dev+${readiness.headSha}.`
+          : 'No development bundle has been built for the current commit yet.'
+    if (reason === publishedReason) return
+    publishedReason = reason
+    deps.setTargetUnavailable(reason)
+  }
+
   const publishTarget = (): UpdateTarget | undefined => {
-    const target = publisher?.target()
-    if (target) deps.setTarget(target)
-    return target
+    try {
+      const target = publisher?.target()
+      // A loopback target is useful to the same host through /version, but must never enter the
+      // shared update service where a later remote grant could receive it.
+      if (target && artifactOrigin) {
+        deps.setTarget(target)
+        publishedReason = undefined
+      } else {
+        publishReadiness()
+      }
+      unavailableDiagnostic = undefined
+      return target
+    } catch (error) {
+      const diagnostic = error instanceof Error ? error.message : String(error)
+      if (diagnostic !== unavailableDiagnostic) {
+        console.warn('[podium] development bundle target unavailable:', diagnostic)
+        unavailableDiagnostic = diagnostic
+      }
+      return undefined
+    }
   }
 
   return {
@@ -74,11 +160,27 @@ export function wireDevBundlePublisher(deps: {
     publishTarget,
     requestBuild: (explicit) => {
       if (!publisher) return
-      void publisher
-        .requestBuild(explicit)
+      const requested = publisher.requestBuild(explicit)
+      // Before awaiting anything: if that admitted a build, the state is now
+      // `preparing` and the read model should say so rather than sit on the
+      // previous commit's target for the length of a compile.
+      publishReadiness()
+      void requested
         .then(() => publishTarget())
-        .catch((error) => {
-          console.warn('[podium] development bundle build failed:', error)
+        .catch((error: unknown) => {
+          // The failure must reach the read model, or a stale target stays
+          // published while the only trace of the problem is this log line.
+          publishReadiness()
+          // A refused build is a normal state on a working checkout (`/version`
+          // asks on every read), so log each distinct reason once rather than
+          // once per request. This full text — offending paths included — is
+          // the CONSOLE half; only `readiness().publicReason` travels to a
+          // client.
+          const diagnostic =
+            publisher.unavailable() ?? (error instanceof Error ? error.message : String(error))
+          if (diagnostic === unavailableDiagnostic) return
+          unavailableDiagnostic = diagnostic
+          console.warn('[podium] development bundle unavailable:', diagnostic)
         })
     },
     registerRoute: (app) => {

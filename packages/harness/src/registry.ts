@@ -11,6 +11,7 @@ import {
   declaredValue,
   type HarnessCapabilities,
   type HarnessLogin,
+  type PortableCredential,
 } from './manifest.js'
 import { claudeCodeManifest } from './manifests/claude-code.js'
 import { codexManifest } from './manifests/codex.js'
@@ -55,6 +56,26 @@ export function manifestFor(kind: AgentKind | string): AgentManifest | undefined
  * degrade to no special capabilities rather than borrowing another CLI's row. */
 export function harnessCapabilitiesFor(kind: AgentKind | string): HarnessCapabilities | undefined {
   return manifestFor(kind)?.capabilities
+}
+
+/** Portable native-login declaration without exposing process-driving APIs. */
+export function harnessPortableCredential(
+  kind: AgentKind | string,
+): PortableCredential | undefined {
+  const declaration = manifestFor(kind)?.inventory.portableCredential
+  return declaration ? declaredValue(declaration) : undefined
+}
+
+const PROPAGATABLE_HARNESSES: Partial<Record<AgentKind, true>> = {
+  'claude-code': true,
+  codex: true,
+}
+
+/** Native logins whose guarded credential files may be propagated between machines. */
+export function harnessSupportsCredentialPropagation(
+  kind: AgentKind | string,
+): kind is 'claude-code' | 'codex' {
+  return PROPAGATABLE_HARNESSES[kind as AgentKind] === true
 }
 
 export function harnessSupportsInitialPrompt(kind: AgentKind | string): boolean {

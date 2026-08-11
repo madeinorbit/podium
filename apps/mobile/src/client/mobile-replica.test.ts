@@ -556,20 +556,25 @@ function bootstrapFrame(args: {
   }
 }
 
-/** Bring the assembled sink online; push a bootstrap when the ladder asks. */
+/** Bring the assembled sink online and serve the socket's mandatory initial world. */
 function onlineWithBootstrap(
   opened: Awaited<ReturnType<typeof open>>,
   frame: ReturnType<typeof bootstrapFrame>,
 ): void {
+  let delivered = false
+  const deliver = () => {
+    if (delivered) return
+    delivered = true
+    // Asynchronous, like the real server push after socket admission.
+    void Promise.resolve().then(() => {
+      opened.feed.frame(frame as never)
+    })
+  }
   opened.attachHub({
-    requestFreshWorld: () => {
-      // Asynchronous, like the real server push after reconnect.
-      void Promise.resolve().then(() => {
-        opened.feed.frame(frame as never)
-      })
-    },
+    requestFreshWorld: deliver,
   } as never)
   opened.feed.connected()
+  deliver()
 }
 
 describe('feed delivery through the assembled sink (POD-1241)', () => {
@@ -695,9 +700,8 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
         },
       ],
     } as never)
-    await waitUntil(
-      'delta paint before close',
-      () => first.replica.rows('issues').some((r) => r.id === 'i-offline'),
+    await waitUntil('delta paint before close', () =>
+      first.replica.rows('issues').some((r) => r.id === 'i-offline'),
     )
     // No await of a flush API: SQLite commits inside applyAtomic, so the file
     // must already hold the row before we tear the process down.

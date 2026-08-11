@@ -23,6 +23,7 @@ import type { EntityChangeSpec } from '@podium/sync'
 import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { decodePanel, fromStorage } from '../../../store/issue-storage'
+import { normalizeBlankIssueText } from '../blank-text'
 import { countIssueWireBuild } from '../instrumentation'
 import {
   issueDepProjectionRows,
@@ -840,6 +841,12 @@ export class IssueStore {
     // A brand-new row has no committed state (backup null): the post-commit
     // rows.set() below is what keeps a failed create out of the map.
     const backup = this.deps.store.issues.getIssue(row.id)
+    // One spelling for absent (POD-820): `''` on a nullable text column is a
+    // second encoding of `null` that no reader can tell apart. Collapsed here —
+    // the choke point every row write passes through — and BEFORE the backup is
+    // consulted on rollback, so a failed commit restores the committed spelling
+    // rather than leaving the normalization behind.
+    normalizeBlankIssueText(row)
     // touch:false = non-activity writes: (1) read-tracking (markIssueRead/Unread)
     // and (2) organizational-only patches (pinned/sortKey via update). Those must
     // not bump updatedAt — the stamp would land a tick AFTER readAt and

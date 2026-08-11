@@ -167,7 +167,7 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
       issues,
       openIssueId: null,
       setOpenIssueId,
-      uiState: { get: () => null, set: vi.fn() },
+      uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
       trpc: {
         issues: {
           update: { mutate: vi.fn(async () => ({})) },
@@ -198,23 +198,18 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     expect(initialElements).toBeLessThanOrEqual(BUDGET.tasksInitialElements)
     expect(initialButtons).toBeLessThanOrEqual(BUDGET.tasksInitialButtons)
     expect(initialIssueReads).toBeLessThanOrEqual(BUDGET.tasksInitialIssueReads)
+    const revealSentinels = container.querySelectorAll('[data-testid="column-more"]')
+    expect(revealSentinels.length).toBeGreaterThan(0)
+    const revealedCards = initialCards
 
-    const reveal = [...container.querySelectorAll('button')].find((button) =>
-      button.textContent?.startsWith(`Show ${ISSUE_RENDER_CHUNK} more tasks`),
-    )
-    expect(reveal).toBeDefined()
-    fireEvent.click(reveal as HTMLButtonElement)
-    const revealedCards = container.querySelectorAll('[data-issue-id]').length
-    expect(revealedCards).toBe(initialCards + ISSUE_RENDER_CHUNK)
-
-    // Shift-click the newly revealed 41st card, then cross to the 41st card in
+    // Shift-click the last initially visible card, then move to the first hidden position in
     // the next stage. Full-order navigation must mount that hidden target.
     const selected = container.querySelectorAll<HTMLElement>('[data-issue-id]')[
-      ISSUE_RENDER_CHUNK
+      ISSUE_RENDER_CHUNK - 1
     ] as HTMLElement
     expect(selected).toBeDefined()
     fireEvent.click(selected, { shiftKey: true })
-    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    fireEvent.keyDown(window, { key: 'ArrowDown' })
     const keyboardCards = container.querySelectorAll('[data-issue-id]').length
     expect(keyboardCards).toBe(revealedCards + 1)
     const focused = container.querySelector<HTMLElement>('[data-issue-id].ring-2')

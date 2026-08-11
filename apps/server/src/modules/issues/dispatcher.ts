@@ -28,7 +28,6 @@ import {
   IssueCommandCtx,
   type IssueCommandDeps,
 } from './command-ctx'
-import { enforceExpectedRevision } from './conflict'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
 
 /**
@@ -49,55 +48,30 @@ export class IssueCommandDispatcher {
     def: D,
     input: z.infer<D['input']>,
   ): ReturnType<D['handler']> {
-    this.checkExpectedRevision(name, def, input)
-    return def.handler(
-      new IssueCommandCtx(this.deps, caller, name, def.target),
-      input,
-    ) as ReturnType<D['handler']>
-  }
+    const execute = () =>
+      def.handler(
+        new IssueCommandCtx(this.deps, caller, name, def.target),
+        input,
+      ) as ReturnType<D['handler']>
+    if (def.conflict !== 'exp-rev') return execute()
 
-  /**
-   * Refuse a write whose `expectedRevision` no longer matches the authority
-   * (ADR 3 D13.3) — BEFORE the handler runs, so a stale write never reaches the
-   * store.
-   *
-   * POD-1246: the catch-up merge brought the twenty-three `exp-rev` contracts and
-   * their `expectedRevision` input key across from main, and `conflict.ts` with
-   * them, but NOTHING CALLED IT — `enforceExpectedRevision` had zero callers on
-   * this branch. The field parsed, validated and was then ignored, so every
-   * caller that asked for conflict detection silently got none. That is the
-   * fail-open shape: the protection is absent exactly when it is relied upon.
-   *
-   * Here rather than in the handlers, for the reason main gives: `run` is the one
-   * choke point every issue mutation resolves through, so a new command cannot
-   * forget the check. Thirty-nine handlers each remembering to wrap themselves is
-   * a rule that holds until someone adds the fortieth.
-   *
-   * Only `exp-rev` contracts are checked. A command declaring `append` or `cmd`
-   * has no revision baseline by definition, and reading a field its contract does
-   * not carry would be guessing at its rule.
-   *
-   * A missing target issue is left to the handler: every issue write resolves its
-   * row and throws `unknown issue …`, so nothing applies, and that NOT_FOUND
-   * serves the caller better than a conflict blaming a revision. Hub-mirrored
-   * issues take the same arm — `get()` reads local rows only, so the write
-   * forwards with `expectedRevision` untouched and the HOME authority enforces
-   * against its own row (ADR 1: one home authority).
-   */
-  private checkExpectedRevision(name: string, def: AnyIssueCommandDef, input: unknown): void {
-    if (def.conflict !== 'exp-rev') return
     const envelope = (input ?? {}) as { expectedRevision?: number }
-    if (envelope.expectedRevision == null) return
     const ref = def.target?.((input ?? {}) as Record<string, unknown>)
-    if (ref == null) return
+    if (ref == null) return execute()
     const issue = this.deps.issues.reports.get(ref)
-    if (!issue) return
-    enforceExpectedRevision({
-      command: `issues.${name}`,
-      issueId: issue.id,
-      expected: envelope.expectedRevision,
-      actual: issue.revision,
-    })
+    if (!issue) return execute()
+
+    return this.deps.arbitration.run(
+      {
+        command: `issues.${name}`,
+        issueId: issue.id,
+        ...(envelope.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: envelope.expectedRevision }),
+        currentRevision: () => this.deps.issues.reports.get(issue.id)?.revision,
+      },
+      execute,
+    )
   }
 
   /**

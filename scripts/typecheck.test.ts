@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decideForce, fingerprint } from './typecheck'
+import { assessWorkspaceLinks, decideForce, fingerprint } from './typecheck'
 
 describe('decideForce', () => {
   it('plain run forwards args untouched and stays cached', () => {
@@ -43,18 +43,59 @@ describe('decideForce', () => {
 })
 
 describe('fingerprint', () => {
-  const base = { bunfig: 'linker = "hoisted"\n', links: ['cli', 'model'] }
+  const base = {
+    bunfig: 'linker = "hoisted"\n',
+    links: ['cli:packages/cli', 'model:packages/model'],
+    runtime: { bun: '1.3.14', platform: 'linux', arch: 'x64' },
+  }
 
   it('moves when bunfig.toml changes (the POD-1343 linker blind spot)', () => {
     expect(fingerprint({ ...base, bunfig: 'linker = "isolated"\n' })).not.toBe(fingerprint(base))
   })
 
   it('moves when a workspace link dangles or disappears', () => {
-    expect(fingerprint({ ...base, links: ['cli', 'model!DANGLING'] })).not.toBe(fingerprint(base))
-    expect(fingerprint({ ...base, links: ['cli'] })).not.toBe(fingerprint(base))
+    expect(fingerprint({ ...base, links: ['cli:packages/cli', 'model!DANGLING'] })).not.toBe(
+      fingerprint(base),
+    )
+    expect(fingerprint({ ...base, links: ['cli:packages/cli'] })).not.toBe(fingerprint(base))
+  })
+
+  it('moves when runtime identity changes', () => {
+    expect(fingerprint({ ...base, runtime: { ...base.runtime, bun: '1.3.15' } })).not.toBe(
+      fingerprint(base),
+    )
+    expect(fingerprint({ ...base, runtime: { ...base.runtime, arch: 'arm64' } })).not.toBe(
+      fingerprint(base),
+    )
+  })
+
+  it('moves when a workspace link points outside the checkout', () => {
+    expect(fingerprint({ ...base, links: ['cli:packages/cli', 'model!EXTERNAL'] })).not.toBe(
+      fingerprint(base),
+    )
   })
 
   it('is stable for identical environments', () => {
     expect(fingerprint({ ...base })).toBe(fingerprint(base))
+  })
+})
+
+describe('assessWorkspaceLinks', () => {
+  it('allows stale links for deleted workspaces when healthy links remain', () => {
+    expect(
+      assessWorkspaceLinks(['model:packages/model', 'domain!DANGLING', 'agent-bridge!DANGLING']),
+    ).toEqual({
+      healthy: ['model:packages/model'],
+      dangling: ['domain!DANGLING', 'agent-bridge!DANGLING'],
+      external: [],
+      error: null,
+    })
+  })
+
+  it('refuses an uninstalled checkout and external workspace targets', () => {
+    expect(assessWorkspaceLinks(['domain!DANGLING']).error).toContain('no usable')
+    expect(assessWorkspaceLinks(['model:packages/model', 'runtime!EXTERNAL']).error).toContain(
+      'outside this checkout',
+    )
   })
 })

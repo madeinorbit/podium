@@ -11,27 +11,17 @@
     "test-hermetic-*.ts",
     "scripts/package-vitest-config.ts"
   ],
-  "globalEnv": [
-    "PODIUM_CHECK_ENV_HASH"
-  ],
-  "globalPassThroughEnv": [
-    "PODIUM_VALIDATION_RESOURCE_HELD"
-  ],
+  "globalEnv": ["PODIUM_CHECK_ENV_HASH"],
+  "globalPassThroughEnv": ["PODIUM_VALIDATION_RESOURCE_HELD"],
   "tasks": {
     "typecheck": {
-      "dependsOn": [
-        "^typecheck"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$"
-      ],
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$"],
       "outputs": []
     },
     "@podium/model#typecheck": {
       "dependsOn": [],
-      "inputs": [
-        "$TURBO_DEFAULT$"
-      ],
+      "inputs": ["$TURBO_DEFAULT$"],
       "outputs": []
     },
     "@podium/web#test": {

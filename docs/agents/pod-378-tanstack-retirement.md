@@ -525,6 +525,11 @@ constants — it names the old key space on purpose and takes no dependency on t
 
 ## 7. POD-1245 re-measured §6 before deleting, and §6.3's map is STALE in three ways
 
+> 2026-08-10 resolution: POD-1566 removes the browser legacy root, rollout mode,
+> feature flags, and shadow composition. POD-1245 still owns the separable shared
+> adapter/dependency deletion, desktop dead root, demo/perf re-pointing, legacy
+> writer test cleanup, package manifests, and lockfile proof described in §6.
+
 Measured on this worktree at base `dac14c84`, with `node_modules` installed locally and
 `require.resolve('@podium/model/package.json')` confirmed to land INSIDE the worktree — the
 resolution hazard POD-279 warned about was real here (the worktree had NO `node_modules` at

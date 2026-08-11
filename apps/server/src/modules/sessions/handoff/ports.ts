@@ -28,7 +28,13 @@
  * more; it must not grow a correlation mechanism of its own.
  */
 
-import type { HandoffManifestV1, MachineId, ResumeRef, SessionId } from '@podium/model'
+import type {
+  HandoffManifestV1,
+  IssueRehomeTarget,
+  MachineId,
+  ResumeRef,
+  SessionId,
+} from '@podium/model'
 import type {
   ControlMessage,
   HandoffBindingExportInstruction,
@@ -203,10 +209,7 @@ export interface HandoffPorts {
   listRepos(): HandoffRepo[]
   listMachines(): HandoffMachine[]
   issueMeta(issueId: string): HandoffIssue | undefined
-  rehomeIssue(
-    issueId: string,
-    where: { machineId: string; repoPath: string; worktreePath: string },
-  ): void
+  rehomeIssue(issueId: string, where: IssueRehomeTarget): void
   ensureTargetRepo(sourceRepo: HandoffRepo, targetMachineId: string): Promise<{ path: string }>
   persist(session: Session): void
   mutateSessionView(sessionId: SessionId, mutate: (session: Session) => void): void

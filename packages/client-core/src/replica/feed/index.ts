@@ -30,13 +30,4 @@ export {
   type FeedChangesSinceReplyLenient,
 } from './authority-client'
 export { toBootstrapChunk, toDeltaFrame, toRescopeFrame, toResyncFrame } from './frames'
-export {
-  explainReplicaMode,
-  resolveReplicaMode,
-  type AdvertisedGrade,
-  type ReplicaMode,
-  type ReplicaModeReason,
-  type ReplicaPath,
-  type ResolveReplicaModeInput,
-} from './mode'
 export { FeedSink, type FeedSinkDeps } from './sink'

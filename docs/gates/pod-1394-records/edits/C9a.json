@@ -1,6 +1,0 @@
-[
-  {
-    "anchor": "      return { actor: `system:${principal.job}`, onBehalfOf: null }\n",
-    "replace": "      return { actor: `user:${principal.job}`, onBehalfOf: null }\n"
-  }
-]

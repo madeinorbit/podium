@@ -111,8 +111,8 @@ describe('the target table covers the contract table, in both directions', () =>
   it('every contract has an extractor and every extractor has a contract', () => {
     expect(Object.keys(FLEET_TARGETS).sort()).toEqual([...NAMES].sort())
     // Non-vacuity: if the family were empty this would pass trivially.
-    expect(NAMES).toHaveLength(15)
-    expect(MACHINE_COMMANDS).toHaveLength(14)
+    expect(NAMES).toHaveLength(17)
+    expect(MACHINE_COMMANDS).toHaveLength(16)
   })
 })
 
@@ -260,16 +260,27 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(fleetAuthzFailure('machines.transferOwnership', input, admin)?.code).toBe('NOT_FOUND')
   })
 
-  it('only the machine OWNER may start a server transfer to a named target', () => {
+  it('requires an admin-grade caller with manage authority on the named target', () => {
     const input = {
       targetMachineId: 'laptop',
       publicUrl: 'https://podium.example.com',
-      confirmation: true as const,
+      confirmation: 'TRANSFER SERVER' as const,
     }
     expect(fleetAuthzFailure('machines.transferServer', input, deps(user(OWNER)))).toBeUndefined()
 
-    const manage = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'manage' }] })
-    expect(fleetAuthzFailure('machines.transferServer', input, manage)?.code).toBe('FORBIDDEN')
+    const memberManage = deps(user(COLLEAGUE), {
+      role: 'member',
+      grants: [{ subject: COLLEAGUE, verb: 'manage' }],
+    })
+    expect(fleetAuthzFailure('machines.transferServer', input, memberManage)?.code).toBe(
+      'FORBIDDEN',
+    )
+
+    const adminManage = deps(user(COLLEAGUE), {
+      role: 'admin',
+      grants: [{ subject: COLLEAGUE, verb: 'manage' }],
+    })
+    expect(fleetAuthzFailure('machines.transferServer', input, adminManage)).toBeUndefined()
 
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
     expect(fleetAuthzFailure('machines.transferServer', input, admin)?.code).toBe('NOT_FOUND')

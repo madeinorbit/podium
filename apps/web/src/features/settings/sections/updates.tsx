@@ -4,7 +4,17 @@ import { useEffect, useState } from 'react'
 import { shallowEqual } from '@podium/client-core/store'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { useFeature } from '@/lib/use-feature'
 import { Row, Section } from './shared'
+
+/** Mirrors @podium/model's UpdateChannel; inlined for the same reason as above. */
+type FleetChannel = 'stable' | 'edge' | 'dev'
+
+const CHANNEL_LABELS: Record<FleetChannel, string> = {
+  stable: 'Stable',
+  edge: 'Edge',
+  dev: 'Development',
+}
 
 interface FleetMachine {
   id: string
@@ -30,17 +40,40 @@ interface MachineVersionRow {
   label: string
   version: string
   versionState: VersionState
+  /** The machine's own pin, or null when it follows the fleet default (POD-1882). */
+  channelOverride: FleetChannel | null
+  /**
+   * Why this machine's selected channel has no trusted target right now, already
+   * sanitized by the server (POD-1880). A dev channel legitimately has NO target
+   * while a bundle is preparing, missing or failed, so this is a normal state to
+   * render — not an error — and the page must say it rather than show a blank.
+   */
+  targetUnavailableReason: string | null
 }
 
-/** Self-update channel selector. Persists immediately via the setup tRPC (not part of
- * the settings blob) — mirroring AppearanceSection, which also applies on its own. The
- * channel type is inlined so the web bundle never imports @podium/runtime (node:fs). */
+/**
+ * FLEET DEFAULT channel selector. Persists immediately via the setup tRPC (not part
+ * of the settings blob) — mirroring AppearanceSection, which also applies on its own.
+ * The channel type is inlined so the web bundle never imports @podium/runtime (node:fs).
+ *
+ * This control is not decorative and not a duplicate of the per-machine selector in
+ * Settings → Machines (POD-1882): it sets the channel every machine follows unless it
+ * has pinned one of its own, so it is the fleet-wide answer and the per-machine one is
+ * the exception. Development is a Podium-development channel and appears only while
+ * Settings → Experimental has "Podium development" on — but the selector itself is
+ * always here, because choosing between released channels is ordinary operation.
+ */
 export function UpdatesSection(): JSX.Element {
   const { trpc, machines } = useStoreSelector(
     (s) => ({ trpc: s.trpc, machines: s.machines }),
     shallowEqual,
   )
-  const [channel, setChannel] = useState<'stable' | 'edge' | null>(null)
+  const developing = useFeature('podium-development')
+  const [channel, setChannel] = useState<FleetChannel | null>(null)
+  // PODIUM_UPDATE_CHANNEL in the deployment's environment beats config.json, and
+  // the server resolves machines against the env value. When it is set, the
+  // selector must say so rather than offer a write that cannot take (POD-1882).
+  const [envForced, setEnvForced] = useState(false)
   const [channelError, setChannelError] = useState<string | null>(null)
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null)
   const [fleet, setFleet] = useState<FleetSnapshot | null>(null)
@@ -51,7 +84,9 @@ export function UpdatesSection(): JSX.Element {
     trpc.setup.channel
       .query()
       .then((c) => {
-        if (!cancelled) setChannel(c)
+        if (cancelled) return
+        setChannel(c.channel)
+        setEnvForced(c.envForced)
       })
       .catch((e) => {
         if (!cancelled) setChannelError(e instanceof Error ? e.message : String(e))
@@ -77,22 +112,29 @@ export function UpdatesSection(): JSX.Element {
     }
   }, [trpc])
 
-  const choose = async (next: 'stable' | 'edge') => {
-    if (next === channel) return
+  const choose = async (next: FleetChannel) => {
+    if (next === channel || envForced) return
     const prev = channel
     setChannelError(null)
     setChannel(next) // optimistic
     try {
-      setChannel(await trpc.setup.setChannel.mutate({ channel: next }))
+      const result = await trpc.setup.setChannel.mutate({ channel: next })
+      setChannel(result.channel)
+      setEnvForced(result.envForced)
     } catch (e) {
       setChannel(prev)
       setChannelError(e instanceof Error ? e.message : String(e))
     }
   }
 
-  const options: { value: 'stable' | 'edge'; label: string }[] = [
-    { value: 'stable', label: 'Stable' },
-    { value: 'edge', label: 'Edge' },
+  // Development is appended, never substituted: the released channels stay in the
+  // same place and the same order whether or not the flag is on. A machine already
+  // sitting on `dev` keeps its button visible with the flag off, so the selector can
+  // never show a state the fleet is not in.
+  const options: { value: FleetChannel; label: string }[] = [
+    { value: 'stable', label: CHANNEL_LABELS.stable },
+    { value: 'edge', label: CHANNEL_LABELS.edge },
+    ...(developing || channel === 'dev' ? [{ value: 'dev' as const, label: CHANNEL_LABELS.dev }] : []),
   ]
 
   const fleetMachines = fleet?.machines ?? []
@@ -104,6 +146,8 @@ export function UpdatesSection(): JSX.Element {
             id: machine.id,
             label: machine.name || machine.hostname || machine.id,
             version: machine.appVersion ?? wave?.version ?? 'unreported',
+            channelOverride: (machine.updateChannelOverride ?? null) as FleetChannel | null,
+            targetUnavailableReason: machine.targetUnavailableReason ?? null,
             versionState:
               machine.versionState ??
               (wave && fleet?.targetVersion
@@ -117,6 +161,8 @@ export function UpdatesSection(): JSX.Element {
           id: machine.id,
           label: machine.id,
           version: machine.version,
+          channelOverride: null,
+          targetUnavailableReason: null,
           versionState: fleet?.targetVersion
             ? machine.version === fleet.targetVersion
               ? 'current'
@@ -140,7 +186,7 @@ export function UpdatesSection(): JSX.Element {
   return (
     <Section
       title="Updates"
-      hint="Which builds the self-updater (podium update) pulls. stable = released builds · edge = latest from main."
+      hint="Which builds the self-updater (podium update) pulls, for this server and every machine that has not pinned a source of its own. stable = released builds · edge = latest from main."
     >
       <Row label="Running version">
         <code className="settings-value">
@@ -185,6 +231,23 @@ export function UpdatesSection(): JSX.Element {
                   </div>
                   <span className="settings-micro text-right">
                     {versionStateLabel(machine.versionState)}
+                    {/* An override is disclosed HERE, on the page that is always
+                        visible, so hiding the per-machine selector behind the
+                        Podium-development flag can never hide the fact that a
+                        machine is not on the fleet default (POD-1882). */}
+                    {machine.channelOverride && (
+                      <span className="block text-warning">
+                        Pinned: {CHANNEL_LABELS[machine.channelOverride]}
+                      </span>
+                    )}
+                    {machine.targetUnavailableReason && (
+                      <span
+                        className="block max-w-[36ch] text-warning"
+                        title={machine.targetUnavailableReason}
+                      >
+                        No target: {machine.targetUnavailableReason}
+                      </span>
+                    )}
                   </span>
                 </div>
               ))}
@@ -192,7 +255,10 @@ export function UpdatesSection(): JSX.Element {
           )}
         </div>
       </Row>
-      <Row label="Update channel">
+      <Row
+        label="Fleet default channel"
+        description="Machines follow this unless one has been pinned to its own source."
+      >
         {channel === null ? (
           <span className="settings-micro">Loading…</span>
         ) : (
@@ -204,6 +270,7 @@ export function UpdatesSection(): JSX.Element {
                 size="sm"
                 variant={channel === o.value ? 'default' : 'outline'}
                 aria-pressed={channel === o.value}
+                disabled={envForced}
                 onClick={() => void choose(o.value)}
               >
                 {o.label}
@@ -212,6 +279,12 @@ export function UpdatesSection(): JSX.Element {
           </div>
         )}
       </Row>
+      {envForced && (
+        <p className="mt-2 settings-prose text-warning">
+          PODIUM_UPDATE_CHANNEL is set in this deployment&rsquo;s environment and overrides the
+          configured channel. Unset it to choose the fleet default here.
+        </p>
+      )}
       {channelError && <p className="mt-2 settings-prose text-destructive">{channelError}</p>}
       {readError && <p className="mt-2 settings-prose text-destructive">{readError}</p>}
     </Section>

@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process'
 import { mkdir, stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage, PeerBuild } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
 import { killAbducoSession, killTmuxServer } from '@podium/pty'
 import {
@@ -17,21 +17,26 @@ import {
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
+import {
+  GIT_CONVERGENCE_BUDGET_MS,
+  GIT_TIMED_OUT_STATUS,
+  withGitBudget,
+} from '@podium/runtime/update-delivery-git'
 import type { RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
-import { buildReport, deliveryCaps } from './build-report'
+import { deliveryCaps } from './build-report'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
-import { resolveOnBoot } from './convergence'
+import { MAX_CONVERGENCE_ATTEMPTS, resolveOnBoot } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
-import { applyGrant } from './grant-apply'
+import { createGrantRunner } from './grant-apply'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
@@ -43,13 +48,14 @@ import { reportLongTick, startLoopAttribution } from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
 import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
+import { PortableStateFence, type PortableStateControl } from './portable-state-fence'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
-import { restartAsServer } from './transfer-lifecycle'
+import { restartAsServer, retireTargetDaemonAfterAcknowledgement } from './transfer-lifecycle'
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
@@ -64,6 +70,8 @@ export interface DaemonHostRuntime {
   readonly hookPort: number
   readonly hookSocketPath?: string
   readonly agentRelayPort: number
+  /** Source-transfer seam: pause/drain daemon portable writers, or resume after safe abort. */
+  readonly portableState: PortableStateControl
   connected(): void
   receive(raw: RawData): void
   close(opts?: { reapSessions?: boolean }): Promise<void>
@@ -77,15 +85,19 @@ export interface DaemonHostRuntime {
 export async function createDaemonHostRuntime(args: {
   options: DaemonOptions
   instance: DaemonInstanceBootstrap
+  build: PeerBuild
+  installDir: string | undefined
   send: (message: DaemonMessage) => void
 }): Promise<DaemonHostRuntime> {
-  const { options: opts, instance, send } = args
+  const { options: opts, instance, build, installDir, send } = args
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const backend = selectDurableBackend(opts)
   const identityStateDir = opts.identityDir ?? stateDir()
   const identity = loadIdentity({ dir: identityStateDir })
   const machineId = opts.machineId ?? identity.machineId
+  const portableStateFence = new PortableStateFence()
+  opts.localLink?.attachPortableState?.(portableStateFence)
   await mkdir(instance.runtimeDir, { recursive: true })
   const bindingStore = await BindingStore.open({
     dir: join(instance.runtimeDir, 'session-bindings'),
@@ -185,13 +197,28 @@ export async function createDaemonHostRuntime(args: {
     },
   })
   const primeInjector = createPrimeInjector((sessionId) =>
-    agentRelayHub.relay({ sessionId, router: 'issues', proc: 'prime', input: {} }),
+    agentRelayHub.relay({
+      sessionId,
+      router: 'issues',
+      proc: 'prime',
+      input: {},
+    }),
   )
   const mailInjector = createMailInjector((sessionId) =>
-    agentRelayHub.relay({ sessionId, router: 'issues', proc: 'mailPending', input: {} }),
+    agentRelayHub.relay({
+      sessionId,
+      router: 'issues',
+      proc: 'mailPending',
+      input: {},
+    }),
   )
   const ackReminder = createAckReminderInjector((sessionId) =>
-    agentRelayHub.relay({ sessionId, router: 'messages', proc: 'pendingReminders', input: {} }),
+    agentRelayHub.relay({
+      sessionId,
+      router: 'messages',
+      proc: 'pendingReminders',
+      input: {},
+    }),
   )
   const respondTo = composeResponders(
     (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
@@ -241,7 +268,10 @@ export async function createDaemonHostRuntime(args: {
       if (request.router === 'session' && request.proc === 'setWorktree') {
         const path = (request.input as { path?: unknown } | null | undefined)?.path
         if (typeof path !== 'string' || !path.startsWith('/')) {
-          return { ok: false, error: 'path must be an absolute directory path' }
+          return {
+            ok: false,
+            error: 'path must be an absolute directory path',
+          }
         }
         const found = await stat(path).catch(() => null)
         if (!found?.isDirectory()) return { ok: false, error: `no such directory: ${path}` }
@@ -255,17 +285,33 @@ export async function createDaemonHostRuntime(args: {
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
 
-  const installDir =
-    process.env.PODIUM_HOME ??
-    (process.execPath.endsWith('/podium') ? dirname(process.execPath) : undefined)
-  const build = buildReport(process.env, installDir)
-  const runGit = (command: string, args: string[]): { status: number | null; stdout: string } => {
+  /**
+   * Git delivery runs SYNCHRONOUSLY and therefore cannot be cancelled: while a
+   * step is running this thread is blocked, so an abort signal cannot be
+   * observed until it returns. The bound that actually protects the daemon is
+   * the timeout — without it a hung `git fetch` against an unreachable remote
+   * blocks the whole process indefinitely, and no server deadline or grant
+   * runner can do anything about it.
+   *
+   * The caller passes the REMAINING whole-convergence budget, so three steps
+   * cannot add up past the server's silence deadline.
+   */
+  const runGit = (
+    command: string,
+    args: string[],
+    timeoutMs?: number,
+  ): { status: number | null; stdout: string } => {
     const result = spawnSync(command, args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: Math.max(1, Math.min(timeoutMs ?? GIT_CONVERGENCE_BUDGET_MS, GIT_CONVERGENCE_BUDGET_MS)),
+      killSignal: 'SIGKILL',
     })
     return {
-      status: result.status,
+      // A timed-out step is killed with no exit code; name it as a timeout so
+      // the convergence refuses with that reason rather than reading empty
+      // output as success or blaming the command.
+      status: result.status ?? (result.error ? GIT_TIMED_OUT_STATUS : null),
       stdout: typeof result.stdout === 'string' ? result.stdout : '',
     }
   }
@@ -285,15 +331,22 @@ export async function createDaemonHostRuntime(args: {
       state = verdict.state
       detail = verdict.detail
     } else {
-      state = 'stuck'
+      // A RETRY verdict is not "manual convergence is required" — this boot
+      // used one of the permitted attempts and another is still allowed. Report
+      // it as a failure the operator can retry, and KEEP the marker with the
+      // attempt spent, so the next grant is the last one the bound permits
+      // instead of restarting the count at zero.
+      state = 'rejected'
       detail =
-        'did not reach ' +
+        'attempt ' +
+        verdict.attempts +
+        ' of ' +
+        MAX_CONVERGENCE_ATTEMPTS +
+        ' did not reach ' +
         pending.targetVersion +
-        ' after ' +
-        pending.attempts +
-        ' attempt(s); running ' +
+        ' (running ' +
         runningVersion +
-        '; manual convergence is required'
+        '); applying again will retry it'
     }
 
     send({
@@ -303,19 +356,27 @@ export async function createDaemonHostRuntime(args: {
       version: runningVersion,
       ...(detail ? { detail } : {}),
     })
+    if (verdict.action === 'retry') {
+      writePendingGrant(instance.runtimeDir, { ...pending, attempts: verdict.attempts })
+      return
+    }
     clearPendingGrant(instance.runtimeDir)
   }
 
-  const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) =>
-    applyGrant(grant, {
+  // One runner per daemon: overlapping grants are serialized here rather than
+  // racing to swap the same binary.
+  const grantRunner = createGrantRunner({
       currentVersion: () => build.appVersion ?? 'dev',
       caps: deliveryCaps(build.installKind),
-      fetchArtifact: (asset, delivery) =>
+      fetchArtifact: (asset, delivery, signal) =>
         fetchArtifact(asset, delivery, {
           fetch: globalThis.fetch,
           pubkey: PODIUM_UPDATE_PUBKEY,
           pinnedPubkey: identity.updatePubkey,
-          git: { run: runGit },
+          // One budget per convergence, established at the moment delivery
+          // starts rather than once for the life of the daemon.
+          git: { run: withGitBudget(runGit) },
+          ...(signal ? { signal } : {}),
         }),
       swap: (bytes) => {
         if (!installDir) throw new Error('binary delivery requires an installed daemon')
@@ -325,7 +386,9 @@ export async function createDaemonHostRuntime(args: {
       restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
       report: (status) => send(status),
       now: Date.now,
-    })
+  })
+  const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) =>
+    grantRunner.apply(grant)
 
   const ctx: DaemonContext = {
     send,
@@ -357,7 +420,14 @@ export async function createDaemonHostRuntime(args: {
     refreshAndPublishConversations: (full) => discoveryLoop.refreshAndPublishConversations(full),
     quotaFetcher: makeQuotaFetcher({ ...(homeDir ? { homeDir } : {}) }),
     usageMemo: {},
-    restartAfterTransfer: opts.restartAfterTransfer ?? restartAsServer,
+    portableStateFence,
+    restartAfterTransfer:
+      opts.restartAfterTransfer ??
+      (async (expected) => {
+        await restartAsServer({ transferId: expected.transferId })
+        return expected
+      }),
+    retireAfterTransfer: opts.retireAfterTransfer ?? retireTargetDaemonAfterAcknowledgement,
     applyUpdateGrant,
   }
   const frameGuard = createFrameGuard(ctx)
@@ -388,7 +458,10 @@ export async function createDaemonHostRuntime(args: {
         metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
         metricsTimer.unref?.()
       }
-      uploadsGcTimer = setInterval(sweepUploads, UPLOADS_GC_INTERVAL_MS)
+      uploadsGcTimer = setInterval(
+        () => void sweepUploads(portableStateFence),
+        UPLOADS_GC_INTERVAL_MS,
+      )
       uploadsGcTimer.unref?.()
       stopInventoryRefresh = startInventoryRefresh(ctx)
       void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
@@ -442,6 +515,7 @@ export async function createDaemonHostRuntime(args: {
     hookPort: ingest.port,
     ...(ingest.socketPath ? { hookSocketPath: ingest.socketPath } : {}),
     agentRelayPort: agentRelay.port,
+    portableState: portableStateFence,
     connected,
     receive: (raw) => frameGuard.receive(raw),
     close,

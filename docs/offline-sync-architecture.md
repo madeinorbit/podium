@@ -54,8 +54,8 @@ flowchart TB
     end
 
     subgraph THIN["Thin clients"]
-        MOB["mobile app\nTanStack DB replica + outbox"]
-        BR["plain browser (PWA)\nsame layer, wasm SQLite"]
+        MOB["mobile app\nkernel replica on SQLite"]
+        BR["plain browser (PWA)\nkernel replica on IndexedDB"]
     end
 
     subgraph RD["Remote daemons"]
@@ -73,7 +73,7 @@ flowchart TB
 Key invariants:
 
 - **The desktop app always ships and runs the full local stack** (server + daemon); the desktop UI always points at `localhost`, in every mode. This is what makes local agents + issues work when the hub is unreachable — offline needs a *server* (PTY broker, registry), not just a client database.
-- **Mobile/browser are thin clients**: no daemon, in-app replica (TanStack DB) speaking the same sync protocol.
+- **Mobile/browser are thin clients**: no daemon, an in-app kernel replica speaking the same sync protocol.
 - **One wire protocol, two consumer shapes**: node⇄hub and thin-client⇄server are the same oplog/outbox exchange.
 
 ### Deployment modes (all supported by the same design)
@@ -204,8 +204,9 @@ Registry always synced; segment **tails of recent/open/pinned conversations** sy
 
 | Client | Layer | Rationale |
 |---|---|---|
-| Desktop (Tauri webview) | **Thin/live** — current WS+tRPC against the localhost node; no client DB | The local node *is* the durable replica; localhost is always reachable |
-| Mobile app / plain browser | **TanStack DB** (SQLite-backed persistence: browser wasm/OPFS, RN/Expo) + offline transactions speaking the oplog protocol | Survives a Tauri→RN move intact; live queries with joins; optimistic-transaction machinery included |
+| Desktop (Tauri webview) | **Kernel replica on IndexedDB** against the localhost node | Ships the browser bundle; local-first paint uses the same private replica while the node remains authoritative |
+| Mobile app | **Kernel replica on SQLite** + durable outbox | Principal-scoped offline reads and writes over the v2 feed |
+| Plain browser / PWA | **Kernel replica on IndexedDB** + durable outbox | Principal-scoped cold paint and offline work over the v2 feed |
 | Future fully-native client | Thin client reimplemented over native SQLite | Deliberately cheap because all smarts (arbitration, rebase) are server-side; the protocol, not the JS library, carries the architecture |
 
 ## 9. Phasing
@@ -219,6 +220,6 @@ Each phase ships independently and delivers value on its own. Each phase gets it
 | P3 | **Outbox write path** + idempotency IDs + pending UI | ✅ Implemented (issue-mutation outbox routing on web is a follow-on). Queued work UX; offline authoring semantics. Spec: `docs/spec/outbox-write-path.md` |
 | P4 | **Transcript lake + hub mirror** | Backup/export feature; blob store; transcripts survive agent deletion |
 | P5 | **Search v1** (FTS5 omni-index, ⌘K) | Replaces current search |
-| P6 | **Thin-client replica** (TanStack DB on mobile/browser) | Mobile offline read + author |
+| P6 | **Thin-client replica** (kernel replica on mobile/browser) | ✅ Implemented. Mobile/browser offline read + author |
 | P7 | **Node/hub roles + node⇄hub sync** | Offline local agents with remote hub; module boundaries (`core`/`hub`) enforced from P1 onward |
 | — | Later | `cloud` module (private repo), semantic search source, native clients |

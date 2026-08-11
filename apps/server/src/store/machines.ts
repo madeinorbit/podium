@@ -4,7 +4,12 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { Inventory, type MachineId } from '@podium/model'
+import {
+  Inventory,
+  type MachineId,
+  UpdateChannel,
+  type UpdateChannel as UpdateChannelValue,
+} from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MachineRecord } from './types'
@@ -42,6 +47,12 @@ function toRecord(r: Record<string, unknown>): MachineRecord {
     createdAt: r.created_at as string,
     lastSeenAt: r.last_seen_at as string,
     podiumManaged: r.podium_managed === undefined ? true : Boolean(r.podium_managed),
+    // POD-1882: null is MEANINGFUL — no per-machine pin, so this machine follows
+    // the fleet default. `catch(null)` keeps an unreadable value reading as "not
+    // pinned" rather than inventing a channel for it.
+    updateChannelOverride: UpdateChannel.nullable()
+      .catch(null)
+      .parse(r.update_channel_override ?? null) as UpdateChannelValue | null,
     ...(inventory !== undefined ? { inventory } : {}),
     // POD-1079: no `??` fallback. A row whose column is NULL reads back as
     // unowned, and unowned refuses `use` to everyone — substituting an owner
@@ -102,7 +113,7 @@ export class MachinesRepository {
     return (
       this.db
         .prepare(
-          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at, podium_managed FROM machines ORDER BY created_at ASC',
+          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at, podium_managed, update_channel_override FROM machines ORDER BY created_at ASC',
         )
         .all() as Record<string, unknown>[]
     ).map(toRecord)
@@ -111,7 +122,7 @@ export class MachinesRepository {
   getMachine(id: string): MachineRecord | undefined {
     const r = this.db
       .prepare(
-        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at, podium_managed FROM machines WHERE id = ?',
+        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at, podium_managed, update_channel_override FROM machines WHERE id = ?',
       )
       .get(id) as Record<string, unknown> | undefined
     if (!r) return undefined
@@ -148,6 +159,14 @@ export class MachinesRepository {
     const a = Buffer.from(createHash('sha256').update(token).digest('hex'))
     const b = Buffer.from(row.token_hash)
     return a.length === b.length && timingSafeEqual(a, b)
+  }
+
+  /** Persist the operator-selected update authority for one managed machine.
+   *  `null` clears the pin and returns the machine to the fleet default (POD-1882). */
+  setUpdateChannel(id: string, channel: UpdateChannelValue | null): void {
+    this.db
+      .prepare('UPDATE machines SET update_channel_override = ? WHERE id = ?')
+      .run(channel, id)
   }
 
   renameMachine(id: string, name: string): void {

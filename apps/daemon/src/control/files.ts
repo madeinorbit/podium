@@ -21,11 +21,18 @@ async function handleImageUpload(
   // Async fs: decoding+writing a multi-MB base64 image synchronously blocked the
   // whole daemon loop for the duration of the write (audit P0-4).
   try {
-    const id = randomUUID()
-    const filePath = uploadFilePath(stateDir(), msg.sessionId, id, msg.mimeType)
-    await mkdir(dirname(filePath), { recursive: true })
-    await writeFile(filePath, Buffer.from(msg.dataBase64, 'base64'))
-    ctx.send({ type: 'imageUploadResult', requestId: msg.requestId, path: filePath })
+    const filePath = await ctx.portableStateFence.run(async () => {
+      const id = randomUUID()
+      const path = uploadFilePath(stateDir(), msg.sessionId, id, msg.mimeType)
+      await mkdir(dirname(path), { recursive: true })
+      await writeFile(path, Buffer.from(msg.dataBase64, 'base64'))
+      return path
+    })
+    ctx.send({
+      type: 'imageUploadResult',
+      requestId: msg.requestId,
+      path: filePath,
+    })
   } catch (err) {
     // Return an empty path + error so the router can throw INTERNAL_SERVER_ERROR
     // (a write failure, not a timeout).
@@ -55,7 +62,11 @@ export const fileHandlers: Pick<
     void handleImageUpload(ctx, msg)
   },
   fileReadRequest: (ctx, msg) => {
-    void readFileSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath })
+    void readFileSandboxed({
+      cwd: msg.cwd,
+      path: msg.path,
+      knownPath: msg.knownPath,
+    })
       .then((r) => ctx.send({ type: 'fileReadResult', requestId: msg.requestId, ...r }))
       .catch((err) =>
         ctx.send({

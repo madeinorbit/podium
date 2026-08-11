@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { convergeViaGit } from '@podium/runtime/update-delivery-git'
+import {
+  convergeViaGit,
+  GIT_TIMED_OUT_STATUS,
+  withGitBudget,
+} from '@podium/runtime/update-delivery-git'
 
 type Call = { cmd: string; args: string[] }
 
@@ -103,5 +107,69 @@ describe('convergeViaGit', () => {
     )
 
     expect(result).toEqual({ ok: true })
+  })
+
+  it('names a killed step as a timeout rather than blaming the command', () => {
+    const calls: Call[] = []
+    const result = convergeViaGit(
+      { repo: '/checkout', sha: 'abc1234' },
+      {
+        run: runner(calls, (call) =>
+          operation(call) === 'fetch'
+            ? { status: GIT_TIMED_OUT_STATUS, stdout: '' }
+            : { status: 0, stdout: '' },
+        ),
+      },
+    )
+
+    expect(result).toEqual({ ok: false, reason: 'timed-out' })
+    expect(calls.map(operation)).toEqual(['status', 'fetch'])
+  })
+})
+
+/**
+ * Git delivery is synchronous and runs three steps, so a per-step bound does
+ * not bound the sequence. The whole convergence must fail before the server's
+ * silence deadline, or the server can age the grant out and re-grant while this
+ * daemon is still blocked and unable to observe cancellation.
+ */
+describe('withGitBudget', () => {
+  it('spends one budget across every step of a convergence', () => {
+    let clock = 0
+    const seen: (number | undefined)[] = []
+    const run = withGitBudget(
+      (_cmd, _args, timeoutMs) => {
+        seen.push(timeoutMs)
+        clock += 3 * 60_000
+        return { status: 0, stdout: '' }
+      },
+      { totalMs: 8 * 60_000, now: () => clock },
+    )
+
+    const result = convergeViaGit({ repo: '/checkout', sha: 'abc1234' }, { run })
+
+    // Each step is granted only what the previous ones left behind.
+    expect(seen).toEqual([8 * 60_000, 5 * 60_000, 2 * 60_000])
+    expect(result).toEqual({ ok: true })
+  })
+
+  it('refuses to start a step once the budget is gone, instead of adding to it', () => {
+    let clock = 0
+    let started = 0
+    const run = withGitBudget(
+      () => {
+        started += 1
+        clock += 5 * 60_000
+        return { status: 0, stdout: '' }
+      },
+      { totalMs: 8 * 60_000, now: () => clock },
+    )
+
+    const result = convergeViaGit({ repo: '/checkout', sha: 'abc1234' }, { run })
+
+    expect(result).toEqual({ ok: false, reason: 'timed-out' })
+    // Two steps ran (10 minutes); the third never started, so the sequence
+    // cannot run past the deadline by simply having more steps.
+    expect(started).toBe(2)
   })
 })

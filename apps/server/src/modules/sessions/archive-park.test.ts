@@ -156,6 +156,50 @@ describe('archive parks the session process [POD-108]', () => {
     expect(reattached.some((c) => c.type === 'reattach' && c.sessionId === sessionId)).toBe(false)
   })
 
+  it('parks a stale session on the age backstop and reports its refusals [POD-1884]', () => {
+    const { reg, daemon } = makeRegistry()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    bindLive(reg, sessionId, '/r')
+    // No terminal proof and no phase gate: the backstop exists for exactly the
+    // sessions the proof path can never clear.
+    expect(reg.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
+
+    expect(reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({ ok: true })
+    const m = meta(reg, sessionId)
+    expect(m?.status).toBe('hibernated')
+    expect(m?.stopReason).toBe('parent')
+    expect(m?.resume).toEqual({ kind: 'claude-session', value: 'native-1' })
+    expect(daemon.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
+
+    // Parking twice is a no-op the caller can see, not a second kill.
+    const kills = daemon.filter((c) => c.type === 'kill' && c.sessionId === sessionId).length
+    expect(reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({
+      ok: false,
+      reason: 'not running',
+    })
+    expect(daemon.filter((c) => c.type === 'kill' && c.sessionId === sessionId)).toHaveLength(kills)
+    expect(
+      reg.modules.sessions.parkStaleSession({ sessionId: 'ses_missing' as SessionId }),
+    ).toEqual({ ok: false, reason: 'unknown session' })
+  })
+
+  it('parks a stale session without a resume ref as exited [POD-1884]', () => {
+    const { reg, daemon } = makeRegistry()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    bindLive(reg, sessionId, '/r', { resume: false })
+
+    expect(reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({ ok: true })
+
+    expect(meta(reg, sessionId)?.status).toBe('exited')
+    expect(daemon.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
+  })
+
   it('permanent removal clears issue-owned session attribution', () => {
     const { reg } = makeRegistry()
     const { sessionId } = reg.modules.sessions.createSession({

@@ -12,9 +12,10 @@ import type { IssueId, SessionId } from '@podium/model'
 /**
  * A real agent session or one of the lock service's documented non-session
  * principals. A granted operator lease is represented as `null`; the
- * `operator` sentinel can appear while that principal is queued.
+ * `operator` sentinel can appear while that principal is queued. In-process
+ * system jobs use a `system:<job>` identity that no transport can mint.
  */
-export type LockSessionIdWire = SessionId | 'operator' | 'unknown-session'
+export type LockSessionIdWire = SessionId | 'operator' | 'unknown-session' | `system:${string}`
 
 export interface LockHolderWire {
   sessionId: LockSessionIdWire | null
@@ -22,8 +23,9 @@ export interface LockHolderWire {
   label: string
   /**
    * Whether the holder's session is still live. Operator (null session) is
-   * always true; unknown-relay is always false. Waiters that would be pruned
-   * on the next queue advance report false here so status is not misleading.
+   * always true; in-process system jobs are live for the duration of their
+   * lease; unknown-relay is always false. Waiters that would be pruned on the
+   * next queue advance report false here so status is not misleading.
    */
   alive: boolean
   /**
@@ -36,7 +38,7 @@ export interface LockHolderWire {
 }
 
 export interface LockQueueEntryWire extends Omit<LockHolderWire, 'sessionId'> {
-  /** Real session identity, or the queued operator/unknown-relay sentinel. */
+  /** Real session identity, or a queued operator/unknown-relay/system identity. */
   sessionId: LockSessionIdWire
   /** One-based FIFO grant position. */
   position: number

@@ -421,7 +421,7 @@ const uploadImage: CommandDef = {
   offline: 'online-only',
   redaction: {
     fields: ['dataBase64'],
-    note: 'THE ONLY REDACTED FIELD IN THE SESSION FAMILY. A pasted screenshot is user content whose bytes must never reach a log line, an error message or a persisted mutation envelope — and at up to 10 MB of base64 it would also be the largest thing this instance ever logged. filename and mimeType stay: a redacted path is unsupportable.',
+    note: 'THE ONLY REDACTED FIELD IN THE SESSION FAMILY. A pasted screenshot is user content whose bytes must never reach a log line, an error message or a persisted outbox record — and at up to 10 MB of base64 it would also be the largest thing this instance ever logged. filename and mimeType stay: a redacted path is unsupportable.',
   },
   conflict: 'cmd',
   decision:

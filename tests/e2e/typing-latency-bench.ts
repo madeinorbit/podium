@@ -7,8 +7,8 @@
  *
  * Usage:
  *   bun run perf:typing
- *   bun run perf:typing -- --samples=60 --out=.artifacts/typing.json
- *   bun run perf:typing -- --verify-off --out=.artifacts/typing-off.json
+ *   bun run perf:typing -- --samples=60 --out=.tmp/typing.json
+ *   bun run perf:typing -- --verify-off --out=.tmp/typing-off.json
  *
  * Env:
  *   PODIUM_URL            defaults to http://localhost:18787
@@ -16,6 +16,8 @@
  */
 
 import { firefox, type Page } from '@playwright/test'
+import { mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 
 interface SessionSummary {
   sessionId: string
@@ -228,6 +230,7 @@ try {
   }
   const encoded = `${JSON.stringify(result, null, 2)}\n`
   if (outPath) {
+    mkdirSync(dirname(outPath), { recursive: true })
     await Bun.write(outPath, encoded)
     console.log(`typing latency report: ${outPath}`)
   } else {

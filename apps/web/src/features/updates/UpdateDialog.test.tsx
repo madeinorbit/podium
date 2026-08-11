@@ -108,10 +108,10 @@ describe('UpdateDialog', () => {
   })
 
   it('runs the action it does offer', async () => {
-    const updateServer = vi.fn()
-    render(<UpdateDialog view={available} actions={{ updateServer }} />)
-    screen.getByRole('button', { name: /update/i }).click()
-    expect(updateServer).toHaveBeenCalled()
+    const startUpdate = vi.fn()
+    render(<UpdateDialog view={available} actions={{ startUpdate }} />)
+    screen.getByRole('button', { name: 'Update Podium' }).click()
+    expect(startUpdate).toHaveBeenCalled()
   })
 
   it('shows wave progress in the in-progress state', () => {
@@ -124,13 +124,87 @@ describe('UpdateDialog', () => {
     expect(screen.getByText(/1 of 3/)).toBeTruthy()
   })
 
-  it('shows the detail in the failed state', () => {
+  /**
+   * The panel sits over the app, including over Settings → Machines, which is
+   * where an operator goes to see or retry a machine that is not converging.
+   * In-progress was the only state with no way out of it.
+   */
+  it('lets the operator hide a converging update to reach the recovery surface', () => {
+    const onDismiss = vi.fn()
     render(
       <UpdateDialog
-        view={{ state: 'failed', detail: 'ludovico did not come back' }}
+        view={{ state: 'in-progress', version: '0.4.2', done: 1, total: 3 }}
+        actions={{}}
+        onDismiss={onDismiss}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('update-dialog')).toBeNull()
+  })
+
+  it('explains a failed update and exposes its diagnostic on demand', () => {
+    render(
+      <UpdateDialog
+        view={{
+          state: 'failed',
+          message: 'Podium could not finish the update.',
+          guidance: 'Try again, then ask the server operator for help.',
+          diagnostic: 'ludovico did not come back',
+        }}
         actions={{}}
       />,
     )
+    expect(screen.getByRole('heading', { name: 'Podium update failed' })).toBeTruthy()
+    expect(screen.queryByText(/Podium update paused/i)).toBeNull()
+    expect(screen.getByText(/could not finish/i)).toBeTruthy()
+    expect(screen.getByText(/try again/i)).toBeTruthy()
+    expect(screen.getByText(/technical details/i)).toBeTruthy()
     expect(screen.getByText(/ludovico did not come back/)).toBeTruthy()
+  })
+
+  it('is dismissible after an update fails', () => {
+    const onDismiss = vi.fn()
+    render(
+      <UpdateDialog
+        view={{
+          state: 'failed',
+          message: 'Podium could not reach the update source.',
+          guidance: "Check this server's internet connection, then try again.",
+        }}
+        actions={{}}
+        onDismiss={onDismiss}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(onDismiss).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('update-dialog')).toBeNull()
+  })
+
+  it('retries through the existing update action while keeping dismiss available', () => {
+    const startUpdate = vi.fn(() => new Promise<void>(() => {}))
+
+    render(
+      <UpdateDialog
+        view={{
+          state: 'failed',
+          message: 'Podium could not reach the update source.',
+          guidance: "Check this server's internet connection, then try the update again.",
+        }}
+        actions={{ startUpdate }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    const retry = screen.getByRole('button', { name: 'Trying again…' })
+    const dismiss = screen.getByRole('button', { name: 'Dismiss' })
+    expect(startUpdate).toHaveBeenCalledOnce()
+    expect(retry.getAttribute('aria-busy')).toBe('true')
+    expect((retry as HTMLButtonElement).disabled).toBe(true)
+    expect((dismiss as HTMLButtonElement).disabled).toBe(false)
   })
 })

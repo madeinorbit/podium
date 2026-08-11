@@ -44,7 +44,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type MachineId } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import {
+  CAP_METADATA_DELTA,
+  type ControlMessage,
+  type ServerMessage,
+  WIRE_VERSION,
+} from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { startServer } from '../server'
@@ -103,6 +108,25 @@ describe('a daemon reattach storm', () => {
     })
     await new Promise<void>((resolve, reject) => {
       ws.on('open', () => resolve())
+      ws.on('error', reject)
+    })
+    ws.send(
+      JSON.stringify({
+        type: 'hello',
+        clientId: '',
+        viewport: { cols: 80, rows: 24, dpr: 1 },
+        caps: [CAP_METADATA_DELTA],
+        wireVersion: WIRE_VERSION,
+      }),
+    )
+    await new Promise<void>((resolve, reject) => {
+      const onMessage = (raw: import('ws').RawData): void => {
+        const message = JSON.parse(raw.toString()) as ServerMessage
+        if (message.type !== 'feedBootstrap') return
+        ws.off('message', onMessage)
+        resolve()
+      }
+      ws.on('message', onMessage)
       ws.on('error', reject)
     })
     return {
@@ -232,16 +256,22 @@ describe('a daemon reattach storm', () => {
       // the same liveness shape the /health probes above use, by design.
       for (const client of clients) {
         const settled = await client.nextMatching(
-          (m) => m.type === 'sessionsChanged' && m.sessions.every((s) => s.status === 'live'),
+          (m) =>
+            m.type === 'feedDelta' &&
+            m.changes.filter((change) => change.entity === 'session').length === SESSIONS &&
+            m.changes
+              .filter((change) => change.entity === 'session')
+              .every((change) => change.value?.status === 'live'),
         )
-        if (settled.type !== 'sessionsChanged') throw new Error('expected sessionsChanged')
+        if (settled.type !== 'feedDelta') throw new Error('expected feedDelta')
         // NOT implied by the wait, which an empty or short snapshot satisfies
         // vacuously: the settled frame must carry EVERY session. A client fed a
         // subset has been starved, and that is convergence reported rather than
         // reached.
-        expect(settled.sessions, 'the settled snapshot reached a client short').toHaveLength(
-          SESSIONS,
-        )
+        expect(
+          settled.changes.filter((change) => change.entity === 'session'),
+          'the settled delta reached a client short',
+        ).toHaveLength(SESSIONS)
       }
       for (const client of clients) {
         expect(

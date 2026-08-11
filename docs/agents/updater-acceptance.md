@@ -17,6 +17,11 @@ necessary, but it is not evidence that the updater works in practice.
 - Run validation commands sequentially. Do not overlap focused tests, typecheck, the default
   test gate, or the heavier runtime lanes.
 
+The headless release workflow publishes stable assets only from `v*` tags. Publishing the
+rolling `edge` prerelease requires an explicit `workflow_dispatch`; ordinary pushes to `main`
+never publish it. Both paths finish by downloading the release assets that GitHub actually
+serves and exercising their production signature with the shipped updater.
+
 ## Cadence
 
 ### 1. Every updater code change
@@ -73,14 +78,21 @@ instance. Follow `docs/multi-instance.md` for identity selection.
 
 In the UI, verify this sequence with real clicks:
 
-1. The panel names the target version and the affected places in user language.
-2. Clicking **Update server** changes the same non-modal panel to applying.
-3. The source daemon selects git delivery; an installed daemon must not select git merely
+1. Disable the checkout HEAD watcher, move the checkout to the target, and prove the
+   coordinating server PID does not change before approval.
+2. The panel names the target version and only the affected development-authority places
+   in user language; edge/stable-selected machines are not counted against the dev target.
+3. Clicking **Update Podium** changes the same non-modal panel to applying.
+4. Every selected development machine reaches the exact target and reconnects as
+   `current` before the coordinating server requests its guarded restart. Prove this
+   from the server's raw post-reconnect machine identity, not an optimistic update status
+   emitted before the old daemon exits.
+5. The source daemon selects git delivery; an installed daemon must not select git merely
    because it is offered.
-4. Sessions remain usable while the server/daemon reconnect.
-5. The panel reaches current and disappears; `/version`, fleet status, and the checkout HEAD
-   all report the target.
-6. Repeat once more from the new version to catch stale target, pending-marker, and restart
+6. Sessions remain usable while the server/daemon reconnect.
+7. The panel reaches current and disappears; `/version`, fleet status, and the checkout HEAD
+   all report the target, while the HEAD watcher remains disabled.
+8. Repeat once more from the new version to catch stale target, pending-marker, and restart
    state that only appear on the second cycle.
 
 Run two negative variants against disposable checkouts:

@@ -1,4 +1,7 @@
-import { declaredValue, manifestFor } from '@podium/harness'
+import {
+  harnessPortableCredential,
+  harnessSupportsCredentialPropagation,
+} from '@podium/harness/metadata'
 import type { AgentKind, HarnessAgent } from '@podium/model'
 import type { PortableCredentialBundle } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness } from '../../login-catalog'
@@ -38,10 +41,6 @@ interface LoginPropagationDeps {
   now?: () => number
 }
 
-function propagatableHarness(agentKind: AgentKind): PropagatableHarness | undefined {
-  return agentKind === 'claude-code' || agentKind === 'codex' ? agentKind : undefined
-}
-
 function propagationKey(input: LoginPropagationTrigger, ownerUserId: string): string {
   return ownerUserId + ':' + input.targetMachineId + ':' + input.agentKind
 }
@@ -71,7 +70,9 @@ export class LoginPropagationService {
 
   /** Public for focused tests and for callers that need the settled outcome. */
   async propagate(input: LoginPropagationTrigger): Promise<LoginPropagationResult> {
-    const harness = propagatableHarness(input.agentKind)
+    const harness = harnessSupportsCredentialPropagation(input.agentKind)
+      ? input.agentKind
+      : undefined
     if (!harness) return { status: 'skipped', reason: 'harness does not support propagation' }
 
     const target = this.deps.store.machines.getMachine(input.targetMachineId)
@@ -133,18 +134,15 @@ export class LoginPropagationService {
     ownerUserId: string
     targetInventory: import('@podium/model').Inventory | undefined
   }): Promise<LoginPropagationResult> {
-    const manifest = manifestFor(input.harness)
-    const portable = manifest?.inventory.portableCredential
-    if (!portable || !declaredValue(portable)) {
+    const portable = harnessPortableCredential(input.harness)
+    if (!portable) {
       return { status: 'skipped', reason: 'harness has no portable credential declaration' }
     }
     if (!this.deps.machines.hasDaemon(input.input.targetMachineId)) {
       return { status: 'skipped', reason: 'target is offline' }
     }
 
-    const targetAgent = input.targetInventory?.agents.find(
-      (agent) => agent.kind === input.harness,
-    )
+    const targetAgent = input.targetInventory?.agents.find((agent) => agent.kind === input.harness)
     if (!input.input.force && targetAgent?.login.state !== 'out') {
       return { status: 'skipped', reason: 'target is not observed logged out' }
     }
@@ -156,8 +154,7 @@ export class LoginPropagationService {
           machine.harness === input.harness &&
           machine.machineId !== input.input.targetMachineId &&
           this.deps.machines.hasDaemon(machine.machineId) &&
-          this.deps.store.machines.getMachine(machine.machineId)?.ownerUserId ===
-            input.ownerUserId,
+          this.deps.store.machines.getMachine(machine.machineId)?.ownerUserId === input.ownerUserId,
       ),
     )
     if (!entry) return { status: 'failed', reason: 'no online donor login found' }
@@ -167,8 +164,7 @@ export class LoginPropagationService {
         machine.harness === input.harness &&
         machine.machineId !== input.input.targetMachineId &&
         this.deps.machines.hasDaemon(machine.machineId) &&
-        this.deps.store.machines.getMachine(machine.machineId)?.ownerUserId ===
-          input.ownerUserId,
+        this.deps.store.machines.getMachine(machine.machineId)?.ownerUserId === input.ownerUserId,
     )
     if (!donor) return { status: 'failed', reason: 'no online donor login found' }
 

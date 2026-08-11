@@ -143,6 +143,8 @@ export type LaunchPlan =
   | { kind: 'machine'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
+  | { kind: 'server-transfer-promote'; transferId: string }
+  | { kind: 'server-transfer-retire-daemon' }
   | { kind: 'janitor'; serverUrl: string; takeover: boolean }
   | { kind: 'repair-config' }
   | { kind: 'join-setup'; token: string; persistence: 'systemd' | 'detached'; port: number }
@@ -400,7 +402,7 @@ export function resolvePlan(
   if (argv[0] === 'update') {
     return {
       kind: 'update',
-      channel: resolveUpdateChannel(config, env),
+      channel: resolveUpdateChannel(config, env) === 'stable' ? 'stable' : 'edge',
       feedOverride: resolveUpdateFeed(config, env),
     }
   }
@@ -431,6 +433,17 @@ export function resolvePlan(
           kind: 'usage-error',
           message: 'usage: podium set-server <ws(s)://url | http(s)://url | join-code>',
         }
+  }
+  if (argv[0] === 'server-transfer-promote') {
+    return argv[1]
+      ? { kind: 'server-transfer-promote', transferId: argv[1] }
+      : {
+          kind: 'usage-error',
+          message: 'usage: podium server-transfer-promote <transfer-id>',
+        }
+  }
+  if (argv[0] === 'server-transfer-retire-daemon') {
+    return { kind: 'server-transfer-retire-daemon' }
   }
   // Internal sibling component [spec:SP-c29e]. It is deliberately not a
   // PodiumMode: operators configure a host/server, and persistence composes the
@@ -497,6 +510,20 @@ export function resolvePlan(
       message: `podium: unknown argument '${unknown}' (run \`podium help\` for usage)`,
     }
   }
+  // A source that has durably become a daemon must never be resurrected by its stale
+  // server unit or an explicit stale all-in-one command. Operator recovery is opt-in.
+  const requestedServer = argv[0] === 'server'
+  const requestedAllInOne = argv[0] === 'all' || argv[0] === 'all-in-one'
+  if (
+    config.mode === 'daemon' &&
+    (requestedAllInOne || (requestedServer && !argv.includes('--takeover')))
+  ) {
+    return {
+      kind: 'usage-error',
+      message: 'podium: host role is fenced because this machine transferred to daemon mode',
+    }
+  }
+
   const modePlan = resolveModePlan(argv, config)
   // `podium setup` (or --reconfigure) re-enters the interactive flow — the mode-first menu
   // that can switch this box between modes. TTY-gated below; headless falls through to
@@ -706,7 +733,8 @@ export async function resolveCliFeatures(
     )
   } catch {
     const overrides = resolveFeatureOverrides(config)
-    const channel = resolveUpdateChannel(config, env)
+    const selectedChannel = resolveUpdateChannel(config, env)
+    const channel = selectedChannel === 'stable' ? 'stable' : 'edge'
     const version = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
     return new Set(
       FEATURES.filter(
@@ -842,6 +870,16 @@ async function runInProcess(
   // for status/stop. The in-process all-in-one is a single role; the split modes each
   // claim their own.
   if (plan.claimRole) {
+    if (plan.claimRole === 'daemon' && plan.daemonAuth === 'remote' && plan.takeover) {
+      try {
+        const { prepareForegroundDaemon } = await import('./role-reconcile')
+        const preparation = await prepareForegroundDaemon()
+        if (preparation.owner !== 'foreground') return
+      } catch (error) {
+        console.error((error as Error).message)
+        process.exit(2)
+      }
+    }
     const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
     // registerProcess → reclaim() SIGTERM/SIGKILLs a live holder. That is takeover, and
     // takeover must be OPT-IN: without --takeover, a live same-role holder means we
@@ -1092,6 +1130,21 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
         console.error((e as Error).message)
         process.exit(2)
       }
+      return
+    }
+    case 'server-transfer-promote': {
+      const { promoteTargetServerRole } = await import('./role-reconcile')
+      try {
+        await promoteTargetServerRole({ transferId: plan.transferId })
+      } catch (error) {
+        console.error((error as Error).message)
+        process.exit(2)
+      }
+      return
+    }
+    case 'server-transfer-retire-daemon': {
+      const { retireTargetDaemon } = await import('./role-reconcile')
+      await retireTargetDaemon({ acknowledged: true })
       return
     }
     case 'janitor': {

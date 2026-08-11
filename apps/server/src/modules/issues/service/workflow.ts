@@ -2,15 +2,16 @@ import {
   asMachineId,
   asUserId,
   DEFER_NEXT_MESSAGE,
+  type IssueRehomeTarget,
   type IssueWire,
   type SessionId,
   type SessionMeta,
   spawnedByTag,
 } from '@podium/model'
-import { formatIssueRef } from '@podium/protocol'
+import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import type { CommandPrincipal } from '../../../command-principal'
-import { liveSessionsUsingWorktree, sessionsForIssue } from '../../../issue-util'
+import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
@@ -23,6 +24,7 @@ import type { IssueCrudModule } from './crud'
 import { IssueEpicIntegrationModule } from './integration'
 import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
+import { IssueWorktreeGcModule } from './worktree-gc'
 
 /** Issues whose merge axis is a live question [POD-384]: a private worktree on a
  *  branch, still in the worklist. A shared checkout has no merge axis; an issue
@@ -41,13 +43,12 @@ function watchesParentBranch(row: IssueRow): boolean {
   )
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000
-
-/** Group key for {@link IssueGitWorkflowModule.sweepParentBranchMovement}: every
- *  issue sharing one machine's copy of one repo's watched ref is answered by a
- *  single `rev-parse`. JSON so no separator can collide with a path. The third
- *  slot is the watched ref (cut parent and/or landing base — see the sweep). */
-function parentBranchKey(machineId: string | null | undefined, repoPath: string, ref: string): string {
+/** Groups one machine/repo/ref for one `rev-parse`; JSON prevents path separator collisions. */
+function parentBranchKey(
+  machineId: string | null | undefined,
+  repoPath: string,
+  ref: string,
+): string {
   return JSON.stringify([machineId ?? '', repoPath, ref])
 }
 
@@ -87,6 +88,8 @@ function landingBaseFromSettings(defaultParentBranch: string | undefined): strin
 export class IssueGitWorkflowModule {
   /** The activity digest, reached only through its own module (POD-1606). */
   private readonly assistant: IssueAssistantDigestModule
+  /** Closed-worktree reclamation and janitor revalidation (POD-564). */
+  private readonly worktreeGc: IssueWorktreeGcModule
   /** Epic integration, reached only through its own module (POD-417). */
   private readonly integration: IssueEpicIntegrationModule
 
@@ -94,7 +97,7 @@ export class IssueGitWorkflowModule {
     readonly store: IssueStore,
     private readonly crud: () => Pick<IssueCrudModule, 'update' | 'create' | 'close' | 'defer'>,
     private readonly commentsMail: () => Pick<IssueCommentsMailModule, 'addComment'>,
-    private readonly attention: () => Pick<IssueAttentionModule, 'setNeedsHuman'>,
+    attention: () => Pick<IssueAttentionModule, 'setNeedsHuman'>,
   ) {
     // The activity digest is a SECOND job that shared this owner only because both
     // are triggered by session activity (POD-1606). Assigned here rather than at the
@@ -107,6 +110,10 @@ export class IssueGitWorkflowModule {
     // Capability methods are also handed to lifecycle ports as callbacks. Keep
     // the module as the receiver so its per-instance timers and git-attribution
     // maps can never fall through to undefined or leak into module-global state.
+    this.worktreeGc = new IssueWorktreeGcModule(store, (id, principal) =>
+      this.freeWorktreeKeepBranch(id, principal),
+    )
+
     this.rehome = this.rehome.bind(this)
     this.start = this.start.bind(this)
     this.createAndMaybeStart = this.createAndMaybeStart.bind(this)
@@ -149,10 +156,7 @@ export class IssueGitWorkflowModule {
    * POD-779. Refuses a target repo whose identity differs, which would silently
    * renumber the issue into another repo.
    */
-  rehome(
-    id: string,
-    to: { machineId: string; repoPath: string; worktreePath: string },
-  ): IssueWire | null {
+  rehome(id: string, to: IssueRehomeTarget): IssueWire | null {
     const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) return null
     if (!this.isSameRepoIdentity(row, to.repoPath)) return null
@@ -611,218 +615,24 @@ export class IssueGitWorkflowModule {
     }
   }
 
-  /**
-   * Give a finished issue's disk back, keeping everything reversible (POD-567).
-   *
-   * The GUARDED wrapper around {@link freeWorktreeKeepBranch}: it is the whole
-   * automatic path, so it is where "automatic never destroys work" is enforced
-   * rather than at each caller. Three rules, and they are the reason this is one
-   * function instead of a copied block:
-   *
-   * - **Never `force`.** A dirty tree refuses and stays on disk. Uncommitted work
-   *   is the one thing with no second copy, so an unattended job must leave it
-   *   exactly where its author left it and say so.
-   * - **No live session may be standing in the path** — checked by *path*, not by
-   *   issue, because a session attached to a DIFFERENT issue can be sitting in
-   *   this worktree and removing it underneath one is the same data loss.
-   * - **The branch is kept unconditionally, unmerged included.** That is not a
-   *   refusal case, it is the merge-pending case: the branch holds the work and
-   *   `ensureWorktree` rebuilds the checkout on resume.
-   *
-   * A refusal is REPORTED, never swallowed: it returns its reason and emits
-   * `issue.worktree_free_refused` so "held by uncommitted changes" is a fact in
-   * the log rather than a directory nobody can explain later.
-   *
-   * Callers: the archive seam (`IssueAttentionModule.onIssueArchived`), and the
-   * closed-worktree GC sweep (POD-564) which wants exactly these gates.
-   */
-  async releaseWorktreeIfIdle(
-    id: string,
-    principal: CommandPrincipal,
-  ): Promise<{ freed: boolean; reason?: string }> {
-    const row = this.store.rowOrThrow(id)
-    const worktreePath = row.worktreePath
-    if (!worktreePath) return { freed: false }
-    const stillUsing = liveSessionsUsingWorktree(worktreePath, this.store.d.listSessions())
-    if (stillUsing.length > 0) {
-      return this.refuseRelease(
-        row,
-        worktreePath,
-        `${stillUsing.length} live session(s) still in ${worktreePath}`,
-      )
-    }
-    // NO force — deliberately not plumbed as an option. See the rules above.
-    const freed = await this.freeWorktreeKeepBranch(id, principal)
-    if (!freed.ok) return this.refuseRelease(row, worktreePath, freed.output)
-    return { freed: freed.worktreeFreed }
+  releaseWorktreeIfIdle(id: string, principal: CommandPrincipal) {
+    return this.worktreeGc.releaseWorktreeIfIdle(id, principal)
   }
 
-  /**
-   * THE GC candidate predicate, in one place (POD-564).
-   *
-   * The janitor's SQL asks this question of a durable snapshot, this asks it of
-   * the live row inside the mutation, and {@link listReclaimableWorktrees} asks
-   * it for the panel. Three call sites, one rule — and the two disk clauses (a
-   * clean tree, nobody standing in the directory) are deliberately NOT here:
-   * they cannot be answered from a row, and answering them from anything cached
-   * is how an unattended job deletes someone's uncommitted work.
-   *
-   * `archived` is not a clause. Archive frees the checkout on its way past
-   * (POD-567), so an archived row that still has a path is one whose free was
-   * refused — a candidate, not an exclusion. Neither is `parentId`: the archive
-   * sweep's top-level-only scope is exactly why sub-issue worktrees survive
-   * forever, and they are the tail this exists to reach.
-   */
-  private isWorktreeGcCandidate(row: IssueRow, nowMs: number, afterDays: number): boolean {
-    if (!row.worktreePath || row.deletedAt) return false
-    if (!this.store.isClosed(row)) return false
-    const closedMs = Date.parse(row.closedAt ?? '')
-    if (!Number.isFinite(closedMs)) return false
-    return closedMs <= nowMs - afterDays * DAY_MS
+  listReclaimableWorktrees(nowMs: number = Date.now()) {
+    return this.worktreeGc.listReclaimableWorktrees(nowMs)
   }
 
-  /**
-   * What the sweep would reclaim right now — the panel's list and the one-click
-   * button's input (POD-564).
-   *
-   * Ordered oldest-close first, the order the janitor proposes in, so what the
-   * panel shows and what an `auto` run takes first are the same list.
-   */
-  listReclaimableWorktrees(nowMs: number = Date.now()): Array<{
-    issueId: string
-    title: string
-    worktreePath: string
-    closedAt: string
-    machineId: string | null
-  }> {
-    const { afterDays } = this.store.d.getSettings().worktreeGc
-    const live = this.store.d.listSessions()
-    return [...this.store.rows.values()]
-      .filter((row) => this.isWorktreeGcCandidate(row, nowMs, afterDays))
-      .filter((row) => liveSessionsUsingWorktree(row.worktreePath, live).length === 0)
-      .sort((a, b) => (a.closedAt ?? '').localeCompare(b.closedAt ?? '') || a.id.localeCompare(b.id))
-      .map((row) => ({
-        issueId: row.id,
-        title: row.title,
-        worktreePath: row.worktreePath as string,
-        closedAt: row.closedAt as string,
-        machineId: row.machineId ?? null,
-      }))
+  releaseReclaimableWorktrees(principal: CommandPrincipal, nowMs: number = Date.now()) {
+    return this.worktreeGc.releaseReclaimableWorktrees(principal, nowMs)
   }
 
-  /**
-   * Release every reclaimable checkout now — the one-click apply behind the
-   * proposal list (POD-564).
-   *
-   * Deliberately NOT a flip of `worktreeGc.mode`: the operator asked for THESE
-   * directories back, which is a different act from standing consent to an
-   * unattended sweep. Each release goes through {@link releaseWorktreeIfIdle},
-   * so the same rules hold as on the automatic path — never `force`, a dirty
-   * tree refuses and is reported, the branch is kept.
-   */
-  async releaseReclaimableWorktrees(
-    principal: CommandPrincipal,
-    nowMs: number = Date.now(),
-  ): Promise<{ freed: string[]; refused: Array<{ issueId: string; reason: string }> }> {
-    const freed: string[] = []
-    const refused: Array<{ issueId: string; reason: string }> = []
-    for (const candidate of this.listReclaimableWorktrees(nowMs)) {
-      const result = await this.releaseWorktreeIfIdle(candidate.issueId, principal)
-      if (result.freed) freed.push(candidate.issueId)
-      else refused.push({ issueId: candidate.issueId, reason: result.reason ?? 'not released' })
-    }
-    return { freed, refused }
-  }
-
-  /**
-   * The janitor's worktree-gc proposal, revalidated and applied (POD-564).
-   *
-   * A janitor observation is a PROPOSAL about a SQLite snapshot, so every clause
-   * is re-read here against the live row, and the disk clauses are re-read again
-   * inside {@link releaseWorktreeIfIdle}. Two outcomes are not failures and are
-   * reported as such by the caller: `precondition` means the world moved between
-   * propose and apply — the worktree was already freed, the issue reopened, an
-   * agent walked back into the directory — and `not-due` means the age gate says
-   * not yet.
-   *
-   * THE POLICY IS CHECKED, NOT ASSUMED. `mode` and `afterDays` ride the
-   * observation and are compared against settings before anything else, because
-   * the failure they prevent is not a stale sweep: a janitor that believes
-   * `auto` while settings say `propose` would delete ~97 directories the
-   * operator asked only to be shown.
-   */
-  async tryWorktreeGcObserved(
-    observed: {
-      issueId: string
-      worktreePath: string
-      stage: string
-      closedReason: string | null
-      closedAt: string
-      deletedAt: null
-      mode: 'propose' | 'auto'
-      afterDays: number
-    },
+  tryWorktreeGcObserved(
+    observed: WorktreeGcObservation,
     nowMs: number,
     principal: CommandPrincipal,
-  ): Promise<
-    | { outcome: 'proposed' | 'freed' }
-    | { outcome: 'refused'; reason: string }
-    | { outcome: 'precondition' | 'not-due' }
-  > {
-    const policy = this.store.d.getSettings().worktreeGc
-    if (policy.mode === 'off') return { outcome: 'precondition' }
-    if (policy.mode !== observed.mode || policy.afterDays !== observed.afterDays) {
-      return { outcome: 'precondition' }
-    }
-    const row = this.store.rows.get(observed.issueId)
-    if (!row) return { outcome: 'precondition' }
-    // The worktree freed between propose and apply lands HERE: the path no
-    // longer matches, so the answer is `precondition`, not an error.
-    if (row.worktreePath !== observed.worktreePath) return { outcome: 'precondition' }
-    if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {
-      return { outcome: 'precondition' }
-    }
-    if ((row.closedAt ?? null) !== observed.closedAt) return { outcome: 'precondition' }
-    if (row.deletedAt || !this.store.isClosed(row)) return { outcome: 'precondition' }
-    // Every other clause has been checked above, so the predicate can only fail
-    // on age here — and it measures against the SERVER's window and the ROW's
-    // own `closedAt`, never the numbers the observation carried.
-    if (!this.isWorktreeGcCandidate(row, nowMs, policy.afterDays)) {
-      return { outcome: 'not-due' }
-    }
-    // Checked here as well as inside releaseWorktreeIfIdle, and the duplication
-    // is the point: a session that walked into the directory since the proposal
-    // is a clause that stopped holding, so it retries next tick as
-    // `precondition` rather than consuming the occurrence and emitting a
-    // refusal event every 30 seconds for as long as the agent works there.
-    if (liveSessionsUsingWorktree(row.worktreePath, this.store.d.listSessions()).length > 0) {
-      return { outcome: 'precondition' }
-    }
-    if (observed.mode === 'propose') {
-      this.store.emitEvent('issue.worktree_gc_proposed', row.id, {
-        seq: row.seq,
-        worktreePath: observed.worktreePath,
-        closedAt: observed.closedAt,
-        afterDays: policy.afterDays,
-      })
-      return { outcome: 'proposed' }
-    }
-    const result = await this.releaseWorktreeIfIdle(row.id, principal)
-    if (result.freed) return { outcome: 'freed' }
-    return { outcome: 'refused', reason: result.reason ?? 'not released' }
-  }
-
-  private refuseRelease(
-    row: IssueRow,
-    worktreePath: string,
-    reason: string,
-  ): { freed: false; reason: string } {
-    this.store.emitEvent('issue.worktree_free_refused', row.id, {
-      seq: row.seq,
-      worktreePath,
-      reason,
-    })
-    return { freed: false, reason }
+  ) {
+    return this.worktreeGc.tryObserved(observed, nowMs, principal)
   }
 
   /**
@@ -853,9 +663,17 @@ export class IssueGitWorkflowModule {
     // already homed on the requested machine AND its repository resolves to the
     // same checkout there. Otherwise it is a stale source-machine path and the
     // target must use its own canonical location.
+    //
+    // Repo sameness is IDENTITY, not string equality (POD-1571 / POD-1898): the same
+    // checkout is registered at a different path per machine, so `row.repoPath` and the
+    // machine-resolved `repoPath` legitimately differ while naming one repository.
+    // Comparing them literally nulled the recorded worktree of an issue already homed
+    // here, skipped the "already present" branch, and recreated onto the live directory
+    // — `fatal: ... already exists`.
     const homeMatches =
       requestedMachineId === undefined ||
-      (row.machineId === requestedMachineId && row.repoPath === repoPath)
+      (row.machineId === requestedMachineId &&
+        this.repoPathOnMachine(row.repoPath, row.machineId) === repoPath)
     const recordedWorktreePath = homeMatches ? row.worktreePath : null
     if (recordedWorktreePath) {
       const st = await this.store.d.repoOp('status', recordedWorktreePath, undefined, machineId)
@@ -898,7 +716,12 @@ export class IssueGitWorkflowModule {
       { path, branch: row.branch },
       machineId,
     )
-    if (!res.ok) {
+    // `already exists` is not a failure when what exists IS this issue's worktree on
+    // this issue's branch (POD-1898): adopt it rather than refusing a resume over a
+    // working copy that is right there. Anything else at that path still fails.
+    const adopted =
+      !res.ok && (await this.worktreeAlreadyThere(res.output, path, row.branch, machineId))
+    if (!res.ok && !adopted) {
       return {
         ok: false,
         output: `worktree recreate failed: ${res.output}`,
@@ -913,10 +736,33 @@ export class IssueGitWorkflowModule {
     this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     return {
       ok: true,
-      output: `recreated worktree ${path} from branch '${row.branch}'`,
+      output: adopted
+        ? `worktree already present at ${path} on branch '${row.branch}'`
+        : `recreated worktree ${path} from branch '${row.branch}'`,
       worktreePath: path,
       issue: this.store.toWire(row),
     }
+  }
+
+  /**
+   * Is the `worktree add` refusal just the worktree we wanted, already there (POD-1898)?
+   *
+   * Only for git's own "already exists" refusal, and only when a status at that path
+   * succeeds AND reports the branch we asked for — an unrelated directory, a detached
+   * head, or another branch checked out there is still a genuine failure.
+   */
+  private async worktreeAlreadyThere(
+    failure: string,
+    path: string,
+    branch: string,
+    machineId: string | undefined,
+  ): Promise<boolean> {
+    if (!/already exists/i.test(failure)) return false
+    const st = await this.store.d.repoOp('status', path, undefined, machineId)
+    if (!st.ok) return false
+    // `git status --porcelain=v1 -b` opens with `## <branch>` (…`...<upstream>` when set).
+    const head = st.output.split('\n')[0]?.match(/^## ([^.\s]\S*?)(?:\.\.\..*)?$/)
+    return head?.[1] === branch
   }
 
   /**

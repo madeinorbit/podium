@@ -1,7 +1,10 @@
+import type { UpdateChannel } from '@podium/model'
 import type { ConvergenceState } from '@podium/protocol'
 
 export interface WaveMachine {
   id: string
+  name?: string
+  channel?: UpdateChannel
   version: string
   state: ConvergenceState
   online: boolean
@@ -10,8 +13,17 @@ export interface WaveMachine {
   detail?: string
 }
 
-const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
-const TERMINAL_FAILURE: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
+/** A grant has been issued and the machine has not yet reported a verdict. */
+export const IN_FLIGHT_STATES: ReadonlySet<ConvergenceState> = new Set([
+  'granted',
+  'downloading',
+  'restarting',
+])
+/** The machine reported (or was aged into) a verdict only a human can clear. */
+export const TERMINAL_STATES: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
+
+const IN_FLIGHT = IN_FLIGHT_STATES
+const TERMINAL_FAILURE = TERMINAL_STATES
 
 export function planWave(ctx: {
   machines: readonly WaveMachine[]

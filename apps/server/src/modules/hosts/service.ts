@@ -74,6 +74,8 @@ export interface HostsDeps {
    * Does not free worktrees — that stays an explicit stop.
    */
   parkShellSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string }
+  parkStaleSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string }
+  hasScheduledWakeup(sessionId: SessionId, now: number): boolean
   /** Server-authoritative, atomically revalidated two-pass terminal proof. */
   hasValidTerminalProof(sessionId: SessionId): boolean
   /** Distinguish mixed-version/no-proof terminals from a present but stale proof. */
@@ -191,7 +193,7 @@ export class HostsService {
           cfg.idleMinutes,
           now,
           failed,
-          cfg.idleShellHours,
+          cfg.idleShellMinutes,
         )[0]
         if (!target) break
         if (!this.tryHibernateCandidate(target, failed)) continue
@@ -222,7 +224,7 @@ export class HostsService {
           cfg.idleMinutes,
           now,
           failed,
-          cfg.idleShellHours,
+          cfg.idleShellMinutes,
         )[0]
         if (!target) break
         if (!this.tryHibernateCandidate(target, failed)) continue
@@ -235,14 +237,18 @@ export class HostsService {
     }
 
     // Shells never enter hibernateSession (no resume ref). Explicit opt-in.
-    if (cfg.idleShellHours !== null) {
-      this.applyShellIdlePressure(machineId, cfg.idleShellHours, now, failed)
+    if (cfg.idleShellMinutes !== null) {
+      this.applyShellIdlePressure(machineId, cfg.idleShellMinutes, now, failed)
+    }
+
+    if (cfg.backstopMinutes !== null) {
+      this.applyIdleBackstop(machineId, cfg.backstopMinutes, now, failed)
     }
 
     // Unobserved quiet sessions are IN the idle-live cap when some active policy
     // could park them, and named in the log either way. Log stays so first
     // deploy after step 2 is still inspectable.
-    this.reportUnobservedCounted(machineId, cfg.idleMinutes, now, cfg.idleShellHours)
+    this.reportUnobservedCounted(machineId, cfg.idleMinutes, now, cfg.idleShellMinutes)
 
     if (cfg.maxIdleSessions === null) {
       this.lastCapUnmetByMachine.delete(machineId)
@@ -254,7 +260,7 @@ export class HostsService {
       cfg.maxIdleSessions,
       now,
       failed,
-      cfg.idleShellHours,
+      cfg.idleShellMinutes,
     )
   }
 
@@ -284,14 +290,14 @@ export class HostsService {
     targetCount: number,
     now: number,
     failed: Set<string>,
-    idleShellHours: number | null,
+    idleShellMinutes: number | null,
   ): number | undefined {
     const budget = this.countBudgetFor(machineId, now)
 
     while (true) {
       // Re-read after every success: hibernateSession synchronously changes the
       // session status, and the target is convergence rather than a snapshot batch.
-      const idleLive = this.idleLiveSessions(machineId, idleMinutes, now, idleShellHours)
+      const idleLive = this.idleLiveSessions(machineId, idleMinutes, now, idleShellMinutes)
       const overage = idleLive.length - targetCount
       if (overage <= 0) {
         this.lastCapUnmetByMachine.delete(machineId)
@@ -303,7 +309,7 @@ export class HostsService {
         idleMinutes,
         now,
         failed,
-        idleShellHours,
+        idleShellMinutes,
       )
       if (candidates.length === 0) {
         this.reportCapUnmet(machineId, targetCount, overage)
@@ -328,16 +334,16 @@ export class HostsService {
   }
 
   /**
-   * Park the oldest quiet live shell when idleShellHours is set. One per sample
+   * Park the oldest quiet live shell when idleShellMinutes is set. One per sample
    * (same one-park discipline as memory/load), oldest quiet first.
    */
   private applyShellIdlePressure(
     machineId: string,
-    idleShellHours: number,
+    idleShellMinutes: number,
     now: number,
     failed: Set<string>,
   ): void {
-    const cutoff = now - idleShellHours * 60 * 60_000
+    const cutoff = now - idleShellMinutes * 60_000
     const target = [...this.deps.sessions()]
       .filter((session) => {
         if (session.machineId !== machineId || session.status !== 'live') return false
@@ -353,8 +359,20 @@ export class HostsService {
       return
     }
     console.info(
-      `[podium] idle-shell ${idleShellHours}h on ${this.deps.machineName(machineId)} — parking shell session ${target.sessionId}`,
+      `[podium] idle-shell ${idleShellMinutes}m on ${this.deps.machineName(machineId)} — parking shell session ${target.sessionId}`,
     )
+  }
+
+  /** Last-resort process bound: complete quiet authorizes parking without terminal proof. */
+  private applyIdleBackstop(machineId: string, backstopMinutes: number, now: number, failed: Set<string>): void {
+    const cutoff = now - backstopMinutes * 60_000
+    const target = [...this.deps.sessions()]
+      .filter((session) => session.machineId === machineId && session.status === 'live' && !failed.has(session.sessionId) && this.fullyQuietSinceMs(session) <= cutoff && !this.deps.hasScheduledWakeup(session.sessionId, now))
+      .sort((a, b) => this.fullyQuietSinceMs(a) - this.fullyQuietSinceMs(b))[0]
+    if (!target) return
+    const result = target.agentKind === 'shell' ? this.deps.parkShellSession({ sessionId: target.sessionId }) : this.deps.parkStaleSession({ sessionId: target.sessionId })
+    if (!result.ok) { failed.add(target.sessionId); return }
+    console.info(`[podium] idle backstop ${backstopMinutes}m on ${this.deps.machineName(machineId)} — parking session ${target.sessionId}`)
   }
 
   /**
@@ -370,12 +388,12 @@ export class HostsService {
    * would make OBSERVED agents pay a debt that never retires, and the loop would
    * then sit in `reportCapUnmet` permanently. Two such classes are excluded:
    *
-   *  - a SHELL while `idleShellHours` is null, because `applyShellIdlePressure`
+   *  - a SHELL while `idleShellMinutes` is null, because `applyShellIdlePressure`
    *    is the only thing that can park one and it is switched off;
    *  - an unobserved session with NO resume ref, because `hibernateSession`
    *    refuses without one.
    *
-   * The predicate follows the POLICY, not a constant: turn `idleShellHours` on
+   * The predicate follows the POLICY, not a constant: turn `idleShellMinutes` on
    * and shells become parkable, so they start counting in the same breath.
    *
    * `needs_user` is deliberately NOT treated this way. It stays counted and
@@ -391,7 +409,7 @@ export class HostsService {
     machineId: string,
     idleMinutes: number,
     now: number,
-    idleShellHours: number | null,
+    idleShellMinutes: number | null,
   ): HostSessionView[] {
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
     return [...this.deps.sessions()].filter((session) => {
@@ -401,16 +419,16 @@ export class HostsService {
       if (phase === 'idle' || phase === 'ended' || phase === 'needs_user') return true
       if (!this.isUnobservedPhase(session)) return false
       if (!this.isFullyQuietFor(session, unknownQuietMs, now)) return false
-      return this.unobservedIsParkable(session, idleShellHours)
+      return this.unobservedIsParkable(session, idleShellMinutes)
     })
   }
 
   /** Whether some policy that is currently ON could park this unobserved session. */
   private unobservedIsParkable(
     session: HostSessionView,
-    idleShellHours: number | null,
+    idleShellMinutes: number | null,
   ): boolean {
-    if (session.agentKind === 'shell') return idleShellHours !== null
+    if (session.agentKind === 'shell') return idleShellMinutes !== null
     return session.resume !== undefined
   }
 
@@ -419,14 +437,14 @@ export class HostsService {
     idleMinutes: number,
     now: number,
     excluded: ReadonlySet<string>,
-    idleShellHours: number | null,
+    idleShellMinutes: number | null,
   ): HostSessionView[] {
     const idleCutoff = now - idleMinutes * 60_000
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
-    return this.idleLiveSessions(machineId, idleMinutes, now, idleShellHours)
+    return this.idleLiveSessions(machineId, idleMinutes, now, idleShellMinutes)
       .filter((session) => {
         if (excluded.has(session.sessionId)) return false
-        // Shells never go through hibernateSession — idleShellHours owns them.
+        // Shells never go through hibernateSession — idleShellMinutes owns them.
         if (session.agentKind === 'shell') return false
         // No resume ref → hibernateSession would refuse. Counted, never eligible.
         if (session.resume === undefined) return false
@@ -551,7 +569,7 @@ export class HostsService {
    * actually act on.
    *
    * The two numbers differ on purpose: {@link idleLiveSessions} counts only what
-   * an active policy could park, so a host full of shells with `idleShellHours`
+   * an active policy could park, so a host full of shells with `idleShellMinutes`
    * off reports "3 counted, 19 seen". Reporting only the counted number would
    * re-hide exactly the tail POD-565 exists to expose, and reporting only the
    * total would claim a cap pressure that is not being applied.
@@ -560,7 +578,7 @@ export class HostsService {
     machineId: string,
     idleMinutes: number,
     now: number,
-    idleShellHours: number | null,
+    idleShellMinutes: number | null,
   ): void {
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
     const quiet = [...this.deps.sessions()].filter(
@@ -571,7 +589,7 @@ export class HostsService {
         this.isFullyQuietFor(session, unknownQuietMs, now),
     )
     const counted = quiet.filter((session) =>
-      this.unobservedIsParkable(session, idleShellHours),
+      this.unobservedIsParkable(session, idleShellMinutes),
     ).length
     if (this.lastUnobservedCountByMachine.get(machineId) === quiet.length) return
     this.lastUnobservedCountByMachine.set(machineId, quiet.length)
@@ -580,7 +598,7 @@ export class HostsService {
     const unparkable = quiet.length - counted
     const tail =
       unparkable > 0
-        ? ` — ${unparkable} of them cannot be parked by any policy that is on (shells need idleShellHours; agents need a resume ref), so they are NOT in the cap`
+        ? ` — ${unparkable} of them cannot be parked by any policy that is on (shells need idleShellMinutes; agents need a resume ref), so they are NOT in the cap`
         : ''
     console.info(
       `[podium] idle-session cap counting ${counted} of ${quiet.length} unobserved quiet session(s) on ${this.deps.machineName(machineId)} (≥${quietHours}h quiet, phase unknown)${tail}`,

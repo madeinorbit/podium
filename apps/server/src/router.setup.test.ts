@@ -5,7 +5,8 @@ import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { loadConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { InstanceService } from './modules/instance/service'
 import { resolvePrincipal } from './command-principal'
 
 import { SuperagentService } from './modules/superagent'
@@ -164,11 +165,84 @@ describe('setup tRPC', () => {
     await expect(caller().setup.connect({ mode: 'client' })).rejects.toThrow()
   })
   it('reports the update channel (default stable)', async () => {
-    expect(await caller().setup.channel()).toBe('stable')
+    expect(await caller().setup.channel()).toMatchObject({ channel: 'stable', envForced: false })
   })
   it('sets the update channel and persists it', async () => {
-    expect(await caller().setup.setChannel({ channel: 'edge' })).toBe('edge')
-    expect(await caller().setup.channel()).toBe('edge')
+    // POD-1882: the mutation answers with the EFFECTIVE fleet default, not a bare
+    // string, so the caller learns whether the environment overrode the write.
+    expect(await caller().setup.setChannel({ channel: 'edge' })).toMatchObject({
+      channel: 'edge',
+      envForced: false,
+    })
+    expect(await caller().setup.channel()).toMatchObject({ channel: 'edge', envForced: false })
     expect(loadConfig().updateChannel).toBe('edge')
+  })
+})
+
+/**
+ * POD-1882. Writing the fleet default is not just a config write: every machine
+ * with no pin of its own re-resolves against it. The mutation must therefore not
+ * answer — and clients must not be told — until the NEW channel's target has
+ * loaded, or the projection ships a new channel beside the old channel's target
+ * and nothing ever corrects it.
+ */
+describe('fleet default channel refresh ordering', () => {
+  it('broadcasts only after the new channel target has resolved', async () => {
+    const order: string[] = []
+    let releaseTarget: (() => void) | undefined
+    const refreshTarget = vi.fn(
+      (_channel: string) =>
+        new Promise<void>((resolve) => {
+          order.push('refreshTarget:start')
+          releaseTarget = () => {
+            order.push('refreshTarget:done')
+            resolve()
+          }
+        }),
+    )
+    const broadcast = vi.fn(() => {
+      order.push('broadcast')
+    })
+
+    const service = new InstanceService({
+      callerUserId: FIRST_ADMIN_USER_ID,
+      onFleetChannelChanged: async (channel) => {
+        await refreshTarget(channel)
+        broadcast()
+      },
+    })
+
+    const mutation = service.setChannel('edge')
+    await Promise.resolve()
+
+    // The target is still loading, so nothing has been projected yet.
+    expect(refreshTarget).toHaveBeenCalledWith('edge')
+    expect(broadcast).not.toHaveBeenCalled()
+
+    releaseTarget?.()
+    const result = await mutation
+
+    expect(order).toEqual(['refreshTarget:start', 'refreshTarget:done', 'broadcast'])
+    expect(result.channel).toBe('edge')
+  })
+
+  it('refuses the write when the environment forces the channel', async () => {
+    const prior = process.env.PODIUM_UPDATE_CHANNEL
+    process.env.PODIUM_UPDATE_CHANNEL = 'dev'
+    try {
+      const onFleetChannelChanged = vi.fn(async () => {})
+      const service = new InstanceService({
+        callerUserId: FIRST_ADMIN_USER_ID,
+        onFleetChannelChanged,
+      })
+
+      expect(service.channel()).toMatchObject({ channel: 'dev', envForced: true })
+      await expect(service.setChannel('stable')).rejects.toThrow(/PODIUM_UPDATE_CHANNEL/)
+      // A refused write must not have re-broadcast anything either.
+      expect(onFleetChannelChanged).not.toHaveBeenCalled()
+    } finally {
+      if (prior === undefined) delete process.env.PODIUM_UPDATE_CHANNEL
+      else process.env.PODIUM_UPDATE_CHANNEL = prior
+    }
   })
 })

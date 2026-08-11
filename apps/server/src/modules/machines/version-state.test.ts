@@ -78,6 +78,11 @@ describe('deriveVersionState', () => {
       [],
       '2026-08-04T00:00:00.000Z',
     )
+    registry.modules.updates.setTarget('stable', {
+      version: '0.4.2',
+      critical: false,
+      artifacts: {},
+    } as never)
 
     expect(registry.modules.machines.listMachines()[0]?.versionState).toBe('current')
     registry.dispose()

@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const PORT = 59833
+const TRANSFER_ID = '11111111-1111-4111-8111-111111111111'
 const dir = mkdtempSync(join(tmpdir(), 'podium-lifecycle-'))
 
 beforeAll(() => {
@@ -61,6 +62,46 @@ describe('detached split lifecycle', () => {
     expect(janitor?.pid).toBeGreaterThan(0)
     expect(daemon?.pid).toBeGreaterThan(0)
     expect(new Set([server?.pid, janitor?.pid, daemon?.pid]).size).toBe(3)
+    const reconcile = await import('../apps/cli/src/role-reconcile')
+    const config = await import('../packages/runtime/src/config')
+    const lifecycle = await import('../packages/runtime/src/transfer-lifecycle')
+
+    const demotion = lifecycle.applySourceDemotion({
+      transferId: TRANSFER_ID,
+      serverUrl: 'ws://127.0.0.1:59999',
+    })
+    expect(demotion.changed).toBe(true)
+    expect(reg.liveRecord('server')?.pid).toBe(server?.pid)
+    expect(reg.liveRecord('janitor')?.pid).toBe(janitor?.pid)
+    expect(reg.liveRecord('daemon')?.pid).toBe(daemon?.pid)
+    expect(config.loadConfig()).toMatchObject({
+      mode: 'daemon',
+      serverUrl: 'ws://127.0.0.1:59999',
+    })
+
+    const retry = lifecycle.applySourceDemotion({
+      transferId: TRANSFER_ID,
+      serverUrl: 'ws://127.0.0.1:59999',
+    })
+    expect(retry.changed).toBe(false)
+    expect(reg.liveRecord('server')?.pid).toBe(server?.pid)
+
+    const postResponse = await reconcile.prepareForegroundDaemon()
+    expect(postResponse.owner).toBe('foreground')
+    expect(postResponse.stopped).toEqual(expect.arrayContaining(['server', 'janitor']))
+    expect(postResponse.stopped).not.toContain('all-in-one')
+    expect(reg.liveRecord('server')).toBeUndefined()
+    expect(reg.liveRecord('janitor')).toBeUndefined()
+    expect(reg.liveRecord('daemon')).toBeUndefined()
+
+    spawn.spawnDetached('daemon')
+    for (let i = 0; i < 40 && !reg.liveRecord('daemon'); i++) {
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    expect(reg.liveRecord('daemon')?.pid).toBeGreaterThan(0)
+
+    await spawn.ensureDetachedUp(config.loadConfig(), PORT)
+    expect(reg.liveRecord('server')).toBeUndefined()
 
     await reg.reclaim('server')
     await reg.reclaim('janitor')

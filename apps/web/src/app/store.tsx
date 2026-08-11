@@ -25,7 +25,6 @@ import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
-import { createWebReplica } from '../lib/webReplica'
 import { formatAppError } from './AppErrorPage'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 
@@ -47,15 +46,7 @@ export function StoreProvider({
   config,
   onFatalError,
   engineOverrides,
-  // The browser's default arrives HERE rather than inside the engine (POD-1239).
-  // AppShell passes `undefined` on the flag-off, non-Tauri path, and a
-  // destructuring default fires on `undefined` — so this is the same one branch
-  // it always was, moved to where it is a named composition root.
-  //
-  // It takes the PRINCIPAL now (POD-404): the default root binds the store it
-  // opens to whoever the provider says is signed in, rather than to a constant
-  // that was only ever right while there was exactly one operator.
-  createReplicaFn = (forPrincipal) => createWebReplica({ principal: forPrincipal.userId }),
+  createReplicaFn,
   feed,
   createOutboxFn,
   children,
@@ -67,15 +58,10 @@ export function StoreProvider({
   onFatalError: (message: string) => void
   /** Test seam passthrough (see client-core StoreProviderProps.engineOverrides). */
   engineOverrides?: { spawnConfirmGraceMs?: number }
-  /** Desktop passthrough (POD-789): the Tauri shell injects an already-hydrated
-   *  SQLite-backed replica; the kernel path (POD-1223) injects the kernel-backed
-   *  facade. Unset = the plain browser, which gets {@link createWebReplica} —
-   *  an EXPLICIT root rather than the engine's old ambient localStorage reach
-   *  (POD-1239). */
-  createReplicaFn?: CreateReplicaForPrincipal
-  /** Kernel-replica passthrough (POD-1223): supplied together with the
-   *  kernel-backed `createReplicaFn` when the flag resolves to the kernel path.
-   *  Providing it makes the engine's hub advertise wire v2. */
+  /** Required private-replica facade. AppShell cannot mount this provider until
+   *  its principal-bound kernel assembly has opened successfully. */
+  createReplicaFn: CreateReplicaForPrincipal
+  /** Kernel feed paired with the private replica facade. */
   feed?: FeedSinkPort
   /** Kernel Outbox factory paired with the kernel replica assembly. */
   createOutboxFn?: CreateEngineOutbox

@@ -297,6 +297,16 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           },
         })
         bootstrapSnapshots.push({ kind, generation })
+        if (store.observationCheckpoints.getTerminalCandidate(childId)?.confirmedAt) {
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+            type: 'agentFrameBatch',
+            sessionId: childId,
+            frames: [
+              Buffer.from('reattach shrink repaint').toString('base64'),
+              Buffer.from('reattach restore repaint').toString('base64'),
+            ],
+          })
+        }
         if (kind === 'server-only') {
           const held = store.observationCheckpoints.get(childId)?.checkpoint
           if (!held?.providerCursor) throw new Error('missing daemon-held checkpoint')
@@ -383,6 +393,20 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       deliver(working)
       deliver(terminal)
       deliver(terminal)
+      const terminalLease = store.observationCheckpoints.get(childId)
+      const terminalCursor = terminalLease?.checkpoint?.providerCursor
+      if (!terminalLease || !terminalCursor) throw new Error('missing terminal checkpoint')
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'agentObserverLiveConfirmation',
+        sessionId: childId,
+        provider,
+        providerSessionId,
+        bindingVersion: terminalLease.bindingVersion,
+        observerGeneration: terminalLease.observationGeneration,
+        providerCursor: terminalCursor,
+        livePollSequence: 1,
+        confirmedAt: at(22),
+      })
       await registry.runStewardTick()
       await registry.runStewardTick()
 
@@ -409,7 +433,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         ),
       ).toBe(true)
       const candidate = store.observationCheckpoints.getTerminalCandidate(childId)
-      expect(candidate).not.toBeNull()
+      expect(candidate?.confirmedAt).toBe(at(22))
       expect(durableCounts(store, childId, parentId)).toMatchObject({
         phaseRows: 2,
         notificationFacts: 1,
@@ -424,7 +448,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       }
       const checkpoint = store.observationCheckpoints.get(childId)?.checkpoint
       if (!checkpoint) throw new Error('missing live checkpoint')
-      restart('server-and-daemon')
+      restart('server-only')
       expect(bootstrapAcks).toHaveLength(8)
       expect(new Set(bootstrapAcks.map((ack) => ack.generation)).size).toBe(8)
       expect(bootstrapAcks.at(-1)?.result).toBe('rejected')
@@ -435,7 +459,14 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         effectsBeforeFinalRestart.web,
       )
       expect(durableCounts(store, childId, parentId)).toEqual(effectsBeforeFinalRestart.facts)
-      expect(store.observationCheckpoints.getTerminalCandidate(childId)).toEqual(candidate)
+      expect(store.observationCheckpoints.getTerminalCandidate(childId)).toMatchObject({
+        confirmedAt: at(22),
+        facts: {
+          observerGeneration: currentGeneration(),
+          outputCount: (candidate?.facts.outputCount ?? 0) + 2,
+        },
+      })
+      expect(registry.modules.sessions.hasValidTerminalProof(childId)).toBe(true)
       expect(store.observationCheckpoints.get(childId)?.checkpoint).toEqual(checkpoint)
 
       registry.dispose()

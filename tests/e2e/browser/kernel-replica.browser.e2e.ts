@@ -1,40 +1,9 @@
 /**
- * RUNTIME VERIFICATION OF THE WEB CUTOVER (POD-1223).
+ * Runtime verification for the browser's unconditional private replica.
  *
- * POD-376's basis document ends with a list of what it could NOT evidence, and
- * the first item is "the real UI": everything up to and including the wire is
- * verified against a live server in `tests/e2e/feed-v2.e2e.test.ts`, but the last
- * hop into the rendered app was not. This file is that hop. It runs the built web
- * bundle in a real browser against the harness relay, with the `kernel-replica`
- * flag turned on THROUGH THE SETTINGS UI, and asserts the same property the
- * sub-UI e2e already holds — an offline write, a reconnect, a drain, and
- * convergence on a second client of the same user.
- *
- * ---------------------------------------------------------------------------
- * THE INSTRUMENT CHECK THAT MAKES THIS NOT VACUOUS
- * ---------------------------------------------------------------------------
- *
- * Both read paths render the SAME UI when both are correct. A spec that turned
- * the flag on, rendered the app and passed would be indistinguishable from one
- * that silently ran the legacy path — the exact "instrument that cannot say NO"
- * shape this run keeps paying for. So every test here asserts
- * `window.__podiumReplicaPath === 'kernel'` FIRST, and the first test proves the
- * marker can read `legacy` too, by observing it with the flag off before turning
- * it on. A marker that only ever says one thing is not a measurement.
- *
- * ---------------------------------------------------------------------------
- * WHAT IS NOT COVERED HERE, AND WHY
- * ---------------------------------------------------------------------------
- *
- * CROSS-PRINCIPAL ISOLATION. This runtime case drives one authenticated principal;
- * the storage suites separately plant a foreign cursor, collection and cross-tab
- * event because a second browser in this auth-disabled harness is the same user.
- *
- * THE WRITE PATH. The rename below still drains through the client Outbox over
- * tRPC: this issue moved the READ model, and the kernel Outbox needs command
- * contracts POD-311 owns. That is deliberate and it does not weaken the
- * assertion — the observer's convergence is produced entirely by the v2 feed
- * landing in the kernel replica and repainting, which is the property under test.
+ * The supported app must render from the kernel replica without consulting a
+ * rollout flag, and an IndexedDB open failure must stop at the explicit retry
+ * screen instead of mounting an outgoing compatibility store.
  */
 
 import { join } from 'node:path'
@@ -42,7 +11,7 @@ import { expect, type Page, test } from '@playwright/test'
 import { newSession, openApp, RELAY } from './_harness'
 
 /** Evidence lands in the REPO so it can be attached to the issue and survive the run. */
-const EVIDENCE = join(import.meta.dirname, '../../../docs/evidence/pod-1223')
+const EVIDENCE = join(import.meta.dirname, '../../../docs/evidence/pod-1566')
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: join(EVIDENCE, `${name}.png`), fullPage: false })
 
@@ -53,7 +22,7 @@ test.skip(
 test.setTimeout(300_000)
 
 type PathWindow = Window & {
-  __podiumReplicaPath?: 'legacy' | 'kernel' | 'kernel-with-shadow'
+  __podiumReplicaPath?: 'kernel'
 }
 
 const sidebar = (page: Page) => page.getByRole('complementary').first()
@@ -71,87 +40,6 @@ async function expectKernelPath(page: Page): Promise<void> {
   await expect
     .poll(async () => replicaPath(page), { timeout: 60_000, intervals: [200] })
     .toBe('kernel')
-}
-
-/** Deep-link to Settings → Experimental the way the shipped app routes. */
-async function openExperimental(page: Page): Promise<void> {
-  await page.goto(`/?server=${RELAY}&e2e=1`)
-  await sidebar(page).waitFor({ state: 'visible', timeout: 120_000 })
-  await page.evaluate(() => {
-    history.pushState(null, '', `/settings/experimental${location.search}`)
-    dispatchEvent(new PopStateEvent('popstate'))
-  })
-  await expect(page.getByRole('heading', { name: 'Experimental' })).toBeVisible({ timeout: 30_000 })
-}
-
-/** The flag row = the deepest div holding both the flag name and its switch. */
-const flagRow = (page: Page, name: string) =>
-  page
-    .locator('div')
-    .filter({ hasText: name })
-    .filter({ has: page.getByRole('switch') })
-    .last()
-
-/**
- * Drive the hidden `kernel-replica` flag through the REAL Settings UI.
- *
- * The harness runs from source, so the server is in dev mode and hidden flags are
- * listed with a "Dev" badge — which is what makes a real click possible here
- * instead of a back-door write to the settings blob.
- *
- * It sets an ABSOLUTE state rather than toggling, and the counterfactual test
- * below turns the flag OFF before asserting `legacy`. The flag lives in
- * instance settings, so it OUTLIVES the browser context: a run interrupted
- * before `global-teardown` wipes the harness state dir leaves it on, and a
- * counterfactual that assumed "off at the start" would then quietly assert
- * nothing on the next run. Asserting a state you did not establish is how a
- * check stops being a check.
- */
-async function setKernelReplica(page: Page, on: boolean): Promise<void> {
-  await openExperimental(page)
-  const row = flagRow(page, 'Kernel replica (IndexedDB)')
-  const toggle = row.getByRole('switch').first()
-  await expect(toggle).toBeEnabled({ timeout: 30_000 })
-  const want = on ? 'true' : 'false'
-  if ((await toggle.getAttribute('aria-checked')) === want) return
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-checked', want)
-
-  // "Save changes" on the DIRTY BAR, and the bar reading "Saved ✓" is the
-  // confirmation. Measured against the running app rather than copied: the
-  // affordance in `experimental-settings.browser.e2e.ts` is `/^Save$/` plus
-  // "Saved.", and neither exists — that spec is one of the suites POD-1227's
-  // census finds red. Inheriting its locators made this suite fail for a reason
-  // that had nothing to do with the cutover: the toggle flipped, nothing
-  // persisted, and the app correctly resolved to the legacy path afterwards.
-  const save = page.getByRole('button', { name: /^Save changes$/ })
-  await expect(save).toBeVisible({ timeout: 15_000 })
-  await save.click()
-  await expect(page.getByText('Saved ✓')).toBeVisible({ timeout: 15_000 })
-  // The dirty bar's button goes away once the blob is committed; asserting the
-  // toast alone would pass on a save that was refused.
-  await expect(save).toBeHidden({ timeout: 15_000 })
-}
-
-const enableKernelReplica = (page: Page) => setKernelReplica(page, true)
-
-/**
- * LEAVE SETTINGS THE WAY A USER DOES, and why this is not ceremony.
- *
- * The Settings screen is an overlay over whichever view was last active, and on
- * this harness that ends up being Tasks — which renders no `complementary`
- * sidebar at all. Every helper that waits for the sidebar (including
- * `_harness.openApp`'s `gotoWorkspace`) then times out, and the failure reads as
- * "the app never booted" when the app is fine and simply showing a different
- * screen. Three of this suite's four tests failed exactly that way.
- *
- * Clicking the primary nav's Work button puts the app back where those helpers
- * expect it, with a real gesture rather than a navigation trick.
- */
-async function leaveSettings(page: Page): Promise<void> {
-  const work = page.getByRole('button', { name: 'Work', exact: true }).first()
-  await work.click({ timeout: 30_000 })
-  await sidebar(page).waitFor({ state: 'visible', timeout: 60_000 })
 }
 
 const workspaceTab = (page: Page, sessionId: string) =>
@@ -232,38 +120,38 @@ async function persistedSessionState(
 }
 
 test.describe('the web engine on the kernel replica', () => {
-  test('the flag moves the rendered app onto the kernel path, and the marker can say legacy', async ({
-    page,
-  }) => {
-    // ESTABLISH the flag-off state rather than assuming it — see setKernelReplica.
-    await setKernelReplica(page, false)
-    await leaveSettings(page)
+  test('a blocked private replica open is fatal and retryable', async ({ page }) => {
+    await page.addInitScript(() => {
+      const native = globalThis.indexedDB
+      Object.defineProperty(globalThis, 'indexedDB', {
+        configurable: true,
+        value: new Proxy(native, {
+          get(target, property) {
+            if (property === 'open') {
+              return () => {
+                throw new DOMException('IndexedDB is blocked', 'SecurityError')
+              }
+            }
+            const value = Reflect.get(target, property, target)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        }),
+      })
+    })
+    await page.goto('/?server=' + RELAY + '&e2e=1')
 
-    // BACK VIA `openApp`, not a bare goto: leaving Settings restores whichever
-    // view was last persisted, and on this harness that is Tasks — which has no
-    // `complementary` sidebar at all. A bare `goto('/')` plus a sidebar wait
-    // silently assumed the Work view and timed out for a reason with nothing to
-    // do with the read path. `openApp` is what the other tests here use, and it
-    // navigates to the workspace explicitly.
-    await openApp(page)
+    await expect(
+      page.getByRole('heading', { name: 'Podium could not open its private replica' }),
+    ).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByText('IndexedDB is blocked')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+    await shot(page, 'fatal-private-replica')
+    expect(await replicaPath(page)).toBeUndefined()
+  })
 
-    // WITH THE FLAG OFF the app resolves the shipped path. This assertion is the
-    // counterfactual for every `expectKernelPath` below: it shows the marker is a
-    // measurement and not a constant.
-    await expect
-      .poll(async () => replicaPath(page), { timeout: 60_000, intervals: [200] })
-      .toBe('legacy')
-
-    await enableKernelReplica(page)
-    await leaveSettings(page)
-
-    // A reload is what a user gets: the gate resolves before the store mounts.
+  test('the rendered app opens the kernel replica unconditionally', async ({ page }) => {
     await openApp(page)
     await expectKernelPath(page)
-
-    // The app RENDERED from it — the work list is non-empty, and it is populated
-    // by the v2 feed landing in the kernel replica and repainting through the
-    // facade's rows()/subscribeRows().
     expect((await sidebarText(page)).length).toBeGreaterThan(0)
     await shot(page, '01-kernel-path-rendered')
   })
@@ -272,8 +160,6 @@ test.describe('the web engine on the kernel replica', () => {
     page,
     context,
   }) => {
-    await enableKernelReplica(page)
-    await leaveSettings(page)
     await openApp(page)
     await expectKernelPath(page)
     await newSession(page, 'Shell')
@@ -327,14 +213,11 @@ test.describe('the web engine on the kernel replica', () => {
     page,
     context,
   }) => {
-    await enableKernelReplica(page)
-    await leaveSettings(page)
     await openApp(page)
     await expectKernelPath(page)
 
     // A SECOND CLIENT of the same user: its own tab, its own kernel replica, its
-    // own feed subscription. The flag is per-install, so it resolves to the
-    // kernel path too — asserted rather than assumed.
+    // own feed subscription. The observer must resolve the same unconditional kernel path — asserted rather than assumed.
     const observer = await context.newPage()
     await openApp(observer)
     await expectKernelPath(observer)
@@ -381,9 +264,9 @@ test.describe('the web engine on the kernel replica', () => {
     await observer.close()
   })
 
-  test('the optimistic spawn grace window is unchanged with the flag on', async ({ page }) => {
-    await enableKernelReplica(page)
-    await leaveSettings(page)
+  test('the optimistic spawn grace window is unchanged on the private replica', async ({
+    page,
+  }) => {
     await openApp(page)
     await expectKernelPath(page)
 

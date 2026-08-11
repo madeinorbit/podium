@@ -1,11 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import { hostname } from 'node:os'
-import { dirname } from 'node:path'
 import type { MachineId } from '@podium/model'
 import {
   createHandshakeDialer,
   type DaemonMessage,
   type LocalDaemonAttachment,
+  type PeerBuild,
   type PeerCredential,
   type PeerHelloRejected,
 } from '@podium/protocol'
@@ -13,7 +13,7 @@ import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
-import { buildReport, deliveryCaps } from './build-report'
+import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
@@ -56,6 +56,7 @@ interface SocketLike {
 
 export interface DaemonConnectionDeps {
   readonly options: DaemonOptions
+  readonly build: PeerBuild
   readonly machineId: MachineId
   readonly identity: { token?: string; updatePubkey?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
@@ -319,15 +320,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const makeDialer = () => {
     const selected = credential()
     if (!selected) throw new Error('daemon has no machine credential; pair it first')
-    const installDir =
-      process.env.PODIUM_HOME ??
-      (/(?:^|[\\/])podium$/.test(process.execPath) ? dirname(process.execPath) : undefined)
-    const build = buildReport(process.env, installDir)
     return createHandshakeDialer({
       peerRole: 'machine',
       credential: selected,
-      caps: deliveryCaps(build.installKind),
-      build,
+      caps: deliveryCaps(deps.build.installKind),
+      build: deps.build,
       claims: {
         machineId: deps.machineId,
         hostname: hostname(),
