@@ -43,6 +43,7 @@ import type {
   RecentFileEntry,
   SplitAxis,
   TabId,
+  WorkspaceKey,
   WorkspaceMap,
 } from '../viewmodels'
 import type { SuperThreadView } from '../viewmodels/slices/superagent'
@@ -201,6 +202,17 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * speak in panes (the `?pane=` route, PTY-relay priority, the warm set).
    */
   workspaces: WorkspaceMap
+  /**
+   * WHICH WORKSPACE IS ON SCREEN — the key `workspaces` should be read at.
+   *
+   * The one resolver, exposed so a view never spells it a second time. It walks
+   * the engine's own issue collection (mission root wins over the selected
+   * sub-issue), and a view that recomputed it from a DIFFERENT collection —
+   * say, only the issues with a normalized projection — would disagree with the
+   * engine for exactly as long as the two collections disagreed, and read a
+   * workspace nobody writes: an empty strip over a panel rendering normally.
+   */
+  workspaceKey: () => WorkspaceKey
   /** Open a SESSION as a tab in the current workspace. `permanent: false` is the
    *  flight deck's single click: a preview tab, rendered italic, reused by the
    *  next single click. Defaults to a permanent tab — a caller that has not
@@ -235,6 +247,15 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  relay. Only meaningful when `split` is on; clamps to 'A' otherwise. */
   focusedPane: 'A' | 'B'
   setFocusedPane: (pane: 'A' | 'B') => void
+  /**
+   * TELL THE ENGINE WHAT IS ON SCREEN.
+   *
+   * A layout keeps its panes when `tab-splitting` is off, and the web renders
+   * its first leaf only. The engine must not read a feature flag, and must not
+   * report a pane nobody can see — so the surface that owns the flag says so
+   * here, once, and every "what is visible" derivation consults it.
+   */
+  setSplitEnabled: (enabled: boolean) => void
   /** One modeled per-session rendered mode. AgentPanel resolves defaults and capability, then records the effective value here; the same value persists and is reported to the server. */
   panelMode: Record<string, 'chat' | 'native'>
   setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void

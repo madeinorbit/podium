@@ -274,6 +274,26 @@ describe('splitPane / closePane / resizeSplit', () => {
     expect(ws.focusedPaneId).toBe('p2')
   })
 
+  it('splitting a single-tab pane by that tab opens the new pane EMPTY', () => {
+    // "Split Right" on your only tab used to move it right and leave you looking
+    // at an empty half where your work had been. The strip always passes
+    // `{ tabId }`, so this is the common path, not a corner.
+    let ws = permanent(emptyWorkspace('k'), 'a')
+    ws = step(ws, (w) => splitPane(w, 'p1', 'row', { tabId: 'a' }))
+    expect(pane(ws, 'p1')).toEqual({ tabs: ['a'], active: 'a' })
+    expect(pane(ws, 'p2')).toEqual({ tabs: [], active: null })
+    expect(ws.focusedPaneId, 'the new pane still takes focus').toBe('p2')
+  })
+
+  it('a tab dragged out of ANOTHER pane leaves, and collapses the pane it emptied', () => {
+    let ws = permanent(permanent(emptyWorkspace('k'), 'a'), 'b')
+    ws = step(ws, (w) => splitPane(w, 'p1', 'row', { tabId: 'b' })) // p1:[a] p2:[b]
+    ws = step(ws, (w) => splitPane(w, 'p1', 'column', { tabId: 'b' }))
+    expect(leafPaneIds(ws.root), 'p2 emptied, so it goes').toEqual(['p1', 'p3'])
+    expect(pane(ws, 'p1')).toEqual({ tabs: ['a'], active: 'a' })
+    expect(pane(ws, 'p3')).toEqual({ tabs: ['b'], active: 'b' })
+  })
+
   it('opens a not-yet-open tab directly into the new pane', () => {
     let ws = permanent(emptyWorkspace('k'), 'a')
     ws = step(ws, (w) => splitPane(w, 'p1', 'column', { tabId: 'fresh' }))
@@ -329,6 +349,21 @@ describe('pruneWorkspace', () => {
     ws = step(ws, (w) => pruneWorkspace(w, new Set(['a', 'c'])))
     expect(pane(ws, 'p1').tabs).toEqual(['a', 'c'])
     expect(pane(ws, 'p1').active).toBe('c')
+  })
+
+  it('picks a successor from the SURVIVING strip when several tabs are pruned', () => {
+    // The off-by-one: `c`'s index in the original strip is 2, but only one tab
+    // survives, so looking the successor up at 2 fell off the end and left a
+    // non-empty pane with no active tab at all.
+    let ws = permanent(permanent(permanent(emptyWorkspace('k'), 'a'), 'b'), 'c')
+    ws = step(ws, (w) => pruneWorkspace(w, new Set(['a'])))
+    expect(pane(ws, 'p1')).toEqual({ tabs: ['a'], active: 'a' })
+
+    // …and the neighbour rule still holds when the survivors are on both sides.
+    let wide = permanent(permanent(permanent(permanent(emptyWorkspace('k'), 'a'), 'b'), 'c'), 'd')
+    wide = step(wide, (w) => activateTab(w, 'c'))
+    wide = step(wide, (w) => pruneWorkspace(w, new Set(['a', 'd'])))
+    expect(pane(wide, 'p1'), 'neighbour-right first').toEqual({ tabs: ['a', 'd'], active: 'd' })
   })
 
   it('clears the preview when the preview was pruned', () => {
@@ -412,6 +447,50 @@ describe('serialization', () => {
       workspaces: { 'issue:1': { panes: { p1: {} }, root: { kind: 'leaf' } }, 'issue:2': good },
     })
     expect(Object.keys(deserializeWorkspaces(raw))).toEqual(['issue:2'])
+  })
+
+  it('rejects a duplicated leaf rather than emptying the pane it names', () => {
+    // The same pane named twice used to build it twice and keep the SECOND
+    // pass, which saw every tab already claimed — so a corrupt tree deleted
+    // real tabs. The duplicate leaf is what is unusable, not the pane.
+    const raw = JSON.stringify({
+      v: 1,
+      workspaces: {
+        k: {
+          panes: { p1: { id: 'p1', tabs: ['a', 'b'], activeTabId: 'b' } },
+          root: {
+            kind: 'split',
+            axis: 'row',
+            children: [
+              { kind: 'leaf', paneId: 'p1' },
+              { kind: 'leaf', paneId: 'p1' },
+            ],
+            sizes: [0.5, 0.5],
+          },
+          focusedPaneId: 'p1',
+          previewTabId: null,
+        },
+      },
+    })
+    const ws = deserializeWorkspaces(raw).k as WorkspaceLayout
+    expectInvariants(ws)
+    expect(ws.root).toEqual({ kind: 'leaf', paneId: 'p1' })
+    expect(pane(ws, 'p1')).toEqual({ tabs: ['a', 'b'], active: 'b' })
+  })
+
+  it('refuses `__proto__` as a pane id', () => {
+    const raw = `{"v":1,"workspaces":{"k":{"panes":{"__proto__":{"id":"__proto__","tabs":["a"],"activeTabId":"a"},"p1":{"id":"p1","tabs":["b"],"activeTabId":"b"}},"root":{"kind":"split","axis":"row","children":[{"kind":"leaf","paneId":"__proto__"},{"kind":"leaf","paneId":"p1"}],"sizes":[0.5,0.5]},"focusedPaneId":"p1","previewTabId":null}}}`
+    const ws = deserializeWorkspaces(raw).k as WorkspaceLayout
+    expectInvariants(ws)
+    expect(leafPaneIds(ws.root)).toEqual(['p1'])
+    expect(Object.keys(ws.panes)).toEqual(['p1'])
+    expect(Object.getPrototypeOf(ws.panes), 'the pane map kept its prototype').toBe(
+      Object.prototype,
+    )
+    expect(
+      ({} as Record<string, unknown>).tabs,
+      'nothing landed on Object.prototype',
+    ).toBeUndefined()
   })
 
   it('collapses a split that lost all but one usable child', () => {

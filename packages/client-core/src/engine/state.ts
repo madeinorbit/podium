@@ -99,6 +99,22 @@ export interface EngineState {
   paneB: SessionId | null
   split: boolean
   focusedPane: 'A' | 'B'
+  /**
+   * WHAT THE VIEW SAYS IT IS RENDERING — told, not read (POD-710).
+   *
+   * A layout keeps its panes when `tab-splitting` is turned off; the web then
+   * renders the first leaf ONLY and leaves the tree alone. The engine must not
+   * read a feature flag, but it also must not report a pane nobody can see: a
+   * hidden pane's session would take PTY-relay priority and have its unread
+   * badge cleared by the mark-read reaction (POD-710 review, item 9).
+   *
+   * So the surface that owns the flag TELLS us, through `setSplitEnabled`, and
+   * everything that answers "what is on screen" ({@link visibleTabIds},
+   * {@link focusedPaneSession}, {@link userFocus}, `reportViewState`) consults
+   * this one field. Default `false`: until a view has said otherwise, the
+   * conservative answer is that only the first pane is showing.
+   */
+  splitEnabled: boolean
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
@@ -159,20 +175,56 @@ export function issueActivityAt(issue: IssueWire, sessions: SessionMeta[]): stri
 }
 
 /**
+ * The panes the operator can actually SEE, in strip order.
+ *
+ * The layout's leaves minus the ones the view is not rendering: with splitting
+ * switched off a preserved split layout still shows its first leaf only (see
+ * {@link EngineState.splitEnabled}). Every "what is on screen" derivation walks
+ * this, so they cannot disagree about a third pane or a hidden one.
+ */
+export function visibleLeafPaneIds(st: EngineState): string[] {
+  const leaves = leafPaneIds(currentWorkspace(st).root)
+  return st.splitEnabled ? leaves : leaves.slice(0, 1)
+}
+
+/**
+ * The tab ids on screen — one per visible pane, in strip order.
+ *
+ * The layout is the truth. The pane scalars are the fallback for exactly one
+ * case: a workspace with nothing open in it at all, which is what a client
+ * restored from a pre-POD-710 install has (persisted `paneA`, no persisted
+ * layouts). Anything else reads the panes, so a hidden or third pane is
+ * reported exactly as it is rendered.
+ */
+export function visibleTabIds(st: EngineState): SessionId[] {
+  const ws = currentWorkspace(st)
+  if (allTabIds(ws).length === 0) {
+    return [st.paneA, st.split ? st.paneB : null].filter((id): id is SessionId => id != null)
+  }
+  return visibleLeafPaneIds(st)
+    .map((paneId) => (ws.panes[paneId]?.activeTabId ?? null) as SessionId | null)
+    .filter((id): id is SessionId => id != null)
+}
+
+/**
  * Which pane the operator is typing into.
  *
- * A SPLIT layout answers from the layout itself, because `focusedPane` is a
- * two-valued mirror and a workspace may have more than two panes — focus on the
- * third pane spells 'A', which would report the FIRST pane's session. An
- * unsplit layout keeps the scalar path exactly as it was: `focusedPane` clamps
- * to A when split is off, since B is not on screen and must never be reported.
+ * Answered from the LAYOUT, because `focusedPane` is a two-valued mirror and a
+ * workspace may have more than two panes — focus on the third pane spells 'A',
+ * which would report the FIRST pane's session. Focus that has landed on a pane
+ * the view is not rendering falls back to the first visible one, so a layout
+ * split with the flag on and then hidden reports the pane actually on screen.
+ * The scalar path survives for the empty-workspace case {@link visibleTabIds}
+ * describes.
  */
 export function focusedPaneSession(st: EngineState): SessionId | null {
   const ws = currentWorkspace(st)
-  if (leafPaneIds(ws.root).length >= 2) {
-    return (ws.panes[ws.focusedPaneId]?.activeTabId ?? null) as SessionId | null
+  if (allTabIds(ws).length === 0) {
+    return st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
   }
-  return st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
+  const visible = visibleLeafPaneIds(st)
+  const paneId = visible.includes(ws.focusedPaneId) ? ws.focusedPaneId : visible[0]
+  return paneId === undefined ? null : ((ws.panes[paneId]?.activeTabId ?? null) as SessionId | null)
 }
 
 // ---------------------------------------------------------------------------
@@ -233,9 +285,6 @@ export function currentWorkspace(
   return workspaceFor(st, workspaceKeyForState(st))
 }
 
-const leafCount = (ws: WorkspaceLayout | undefined): number =>
-  ws ? leafPaneIds(ws.root).length : 0
-
 /**
  * THE DERIVED MIRROR — `paneA` / `paneB` / `split` / `focusedPane` from a layout.
  *
@@ -245,17 +294,16 @@ const leafCount = (ws: WorkspaceLayout | undefined): number =>
  * rewriting every one: the layout is the truth and these are recomputed on every
  * layout write.
  *
- * ONE COMPATIBILITY CLAUSE. `split` and `paneB` are still WRITTEN directly by
- * the pre-POD-710 surface — `toggleSplit` and `setPane('B', …)` — and until the
- * split UI is rebuilt on panes (wave 2) a single-leaf layout has no opinion
- * about them. So a write that neither produces nor leaves a real second pane
- * mirrors `paneA` only, instead of zeroing a second pane the operator can still
- * see. Any layout that has, or just had, ≥2 leaves mirrors all four.
+ * ALL FOUR, EVERY TIME. There used to be a compatibility clause here — a write
+ * against a layout that neither had nor just had two leaves mirrored `paneA`
+ * only — because `toggleSplit` and `setPane('B', …)` still wrote `split` and
+ * `paneB` as raw scalars and a full mirror would have zeroed a pane the
+ * operator could see. Both are adapters over the layout now (POD-710 wave 2),
+ * so the layout is the only writer and a partial mirror is pure hazard: a write
+ * that computed `split: false` but did not APPLY it left a phantom second pane
+ * that no later write could ever clear, because the clause kept firing.
  */
-export function workspaceMirrorPatch(
-  next: WorkspaceLayout,
-  prev: WorkspaceLayout | undefined,
-): WorkspacePatch {
+export function workspaceMirrorPatch(next: WorkspaceLayout): WorkspacePatch {
   const leaves = leafPaneIds(next.root)
   const activeOf = (paneId: string | undefined): SessionId | null => {
     const id = paneId ? (next.panes[paneId]?.activeTabId ?? null) : null
@@ -263,10 +311,8 @@ export function workspaceMirrorPatch(
     // session ids and read as opaque tab ids (see revealFileTab).
     return id === null ? null : (id as SessionId)
   }
-  const paneA = activeOf(leaves[0])
-  if (leaves.length < 2 && leafCount(prev) < 2) return { paneA, focusedPane: 'A' }
   return {
-    paneA,
+    paneA: activeOf(leaves[0]),
     paneB: activeOf(leaves[1]),
     split: leaves.length >= 2,
     focusedPane: leaves[1] !== undefined && next.focusedPaneId === leaves[1] ? 'B' : 'A',
@@ -274,21 +320,41 @@ export function workspaceMirrorPatch(
 }
 
 /**
+ * Apply a reducer to EVERY workspace and mirror the one on screen.
+ *
+ * Used where the thing behind a tab is gone — a killed session, a closed file,
+ * a pruned ghost — which is the only reason a tab may disappear from a
+ * workspace the operator is not looking at. Returns an empty patch when nothing
+ * moved, so an inert pass publishes no snapshot at all.
+ */
+export function workspacesPatch(
+  st: WorkspaceSelection & Pick<EngineState, 'workspaces'>,
+  reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
+): WorkspacePatch {
+  const workspaces: WorkspaceMap = {}
+  let changed = false
+  for (const [key, ws] of Object.entries(st.workspaces)) {
+    const next = reduce(ws)
+    if (next !== ws) changed = true
+    workspaces[key] = next
+  }
+  if (!changed) return {}
+  const key = workspaceKeyForState(st)
+  const current = workspaces[key]
+  return { workspaces, ...(current ? workspaceMirrorPatch(current) : {}) }
+}
+
+/**
  * The patch for ONE layout write: the workspace entry plus its mirror. Returns
  * an empty patch when the reducer was a no-op, so an inert action publishes no
  * snapshot at all.
- *
- * `prevKey` differs from `key` only when the workspace itself is changing (a
- * task switch); the mirror needs the layout leaving the screen to decide whether
- * a second pane is going away.
  */
 export function workspaceWritePatch(
   st: Pick<EngineState, 'workspaces'>,
   key: WorkspaceKey,
   next: WorkspaceLayout,
-  prevKey: WorkspaceKey = key,
 ): WorkspacePatch {
-  const mirror = workspaceMirrorPatch(next, st.workspaces[prevKey])
+  const mirror = workspaceMirrorPatch(next)
   const current = st.workspaces[key]
   // A key nobody has opened anything in stays ABSENT: a no-op action on a fresh
   // task must not persist an empty layout for every task ever selected.
@@ -296,6 +362,32 @@ export function workspaceWritePatch(
     current === undefined && leafPaneIds(next.root).length === 1 && allTabIds(next).length === 0
   if (current === next || vacuous) return mirror
   return { workspaces: { ...st.workspaces, [key]: next }, ...mirror }
+}
+
+/**
+ * Every tab id that names something which EXISTS right now: a session in this
+ * principal's slice (optimistic spawns included — `sessions` is already folded
+ * through the ledger), a spawn still in flight, or an open file buffer.
+ *
+ * The input to pruning, and the reason pruning cannot be a one-liner: an id
+ * missing from here is not necessarily dead. It may be early (a deep-linked
+ * pane that arrives before its session) or temporarily invisible (a scoped
+ * slice shrinking under an evict). Deciding which is which is the caller's job
+ * — see `Reactions.pruneWorkspaces`.
+ */
+export function knownTabIds(st: EngineState): Set<string> {
+  const ids = new Set<string>()
+  for (const session of st.sessions) ids.add(session.sessionId)
+  for (const id of st.pendingSpawnIds) ids.add(id)
+  for (const tab of st.fileTabs) ids.add(tab.id)
+  return ids
+}
+
+/** Every tab id any workspace on this device has open. */
+export function referencedTabIds(st: Pick<EngineState, 'workspaces'>): Set<string> {
+  const ids = new Set<string>()
+  for (const ws of Object.values(st.workspaces)) for (const id of allTabIds(ws)) ids.add(id)
+  return ids
 }
 
 /** The issue in the FOREGROUND: the open issue page, or the issue whose
@@ -332,17 +424,11 @@ export function workspaceUiSnapshot(st: EngineState): WorkspaceUiSnapshot {
  *  notification router. Ids that are not sessions in the CURRENT slice are
  *  dropped rather than reported. */
 export function userFocus(st: EngineState): UserFocus {
-  const ws = currentWorkspace(st)
-  const leaves = leafPaneIds(ws.root)
-  // A split workspace reports EVERY pane it renders, not just the two the
-  // `paneA`/`paneB` mirrors can spell — a third pane's session is on screen and
-  // its PTY has the same claim on relay priority as the first two.
-  const paneIds =
-    leaves.length >= 2
-      ? leaves
-          .map((paneId) => (ws.panes[paneId]?.activeTabId ?? null) as SessionId | null)
-          .filter((x): x is SessionId => x != null)
-      : [st.paneA, st.split ? st.paneB : null].filter((x): x is SessionId => x != null)
+  // EVERY pane it renders, not just the two the `paneA`/`paneB` mirrors can
+  // spell — a third pane's session is on screen and its PTY has the same claim
+  // on relay priority as the first two — and only the panes it renders, which
+  // is why this is `visibleTabIds` and not the layout's leaves.
+  const paneIds = visibleTabIds(st)
   const focusedId = focusedPaneSession(st)
   const isSession = (id: SessionId): boolean => st.sessions.some((s) => s.sessionId === id)
   const focusedFile = focusedId ? st.fileTabs.find((f) => f.id === focusedId) : undefined
@@ -434,6 +520,9 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     // Which pane has input focus. Not persisted — it resets to A on reload,
     // which is the right default (A is always the shown pane when split is off).
     focusedPane: 'A',
+    // Not persisted either, and deliberately pessimistic: the view says what it
+    // renders as soon as it mounts (see EngineState.splitEnabled).
+    splitEnabled: false,
     panelMode: seed.persisted.panelMode,
     dockShells: seed.persisted.dockShells,
     dockVisibleSession: null,

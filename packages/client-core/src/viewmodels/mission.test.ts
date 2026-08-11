@@ -323,9 +323,16 @@ describe('missionIssueIds', () => {
       }),
     ]
     const sessions = [sess('s-c1', { issueId: 'c1' })]
+    // ONE unit, not two — and the point of the case is which one is missing.
+    // Two rules compose here, from two different changes: POD-679 took the
+    // departed spin-off out of `missionIssueIds`, and POD-710 stopped counting
+    // the mission ROOT beside its own members (a root with one child reported
+    // two units and lit two segments for one task). So `root` is the container
+    // and `spin` is gone, leaving `c1` — done, and the mission legitimately
+    // reads 100%, which is the outcome this test exists to protect.
     expect(missionProgress(issues, sessions, 'root')).toEqual({
-      total: 2,
-      done: 2,
+      total: 1,
+      done: 1,
       run: 0,
       block: 0,
       wait: 0,

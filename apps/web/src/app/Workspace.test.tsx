@@ -83,6 +83,7 @@ const makeSplitLayout = () => ({
 const actions = {
   setPane: vi.fn(),
   toggleSplit: vi.fn(),
+  setSplitEnabled: vi.fn(),
   closeFileTab: vi.fn(),
   markSessionRead: vi.fn(),
   renameSession: vi.fn(),
@@ -100,15 +101,20 @@ const actions = {
 
 let state: Record<string, unknown>
 
+/** The REPLICA-derived issue list — deliberately separate from what the engine
+ *  keys workspaces by, because the two can disagree mid-cutover (POD-710 §4). */
+let replicaIssues: IssueWire[] = [task]
+
 vi.mock('./store', () => ({
   useStoreSelector: (selector: (s: Record<string, unknown>) => unknown) => selector(state),
-  useReplicaIssues: () => [task],
+  useReplicaIssues: () => replicaIssues,
 }))
 
 const { Workspace } = await import('./Workspace')
 
 beforeEach(() => {
   featureEnabled['tab-splitting'] = false
+  replicaIssues = [task]
   state = {
     sessions: [session('s1'), session('s2'), session('s3')],
     selectedWorktree: '/repo/wt',
@@ -127,6 +133,8 @@ beforeEach(() => {
     ],
     dockShells: {},
     workspaces: { 'mission:task-1': makeLayout() },
+    // The ENGINE resolves the key; the strip never spells it itself (POD-710).
+    workspaceKey: () => 'mission:task-1',
     ...actions,
   }
 })
@@ -166,6 +174,22 @@ describe('Workspace tab strip', () => {
 
     expect(label('s2').className).toContain('italic')
     expect(label('s1').className).not.toContain('italic')
+  })
+
+  // The strip and the engine used to key the workspace from two different issue
+  // collections — identical walks over `useReplicaIssues()` and `st.issues`,
+  // which agree only while the collections do. During the additive projection
+  // cutover a legacy row can arrive before its normalized view, and for that
+  // interval the strip read `issue:…` while the engine wrote `mission:…`: an
+  // empty strip over a panel rendering normally.
+  it('reads the workspace at the key the ENGINE resolves, not one of its own', () => {
+    replicaIssues = [] // the mission is not visible to the view's collection yet
+    render(<Workspace />)
+
+    const ids = [...strip().querySelectorAll('[data-session]')].map((el) =>
+      el.getAttribute('data-session'),
+    )
+    expect(ids).toEqual(['s1', 's2'])
   })
 
   it('activates a tab on click without promoting it', () => {
@@ -324,6 +348,21 @@ describe('Workspace splitting', () => {
     render(<Workspace />)
 
     expect(actions.focusWorkspacePane).toHaveBeenCalledWith('p1')
+  })
+
+  // The engine may not read a feature flag, and it may not assume a preserved
+  // split layout is all on screen — so the surface that owns the flag tells it.
+  // Without this the hidden pane's session took PTY-relay priority and had its
+  // unread badge cleared by the mark-read reaction.
+  it('tells the engine whether the second pane is on screen', () => {
+    featureEnabled['tab-splitting'] = false
+    const { unmount } = render(<Workspace />)
+    expect(actions.setSplitEnabled).toHaveBeenLastCalledWith(false)
+
+    unmount()
+    featureEnabled['tab-splitting'] = true
+    render(<Workspace />)
+    expect(actions.setSplitEnabled).toHaveBeenLastCalledWith(true)
   })
 
   it('focuses a pane when the operator points into its strip', () => {

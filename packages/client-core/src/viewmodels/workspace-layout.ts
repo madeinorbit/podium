@@ -381,9 +381,22 @@ export function moveTab(
 /**
  * Split a pane in two. `opts.tabId` (the "Split Right" on a tab) puts that tab
  * in the new pane — moved out of whichever pane holds it, or opened there when
- * it is not open yet. Without it the pane's active tab moves, but only when the
- * pane has more than one: splitting a single-tab pane by moving its only tab
- * would just relabel the pane.
+ * it is not open yet.
+ *
+ * SPLITTING A PANE NEVER EMPTIES IT. When the tab being sent across is the only
+ * tab of the pane being split, the tab STAYS and the new pane opens empty. The
+ * alternative editors reach for — duplicating the tab into the new group — is
+ * not available to us: invariant 2 says a tab id lives in exactly one pane. So
+ * the honest version is an empty half you then fill (with `+`, or by dragging
+ * something into it), rather than "Split Right" on your only tab moving your
+ * work sideways and leaving a placeholder where you were looking.
+ *
+ * A tab dragged out of a DIFFERENT pane is a move the operator asked for, so it
+ * does leave, and a pane emptied that way collapses exactly as it does under
+ * {@link moveTab} — a split must not conjure an empty pane somewhere else.
+ *
+ * Without `tabId` the pane's active tab moves, but again only when the pane has
+ * more than one: moving a single-tab pane's only tab would just relabel it.
  *
  * The new pane takes focus, which is what every editor does: you split in order
  * to work over there.
@@ -396,15 +409,19 @@ export function splitPane(
 ): WorkspaceLayout {
   const source = ws.panes[paneId]
   if (!source || !leafPaneIds(ws.root).includes(paneId)) return ws
+  const requested = opts?.tabId ? opts.tabId : null
   const moving =
-    opts?.tabId !== undefined && opts.tabId
-      ? opts.tabId
+    requested !== null
+      ? // The one case that would empty the pane being split: leave the tab put.
+        paneOfTab(ws, requested)?.id === paneId && source.tabs.length <= 1
+        ? null
+        : requested
       : source.tabs.length > 1
         ? source.activeTabId
         : null
+  const donor = moving === null ? undefined : paneOfTab(ws, moving)
   const newPaneId = nextPaneId(ws.panes)
   const panes: Record<PaneId, Pane> = { ...ws.panes }
-  const donor = moving === null ? undefined : paneOfTab(ws, moving)
   if (moving !== null && donor) {
     const index = donor.tabs.indexOf(moving)
     const tabs = donor.tabs.filter((id) => id !== moving)
@@ -426,7 +443,12 @@ export function splitPane(
     children: [leaf(paneId), leaf(newPaneId)],
     sizes: equalSizes(2),
   })
-  return { ...ws, panes, root, focusedPaneId: newPaneId }
+  const next: WorkspaceLayout = { ...ws, panes, root, focusedPaneId: newPaneId }
+  const emptiedDonor =
+    moving !== null && donor && donor.id !== paneId && panes[donor.id]?.tabs.length === 0
+      ? donor.id
+      : null
+  return emptiedDonor === null ? next : dropPane(next, emptiedDonor)
 }
 
 /** Close a pane; its tabs migrate to the previous leaf (the next one when it was
@@ -485,12 +507,22 @@ export function pruneWorkspace(
   if (stale.length === 0) return ws
   const panes: Record<PaneId, Pane> = {}
   for (const [id, pane] of Object.entries(ws.panes)) {
-    const index = pane.activeTabId === null ? -1 : pane.tabs.indexOf(pane.activeTabId)
     const tabs = pane.tabs.filter((tab) => knownTabIds.has(tab))
+    // The successor is looked up in the SURVIVING strip, so the index has to be
+    // where the dead tab sat AFTER the prune — how many of its left-hand
+    // neighbours survived — not where it sat before. The two agree only when
+    // exactly one tab is dropped; with more the old reading ran off the end of
+    // the filtered array and reported "no active tab" for a pane that still had
+    // several, which is a non-empty pane rendering its empty state.
+    const removedAt = pane.activeTabId === null ? -1 : pane.tabs.indexOf(pane.activeTabId)
+    const successorAt =
+      removedAt < 0
+        ? 0
+        : pane.tabs.slice(0, removedAt).reduce((n, tab) => n + (knownTabIds.has(tab) ? 1 : 0), 0)
     const activeTabId =
       pane.activeTabId !== null && knownTabIds.has(pane.activeTabId)
         ? pane.activeTabId
-        : neighbourAfterRemoval(tabs, Math.max(0, index))
+        : neighbourAfterRemoval(tabs, successorAt)
     panes[id] = { ...pane, tabs, activeTabId }
   }
   const previewTabId =
@@ -545,7 +577,18 @@ export function normalizeWorkspace(value: unknown, key: WorkspaceKey): Workspace
   if (!isRecord(value)) return null
   const rawPanes = isRecord(value.panes) ? value.panes : null
   if (!rawPanes) return null
-  const root = normalizeNode(value.root, (paneId) => isRecord(rawPanes[paneId]))
+  // ONE LEAF PER PANE. A blob naming the same pane in two leaves used to build
+  // that pane twice and keep the second pass, which emptied it — a corrupt tree
+  // deleting real tabs. The claim is made here, during the walk, so the
+  // duplicate LEAF is what gets rejected (and a split left with one child
+  // collapses), rather than the pane it points at being wiped.
+  const claimed = new Set<PaneId>()
+  const root = normalizeNode(value.root, (paneId) => {
+    if (claimed.has(paneId) || !Object.hasOwn(rawPanes, paneId)) return false
+    if (!isRecord(rawPanes[paneId])) return false
+    claimed.add(paneId)
+    return true
+  })
   if (!root) return null
   const seen = new Set<TabId>()
   const panes: Record<PaneId, Pane> = {}
@@ -576,10 +619,21 @@ export function normalizeWorkspace(value: unknown, key: WorkspaceKey): Workspace
   return { key, panes, root, focusedPaneId, previewTabId }
 }
 
-function normalizeNode(value: unknown, hasPane: (paneId: PaneId) => boolean): SplitNode | null {
+/** A pane id we are willing to use as an object key. `__proto__` is the one
+ *  spelling that does not become a property: `panes[id] = pane` runs
+ *  Object.prototype's setter instead, so a hand-edited blob could re-point the
+ *  pane map's prototype and lose the pane. Refuse it at the door. */
+const UNSAFE_PANE_IDS: ReadonlySet<string> = new Set(['__proto__'])
+
+/** `claimPane` both validates the id and CLAIMS it, so a second leaf naming the
+ *  same pane is rejected rather than silently rebuilding it. */
+function normalizeNode(value: unknown, claimPane: (paneId: PaneId) => boolean): SplitNode | null {
   if (!isRecord(value)) return null
   if (value.kind === 'leaf') {
-    return typeof value.paneId === 'string' && value.paneId && hasPane(value.paneId)
+    return typeof value.paneId === 'string' &&
+      value.paneId &&
+      !UNSAFE_PANE_IDS.has(value.paneId) &&
+      claimPane(value.paneId)
       ? leaf(value.paneId)
       : null
   }
@@ -590,7 +644,7 @@ function normalizeNode(value: unknown, hasPane: (paneId: PaneId) => boolean): Sp
   const children: SplitNode[] = []
   const sizes: number[] = []
   value.children.forEach((child, index) => {
-    const node = normalizeNode(child, hasPane)
+    const node = normalizeNode(child, claimPane)
     if (!node) return
     children.push(node)
     const size = rawSizes[index]

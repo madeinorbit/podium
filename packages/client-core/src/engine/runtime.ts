@@ -163,6 +163,8 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   createOutboxFn?: CreateEngineOutbox
   /** Test seam: overrides SPAWN_CONFIRM_GRACE_MS (#263 review finding 4). */
   spawnConfirmGraceMs?: number
+  /** Test seam: overrides WORKSPACE_PRUNE_GRACE_MS (POD-710). */
+  workspacePruneGraceMs?: number
 }
 
 /**
@@ -328,6 +330,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       notices: this.notices,
       markSessionRead: (sessionId) => void this.statics.markSessionRead(sessionId),
       markIssueRead: (issueId) => void this.statics.markIssueRead(issueId),
+      ...(init.workspacePruneGraceMs !== undefined
+        ? { pruneGraceMs: init.workspacePruneGraceMs }
+        : {}),
     })
     this.reactions.seedCwds(this.baseSessions)
     // Fold queued outbox entries over the seed (#263): after an offline reload
@@ -542,6 +547,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       )
     }
     this.reactions.onVisibilityChange()
+    // A ghost tab restored from persistence needs no delta to be a ghost, so the
+    // prune pass has to be armed at boot as well as reacted to — otherwise an
+    // offline reload keeps showing (and re-persisting) a tab for a session that
+    // is long gone. Idempotent: it re-arms its own timer.
+    this.reactions.pruneWorkspaces()
 
     this.connectTimer = setTimeout(() => {
       this.connectTimer = null
@@ -709,14 +719,31 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // `issues` is in the trigger set because the key resolves through the
     // mission root, which an issue update can move.
     if (any('selectedIssueId', 'selectedWorktree', 'issues')) this.syncWorkspaceSelection()
+    // A tab whose session or file is GONE (POD-710). Nothing else can remove it
+    // — it renders nothing, so there is no ✕ to click — and it is persisted, so
+    // it comes back on every reload until this drops it.
+    if (any('sessions', 'fileTabs', 'workspaces', 'pendingSpawnIds'))
+      this.reactions.pruneWorkspaces()
     // State→URL mirror — the single URL writer.
     if (any('selectedWorktree', 'paneA'))
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
-    // View-state report to the server.
-    if (any('paneA', 'paneB', 'split', 'focusedPane', 'dockVisibleSession'))
+    // View-state report to the server. `workspaces`/`splitEnabled` are triggers
+    // in their own right: a third pane's active tab, or the flag hiding a pane,
+    // changes what is on screen without moving `paneA`/`paneB`.
+    if (
+      any(
+        'paneA',
+        'paneB',
+        'split',
+        'focusedPane',
+        'workspaces',
+        'splitEnabled',
+        'dockVisibleSession',
+      )
+    )
       this.reactions.reportViewState()
     // Mark-the-viewed-session-read reaction.
-    if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane'))
+    if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'splitEnabled'))
       this.reactions.updateMarkReadTimer()
     // …and the same for the issue the operator has in the foreground (POD-272).
     if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
@@ -729,11 +756,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private syncWorkspaceSelection(): void {
     const key = workspaceKeyForState(this.state)
     if (key === this.workspaceKey) return
-    const leaving = this.state.workspaces[this.workspaceKey]
     this.workspaceKey = key
     // Mirror only: switching to a task that has never been opened must not
     // persist an empty layout for it.
-    this.apply(workspaceMirrorPatch(workspaceFor(this.state, key), leaving))
+    this.apply(workspaceMirrorPatch(workspaceFor(this.state, key)))
   }
 
   /** Open a tab in the workspace a navigation is landing in — `selection` is the
@@ -746,9 +772,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const st = { ...this.state, ...selection }
     const key = workspaceKeyForState(st)
     const next = openTab(workspaceFor(st, key), tabId, { permanent: true })
-    const previous = this.workspaceKey
     this.workspaceKey = key
-    return workspaceWritePatch(st, key, next, previous)
+    return workspaceWritePatch(st, key, next)
   }
 
   private buildSnapshot(): Store<TApi> {
@@ -783,8 +808,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * The URL→state direction only adopts a wt/pane VALUE THAT CHANGED in the
    * URL, and only a worktree that can actually be shown — an unknown ?wt=
    * settles deterministically: the URL is normalized to the fallback once.
-   * Panes are adopted as-is — an unknown pane has no fallback↔adopt pair
-   * (Workspace holds or clears it) so it cannot oscillate.
+   * Panes are adopted as-is, because an unknown pane has no fallback↔adopt pair
+   * and so cannot oscillate: it becomes a real tab in the workspace it lands
+   * in, and if it never resolves to a session or a file the prune reaction
+   * retires it after its grace period (`Reactions.pruneWorkspaces`). It is NOT
+   * the view's job — the view renders the layout and cannot see a tab that
+   * resolves to nothing.
    *
    * NOTE (ADR 3 D7): the route is a VIEW selector and nothing more. No branch
    * here reads an identity from the URL — the principal arrives through the
@@ -980,6 +1009,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       uiState: this.ui,
       readPosition: this.readPosition,
       httpOrigin: this.httpOrigin,
+      // The ONE key resolver, published so no view re-derives it (POD-710).
+      workspaceKey: () => workspaceKeyForState(this.state),
       getUserFocus: () => this.getUserFocus(),
       refreshRepos: () => this.boot.refreshRepos(),
       refreshSuperThreads: () => this.boot.refreshSuperThreads(),

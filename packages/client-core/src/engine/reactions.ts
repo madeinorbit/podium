@@ -19,13 +19,17 @@
 import type { IssueWire, SessionId } from '@podium/model'
 import { markSwitch } from '../perf/switch-trace'
 import type { SocketHub } from '../socket-transport'
-import { planWorktreeMoves, reposToViews } from '../viewmodels'
+import { planWorktreeMoves, pruneWorkspace, reposToViews, type TabId } from '../viewmodels'
 import {
   type EngineState,
   focusedPaneSession,
   foregroundIssue,
   issueActivityAt,
+  knownTabIds,
+  referencedTabIds,
   tabIsVisible,
+  visibleTabIds,
+  workspacesPatch,
 } from './state'
 import type { StoreNotices } from './types'
 
@@ -36,6 +40,21 @@ import type { StoreNotices } from './types'
  *  Still the default trailing debounce for the standalone useMarkReadOnView. */
 export const MARK_READ_ON_VIEW_MS = 1200
 
+/**
+ * How long a tab id may name nothing before the workspace stops holding it.
+ *
+ * An absent id is a legitimate TRANSIENT state, which is why POD-710 shipped
+ * `pruneWorkspace` without a caller: an optimistic spawn, a deep-linked
+ * `?pane=`, a session row that has not arrived yet, or (under a scoped slice) a
+ * row this principal briefly cannot see are all "early", not "gone". A prune on
+ * every `sessions` delta would delete real tabs and break the deep-link path.
+ *
+ * A window is the honest discriminator. Nothing legitimate takes this long to
+ * show up, and nothing is lost by waiting: a ghost tab renders nothing either
+ * way, it just stops being persisted afterwards.
+ */
+export const WORKSPACE_PRUNE_GRACE_MS = 20_000
+
 export interface ReactionPorts {
   readonly state: () => EngineState
   readonly publish: (patch: Partial<EngineState>) => void
@@ -44,6 +63,8 @@ export interface ReactionPorts {
   /** Resolved lazily: the action surface is built after this object exists. */
   readonly markSessionRead: (sessionId: SessionId) => void
   readonly markIssueRead: (issueId: string) => void
+  /** Test seam: overrides {@link WORKSPACE_PRUNE_GRACE_MS}. */
+  readonly pruneGraceMs?: number
 }
 
 export class Reactions {
@@ -57,9 +78,16 @@ export class Reactions {
   private issueMarkReadKey: string | null = null
   private issueMarkReadTimer: ReturnType<typeof setTimeout> | null = null
   private issueMarkReadFiredAt = 0
+  /** When each currently-unresolved tab id was FIRST seen naming nothing —
+   *  the clock the prune grace period runs against. */
+  private unknownSince = new Map<TabId, number>()
+  private pruneTimer: ReturnType<typeof setTimeout> | null = null
+  /** Test seam for {@link WORKSPACE_PRUNE_GRACE_MS}. */
+  private readonly pruneGraceMs: number
 
   constructor(ports: ReactionPorts) {
     this.ports = ports
+    this.pruneGraceMs = ports.pruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
   }
 
   /** Seed the worktree-follow diff: rows present at construction are "first
@@ -77,8 +105,71 @@ export class Reactions {
       clearTimeout(this.issueMarkReadTimer)
       this.issueMarkReadTimer = null
     }
+    if (this.pruneTimer !== null) {
+      clearTimeout(this.pruneTimer)
+      this.pruneTimer = null
+    }
     this.markReadKey = null
     this.issueMarkReadKey = null
+    this.unknownSince.clear()
+  }
+
+  /**
+   * DROP TABS THAT NAME NOTHING — the caller `pruneWorkspace` was missing.
+   *
+   * A workspace can hold an id that no longer resolves: a `?pane=` bookmark for
+   * a session that is gone, a session killed from the CLI or another device, a
+   * file tab whose buffer did not survive the reload. Nothing rendered it and
+   * nothing cleared it, so the strip stayed empty, the pane stayed blank, and
+   * the ghost was persisted and restored on every reload — with no gesture that
+   * could remove it, because a tab you cannot see is a tab you cannot close.
+   *
+   * The care this needs is all in the DELAY, not the drop. An id that resolves
+   * to nothing right now may simply be early (see
+   * {@link WORKSPACE_PRUNE_GRACE_MS}), so an id is dropped only once it has
+   * failed to resolve continuously for the whole grace period. Ids that come
+   * back, or that leave the layout some other way, forget their clock. Only ids
+   * that ran out are dropped — never "everything not currently known", which
+   * would empty every workspace the moment a slice was rebuilt.
+   */
+  pruneWorkspaces(): void {
+    const st = this.ports.state()
+    const referenced = referencedTabIds(st)
+    const known = knownTabIds(st)
+    for (const id of [...this.unknownSince.keys()]) {
+      if (!referenced.has(id) || known.has(id)) this.unknownSince.delete(id)
+    }
+    if (this.pruneTimer !== null) {
+      clearTimeout(this.pruneTimer)
+      this.pruneTimer = null
+    }
+    const now = Date.now()
+    const drop = new Set<TabId>()
+    let soonest = Number.POSITIVE_INFINITY
+    for (const id of referenced) {
+      if (known.has(id)) continue
+      const since = this.unknownSince.get(id) ?? now
+      this.unknownSince.set(id, since)
+      const left = this.pruneGraceMs - (now - since)
+      if (left <= 0) drop.add(id)
+      else soonest = Math.min(soonest, left)
+    }
+    // No delta ever has to arrive for the window to close, so the pass re-arms
+    // itself: a stale deep link on an otherwise idle client still resolves.
+    if (Number.isFinite(soonest)) {
+      this.pruneTimer = setTimeout(() => {
+        this.pruneTimer = null
+        this.pruneWorkspaces()
+      }, soonest)
+    }
+    if (drop.size === 0) return
+    for (const id of drop) this.unknownSince.delete(id)
+    // KEEP is stated positively and narrowly — the ids we decided are gone, and
+    // nothing else. `pruneWorkspace` drops whatever is not in the set it is
+    // given, so handing it "everything currently known" would make a transient
+    // empty session list delete the operator's tabs.
+    const keep = new Set([...referenced].filter((id) => !drop.has(id)))
+    this.ports.publish(workspacesPatch(st, (ws) => pruneWorkspace(ws, keep)))
   }
 
   /** When a session the user is LOOKING AT (in a visible pane) moves out of the
@@ -95,9 +186,9 @@ export class Reactions {
       sessions: st.sessions,
       worktreePaths: reposToViews(st.repos).flatMap((r) => r.worktrees.map((w) => w.path)),
       selectedWorktree: st.selectedWorktree,
-      visiblePanes: tabIsVisible()
-        ? [st.paneA, st.split ? st.paneB : null].filter((x) => x != null)
-        : [],
+      // The same "what is on screen" walk the view-state report uses: a session
+      // in a third pane is being looked at just as much as one in the first.
+      visiblePanes: tabIsVisible() ? visibleTabIds(st) : [],
     })
     if (plan.follow) this.ports.publish({ selectedWorktree: plan.follow })
     for (const move of plan.moved) {
@@ -135,24 +226,26 @@ export class Reactions {
   /** Report which sessions this client renders (`visible`) and which one has
    *  input focus (`focused`) so the server can prioritize PTY relay for them.
    *  While the tab is hidden we report nothing — a backgrounded client isn't
-   *  watching anything. `focusedPane` clamps to A when split is off. */
+   *  watching anything.
+   *
+   *  Both come from the SAME leaf walk `userFocus` uses. They used to be
+   *  recomputed inline from `paneA`/`paneB`/`split`, which agreed with it for
+   *  two panes and diverged for three: the third pane's session was rendered,
+   *  reported to nobody, and starved of relay priority. */
   reportViewState(): void {
     const st = this.ports.state()
     const tabVisible = tabIsVisible()
-    const effectivePane: 'A' | 'B' = st.split ? st.focusedPane : 'A'
     // The dock's shell (#23) renders OUTSIDE the panes — without reporting it
     // here the server's viewVisible gate drops its resizes and the terminal
     // stays pinned to the spawn-default 80×24.
     const visible = tabVisible
       ? [
           ...new Set(
-            [st.paneA, st.split ? st.paneB : null, st.dockVisibleSession].filter(
-              (x): x is SessionId => x != null,
-            ),
+            [...visibleTabIds(st), st.dockVisibleSession].filter((x): x is SessionId => x != null),
           ),
         ]
       : []
-    const focused = tabVisible ? (effectivePane === 'A' ? st.paneA : st.paneB) : null
+    const focused = tabVisible ? focusedPaneSession(st) : null
     // Rendered mode (native/chat) for each visible session — default 'native'
     // until its AgentPanel reports its effective mode.
     const modes: Record<string, 'native' | 'chat'> = {}

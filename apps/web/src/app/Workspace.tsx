@@ -28,7 +28,6 @@ import {
   resizeSplit,
   type SplitAxis,
   type SplitNode,
-  workspaceKeyFor,
 } from '@podium/client-core/viewmodels'
 import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import {
@@ -109,6 +108,8 @@ export function Workspace(): JSX.Element {
     selectedIssueId,
     dockShells,
     workspaces,
+    workspaceKey,
+    setSplitEnabled,
     openSessionTab,
     promoteWorkspaceTab,
     activateWorkspaceTab,
@@ -130,6 +131,9 @@ export function Workspace(): JSX.Element {
       selectedIssueId: s.selectedIssueId,
       dockShells: s.dockShells,
       workspaces: s.workspaces,
+      // The engine's own resolver, not a second spelling of it (POD-710).
+      workspaceKey: s.workspaceKey(),
+      setSplitEnabled: s.setSplitEnabled,
       openSessionTab: s.openSessionTab,
       promoteWorkspaceTab: s.promoteWorkspaceTab,
       activateWorkspaceTab: s.activateWorkspaceTab,
@@ -193,16 +197,14 @@ export function Workspace(): JSX.Element {
       })
     : worktree
 
-  // The workspace layout is the source of truth for what has a tab (POD-710).
-  // The key must be the one `workspaceKeyForState` computes engine-side — the
-  // mission root wins over the selected sub-issue, because a mission shares ONE
-  // tab strip. A view that spelled the key differently would read a workspace
-  // nobody writes.
-  const workspaceKey = workspaceKeyFor({
-    missionRootId: missionRoot?.id ?? null,
-    issueId: selectedIssueId,
-    worktreePath: selectedWorktree,
-  })
+  // The workspace layout is the source of truth for what has a tab (POD-710),
+  // read at the key the ENGINE resolves — `s.workspaceKey()`. This used to be
+  // recomputed here from `useReplicaIssues()` while the engine used `st.issues`.
+  // The walk is identical, so the two agreed whenever the collections did — but
+  // `optimism.ts` documents that during the additive cutover a legacy issue row
+  // can arrive before its normalized projection, and for that interval one side
+  // said `mission:<root>` and the other `issue:<id>`: an empty tab strip over a
+  // panel rendering normally. One resolver, no second spelling.
   const layout = workspaces[workspaceKey] ?? emptyWorkspace(workspaceKey)
   const previewTabId = layout.previewTabId
 
@@ -229,13 +231,22 @@ export function Workspace(): JSX.Element {
     if (paneId !== layout.focusedPaneId) focusWorkspacePane(paneId)
   }
 
+  // TELL THE ENGINE WHAT IS ON SCREEN. The engine may not read a feature flag,
+  // and it may not assume every leaf of a preserved split layout is rendered —
+  // with the flag off it is not, and reporting those panes as visible gives the
+  // hidden session PTY-relay priority and clears its unread badge. This is the
+  // one place that knows, so this is the place that says so.
+  useEffect(() => {
+    setSplitEnabled(tabSplittingEnabled)
+  }, [tabSplittingEnabled, setSplitEnabled])
+
   // FOCUS FOLLOWS THE SCREEN. Turning the flag off can leave `focusedPaneId`
-  // naming a pane that is no longer rendered, and the engine derives what this
-  // client reports as focused from the layout — an off-screen focused pane would
-  // clear the unread badge on a session the operator cannot see and claim PTY
-  // relay priority for it. Move focus to the pane that IS on screen; the tree,
-  // its tabs and its sizes are untouched, so turning the flag back on restores
-  // the arrangement, with focus where the operator was actually typing.
+  // naming a pane that is no longer rendered, so the pane the operator was
+  // typing in is not the pane they are looking at. The engine no longer trusts
+  // that field blindly (it clamps focus to a VISIBLE pane), but the layout
+  // should still record where the operator actually is. The tree, its tabs and
+  // its sizes are untouched, so turning the flag back on restores the
+  // arrangement.
   const firstLeafId = allLeafIds[0]
   useEffect(() => {
     if (tabSplittingEnabled || !firstLeafId) return
