@@ -47,9 +47,21 @@ coordinator** — do not invent an alternative landing route.
 Before you land:
 
 - `bun run typecheck` green. Trust a cache hit; never force a recompute.
-- `bun run test` green.
+- `bun run test` green. **Know what this now runs**: since `e254f8e76`
+  (`test: make lean gate the default`) root `test` is a LEAN gate —
+  typecheck plus four guard files. It is not the old full lane, and it does
+  not run `packages/protocol`, `apps/server` or `apps/web` tests. The old
+  lane is `test:full`.
+- **The tests of every package your change can reach**, named explicitly in
+  your landing mail. The lean gate does not cover your chunk; you do. A leaf
+  package with no consumers reaches little, and saying so with the scope
+  named is honest. A chunk that edits `apps/server`, `apps/cli` or
+  `apps/web` reaches a great deal and should run `test:full`.
 - Any gate named in your chunk's acceptance criteria (e.g.
   `scripts/audit-browser-reach.ts`, `lint:boundaries` run directly).
+- `@podium/scripts` tests when you touch the architecture manifest or any
+  derived registry — they own the manifest, rearch-ledger and durable-class
+  audits, and they are what catch a half-registered package.
 - Testing follows `CLAUDE.md`: the smallest focused set that protects the
   changed behavior. UI/interaction changes still need runtime verification.
 - If you added, moved, or deleted an `apps/server` test file, re-run
@@ -104,8 +116,24 @@ itself — the golden and model blobs are byte-identical on `origin/main` and
 on this integration branch — so it is not epic damage and not yours. Tracked
 as POD-1911.
 
-When you run the full lane, **exactly those three** are expected. Anything
+When you run `test:full`, **exactly those three** are expected. Anything
 beyond them is yours. Do not regenerate the golden: it belongs to POD-1911.
+
+Note the lean default gate does not run `packages/protocol` at all, so these
+three will simply not appear unless you run `test:full`. Their absence is
+not evidence they are fixed.
+
+## Read the output, not the liveness
+
+A run that completed and failed looks identical from outside to a run that
+was killed: no process, no lease, an idle session. They are only
+distinguishable in the **output**. Before diagnosing a lane as killed, look
+for the actual assertion and exit status, and check `dmesg` for an oom-kill
+rather than inferring one from a missing process. This cost the coordinator
+a wrong theory during chunk 1.
+
+Corollary for reporting: "the lane is running" is only credible if the
+lease is HELD. Check `podium lock status`, do not report intent.
 
 ## After landing
 
