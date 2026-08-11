@@ -8,20 +8,28 @@
  * the operator switches between all day. It lives under `components/` rather
  * than in either feature because it now sits below both.
  *
- * The composition is unchanged from the sidebar's: up to `max` solid tiles,
- * overlapping left, then a `+N` chip, then the native-subagent multiplier. Per
- * kind tint (POD-293) comes from `@/lib/agent-tone`, which also owns the mark —
- * icon, tint and tone are one question about one key.
+ * The extraction then DRIFTED (POD-744): the copy here grew per-SESSION tiles
+ * with a `+N` overflow chip while the sidebar's original kept per-KIND tiles
+ * with a total, so the same testid on two surfaces answered two different
+ * questions. This file is now the row's grammar and the row imports it:
  *
- * WHO IT DRAWS is `deriveFleetPresence`'s call (POD-756), shared with the
- * sidebar row and the phone row: agents on the task, parked ones ghosted rather
- * than dropped, archived and exited ones gone. The card used to tile every
- * session handed to it, so a task with one agent and three retired ones claimed
- * four. POD-744 still owns the remaining disagreement — whether the tiles are
- * one per SESSION (here) or one per harness KIND (the row) — and when it lands,
- * this maps `presence.tiles` instead of `presence.present`.
+ *   up to {@link FLEET_KIND_LIMIT} harness-KIND tiles, the agent total once
+ *   there is more than one, then `×N` for native (in-process Task) children.
+ *
+ * Kinds, not sessions. A nine-agent mission running three harnesses shows three
+ * tiles and a `9`, not nine tiles or `2 +7` — the stack answers "who is here",
+ * the number answers "how many". It is also what the phone row renders, so this
+ * is one grammar on all three surfaces.
+ *
+ * WHO IT DRAWS is `deriveFleetPresence`'s call (POD-756), not this component's:
+ * agents on the task, PARKED ones ghosted rather than dropped, archived and
+ * exited ones gone. Everything is derived from the caller's session set; nothing
+ * is stored on the issue.
+ *
+ * Per-kind tint (POD-293) comes from `@/lib/agent-tone`, which also owns the
+ * mark — icon, tint and tone are one question about one key.
  */
-import { deriveFleetPresence, sessionParked } from '@podium/client-core/viewmodels'
+import { deriveFleetPresence, FLEET_KIND_LIMIT } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import type { JSX } from 'react'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
@@ -30,8 +38,7 @@ import { cn } from '@/lib/utils'
 export function IssueFleetSummary({
   sessions,
   unread = false,
-  max = 2,
-  size = 19,
+  size = 18,
   className,
 }: {
   sessions: SessionMeta[]
@@ -39,71 +46,80 @@ export function IssueFleetSummary({
    *  agent identity, not a shouted banner. Bound to the fleet glyph so it reads
    *  as "this agent has something new", never a free-floating third dot. */
   unread?: boolean
-  /** Tiles drawn before the `+N` chip takes over. */
-  max?: number
-  /** Tile edge in px — 19 in the sidebar, 16 on the denser board card. */
+  /** Tile edge in px — 18 in the sidebar, 16 on the denser board card, where an
+   *  18px tile of saturated terracotta was the loudest thing on the card and won
+   *  the first look from the title. */
   size?: number
   className?: string
 }): JSX.Element | null {
-  const { present, nativeCount, label: presenceLabel } = deriveFleetPresence(sessions)
+  const { present, tiles, nativeCount, label: presenceLabel } = deriveFleetPresence(sessions)
   if (present.length === 0) return null
-  const shown = present.slice(0, max)
-  const overflow = Math.max(0, present.length - shown.length)
+  const shown = tiles.slice(0, FLEET_KIND_LIMIT)
+  // The unread clause is the component's to add, not the viewmodel's: the dot is
+  // `aria-hidden` and rides this glyph, so without it a screen reader gets no
+  // unread signal at all. It stays out of `deriveFleetPresence` because unread is
+  // a read-state fact about the issue, not about who is on it.
   const label = unread ? `${presenceLabel} · new update` : presenceLabel
-  const glyph = Math.round(size * 0.63)
+  const glyph = Math.round(size * 0.66)
   return (
     <span
-      className={cn('flex flex-none items-center', className)}
+      className={cn('flex flex-none items-center gap-[5px]', className)}
       role="img"
       aria-label={label}
       title={label}
       data-testid="issue-fleet-summary"
     >
-      {shown.map((session, index) => {
-        const AgentIcon = agentIconFor(session.agentKind)
-        // A parked agent is still on the task, drawn ghosted (POD-756).
-        const parked = sessionParked(session)
-        const tileTint = agentFleetTileTint(session.agentKind, parked)
-        // The row's unopened-update dot rides the corner of the LAST tile (the
-        // concept's `.av .unreaddot`): tight to the glyph at -3px, ringed in the
-        // row background — reads as "this fleet has something new", not a third
-        // free-floating mark.
-        const showDot = unread && index === shown.length - 1
-        return (
-          <span
-            key={session.sessionId}
-            data-agent-kind={session.agentKind}
-            data-parked={parked ? '' : undefined}
-            className={cn(
-              'relative flex items-center justify-center rounded-[6px] border',
-              tileTint,
-              index > 0 && '-ml-1',
-            )}
-            style={{ zIndex: index + 1, width: size, height: size }}
-          >
-            {AgentIcon ? <AgentIcon size={glyph} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
-            {showDot && (
-              <span
-                className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,var(--sidebar))] bg-info"
-                data-testid="row-unread-dot"
-                aria-hidden="true"
-              />
-            )}
-          </span>
-        )
-      })}
-      {overflow > 0 && (
+      <span className="flex items-center pl-1">
+        {shown.map(({ kind, parked }, index) => {
+          const AgentIcon = agentIconFor(kind)
+          // Per-kind tint (POD-293): Claude wears its clay, other harnesses a
+          // quiet navy — solid fills so stacked tiles don't ghost through each
+          // other. A table keyed by kind, not a comparison (see @/lib/agent-tone).
+          // A parked kind drops the brand for the muted pair (POD-756).
+          const tileTint = agentFleetTileTint(kind, parked)
+          // The row's unopened-update dot rides the corner of the LAST tile (the
+          // artifact's `.fleet-tile .dot`): tight to the glyph at -3px, ringed in
+          // the surface it sits on — "this fleet has something new", not a third
+          // free-floating mark. The ring reads the ground off the host: a tinted
+          // sidebar row publishes `--row-bg`, everything else names its base
+          // (`--issue-base`, `--card` on a board card), and an untinted row falls
+          // through to the sidebar itself.
+          const showDot = unread && index === shown.length - 1
+          return (
+            <span
+              key={kind}
+              data-agent-kind={kind}
+              data-parked={parked ? '' : undefined}
+              className={cn(
+                'relative flex items-center justify-center rounded-[5px] border',
+                tileTint,
+                index > 0 && '-ml-[5px]',
+              )}
+              style={{ zIndex: index + 1, width: size, height: size }}
+            >
+              {AgentIcon ? <AgentIcon size={glyph} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
+              {showDot && (
+                <span
+                  className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,var(--issue-base,var(--sidebar)))] bg-info"
+                  data-testid="row-unread-dot"
+                  aria-hidden="true"
+                />
+              )}
+            </span>
+          )
+        })}
+      </span>
+      {present.length > 1 && (
         <span
-          className="shell-type-micro -ml-1 flex items-center justify-center rounded-[6px] border border-border-strong bg-chip px-0.5 font-mono text-muted-foreground"
-          style={{ zIndex: shown.length + 1, height: size + 2, minWidth: size + 2 }}
+          className="font-mono text-[9.5px] tabular-nums text-text-dim"
+          data-testid="issue-fleet-total"
         >
-          +{overflow}
+          {present.length}
         </span>
       )}
       {nativeCount > 0 && (
         <span
-          className="shell-type-micro -mt-2 -ml-1 rounded-[4px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-claude"
-          style={{ zIndex: shown.length + 2 }}
+          className="rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-[9.5px] leading-[14px] text-claude"
           data-testid="issue-fleet-subagent-count"
         >
           ×{nativeCount}

@@ -1,7 +1,5 @@
 import {
-  deriveFleetPresence,
   draftIssueLabel,
-  FLEET_KIND_LIMIT,
   type IssueNavigationModel,
   isDraftAgentVessel,
   missionProgress,
@@ -24,110 +22,16 @@ import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEv
 import { useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
+import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
-import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { issueColorHex } from '@/lib/issueColors'
 import { BrailleSpinner, PhaseTimer } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
-import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { RowProgressMeter } from './row-progress'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
-
-/**
- * The mission's execution presence, in the approved artifact's `fleet-summary`
- * anatomy: a stack of REAL harness-kind tiles, the agent total once there is
- * more than one, and `×N` for native (in-process Task) children.
- *
- * Kinds, not sessions. A nine-agent mission running three harnesses shows three
- * tiles and a `9`, not nine tiles — the question the stack answers is "who is
- * here", and the number answers "how many". Everything is client-derived from
- * the row's bubbled session set; nothing is stored on the issue.
- *
- * WHO COUNTS as here is `deriveFleetPresence`'s call, not this component's
- * (POD-756): a PARKED agent is on the task and draws a ghosted tile. This row
- * used to filter hibernation out, which meant the stack rendered the reaper's
- * queue — every Codex agent in the fleet was parked, so no issue showed one.
- */
-function FleetSummary({
-  sessions,
-  unread = false,
-}: {
-  sessions: SessionMeta[]
-  /** An unopened update since last read (POD-293): a single info dot on the
-   *  agent identity, not a shouted banner. Bound to the fleet glyph so it reads
-   *  as "this agent has something new", never a free-floating third dot. */
-  unread?: boolean
-}): JSX.Element | null {
-  const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
-  if (present.length === 0) return null
-  const shown = tiles.slice(0, FLEET_KIND_LIMIT)
-  return (
-    <span
-      className="ml-0.5 flex flex-none items-center gap-[5px]"
-      role="img"
-      aria-label={label}
-      title={label}
-      data-testid="issue-fleet-summary"
-    >
-      <span className="flex items-center pl-1">
-        {shown.map(({ kind, parked }, index) => {
-          const AgentIcon = agentIconFor(kind)
-          // Per-kind tint (POD-293): Claude wears its clay, other harnesses a
-          // quiet navy — solid fills so stacked tiles don't ghost through each
-          // other. A table keyed by kind, not a comparison (see @/lib/agent-tone).
-          // A parked kind drops the brand for the muted pair (POD-756).
-          const tileTint = agentFleetTileTint(kind, parked)
-          // The row's unopened-update dot rides the corner of the LAST tile (the
-          // artifact's `.fleet-tile .dot`): tight to the glyph at -3px, ringed in
-          // the row background — "this fleet has something new", not a third
-          // free-floating mark.
-          const showDot = unread && index === shown.length - 1
-          return (
-            <span
-              key={kind}
-              data-agent-kind={kind}
-              data-parked={parked ? '' : undefined}
-              className={cn(
-                'relative flex size-[18px] items-center justify-center rounded-[5px] border',
-                tileTint,
-                index > 0 && '-ml-[5px]',
-              )}
-              style={{ zIndex: index + 1 }}
-            >
-              {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
-              {showDot && (
-                <span
-                  className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,var(--sidebar))] bg-info"
-                  data-testid="row-unread-dot"
-                  aria-hidden="true"
-                />
-              )}
-            </span>
-          )
-        })}
-      </span>
-      {present.length > 1 && (
-        <span
-          className="font-mono text-[9.5px] tabular-nums text-text-dim"
-          data-testid="issue-fleet-total"
-        >
-          {present.length}
-        </span>
-      )}
-      {nativeCount > 0 && (
-        <span
-          className="rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-[9.5px] leading-[14px] text-claude"
-          data-testid="issue-fleet-subagent-count"
-        >
-          ×{nativeCount}
-        </span>
-      )}
-    </span>
-  )
-}
 
 /** Lineage flash (POD-85): briefly outline another issue's row — provenance as
  *  a gesture when a spin-off is selected, not persistent chrome. DOM-level on
@@ -418,7 +322,7 @@ export function UnifiedIssueRow({
                 the only column, but the Flight Deck owns the tree now and the
                 draft row kept nothing but an issue square, so the one row that
                 is purely an agent was the one row that never named one. */}
-            <FleetSummary sessions={fleetSessions} unread={unread} />
+            <IssueFleetSummary sessions={fleetSessions} unread={unread} className="ml-0.5" />
             {issue.pinned && (
               <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}

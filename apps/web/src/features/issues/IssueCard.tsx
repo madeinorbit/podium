@@ -301,7 +301,10 @@ export function IssueCard({
             {/* 16px, the size this component documents for the board — an 18px
                 tile of saturated terracotta was the loudest thing on a card and
                 won the first look from the title, which is what a board card
-                exists to show. */}
+                exists to show. The stack itself is the sidebar row's grammar
+                since POD-744 — harness KINDS and a total, not one tile per
+                session — so a card and its row answer "who is on this" the same
+                way, in the same words. */}
             {badges.sessions && sessions.length > 0 && (
               <IssueFleetSummary sessions={sessions} unread={issue.unread === true} size={16} />
             )}
