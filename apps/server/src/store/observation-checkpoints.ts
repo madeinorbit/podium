@@ -173,6 +173,15 @@ export class ObservationCheckpointsRepository {
            WHERE session_id = ? AND provider = ?`,
         )
         .run(providerSessionId, updatedAt, sessionId, provider)
+      // A SPENT proof does not survive its observer's life. Consumption is the
+      // last act of one hibernation; a fresh fence means the session is being
+      // observed again, and `confirmTerminalCandidate` refuses to touch a
+      // consumed row — leaving it would make a revived session permanently
+      // ineligible with no path back short of a new user turn (POD-1879).
+      // Unconsumed proofs are LEFT ALONE: an exact reattachment replay renews
+      // them through `renewTerminalCandidate`, which is strictly fenced.
+      const candidate = this.getTerminalCandidate(sessionId)
+      if (candidate?.consumedAt) this.cancelTerminalCandidate(sessionId)
       const lease = this.read(sessionId)
       if (!lease || lease.provider !== provider) {
         throw new Error(`unable to advance observation generation for ${sessionId}`)
@@ -379,40 +388,69 @@ export class ObservationCheckpointsRepository {
       .run(facts.sessionId, JSON.stringify(proof), at)
   }
 
+  /** Arm pass one at this observer sequence, discarding whatever was there. */
+  private armTerminalCandidate(
+    facts: TerminalCandidateFacts,
+    livePollSequence: number,
+    at: string,
+  ): void {
+    const proof = {
+      facts,
+      firstLivePollSequence: livePollSequence,
+      lastLivePollSequence: livePollSequence,
+    }
+    this.db
+      .prepare(
+        `INSERT INTO session_terminal_candidates
+           (session_id, proof_json, confirmed_at, consumed_at, updated_at)
+         VALUES (?, ?, NULL, NULL, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           proof_json = excluded.proof_json,
+           confirmed_at = NULL,
+           consumed_at = NULL,
+           updated_at = excluded.updated_at`,
+      )
+      .run(facts.sessionId, JSON.stringify(proof), at)
+  }
+
   /**
    * One unchanged live observer receipt records pass one for a legacy/bootstrap
    * terminal; a strictly later unchanged receipt records pass two. A changed
    * causal snapshot resets rather than inheriting an older proof.
+   *
+   * REHABILITATION (POD-1879). Two states used to wedge a still-idle session
+   * out of hibernation forever, because both make every later receipt inert:
+   * a proof already CONSUMED by a previous hibernation, and an observer whose
+   * poll counter restarted below the sequence we last stored. Both are repaired
+   * by re-arming PASS ONE — never by confirming — so a rehabilitated proof
+   * still has to earn its confirmation from live receipts under the current
+   * fence. The consumed row is superseded only from a strictly newer observer
+   * generation: within one generation that exact terminal is genuinely spent.
    */
   confirmTerminalCandidate(
     facts: TerminalCandidateFacts,
     livePollSequence: number,
     at: string,
-  ): 'recorded' | 'confirmed' | 'unchanged' {
+  ): 'recorded' | 'confirmed' | 'unchanged' | 'rehabilitated' {
     return transaction(this.db, () => {
       const current = this.getTerminalCandidate(facts.sessionId)
-      if (current?.consumedAt) return 'unchanged'
+      if (current?.consumedAt) {
+        if (facts.observerGeneration <= current.facts.observerGeneration) return 'unchanged'
+        this.armTerminalCandidate(facts, livePollSequence, at)
+        return 'rehabilitated'
+      }
       if (!current || !sameFacts(current.facts, facts)) {
-        const proof = {
-          facts,
-          firstLivePollSequence: livePollSequence,
-          lastLivePollSequence: livePollSequence,
-        }
-        this.db
-          .prepare(
-            `INSERT INTO session_terminal_candidates
-               (session_id, proof_json, confirmed_at, consumed_at, updated_at)
-             VALUES (?, ?, NULL, NULL, ?)
-             ON CONFLICT(session_id) DO UPDATE SET
-               proof_json = excluded.proof_json,
-               confirmed_at = NULL,
-               consumed_at = NULL,
-               updated_at = excluded.updated_at`,
-          )
-          .run(facts.sessionId, JSON.stringify(proof), at)
+        this.armTerminalCandidate(facts, livePollSequence, at)
         return 'recorded'
       }
       if (current.confirmedAt) return 'unchanged'
+      if (livePollSequence < current.firstLivePollSequence) {
+        // The observer's counter only ever rises within one observer life, so a
+        // lower sequence is a RESTARTED counter, not a replayed receipt. Left
+        // alone it can never clear `lastLivePollSequence` again.
+        this.armTerminalCandidate(facts, livePollSequence, at)
+        return 'rehabilitated'
+      }
       if (livePollSequence <= current.lastLivePollSequence) return 'unchanged'
       const confirmed =
         current.firstLivePollSequence === 0 || livePollSequence > current.firstLivePollSequence
