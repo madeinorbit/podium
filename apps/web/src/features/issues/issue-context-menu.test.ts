@@ -82,6 +82,25 @@ describe('issueMenuEligibility', () => {
     })
   })
 
+  // POD-697: the colour names a mission. A sub-issue runs under its parent's by
+  // inheritance, so the entry is offered on top-level targets only — and one
+  // sub-issue in a selection takes it away for the whole set.
+  it('offers colour on top-level tasks only', () => {
+    expect(issueMenuEligibility([makeIssue()]).canSetColor).toBe(true)
+    expect(issueMenuEligibility([makeIssue({ parentId: 'iss_epic' })]).canSetColor).toBe(
+      false,
+    )
+    expect(
+      issueMenuEligibility([makeIssue(), makeIssue({ parentId: 'iss_epic' })])
+        .canSetColor,
+    ).toBe(false)
+    // Every other bulk item on that mixed selection is untouched.
+    expect(
+      issueMenuEligibility([makeIssue(), makeIssue({ parentId: 'iss_epic' })])
+        .canSetStage,
+    ).toBe(true)
+  })
+
   it('offers mark-unread on a read issue and mark-read on an unread one (#138)', () => {
     const read = issueMenuEligibility([makeIssue({ unread: false })])
     expect(read.canMarkUnread).toBe(true)

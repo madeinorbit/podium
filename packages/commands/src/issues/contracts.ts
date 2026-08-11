@@ -241,7 +241,9 @@ export const createInput = z.object({
   assignee: UserIdField.optional(),
   labels: z.array(z.string()).optional(),
   parentId: IssueIdField.optional(),
-  // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow).
+  // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow). Top-level
+  // only (POD-697): a create that also names a `parentId` is a sub-task, which
+  // runs under its mission's colour, and the service drops the field.
   color: IssueColor.optional(),
   // #198: an agent opts a work item onto the human's top-level board with
   // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
@@ -289,6 +291,8 @@ export const updateInput = z.object({
     // can never poison a sibling scope's ordering.
     sortKey: z.string().max(128).refine(isSortKey, 'malformed sort key').optional(),
     // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
+    // Top-level only (POD-697): the service refuses a slot on a sub-task, which
+    // takes its mission's colour. Clearing stays legal at any depth.
     color: IssueColor.nullable().optional(),
     estimateMin: z.number().int().optional(),
   }),

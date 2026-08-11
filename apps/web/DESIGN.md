@@ -264,6 +264,8 @@ Utilities are visited and left, so they open as a **bounded inset sheet over a h
 ### The Issue-Color Channel (signature)
 Every issue-tinted surface derives from one `--issue` custom property scoped per subtree, mixed over its base surface (`issue-mix-*` utilities), with a derived text ramp per scope. Reselecting or recoloring crossfades every derived mix together over 0.4s via a registered `@property`. Uncolored issues run identical mechanics in Flow Slate, slightly quieter.
 
+**The color belongs to the mission (POD-697).** A slot is set on top-level tasks only — the ones the left sidebar lists — because what the color does is tell missions apart in that column. Everything downstream (flight deck, terminal tint, tab squares, rail notch) is that one color flowing down the mission, so a sub-task holds no slot of its own and offers no picker: it would be a second, competing statement of the same thing. Sub-tasks inherit from the nearest colored ancestor, which is the mission root.
+
 ### Agent State Grammar (signature)
 The braille spinner (10-frame CSS `content` animation) plus a counting mono timer are the canonical perpetual motion, running only while an agent computes. Phase changes are single one-shot morphs (~150–400ms, ease-out), then total stillness. Live activity reads calm blue (#6f9dff) in every theme — red is reserved for alerts and destructive actions (POD-166 R10). No pulses, no glows, no breathing rings.
 

@@ -94,6 +94,12 @@ export class IssueHierarchyModule {
           `reparent ${row.id} -> ${newParentId} would create a containment cycle: ${[row.id, ...returnPath].join(' -> ')}`,
         )
       }
+      // COLOUR IS A TOP-LEVEL PROPERTY [spec:SP-b4d1]. It names a mission in the
+      // sidebar and flows down the mission's own surfaces (flight deck, terminal
+      // tint) by inheritance, so a sub-issue never carries one of its own — it
+      // would only compete with the parent's. Gaining a parent therefore drops
+      // the issue's own slot; the flow it now runs under is the parent's.
+      row.color = null
     }
     row.parentId = newParentId
   }

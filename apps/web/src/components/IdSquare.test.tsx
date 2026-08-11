@@ -263,6 +263,37 @@ describe('IdSquare colour picker', () => {
     await waitFor(() => expect(onColorChange).toHaveBeenCalledWith(null))
   })
 
+  // POD-697: colour names a MISSION. A sub-issue already runs under its parent's
+  // (the shell tints from the nearest coloured ancestor), so its square is pure
+  // identity — no picker, and no click that pretends there is one.
+  it('is identity only on a sub-task — no picker to open', () => {
+    const onColorChange = vi.fn()
+    render(
+      <IdSquare issue={issue({ parentId: 'iss_root' })} state="working" onColorChange={onColorChange} />,
+    )
+    const el = screen.getByRole('button', { name: 'Task #39' })
+    expect(el.getAttribute('aria-haspopup')).toBeNull()
+    fireEvent.click(el)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(onColorChange).not.toHaveBeenCalled()
+  })
+
+  it('keeps a sub-task’s rail square on its primary action even once selected', () => {
+    const onPrimary = vi.fn()
+    render(
+      <IdSquare
+        issue={issue({ parentId: 'iss_root' })}
+        state="queued"
+        selected
+        onPrimary={onPrimary}
+        onColorChange={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Open task #39' }))
+    expect(onPrimary).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('dismisses on Escape and outside click without mutating', () => {
     const onColorChange = vi.fn()
     render(<IdSquare issue={issue()} state="idle" onColorChange={onColorChange} />)

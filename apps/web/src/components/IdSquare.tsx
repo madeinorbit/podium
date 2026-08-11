@@ -66,7 +66,7 @@ export function IdSquare({
   onColorChange,
   size = 26,
 }: {
-  issue: Pick<IssueWire, 'linearIdentifier' | 'seq' | 'color' | 'title'>
+  issue: Pick<IssueWire, 'linearIdentifier' | 'seq' | 'color' | 'title' | 'parentId'>
   state: IdSquareState
   selected?: boolean
   /** Square edge in px. Desktop rows run 30 for a readable prefix/number
@@ -97,6 +97,18 @@ export function IdSquare({
   const [position, setPosition] = useState({ left: PANEL_GUTTER, top: PANEL_GUTTER })
   const [panelSide, setPanelSide] = useState<'left' | 'right'>('right')
   const label = idSquareLabel(issue)
+  // COLOUR IS A TOP-LEVEL PROPERTY [spec:SP-b4d1]. A sub-issue already runs
+  // under its mission's colour — `effectiveIssueColorHex` tints the shell from
+  // the nearest coloured ancestor — so a slot of its own could only compete with
+  // the one thing the colour is for: telling missions apart in the sidebar. The
+  // server refuses the write; here the affordance simply is not offered, and the
+  // square goes back to being pure identity.
+  const colorable = issue.parentId == null
+  // Which of the two things a click on this square does. `primaryOnly` (right
+  // rail) and an unselected rail square defer to the host's action; so does a
+  // sub-issue's square, which has no picker to open.
+  const actsPrimary = onPrimary !== undefined && (primaryOnly || !selected || !colorable)
+  const opensPicker = !actsPrimary && colorable
 
   // Server broadcasts are the durable truth. Between click and broadcast the
   // local value keeps every appearance of the square optimistic.
@@ -251,26 +263,33 @@ export function IdSquare({
         data-badge={badge?.kind ?? 'none'}
         data-prefix={label.prefix}
         data-number={label.number}
-        className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono leading-[1.15] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-text-strong"
+        className={`phase-surface relative flex flex-none flex-col items-center justify-center rounded-[7px] font-mono leading-[1.15] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-text-strong ${
+          actsPrimary || opensPicker ? 'cursor-pointer' : 'cursor-default'
+        }`}
         style={squareStyle}
         aria-label={
-          onPrimary && (primaryOnly || !selected)
+          actsPrimary
             ? `Open task ${label.full}`
-            : `Set colour for task ${label.full}`
+            : opensPicker
+              ? `Set colour for task ${label.full}`
+              : `Task ${label.full}`
         }
-        aria-haspopup={primaryOnly ? undefined : 'dialog'}
-        aria-expanded={primaryOnly ? undefined : open}
+        aria-haspopup={opensPicker ? 'dialog' : undefined}
+        aria-expanded={opensPicker ? open : undefined}
         aria-busy={saving}
         title={
           titleHint ??
-          `${label.full} · ${issue.title} · ${displayColor ? issueColorName(displayColor) : 'No colour'}`
+          (colorable
+            ? `${label.full} · ${issue.title} · ${displayColor ? issueColorName(displayColor) : 'No colour'}`
+            : `${label.full} · ${issue.title}`)
         }
         onClick={(event) => {
           event.stopPropagation()
-          if (onPrimary && (primaryOnly || !selected)) {
-            onPrimary()
+          if (actsPrimary) {
+            onPrimary?.()
             return
           }
+          if (!opensPicker) return
           setOpen((value) => !value)
         }}
       >

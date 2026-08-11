@@ -6,6 +6,14 @@
  * the hex — the palette maps a slot to a full colouring scheme, so hues can be
  * retuned centrally without touching stored data.
  *
+ * TOP-LEVEL ONLY (POD-697). The colour names a MISSION: it is what tells the
+ * sidebar's rows apart, and everything downstream — flight deck, terminal tint,
+ * rail notch — is that one mission's colour flowing. A sub-issue therefore has
+ * no slot of its own; it runs under its mission's by inheritance (see
+ * {@link effectiveIssueColorHex}). The server enforces it — a sub-issue create
+ * drops the field, an update is refused, and gaining a parent clears it — so
+ * the pickers are simply not offered below the top level.
+ *
  * RESERVED COLOURS — never pickable, never to be reused as issue accents, and
  * conversely never to be used for status:
  *   - amber   #f59e0b (--attention): "waiting on you"
@@ -103,6 +111,12 @@ export interface ColorCarrier {
  * for the flow surfaces only (shell scope, attention rows, terminal tint);
  * identity surfaces — the ID square, the issue's own sidebar row — keep
  * {@link issueColorHex} so an uncoloured child still reads as uncoloured.
+ *
+ * Since POD-697 only a top-level issue can hold a slot, so in practice the walk
+ * always lands on the mission root. The own-colour branch is kept because this
+ * function must stay correct against a wire that still carries a legacy slot on
+ * a sub-issue, and because promoting a sub-issue to top level makes its own
+ * colour meaningful again the moment it is set.
  */
 export function effectiveIssueColorHex(
   issue: ColorCarrier | undefined,
