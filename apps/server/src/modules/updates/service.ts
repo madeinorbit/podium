@@ -5,7 +5,7 @@ import type {
   UpdateStatusMessage,
   UpdateTarget,
 } from '@podium/protocol'
-import { planWave, type WaveMachine } from './wave'
+import { IN_FLIGHT_STATES, planWave, TERMINAL_STATES, type WaveMachine } from './wave'
 
 export interface UpdatesDeps {
   machines(): readonly WaveMachine[]
@@ -14,6 +14,8 @@ export interface UpdatesDeps {
   now(): number
   nextGrantId(): string
   concurrency: number
+  /** Overridable only so tests can age a grant without waiting ten minutes. */
+  grantDeadlineMs?: number
   resolveTarget?(channel: 'edge' | 'stable'): Promise<UpdateTarget>
 }
 
@@ -27,7 +29,30 @@ interface MachineConvergenceState {
 interface PendingGrant {
   channel: UpdateChannel
   grantId: string
+  issuedAt: number
+  /** Last accepted phase report; the deadline is measured from here. */
+  lastProgressAt: number
 }
+
+/**
+ * How long one issued grant may stay in flight before the coordinator stops
+ * believing it. A daemon that goes silent — killed mid-download, rebooted into
+ * a build that never reconnects — used to leave the row converging forever and
+ * the Apply action permanently excluded by the planner. After this deadline the
+ * grant ages into `stuck`, which is a state the operator can see and retry.
+ */
+const GRANT_DEADLINE_MS = 10 * 60_000
+
+const GRANT_TIMED_OUT_DETAIL = 'The machine stopped reporting progress while updating.'
+
+/** The one decision an explicit per-machine Apply can produce. */
+export type MachineApplyOutcome =
+  | { result: 'granted'; version: string }
+  | { result: 'already-current'; version: string }
+  | { result: 'offline' }
+  | { result: 'unknown-machine' }
+  | { result: 'no-target'; reason: string }
+  | { result: 'in-flight'; state: ConvergenceState }
 
 interface ChannelRolloutState {
   authorized: boolean
@@ -178,6 +203,11 @@ export class UpdatesService {
     // this channel and target. Late reports from a channel the machine left are inert.
     if (message.grantId && message.grantId !== pendingGrant?.grantId) return
 
+    // The deadline measures SILENCE, not total duration. Every accepted phase
+    // report is progress, so it restarts the clock — otherwise a large download
+    // on a slow link would be aged out mid-transfer while it was working fine.
+    if (pendingGrant !== undefined) pendingGrant.lastProgressAt = this.deps.now()
+
     const effectiveState =
       message.state === 'current' &&
       message.version !== target.version &&
@@ -213,20 +243,56 @@ export class UpdatesService {
     return this.tick(channel)
   }
 
-  /** Authorize only the selected machine; changing one row never widens another row's wave. */
-  authorizeMachine(machineId: string): string[] {
+  /**
+   * Authorize only the selected machine; changing one row never widens another
+   * row's wave.
+   *
+   * The outcome is explicit rather than inferred from an empty grant list. An
+   * empty list conflated already-current, offline, no-target, in-flight and
+   * terminally-failed, which is why a retry after a failure reported an
+   * internal coordinator message and could never issue anything: a `rejected`
+   * or `stuck` machine stays excluded by the planner until a NEW target resets
+   * it. A deliberate human Apply is exactly that reset, so it clears this
+   * machine's terminal state before planning.
+   */
+  authorizeMachine(machineId: string): MachineApplyOutcome {
     const machine = this.fleet().find((candidate) => candidate.id === machineId)
-    if (!machine) return []
+    if (!machine) return { result: 'unknown-machine' }
     const channel = this.channelOf(machine)
     const target = this.target(channel)
-    if (!target) return []
+    if (!target) {
+      return {
+        result: 'no-target',
+        reason: this.targetUnavailableReasonFor(machineId) ?? 'No target is available.',
+      }
+    }
+    if (machine.version === target.version) {
+      return { result: 'already-current', version: machine.version }
+    }
+    if (IN_FLIGHT_STATES.has(machine.state)) {
+      return { result: 'in-flight', state: machine.state }
+    }
+    if (!machine.online) return { result: 'offline' }
+
+    // Retry path: forget the previous verdict for this machine so the planner
+    // can consider it again, and un-halt the channel this row belongs to.
+    if (TERMINAL_STATES.has(machine.state)) {
+      this.machineStates.delete(machineId)
+      this.pendingGrants.delete(machineId)
+      this.rollout(channel).halted = false
+    }
+
+    const planned: WaveMachine = { ...machine, state: 'current' }
     const selected = planWave({
-      machines: [machine],
+      machines: [planned],
       targetVersion: target.version,
       concurrency: 1,
       canaryHealthy: true,
     })
-    return this.issueGrants(channel, target, [machine], selected)
+    const issued = this.issueGrants(channel, target, [planned], selected)
+    return issued.includes(machineId)
+      ? { result: 'granted', version: target.version }
+      : { result: 'offline' }
   }
 
   tick(channel: UpdateChannel = 'dev'): string[] {
@@ -261,21 +327,67 @@ export class UpdatesService {
         this.pendingGrants.delete(machine.id)
         return { ...machine, state: 'current', version: machine.version }
       }
-      return currentState
-        ? {
-            ...machine,
-            state: currentState.state,
-            version: currentState.version,
-            ...(currentState.detail ? { detail: currentState.detail } : {}),
-          }
-        : { ...machine }
+      if (!currentState) return { ...machine }
+      // A silent daemon must not converge forever. Once the grant outlives its
+      // deadline the row becomes a failure the operator can see and retry.
+      if (IN_FLIGHT_STATES.has(currentState.state) && this.grantExpired(machine.id)) {
+        this.pendingGrants.delete(machine.id)
+        const timedOut: MachineConvergenceState = {
+          channel,
+          state: 'stuck',
+          version: currentState.version,
+          detail: GRANT_TIMED_OUT_DETAIL,
+        }
+        this.machineStates.set(machine.id, timedOut)
+        return { ...machine, state: 'stuck', version: timedOut.version, detail: timedOut.detail }
+      }
+      return {
+        ...machine,
+        state: currentState.state,
+        version: currentState.version,
+        ...(currentState.detail ? { detail: currentState.detail } : {}),
+      }
     })
+  }
+
+  /**
+   * Record that this coordinator gave up waiting for a machine.
+   *
+   * A wait that merely stops its timer is invisible: the operator sees a row
+   * that never finishes and a coordinator that never restarts, with nothing
+   * naming either. This writes the failure the fleet read model reports and the
+   * dialog turns into retry guidance.
+   */
+  abandonWait(machineIds: readonly string[], detail: string): string[] {
+    const abandoned: string[] = []
+    for (const machineId of machineIds) {
+      const machine = this.fleet().find((candidate) => candidate.id === machineId)
+      if (!machine || !IN_FLIGHT_STATES.has(machine.state)) continue
+      const channel = this.channelOf(machine)
+      this.pendingGrants.delete(machineId)
+      this.machineStates.set(machineId, {
+        channel,
+        state: 'stuck',
+        version: machine.version,
+        detail,
+      })
+      abandoned.push(machineId)
+    }
+    return abandoned
   }
 
   /** Raw handshake proof, deliberately bypassing optimistic convergence state. */
   machineBootedAtTarget(machineId: string, targetVersion: string): boolean {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     return machine?.online === true && machine.version === targetVersion
+  }
+
+  private grantExpired(machineId: string): boolean {
+    const pending = this.pendingGrants.get(machineId)
+    if (!pending) return false
+    return (
+      this.deps.now() - pending.lastProgressAt >= (this.deps.grantDeadlineMs ?? GRANT_DEADLINE_MS)
+    )
   }
 
   private issueGrants(
@@ -293,7 +405,13 @@ export class UpdatesService {
       }
       this.deps.send(machineId, grant)
       const machine = machines.find((candidate) => candidate.id === machineId)
-      this.pendingGrants.set(machineId, { channel, grantId: grant.grantId })
+      const issuedAt = this.deps.now()
+      this.pendingGrants.set(machineId, {
+        channel,
+        grantId: grant.grantId,
+        issuedAt,
+        lastProgressAt: issuedAt,
+      })
       this.machineStates.set(machineId, {
         channel,
         state: 'granted',

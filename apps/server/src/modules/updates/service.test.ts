@@ -135,6 +135,108 @@ describe('UpdatesService', () => {
     expect(svc.machineBootedAtTarget('a', '0.4.2')).toBe(true)
   })
 
+  describe('per-machine apply outcomes', () => {
+    const target = { version: '0.4.2', critical: false, artifacts: {} } as never
+
+    it('names why no grant was issued instead of returning an empty list', () => {
+      const { svc } = make([
+        m('current', { version: '0.4.2' }),
+        m('offline', { online: false }),
+        m('flying'),
+      ])
+      svc.setTarget(target)
+
+      expect(svc.authorizeMachine('current')).toEqual({
+        result: 'already-current',
+        version: '0.4.2',
+      })
+      expect(svc.authorizeMachine('offline')).toEqual({ result: 'offline' })
+      expect(svc.authorizeMachine('missing')).toEqual({ result: 'unknown-machine' })
+
+      expect(svc.authorizeMachine('flying')).toMatchObject({ result: 'granted' })
+      // A second apply while the first is still converging is not a failure.
+      expect(svc.authorizeMachine('flying')).toEqual({ result: 'in-flight', state: 'granted' })
+    })
+
+    it('explains an unresolved authority rather than reporting a missing grant', () => {
+      const { svc } = make([m('a')])
+      expect(svc.authorizeMachine('a')).toMatchObject({ result: 'no-target' })
+    })
+
+    /** The regression behind repro 2: retry was permanently impossible. */
+    it('lets a human retry a machine the planner had excluded forever', () => {
+      const { svc, send } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus('a', {
+        type: 'updateStatus',
+        state: 'stuck',
+        version: '0.4.1',
+        detail: 'did not come back',
+      })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'stuck' })
+      send.mockClear()
+
+      expect(svc.authorizeMachine('a')).toEqual({ result: 'granted', version: '0.4.2' })
+      expect(send).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('bounded convergence', () => {
+    const target = { version: '0.4.2', critical: false, artifacts: {} } as never
+    const makeClock = (machines: unknown[]) => {
+      let clock = 1_000
+      const send = vi.fn()
+      let n = 0
+      const svc = new UpdatesService({
+        machines: () => machines as never,
+        send,
+        now: () => clock,
+        nextGrantId: () => `g${++n}`,
+        concurrency: 3,
+        grantDeadlineMs: 60_000,
+      })
+      return { svc, send, tick: (ms: number) => (clock += ms) }
+    }
+
+    it('ages a silent machine into a visible failure instead of converging forever', () => {
+      const { svc, tick } = makeClock([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
+
+      tick(60_000)
+      expect(svc.fleet()[0]).toMatchObject({
+        state: 'stuck',
+        detail: 'The machine stopped reporting progress while updating.',
+      })
+    })
+
+    it('measures silence, not duration: progress reports keep a slow update alive', () => {
+      const { svc, tick } = makeClock([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+
+      for (let i = 0; i < 4; i++) {
+        tick(50_000)
+        svc.onStatus('a', { type: 'updateStatus', state: 'downloading', version: '0.4.1' })
+        expect(svc.fleet()[0]).toMatchObject({ state: 'downloading' })
+      }
+
+      tick(60_000)
+      expect(svc.fleet()[0]).toMatchObject({ state: 'stuck' })
+    })
+
+    it('records an abandoned wait so giving up is visible, not silent', () => {
+      const { svc } = makeClock([m('a'), m('b', { version: '0.4.2' })])
+      svc.setTarget(target)
+      svc.authorize()
+
+      expect(svc.abandonWait(['a', 'b'], 'the server stopped waiting')).toEqual(['a'])
+      expect(svc.fleet()[0]).toMatchObject({ state: 'stuck', detail: 'the server stopped waiting' })
+    })
+  })
+
   it('is idempotent: a second tick with nothing changed grants nothing new', () => {
     const { svc, send } = make([m('a'), m('b')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)

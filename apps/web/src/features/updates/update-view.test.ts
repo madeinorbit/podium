@@ -225,4 +225,82 @@ describe('describeUpdate', () => {
       diagnostic: 'ludovico did not come back',
     })
   })
+
+  it('tells the operator a silent machine was given up on, and that retry is the fix', () => {
+    const v = describeUpdate({
+      ...base,
+      fleet: {
+        total: 1,
+        behind: 0,
+        converging: 0,
+        failed: 1,
+        machines: [
+          { state: 'stuck', detail: 'The machine stopped reporting progress while updating.' },
+        ],
+      },
+    } as never)
+
+    expect(v).toMatchObject({ state: 'failed' })
+    const failure = v as { message: string; guidance: string }
+    expect(failure.message).toBe('A machine stopped responding while updating.')
+    expect(failure.guidance).toMatch(/apply the update again/i)
+  })
+
+  /**
+   * The live dev coordinator publishes `headless` artifacts only: nothing in its
+   * target updates this app. Reproduced here because it is the shape that made
+   * the desktop dialog speak for "This app" alone (POD-1883 repro 3).
+   */
+  describe('a target that carries no artifact for this app', () => {
+    const headlessOnly = {
+      version: 'dev+4f36e8e',
+      critical: false,
+      artifacts: { headless: { delivery: 'bundle', platforms: {} } },
+    }
+
+    it('labels an app-only dialog with the release feed version, not the target label', () => {
+      const v = describeUpdate({
+        ...base,
+        localVersion: '1.2.0',
+        server: { appVersion: 'dev+4f36e8e', target: headlessOnly },
+        surface: 'desktop-all-in-one' as const,
+        fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
+        touched: { app: true, server: false, machines: false },
+        desktopUpdate: { version: '1.3.0', critical: false },
+      } as never)
+
+      const view = v as { version: string; places: { kind: string }[] }
+      expect(view.places.map((place) => place.kind)).toEqual(['this-app'])
+      expect(view.version).toBe('1.3.0')
+    })
+
+    it('still names the machines behind the target once the fleet read succeeds', () => {
+      const withFleet = describeUpdate({
+        ...base,
+        server: { appVersion: 'dev+4f36e8e', target: headlessOnly },
+        surface: 'desktop-remote' as const,
+        fleet: { total: 2, behind: 1, converging: 0, failed: 0 },
+        touched: { app: true, server: false, machines: true },
+        desktopUpdate: { version: '1.3.0', critical: false },
+      } as never)
+
+      const view = withFleet as { version: string; places: { kind: string }[] }
+      expect(view.places.map((place) => place.kind)).toContain('machines')
+      // Places beyond this app come from the SERVER's target, so the dialog is
+      // labelled with the target again rather than the release feed.
+      expect(view.version).toBe('dev+4f36e8e')
+    })
+
+    it('reports no places at all when the fleet read failed and left an empty snapshot', () => {
+      const v = describeUpdate({
+        ...base,
+        server: { appVersion: 'dev+4f36e8e', target: headlessOnly },
+        surface: 'desktop-remote' as const,
+        fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
+        touched: { app: false, server: false, machines: false },
+      } as never)
+
+      expect(v.state).toBe('none')
+    })
+  })
 })

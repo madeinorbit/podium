@@ -97,6 +97,9 @@ function placesFor(input: UpdateInput): Place[] {
     places.push({ kind: 'server', label, effect: 'will briefly reconnect' })
   }
 
+  // Only the dev wave belongs here: this dialog's ONE action grants that
+  // authority alone, so naming an edge/stable machine would promise a move it
+  // cannot make. Those machines act from their own Settings row.
   if (input.touched.machines && input.fleet.behind > 0) {
     places.push({
       kind: 'machines',
@@ -106,6 +109,18 @@ function placesFor(input: UpdateInput): Place[] {
   }
 
   return places
+}
+
+/**
+ * True when this app is the only place and its update comes from the desktop
+ * release feed rather than the server's target. Verified against the live dev
+ * coordinator, whose target publishes `headless` artifacts only.
+ */
+function appOnlyFromReleaseFeed(input: UpdateInput): boolean {
+  if (input.desktopUpdate === undefined) return false
+  if (input.server.target?.artifacts.web ?? input.server.target?.artifacts.desktop) return false
+  const places = placesFor(input)
+  return places.length > 0 && places.every((place) => place.kind === 'this-app')
 }
 
 function skewReason(skew: SkewVerdict): string | undefined {
@@ -150,9 +165,24 @@ export function describeUpdateFailure(detail?: string): FailedUpdateView {
     }
   }
 
+  // A bounded wait that ran out is its own story: nothing is wrong with the
+  // release, a machine simply stopped answering. Saying so — and saying the
+  // update can be applied again — is the difference between a visible timeout
+  // and a dialog that appears to have hung.
+  if (normalized && /stopped reporting progress/i.test(normalized)) {
+    return {
+      state: 'failed',
+      message: 'A machine stopped responding while updating.',
+      guidance:
+        'Podium stopped waiting for it. Check that machine is running, then apply the update ' +
+        'again from Settings → Machines.',
+      diagnostic: normalized,
+    }
+  }
+
   if (
     normalized &&
-    /(?:unable to connect|access the url|failed to fetch|fetch failed|network(?:error| request failed)|econn(?:refused|reset)|etimedout|enotfound)/i.test(
+    /(?:unable to connect|access the url|failed to fetch|fetch failed|download timed out|network(?:error| request failed)|econn(?:refused|reset)|etimedout|enotfound)/i.test(
       normalized,
     )
   ) {
@@ -175,7 +205,17 @@ export function describeUpdateFailure(detail?: string): FailedUpdateView {
 export function describeUpdate(input: UpdateInput): UpdateView {
   const target = input.server.target
   const version =
-    target?.version ?? input.desktopUpdate?.version ?? input.server.appVersion ?? input.localVersion
+    appOnlyFromReleaseFeed(input)
+      ? // The server's target and the desktop app's release feed are DIFFERENT
+        // version streams. When the only place is this app and the target
+        // carries no artifact for it (the dev bundle publishes `headless`
+        // only), the target's label names a version this dialog's action will
+        // not install — the release feed's does.
+        (input.desktopUpdate?.version ?? input.localVersion)
+      : (target?.version ??
+        input.desktopUpdate?.version ??
+        input.server.appVersion ??
+        input.localVersion)
 
   if (input.fleet.failed > 0) {
     const failure = input.fleet.machines?.find(

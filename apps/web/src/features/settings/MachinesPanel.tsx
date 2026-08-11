@@ -2,7 +2,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire, UpdateChannel } from '@podium/model'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { type Store, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import {
@@ -209,6 +209,60 @@ function transferErrorMessage(
   return transfer && 'error' in transfer ? transfer.error?.message : undefined
 }
 
+/** One machine's server-side convergence, as the fleet read model reports it. */
+export interface MachineConvergence {
+  state: ConvergenceRowState
+  detail?: string
+}
+
+const CONVERGENCE_POLL_MS = 1_000
+
+/**
+ * Convergence for every row, owned by the panel rather than the row.
+ *
+ * It is read from the server, so a row shows its progress no matter who started
+ * the update — this row's Apply, the global update dialog, or a wave that was
+ * already running before this page loaded. One read on mount answers "is
+ * anything converging right now?"; polling continues only while something is.
+ */
+function useFleetConvergence(trpc: Store['trpc']): {
+  rows: ReadonlyMap<string, MachineConvergence>
+  refresh: () => void
+} {
+  const [rows, setRows] = useState<ReadonlyMap<string, MachineConvergence>>(() => new Map())
+  const [nonce, setNonce] = useState(0)
+  const active = [...rows.values()].some((row) => CONVERGENCE_IN_FLIGHT.has(row.state))
+
+  useEffect(() => {
+    let cancelled = false
+    const read = async (): Promise<void> => {
+      try {
+        const fleet = await trpc.updates.fleet.query()
+        if (cancelled) return
+        const next = new Map<string, MachineConvergence>()
+        for (const machine of fleet.allMachines ?? fleet.machines ?? []) {
+          next.set(machine.id, {
+            state: machine.state as ConvergenceRowState,
+            ...(machine.detail ? { detail: machine.detail } : {}),
+          })
+        }
+        setRows(next)
+      } catch {
+        // A failed fleet read is not a failed update. Keep the last snapshot.
+      }
+    }
+    void read()
+    if (!active) return
+    const timer = window.setInterval(() => void read(), CONVERGENCE_POLL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [active, nonce, trpc])
+
+  return { rows, refresh: () => setNonce((value) => value + 1) }
+}
+
 /**
  * Settings → Machines panel.
  * Lists registered machines with inline rename + revoke, and an "Add machine"
@@ -259,6 +313,7 @@ export function MachinesPanel({
     null
   const sourceMachine =
     machines.find((machine) => machine.id === transferStatus.snapshot?.sourceMachineId) ?? null
+  const convergence = useFleetConvergence(trpc)
   const newlyPairedMachine = makeServerAfterPair
     ? (machines.find(
         (machine) => !pairingBaselineIds.has(machine.id) && eligibleTransferTargets.has(machine.id),
@@ -442,6 +497,8 @@ export function MachinesPanel({
               hosting={m.id === thisMachineId && !m.online ? hosting : null}
               onFindRepos={m.online ? () => setFindReposFor(m.id) : null}
               serverAppVersion={serverAppVersion}
+              convergence={convergence.rows.get(m.id) ?? null}
+              onConvergenceChanged={convergence.refresh}
             />
           ))}
         </div>
@@ -886,6 +943,8 @@ function MachineRow({
   onTransferServer = null,
   showOwnershipTransfer = false,
   serverAppVersion = null,
+  convergence = null,
+  onConvergenceChanged = () => {},
 }: {
   machine: MachineWire
   now: number
@@ -902,6 +961,10 @@ function MachineRow({
   showOwnershipTransfer?: boolean
   /** POD-838: the server's own build version; null while unknown. */
   serverAppVersion?: string | null
+  /** This machine's server-side convergence, or null when it is not converging. */
+  convergence?: MachineConvergence | null
+  /** Ask the panel to re-read the fleet now. */
+  onConvergenceChanged?: () => void
 }): JSX.Element {
   const [name, setName] = useState(machine.name)
   const [editing, setEditing] = useState(false)
@@ -1254,7 +1317,14 @@ function MachineRow({
         </DialogContent>
       </Dialog>
 
-      {machine.podiumManaged !== false && <MachineUpdateControls machine={machine} trpc={trpc} />}
+      {machine.podiumManaged !== false && (
+        <MachineUpdateControls
+          machine={machine}
+          trpc={trpc}
+          convergence={convergence}
+          onApplied={onConvergenceChanged}
+        />
+      )}
     </div>
   )
 }
@@ -1265,6 +1335,65 @@ const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
   stable: 'Stable',
 }
 
+type ConvergenceRowState =
+  | 'current'
+  | 'granted'
+  | 'downloading'
+  | 'restarting'
+  | 'rejected'
+  | 'stuck'
+
+const CONVERGENCE_IN_FLIGHT: ReadonlySet<ConvergenceRowState> = new Set([
+  'granted',
+  'downloading',
+  'restarting',
+])
+
+/**
+ * What the operator sees while a grant is in flight. Deliberately coarse: the
+ * server reports a machine phase, not transferred bytes, so this must not imply
+ * byte-level progress it cannot know.
+ */
+const CONVERGENCE_PROGRESS_LABELS: Record<string, string> = {
+  granted: 'Starting update…',
+  downloading: 'Downloading update…',
+  restarting: 'Restarting…',
+}
+
+/** The outcome vocabulary the machine row speaks, keyed off the server's verdict. */
+export function describeApplyOutcome(
+  outcome: { result: string; state?: string; reason?: string; version?: string },
+  machineName: string,
+): { tone: 'progress' | 'ok' | 'error'; message: string } {
+  switch (outcome.result) {
+    case 'granted':
+      return { tone: 'progress', message: `Updating ${machineName} to ${outcome.version}…` }
+    case 'already-current':
+      return { tone: 'ok', message: `${machineName} is already up to date.` }
+    case 'in-flight':
+      return {
+        tone: 'progress',
+        message: `${machineName} is already updating. Wait for it to finish.`,
+      }
+    case 'offline':
+      return {
+        tone: 'error',
+        message: `${machineName} is not connected. Bring it online, then apply again.`,
+      }
+    case 'unknown-machine':
+      return { tone: 'error', message: `${machineName} is no longer paired with this server.` }
+    case 'no-target':
+      return {
+        tone: 'error',
+        message: outcome.reason
+          ? `No update is available for ${machineName}: ${outcome.reason}`
+          : `No update is available for ${machineName} on its selected update source.`,
+      }
+    default:
+      return { tone: 'error', message: `Podium could not start the update on ${machineName}.` }
+  }
+}
+
 /**
  * A channel choice changes only this machine's durable update authority. Applying
  * is deliberately separate: it issues one convergence grant after the selected
@@ -1273,9 +1402,15 @@ const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
 function MachineUpdateControls({
   machine,
   trpc,
+  convergence,
+  onApplied,
 }: {
   machine: MachineWire
   trpc: Store['trpc']
+  /** This machine's server-side convergence, or null when it is not converging. */
+  convergence: MachineConvergence | null
+  /** Ask the panel to poll now, so the row shows progress without a delay. */
+  onApplied: () => void
 }): JSX.Element {
   const [channel, setChannel] = useState<UpdateChannel>(machine.updateChannel ?? 'stable')
   const [targetVersion, setTargetVersion] = useState<string | null>(machine.targetVersion ?? null)
@@ -1286,12 +1421,45 @@ function MachineUpdateControls({
   const [applying, setApplying] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string | null>(null)
+  // Convergence for this row is SERVER state, read by the panel. The local
+  // `applying` flag only covers the mutation round trip; deriving progress from
+  // it alone made the row look idle the instant the grant was issued, and lost
+  // it entirely on reload or when the global dialog started the update.
+  const converging = convergence !== null && CONVERGENCE_IN_FLIGHT.has(convergence.state)
+  const rowState = convergence?.state ?? null
+  // An outcome is only OURS to announce once this row has actually watched an
+  // update happen — it applied one, or it saw this machine in flight. Without
+  // that, the first fleet snapshot of an idle, already-current machine would
+  // make every row claim a completion nobody asked for.
+  const watching = useRef(false)
 
   useEffect(() => {
     setChannel(machine.updateChannel ?? 'stable')
     setTargetVersion(machine.targetVersion ?? null)
     setUnavailableReason(machine.targetUnavailableReason ?? null)
   }, [machine.updateChannel, machine.targetVersion, machine.targetUnavailableReason])
+
+  // Report the transition OUT of an in-flight state once, whoever started it.
+  useEffect(() => {
+    const state = convergence?.state ?? null
+    if (state !== null && CONVERGENCE_IN_FLIGHT.has(state)) {
+      watching.current = true
+      return
+    }
+    if (state === null || !watching.current) return
+    watching.current = false
+    if (state === 'rejected' || state === 'stuck') {
+      setUpdateStatus(null)
+      setUpdateError(
+        convergence?.detail
+          ? `${machine.name} could not finish the update: ${convergence.detail}`
+          : `${machine.name} could not finish the update. Try applying it again.`,
+      )
+    } else if (state === 'current') {
+      setUpdateError(null)
+      setUpdateStatus(`${machine.name} is up to date.`)
+    }
+  }, [convergence?.state, convergence?.detail, machine.name])
 
   const adoptMachine = (machines: readonly MachineWire[]): boolean => {
     const updated = machines.find((candidate) => candidate.id === machine.id)
@@ -1303,7 +1471,7 @@ function MachineUpdateControls({
   }
 
   const chooseChannel = async (nextChannel: UpdateChannel): Promise<void> => {
-    if (nextChannel === channel || changingChannel || applying) return
+    if (nextChannel === channel || changingChannel || busy) return
     setChangingChannel(true)
     setUpdateError(null)
     setUpdateStatus(null)
@@ -1323,17 +1491,21 @@ function MachineUpdateControls({
   }
 
   const applyUpdate = async (): Promise<void> => {
-    if (applying || changingChannel || !machine.online || !targetVersion) return
+    if (busy || changingChannel || !machine.online || !targetVersion) return
     setApplying(true)
     setUpdateError(null)
     setUpdateStatus(null)
     try {
       const result = await trpc.machines.applyUpdate.mutate({ id: machine.id })
       adoptMachine(result.machines)
-      if (result.grantedMachineIds.includes(machine.id)) {
-        setUpdateStatus(`Update authorized for ${machine.name}.`)
-      } else {
-        setUpdateError('The coordinator did not issue a new update grant for this machine.')
+      const said = describeApplyOutcome(result.outcome, machine.name)
+      if (said.tone === 'error') setUpdateError(said.message)
+      else setUpdateStatus(said.message)
+      if (said.tone === 'progress') {
+        // This row now owns an update in flight, so it may announce how that
+        // update ends even if convergence completes between two polls.
+        watching.current = true
+        onApplied()
       }
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : String(error))
@@ -1345,6 +1517,11 @@ function MachineUpdateControls({
   const alreadyCurrent =
     targetVersion !== null && machine.appVersion !== null && machine.appVersion === targetVersion
   const targetLabel = targetVersion ? `Target ${targetVersion}` : 'Target unavailable'
+  // Busy spans the whole act: the mutation round trip AND the convergence it
+  // authorized. The action stays disabled for both.
+  const busy = applying || converging
+  const progressLabel =
+    (rowState ? CONVERGENCE_PROGRESS_LABELS[rowState] : undefined) ?? 'Starting update…'
 
   return (
     <div
@@ -1354,7 +1531,7 @@ function MachineUpdateControls({
       <span className="settings-micro flex-none uppercase tracking-wide">Update source</span>
       <Select
         value={channel}
-        disabled={changingChannel || applying}
+        disabled={changingChannel || busy}
         onValueChange={(value) => void chooseChannel(value as UpdateChannel)}
       >
         <SelectTrigger
@@ -1379,33 +1556,28 @@ function MachineUpdateControls({
       >
         {targetLabel}
       </span>
-      {unavailableReason && (
+      {busy && (
         <span
-          className="min-w-0 max-w-[48ch] flex-1 truncate settings-micro text-warning"
-          title={unavailableReason}
+          className="flex-none settings-micro text-muted-foreground"
+          role="status"
+          data-machine-update-progress={machine.id}
         >
-          {unavailableReason}
-        </span>
-      )}
-      {updateError && (
-        <span className="min-w-0 flex-1 settings-micro text-destructive" role="alert">
-          {updateError}
-        </span>
-      )}
-      {updateStatus && (
-        <span className="min-w-0 flex-1 settings-micro text-success" role="status">
-          {updateStatus}
+          {progressLabel}
         </span>
       )}
 
+      {/* The action keeps one place in the row. Anything that can appear or
+          disappear — reasons, errors, progress — lives on its own line below,
+          so a click never moves the button out from under the pointer. */}
       <Button
         type="button"
         variant="outline"
         size="sm"
-        className="flex-none"
+        className="ml-auto flex-none"
         disabled={
-          applying || changingChannel || !machine.online || !targetVersion || alreadyCurrent
+          busy || changingChannel || !machine.online || !targetVersion || alreadyCurrent
         }
+        aria-busy={busy}
         aria-label={`Apply update to ${machine.name}`}
         title={
           !machine.online
@@ -1414,8 +1586,28 @@ function MachineUpdateControls({
         }
         onClick={() => void applyUpdate()}
       >
-        {applying ? 'Applying…' : alreadyCurrent ? 'Current' : 'Apply'}
+        {busy ? 'Applying…' : alreadyCurrent ? 'Current' : 'Apply'}
       </Button>
+
+      {(unavailableReason || updateError || updateStatus) && (
+        <div className="flex basis-full flex-col gap-0.5">
+          {unavailableReason && (
+            <span className="min-w-0 truncate settings-micro text-warning" title={unavailableReason}>
+              {unavailableReason}
+            </span>
+          )}
+          {updateError && (
+            <span className="min-w-0 settings-micro text-destructive" role="alert">
+              {updateError}
+            </span>
+          )}
+          {updateStatus && (
+            <span className="min-w-0 settings-micro text-success" role="status">
+              {updateStatus}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -17,6 +17,11 @@ import {
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
+import {
+  GIT_CONVERGENCE_BUDGET_MS,
+  GIT_TIMED_OUT_STATUS,
+  withGitBudget,
+} from '@podium/runtime/update-delivery-git'
 import type { RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { BindingStore } from './binding-store'
@@ -26,12 +31,12 @@ import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
-import { resolveOnBoot } from './convergence'
+import { MAX_CONVERGENCE_ATTEMPTS, resolveOnBoot } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
-import { applyGrant } from './grant-apply'
+import { createGrantRunner } from './grant-apply'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
@@ -280,13 +285,33 @@ export async function createDaemonHostRuntime(args: {
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
 
-  const runGit = (command: string, args: string[]): { status: number | null; stdout: string } => {
+  /**
+   * Git delivery runs SYNCHRONOUSLY and therefore cannot be cancelled: while a
+   * step is running this thread is blocked, so an abort signal cannot be
+   * observed until it returns. The bound that actually protects the daemon is
+   * the timeout — without it a hung `git fetch` against an unreachable remote
+   * blocks the whole process indefinitely, and no server deadline or grant
+   * runner can do anything about it.
+   *
+   * The caller passes the REMAINING whole-convergence budget, so three steps
+   * cannot add up past the server's silence deadline.
+   */
+  const runGit = (
+    command: string,
+    args: string[],
+    timeoutMs?: number,
+  ): { status: number | null; stdout: string } => {
     const result = spawnSync(command, args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: Math.max(1, Math.min(timeoutMs ?? GIT_CONVERGENCE_BUDGET_MS, GIT_CONVERGENCE_BUDGET_MS)),
+      killSignal: 'SIGKILL',
     })
     return {
-      status: result.status,
+      // A timed-out step is killed with no exit code; name it as a timeout so
+      // the convergence refuses with that reason rather than reading empty
+      // output as success or blaming the command.
+      status: result.status ?? (result.error ? GIT_TIMED_OUT_STATUS : null),
       stdout: typeof result.stdout === 'string' ? result.stdout : '',
     }
   }
@@ -306,15 +331,22 @@ export async function createDaemonHostRuntime(args: {
       state = verdict.state
       detail = verdict.detail
     } else {
-      state = 'stuck'
+      // A RETRY verdict is not "manual convergence is required" — this boot
+      // used one of the permitted attempts and another is still allowed. Report
+      // it as a failure the operator can retry, and KEEP the marker with the
+      // attempt spent, so the next grant is the last one the bound permits
+      // instead of restarting the count at zero.
+      state = 'rejected'
       detail =
-        'did not reach ' +
+        'attempt ' +
+        verdict.attempts +
+        ' of ' +
+        MAX_CONVERGENCE_ATTEMPTS +
+        ' did not reach ' +
         pending.targetVersion +
-        ' after ' +
-        pending.attempts +
-        ' attempt(s); running ' +
+        ' (running ' +
         runningVersion +
-        '; manual convergence is required'
+        '); applying again will retry it'
     }
 
     send({
@@ -324,19 +356,27 @@ export async function createDaemonHostRuntime(args: {
       version: runningVersion,
       ...(detail ? { detail } : {}),
     })
+    if (verdict.action === 'retry') {
+      writePendingGrant(instance.runtimeDir, { ...pending, attempts: verdict.attempts })
+      return
+    }
     clearPendingGrant(instance.runtimeDir)
   }
 
-  const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) =>
-    applyGrant(grant, {
+  // One runner per daemon: overlapping grants are serialized here rather than
+  // racing to swap the same binary.
+  const grantRunner = createGrantRunner({
       currentVersion: () => build.appVersion ?? 'dev',
       caps: deliveryCaps(build.installKind),
-      fetchArtifact: (asset, delivery) =>
+      fetchArtifact: (asset, delivery, signal) =>
         fetchArtifact(asset, delivery, {
           fetch: globalThis.fetch,
           pubkey: PODIUM_UPDATE_PUBKEY,
           pinnedPubkey: identity.updatePubkey,
-          git: { run: runGit },
+          // One budget per convergence, established at the moment delivery
+          // starts rather than once for the life of the daemon.
+          git: { run: withGitBudget(runGit) },
+          ...(signal ? { signal } : {}),
         }),
       swap: (bytes) => {
         if (!installDir) throw new Error('binary delivery requires an installed daemon')
@@ -346,7 +386,9 @@ export async function createDaemonHostRuntime(args: {
       restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
       report: (status) => send(status),
       now: Date.now,
-    })
+  })
+  const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) =>
+    grantRunner.apply(grant)
 
   const ctx: DaemonContext = {
     send,

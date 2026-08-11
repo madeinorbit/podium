@@ -20,6 +20,8 @@ import {
 
 const BUILD_STAMP_FILE = 'podium-build.json'
 const FLEET_POLL_MS = 1_000
+/** Idle cadence: enough to recover a failed first read, quiet enough to ignore. */
+const FLEET_IDLE_POLL_MS = 30_000
 
 export interface UpdateMachineState {
   id: string
@@ -37,6 +39,7 @@ export interface UpdateFleetState {
   failed: number
   targetVersion?: string | null
   machines?: readonly UpdateMachineState[]
+  allMachines?: readonly UpdateMachineState[]
 }
 
 export interface UseUpdateStateOptions {
@@ -229,8 +232,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       }
     }
     void load()
-    if (!active) return
-    const interval = window.setInterval(() => void load(), FLEET_POLL_MS)
+    // A single read at mount was the whole fleet story. If that one call failed
+    // — the session not established yet, a transient disconnect — the snapshot
+    // stayed empty for the life of the page, so `behind` was 0 and the dialog
+    // could only ever name "this app". Keep a slow refresh so the server and
+    // machine places appear once the read succeeds.
+    const interval = window.setInterval(
+      () => void load(),
+      active ? FLEET_POLL_MS : FLEET_IDLE_POLL_MS,
+    )
     return () => {
       cancelled = true
       window.clearInterval(interval)
@@ -247,14 +257,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       server.appVersion !== undefined &&
       server.appVersion !== target.version,
   )
+  const machinesBehind = fleet.behind
   const touched = target
     ? computeTouched({
         localDigests: { ...(localBuild.appDigest ? { app: localBuild.appDigest } : {}) },
         target,
-        fleetBehind: fleet.behind,
+        fleetBehind: machinesBehind,
         serverBehind,
       })
-    : { app: false, server: serverBehind, machines: fleet.behind > 0 }
+    : { app: false, server: serverBehind, machines: machinesBehind > 0 }
   if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
   const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })

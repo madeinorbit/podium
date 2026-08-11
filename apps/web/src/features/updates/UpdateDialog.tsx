@@ -192,6 +192,18 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
               Sessions keep running
             </p>
           </div>
+          {/*
+           * The one state that used to have no way out. Convergence can take
+           * minutes, and this panel sits over the app — including over Settings
+           * → Machines, which is exactly where an operator goes to see or retry
+           * a machine that is stuck. Dismissing hides the panel, not the update:
+           * the wave keeps running and the panel returns when its state changes.
+           */}
+          <div className="flex items-center justify-end border-t border-border bg-muted/30 px-4 py-3">
+            <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
+              Hide
+            </Button>
+          </div>
         </>
       ) : view.state === 'failed' ? (
         <>

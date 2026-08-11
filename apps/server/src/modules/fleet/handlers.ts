@@ -87,8 +87,10 @@ export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: 
   const machine = modules.machines.listMachines().find((candidate) => candidate.id === input.id)
   if (!machine) throw new TRPCError({ code: 'NOT_FOUND', message: 'machine not found' })
   await modules.updates.refreshTarget(machine.updateChannel ?? 'stable')
-  const grantedMachineIds = modules.updates.authorizeMachine(input.id)
-  return { machines: modules.machines.listMachines(), grantedMachineIds }
+  // The outcome is what this machine's row will say. Callers must not infer
+  // success from a granted-id list: an empty list has five different meanings.
+  const outcome = modules.updates.authorizeMachine(input.id)
+  return { machines: modules.machines.listMachines(), outcome }
 }
 
 export const machineShareHandler = ({

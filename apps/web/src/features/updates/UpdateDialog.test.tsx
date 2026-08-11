@@ -124,6 +124,26 @@ describe('UpdateDialog', () => {
     expect(screen.getByText(/1 of 3/)).toBeTruthy()
   })
 
+  /**
+   * The panel sits over the app, including over Settings → Machines, which is
+   * where an operator goes to see or retry a machine that is not converging.
+   * In-progress was the only state with no way out of it.
+   */
+  it('lets the operator hide a converging update to reach the recovery surface', () => {
+    const onDismiss = vi.fn()
+    render(
+      <UpdateDialog
+        view={{ state: 'in-progress', version: '0.4.2', done: 1, total: 3 }}
+        actions={{}}
+        onDismiss={onDismiss}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('update-dialog')).toBeNull()
+  })
+
   it('explains a failed update and exposes its diagnostic on demand', () => {
     render(
       <UpdateDialog
