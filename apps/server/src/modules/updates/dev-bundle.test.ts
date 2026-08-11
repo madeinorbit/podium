@@ -340,7 +340,7 @@ describe('buildDevBundle', () => {
     expect(publisher.target()?.version).toBe('dev+aaaaaaa')
   })
 
-  it('keeps the previous target after a later build fails', async () => {
+  it('keeps the previous bundle but stops advertising it after a later build fails', async () => {
     const { bytes, signature } = signedFixture()
     let head = 'aaaaaaa'
     let attempts = 0
@@ -359,11 +359,14 @@ describe('buildDevBundle', () => {
     })
 
     await publisher.requestBuild(true)
-    const previous = publisher.target()
+    expect(publisher.target()?.version).toBe('dev+aaaaaaa')
     head = 'bbbbbbb'
     await expect(publisher.requestBuild(true)).rejects.toThrow('second compile failed')
-    expect(publisher.target()).toEqual(previous)
+    // The signed bytes for the old commit survive — a later request at that sha
+    // can still restore them — but they are no longer offered as the target,
+    // because they are not what this server is running.
     expect(publisher.current()?.version).toBe('dev+aaaaaaa')
+    expect(publisher.target()).toBeUndefined()
   })
 
   it('refuses to build or restore anything from a dirty checkout', async () => {
@@ -461,5 +464,131 @@ describe('buildDevBundle', () => {
     expect(builds).toBe(1)
     resolveBuild()
     await first
+  })
+})
+
+describe('development bundle readiness', () => {
+  function readinessFixture(options: { porcelain?: () => string } = {}) {
+    const { bytes, signature } = signedFixture()
+    let head = 'aaaaaaa'
+    let fail: string | null = null
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      headSha: () => head,
+      readSourceStatus: options.porcelain ?? (() => ''),
+      lock: lockFixture([]),
+      now: () => 100_000,
+      spawnBuild: async ({ version }) => {
+        if (fail) throw new Error(fail)
+        return { path: '/stage/' + version, bytes, signature }
+      },
+    })
+    return {
+      publisher,
+      moveHead: (sha: string) => {
+        head = sha
+      },
+      failNextBuild: (message: string | null) => {
+        fail = message
+      },
+    }
+  }
+
+  it('is idle before anything has been built for this HEAD', () => {
+    const { publisher } = readinessFixture()
+    expect(publisher.readiness()).toEqual({ state: 'idle', headSha: 'aaaaaaa' })
+  })
+
+  it('is ready, with the version, once HEAD is built', async () => {
+    const { publisher } = readinessFixture()
+    await publisher.requestBuild(true)
+    expect(publisher.readiness()).toEqual({
+      state: 'ready',
+      headSha: 'aaaaaaa',
+      version: 'dev+aaaaaaa',
+    })
+    expect(publisher.target()?.version).toBe('dev+aaaaaaa')
+  })
+
+  it('withdraws the old target the moment HEAD advances', async () => {
+    const { publisher, moveHead } = readinessFixture()
+    await publisher.requestBuild(true)
+    moveHead('bbbbbbb')
+
+    // The bundle still exists and is still dev+aaaaaaa; it is simply not the
+    // target for the commit this server is now running.
+    expect(publisher.current()?.version).toBe('dev+aaaaaaa')
+    expect(publisher.target()).toBeUndefined()
+    expect(publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+  })
+
+  it('reports failed for the new HEAD, not ready from the old one', async () => {
+    const { publisher, moveHead, failNextBuild } = readinessFixture()
+    await publisher.requestBuild(true)
+    moveHead('bbbbbbb')
+    failNextBuild('compile blew up')
+    await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
+
+    const readiness = publisher.readiness()
+    expect(readiness.state).toBe('failed')
+    expect(readiness).toMatchObject({
+      headSha: 'bbbbbbb',
+      reason: 'compile blew up',
+      publicReason: 'Building the development bundle for dev+bbbbbbb failed. See the server log.',
+    })
+    expect(publisher.target()).toBeUndefined()
+  })
+
+  it('keeps a dirty checkout out of the public reason while the log gets the paths', async () => {
+    const { publisher } = readinessFixture({
+      porcelain: () => nul(' M apps/server/src/server.ts', '?? apps/web/scratch.ts'),
+    })
+    await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
+
+    const readiness = publisher.readiness()
+    expect(readiness).toMatchObject({
+      state: 'failed',
+      headSha: 'aaaaaaa',
+      publicReason:
+        'The source checkout has 2 uncommitted changes and no longer matches HEAD (aaaaaaa). ' +
+        'Commit or stash them to publish dev+aaaaaaa.',
+    })
+    // The operator's copy names the files; the client's copy never does.
+    expect(publisher.unavailable()).toContain('apps/server/src/server.ts')
+    expect(readiness.state === 'failed' && readiness.publicReason).not.toContain('apps/')
+  })
+
+  it('does not carry an old HEAD failure into a new one', async () => {
+    const { publisher, moveHead, failNextBuild } = readinessFixture()
+    failNextBuild('compile blew up')
+    await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
+    expect(publisher.readiness().state).toBe('failed')
+
+    moveHead('bbbbbbb')
+    expect(publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
+  })
+
+  it('is preparing while a build for this HEAD is in flight', async () => {
+    const { bytes, signature } = signedFixture()
+    let resolveBuild!: () => void
+    const buildDone = new Promise<void>((resolve) => {
+      resolveBuild = resolve
+    })
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      headSha: () => 'aaaaaaa',
+      readSourceStatus: () => '',
+      lock: lockFixture([]),
+      spawnBuild: async ({ version }) => {
+        await buildDone
+        return { path: '/stage/' + version, bytes, signature }
+      },
+    })
+
+    const built = publisher.requestBuild(true)
+    expect(publisher.readiness()).toEqual({ state: 'preparing', headSha: 'aaaaaaa' })
+    resolveBuild()
+    await built
+    expect(publisher.readiness().state).toBe('ready')
   })
 })

@@ -84,6 +84,24 @@ export class UpdatesService {
     )
   }
 
+  /**
+   * Retract a channel's target and say why, in words a client may see.
+   *
+   * Withdrawing is the point: a `dev` target for an older commit must not keep
+   * being served once this HEAD cannot produce one, or the fleet converges on a
+   * version that no longer describes the source server. Machines already
+   * converged are untouched — this removes the offer, it does not roll anything
+   * back.
+   */
+  setTargetUnavailable(channel: UpdateChannel, reason: string): void {
+    this.unavailableReasons.set(channel, reason)
+    this.targets.delete(channel)
+    this.rollouts.delete(channel)
+    for (const [machineId, pending] of this.pendingGrants) {
+      if (pending.channel === channel) this.pendingGrants.delete(machineId)
+    }
+  }
+
   setTarget(channel: UpdateChannel, target: UpdateTarget): void
   /** Compatibility form for the existing development publisher. */
   setTarget(target: UpdateTarget): void

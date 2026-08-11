@@ -132,6 +132,32 @@ function defaultReadSourceStatus(root: string): string {
   )
 }
 
+/**
+ * A refusal with two audiences.
+ *
+ * `message` is for the server console: it names the offending paths, because
+ * the operator standing at the checkout needs to know which files to deal with.
+ * `publicReason` is what the read model may show a Settings screen: the shape
+ * of the problem and a count, never a path, never git or compiler output. The
+ * two are deliberately not the same string — a reason that travels to a client
+ * should not be a verbatim tool error.
+ */
+export class DevBundleUnavailableError extends Error {
+  constructor(
+    message: string,
+    readonly publicReason: string,
+  ) {
+    super(message)
+    this.name = 'DevBundleUnavailableError'
+  }
+}
+
+/** The public half of any refusal, including one from an unexpected error. */
+export function publicUnavailableReason(error: unknown, sha: string): string {
+  if (error instanceof DevBundleUnavailableError) return error.publicReason
+  return `Building the development bundle for dev+${sha} failed. See the server log.`
+}
+
 export function sourceIdentityDiagnostic(sha: string, offending: string[]): string {
   const shown = offending.slice(0, 5)
   const more = offending.length - shown.length
@@ -159,15 +185,23 @@ export function assertSourceMatchesHead(
   try {
     porcelain = readSourceStatus(root)
   } catch (error) {
-    throw new Error(
+    throw new DevBundleUnavailableError(
       'development bundle unavailable: could not verify the source checkout against HEAD (' +
         sha +
         '): ' +
         (error instanceof Error ? error.message : String(error)),
+      `The source checkout could not be verified against HEAD (${sha}).`,
     )
   }
   const status = classifySourceIdentity(porcelain)
-  if (!status.clean) throw new Error(sourceIdentityDiagnostic(sha, status.offending))
+  if (!status.clean) {
+    const count = status.offending.length
+    throw new DevBundleUnavailableError(
+      sourceIdentityDiagnostic(sha, status.offending),
+      `The source checkout has ${count} uncommitted ${count === 1 ? 'change' : 'changes'} and no ` +
+        `longer matches HEAD (${sha}). Commit or stash them to publish dev+${sha}.`,
+    )
+  }
 }
 
 export const DEV_BUNDLE_LOCK_NAME = 'podium:dev-bundle'
@@ -451,13 +485,31 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
   readSourceStatus?: (root: string) => string
 }
 
+/**
+ * READINESS, stated rather than implied.
+ *
+ * The honest question a reader has is "is the bundle the code this server is
+ * running?", and the only answer that means anything is about the CURRENT HEAD.
+ * A bundle built two commits ago is `idle`/`failed` for today's HEAD, not
+ * `ready`: presenting it as the target would be the same lie the identity check
+ * exists to prevent, one commit further out.
+ */
+export type DevBundleReadiness =
+  | { state: 'idle'; headSha: string | null }
+  | { state: 'preparing'; headSha: string }
+  | { state: 'ready'; headSha: string; version: string }
+  | { state: 'failed'; headSha: string | null; reason: string; publicReason: string }
+
 export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   requestBuild(explicit?: boolean): Promise<BuiltDevBundle | null>
   current(): BuiltDevBundle | null
+  /** The target for the CURRENT HEAD, or nothing. Never an older commit's. */
   target(): UpdateTarget | undefined
+  /** Explicit lifecycle for this HEAD, with a reason safe to show a client. */
+  readiness(): DevBundleReadiness
   /**
-   * Why there is no current bundle, when the last attempt refused or failed.
-   * Consumed only by the server's own logging; it is not exposed to clients.
+   * Why the last attempt refused or failed, in full — paths included. For the
+   * server log; `readiness().publicReason` is the half a client may see.
    */
   unavailable(): string | undefined
 } {
@@ -466,8 +518,23 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   let lastAttemptAt: number | null = null
   let inFlight: Promise<BuiltDevBundle> | null = null
   let unavailable: string | undefined
+  let failure: { sha: string | null; reason: string; publicReason: string } | undefined
   const now = deps.now ?? Date.now
   const debounceMs = deps.debounceMs ?? 60_000
+
+  const currentHeadSha = (): string | null => {
+    try {
+      return shortSha(deps.headSha())
+    } catch {
+      return null
+    }
+  }
+
+  const recordFailure = (error: unknown, sha: string | null) => {
+    const reason = error instanceof Error ? error.message : String(error)
+    unavailable = reason
+    failure = { sha, reason, publicReason: publicUnavailableReason(error, sha ?? 'unknown') }
+  }
 
   return {
     requestBuild(explicit = false) {
@@ -505,10 +572,11 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
             current = built
             builtSha = headSha
             unavailable = undefined
+            failure = undefined
             return built
           },
           (error: unknown) => {
-            unavailable = error instanceof Error ? error.message : String(error)
+            recordFailure(error, headSha)
             throw error
           },
         )
@@ -523,14 +591,35 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         )
         return requested
       } catch (error) {
-        unavailable = error instanceof Error ? error.message : String(error)
+        recordFailure(error, currentHeadSha())
         return Promise.reject(error)
       }
     },
     current: () => current,
     unavailable: () => unavailable,
+    readiness: () => {
+      const headSha = currentHeadSha()
+      if (headSha !== null && builtSha === headSha && current) {
+        return { state: 'ready', headSha, version: current.version }
+      }
+      if (inFlight !== null && headSha !== null) return { state: 'preparing', headSha }
+      // A failure recorded against an older HEAD says nothing about this one.
+      if (failure && failure.sha === headSha) {
+        return {
+          state: 'failed',
+          headSha,
+          reason: failure.reason,
+          publicReason: failure.publicReason,
+        }
+      }
+      return { state: 'idle', headSha }
+    },
     target: () => {
       if (!current) return undefined
+      // HEAD moved and this bundle is the previous commit's: there is no target
+      // for the code this server is now running, and saying otherwise would
+      // hand a daemon an artifact whose version names a commit it is not on.
+      if (builtSha !== currentHeadSha()) return undefined
       const artifactUrl =
         typeof deps.artifactUrl === 'function'
           ? deps.artifactUrl(current.version)

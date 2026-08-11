@@ -143,3 +143,29 @@ describe('UpdatesService', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('setTargetUnavailable', () => {
+  it('withdraws the stale target and explains why the channel has none', () => {
+    const { svc } = make([m('a', { channel: 'dev' })])
+    svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
+    expect(svc.target('dev')?.version).toBe('dev+aaaaaaa')
+
+    svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
+
+    // Nothing may still be handed dev+aaaaaaa once HEAD has moved past it.
+    expect(svc.target('dev')).toBeUndefined()
+    expect(svc.targetVersion()).toBeUndefined()
+    expect(svc.targetUnavailableReasonFor('a')).toBe(
+      'The source checkout has 2 uncommitted changes.',
+    )
+  })
+
+  it('is cleared by the next successful publication', () => {
+    const { svc } = make([m('a', { channel: 'dev' })])
+    svc.setTargetUnavailable('dev', 'Building the development bundle for dev+bbbbbbb.')
+    svc.setTarget('dev', { version: 'dev+bbbbbbb', critical: false, artifacts: {} } as never)
+
+    expect(svc.target('dev')?.version).toBe('dev+bbbbbbb')
+    expect(svc.targetUnavailableReasonFor('a')).toBeUndefined()
+  })
+})
