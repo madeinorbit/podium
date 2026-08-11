@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asUserId, type IssueWire } from '@podium/model'
 import {
   type AgentPhase,
   type AgentRuntimeState,
@@ -10,7 +9,9 @@ import {
   asAgentIdentityId,
   asMachineId,
   asSessionId,
+  asUserId,
   FIRST_ADMIN_USER_ID,
+  type IssueWire,
   resolveTelegramPrincipal,
   type SessionId,
   SOLE_USER_ID,
@@ -20,11 +21,13 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */
 const TEST_MACHINE = asMachineId('machine-under-test')
+
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
 import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService } from './modules/messages/service'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
+import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
@@ -155,7 +158,9 @@ describe('SessionRegistry', () => {
     expect(metaOf(anon)?.spawnedBy).toBeUndefined()
     store.close()
     // Survives a restart (round-trips through the sessions table).
-    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, { instanceId: 'default' })
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
     expect(metaOf(sessionId, reg2)?.spawnedBy).toBe('issue:iss_1')
     expect(metaOf(anon, reg2)?.spawnedBy).toBeUndefined()
   })
@@ -238,7 +243,11 @@ describe('SessionRegistry', () => {
     })
     const cwdOf = () =>
       reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.cwd
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'sessionCwd', sessionId, cwd: '' })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionCwd',
+      sessionId,
+      cwd: '',
+    })
     expect(cwdOf()).toBe('/repo')
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionCwd',
@@ -665,13 +674,13 @@ describe('SessionRegistry', () => {
     ;(reg.issues as unknown as { allWire: () => unknown }).allWire = () => {
       throw new Error('boom')
     }
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     const publisher = new IssuePublisher({
       allWire: () => (reg.issues as unknown as { allWire: () => IssueWire[] }).allWire(),
     })
     expect(publisher.safeIssuesList()).toEqual([])
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(logs.at('warn')).not.toHaveLength(0)
+    logs.restore()
   })
 
   it('resume spawns with the resume ref + resume origin', async () => {
@@ -992,7 +1001,11 @@ describe('SessionRegistry', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId: s1, code: 0 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId: s1,
+      code: 0,
+    })
     expect(reg.modules.sessions.listSessions().find((m) => m.sessionId === s1)).toMatchObject({
       status: 'exited',
       exitCode: 0,
@@ -1510,7 +1523,11 @@ describe('SessionRegistry', () => {
       title: '✳ working',
     })
     expect(store.sessions.loadSessions().at(0)).toMatchObject({ title: '✳ working' })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+    })
     expect(store.sessions.loadSessions().at(0)).toMatchObject({ status: 'exited', exitCode: 0 })
     reg.modules.sessions.killSession({ sessionId })
     expect(store.sessions.loadSessions()).toEqual([])
@@ -1555,7 +1572,9 @@ describe('SessionRegistry', () => {
   })
 
   it('mints opaque durable session ids (uuid), not the s0 counter', () => {
-    const reg = new SessionRegistry(new SessionStore(':memory:', TEST_MACHINE), undefined, { instanceId: 'default' })
+    const reg = new SessionRegistry(new SessionStore(':memory:', TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -1639,7 +1658,9 @@ describe('SessionRegistry', () => {
     })
     reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
     store1.close()
-    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, { instanceId: 'default' })
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
     reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
     expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('reconnecting')
     reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
@@ -1657,7 +1678,9 @@ describe('SessionRegistry', () => {
     })
     reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
     store1.close()
-    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, { instanceId: 'default' })
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
     reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
     expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('reconnecting') // handler must drive the transition
     reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
@@ -1722,13 +1745,13 @@ describe('SessionRegistry', () => {
     ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
       .prepare("UPDATE sessions SET agent_kind = 'bogus-agent' WHERE id = 'bad'")
       .run()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const ids = reg.modules.sessions.listSessions().map((m) => m.sessionId)
     expect(ids).toContain('good')
     expect(ids).not.toContain('bad')
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(logs.at('warn')).not.toHaveLength(0)
+    logs.restore()
   })
 })
 
@@ -2701,7 +2724,10 @@ describe('sendText (chat send path)', () => {
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })
       vi.advanceTimersByTime(100)
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(sessionId, 'working'))
+      reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        agentStateMsg(sessionId, 'working'),
+      )
       vi.advanceTimersByTime(60_000)
       expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
     } finally {
@@ -2890,7 +2916,11 @@ describe('sendText (chat send path)', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+    })
     expect(reg.modules.sessions.sendText({ sessionId, text: 'hello?' })).toEqual({ ok: false })
   })
 })
@@ -3066,7 +3096,11 @@ describe('hibernation', () => {
       status: 'hibernated',
     })
     // The daemon's kill produces an exit — it must not flip hibernated → exited.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+    })
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
   })
 
@@ -3091,7 +3125,7 @@ describe('hibernation', () => {
     reg.modules.sessions.hibernateSession({ sessionId })
     daemon.length = 0
 
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     // A user principal naming a user that no longer exists — the shape a
     // revoked delegation leaves behind. The gate refuses it, so no spawn may go
     // out; the refusal must still be visible.
@@ -3106,8 +3140,8 @@ describe('hibernation', () => {
     })
 
     expect(daemon.some((m) => m.type === 'spawn')).toBe(false)
-    expect(warn.mock.calls.flat().join(' ')).toContain('wake refused')
-    warn.mockRestore()
+    expect(logs.text()).toContain('wake refused')
+    logs.restore()
   })
 
   it('resurrect respawns under the same id with the resume ref', async () => {
@@ -3164,7 +3198,11 @@ describe('hibernation', () => {
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
     // The process dies out from under us (crash / external kill).
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+    })
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
     daemon.length = 0
 
@@ -3187,7 +3225,11 @@ describe('hibernation', () => {
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 137 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+    })
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
     daemon.length = 0
 
@@ -4263,7 +4305,9 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => daemon.push(message))
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
       const issue = registry.issues.create({
         repoPath: '/repo',
         title: 'Mail target',
@@ -4315,20 +4359,22 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         .mockImplementationOnce(() => {
           throw new Error('corrupt recovery row')
         })
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const logs = captureLogs()
       let registry: SessionRegistry | undefined
       try {
         expect(() => {
           registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
         }).not.toThrow()
-        expect(warn).toHaveBeenCalledWith(
-          '[podium] queued message startup recovery failed; retry backstop remains active',
-          expect.any(Error),
+        expect(logs.at('warn')).toContainEqual(
+          expect.objectContaining({
+            msg: expect.stringContaining('queued message startup recovery failed'),
+            err: expect.objectContaining({ name: 'Error' }),
+          }),
         )
       } finally {
         registry?.dispose()
         reconcile.mockRestore()
-        warn.mockRestore()
+        logs.restore()
       }
     })
   })

@@ -2,6 +2,7 @@ import type { HostMetricsWire, SessionId } from '@podium/model'
 import { asMachineId, asSessionId } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { captureLogs } from '../../test-support/capture-logs'
 import { EventBus } from '../bus'
 import { type HostSessionView, type HostsDeps, HostsService } from './service'
 
@@ -117,7 +118,8 @@ function harness(input: {
       if (input.fail?.has(sessionId)) return { ok: false, reason: 'raced' }
       const target = input.sessions.find((item) => item.sessionId === sessionId)
       if (target?.status !== 'live') return { ok: false, reason: 'not running' }
-      if (!target.resume) return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }
+      if (!target.resume)
+        return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }
       target.status = 'hibernated'
       parked.push(sessionId)
       return { ok: true }
@@ -314,7 +316,7 @@ describe('idle-session cap', () => {
   })
 
   it('logs a mixed-version terminal rejected solely for missing proof once', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     const sessions = [session(asSessionId('legacy'))]
     const { service } = harness({
       sessions,
@@ -325,10 +327,15 @@ describe('idle-session cap', () => {
     service.onHostMetrics(asMachineId('local'), sample(90))
     service.onHostMetrics(asMachineId('local'), sample(90))
 
-    expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('legacy: missing durable terminal proof'),
-    )
+    // ONCE, and about THIS session. `legacy` is the session id: it used to be
+    // pinned by sitting next to the reason in the sentence, and is now its own
+    // field, which says the same thing without depending on the wording.
+    expect(logs.at('warn')).toHaveLength(1)
+    expect(logs.at('warn')[0]).toMatchObject({
+      msg: expect.stringContaining('missing durable terminal proof'),
+      sessionId: 'legacy',
+    })
+    logs.restore()
   })
 
   it('runs count pressure even when the memory sample cannot produce a percentage', () => {
@@ -395,7 +402,7 @@ describe('idle-session cap', () => {
   })
 
   it('reports the remaining overage when protected sessions prevent convergence', () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const logs = captureLogs()
     const sessions = [
       session(asSessionId('parkable')),
       session(asSessionId('no-resume'), { resume: undefined }),
@@ -413,7 +420,10 @@ describe('idle-session cap', () => {
     service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['parkable'])
-    expect(info).toHaveBeenCalledWith(expect.stringContaining('cap unmet: 3 protected/ineligible'))
+    expect(logs.at('info')).toContainEqual(
+      expect.objectContaining({ msg: expect.stringContaining('cap unmet'), overage: 3 }),
+    )
+    logs.restore()
     expect(service.hostMetricsMessage()).toMatchObject({ hosts: [{ idleCapUnmet: 3 }] })
   })
 
@@ -596,7 +606,7 @@ describe('idle-session cap', () => {
     })
 
     it('logs when unobserved quiet sessions enter the idle-live set', () => {
-      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const logs = captureLogs()
       const sessions = [
         unobserved(asSessionId('hookless-a'), { resume: undefined }),
         unobserved(asSessionId('hookless-b'), { resume: undefined }),
@@ -606,16 +616,18 @@ describe('idle-session cap', () => {
       service.onHostMetrics(asMachineId('local'), sample(10))
       service.onHostMetrics(asMachineId('local'), sample(10))
 
-      const lines = info.mock.calls
-        .map((call) => String(call[0]))
-        .filter((line) => line.includes('counting') && line.includes('unobserved'))
+      const lines = logs
+        .at('info')
+        .filter((r) => r.msg.includes('counting') && r.msg.includes('unobserved'))
       expect(lines).toHaveLength(1)
       // BOTH numbers. Neither of these two can be parked (no resume ref), so the
       // cap counts none of them — but the log still has to name all 2, because
       // making this tail visible is what POD-565 is for. Reporting only the
-      // counted number would re-hide it.
-      expect(lines[0]).toContain('counting 0 of 2 unobserved quiet session')
-      expect(lines[0]).toContain('cannot be parked by any policy that is on')
+      // counted number would re-hide it. They are separate FIELDS now, so the
+      // claim is on the numbers themselves rather than on a rendered sentence,
+      // and `unparkable` states outright what the prose used to imply.
+      expect(lines[0]).toMatchObject({ counted: 0, quiet: 2, unparkable: 2 })
+      logs.restore()
     })
 
     it('hibernates a long-quiet unobserved agent that has a resume ref without terminal proof', () => {

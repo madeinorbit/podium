@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
 
 const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
@@ -134,7 +135,7 @@ describe('multi-daemon routing', () => {
     // correlation id — settled the browse the operator asked m1 for. The whole
     // path is exercised: real gateway, real mux principal, real correlator.
     const { reg, m1, m2 } = regWithTwoDaemons()
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const logs = captureLogs()
 
     const browse = reg.modules.rpc.browseDirs('/home/one', {}, 'm1')
     const request = m1.find((msg) => msg.type === 'browseDirsRequest')
@@ -153,8 +154,10 @@ describe('multi-daemon routing', () => {
         entries: [{ name: 'secrets', path: '/home/two/secrets' }],
       },
     })
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining("answered by machine 'm2' but sent to 'm1'"),
+    // The two machine ids are FIELDS now, so this pins which was which rather
+    // than their adjacency in a sentence.
+    expect(logs.at('error')).toContainEqual(
+      expect.objectContaining({ answeredBy: 'm2', sentTo: 'm1' }),
     )
 
     // …and the caller is still waiting: m1's own answer is what settles it, so
@@ -177,7 +180,7 @@ describe('multi-daemon routing', () => {
         entries: [{ name: 'src', path: '/home/one/src' }],
       },
     })
-    error.mockRestore()
+    logs.restore()
   })
 
   it('detaching m1 only marks m1 sessions reconnecting', () => {

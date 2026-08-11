@@ -13,6 +13,7 @@ import { attachTestClient } from '../test-support/client-transport'
 import { asSessionId, asUserId } from '@podium/model'
 import { CLIENT_PLANE_CLASS, type ClientMessage, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+import { captureLogs } from '../test-support/capture-logs'
 import { CLIENT_FRAME_PORTS, clientPortsFor } from './client-frame-routing'
 import { ClientMux } from './client-mux'
 import type { ClientFeaturePorts } from './client-ports'
@@ -99,7 +100,7 @@ describe('the routing table', () => {
 describe('the gate fails closed', () => {
   it('REFUSES a frame type it cannot classify, rather than defaulting it', () => {
     const h = harness()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     // A type that is on neither table — protocol drift, a newer client, a hostile
     // peer. It must reach no port at all.
     h.mux.routeClientFrame(h.id, {
@@ -107,8 +108,10 @@ describe('the gate fails closed', () => {
       sessionId: asSessionId('s1'),
     } as unknown as ClientMessage)
     expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('refused unclassified client frame'))
-    warn.mockRestore()
+    expect(logs.at('warn')).toContainEqual(
+      expect.objectContaining({ msg: 'refused an unclassified client frame' }),
+    )
+    logs.restore()
   })
 
   it('refuses when the PLANE INVENTORY cannot classify it, though the port table can', () => {
@@ -117,7 +120,7 @@ describe('the gate fails closed', () => {
     // forced: this is the "frame classified in one table and forgotten in the
     // other" case, and an OR here would let it through as a default.
     const h = harness()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     forced.plane = true
     try {
       h.mux.routeClientFrame(h.id, A_ROUTABLE_FRAME)
@@ -125,12 +128,12 @@ describe('the gate fails closed', () => {
       forced.plane = false
     }
     expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
-    warn.mockRestore()
+    logs.restore()
   })
 
   it('refuses when the PORT TABLE cannot answer, though the plane inventory can', () => {
     const h = harness()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     forced.ports = true
     try {
       h.mux.routeClientFrame(h.id, A_ROUTABLE_FRAME)
@@ -138,7 +141,7 @@ describe('the gate fails closed', () => {
       forced.ports = false
     }
     expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
-    warn.mockRestore()
+    logs.restore()
   })
 
   it('routes that SAME frame when neither lookup is forced — the forcing is real', () => {
@@ -245,7 +248,7 @@ describe('the connection lifecycle', () => {
 
   it('refuses reconnect reclaim across authenticated users', () => {
     const h = harness()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     const next = h.mux.attachClient({
       userId: asUserId('user:other'),
       userRole: 'admin',
@@ -258,11 +261,10 @@ describe('the connection lifecycle', () => {
     })
     expect(h.ports.sessions.onClientReclaim).not.toHaveBeenCalled()
     expect(h.registry.get(h.id)).toBeDefined()
-    expect(warn).toHaveBeenCalledWith(
-      '[podium] refused cross-user client reconnect reclaim',
-      expect.any(Object),
+    expect(logs.at('warn')).toContainEqual(
+      expect.objectContaining({ msg: 'refused a cross-user client reconnect reclaim' }),
     )
-    warn.mockRestore()
+    logs.restore()
   })
 
   it('is idempotent on a second close', () => {

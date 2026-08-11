@@ -1,5 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { captureLogs } from '../test-support/capture-logs'
 import { EventBus } from './bus'
 
 describe('EventBus', () => {
@@ -49,16 +50,18 @@ describe('EventBus', () => {
 
   it('isolates a throwing listener from its siblings and the emitter', () => {
     const bus = new EventBus()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     const after = vi.fn()
     bus.on('session.exited', () => {
       throw new Error('boom')
     })
     bus.on('session.exited', after)
-    expect(() => bus.emit('session.exited', { sessionId: asSessionId('s1'), code: 0 })).not.toThrow()
+    expect(() =>
+      bus.emit('session.exited', { sessionId: asSessionId('s1'), code: 0 }),
+    ).not.toThrow()
     expect(after).toHaveBeenCalledTimes(1)
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(logs.at('warn')).not.toHaveLength(0)
+    logs.restore()
   })
 
   it('a listener unsubscribing mid-dispatch does not skip siblings', () => {

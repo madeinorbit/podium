@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type MirrorReadResult, MirrorService } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SessionStore } from './store'
 import { TranscriptIndexer } from './modules/memory/transcript-indexer'
+import { SessionStore } from './store'
+import { captureLogs } from './test-support/capture-logs'
 
 // TranscriptIndexer (docs/spec/search-v1.md §2.3) driven end-to-end through a real
 // MirrorService over a fake daemon: chunk hooks feed the indexer, so the tests pin
@@ -386,7 +387,7 @@ describe('TranscriptIndexer', () => {
   })
 
   it('backs off cleanly when the lake file is unreadable (cursor untouched)', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       const { store, indexer } = setup()
       seed(store, 'gone')
@@ -394,9 +395,9 @@ describe('TranscriptIndexer', () => {
       indexer.onBytes('m1', 'gone', '/nonexistent/lake.jsonl')
       await indexer.settled()
       expect(store.conversations.transcriptIndex.indexedCursor('m1', 'gone')).toBe(0)
-      expect(warn).toHaveBeenCalled()
+      expect(logs.at('warn')).not.toHaveLength(0)
     } finally {
-      warn.mockRestore()
+      logs.restore()
     }
   })
 })

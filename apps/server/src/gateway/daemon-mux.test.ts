@@ -15,6 +15,7 @@ import {
   type MachinePrincipal,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+import { captureLogs } from '../test-support/capture-logs'
 import {
   DAEMON_FRAME_PORTS,
   type DaemonPortId,
@@ -100,11 +101,16 @@ describe('the routing table', () => {
 
   it('refuses a frame it cannot classify rather than guessing an owner', () => {
     const { ports, calls } = fakePorts()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     muxWith(ports).routeDaemonFrame(PRINCIPAL, { type: 'notAFrame' } as unknown as DaemonMessage)
     expect(calls).toEqual([])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unclassified daemon frame'))
-    warn.mockRestore()
+    expect(logs.at('warn')).toContainEqual(
+      expect.objectContaining({
+        msg: 'refused an unclassified daemon frame',
+        frameType: 'notAFrame',
+      }),
+    )
+    logs.restore()
   })
 
   it('routes every inventoried frame to exactly the ports the table names', () => {

@@ -7,9 +7,10 @@ import { normalizeSettings } from '@podium/runtime'
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { IssueService, type IssueDeps } from './modules/issues/service'
+import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
+import { captureLogs } from './test-support/capture-logs'
 
 function deps(store: SessionStore): IssueDeps {
   return {
@@ -17,10 +18,14 @@ function deps(store: SessionStore): IssueDeps {
     listSessions: () => [],
     getSettings: () =>
       normalizeSettings({
-        gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
   }
@@ -54,7 +59,7 @@ describe('IssueService boot quarantine', () => {
       )
       .run()
 
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       // Fresh service over the same store simulates the next boot.
       const rebooted = new IssueService(deps(store))
@@ -63,9 +68,13 @@ describe('IssueService boot quarantine', () => {
       expect(ids).toContain(good1.id)
       expect(ids).toContain(good2.id)
       expect(ids).toHaveLength(2)
-      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('quarantined corrupt row'))
+      expect(logs.at('error')).toContainEqual(
+        expect.objectContaining({
+          msg: expect.stringContaining('quarantined a corrupt issue row'),
+        }),
+      )
     } finally {
-      errSpy.mockRestore()
+      logs.restore()
     }
   })
 

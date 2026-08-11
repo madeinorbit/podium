@@ -34,6 +34,7 @@
 
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
+import { captureLogs } from '../test-support/capture-logs'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { applySchemaRepairs, outOfOrderPending, runDrizzleMigrations } from './index'
 
@@ -104,14 +105,14 @@ describe('the out-of-order rebuild hazard', () => {
 
   it('the guard fires on the damaged order and is loud about it', () => {
     const db = mainTrackingDb()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       runDrizzleMigrations(db, ordered, { skipSchemaRepair: true })
-      const text = warn.mock.calls.map((c) => c.join(' ')).join('\n')
+      const text = logs.text()
       expect(text).toContain('out-of-order')
       expect(text).toContain(REBUILD)
     } finally {
-      warn.mockRestore()
+      logs.restore()
       db.close()
     }
   })
@@ -207,15 +208,15 @@ describe('a normal in-order install', () => {
   it('triggers neither the guard nor the repair', () => {
     const db = openDatabase(':memory:')
     db.exec('PRAGMA foreign_keys = OFF')
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       runDrizzleMigrations(db, ordered)
-      expect(warn).not.toHaveBeenCalled()
+      expect(logs.records).toEqual([])
       expect(columns(db, 'client_sessions')).toContain('label')
       // The repair is a no-op on a healthy schema: it reports nothing repaired.
       expect(applySchemaRepairs(db)).toEqual([])
     } finally {
-      warn.mockRestore()
+      logs.restore()
       db.close()
     }
   })
@@ -224,12 +225,12 @@ describe('a normal in-order install', () => {
     const db = openDatabase(':memory:')
     db.exec('PRAGMA foreign_keys = OFF')
     runDrizzleMigrations(db, ordered)
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       expect(runDrizzleMigrations(db, ordered)).toEqual([])
-      expect(warn).not.toHaveBeenCalled()
+      expect(logs.records).toEqual([])
     } finally {
-      warn.mockRestore()
+      logs.restore()
       db.close()
     }
   })

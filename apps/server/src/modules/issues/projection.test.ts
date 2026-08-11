@@ -1,6 +1,7 @@
 import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { IssueRow } from '../../store'
+import { captureLogs } from '../../test-support/capture-logs'
 import {
   issueDepProjectionRows,
   issueDepToProjection,
@@ -307,7 +308,7 @@ describe('issueProjectionRows: all-or-nothing [POD-796]', () => {
     // per-row skip would not degrade gracefully — it would durably tell every cap
     // client that the poison issue was DELETED. `undefined` leaves the baseline
     // untouched instead: stale by one publish, and self-healing.
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       const rows = issueProjectionRows(
         [
@@ -318,9 +319,9 @@ describe('issueProjectionRows: all-or-nothing [POD-796]', () => {
         () => NO_LABELS,
       )
       expect(rows).toBeUndefined()
-      expect(warn).toHaveBeenCalled()
+      expect(logs.at('warn')).not.toHaveLength(0)
     } finally {
-      warn.mockRestore()
+      logs.restore()
     }
   })
 })
@@ -354,16 +355,16 @@ describe('issueDep projection [POD-822]', () => {
     // `keys.test.ts` covers the injectivity directly. That makes the old input a
     // test that would pass while asserting nothing. An empty part is refused by
     // `requireNonEmpty` and still exercises the degradation this case is about.
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       const rows = issueDepProjectionRows([
         { fromId: 'iss_1', toId: 'iss_2', type: 'blocks' },
         { fromId: 'iss_a', toId: 'iss_2', type: '' },
       ])
       expect(rows).toBeUndefined()
-      expect(warn).toHaveBeenCalled()
+      expect(logs.at('warn')).not.toHaveLength(0)
     } finally {
-      warn.mockRestore()
+      logs.restore()
     }
   })
 })

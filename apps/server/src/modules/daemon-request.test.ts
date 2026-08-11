@@ -12,11 +12,12 @@
  * would pass against a broker that settles nothing.
  */
 
-import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol'
+import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DaemonRpcService } from './machines/rpc'
+import { captureLogs } from '../test-support/capture-logs'
 import { DaemonRequestBroker, daemonRequestKind } from './daemon-request'
+import { DaemonRpcService } from './machines/rpc'
 
 const PROBE = daemonRequestKind<{ answer: string }>('p')
 const OTHER = daemonRequestKind<{ answer: string }>('o')
@@ -81,7 +82,7 @@ describe('correlation', () => {
     const requestId = (sent[0]?.msg as unknown as { requestId: string }).requestId
 
     current = 'm2'
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+    captureLogs()
     expect(broker.settle(PROBE, requestId, 'm2', { answer: 'stolen' })).toBe(false)
     expect(broker.settle(PROBE, requestId, 'm1', { answer: 'ok' })).toBe(true)
 
@@ -140,13 +141,11 @@ describe('correlation', () => {
     // at the settle site, but a table wired to the wrong family must not resolve
     // a different caller's promise just because the id happens to exist.
     const h = harness()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     const p = h.ask('m1')
 
     expect(h.broker.settle(OTHER, h.idOf(0), 'm1', { answer: 'wrong family' })).toBe(false)
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("settled through request family 'o' but it was sent as 'p'"),
-    )
+    expect(logs.at('warn')).toContainEqual(expect.objectContaining({ settledAs: 'o', sentAs: 'p' }))
     expect(h.broker.settle(PROBE, h.idOf(0), 'm1', { answer: 'ok' })).toBe(true)
 
     await expect(p).resolves.toEqual({ answer: 'ok' })
@@ -156,7 +155,7 @@ describe('correlation', () => {
 describe('the answering machine is checked (POD-1175)', () => {
   it('DROPS a reply from a machine other than the one the request was sent to', async () => {
     const h = harness()
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const logs = captureLogs()
     const p = h.ask('m1')
 
     expect(h.broker.settle(PROBE, h.idOf(0), 'm2', { answer: 'from the wrong machine' })).toBe(
@@ -165,8 +164,8 @@ describe('the answering machine is checked (POD-1175)', () => {
 
     // LOUD: a machine answering for a request it was never sent is either a
     // routing bug or an attempt to serve its own data under this caller's id.
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining("answered by machine 'm2' but sent to 'm1'"),
+    expect(logs.at('error')).toContainEqual(
+      expect.objectContaining({ answeredBy: 'm2', sentTo: 'm1' }),
     )
     // And the honest machine can still answer — the drop did not consume it.
     expect(h.broker.settle(PROBE, h.idOf(0), 'm1', { answer: 'ok' })).toBe(true)
@@ -178,7 +177,7 @@ describe('the answering machine is checked (POD-1175)', () => {
     // resolution, because that would let any attached daemon deny every other
     // machine's RPCs by racing them.
     const h = harness()
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+    captureLogs()
     const p = h.ask('m1')
 
     h.broker.settle(PROBE, h.idOf(0), 'm2', { answer: 'from the wrong machine' })
@@ -193,7 +192,7 @@ describe('the answering machine is checked (POD-1175)', () => {
     // The multi-machine shape the single-daemon deployment hides: two requests
     // in flight, one per machine. Each must be settled only by its own.
     const h = harness()
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+    captureLogs()
     const toM1 = h.ask('m1')
     const toM2 = h.ask('m2')
 

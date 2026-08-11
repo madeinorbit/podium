@@ -16,10 +16,11 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { captureLogs } from './test-support/capture-logs'
 import {
-  reportParkedUpstreamMutations,
   type ParkedUpstreamSource,
   type RetirementEventSink,
+  reportParkedUpstreamMutations,
 } from './upstream-retirement'
 
 type AppendedEvent = Parameters<RetirementEventSink['appendEvent']>[0]
@@ -44,19 +45,19 @@ const AT = Date.UTC(2026, 6, 30, 12, 0, 0)
 describe('reportParkedUpstreamMutations', () => {
   it('reports NOTHING when the archived outbox is empty — no event, no warning', () => {
     const events = sink()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       expect(reportParkedUpstreamMutations(source([]), events, () => AT)).toBe(0)
       expect(events.events).toEqual([])
-      expect(warn).not.toHaveBeenCalled()
+      expect(logs.records).toEqual([])
     } finally {
-      warn.mockRestore()
+      logs.restore()
     }
   })
 
   it('surfaces every parked mutation on BOTH channels — the durable event and the log', () => {
     const events = sink()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       const count = reportParkedUpstreamMutations(
         source([
@@ -93,21 +94,30 @@ describe('reportParkedUpstreamMutations', () => {
       })
 
       // ---- the log channel: visible to whoever is watching the boot right now ----
-      const logged = warn.mock.calls.map((c) => String(c[0])).join('\n')
-      expect(logged).toContain('PARKED')
-      expect(logged).toContain('m1')
-      expect(logged).toContain('m2')
-      // It must say what to DO. A notice that reports a loss without naming a remedy
-      // reads as a crash, and an operator's first instinct is to delete the table.
-      expect(logged).toContain('upstream_outbox')
+      // The IDENTITIES ride a field now rather than a formatted sentence, so this
+      // asserts the same promise the durable event above makes — an operator can
+      // see WHICH mutations, not just how many — without depending on wording.
+      const warned = logs.at('warn')[0]
+      expect(warned).toMatchObject({
+        parked: 2,
+        mutations: [
+          expect.objectContaining({ mutationId: 'm1', proc: 'issues.close' }),
+          expect.objectContaining({ mutationId: 'm2', proc: 'issues.update' }),
+        ],
+      })
+      // It must still say what to DO. A notice that reports a loss without naming a
+      // remedy reads as a crash, and an operator's first instinct is to delete the
+      // table — so the remedy stays in the MESSAGE, where a human reads it.
+      expect(String(warned?.msg)).toContain('PARKED')
+      expect(String(warned?.msg)).toContain('upstream_outbox')
     } finally {
-      warn.mockRestore()
+      logs.restore()
     }
   })
 
   it('a database with no archived table does not stop the boot', () => {
     const events = sink()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       const throwing: ParkedUpstreamSource = {
         listParkedUpstreamMutations: () => {
@@ -117,7 +127,7 @@ describe('reportParkedUpstreamMutations', () => {
       expect(reportParkedUpstreamMutations(throwing, events, () => AT)).toBe(0)
       expect(events.events).toEqual([])
     } finally {
-      warn.mockRestore()
+      logs.restore()
     }
   })
 
@@ -127,7 +137,7 @@ describe('reportParkedUpstreamMutations', () => {
    * that is what makes the return value usable by a caller that wants to react.
    */
   it('still warns and still reports the count when the durable append fails', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       const broken: RetirementEventSink = {
         appendEvent() {
@@ -141,9 +151,11 @@ describe('reportParkedUpstreamMutations', () => {
           () => AT,
         ),
       ).toBe(1)
-      expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain('m1')
+      expect(logs.at('warn')[0]).toMatchObject({
+        mutations: [expect.objectContaining({ mutationId: 'm1' })],
+      })
     } finally {
-      warn.mockRestore()
+      logs.restore()
     }
   })
 })
