@@ -3990,6 +3990,16 @@ a.ref-link--issue[data-issue-stage="done"] {
 a.ref-link--issue[data-issue-stage="done"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-width='1.8'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'/%3E%3Cpath%20d='M4.5%207.2L6.3%209l3.2-3.6'/%3E%3C/svg%3E");
 }
+/* Unknown to this client: no live row answers for the token. Two spellings —
+   no `data-issue-stage` at all (the ref never resolved) and an empty one (the
+   issue resolved but is deleted, so it has no stage). Muted rather than the
+   `--issue`/`--info` accent: a ref the client simply has not received yet must
+   not wear a colour that reads as a workflow state (POD-676). Session refs are
+   never "unknown" in this sense and keep the accent. */
+a.ref-link--issue:not([data-issue-stage]),
+a.ref-link--issue[data-issue-stage=""] {
+  --ref-accent: var(--muted-foreground);
+}
 /* Session refs (POD-13-A / POD-DRAFT-3): lucide terminal. */
 a.ref-link--session::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolyline%20points='4%2017%2010%2011%204%205'/%3E%3Cline%20x1='12'%20x2='20'%20y1='19'%20y2='19'/%3E%3C/svg%3E");

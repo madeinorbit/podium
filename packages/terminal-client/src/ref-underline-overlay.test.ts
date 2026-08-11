@@ -69,8 +69,14 @@ describe('refStageAccent', () => {
     for (const stage of Object.keys(REF_STAGE_ACCENT) as IssueStage[]) {
       expect(refStageAccent(stage)).toBe(REF_STAGE_ACCENT[stage])
     }
-    expect(refStageAccent(null)).toContain('--primary')
-    expect(refStageAccent(undefined)).toContain('--primary')
+    expect(refStageAccent(null)).toContain('--muted-foreground')
+    expect(refStageAccent(undefined)).toContain('--muted-foreground')
+  })
+
+  it('never paints an unknown ref in the brand accent', () => {
+    // A ref the client cannot resolve must not borrow --primary: beside the
+    // stage colours it reads as a state rather than as "no state known".
+    expect(refStageAccent(null)).not.toContain('--primary')
   })
 
   it('keeps in-progress on the shared blue channel, not obligation amber', () => {
@@ -191,12 +197,12 @@ describe('RefUnderlineOverlay', () => {
     overlay.dispose()
   })
 
-  it('keeps the default accent when stage is unresolved', () => {
+  it('paints an unresolved ref in the muted default accent', () => {
     const { screen, overlay } = makeOverlay(['POD-1'], known, () => null)
     overlay.refreshNow()
     const el = visibleRects(screen)[0]
     expect(el?.dataset.issueStage).toBeUndefined()
-    expect(el?.style.getPropertyValue('--ref-accent')).toContain('--primary')
+    expect(el?.style.getPropertyValue('--ref-accent')).toContain('--muted-foreground')
     expect(el?.style.borderBottomStyle).toBe('solid')
     overlay.dispose()
   })
