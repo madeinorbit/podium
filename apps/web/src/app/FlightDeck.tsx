@@ -13,6 +13,7 @@ import {
   type FlightDeckRow,
   type IssueNavigationModel,
   type IssueNote,
+  isCoordinatorSession,
   issueNote,
   type MissionDeparture,
   missionDepartures,
@@ -24,10 +25,10 @@ import {
   type PresenceNote,
   presenceNote,
   reposToViews,
-  rootRoster,
   type SessionRole,
   sessionNeedsHuman,
   sessionRole,
+  sessionSettled,
   treeGuides,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind, SessionMeta } from '@podium/model'
@@ -80,16 +81,20 @@ const MODES: Array<{ id: FlightDeckMode; label: string }> = [
  * and the elbow into its own strip, so adjacent rows compose one continuous
  * line. `treeGuides` in mission.ts decides which rails carry on past a row.
  *
- * A session hangs further in than one issue step, so a CHILD task always lands
- * left of its parent's agents: issue depth reads as issue depth and a session
- * never looks like it is parenting the task below it.
+ * A TASK'S AGENTS AND ITS CHILD TASKS SHARE ONE RAIL (POD-758). They used to
+ * hang on two lines two pixels apart, so that a child task landed left of its
+ * parent's agents and could never be misread as one. The redesign makes an
+ * agent row a different KIND of object instead — no strip, no fill, no rounded
+ * edge — which settles the same confusion without spending a second line on it,
+ * and lets one branch line carry everything a task owns.
  */
 const SPINE_PAD = 8
-const DEPTH_STEP = 14
-/** Where a nesting level's rail sits inside its own step. */
-const RAIL_INSET = 6
+const DEPTH_STEP = 16
+/** Where a nesting level's rail sits inside its own step. Also the inset of a
+ *  task's agent rail inside its own band, because they are the same line. */
+const RAIL_INSET = 8
 /** A task strip's height, and its vertical centre — where its elbow lands. */
-const BAND_HEIGHT = 30
+const BAND_HEIGHT = 32
 const BAND_MID = BAND_HEIGHT / 2
 /**
  * A PROPOSED strip is shorter — nobody has accepted it, so it holds no space for
@@ -98,11 +103,13 @@ const BAND_MID = BAND_HEIGHT / 2
  * low, which is exactly the kind of near-miss that makes a tree look drawn
  * rather than computed.
  */
-const PROPOSED_BAND = 24
+const PROPOSED_BAND = 26
 const PROPOSED_MID = PROPOSED_BAND / 2
-/** A session band's inset inside its task strip, and its own rail. */
-const AGENT_INDENT = 22
-const AGENT_RAIL = 8
+/** A session row's inset inside its task strip, and its own rail — one issue
+ *  step and the step's own rail, so an agent and a child task hang on the SAME
+ *  line at the SAME indent (see the note above). */
+const AGENT_INDENT = DEPTH_STEP
+const AGENT_RAIL = RAIL_INSET
 /**
  * THE MISSION'S OWN RAIL — where a depth-1 strip draws its line (`BranchGuides`'
  * `ownX` at depth 1). The header, the view bar and the root's own agent rows all
@@ -119,13 +126,81 @@ const ROOT_BLOCK_INSET = ROOT_RAIL - AGENT_RAIL
 /** Where a depth-1 strip's band begins — the left edge everything in the column
  *  that is not the spine itself aligns to, so the rail runs in a clear gutter. */
 const GUTTER = SPINE_PAD + DEPTH_STEP
-/** Vertical centre of every row hung under a task strip (min-height 24px). */
-const HUNG_MID = 12
+/** Vertical centre of every row hung under a task strip (min-height 28px). */
+const HUNG_MID = 14
 /** A native worker's inset inside its session band, and its own rail. */
-const NATIVE_INDENT = 20
+const NATIVE_INDENT = 18
 const NATIVE_RAIL = 7
-/** Vertical centre of a native row (height 20px). */
-const NATIVE_MID = 10
+/** Vertical centre of a native row (height 22px). */
+const NATIVE_MID = 11
+/**
+ * THE ATTENTION AND SELECTION TICKS — colour as a mark in the gutter, never as
+ * a fill or a border on the strip (POD-758).
+ *
+ * The spine has exactly two fills: grey for a task, fuchsia for a proposal.
+ * Selection and attention are therefore not allowed to be surfaces, or the one
+ * thing a colour means here stops being one thing. They arrive instead as a
+ * short square tick standing in the rail's own gutter — the issue accent for
+ * the strip you are on, amber one notch further out for a strip with a session
+ * asking inside it. Two ticks can stand side by side without either becoming
+ * the other, which a border and a background cannot.
+ */
+const TICK_WIDTH = 3
+const TICK_HEIGHT = 15
+/** Offsets from the row's own rail: selection just inside it, attention just
+ *  outside — so attention is always the leftmost thing on the row. */
+const TICK_SELECTED_X = RAIL_INSET - 5
+const TICK_ATTENTION_X = -5
+/** The right-hand column every row parks its state in, so the whole mission
+ *  scans as one vertical read. Rigid: the title is the only shrinker. */
+const STATE_COL = 70
+
+/**
+ * THE LEAD RAIL.
+ *
+ * A branch whose owner has a coordinator draws its guide in the mission's own
+ * colour instead of a hairline, so "who is running this" is answered by the
+ * line rather than by a badge. Two tiers, because the same device names the
+ * mission's lead and a task's lead and those are not the same claim. Un-led
+ * branches keep the hairline, which is what stops the coloured line from
+ * reading as decoration.
+ */
+type RailTone = 'mission' | 'task' | null
+
+interface Rail {
+  className: string
+  width: number
+}
+
+const HAIRLINE_RAIL: Rail = { className: 'bg-hairline-soft', width: 1 }
+
+const railFor = (tone: RailTone): Rail =>
+  tone === 'mission'
+    ? { className: 'deck-rail-mission', width: 2 }
+    : tone === 'task'
+      ? { className: 'deck-rail-task', width: 2 }
+      : HAIRLINE_RAIL
+
+/**
+ * THE TITLE'S FLOOR — 150px, and it is a TARGET, not a `min-width`.
+ *
+ * The title is the only shrinker on a strip: the icons and the state column are
+ * rigid, because a half-rendered clock (`28:`) is a WRONG number where
+ * `Mission progress…` is still a readable title. When the column narrows past
+ * the point where the title would go under this floor, whole elements DROP
+ * rather than anything being cut mid-string — in order: the relation chip, then
+ * the payload chip, then the census icons past the first. Everything dropped
+ * survives on the row's tooltip.
+ *
+ * Enforcing it as a literal `min-width` was the wrong shape and shipped for
+ * exactly one screenshot: a flex item that refuses to shrink does not make the
+ * row wider than the column, it makes the row OVERFLOW it, and the state column
+ * — the rigid thing the floor exists to protect — was the first casualty, cut
+ * to `Not sta…` on every nested strip. So the floor lives in the container
+ * thresholds in `styles.css` instead, which is where it can actually be
+ * enforced, and the title keeps `min-w-0` so the last resort is a truncated
+ * title rather than a broken row.
+ */
 
 const readMode = (raw: string | null): FlightDeckMode =>
   raw === 'active' || raw === 'needs-you' ? raw : 'full'
@@ -291,19 +366,20 @@ function useClickIntent(): ClickIntent {
  * a stopped state, not an obligation — the ⊘ mark and the named reason
  * underneath carry it, and the dot beside them is the only amber on the strip.
  */
-function StateMark({ state }: { state: DeckState }): JSX.Element {
+function StateMark({ state }: { state: DeckState }): JSX.Element | null {
+  // ONLY THE LIVE ONE (POD-758). An earlier pass gave every state a mark — a
+  // tick for done, ⊘ for blocked, an hourglass for waiting — on the argument
+  // that a word alone is unreadable down a spine of thirty strips. It is not
+  // the word that was unreadable, it is the word CUT: mark plus word does not
+  // fit 70px, and `Not sta…` is worse than either. Every static state is
+  // already carried twice over on the left — the stage glyph, the hatch on a
+  // blocked strip, the relation chip naming the blocker — so the column spends
+  // its width on the word, and the one mark that says something the words
+  // cannot is the one that MOVES.
+  //
   // The spinner carries its own reserved working blue (`--motion-working`);
   // nothing here retints it.
-  if (state === 'working') return <BrailleSpinner size={9} className="flex-none" />
-  if (state === 'done') return <Check size={11} aria-hidden className="flex-none text-success" />
-  if (state === 'blocked') return <Ban size={11} aria-hidden className="flex-none text-text-dim" />
-  if (state === 'moved') {
-    return <ArrowRight size={11} aria-hidden className="flex-none text-text-dim" />
-  }
-  // A proposal is not a queued job, so it does not get the queue's hourglass —
-  // its stage glyph on the left already says `proposed`, and the word carries it.
-  if (state === 'proposed') return <span aria-hidden className="w-px flex-none" />
-  return <Hourglass size={10} aria-hidden className="flex-none text-text-faint" />
+  return state === 'working' ? <BrailleSpinner size={9} className="flex-none" /> : null
 }
 
 /**
@@ -329,7 +405,7 @@ function IssueNoteChip({ note }: { note: IssueNote }): JSX.Element {
           : CornerDownRight
   return (
     <span
-      className="shell-type-micro flex max-w-[10rem] flex-none items-center gap-1 font-mono text-text-faint"
+      className="shell-type-micro deck-drop-relation flex max-w-[8rem] flex-none items-center gap-1 font-mono text-text-faint"
       data-testid="flight-issue-note"
       data-note={note.kind}
       title={note.full}
@@ -350,19 +426,85 @@ function IssueNoteChip({ note }: { note: IssueNote }): JSX.Element {
  * where the words, the marker and the answer live. All this strip owes the
  * operator is "there is something in here" from across the column.
  */
-function StateLabel({ value }: { value: DeckIssueState }): JSX.Element {
+function StateLabel({ value, label }: { value: DeckIssueState; label?: string }): JSX.Element {
+  const word = label ?? value.label
   return (
     <span
-      className="flex flex-none items-center gap-1.5"
+      // RIGID, AND ALWAYS THE SAME WIDTH. Every strip and every agent row parks
+      // its state in this one column, right-aligned, so the mission's states
+      // read down the edge of the spine as a single list. It never shrinks —
+      // the title does — because a half-rendered state is a wrong state.
+      className="flex flex-none items-center justify-end gap-1.5"
+      style={{ width: STATE_COL }}
       data-operational-state={value.state}
       data-attention={value.attention ? 'true' : undefined}
-      title={value.attention ? `${value.label} · a session in here needs you` : value.label}
+      title={value.attention ? `${word} · a session in here needs you` : word}
     >
       {value.attention && (
         <span aria-hidden className="size-[5px] flex-none rounded-full bg-attention" />
       )}
-      <StateMark state={value.state} />
-      <span className="shell-type-micro truncate font-mono text-text-dim">{value.label}</span>
+      {/* A folded branch reports live state in words (`2 running`) and drops the
+          mark: the word already says what the mark would, and 70px does not
+          hold both without cutting the word that carries the number. */}
+      {label === undefined && <StateMark state={value.state} />}
+      <span className="shell-type-micro truncate font-mono text-text-dim">{word}</span>
+    </span>
+  )
+}
+
+/** The one line a census icon carries on hover: who it is, and what it is doing.
+ *  Deliberately a coarse word rather than a live clock — the icon exists so the
+ *  operator can decide whether to unfold, and a tooltip that ticks would be one
+ *  more thing animating in a column whose only motion is the working spinner. */
+function crewLine(session: SessionMeta, now: number): string {
+  const retired = session.archived || session.status === 'exited'
+  const phase = motionPhase(session)
+  const state = retired
+    ? `retired ${relativeTime(session.lastActiveAt, now)}`
+    : sessionNeedsHuman(session)
+      ? 'needs you'
+      : phase === 'working'
+        ? 'working'
+        : phase === 'done'
+          ? 'done'
+          : 'standing by'
+  return [session.displayRef?.trim(), sessionDisplayName(session), state]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/** Past this the icons stop being a census and start being a texture. */
+const CREW_SHOWN = 4
+
+/**
+ * WHO IS BEHIND THE FOLD — one harness icon per session, and no names.
+ *
+ * A collapsed strip is a census, not a roster. Names need room the strip does
+ * not have and a bare count says nothing about what kind of thing is in there;
+ * the harness icons say "two Claudes and a shell" in the width of three
+ * characters. Settled agents dim rather than disappear — nothing in this spine
+ * is hidden by default — and everything each icon stands for rides on its
+ * tooltip, which is also where an icon dropped by a narrow column survives.
+ */
+function CrewCensus({ crew, now }: { crew: readonly SessionMeta[]; now: number }): JSX.Element {
+  const shown = crew.slice(0, CREW_SHOWN)
+  const extra = crew.length - shown.length
+  return (
+    <span className="flex flex-none items-center gap-1" data-testid="flight-crew">
+      {shown.map((session, index) => (
+        <span
+          key={session.sessionId}
+          // The FIRST icon always survives: "there is somebody in here" is the
+          // fact, and the rest are detail the tooltip keeps.
+          className={index === 0 ? undefined : 'deck-drop-crew'}
+          title={crewLine(session, now)}
+        >
+          <KindIcon kind={session.agentKind} compact dimmed={sessionSettled(session)} />
+        </span>
+      ))}
+      {extra > 0 && (
+        <span className="shell-type-micro deck-drop-crew font-mono text-text-faint">+{extra}</span>
+      )}
     </span>
   )
 }
@@ -372,35 +514,41 @@ function StateLabel({ value }: { value: DeckIssueState }): JSX.Element {
  *
  * `last` stops the rail at the elbow, which is what makes the final child of a
  * branch read as final rather than as a line running off into the next block.
- * `tone` is a background class: a lit rail is how a focused or asking row says
- * so without a coloured 2px border, which is the callout-card tell this system
- * refuses.
+ *
+ * THE RAIL AND THE ELBOW ARE TWO DECISIONS. The vertical belongs to the BRANCH
+ * — every row in a lead's block draws the same coloured line, or the line would
+ * be dashes. The elbow belongs to the ROW: only the lead's own elbow is drawn
+ * in the branch colour, which is how the line names one agent rather than
+ * decorating all of them. Everyone else's elbow stays a hairline.
  */
 function Hung({
   railX,
   indent,
   mid,
   last,
-  tone,
+  rail,
+  elbow,
   children,
 }: {
   railX: number
   indent: number
   mid: number
   last: boolean
-  tone: string
+  rail: Rail
+  /** Background class for this row's elbow; defaults to the rail's own. */
+  elbow?: string
   children: ReactNode
 }): JSX.Element {
   return (
     <div className="relative">
       <span
         aria-hidden
-        className={cn('pointer-events-none absolute w-px', tone)}
-        style={{ left: railX, top: 0, height: last ? mid : '100%' }}
+        className={cn('pointer-events-none absolute', rail.className)}
+        style={{ left: railX, top: 0, width: rail.width, height: last ? mid : '100%' }}
       />
       <span
         aria-hidden
-        className={cn('pointer-events-none absolute h-px', tone)}
+        className={cn('pointer-events-none absolute h-px', elbow ?? rail.className)}
         style={{ left: railX, top: mid, width: indent - railX }}
       />
       {children}
@@ -414,32 +562,40 @@ function Hung({
  *  moves; everything else about the geometry is fixed. */
 function BranchGuides({
   carries,
+  rails,
   mid = BAND_MID,
 }: {
   carries: readonly boolean[]
+  /** The tone of the rail at each level, `rails[level - 1]` — see `railTones`. */
+  rails: readonly RailTone[]
   mid?: number
 }): JSX.Element | null {
   const depth = carries.length
   if (depth === 0) return null
   const ownX = SPINE_PAD + (depth - 1) * DEPTH_STEP + RAIL_INSET
+  const own = railFor(rails[depth - 1] ?? null)
   return (
     <>
       {carries.slice(0, -1).map((carry, level) => {
         const left = SPINE_PAD + level * DEPTH_STEP + RAIL_INSET
+        const rail = railFor(rails[level] ?? null)
         return carry ? (
           <span
             key={left}
             aria-hidden
-            className="pointer-events-none absolute top-0 bottom-0 w-px bg-hairline-soft"
-            style={{ left }}
+            className={cn('pointer-events-none absolute top-0 bottom-0', rail.className)}
+            style={{ left, width: rail.width }}
           />
         ) : null
       })}
       <span
         aria-hidden
-        className="pointer-events-none absolute w-px bg-hairline-soft"
-        style={{ left: ownX, top: 0, height: carries[depth - 1] ? '100%' : mid }}
+        className={cn('pointer-events-none absolute', own.className)}
+        style={{ left: ownX, top: 0, width: own.width, height: carries[depth - 1] ? '100%' : mid }}
       />
+      {/* The elbow into a task is ALWAYS a hairline, even off a lead's coloured
+          rail: the colour is the branch saying who runs it, and painting every
+          child's elbow with it would turn a name into a wash. */}
       <span
         aria-hidden
         className="pointer-events-none absolute h-px bg-hairline-soft"
@@ -451,87 +607,68 @@ function BranchGuides({
 
 /** What a fold is hiding, said in the row's own meta slot rather than in a
  *  second row below it — a fold that costs a row hides nothing. */
-function CollapsedPayload({ summary }: { summary: CollapsedSummary }): JSX.Element {
-  const { tasks, done, run, kinds, needsYou } = summary
-  const pct = (n: number): string => `${tasks === 0 ? 0 : (n / tasks) * 100}%`
+function CollapsedPayload({ summary }: { summary: CollapsedSummary }): JSX.Element | null {
+  const { tasks, done, run, needsYou } = summary
+  if (tasks === 0) return null
+  const pct = (n: number): string => `${(n / tasks) * 100}%`
   return (
     <span
-      className="flex flex-none items-center gap-1.5"
+      className="deck-drop-payload flex flex-none items-center gap-1.5"
       data-testid="flight-collapse-payload"
       title={`${tasks} task${tasks === 1 ? '' : 's'} · ${run} active${needsYou ? ' · needs you' : ''}`}
     >
       <span className="shell-type-micro rounded border border-hairline-bar px-1 font-mono text-text-dim">
         {tasks} task{tasks === 1 ? '' : 's'}
       </span>
-      <span className="flex h-1 w-7 flex-none overflow-hidden rounded-full bg-secondary">
+      <span className="flex h-[3px] w-7 flex-none overflow-hidden rounded-full bg-secondary">
         <span className="h-full bg-success" style={{ width: pct(done) }} />
         <span className="h-full bg-info" style={{ width: pct(run) }} />
       </span>
-      {kinds.length > 0 && (
-        <span className="flex flex-none items-center pl-0.5">
-          {kinds.map((kind, index) => (
-            <span key={kind} className={index > 0 ? '-ml-1.5' : undefined}>
-              <KindIcon kind={kind} chip />
-            </span>
-          ))}
-        </span>
-      )}
-      {needsYou && <span aria-hidden className="size-1.5 flex-none rounded-full bg-attention" />}
     </span>
   )
 }
 
 /**
- * THE EMPTY SEAT — the slot a session will land in, drawn as a slot (round 3 §6).
+ * THE EMPTY SEAT — a dotted chip in the strip's own chip slot (POD-758).
  *
- * The operator asked for two things that pull in opposite directions: stop this
- * looking like an agent row, and KEEP the held space, because the space is what
- * teaches where you will click to enter a session once one is on this task.
+ * It used to be a full row hung under the task, holding exactly the space a
+ * session would occupy. That space taught where you would click, and cost a row
+ * of the spine on every unstaffed task to teach it. The seat is a chip now, in
+ * the slot where a staffed task shows its crew: "nobody is here" is read
+ * exactly where somebody would be, which is the same lesson in no rows at all.
  *
- * So the space stays exactly the height a session row occupies, and everything
- * that made it read as an agent goes: no filled band, no raised surface, no
- * agent chip — in its place the same 20px silhouette the harness tile would fill,
- * drawn as a hole. A hole where a face goes is unmistakably an empty seat, and
- * unmistakably not somebody sitting in it. A PROPOSED task gets no seat at all
- * (see §7b): nobody has accepted it, so there is nothing yet to hold space for.
+ * DOTTED, NEVER DASHED. One rim style, reserved for one meaning across the
+ * whole spine — a session belongs here and there is not one. Dashed is used
+ * nowhere in this column, so the two can never be confused.
  *
- * The one arm that keeps a voice is `attention` — vacated in-progress work with
- * no handoff is genuinely asking, and that is what amber is for.
+ * Only the two arms that are genuinely a held seat get one. `done` and `review`
+ * are settled, `moved` and `blocked` already name themselves on the strip, and
+ * a proposal holds no seat at all — nobody has accepted it, so there is nothing
+ * yet to hold space for.
  */
-function ReservedSlot({ note, last }: { note: PresenceNote; last: boolean }): JSX.Element {
+function SeatChip({ note }: { note: PresenceNote }): JSX.Element {
   return (
-    <Hung
-      railX={AGENT_RAIL}
-      indent={AGENT_INDENT}
-      mid={HUNG_MID}
-      last={last}
-      tone={note.attention ? 'bg-attention/70' : 'bg-hairline-soft'}
+    <span
+      className={cn(
+        'shell-type-micro flex flex-none items-center gap-1 border border-dotted px-1.5 py-px font-mono',
+        note.attention
+          ? 'border-attention/60 font-semibold text-attention'
+          : 'border-border-strong text-text-faint',
+      )}
+      data-presence={note.kind}
+      data-testid="flight-reserved-slot"
+      title={note.text}
     >
-      <div
-        className={cn(
-          'shell-type-micro flex min-h-6 items-center gap-1.5 py-0.5 pr-2 font-mono',
-          note.attention ? 'font-semibold text-attention' : 'text-text-faint',
-        )}
-        style={{ marginLeft: AGENT_INDENT }}
-        data-presence={note.kind}
-        data-testid="flight-reserved-slot"
-      >
-        <span
-          aria-hidden
-          className={cn(
-            // The rim takes the CHIP tier, not the bar's: a dashed line is half
-            // a line to begin with, and the seat hangs on the card column now,
-            // where a hairline meant for the bar tier dashes away to nothing.
-            'size-5 flex-none rounded-[6px] border border-dashed',
-            note.attention ? 'border-attention/60' : 'border-border-strong',
-          )}
-        />
-        {note.kind === 'moved' && <ArrowRight size={11} aria-hidden className="flex-none" />}
-        <span className="truncate">{note.text}</span>
-      </div>
-    </Hung>
+      {note.attention ? 'no agent' : 'seat open'}
+    </span>
   )
 }
+
+/** Which presence notes are a HELD SEAT rather than a settled fact. Everything
+ *  else the strip already says in its state column or its relation chip, and
+ *  saying it twice is what made the old seat read as an agent. */
+const seatFor = (note: PresenceNote | null): PresenceNote | null =>
+  note && (note.kind === 'ready' || note.kind === 'attention') ? note : null
 
 /**
  * A session's native subagents, hung off it on their own guide.
@@ -558,17 +695,21 @@ function NativeRows({
           indent={NATIVE_INDENT}
           mid={NATIVE_MID}
           last={index === rows.length - 1}
-          tone="bg-border/70"
+          rail={HAIRLINE_RAIL}
         >
           <button
             data-pressable
             type="button"
-            className="shell-type-micro flex h-5 w-full items-center gap-1.5 rounded-r-md pr-2 text-left font-mono text-text-faint hover:bg-muted hover:text-text-dim"
+            // NO ICON OF ITS OWN, and no rounded edge (POD-758). A native worker
+            // is evidence of one agent's work, not a seat you can act on — mono
+            // type on the quietest rail in the spine, and nothing else. Giving
+            // it a harness tile would put it in the same visual class as the
+            // session that owns it.
+            className="shell-type-micro flex h-[22px] w-full items-center gap-1.5 pr-2 text-left font-mono text-text-faint hover:bg-muted hover:text-text-dim"
             style={{ paddingLeft: NATIVE_INDENT + 4 }}
             onClick={onOpen}
             title={`Focus ${sessionDisplayName(session)} in Native · ${agent.anonymous ? 'unnamed worker' : agent.id}`}
           >
-            <KindIcon kind={session.agentKind} dimmed />
             {/* The artifact's `native-row`: TYPE first and lit, its id dimmed
                 behind a separator. The full 17-character harness id was the
                 widest thing on the row and the least useful — eight characters
@@ -590,47 +731,66 @@ function NativeRows({
 
 const ROLE_LABEL: Record<Exclude<SessionRole, { kind: 'spawned' }>['kind'], string> = {
   coordinator: 'coordinator',
-  'phase-lead': 'phase lead',
+  // "task lead", not "phase lead": the thing it leads is a task, and the spine
+  // calls every node in it a task. Two words for one node is one too many.
+  'phase-lead': 'task lead',
   peer: 'operator-added peer',
 }
 
-/** The role as the dim mono word after the name. A spawn edge is named by its
- *  PARENT — "by Spine designer" is the fact the operator can act on; the parent
- *  session id is not. An unresolvable parent gets no word rather than an id.
- *  The mission's coordinator is the one role that takes a badge instead
- *  (`CoordinatorBadge`), so it returns nothing here rather than saying it twice. */
+/** The role as the word after the name. A spawn edge is named by its PARENT —
+ *  "by Spine designer" is the fact the operator can act on; the parent session
+ *  id is not. An unresolvable parent gets no word rather than an id. */
 function roleLabel(
   role: SessionRole | null,
   nameOf: (sessionId: string) => string | undefined,
 ): string | null {
-  if (role === null || role.kind === 'coordinator') return null
+  if (role === null) return null
   if (role.kind !== 'spawned') return ROLE_LABEL[role.kind]
   const parent = nameOf(role.parentSessionId)
   return parent ? `by ${parent}` : null
 }
 
+const isLead = (role: SessionRole | null): boolean =>
+  role?.kind === 'coordinator' || role?.kind === 'phase-lead'
+
 /**
- * WHO DRIVES THIS MISSION, shown in the spine (round 3 §11).
+ * WHO DRIVES THIS TASK, said in a word (POD-758).
  *
- * The header used to count coordinators ("0 coords") — a number that tells the
- * operator nothing they can act on, about sessions that are all right there.
- * The count is gone and the fact moved onto the session it is about, in the
- * app's existing vocabulary: the same word, the same title, the same testid as
- * the sidebar roster's badge (features/worklist/sidebar-common.tsx).
+ * The `coord` badge is retired. A badge is a small filled object, and it was
+ * competing for the same five pixels as the attention dot on the one row most
+ * likely to have both. The lead is already named twice over by then — its
+ * branch runs in the mission's colour and its elbow is the only one drawn in
+ * that colour — so all that is left to add is the word itself, in the accent,
+ * in the caption voice the rest of the shell uses for a role.
  *
- * Deliberately NOT the same classes. That badge is drawn in raw `sky-500`, which
- * is not a token and not in this theme's palette (navy · yellow · red · blue);
- * here it takes `--info`, the palette's Accent Blue. Both should be the token —
- * that file belongs to another surface, so this one leads.
+ * Full strength for the mission's coordinator, 70% for a task's lead: a quiet
+ * line, a readable word, and the two altitudes told apart without a second
+ * device.
  */
-function CoordinatorBadge(): JSX.Element {
+function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.Element {
+  const lead = isLead(role)
   return (
     <span
-      className="shell-type-micro flex-none rounded border border-info/45 bg-info/10 px-1 font-semibold tracking-wide text-info uppercase"
-      data-testid="coordinator-badge"
-      title="Coordinator session — drives this issue"
+      className={cn(
+        'shell-type-micro font-mono',
+        // A LEAD'S WORD NEVER TRUNCATES. It is one of exactly two strings and
+        // both are short, and `COORDINAT…` is not a caption — it is a word
+        // that failed. The arbitrary-length thing on this row is the NAME, so
+        // the name is what gives way. Every other arm is a phrase that can lose
+        // its tail and still read ("by Spine desig…"), so those still shrink,
+        // and first.
+        lead
+          ? 'flex-none font-medium tracking-[0.1em] uppercase'
+          : 'min-w-0 flex-1 shrink-[8] truncate font-normal text-text-faint',
+      )}
+      style={
+        lead ? { color: 'var(--issue)', opacity: role.kind === 'coordinator' ? 1 : 0.7 } : undefined
+      }
+      data-session-role={role.kind}
+      data-testid={role.kind === 'coordinator' ? 'coordinator-badge' : undefined}
+      title={label}
     >
-      coord
+      {label}
     </span>
   )
 }
@@ -648,6 +808,14 @@ function CoordinatorBadge(): JSX.Element {
  * turns without its counting timer beside it. Every stopped phase still shows
  * how long it has been stopped, because "how stale is this" is the question the
  * operator is actually asking when nothing is moving.
+ *
+ * AN AGENT ROW HAS NO FILL AND NO OUTLINE (POD-758), and no rounded edge. It is
+ * a CONTENT of a task, not an object beside one — drawn by its icon, its indent
+ * and its rail, so the only rectangles in the column are tasks and the tree's
+ * structure reads as fast as it can. The coordinator is the single exception
+ * (see `lead` below); every other fill an agent ever gets is transient hover.
+ * Even the row that is asking stays unfilled: attention is a MARK in this
+ * system — amber type, an amber inner rule, the `!` disc — never a surface.
  */
 function SessionRow({
   session,
@@ -656,6 +824,7 @@ function SessionRow({
   active,
   last,
   now,
+  rail = HAIRLINE_RAIL,
   flat = false,
   onOpen,
   onOpenNative,
@@ -667,6 +836,8 @@ function SessionRow({
   active: boolean
   last: boolean
   now: number
+  /** The branch line this row hangs on — coloured when its task has a lead. */
+  rail?: Rail
   /** Outside the tree (the archived reveal) — no rail, no elbow, no indent. */
   flat?: boolean
   /** `permanent` is the double click / Enter: it opens the session as a real
@@ -690,19 +861,46 @@ function SessionRow({
   const stamp = relativeTime(session.lastActiveAt, now)
   const total = session.agentState?.workingMsTotal
   const name = sessionDisplayName(session)
+  const lead = isLead(role)
   const body = (
     <div
       className={cn(
-        'group/srow relative rounded-r-md',
-        needs || active ? 'bg-muted' : 'bg-bar',
+        // SQUARE, AND OPEN TO THE LEFT. An agent row sits ON its parent's rail
+        // rather than hanging off it as a pill: no rounded collar, because a
+        // rounded edge is what makes the task strips read as units and an agent
+        // is not one of those.
+        'group/srow relative',
+        // The mission's own lead is the one agent row in the spine with a fill.
+        // It owns the whole mission, so it is allowed to be the loudest thing
+        // in the roster — and being the only one, the fill means exactly that.
+        role?.kind === 'coordinator' && 'deck-lead-fill',
+        // Attention is an inner rule and amber type, never a wash.
+        needs && 'shadow-[inset_2px_0_0_var(--attention)]',
         flat && 'rounded-md',
       )}
       style={{ marginLeft: flat ? 0 : AGENT_INDENT }}
       data-flight-session={session.sessionId}
       data-needs-you={needs ? 'true' : undefined}
     >
+      {/* THE SESSION YOU ARE IN takes the same square accent tick a selected
+          task takes, in the row's own gutter. Extending the mark rather than
+          reaching for a fill is the whole point of the tick: "this one" is one
+          device in this column, whatever kind of row it lands on. */}
+      {active && !flat && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute"
+          style={{
+            left: AGENT_RAIL - AGENT_INDENT + TICK_SELECTED_X,
+            top: HUNG_MID - TICK_HEIGHT / 2,
+            width: TICK_WIDTH,
+            height: TICK_HEIGHT,
+            background: 'var(--issue)',
+          }}
+        />
+      )}
       {editing ? (
-        <div className="flex min-h-6 items-center px-2 py-1">
+        <div className="flex min-h-7 items-center px-2 py-1">
           <SessionNameEditor
             value={name}
             onCommit={(next) => {
@@ -717,12 +915,13 @@ function SessionRow({
           data-pressable
           type="button"
           className={cn(
-            // One tier quieter than a task strip, and recessed rather than
-            // raised: the strips are the spine, the agents working them are the
-            // roster (sidebar-common's row idiom).
-            'group/session shell-type-secondary flex min-h-6 w-full items-center gap-2 rounded-r-md px-2 py-1 text-left text-muted-foreground hover:text-foreground',
+            // The ONLY fill an agent ever gets is transient: hover, and nothing
+            // else. `px-0` on the left — the row opens onto its rail.
+            'group/session shell-type-secondary flex min-h-7 w-full items-center gap-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
             active && 'text-foreground',
-            retired && 'opacity-60',
+            // Settled agents dim one tier rather than leaving. Removing them is
+            // the view bar's job, not the row's.
+            (retired || phase === 'done') && 'opacity-60',
           )}
           // One click previews, two promote (see `useClickIntent`). Enter is the
           // keyboard's double click and must not go through the click path, so
@@ -757,18 +956,32 @@ function SessionRow({
               (weight 8), and both truncate instead of overlapping. */}
           <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             <WorkerLabel session={session} chip />
-            {role?.kind === 'coordinator' && <CoordinatorBadge />}
-            {label && (
-              <span
-                className="shell-type-micro min-w-0 shrink-[8] truncate font-mono font-normal text-text-faint"
-                data-session-role={role?.kind}
-                title={label}
-              >
-                {label}
+            {/* THE REF IS THE HANDLE (POD-758). `POD-710-B` is what the operator
+                types, pastes and says out loud, and it is the one string on the
+                row that is worthless partly rendered — so it never truncates
+                and the NAME shrinks around it. Lifted straight off the session:
+                it is the permanent birth ref, so it survives a rename. */}
+            {session.displayRef && (
+              <span className="shell-type-micro flex-none font-mono font-normal text-text-faint">
+                {session.displayRef}
               </span>
             )}
+            {/* ATTENTION OUTRANKS PROVENANCE, here as on the elbow. An asking
+                row spends its width on the question and the answer; "operator-
+                added peer" squeezed to "op…" beside them is noise wearing the
+                shape of information. */}
+            {role && label && !needs && <RoleWord role={role} label={label} />}
           </span>
-          <span className="flex flex-none items-center gap-1.5">
+          <span
+            className={cn(
+              'flex flex-none items-center gap-1.5',
+              // Everything but the asking row parks in the shared state column.
+              // "Needs you · 1:12" is the one line allowed to overrun it: it is
+              // an obligation, not a status, and it earns the room.
+              !needs && 'justify-end',
+            )}
+            style={needs ? undefined : { width: STATE_COL }}
+          >
             {needs ? (
               <>
                 <span
@@ -851,24 +1064,27 @@ function SessionRow({
       indent={AGENT_INDENT}
       mid={HUNG_MID}
       last={last}
-      tone={needs ? 'bg-attention/80' : active ? 'bg-info/80' : 'bg-hairline-bar'}
+      rail={rail}
+      // THE LEAD'S OWN ELBOW IS THE ONLY COLOURED ONE. Everybody in the block
+      // hangs on the same coloured line; only the agent the line is ABOUT is
+      // joined to it in that colour, so the branch names one agent instead of
+      // tinting the roster. An asking row overrides it — amber outranks
+      // provenance, because one of them is a job for the operator.
+      elbow={needs ? 'bg-attention' : lead ? rail.className : 'bg-hairline-soft'}
     >
       {body}
     </Hung>
   )
 }
 
-/** Everything that hangs under a task: the agents on it, then the seat held for
- *  the one that is not there yet. Shared by the strips and by the MISSION
- *  HEADER, which is now the root of the tree and hangs its own agents the same
- *  way (round 3 §4) — one idiom, so the root reads as a node and not as a
- *  special case. */
+/** The agents on a task, hung off it. Shared by the strips and by the MISSION
+ *  HEADER, which is the root of the tree and hangs its own agents the same way
+ *  (round 3 §4) — one idiom, so the root reads as a node and not as a special
+ *  case. The seat a task holds for the agent it does not have is NOT here any
+ *  more: it is a chip on the strip itself (see `SeatChip`). */
 interface HungContext {
   issue: IssueNavigationModel
   sessions: SessionMeta[]
-  /** The seat, or null when the task holds none (proposed work, or a task whose
-   *  agents already speak for it). */
-  presence: PresenceNote | null
   rootId: string | undefined
   inMission: ReadonlySet<string>
   nameOf: (sessionId: string) => string | undefined
@@ -879,40 +1095,23 @@ interface HungContext {
   now: number
   /** The block's left inset; its hung rails sit `AGENT_RAIL` inside that. */
   inset: number
+  /** The branch line this block draws — coloured when the task has a lead. */
+  rail: Rail
   /** Keep the last row's rail running to the block's bottom edge, because the
    *  tree carries on below it. The root block sets this; a strip never does. */
   tail: boolean
-  /**
-   * The roster's own disclosure, for a block big enough to bury the tree.
-   *
-   * The mission header is the root of the spine now, so EVERY session ever
-   * attached to the mission hangs directly off it — sixteen of them on this
-   * issue, which pushed the first actual task a screen and a half down. The
-   * root strip used to be foldable and is gone, so this is where that control
-   * has to live. `sessions` arrives already trimmed; this only draws the line
-   * that says what was trimmed and takes the click.
-   */
-  fold?: { hidden: number; open: boolean; onToggle: () => void }
   onSelectSession: (session: SessionMeta, permanent: boolean) => void
   onSelectNative: (session: SessionMeta) => void
 }
 
 function HungRows(ctx: HungContext): JSX.Element | null {
   const reduce = useReducedMotion()
-  // Held across a change so the seat can COLLAPSE with its words still in it (a
-  // task leaving proposed, or an agent finally arriving on an empty one) rather
-  // than emptying first and then closing.
-  const lastPresence = useRef<PresenceNote | null>(null)
-  if (ctx.presence) lastPresence.current = ctx.presence
-  const shown = ctx.presence ?? lastPresence.current
-  const { sessions, presence, fold } = ctx
-  const disclosure = fold && fold.hidden > 0 ? fold : null
-  if (sessions.length === 0 && shown === null && !disclosure) return null
-  const count = sessions.length + (presence ? 1 : 0) + (disclosure ? 1 : 0)
+  const { sessions } = ctx
+  if (sessions.length === 0) return null
   let placed = 0
   const isLast = (): boolean => {
     placed += 1
-    return !ctx.tail && placed === count
+    return !ctx.tail && placed === sessions.length
   }
   return (
     <div className="relative" style={{ marginLeft: ctx.inset }}>
@@ -931,6 +1130,7 @@ function HungRows(ctx: HungContext): JSX.Element | null {
             active={ctx.activeSessionId === session.sessionId}
             last={isLast()}
             now={ctx.now}
+            rail={ctx.rail}
             onOpen={(permanent) => ctx.onSelectSession(session, permanent)}
             onOpenNative={() => ctx.onSelectNative(session)}
           />
@@ -954,53 +1154,6 @@ function HungRows(ctx: HungContext): JSX.Element | null {
           <div key={session.sessionId}>{row}</div>
         )
       })}
-      {/* The roster's own line, hung on the same rail as the agents it stands
-          for so it reads as part of the block rather than as a control bolted
-          under it. Quieter than a session and it carries no state mark: it is
-          not an agent, it is the count of the ones being held back. */}
-      {disclosure && (
-        <Hung
-          railX={AGENT_RAIL}
-          indent={AGENT_INDENT}
-          mid={HUNG_MID}
-          last={isLast()}
-          tone="bg-hairline-soft"
-        >
-          <button
-            data-pressable
-            type="button"
-            data-testid="flight-roster-fold"
-            aria-expanded={disclosure.open}
-            className="shell-type-micro flex min-h-6 w-full items-center gap-1.5 rounded-r-md py-1 text-left font-mono text-text-faint hover:text-text-dim"
-            style={{ paddingLeft: AGENT_INDENT + 2 }}
-            onClick={disclosure.onToggle}
-          >
-            {disclosure.open ? (
-              <ChevronDown size={10} aria-hidden className="flex-none" />
-            ) : (
-              <ChevronRight size={10} aria-hidden className="flex-none" />
-            )}
-            <span className="truncate">
-              {disclosure.open
-                ? `Hide ${disclosure.hidden} finished`
-                : `${disclosure.hidden} finished agent${disclosure.hidden === 1 ? '' : 's'}`}
-            </span>
-          </button>
-        </Hung>
-      )}
-      {/* THE SEAT MAKES AND GIVES BACK ITS OWN SPACE (round 3 §7c). Always
-          mounted, so a plain grid-rows transition carries both directions and
-          nothing animates on first paint — a transition only fires on a change. */}
-      {shown && (
-        <div
-          className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"
-          style={{ gridTemplateRows: presence ? '1fr' : '0fr' }}
-        >
-          <div className="min-h-0 overflow-hidden">
-            <ReservedSlot note={shown} last={isLast()} />
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1018,7 +1171,9 @@ function TaskRow({
   arrivals,
   settle,
   collapsed,
-  flat = false,
+  rails,
+  agentRail,
+  childFollows,
   now,
   onToggle,
   onSelectIssue,
@@ -1029,6 +1184,14 @@ function TaskRow({
   byId: ReadonlyMap<string, IssueNavigationModel>
   /** Which ancestor guide rails cross this row — see `treeGuides`. */
   carries: readonly boolean[]
+  /** The tone of the rail at each of those levels — see `railTones`. */
+  rails: readonly RailTone[]
+  /** The line this task's OWN agents hang on: coloured when it has a lead. */
+  agentRail: Rail
+  /** Whether the next RENDERED row is a child of this task. Its agents and its
+   *  children share one line, so the line has to survive the gap between this
+   *  block and the next row instead of stopping at the last agent's elbow. */
+  childFollows: boolean
   mode: FlightDeckMode
   rootId: string | undefined
   inMission: ReadonlySet<string>
@@ -1038,10 +1201,6 @@ function TaskRow({
   arrivals: ReadonlySet<string>
   settle: (key: string) => void
   collapsed: boolean
-  /** Rendered OUTSIDE the tree (the proposed-actions section, POD-710 §4.4):
-   *  no ancestor rails, no elbow, no depth indent — there is no tree here for a
-   *  guide to belong to, and a line drawn into this section would claim one. */
-  flat?: boolean
   now: number
   onToggle: () => void
   /** Single click previews the task's lead session (and toggles the fold);
@@ -1052,56 +1211,95 @@ function TaskRow({
 }): JSX.Element {
   const intent = useClickIntent()
   const payload = hasPayload(row)
-  const bandLeft = flat ? 0 : SPINE_PAD + row.depth * DEPTH_STEP
+  const bandLeft = SPINE_PAD + row.depth * DEPTH_STEP
+  const ownRailX = SPINE_PAD + (row.depth - 1) * DEPTH_STEP + RAIL_INSET
   const state = deckIssueState(row.issue, row.sessions, byId)
   const sessions = deckSessions(row, mode)
   // A PROPOSAL IS A DIFFERENT KIND OF ROW (round 3 §7b): nobody has accepted it,
-  // so it holds no seat for an agent and takes the shorter band.
+  // so it holds no seat for an agent and takes the shorter band. Only one with
+  // sub-tasks reaches this component — the childless ones leave the tree
+  // entirely for the Proposed tail below it.
   const proposed = row.issue.stage === 'proposed'
+  const bandHeight = proposed ? PROPOSED_BAND : BAND_HEIGHT
+  const mid = proposed ? PROPOSED_MID : BAND_MID
   const note = issueNote(row.issue, byId)
   // The seat is held for work that could be picked up — never under a proposal,
   // and never to restate a dependency the strip has already named above it.
-  const rawPresence = proposed ? null : presenceNote(row.issue, row.sessions, byId)
-  const presence =
-    rawPresence && (rawPresence.kind === 'blocked' || rawPresence.kind === 'waiting')
-      ? null
-      : rawPresence
+  const seat = proposed ? null : seatFor(presenceNote(row.issue, row.sessions, byId))
+  // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload
+  // chip: "2 running" is the thing the fold is hiding, and `3 tasks` is printed
+  // two inches to the left of it.
+  const folded = collapsed && payload
+  const liveWord =
+    folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
+      ? `${row.workingAgentCount} running`
+      : undefined
   return (
-    <div
-      className="relative pb-1.5"
-      data-flight-issue={row.issue.id}
-      data-depth={flat ? undefined : row.depth}
-    >
-      {!flat && <BranchGuides carries={carries} mid={proposed ? PROPOSED_MID : BAND_MID} />}
-      {/* The strip is a BAND: a tonal step off the column plus a hairline, never
-          a lift — DESIGN.md's carved rule. The direction of that step follows
-          the column, which is now card rather than engraved (POD-725): a quiet
-          strip sits one tier BELOW the card on `--tabstrip`, and the selected
-          one comes back up to the card.
-          WHAT SAYS "SELECTED" IS THE LINE, NOT THE FILL. The strip carries the
-          issue in three places and only the two thin ones are saturated: a 2px
-          inset edge (the same edge the column wears along its top and the view
-          bar wears under its active label) and the hairline ring, over a ground
-          tint dosed at the tab strip's 18 rather than the sidebar row's 28. The
-          artifact gives the active row no ground tint at all; a mission colour
-          mixed into warm paper reads about twice as loud as it did into cool
-          grey, and a column of strips is the surface that compounds it. Each
-          tint keeps its slate pair, so an uncoloured mission still reads.
-          BLOCKED WEARS A HATCH (round 3 §8) — a shallow diagonal rule over
-          whatever ground the band already has. No border, no hue: blocked is a
-          stopped state, and `--warning` IS `--attention` in this theme, so any
-          warning tone here would read as "answer me".
+    <div className="relative pb-1.5" data-flight-issue={row.issue.id} data-depth={row.depth}>
+      <BranchGuides carries={carries} rails={rails} mid={mid} />
+      {/* THE TASK'S OWN DESCENT — one unbroken line from the strip down through
+          its agents and on into its first child. It starts behind the (opaque)
+          strip and runs to the block's bottom edge, so the gap between this
+          block and the row below it never breaks the branch. `HungRows` draws
+          the same line at the same x for its elbows; this is what carries it
+          across the padding they cannot reach. */}
+      {!collapsed && (sessions.length > 0 || childFollows) && (
+        <span
+          aria-hidden
+          className={cn('pointer-events-none absolute', agentRail.className)}
+          style={{ left: bandLeft + AGENT_RAIL, top: mid, bottom: 0, width: agentRail.width }}
+        />
+      )}
+      {/* COLOUR ARRIVES AS A TICK IN THE GUTTER, NEVER AS A SURFACE. Both marks
+          stand beside the strip rather than on it: attention outside the rail,
+          selection inside it, so a selected task that also has somebody asking
+          shows two ticks and neither one has to become the other. */}
+      {state.attention && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute bg-attention"
+          style={{
+            left: ownRailX + TICK_ATTENTION_X,
+            top: mid - TICK_HEIGHT / 2,
+            width: TICK_WIDTH,
+            height: TICK_HEIGHT,
+          }}
+        />
+      )}
+      {selected && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute"
+          style={{
+            left: ownRailX + TICK_SELECTED_X,
+            top: mid - TICK_HEIGHT / 2,
+            width: TICK_WIDTH,
+            height: TICK_HEIGHT,
+            background: 'var(--issue)',
+          }}
+        />
+      )}
+      {/* A TASK IS GREY, IN EVERY STATE (POD-758) — done, running, blocked,
+          moving, open or closed, selected or not. One fill for one kind of
+          thing is what lets the column's only other fill (a proposal's fuchsia)
+          mean exactly one thing: this task does not exist yet.
+          So selection is not a fill and not an accent border either. It darkens
+          the outline one step, bolds the title, and takes the accent tick in
+          the gutter above — three quiet changes to the row itself rather than
+          one loud one that turns a strip into a callout card.
+          BLOCKED WEARS A HATCH (round 3 §8) — a shallow diagonal rule over the
+          same ground. No border, no hue: blocked is a stopped state, and
+          `--warning` IS `--attention` in this theme, so any warning tone here
+          would read as "answer me".
           The band's own HEIGHT transitions, so a task leaving `proposed` grows
           into its full strip rather than snapping (§7c). */}
       <div
         className={cn(
-          'group/task relative flex items-center gap-1 rounded-row border pr-1.5 transition-[background-color,border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
+          'deck-strip group/task relative flex items-center gap-1 rounded-row border bg-tabstrip pr-1.5 transition-[border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
           state.state === 'blocked' && 'deck-hatch',
-          selected
-            ? 'issue-mix-18 issue-mix-slate-14 issue-base-card issue-hairline-50 issue-hairline-slate-40 shadow-[inset_2px_0_0_var(--issue)]'
-            : 'border-hairline-soft bg-tabstrip hover:border-hairline-bar hover:bg-chip',
+          selected ? 'border-border-strong' : 'border-hairline-soft hover:border-hairline-bar',
         )}
-        style={{ marginLeft: bandLeft, minHeight: proposed ? PROPOSED_BAND : BAND_HEIGHT }}
+        style={{ marginLeft: bandLeft, minHeight: bandHeight }}
       >
         {payload ? (
           <button
@@ -1125,7 +1323,9 @@ function TaskRow({
           data-pressable
           type="button"
           className={cn(
-            'flex min-w-0 flex-1 items-center gap-2 text-left',
+            // gap-1.5, not gap-2: five gaps at 8px is 40px of the row spent on
+            // air, and the title is the thing that pays for it.
+            'flex min-w-0 flex-1 items-center gap-1.5 text-left',
             proposed ? 'py-0.5' : 'py-1',
           )}
           onClick={() =>
@@ -1141,21 +1341,29 @@ function TaskRow({
           }}
         >
           <StageGlyph stage={row.issue.stage} size={13} />
-          {/* Ref THEN title, in one truncating label: the ref is how the
-              operator addresses the task everywhere else in Podium, and a
-              right-aligned ref made the column read right-to-left. */}
-          <span className="shell-type-secondary min-w-0 flex-1 truncate font-semibold text-text-strong">
+          {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
+              it is the only thing here that shrinks. Ref THEN title, in one
+              truncating label — the ref is how the operator addresses the task
+              everywhere else in Podium, and a right-aligned ref made the column
+              read right-to-left. */}
+          <span
+            className={cn(
+              'shell-type-secondary min-w-0 flex-1 truncate text-text-strong',
+              selected ? 'font-semibold' : 'font-medium',
+            )}
+          >
             <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
               {issueDisplayRef(row.issue)}
             </span>
             {row.issue.title}
           </span>
-          {note && !collapsed && <IssueNoteChip note={note} />}
-          {collapsed && payload ? (
-            <CollapsedPayload summary={row.collapsedSummary} />
-          ) : (
-            <StateLabel value={state} />
+          {note && <IssueNoteChip note={note} />}
+          {seat && <SeatChip note={seat} />}
+          {folded && <CollapsedPayload summary={row.collapsedSummary} />}
+          {folded && row.collapsedSummary.crew.length > 0 && (
+            <CrewCensus crew={row.collapsedSummary.crew} now={now} />
           )}
+          <StateLabel value={state} label={liveWord} />
         </button>
       </div>
       {/* THE FOLD GROWS AND SHRINKS (round 3 §7c) — a grid-rows collapse that
@@ -1169,7 +1377,6 @@ function TaskRow({
           <HungRows
             issue={row.issue}
             sessions={sessions}
-            presence={presence}
             rootId={rootId}
             inMission={inMission}
             nameOf={nameOf}
@@ -1178,12 +1385,83 @@ function TaskRow({
             settle={settle}
             now={now}
             inset={bandLeft}
-            tail={false}
+            rail={agentRail}
+            tail={childFollows}
             onSelectSession={onSelectSession}
             onSelectNative={onSelectNative}
           />
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * A PROPOSAL IS THE COLUMN'S ONLY OTHER FILL (POD-758).
+ *
+ * The spine has exactly two grounds: grey for a task, fuchsia for a proposal.
+ * That is the whole reason selection and attention had to become ticks — with
+ * two fills and nothing else, purple in this column means one thing and one
+ * thing only, and the operator learns it in a glance: THIS TASK DOES NOT EXIST
+ * YET. The stage's own hue is taken from `issue-glyphs`, so the glyph, the ref
+ * and the ground are three spellings of one fact.
+ *
+ * A proposal is something an AGENT asked for, so the row names the session that
+ * asked — the ref is how you go and ask it why. It holds no seat (nobody has
+ * accepted it), wears no state word (it has no state to be in) and takes the
+ * shorter band, because a row with nothing happening in it should not occupy
+ * the space of a row that has.
+ */
+function ProposalRow({
+  issue,
+  author,
+  selected,
+  onSelect,
+}: {
+  issue: IssueNavigationModel
+  /** The display ref of the session that filed it, when the deck can resolve it. */
+  author: string | null
+  selected: boolean
+  onSelect: (permanent: boolean) => void
+}): JSX.Element {
+  const intent = useClickIntent()
+  return (
+    <div data-flight-issue={issue.id}>
+      <button
+        data-pressable
+        type="button"
+        className={cn(
+          'deck-strip flex w-full items-center gap-2 rounded-row border px-2 text-left',
+          selected
+            ? 'border-fuchsia-500/40 bg-fuchsia-500/8'
+            : 'border-fuchsia-500/15 bg-fuchsia-500/5 hover:border-fuchsia-500/30',
+        )}
+        style={{ minHeight: PROPOSED_BAND }}
+        onClick={() =>
+          intent.press(
+            () => onSelect(false),
+            () => onSelect(true),
+          )
+        }
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          intent.commit(() => onSelect(true))
+        }}
+      >
+        <StageGlyph stage="proposed" size={12} />
+        <span className="shell-type-secondary min-w-0 flex-1 truncate text-muted-foreground">
+          <span className="shell-type-micro mr-1.5 font-mono text-fuchsia-500">
+            {issueDisplayRef(issue)}
+          </span>
+          {issue.title}
+        </span>
+        {author && (
+          /* Never dropped: the author IS the proposal's secondary content, and
+             a row with only a title tells the operator nothing to act on. */
+          <span className="shell-type-micro flex-none font-mono text-fuchsia-500">by {author}</span>
+        )}
+      </button>
     </div>
   )
 }
@@ -1199,22 +1477,42 @@ function TaskRow({
  *
  * The heading is DESIGN.md §3's Label: 8.5px Geist Mono, 0.12em, uppercase,
  * Label Grey — the same voice as WORK and TRAY, because it is the system naming
- * a region of itself.
+ * a region of itself. It carries its own COUNT and its own rule rather than
+ * sitting under a full-width border: a rule that starts after the word reads as
+ * that word underlining a region, where a border across the column reads as the
+ * spine ending. The spine has not ended — these sections are its tail.
  */
 function DeckSection({
   label,
+  count,
+  tone,
   testId,
   children,
 }: {
   label: string
+  /** Printed beside the label when the region's size is the useful fact. */
+  count?: number
+  /** Class for the label, when the region has a hue of its own (proposals). */
+  tone?: string
   testId: string
   children: ReactNode
 }): JSX.Element {
   return (
-    <section className="mt-2 border-t border-hairline-soft px-2 pt-2" data-testid={testId}>
-      <h3 className="font-mono text-[8.5px] font-medium tracking-[0.12em] text-label uppercase">
-        {label}
-      </h3>
+    <section className="mt-2.5 px-2" data-testid={testId}>
+      <div className="flex items-center gap-2">
+        <h3
+          className={cn(
+            'font-mono text-[8.5px] font-medium tracking-[0.16em] uppercase',
+            tone ?? 'text-label',
+          )}
+        >
+          {label}
+        </h3>
+        {count !== undefined && (
+          <span className="shell-type-micro font-mono text-text-faint">{count}</span>
+        )}
+        <span aria-hidden className="h-px flex-1 bg-hairline-soft" />
+      </div>
       <div className="mt-1.5">{children}</div>
     </section>
   )
@@ -1266,7 +1564,10 @@ export function DepartureTicks({
           <span className="min-w-0 flex-1 truncate text-left">{departure.issue.title}</span>
           <span className="flex-none">
             {departure.state.attention && (
-              <span aria-hidden className="mr-1.5 inline-block size-[5px] rounded-full bg-attention align-middle" />
+              <span
+                aria-hidden
+                className="mr-1.5 inline-block size-[5px] rounded-full bg-attention align-middle"
+              />
             )}
             {departure.state.label.toLowerCase()}
           </span>
@@ -1485,19 +1786,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * "fold every branch" control below excludes it for the same reason, and the
    * root's sessions consequently always show — which is what §4 asks for.
    *
-   * But "always show" cannot mean "always show ALL" — see `rootRoster`, which
-   * owns the trim and the two exemptions it must respect (the full-spine mode,
-   * and the session you currently have open).
+   * ALL of them, now (POD-758). The roster used to fold its settled agents away
+   * behind a count; nothing in this spine is hidden by default any more, and
+   * what narrows it is the view bar — a second disclosure inside a view was
+   * hiding what that view had just promised to show.
    */
   const rootRow = rows[0]
   const rootNote = root ? issueNote(root, byId) : null
   const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
-  const [rosterOpen, setRosterOpen] = useState(false)
-  const roster = useMemo(
-    () => rootRoster(rootSessions, { mode, activeSessionId, open: rosterOpen }),
-    [rootSessions, mode, activeSessionId, rosterOpen],
-  )
-  const rootPresence = rootRow ? presenceNote(rootRow.issue, rootRow.sessions, byId) : null
+  const rootSeat = rootRow ? seatFor(presenceNote(rootRow.issue, rootRow.sessions, byId)) : null
   /**
    * PROPOSALS LEAVE THE TREE (POD-710 §4.4).
    *
@@ -1556,6 +1853,66 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   // strip is the last child of its branch, and a rail that outlives its last
   // child is the tell that the tree was drawn from data rather than from layout.
   const guides = useMemo(() => treeGuides(visibleRows), [visibleRows])
+  /**
+   * THE TASKS THAT HAVE A LEAD — the set the coloured rails are drawn from.
+   *
+   * A designated coordinator whose session has exited is not leading anything,
+   * so the predicate is over LIVE sessions: a rail that stayed lit after its
+   * lead went home would be the deck asserting somebody is driving when nobody
+   * is, which is the one thing this device must never do.
+   */
+  const ledIssueIds = useMemo(() => {
+    const led = new Set<string>()
+    for (const row of rows) {
+      const hasLead = row.sessions.some(
+        (session) =>
+          !session.archived &&
+          session.status !== 'exited' &&
+          isCoordinatorSession(row.issue, session.sessionId),
+      )
+      if (hasLead) led.add(row.issue.id)
+    }
+    return led
+  }, [rows])
+  const leadTone = useCallback(
+    (issueId: string | undefined): RailTone =>
+      issueId === undefined || !ledIssueIds.has(issueId)
+        ? null
+        : issueId === root?.id
+          ? 'mission'
+          : 'task',
+    [ledIssueIds, root],
+  )
+  /**
+   * WHICH TASK OWNS THE RAIL AT EACH LEVEL of each rendered row.
+   *
+   * The rail at level L descends from the node at depth L-1 — level 1 from the
+   * mission root, level 2 from the depth-1 ancestor — so colouring a lead's
+   * branch means knowing each row's ancestry, which the flat row list does not
+   * carry. Rebuilt here from depth alone, over the rows that actually render,
+   * for the same reason `treeGuides` is: a filtered spine has a different tree.
+   */
+  const rails = useMemo(() => {
+    const trail: (string | undefined)[] = [root?.id]
+    return visibleRows.map((row) => {
+      trail.length = row.depth
+      trail[row.depth] = row.issue.id
+      const tones: RailTone[] = []
+      for (let level = 1; level <= row.depth; level += 1) tones.push(leadTone(trail[level - 1]))
+      return tones
+    })
+  }, [visibleRows, root, leadTone])
+  /** A proposal names the session that filed it, because the ref is how you go
+   *  and ask it why. Unresolvable (a human create, or an agent long gone) means
+   *  no author line rather than a raw session id. */
+  const authorOf = useCallback(
+    (issue: IssueNavigationModel): string | null => {
+      const id = issue.startedBySession
+      if (!id) return null
+      return sessions.find((session) => session.sessionId === id)?.displayRef?.trim() || null
+    },
+    [sessions],
+  )
   /**
    * THE ARCHIVED SESSIONS OF THIS MISSION (POD-710 §4.3).
    *
@@ -1721,11 +2078,14 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               <StageGlyph stage={root.stage} size={12} />
               <span>{issueDisplayRef(root)}</span>
               <span>{STAGE_LABELS[root.stage].toLowerCase()}</span>
-              {/* The mission's own dependency or provenance, in the same chip a
-                  strip wears — the header is a node, so it says what a node says. */}
-              {rootNote && (
-                <span className="ml-auto flex min-w-0 pl-2">
-                  <IssueNoteChip note={rootNote} />
+              {/* The mission's own dependency or provenance, and the seat it is
+                  holding if nobody is on it — in the same chips a strip wears.
+                  The header IS a node, so it says what a node says, in the same
+                  slot: a strip carries these on its right, and so does this. */}
+              {(rootNote || rootSeat) && (
+                <span className="ml-auto flex min-w-0 items-center gap-1.5 pl-2">
+                  {rootNote && <IssueNoteChip note={rootNote} />}
+                  {rootSeat && <SeatChip note={rootSeat} />}
                 </span>
               )}
             </div>
@@ -1919,17 +2279,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               <>
                 <HungRows
                   issue={rootRow.issue}
-                  sessions={roster.shown}
-                  fold={
-                    roster.foldable
-                      ? {
-                          hidden: roster.hidden,
-                          open: rosterOpen,
-                          onToggle: () => setRosterOpen((open) => !open),
-                        }
-                      : undefined
-                  }
-                  presence={rootPresence}
+                  sessions={rootSessions}
                   rootId={root.id}
                   inMission={missionSessionIds}
                   nameOf={nameOf}
@@ -1938,6 +2288,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   settle={settle}
                   now={coarseNow}
                   inset={ROOT_BLOCK_INSET}
+                  rail={railFor(leadTone(root.id))}
                   tail={visibleRows.length > 0}
                   onSelectSession={(session, permanent) =>
                     selectSession(rootRow.issue.id, session, { permanent })
@@ -1946,15 +2297,17 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     selectSession(rootRow.issue.id, session, { permanent: false, native: true })
                   }
                 />
-                {(roster.shown.length > 0 || rootPresence || roster.foldable) &&
-                  visibleRows.length > 0 && (
-                    <div className="relative h-2" aria-hidden>
-                      <span
-                        className="pointer-events-none absolute inset-y-0 w-px bg-hairline-soft"
-                        style={{ left: ROOT_RAIL }}
-                      />
-                    </div>
-                  )}
+                {rootSessions.length > 0 && visibleRows.length > 0 && (
+                  <div className="relative h-2" aria-hidden>
+                    <span
+                      className={cn(
+                        'pointer-events-none absolute inset-y-0',
+                        railFor(leadTone(root.id)).className,
+                      )}
+                      style={{ left: ROOT_RAIL, width: railFor(leadTone(root.id)).width }}
+                    />
+                  </div>
+                )}
               </>
             )}
             {visibleRows.map((row, index) => (
@@ -1963,6 +2316,9 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 row={row}
                 byId={byId}
                 carries={guides[index] ?? []}
+                rails={rails[index] ?? []}
+                agentRail={railFor(leadTone(row.issue.id))}
+                childFollows={(visibleRows[index + 1]?.depth ?? 0) > row.depth}
                 mode={mode}
                 rootId={root.id}
                 inMission={missionSessionIds}
@@ -2001,39 +2357,36 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             {/* THE SECTIONS BELOW THE TREE. Siblings, in a flat stack, so the
                 next one (POD-679's departure ticks) sits here beside these two
                 rather than being threaded through the spine. */}
+            {/* PROPOSALS SINK. They leave the sibling order and collect in a
+                tail at the bottom of the spine, under a divider carrying their
+                count — work being offered to the operator is not part of the
+                mission's shape, and interleaving it with the shape is what made
+                a proposal read as a task somebody had started. */}
             {proposedRows.length > 0 && (
-              <DeckSection label="PROPOSED ACTIONS" testId="flight-proposed">
-                {proposedRows.map((row) => (
-                  <TaskRow
-                    key={row.issue.id}
-                    row={row}
-                    byId={byId}
-                    carries={[]}
-                    flat
-                    mode={mode}
-                    rootId={root.id}
-                    inMission={missionSessionIds}
-                    nameOf={nameOf}
-                    selected={focused === row.issue.id}
-                    activeSessionId={activeSessionId}
-                    arrivals={arrivals}
-                    settle={settle}
-                    collapsed={isFolded(row, folds)}
-                    now={coarseNow}
-                    onToggle={() => toggleFold(row)}
-                    onSelectIssue={(permanent) => selectIssue(row, permanent)}
-                    onSelectSession={(session, permanent) =>
-                      selectSession(row.issue.id, session, { permanent })
-                    }
-                    onSelectNative={(session) =>
-                      selectSession(row.issue.id, session, { permanent: false, native: true })
-                    }
-                  />
-                ))}
+              <DeckSection
+                label="Proposed"
+                count={proposedRows.length}
+                tone="text-fuchsia-500"
+                testId="flight-proposed"
+              >
+                <div className="flex flex-col gap-1">
+                  {proposedRows.map((row) => (
+                    <ProposalRow
+                      key={row.issue.id}
+                      issue={row.issue}
+                      author={authorOf(row.issue)}
+                      selected={focused === row.issue.id}
+                      onSelect={(permanent) => selectIssue(row, permanent)}
+                    />
+                  ))}
+                </div>
               </DeckSection>
             )}
+            {/* No count on this divider: the disclosure under it already carries
+                one, and a region that states its size twice reads as two
+                different numbers that happen to agree. */}
             {archivedSessions.length > 0 && (
-              <DeckSection label="ARCHIVED SESSIONS" testId="flight-archived">
+              <DeckSection label="Archived" testId="flight-archived">
                 <button
                   data-pressable
                   type="button"

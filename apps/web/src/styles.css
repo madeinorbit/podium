@@ -1773,7 +1773,7 @@ html[data-density="balanced"] .header-quota-pools {
   box-shadow:
     0 1px 2px color-mix(in srgb, var(--carve-drop) 90%, transparent),
     inset 0 0 0 1px
-      color-mix(in srgb, var(--issue) calc(35 * var(--issue-line-scale, 1%)), transparent);
+    color-mix(in srgb, var(--issue) calc(35 * var(--issue-line-scale, 1%)), transparent);
   color: var(--issue);
 }
 
@@ -3286,7 +3286,11 @@ html[data-density="balanced"] .header-quota-pools {
   gap: 7px;
   padding: 13px 15px;
   border: 1px solid
-    color-mix(in srgb, var(--issue, transparent) calc(32 * var(--issue-line-scale, 1%)), var(--border));
+    color-mix(
+      in srgb,
+      var(--issue, transparent) calc(32 * var(--issue-line-scale, 1%)),
+      var(--border)
+    );
   border-radius: 9px;
   background: color-mix(in oklab, var(--background) 82%, black);
   box-shadow:
@@ -6330,28 +6334,33 @@ a.ref-link--session::before {
    Everything dropped survives on the row's own tooltip.
 
    Keyed off each STRIP's width rather than the column's, so a deeply nested
-   strip — which is genuinely narrower — gives way before a shallow one. The
-   numbers are the arithmetic of the rule: 125px of rigid furniture (chevron,
-   glyph, the 70px state column, gaps) plus the 150px floor is 275, and each
-   threshold adds the width of the thing it is deciding about. */
+   strip — which is genuinely narrower — gives way before a shallow one.
+
+   The numbers are the arithmetic of the rule, not taste. Rigid furniture is
+   ~125px: the 20px chevron, the 13px stage glyph, the 70px state column and
+   four 6px gaps. Add the title's 150px floor and a bare strip needs 275px;
+   each threshold above that is the width of the thing it decides about — a
+   census icon (22), the payload chip and its bar (86), a relation chip (76).
+   The strip is a container, so its inline size comes from the column rather
+   than from its own contents: these queries can never feed back on themselves. */
 .deck-strip {
   container-type: inline-size;
   container-name: deck-strip;
 }
 
-@container deck-strip (max-width: 400px) {
+@container deck-strip (max-width: 360px) {
   .deck-drop-relation {
     display: none;
   }
 }
 
-@container deck-strip (max-width: 350px) {
+@container deck-strip (max-width: 340px) {
   .deck-drop-payload {
     display: none;
   }
 }
 
-@container deck-strip (max-width: 296px) {
+@container deck-strip (max-width: 300px) {
   .deck-drop-crew {
     display: none;
   }
@@ -6496,4 +6505,3 @@ a.ref-link--session::before {
     transition: none;
   }
 }
-

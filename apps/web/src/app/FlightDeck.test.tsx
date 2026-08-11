@@ -251,10 +251,10 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 })
 
 describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
-  it('pulls proposals out of the tree into their own section, with no tree guide', () => {
+  it('sinks proposals into their own tail, with no tree guide', () => {
     deck()
     const proposed = screen.getByTestId('flight-proposed')
-    expect(proposed.textContent).toContain('PROPOSED ACTIONS')
+    expect(proposed.textContent).toContain('Proposed')
     const row = proposed.querySelector('[data-flight-issue="p1"]')
     expect(row).not.toBeNull()
     // Out of the tree means out of the tree: no depth, and no rail or elbow
@@ -289,5 +289,110 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
   it('offers session lifecycle from the row itself', () => {
     deck()
     expect(screen.getByRole('button', { name: 'Session actions for s2' })).toBeTruthy()
+  })
+})
+
+/**
+ * The lead-rail spine (POD-758) — the rules that are structural rather than
+ * cosmetic, so a refactor that quietly reverts one of them is caught here.
+ */
+describe('flight deck spine (POD-758)', () => {
+  const strip = (id: string): HTMLElement => {
+    const row = document.querySelector(`[data-flight-issue="${id}"]`)
+    if (!row) throw new Error(`no strip ${id}`)
+    return row as HTMLElement
+  }
+
+  // A collapsed task is a CENSUS, not a roster: one harness icon per session,
+  // and the name only once the strip is open.
+  it('shows a harness icon per session on a folded strip, and no names', () => {
+    deck()
+    // t1 arrives folded (one session, no children). The band itself carries the
+    // census and no name — the collapsed agent row stays mounted underneath it,
+    // because the fold is a height collapse rather than an unmount.
+    const band = strip('t1').querySelector('.deck-strip')
+    expect(band?.querySelector('[data-testid="flight-crew"]')).not.toBeNull()
+    expect(band?.textContent).not.toContain('s1')
+    // t2 arrives open, so its agents are rows with names — and no census.
+    expect(strip('t2').querySelector('[data-testid="flight-crew"]')).toBeNull()
+    expect(strip('t2').textContent).toContain('s2')
+  })
+
+  // The ref is the handle the operator types and pastes, so the row prints it.
+  it('prints a session’s permanent ref on its agent row', () => {
+    harness.sessions = harness.sessions.map((raw) => {
+      const meta = raw as SessionMeta
+      return meta.sessionId === 's2' ? { ...meta, displayRef: 'POD-2-A' } : meta
+    })
+    deck()
+    expect(strip('t2').textContent).toContain('POD-2-A')
+  })
+
+  // Colour in this column is a MARK, never a surface: a task keeps its grey
+  // fill in every state and says "selected" with an outline and a gutter tick.
+  it('keeps the task fill grey when a strip is selected', () => {
+    deck()
+    const band = strip('t2').querySelector('.deck-strip')
+    expect(band?.className).toContain('bg-tabstrip')
+    expect(band?.className).not.toContain('issue-mix')
+  })
+
+  // The held seat is a dotted chip in the strip's chip slot, not a row of its
+  // own — "nobody is here" read exactly where somebody would be.
+  it('holds an empty task’s seat as a chip on the strip', () => {
+    harness.issues = [
+      ...harness.issues,
+      issue('t5', { parentId: 'root', stage: 'planning', title: 'Unstaffed' }),
+    ]
+    deck()
+    const seat = strip('t5').querySelector('[data-testid="flight-reserved-slot"]')
+    expect(seat).not.toBeNull()
+    expect(seat?.textContent).toBe('seat open')
+    // Inside the strip itself, so it costs the spine no row.
+    expect(
+      strip('t5')
+        .querySelector('.deck-strip')
+        ?.contains(seat as Node),
+    ).toBe(true)
+  })
+
+  // Nothing in the spine is hidden by default any more: the roster's own
+  // "N finished agents" fold is gone, and the view bar does that job.
+  it('shows every root agent, with no roster fold', () => {
+    harness.issues = harness.issues.map((raw) => {
+      const candidate = raw as Issue
+      return candidate.id === 'root'
+        ? { ...candidate, memberSessionIds: ['r1', 'r2', 'r3', 'r4'] }
+        : candidate
+    })
+    harness.sessions = [
+      ...harness.sessions,
+      ...['r1', 'r2', 'r3', 'r4'].map((id) =>
+        session(id, { issueId: 'root', status: 'exited', name: `Retired ${id}` }),
+      ),
+    ]
+    deck()
+    expect(screen.queryByTestId('flight-roster-fold')).toBeNull()
+    for (const id of ['r1', 'r2', 'r3', 'r4']) {
+      expect(document.querySelector(`[data-flight-session="${id}"]`)).not.toBeNull()
+    }
+  })
+
+  // The mission's lead owns the spine's rail and is the one agent row with a
+  // fill; the `coord` badge it used to wear is retired.
+  it('names the mission lead with the rail and the word, not a badge', () => {
+    harness.issues = harness.issues.map((raw) => {
+      const candidate = raw as Issue
+      return candidate.id === 'root'
+        ? { ...candidate, memberSessionIds: ['lead'], coordinatorSessionId: 'lead' }
+        : candidate
+    })
+    harness.sessions = [...harness.sessions, session('lead', { issueId: 'root', name: 'Lead' })]
+    deck()
+    const row = document.querySelector('[data-flight-session="lead"]')
+    expect(row?.className).toContain('deck-lead-fill')
+    expect(row?.querySelector('[data-session-role="coordinator"]')?.textContent).toBe('coordinator')
+    // The rail its branch descends on carries the mission tone.
+    expect(document.querySelector('.deck-rail-mission')).not.toBeNull()
   })
 })

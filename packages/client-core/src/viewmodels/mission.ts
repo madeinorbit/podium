@@ -20,6 +20,20 @@ export interface CollapsedSummary {
   run: number
   /** Up to two distinct harness kinds among the live sessions being hidden. */
   kinds: AgentKind[]
+  /**
+   * A CENSUS, NOT A ROSTER — the sessions a fold is hiding, in person.
+   *
+   * A collapsed strip shows one harness icon per session rather than a count or
+   * a name: names need room the strip does not have, and a count of "3" tells
+   * the operator nothing about whether Claude or a shell is in there. The
+   * sessions arrive ordered working → present → settled, so a cap that bites
+   * drops the quietest first, and each one keeps its identity so the strip can
+   * put the whole line (`POD-716-A · Gauge smith · working 08:47`) on a tooltip.
+   *
+   * Covers the row's OWN sessions as well as its descendants': folding hides
+   * both, and the icons stand for everything behind the chevron.
+   */
+  crew: SessionMeta[]
   needsYou: boolean
 }
 
@@ -69,6 +83,36 @@ export interface MissionProgress {
 
 const openSession = (session: SessionMeta): boolean =>
   !session.archived && session.status !== 'exited'
+
+/**
+ * A session that is no longer working: retired, or holding a finished turn.
+ *
+ * The deck DIMS these rather than hiding them (POD-758): "nothing is hidden by
+ * default" is the spine's rule, and what removes finished work is the view bar,
+ * not a fold. One predicate so the dimmed agent row, the dimmed census icon and
+ * the ordering below can never disagree about which agents are still in play.
+ */
+export function sessionSettled(session: SessionMeta): boolean {
+  return !openSession(session) || motionPhase(session) === 'done'
+}
+
+/** The census behind a fold: deduplicated, ordered working → present → settled,
+ *  and capped well above what any strip draws so the caller owns the trim and
+ *  the `+N` that goes with it. */
+const CREW_CAP = 12
+
+function deckCrew(sessions: readonly SessionMeta[]): SessionMeta[] {
+  const seen = new Set<string>()
+  const unique: SessionMeta[] = []
+  for (const session of sessions) {
+    if (seen.has(session.sessionId)) continue
+    seen.add(session.sessionId)
+    unique.push(session)
+  }
+  const rank = (session: SessionMeta): number =>
+    openSession(session) && motionPhase(session) === 'working' ? 0 : sessionSettled(session) ? 2 : 1
+  return unique.sort((a, b) => rank(a) - rank(b)).slice(0, CREW_CAP)
+}
 
 export function sessionNeedsHuman(session: SessionMeta): boolean {
   return (
@@ -493,6 +537,7 @@ export function buildFlightDeckRows(
           0,
           2,
         ),
+        crew: deckCrew(subtreeSessions),
         needsYou: actionableCount > 0,
       },
     })
@@ -678,61 +723,18 @@ export function deckSessions(
   return asking.length > 0 ? asking : row.sessions
 }
 
-/** Below this a fold costs a row to save fewer, which is the fold that hides
- *  nothing — the same rule the collapsed payload follows. */
-const ROSTER_FOLD_FLOOR = 2
-
-export interface RootRoster {
-  /** The sessions the root block prints, in the order it was given them. */
-  shown: SessionMeta[]
-  /** What the fold is holding back. Stays truthful while the fold is OPEN — the
-   *  disclosure has to keep standing, and keep its count, or there is no way
-   *  back down. */
-  hidden: number
-  /** Whether the disclosure line is drawn at all. */
-  foldable: boolean
-}
-
-/**
- * The mission header's own roster, trimmed.
+/*
+ * `rootRoster` LIVED HERE AND IS GONE (POD-758).
  *
- * Every session the mission has ever had hangs off the header, and on a
- * long-running mission that is sixteen rows — most of them finished — between
- * the operator and the first actual task. So the settled ones fold away behind
- * their own count and what stands is what is still happening. Two things the
- * trim must never eat:
- *
- * FULL SPINE IS THE MODE THAT SHOWS EVERYTHING. Asking for the full spine and
- * getting a trimmed roster makes the mode a lie, and leaves the finished agents
- * reachable only through a second control inside the view that was supposed to
- * already be showing them. Trimming belongs to the modes that narrow.
- *
- * THE SESSION YOU HAVE OPEN IS NEVER FOLDED AWAY, whatever its phase. A
- * hibernated agent reads as `done` here, but it is still the transcript on
- * screen; a navigator that hides your own position is not a navigator.
+ * The mission header's roster used to fold its finished agents away behind an
+ * "N finished agents" line, because every session the mission ever had hangs
+ * off the header and on a long mission that was a screen of retired rows before
+ * the first task. The redesign answers the same problem one level up instead:
+ * nothing in the spine is hidden by default, settled agents stay at full height
+ * one tier dimmer, and what removes them is the view bar — `Full spine`,
+ * `Active`, `Needs you`. A second, in-view disclosure that hid what the chosen
+ * view had promised to show was the duplication.
  */
-export function rootRoster(
-  sessions: readonly SessionMeta[],
-  opts: { mode: FlightDeckMode; activeSessionId?: string | null; open: boolean },
-): RootRoster {
-  const settled = new Set<string>()
-  if (opts.mode !== 'full') {
-    for (const session of sessions) {
-      if (session.sessionId === opts.activeSessionId) continue
-      const retired = session.archived || session.status === 'exited'
-      if (retired || motionPhase(session) === 'done') settled.add(session.sessionId)
-    }
-  }
-  const foldable = settled.size > ROSTER_FOLD_FLOOR
-  return {
-    shown:
-      !foldable || opts.open
-        ? [...sessions]
-        : sessions.filter((session) => !settled.has(session.sessionId)),
-    hidden: foldable ? settled.size : 0,
-    foldable,
-  }
-}
 
 /**
  * What a session IS on this task — the dim mono word after its name.
