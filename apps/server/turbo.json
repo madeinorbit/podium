@@ -1,6 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -147,7 +149,6 @@
         "src/modules/updates/artifact-route.test.ts",
         "src/modules/updates/artifact-route.ts",
         "src/modules/updates/dev-bundle-lock.ts",
-        "src/modules/updates/dev-bundle.test.ts",
         "src/modules/updates/dev-bundle.ts",
         "src/modules/updates/dev-publisher-wiring.ts",
         "src/modules/updates/service.test.ts",
@@ -1256,6 +1257,7 @@
         "src/modules/superagent/trpc.ts",
         "src/modules/updates/artifact-route.ts",
         "src/modules/updates/dev-bundle-lock.ts",
+        "src/modules/updates/dev-bundle.test.ts",
         "src/modules/updates/dev-bundle.ts",
         "src/modules/updates/dev-publisher-wiring.ts",
         "src/modules/updates/release-target.ts",
