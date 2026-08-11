@@ -165,7 +165,9 @@ function NowPanel({
     <>
       {/* THE ANSWER, BEFORE ANY NUMBER. Both feeds are interpreted into one
           sentence naming whichever is actually the constraint — the meters
-          below are what it is based on, not what you have to read first. */}
+          below are what it is based on, not what you have to read first. The
+          caveat under it carries what the answer deliberately did not let
+          speak: a spent pool beside pools that still run [POD-754]. */}
       <View style={styles.hero}>
         <View style={styles.heroState}>
           <View style={[styles.dot, { backgroundColor: TONE_COLOR[capacity.tone] }]} />
@@ -181,12 +183,16 @@ function NowPanel({
             </>
           )}
         </Text>
+        {!cold && capacity.caveat ? <Text style={styles.heroCaveat}>{capacity.caveat}</Text> : null}
       </View>
 
       <View style={styles.paired}>
         <View style={styles.metric}>
+          {/* The pool with the most room, because that is the one the sentence
+              above answers for and the one work would start on. Every other
+              pool, spent ones included, has its own row further down. */}
           <Readout
-            label="Tightest quota"
+            label="Quota runway"
             value={quota ? `${Math.round(quota.leftPercent)}% left` : '—'}
           />
           <Meter
@@ -199,6 +205,8 @@ function NowPanel({
           />
         </View>
         <View style={[styles.metric, styles.metricDivided]}>
+          {/* The host with the most headroom, for the same reason: work starts
+              on one machine, and a busy one elsewhere is a caveat, not a stop. */}
           <Readout label="Host pressure" value={load ? `${load.label} per core` : '—'} />
           {/* The marker is the auto-park line, so the rail predicts behaviour
               rather than filling toward an arbitrary ceiling. */}
@@ -725,6 +733,14 @@ const styles = StyleSheet.create({
   heroLead: {
     ...sans(500),
     color: color.body,
+  },
+  heroCaveat: {
+    ...sans(400),
+    color: color.textFaint,
+    fontSize: font.small,
+    lineHeight: leading(font.small, 'prose'),
+    maxWidth: 320,
+    marginTop: 4,
   },
   paired: {
     paddingHorizontal: space.lg,

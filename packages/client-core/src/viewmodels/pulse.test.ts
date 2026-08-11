@@ -1,7 +1,14 @@
 import type { HostMetricsWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { capacityView, tightestLoad, tightestQuota } from './pulse'
+import {
+  capacityView,
+  freestLoad,
+  quotaRunways,
+  roomiestQuota,
+  tightestLoad,
+  tightestQuota,
+} from './pulse'
 import { groupQuotaByAccount } from './quota'
 
 const NOW = Date.parse('2026-06-12T12:00:00.000Z')
@@ -15,7 +22,9 @@ const window = (over: Partial<QuotaWindowWire> = {}): QuotaWindowWire => ({
   ...over,
 })
 
-const machine = (windows: QuotaWindowWire[], agent: 'codex' | 'claude-code' = 'codex') =>
+type Harness = 'codex' | 'claude-code' | 'grok'
+
+const machine = (windows: QuotaWindowWire[], agent: Harness = 'codex') =>
   ({
     machineId: asMachineId('m1'),
     machineName: 'studio',
@@ -29,6 +38,21 @@ const machine = (windows: QuotaWindowWire[], agent: 'codex' | 'claude-code' = 'c
         fetchedAt: new Date(NOW).toISOString(),
       },
     ],
+  }) satisfies MachineQuotaWire
+
+/** One machine signed into several providers — the fleet the phone actually reads. */
+const fleet = (pools: Array<[Harness, QuotaWindowWire[]]>) =>
+  ({
+    machineId: asMachineId('m1'),
+    machineName: 'studio',
+    hostname: 'studio',
+    agents: pools.map(([agent, windows]) => ({
+      agent,
+      status: 'ok' as const,
+      account: { email: 'dev@example.com' },
+      windows,
+      fetchedAt: new Date(NOW).toISOString(),
+    })),
   }) satisfies MachineQuotaWire
 
 const host = (one: number, cpuCount = 8): HostMetricsWire => ({
@@ -75,6 +99,28 @@ describe('tightestQuota', () => {
   })
 })
 
+describe('quotaRunways', () => {
+  it('gives each pool one runway — its own tightest gating window — roomiest first', () => {
+    const groups = groupQuotaByAccount([
+      fleet([
+        [
+          'claude-code',
+          [window({ usedPercent: 23 }), window({ key: 'wk', label: 'Weekly', usedPercent: 9 })],
+        ],
+        ['codex', [window({ key: 'wk', label: 'Weekly', usedPercent: 0 })]],
+        ['grok', [window({ key: 'wk', label: 'Weekly', usedPercent: 100 })]],
+      ]),
+    ])
+    expect(quotaRunways(groups).map((r) => [r.agentName, r.leftPercent])).toEqual([
+      ['Codex', 100],
+      ['Claude Code', 77],
+      ['Grok', 0],
+    ])
+    expect(roomiestQuota(groups)?.agentName).toBe('Codex')
+    expect(tightestQuota(groups)?.agentName).toBe('Grok')
+  })
+})
+
 describe('tightestLoad', () => {
   it('picks the host closest to its park threshold', () => {
     const busy = { ...host(9.6), hostname: 'rig' }
@@ -82,6 +128,8 @@ describe('tightestLoad', () => {
     expect(hit?.hostname).toBe('rig')
     // 9.6 / 8 cores = 1.2× per core, against a 1.5× threshold.
     expect(hit?.meterPct).toBe(80)
+    // ...and its opposite, the host work would actually be started on.
+    expect(freestLoad([host(2.4), busy], 1.5)?.hostname).toBe('studio')
   })
 
   it('skips hosts whose daemon ships no load sample', () => {
@@ -100,9 +148,23 @@ describe('capacityView', () => {
     })
     expect(view.constraint).toBe('quota')
     expect(view.headline).toBe('Room to run')
-    expect(view.lead).toBe('Quota is the tighter limit.')
+    // Neither reading is near its intervention point, so nothing is "the
+    // tighter limit" — the sentence reports the runway instead.
+    expect(view.lead).toBe('Nothing you can start on is near a limit.')
     expect(view.detail).toContain('62% left')
     expect(view.detail).toContain('five-hour')
+  })
+
+  it('names quota as the tighter limit once one of the two is close', () => {
+    const view = capacityView({
+      machines: [machine([window({ usedPercent: 80 })])],
+      hosts: [host(2.4)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(view.constraint).toBe('quota')
+    expect(view.tone).toBe('warn')
+    expect(view.lead).toBe('Quota is the tighter limit.')
   })
 
   it('names host pressure when the machine is the tighter limit', () => {
@@ -135,6 +197,80 @@ describe('capacityView', () => {
     })
     expect(parking.tone).toBe('crit')
     expect(parking.detail).toContain('past the park line')
+  })
+
+  it('answers from the pool with room, not the subscription that is spent', () => {
+    // The live shape that produced the wrong answer: Grok's weekly limit fully
+    // spent, Claude and Codex barely touched. "No room to start" was a stop
+    // that was not happening — work starts on one pool, not on all of them.
+    const view = capacityView({
+      machines: [
+        fleet([
+          ['claude-code', [window({ usedPercent: 23 })]],
+          ['codex', [window({ key: 'wk', label: 'Weekly', usedPercent: 0 })]],
+          ['grok', [window({ key: 'wk', label: 'Weekly', usedPercent: 100 })]],
+        ]),
+      ],
+      hosts: [host(2.4)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(view.tone).toBe('ok')
+    expect(view.headline).toBe('Room to run')
+    expect(view.quota?.agentName).toBe('Codex')
+    expect(view.detail).toContain('Codex has the most room, 100% left')
+    // The spent pool is not silenced — it just does not get to be the answer.
+    expect(view.spentPools.map((p) => p.agentName)).toEqual(['Grok'])
+    expect(view.caveat).toContain('Grok is out')
+  })
+
+  it('still reports no room when every pool is spent', () => {
+    const view = capacityView({
+      machines: [
+        fleet([
+          ['claude-code', [window({ usedPercent: 97 })]],
+          ['grok', [window({ key: 'wk', label: 'Weekly', usedPercent: 100 })]],
+        ]),
+      ],
+      hosts: [host(1)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(view.headline).toBe('No room to start')
+    // Nothing to caveat: the sentence already speaks for the roomiest pool,
+    // and it is spent too.
+    expect(view.caveat).toBeNull()
+  })
+
+  it('reads a window that resets days out in days, not as a wall clock', () => {
+    const view = capacityView({
+      machines: [
+        machine([
+          window({
+            key: 'wk',
+            label: 'Weekly',
+            usedPercent: 9,
+            resetsAt: new Date(NOW + 6 * 86_400_000 + 3 * 3_600_000).toISOString(),
+          }),
+        ]),
+      ],
+      hosts: [host(1)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(view.detail).toContain('weekly window resets in 6d 3h')
+  })
+
+  it('answers from the freest host and leaves the parked one as a caveat', () => {
+    const view = capacityView({
+      machines: [machine([window({ usedPercent: 10 })])],
+      hosts: [host(2.4), { ...host(16), hostname: 'rig' }], // rig is past the park line
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(view.headline).toBe('Room to run')
+    expect(view.load?.hostname).toBe('studio')
+    expect(view.caveat).toContain('rig is past its park line')
   })
 
   it('says so rather than claiming room when nothing has been read', () => {
