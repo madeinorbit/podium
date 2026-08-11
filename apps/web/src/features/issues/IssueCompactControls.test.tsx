@@ -226,6 +226,17 @@ describe('IssueCompactControls', () => {
       )
     })
   })
+
+  // Closing is reachable from the stage menu, but never as a bare stage write:
+  // the entry hands off to the guard dialog so a reason is recorded.
+  it('routes the stage menu close entries through the guard dialog', async () => {
+    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+
+    fireEvent.click(screen.getByLabelText('Stage'))
+    fireEvent.click(await screen.findByText('Close: done'))
+
+    expect(await screen.findByText('Close this issue?')).toBeTruthy()
+  })
 })
 
 describe('IssueDecisionBand', () => {

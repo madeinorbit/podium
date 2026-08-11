@@ -27,6 +27,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { OfferBar } from '@/features/chat/OfferBar'
@@ -611,8 +612,9 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
     <div className="mt-2.5 flex items-center gap-1.5">
       {/* Stage, exposed as a first-class dock action. Built from the shell's
           own dropdown rather than a native <select>, which exists nowhere in
-          this chrome. `done` is deliberately absent: closing an issue goes
-          through the close dialog so a reason is always recorded. */}
+          this chrome. `done` is absent as a plain stage: closing is reachable
+          from here, but the close entries route through the dialog so a reason
+          is always recorded — the same split the full page's Status menu makes. */}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -645,6 +647,25 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
               {STAGE_LABELS[stage]}
             </DropdownMenuItem>
           ))}
+          {!closed && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="whitespace-nowrap"
+                onClick={() => setCloseReason('done')}
+              >
+                <StageGlyph stage="done" size={12} />
+                Close: done
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="whitespace-nowrap"
+                onClick={() => setCloseReason('wontfix')}
+              >
+                <StageGlyph stage="done" size={12} />
+                Close: wontfix
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       {closed ? (
