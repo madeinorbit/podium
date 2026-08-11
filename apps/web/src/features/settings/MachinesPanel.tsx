@@ -214,7 +214,12 @@ function transferErrorMessage(
  * Lists registered machines with inline rename + revoke, and an "Add machine"
  * flow that mints a pairing code and shows the daemon command to run.
  */
-export function MachinesPanel(): JSX.Element {
+export function MachinesPanel({
+  showOwnershipTransfer = false,
+}: {
+  /** Dormant until multi-user machine ownership ships. */
+  showOwnershipTransfer?: boolean
+} = {}): JSX.Element {
   const { machines, trpc, setSettingsTab } = useStoreSelector(
     (s) => ({ machines: s.machines, trpc: s.trpc, setSettingsTab: s.setSettingsTab }),
     shallowEqual,
@@ -431,6 +436,7 @@ export function MachinesPanel(): JSX.Element {
               onTransferServer={
                 eligibleTransferTargets.has(m.id) ? () => setServerTransferTarget(m) : null
               }
+              showOwnershipTransfer={showOwnershipTransfer}
               // Inline "Enable": only on this device's own row, only while it is offline
               // (online means the daemon is already running) [spec:SP-3701].
               hosting={m.id === thisMachineId && !m.online ? hosting : null}
@@ -878,6 +884,7 @@ function MachineRow({
   hosting = null,
   onFindRepos = null,
   onTransferServer = null,
+  showOwnershipTransfer = false,
   serverAppVersion = null,
 }: {
   machine: MachineWire
@@ -891,6 +898,8 @@ function MachineRow({
   onFindRepos?: (() => void) | null
   /** Open the server-transfer confirmation for this online target. */
   onTransferServer?: (() => void) | null
+  /** Keep the implemented multi-user ownership flow dormant until that product ships. */
+  showOwnershipTransfer?: boolean
   /** POD-838: the server's own build version; null while unknown. */
   serverAppVersion?: string | null
 }): JSX.Element {
@@ -962,7 +971,7 @@ function MachineRow({
    * `=== true` and not truthiness: absent means NOT EVALUATED, and the closed
    * reading of "not evaluated" is no.
    */
-  const mayTransfer = machine.owned === true
+  const mayTransfer = showOwnershipTransfer && machine.owned === true
 
   const transfer = async () => {
     const recipient = recipientId.trim()

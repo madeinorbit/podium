@@ -276,10 +276,17 @@ function setTransferTrpc(transferMutate: () => Promise<unknown>) {
 const transferButton = () => screen.queryByRole('button', { name: 'Transfer' })
 
 describe('MachinesPanel ownership transfer', () => {
-  it('offers Transfer on a machine you own', () => {
+  it('keeps the multi-user ownership transfer affordance hidden in production', () => {
     storeState.machines = [machine({ owned: true })]
     setTransferTrpc(vi.fn())
     render(<MachinesPanel />)
+    expect(transferButton()).toBeNull()
+  })
+
+  it('offers Transfer on a machine you own', () => {
+    storeState.machines = [machine({ owned: true })]
+    setTransferTrpc(vi.fn())
+    render(<MachinesPanel showOwnershipTransfer />)
     expect(transferButton()).toBeTruthy()
   })
 
@@ -290,7 +297,7 @@ describe('MachinesPanel ownership transfer', () => {
     // will not confirm the existence of.
     storeState.machines = [machine({ owned: false })]
     setTransferTrpc(vi.fn())
-    render(<MachinesPanel />)
+    render(<MachinesPanel showOwnershipTransfer />)
     expect(transferButton()).toBeNull()
     expect(screen.queryByText(/transfer/i)).toBeNull()
   })
@@ -301,14 +308,14 @@ describe('MachinesPanel ownership transfer', () => {
     // about the missing field.
     storeState.machines = [machine({})]
     setTransferTrpc(vi.fn())
-    render(<MachinesPanel />)
+    render(<MachinesPanel showOwnershipTransfer />)
     expect(transferButton()).toBeNull()
   })
 
   it('the confirmation names the loss of access AND the dropped shares', () => {
     storeState.machines = [machine({ owned: true, name: 'builder' })]
     setTransferTrpc(vi.fn())
-    render(<MachinesPanel />)
+    render(<MachinesPanel showOwnershipTransfer />)
     fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
 
     // The three facts a transfer dialog that omits any of them ships as a defect:
@@ -323,7 +330,7 @@ describe('MachinesPanel ownership transfer', () => {
     const transferMutate = vi.fn().mockResolvedValue({})
     storeState.machines = [machine({ owned: true, name: 'builder' })]
     setTransferTrpc(transferMutate)
-    render(<MachinesPanel />)
+    render(<MachinesPanel showOwnershipTransfer />)
     fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
 
     const confirm = screen.getByRole('button', { name: 'Transfer ownership' })
@@ -354,7 +361,7 @@ describe('MachinesPanel ownership transfer', () => {
     const transferMutate = vi.fn().mockRejectedValue(new Error('unknown recipient'))
     storeState.machines = [machine({ owned: true, name: 'builder' })]
     setTransferTrpc(transferMutate)
-    render(<MachinesPanel />)
+    render(<MachinesPanel showOwnershipTransfer />)
     fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
     fireEvent.change(screen.getByLabelText(/new owner's account name/i), {
       target: { value: 'ghost' },

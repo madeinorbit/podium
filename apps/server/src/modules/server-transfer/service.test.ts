@@ -452,6 +452,10 @@ describe('ServerTransferService final-fence flow', () => {
     const before = await service.publicStatus([{ id: 'source-1' }, { id: 'target-1' }])
     expect(before).toMatchObject({
       sourceMachineId: 'source-1',
+      targetEligibility: [
+        { targetMachineId: 'source-1', eligible: false, reason: 'offline' },
+        { targetMachineId: 'target-1', eligible: false, reason: 'current-server' },
+      ],
       transfer: { state: 'committed', phase: 'switching', sourceConnected: false },
     })
 
