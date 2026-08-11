@@ -280,6 +280,26 @@ shaped object, it builds a new one. The tempting violation is stamping
 state (a degrade flag, a normalised field) onto the record before
 serialising; put it in the sink's own output instead.
 
+The rule is **enforced, not trusted**: `buildRecord` freezes the finished
+record under `NODE_ENV` `test`/`development` or `PODIUM_LOG_FREEZE=1`.
+Modules are strict mode, so a mutating sink throws, fail-open dispatch
+disables it, and the existing local warning names it — the violation becomes
+a failure in the offending sink's own test run rather than a corrupted crash
+report weeks later. Production pays one cached boolean and no freeze. The
+freeze is **shallow**: a nested field object is still mutable, so it catches
+the common violation, not every one.
+
+Two chunks will meet this head-on and should know before they write the
+code, not after:
+
+- **Chunk 2** (file sink): transform by building a new record; never
+  normalise, sort, stamp or annotate in place. Degrade state belongs in the
+  sink's own output, not on the record.
+- **Chunk 3** (ingestion): a scrubber that redacts **in place** is the
+  natural way to write it and will now throw in dev. Return a scrubbed
+  *copy*. This is the freeze doing its job — an in-place scrubber would also
+  be rewriting the ring-buffer history that the crash payload ships.
+
 This contract is what lets `snapshot()` return a new array over the *same*
 record objects rather than deep-copying: a deep copy costs on the crash path
 and can throw on a field that resists cloning, which would turn crash-ship
