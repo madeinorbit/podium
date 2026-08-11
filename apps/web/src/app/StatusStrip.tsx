@@ -1,5 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { issueReferenceModel } from '@podium/client-core/viewmodels'
+import { isAgentComputing } from '@podium/model'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
@@ -44,12 +45,13 @@ export function StatusStrip(): JSX.Element {
   const { health, visible: connVisible } = useStableConnection()
   const commandPaletteEnabled = useFeature('command-palette')
 
-  // 'compacting' is the harness still computing, just about its own context —
-  // the same reading SessionContextMenu takes.
-  const working = sessions.filter(
-    (session) =>
-      session.agentState?.phase === 'working' || session.agentState?.phase === 'compacting',
-  ).length
+  // Liveness is part of the question, not just the phase: a session that exited
+  // mid-turn keeps `phase: 'working'` (the server preserves the final turn
+  // diagnosis) and a parked one keeps it too, so counting raw phase gives a
+  // number that only ratchets up — it read "13 agents working" for hours with
+  // four alive (POD-730). `isAgentComputing` asks both, and 'compacting' counts
+  // because the harness is still computing, just about its own context.
+  const working = sessions.filter(isAgentComputing).length
   const issue = selectedIssueId
     ? issues.find((candidate) => candidate.id === selectedIssueId && !candidate.deletedAt)
     : undefined
