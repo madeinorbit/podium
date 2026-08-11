@@ -1,0 +1,1 @@
+ALTER TABLE `machines` ADD `update_channel` text DEFAULT 'stable' NOT NULL;

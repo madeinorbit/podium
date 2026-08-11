@@ -1,16 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import { captureServerBuildVersion } from '../../server/src/build-version'
-import {
-  buildReport,
-  captureDaemonBootBuild,
-  deliveryCaps,
-} from './build-report'
+import { buildReport, captureDaemonBootBuild, deliveryCaps } from './build-report'
 
 describe('buildReport', () => {
   it('reports the baked version for an installed build', () => {
     const r = buildReport({ PODIUM_APP_VERSION: '0.4.2' }, '/home/u/.local/share/podium')
     expect(r.appVersion).toBe('0.4.2')
     expect(r.installKind).toBe('installed')
+  })
+
+  it('falls back to the baked process version when the installed runtime env omits it', () => {
+    const originalVersion = process.env.PODIUM_APP_VERSION
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    try {
+      const r = buildReport({}, '/home/u/.local/share/podium')
+      expect(r).toMatchObject({ appVersion: '0.4.2', installKind: 'installed' })
+    } finally {
+      if (originalVersion === undefined) delete process.env.PODIUM_APP_VERSION
+      else process.env.PODIUM_APP_VERSION = originalVersion
+    }
   })
 
   it('reports a source run when there is no install dir', () => {

@@ -2,12 +2,14 @@
 
 Guidance for AI agents working in this repository.
 
-## Verifying UI / interaction changes
+## Verifying interaction-boundary changes
 
-Automated tests, build, and review do not replace runtime verification for changed
-UI/interaction behavior (clickable elements, terminal link clicks, editor open/save).
-Before calling such work done, drive the real app and observe the behavior (a real
-click, a real new tab, the file actually changing on disk).
+Do not browser-drive ordinary visual changes such as fonts, spacing, colours, copy, or
+straightforward component styling. Runtime verification is reserved for changed behavior whose
+correctness depends on a real boundary that code review and hermetic tests cannot establish—for
+example terminal link dispatch, OS editor open/save, browser new-tab behavior, or pointer/keyboard
+event routing. When such a boundary is the task, drive the smallest affected interaction once and
+observe the external effect.
 
 See **[docs/agents/driving-podium.md](docs/agents/driving-podium.md)** for how to drive
 Podium with Playwright — the `?e2e=1` test API, navigating the current DOM, reading
@@ -45,181 +47,48 @@ no roles, no write-claim, no auto-isolation [spec:SP-4ef9] — so what you tell 
 prompt is the only lever: its job, a title to give itself, who else is on the issue, and who
 owns which files. Full guide: **[docs/agents/delegating.md](docs/agents/delegating.md)**.
 
-## Cached checks
+## Testing: one end-of-task gate
 
-Run `bun run typecheck` and trust a cache hit. Never force a recompute: a forced run
-costs ~3m14s of CPU against ~2s cached (110x, measured on 22 packages) on a host
-shared with a live Podium instance. The cache key covers source files, `bun.lock`,
-`package.json`, `tooling/tsconfig`, and — via `scripts/typecheck.ts`'s environment
-fingerprint (`PODIUM_CHECK_ENV_HASH` in `turbo.json` `globalEnv`) — `bunfig.toml`
-and the `node_modules/@podium` link census. Installs, linker changes, and git base
-swaps therefore invalidate the cache by themselves; you do not need `--force` after
-a merge. A checkout with no usable `node_modules/@podium` links is refused outright
-(a cached green there is not evidence — POD-1343).
-
-If you have a concrete reason to believe the cache is wrong, state it:
+Do not run tests after edits or intermediate commits. Implement the complete change first,
+then run **one** validation command at the end. The normal agent gate is:
 
 ```
-bun run typecheck -- --uncached-because="<what the cache key is missing>"
+bun run test:agent
 ```
 
-and file the gap as an issue so the key gets fixed. Bare `--force` and `TURBO_FORCE`
-exit with an error.
+It is a tiny, hermetic, one-worker boot-wiring and lane-configuration probe. It is designed to
+answer “is this candidate internally coherent and are the basic runtime pieces still wired?”
+without traversing every package, starting browsers, or taking the whole-host heavy-test lease.
+Docs, copy, fonts, formatting, generated artifacts, and other changes that cannot affect runtime
+may skip even this gate; state why in the handoff.
 
-### One check at a time
+Run another lane only when the changed behavior matches its trigger. Examples: database/store
+changes use the server store shard; daemon or PTY process behavior uses integration; instance
+identity or lifecycle uses multi-instance. A UI edit does **not** require browser automation or
+manual click-driving unless the task is specifically about interaction behavior whose correctness
+cannot be established from the code and types. Rewrite migration audits, the full package sweep,
+browser suites, performance benchmarks, the oracle, and real-agent smoke are never routine agent
+gates.
 
-Run your focused test lane, `bun run typecheck`, and the final `bun run test` gate
-**one after another**, each to completion. Do not background one and start the next,
-and do not fire them as parallel tool calls.
+Do not stack validation commands “for confidence.” If a specialized lane is required, run it
+instead of `test:agent` when it already covers the relevant basic check; otherwise run
+`test:agent` once and the one specialized lane once, sequentially. `test:agent` deliberately
+does not enter the shared admission queue: it must not wait behind or delay heavyweight suites.
+Never overlap other validation commands in one session.
 
-The `test:heavy` lease cannot enforce this ordering by itself. The broader host budget
-coordinates commands with *other* sessions: root package lanes through `scripts/test.ts`
-and other heavy lanes reserve the whole budget, focused one-shot tests take one of two
-shared permits, and typecheck takes both. Watch mode takes one permit at one worker and
-refuses a second watcher. The explicit already-held marker lets Turbo children reuse their
-parent's admission without reacquiring. It deliberately does not make overlapping commands
-in one session safe, so the ordering is still yours to enforce. On a host shared with a live
-Podium instance and every other agent session, overlapping raises the peak without finishing
-sooner, and a starved run fails in timeout shapes that read like real regressions.
+The complete map from changed paths and behavior to commands—including exact test locations,
+filename patterns, configs, parent commands, caching, and exclusions—is in
+**[docs/agents/testing.md](docs/agents/testing.md)**. Read that file before selecting anything
+other than `test:agent`.
 
-Details: **[docs/agents/testing.md](docs/agents/testing.md)**.
+`bun run test` remains the exhaustive cached package sweep for scheduled CI, merge batches, and
+explicit requests. It is not the default agent command and is not required before every commit.
+`bun run test:rearch` owns the whole-repository rewrite audit tests; they are excluded from the
+normal package sweep.
 
-### Cached package test lanes
-
-`bun run test` is the default. It enters `scripts/test.ts`, which runs the 28
-package-owned `test` tasks through Turbo with task concurrency set to one.
-
-| Lane | Scope | Cache / safety |
-| --- | --- | --- |
-| `bun run test` | all 28 package tasks: one per package with tests (scripts, desktop, web/mobile, the runtime Bun unit) plus `@podium/server`'s aggregate and its five cache shards | Turbo-cached; package tasks run one at a time |
-| `bun run test:unit` | compatibility alias for the default command | same |
-| `bun run test:web`, `test:mobile`, `test:cached` | focused cached app probes | Turbo-cached |
-| `bun run test:affected` | changed package tasks and their dependents | refuses files no package task can cover |
-
-Every package task inherits the shared `@podium/source` resolution, hermetic setup
-files, two-worker ceiling, retry policy, and unit exclusion list. The runtime task owns
-the focused `*.bun.test.ts` unit file instead of invoking it from a root sweep.
-
-`@podium/server` is the one package whose task is an aggregate: five independently cached
-shards (`contracts`, `store`, `services`, `boundary`, `normalized-wire`) whose membership
-and file-level Turbo inputs are **generated** from the import closure. `apps/server/test-shards.json`
-and `apps/server/turbo.json` are not hand-editable; re-run `bun scripts/server-test-shards.ts --write`
-after adding, moving, or deleting an `apps/server` test file, or the drift guard in the
-default lane fails. The `contracts` shard also reuses one Vitest runner across the files a
-static scan clears — see **[docs/agents/testing.md](docs/agents/testing.md)** before adding
-or debugging a server test.
-
-All commands pass through the install fingerprint (`PODIUM_CHECK_ENV_HASH`) and the
-same missing-link refusal as typecheck. Bare `--force`/`TURBO_FORCE` is rejected;
-use `-- --uncached-because="<reason>"` only when a cache-key gap is understood and
-filed.
-
-Tell a hit from a miss by Turbo's summary line:
-
-```
-Cached:    28 cached, 28 total          Time:   ... >>> FULL TURBO   <- hit, nothing ran
-Cached:    27 cached, 28 total          Time:   ...                  <- one task executed
-```
-
-`>>> FULL TURBO` means no task executed. The cache key is honest: every task includes its
-package files plus the shared configs, hermetic hooks, lockfile, and install fingerprint;
-web/mobile include source-imported workspace packages, while scripts includes the repository
-trees its architecture/configuration audits read. `dependsOn: ["^test"]` does not carry source
-content into a task whose dependency has no test task, so those inputs are explicit.
-
-The 28-task graph is deliberate. `@podium/terminal-client-react` has no test files and no
-task; every default test file has a package owner and a real config/task. Adding another
-package requires the same config, hermetic setup, exclusion, and Turbo-input audit.
-
-Evidence for the cache-key coverage table: **[docs/agents/pod-1378-cache-evidence.md](docs/agents/pod-1378-cache-evidence.md)**.
-
-## Affected-only tests
-
-`bun run test:affected` runs the `test` turbo task filtered to the packages your change
-actually touches — the ones whose sources changed, plus every package that depends on them.
-
-**Today that means all 28 package test tasks.** The graph includes scripts, desktop,
-web/mobile, the five `@podium/server` shards behind their aggregate, and the runtime Bun
-unit file. It reads the
-task graph rather than package.json, so a package task is selected for changed package
-sources and for every package that depends on them.
-
-**This is a fast inner-loop approximation. It does not replace `bun run test` before a
-commit.** It cannot scope the root-level lanes that start real processes or external tools:
-
-- `test:integration` — real processes, PTYs, server boots
-- `test:acceptance` — loop-split load suite
-- `test:e2e` — full-stack server/daemon suites
-- `test:browser` — Playwright browser suites
-- `test:multi-instance` — separate concurrent runtimes
-- `test:smoke:agents` — real agent CLIs and LLM quota
-
-Because those lanes are invisible to a package filter, the entry point **refuses to run
-rather than print a green it did not earn**: if any changed file is not in a package turbo
-can actually run `test` for, it exits 1, names the file and the reason, and tells you to
-run `bun run test`. Use `--allow-uncovered` only once you have run the full lane yourself.
-
-Every default unit/Bun file is now owned by a package task. Root integration, acceptance,
-browser, multi-instance, and agent-smoke files remain explicit opt-in lanes and are listed
-as uncovered by design when `test:affected` sees them.
-
-Inert files — `*.md`, `LICENSE`, `NOTICE` — do not trigger the refusal, since prose cannot
-change a test outcome. The exception is a doc a test actually reads: `docs/TELEMETRY.md`
-is asserted against `packages/telemetry/src/docs-drift.test.ts`, so editing it still
-refuses. If you add a test that reads a repo-root doc, the drift guard in
-`scripts/test-affected.test.ts` will fail and tell you to list it in `DOCS_READ_BY_TESTS`.
-
-The base is resolved, never hardcoded: the merge base against the *closest* of your
-upstream, `origin/main`, and `origin/project/*`. Worktrees cut from a long-lived project
-branch therefore diff against that branch, not against main. Override when needed:
-
-```
-bun run test:affected -- --base=<ref>     # or PODIUM_TEST_BASE=<ref>
-```
-
-Uncommitted and untracked changes count, and a checkout with no usable
-`node_modules/@podium` links is refused for the same reason `typecheck` refuses it.
-Note that editing `turbo.json` or anything in `globalDependencies` selects every package
-task in the graph — safe, but you get no speedup on such a branch.
-
-Measured selection sets: **[docs/agents/pod-1688-affected-evidence.md](docs/agents/pod-1688-affected-evidence.md)**.
-
-## Vitest inner loop
-
-For a quick edit-run loop, use the root Vitest scripts:
-
-- `bun run test:changed` runs the Vitest unit tests reachable from files changed since `HEAD`.
-- `bun run test:related -- path/to/file.ts` runs tests reachable from an explicit file list; pass more paths after `--` when needed.
-- `bun run test:watch` keeps the unit projects warm in plain watch mode for repeated edits.
-
-These scripts use the root Vitest config and its `node`/`normalized-wire` projects as a fast inner loop. They do not replace the package-owned default lane: Vitest rebuilds its module graph for each invocation, and module-graph selection cannot see tests that consume files through filesystem reads instead of imports. For example, changing `docs/TELEMETRY.md` does not select `packages/telemetry/src/docs-drift.test.ts`, which reads that file with `readFileSync`; `test:changed` can therefore pass with zero selected tests for that edit. This is a documented limit, not a detected dependency: target the reader explicitly with `bun run test:related -- packages/telemetry/src/docs-drift.test.ts` when needed. This lane does **not** replace `bun run test` before a commit; the full suite is still required before committing.
-`test:affected` takes the opposite posture—refusing with exit 1 when a changed file is invisible to its package task graph—because this inner loop deliberately keeps zero-test green useful for ordinary docs/inert edits and leaves `bun run test` as the commit gate.
-
-## Testing policy
-
-Match testing effort to regression risk. Simple, low-risk changes may skip automated tests when
-they do not alter runtime behavior, are fully mechanical, or are already protected by existing
-coverage; state the reason in the handoff. Do not test trivial wiring, static types, framework
-contracts, or assertions already covered at another layer.
-
-When coverage is warranted, write the smallest focused set that protects the changed behavior.
-Prefer extending existing tests or adding table-driven cases over creating parallel suites. Run
-`bun run test` before commits containing substantive code changes; docs, copy, formatting, and
-other test-independent edits may skip it. Add integration, E2E, multi-instance, or agent-smoke
-lanes only when the change matches the decision table in
-**[docs/agents/testing.md](docs/agents/testing.md)**. Do not create or run long, complex E2E flows
-for small or local changes; reserve them for critical cross-boundary behavior or regressions that
-require the real stack. Real-agent smoke tests require an explicit human request. Changed
-UI/interaction behavior still requires runtime verification.
-
-For a simple, local UI or bug change that means: the smallest focused lane that covers it
-(`bun run test:related -- <file>`, or `test:web` / `test:mobile` when the change sits in one
-app package), **plus** runtime verification in the running app — a green focused lane is not
-evidence a UI change works — and one full `bun run test` gate at the final substantive
-integration point, the commit that actually lands the behavior. That gate is where the
-requirement above bites and it is not skippable; the focused lane narrows what you run on the
-way, not what has to be green before the change lands. Heavier lanes the decision table calls
-for still apply on their own terms, however small the diff looks.
+Trust typecheck and Turbo cache hits. Never force recomputation. If a concrete cache-key gap is
+known, use `-- --uncached-because="<missing input>"` and file the gap; bare `--force` and
+`TURBO_FORCE` are rejected. A checkout without usable `node_modules/@podium` links is refused.
 
 ## Reference docs for agents
 

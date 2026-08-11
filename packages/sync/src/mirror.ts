@@ -67,6 +67,14 @@ export class MirrorService {
   /** Segment keys in error backoff until the mapped epoch-ms. */
   private readonly backoffUntil = new Map<string, number>()
   /**
+   * Reversible write fence used while the server takes a transfer snapshot.
+   * Unlike {@link stopped}, pausing preserves queues and dedup state so an abort
+   * can resume every deferred segment from its persisted cursor.
+   */
+  private paused = false
+  /** Pause callers waiting for every per-machine drain to reach the fence. */
+  private readonly pauseWaiters = new Set<() => void>()
+  /**
    * Set by {@link dispose}. Everything this service does after a chunk is async
    * and PACED, so at shutdown there is essentially always a drain mid-flight —
    * and its owner's store is closed the moment it returns. Without this flag the
@@ -149,7 +157,32 @@ export class MirrorService {
       this.queues.set(machineId, queue)
     }
     queue.push({ nativeId, path })
-    void this.drain(machineId)
+    if (!this.paused) void this.drain(machineId)
+  }
+
+  /**
+   * Fence lake mutation and wait for every active per-machine drain to stop.
+   *
+   * A drain already inside a filesystem write is allowed to finish that write
+   * and persist its matching cursor before it exits. A drain waiting on a
+   * daemon read discards that response without writing and puts the segment
+   * back at the head of its queue. New enqueue/dirty triggers keep accumulating
+   * while paused; {@link resume} restarts them all from persisted cursors.
+   */
+  async pause(): Promise<void> {
+    if (this.stopped) return
+    this.paused = true
+    if (this.active.size === 0) return
+    await new Promise<void>((resolve) => this.pauseWaiters.add(resolve))
+  }
+
+  /** Lift a reversible pause and restart every preserved machine queue. */
+  resume(): void {
+    if (this.stopped || !this.paused) return
+    this.paused = false
+    for (const [machineId, queue] of this.queues) {
+      if (queue.length > 0) void this.drain(machineId)
+    }
   }
 
   /**
@@ -170,7 +203,7 @@ export class MirrorService {
   }
 
   private async drain(machineId: string): Promise<void> {
-    if (this.active.has(machineId)) return
+    if (this.stopped || this.paused || this.active.has(machineId)) return
     this.active.add(machineId)
     try {
       // Per-pass byte budget (incident amendment): one drain pass copies at most
@@ -180,6 +213,7 @@ export class MirrorService {
       const pass = { remainingBytes: this.passBudgetBytes }
       for (;;) {
         if (this.stopped) return
+        if (this.paused) return
         if (pass.remainingBytes <= 0) {
           this.dropQueue(machineId)
           return
@@ -187,8 +221,16 @@ export class MirrorService {
         const item = this.queues.get(machineId)?.shift()
         if (!item) return
         const key = machineScopedKey(machineId, item.nativeId)
+        let preserveQueued = false
         try {
-          await this.mirrorOne(machineId, item.nativeId, item.path, pass)
+          const completed = await this.mirrorOne(machineId, item.nativeId, item.path, pass)
+          if (!completed) {
+            // Pause won while this item was in flight. It stays deduplicated and
+            // returns to the FRONT so resume retries it before later segments.
+            preserveQueued = true
+            this.queues.get(machineId)?.unshift(item)
+            return
+          }
         } catch (err) {
           // Disposed while this pull was outstanding: the store is closing or
           // closed, so neither branch below may run. The failure is an artifact
@@ -217,11 +259,15 @@ export class MirrorService {
             console.warn(`[podium] transcript mirror failed for ${item.nativeId}:`, err)
           }
         } finally {
-          this.queued.delete(key)
+          if (!preserveQueued) this.queued.delete(key)
         }
       }
     } finally {
       this.active.delete(machineId)
+      if (this.active.size === 0) {
+        for (const resolve of this.pauseWaiters) resolve()
+        this.pauseWaiters.clear()
+      }
     }
   }
 
@@ -239,18 +285,21 @@ export class MirrorService {
     nativeId: string,
     path: string,
     pass: { remainingBytes: number },
-  ): Promise<void> {
+  ): Promise<boolean> {
     let cursor = this.store.mirrorCursor(machineId, nativeId)
     // Ops-event guard: if the lake file is SHORTER than the cursor (lake wiped or
     // partially restored while the DB kept its cursors), fall back to what is
     // actually on disk — truncate(cursor) on a shorter file would silently EXTEND
     // it with NUL bytes and mark garbage as mirrored.
     const lakeSize = await this.lakeSize(machineId, nativeId)
+    if (this.stopped) return true
+    if (this.paused) return false
     if (lakeSize < cursor) {
       cursor = lakeSize
       this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
     }
     for (;;) {
+      if (this.paused) return false
       const res = await this.read(machineId, {
         path,
         offset: cursor,
@@ -258,7 +307,11 @@ export class MirrorService {
       })
       // Every line below writes to the store; disposal can have closed it while
       // this read was outstanding. Bail before the write, not after it throws.
-      if (this.stopped) return
+      if (this.stopped) return true
+      // The ranged read itself is harmless to the snapshot. If the fence went
+      // up while it was outstanding, preserve the item and never turn its reply
+      // into a lake write.
+      if (this.paused) return false
       if (res.error) throw new Error(res.error)
       if (res.fileSize < cursor) {
         // The native file SHRANK — it was rewritten, not appended. Verbatim-mirror
@@ -267,8 +320,13 @@ export class MirrorService {
         // the reindex starts from a clean slate as chunks arrive.
         this.onTruncate(machineId, nativeId)
         await this.writeAt(machineId, nativeId, 0, Buffer.alloc(0))
+        // Disposal may close the store while the filesystem mutation is
+        // outstanding. The lake can be repaired from its persisted cursor on
+        // the next start; touching the closed store here cannot be repaired.
+        if (this.stopped) return true
         this.store.setMirrorCursor(machineId, nativeId, 0, this.nowIso())
         cursor = 0
+        if (this.paused) return false
         continue
       }
       const bytes = Buffer.from(res.data, 'base64')
@@ -276,13 +334,23 @@ export class MirrorService {
         // Lake write BEFORE cursor advance (spec invariant 2): a crash between the
         // two re-pulls this chunk and overwrites it byte-identically at the cursor.
         await this.writeAt(machineId, nativeId, cursor, bytes)
+        // dispose() is synchronous and the owner closes the store immediately
+        // afterwards. A write already awaiting the filesystem may finish, but
+        // it must not advance cursors or notify the indexer after that boundary.
+        if (this.stopped) return true
         cursor += bytes.length
         this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
         this.onBytes(machineId, nativeId, this.lakePath(machineId, nativeId))
         pass.remainingBytes -= bytes.length
+        // A pause may have arrived while writeAt was awaiting the filesystem.
+        // Cursor and lake are consistent now; stop before another read/write.
+        if (this.paused) return false
         // Inter-chunk breather (incident amendment): never pump chunks
         // back-to-back — the 2026-07 bootstrap starved the event loop doing so.
-        if (this.chunkDelayMs > 0) await this.sleep(this.chunkDelayMs)
+        if (this.chunkDelayMs > 0) {
+          await this.sleep(this.chunkDelayMs)
+          if (this.paused) return false
+        }
       } else if (!res.eof) {
         throw new Error('empty non-eof mirror chunk') // defensive: avoid a spin
       }
@@ -294,9 +362,11 @@ export class MirrorService {
         // covered: we mirrored to the real eof). A later grow re-dirties via the
         // next scan's sizeBytes.
         this.store.setReportedBytes(machineId, nativeId, cursor)
-        return
+        return true
       }
-      if (pass.remainingBytes <= 0) return // budget hit mid-file: cursor persisted, next pass resumes
+      // Budget hit mid-file: cursor persisted, next pass resumes. This is normal
+      // pass completion rather than a pause, so the next scan may re-enqueue it.
+      if (pass.remainingBytes <= 0) return true
     }
   }
 

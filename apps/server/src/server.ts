@@ -14,7 +14,7 @@ import {
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
+import { loadConfig, resolveDevArtifactOrigin, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
   readOrCreateDaemonSecret,
@@ -44,6 +44,11 @@ import {
   recordHelloBuild,
 } from './gateway/peer-handshake'
 import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
+import {
+  assertWritableServerBoot,
+  reconcileSafeServerTransferBoot,
+} from './modules/server-transfer/journal'
+import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { PairingManager } from './hub/pairing'
 import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
 import { IssueToolProvider } from './issue-mcp'
@@ -52,11 +57,11 @@ import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
-import type { PublicationAuthority } from './modules/sessions/session'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
+import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -197,12 +202,6 @@ export async function startServer(
     plugins?: PodiumPlugin[]
     /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
     redirectPhoneRootToMobile?: boolean
-    /** Request-scoped publication worlds. Both transports must resolve through
-     *  the same authority source so catch-up and live publication cannot drift. */
-    resolvePublicationAuthority?: {
-      http(request: Request): PublicationAuthority
-      websocket(request: Request): PublicationAuthority
-    }
   } = {},
 ): Promise<ServerHandle> {
   const appVersion = captureServerBuildVersion()
@@ -219,6 +218,9 @@ export async function startServer(
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
   const updateSigningKey = readOrCreateUpdateSigningKey()
+  reconcileSafeServerTransferBoot(stateDir())
+  assertWritableServerBoot(stateDir())
+  const portableStateFence = new PortableStateFence()
   const store = new SessionStore(undefined, hostMachineId)
   // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
   // before the open-exposure check below. Order matters between these two: the legacy
@@ -262,13 +264,11 @@ export async function startServer(
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
     mirrorLakeDir: join(stateDir(), 'transcripts'),
-    // Rollout diagnostic only: compare legacy/new semantics while continuing
-    // to deliver the worker publication [spec:SP-c29e].
-    publicationShadowCompare: process.env.PODIUM_PUBLISH_SHADOW_COMPARE === '1',
+    portableStateFence,
     // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
     // owner and revocation at the state-root tier, outside podium.db. Opened
     // before service construction so pair/hello/revoke share one durability domain.
-    enrollment: openEnrollmentLedger(stateDir()),
+    enrollment: openEnrollmentLedger(stateDir(), portableStateFence),
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
@@ -302,6 +302,13 @@ export async function startServer(
     // which is also the auth the agents on that machine actually run under.
     modelProbe: (machineId) => registry.modules.rpc.modelProbe(machineId),
   })
+  // Resolve release authorities before serving the fleet read model. Failures are
+  // captured as per-channel unavailable reasons; startup remains operational.
+  await Promise.all([
+    registry.modules.updates.refreshTarget('edge'),
+    registry.modules.updates.refreshTarget('stable'),
+  ])
+
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
   // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)
@@ -394,12 +401,22 @@ export async function startServer(
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = randomUUID()
   let boundPort = opts.port ?? 0
+  const developmentSourceRoot = process.env.PODIUM_HOME ? undefined : DEVELOPMENT_SOURCE_ROOT
+  const requestCoordinatorRestart = developmentSourceRoot
+    ? createSourceRedeployRequest({ instanceId })
+    : undefined
   const devPublisher = wireDevBundlePublisher({
-    sourceRoot: process.env.PODIUM_HOME ? undefined : DEVELOPMENT_SOURCE_ROOT,
-    port: () => boundPort,
+    sourceRoot: developmentSourceRoot,
+    artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
+    localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
+    hasRemoteManagedMachines: () =>
+      store.machines
+        .listMachines()
+        .some((machine) => machine.id !== hostMachineId && machine.podiumManaged),
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
     signingKey: updateSigningKey.privateKey,
+    locks: registry.modules.locks,
   })
 
   const app = new Hono()
@@ -522,7 +539,6 @@ export async function startServer(
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
       createContext: (_request, hono) => {
-        const publicationAuthority = opts.resolvePublicationAuthority?.http(hono.req.raw)
         const principal = requestPrincipal(hono.req.header('cookie'))
         if (principal === undefined) throw new Error('authenticated account is unavailable')
         return {
@@ -534,13 +550,13 @@ export async function startServer(
           principal,
           capability: principal.capability,
           modules: registry.modules,
-          ...(publicationAuthority ? { publicationAuthority } : {}),
           // Only so telemetry.preview can show the REAL report [spec:SP-f933];
           // consent lives in config.json and is never read through the context.
           telemetry,
           // Hub-only procs (machines fleet admin + pairing) 404 when the hub
           // role is off — see the hubProc guard in router.ts.
           role,
+          ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
         }
       },
     }),
@@ -636,9 +652,6 @@ export async function startServer(
         const principal = requestPrincipal(request.headers.get('cookie') ?? undefined)
         return principal ? store.users.roleOf(principal.user) : undefined
       },
-      ...(opts.resolvePublicationAuthority
-        ? { resolvePublicationAuthority: opts.resolvePublicationAuthority.websocket }
-        : {}),
     })
 
     let server: Pick<NativeServer<never>, 'port' | 'stop'>
@@ -740,6 +753,7 @@ export async function startServer(
     // queueMicrotask keeps delivery async so neither side re-enters the
     // other's call stack (the ordering the WS transport implied).
     const localDaemonLink: LocalDaemonLink = {
+      attachPortableState: (control) => registry.attachLocalDaemonPortableState(control),
       attach: ({ hello, deliver }) => {
         const acceptor = createDaemonAcceptor({
           machines: registry.modules.machines,

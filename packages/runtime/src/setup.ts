@@ -144,9 +144,10 @@ export function consumePairCode(code: string): void {
 /**
  * Refuse a destructive write over an EXISTING-but-invalid config.json (issue #21): what
  * looks like a fresh box to loadConfig may be an operator's broken-but-recoverable config;
- * every setup mutation goes through here so it can't be silently clobbered.
+ * every setup mutation goes through here so it can't be silently clobbered. Exported for
+ * the server-transfer lifecycle, which performs the same guarded writes.
  */
-function assertConfigWritable(): void {
+export function assertConfigWritable(): void {
   const res = inspectConfig()
   if (res.state === 'corrupt') {
     throw new Error(
@@ -159,6 +160,7 @@ function assertConfigWritable(): void {
 export function applySetup(input: {
   publicUrl: string
   mode?: 'all-in-one' | 'server'
+  port?: number
 }): PodiumConfig {
   assertConfigWritable()
   const prev = loadConfig()
@@ -171,6 +173,7 @@ export function applySetup(input: {
     ...prev,
     mode,
     publicUrl: input.publicUrl,
+    ...(input.port === undefined ? {} : { port: input.port }),
     // Web setup can't start the backend from inside the serving process (stopping
     // the old one would kill the request in flight), but it CAN record the
     // choice — and since POD-333 that is all there is to record. The next

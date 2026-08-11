@@ -602,6 +602,27 @@ export function hasSystemctl(): boolean {
     return false
   }
 }
+function systemctlSucceeds(args: string[]): boolean {
+  try {
+    execFileSync('systemctl', ['--user', ...args], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** True only while systemd considers the user unit active. */
+export function systemdUnitActive(unit: string): boolean {
+  return systemctlSucceeds(['is-active', '--quiet', unit])
+}
+
+/**
+ * True when systemd can resurrect the unit, including enabled-but-currently-restarting units.
+ * Active-but-disabled units also count because role demotion must stop their current process.
+ */
+export function systemdUnitManaged(unit: string): boolean {
+  return systemdUnitActive(unit) || systemctlSucceeds(['is-enabled', '--quiet', unit])
+}
 
 /**
  * Whether `systemctl --user` can actually reach a user manager. `hasSystemctl()` only proves the
@@ -709,4 +730,43 @@ export function shouldInstallUpdateTimer(ctx: {
   if (!ctx.mode) return false
   const attached = typeof ctx.serverUrl === 'string' && ctx.serverUrl.length > 0
   return !(attached && (ctx.mode === 'daemon' || ctx.mode === 'client'))
+}
+
+/**
+ * Write a user unit file (idempotent) and return its path — used by reconcile to put the
+ * per-role unit in place before `enable --now`. Callers render a single role body.
+ */
+export function writeUserUnit(unit: string, body: string): string {
+  const path = join(userUnitDir(), unit)
+  mkdirSync(userUnitDir(), { recursive: true })
+  writeFileSync(path, body)
+  return path
+}
+
+/**
+ * Enable + start the named user units (no-ops on units already active). Does not write
+ * files — `writeUserUnit` did that — but `daemon-reload`s so systemd forgets the old body.
+ */
+export function enableSystemdUnits(units: string[]): void {
+  run('systemctl', ['--user', 'daemon-reload'])
+  run('systemctl', ['--user', 'enable', '--now', ...units])
+}
+
+/**
+ * Disable + stop the named user units, so a changed deployment mode (a cutover) can never
+ * be resurrected by a `Restart=always` unit or a reboot. `disable --now` is the "stop AND
+ * forget" step — `podium stop` alone leaves the unit enabled, which is right for stop but
+ * wrong for a role switch.
+ */
+export function disableSystemdUnits(units: string[]): void {
+  run('systemctl', ['--user', 'disable', '--now', ...units])
+}
+
+/**
+ * Prevent the named units from being resurrected on reboot/reload without stopping their current
+ * processes. Target promotion uses this for its in-flight daemon: the daemon remains available for
+ * a lost promote-reply retry, while systemd can no longer create a second copy later.
+ */
+export function disarmSystemdUnits(units: string[]): void {
+  run('systemctl', ['--user', 'disable', ...units])
 }

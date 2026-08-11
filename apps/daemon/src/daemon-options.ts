@@ -1,5 +1,5 @@
 import type { agentLaunchCommand } from '@podium/harness'
-import type { LocalDaemonLink } from '@podium/protocol'
+import type { LocalDaemonLink, ServerTransferServingProof } from '@podium/protocol'
 import type { DurableBackend } from './control/context'
 import type { DiscoveryWorkerClient } from './worker-client'
 
@@ -64,6 +64,10 @@ export interface DaemonOptions {
   sourceRoot?: string
   /** Test/embedding seam; production exits so the process manager restarts the daemon. */
   restartAfterUpdate?: () => void
-  /** Called after a successful server promotion; production starts the server role. */
-  restartAfterTransfer?: () => void
+  /** Starts the promoted role and echoes the expected proof only after it is serving. */
+  restartAfterTransfer?: (
+    expected: ServerTransferServingProof,
+  ) => Promise<ServerTransferServingProof> | ServerTransferServingProof
+  /** Retires the retained daemon after a durable promoted-proof acknowledgement. */
+  retireAfterTransfer?: () => void | Promise<void>
 }

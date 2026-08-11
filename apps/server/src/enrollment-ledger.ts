@@ -20,12 +20,7 @@
  * reasons never carry the verdict; server logs do.
  */
 
-import {
-  createHmac,
-  randomBytes,
-  randomUUID,
-  timingSafeEqual,
-} from 'node:crypto'
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   appendFileSync,
   closeSync,
@@ -37,6 +32,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
+import type { PortableStateWriteFence } from './modules/server-transfer/portable-fence'
 
 const LEDGER_VERSION = 1 as const
 const TOKEN_VERSION = 'v1' as const
@@ -63,10 +59,7 @@ export function mintPairingToken(pairingRoot: Buffer, claims: PairingTokenClaims
  * (foreign instance, forged, truncated, or stale beyond root rotation).
  * Constant-time on the MAC comparison path.
  */
-export function verifyPairingToken(
-  pairingRoot: Buffer,
-  token: string,
-): PairingTokenClaims | null {
+export function verifyPairingToken(pairingRoot: Buffer, token: string): PairingTokenClaims | null {
   const dot = token.indexOf('.')
   if (dot <= 0 || dot === token.length - 1) return null
   let payloadBuf: Buffer
@@ -218,7 +211,10 @@ function durableAppend(path: string, line: string): void {
  * Creates the file with a freshly minted pairing root when absent. The root is
  * never rotated by this function; rotation policy is out of band.
  */
-export function openEnrollmentLedger(stateDir: string): EnrollmentLedger {
+export function openEnrollmentLedger(
+  stateDir: string,
+  writeFence?: PortableStateWriteFence,
+): EnrollmentLedger {
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
   const path = ledgerPath(stateDir)
 
@@ -282,10 +278,13 @@ export function openEnrollmentLedger(stateDir: string): EnrollmentLedger {
   }
 
   const append = (event: LedgerEvent): boolean => {
-    if (seenIds.has(event.id)) return false
-    durableAppend(path, JSON.stringify(event))
-    applyEvent(event)
-    return true
+    const write = () => {
+      if (seenIds.has(event.id)) return false
+      durableAppend(path, JSON.stringify(event))
+      applyEvent(event)
+      return true
+    }
+    return writeFence ? writeFence.runWriterSync(write) : write()
   }
 
   return {

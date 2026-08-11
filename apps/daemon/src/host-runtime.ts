@@ -43,13 +43,14 @@ import { reportLongTick, startLoopAttribution } from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
 import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
+import { PortableStateFence, type PortableStateControl } from './portable-state-fence'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
-import { restartAsServer } from './transfer-lifecycle'
+import { restartAsServer, retireTargetDaemonAfterAcknowledgement } from './transfer-lifecycle'
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
@@ -64,6 +65,8 @@ export interface DaemonHostRuntime {
   readonly hookPort: number
   readonly hookSocketPath?: string
   readonly agentRelayPort: number
+  /** Source-transfer seam: pause/drain daemon portable writers, or resume after safe abort. */
+  readonly portableState: PortableStateControl
   connected(): void
   receive(raw: RawData): void
   close(opts?: { reapSessions?: boolean }): Promise<void>
@@ -88,6 +91,8 @@ export async function createDaemonHostRuntime(args: {
   const identityStateDir = opts.identityDir ?? stateDir()
   const identity = loadIdentity({ dir: identityStateDir })
   const machineId = opts.machineId ?? identity.machineId
+  const portableStateFence = new PortableStateFence()
+  opts.localLink?.attachPortableState?.(portableStateFence)
   await mkdir(instance.runtimeDir, { recursive: true })
   const bindingStore = await BindingStore.open({
     dir: join(instance.runtimeDir, 'session-bindings'),
@@ -187,13 +192,28 @@ export async function createDaemonHostRuntime(args: {
     },
   })
   const primeInjector = createPrimeInjector((sessionId) =>
-    agentRelayHub.relay({ sessionId, router: 'issues', proc: 'prime', input: {} }),
+    agentRelayHub.relay({
+      sessionId,
+      router: 'issues',
+      proc: 'prime',
+      input: {},
+    }),
   )
   const mailInjector = createMailInjector((sessionId) =>
-    agentRelayHub.relay({ sessionId, router: 'issues', proc: 'mailPending', input: {} }),
+    agentRelayHub.relay({
+      sessionId,
+      router: 'issues',
+      proc: 'mailPending',
+      input: {},
+    }),
   )
   const ackReminder = createAckReminderInjector((sessionId) =>
-    agentRelayHub.relay({ sessionId, router: 'messages', proc: 'pendingReminders', input: {} }),
+    agentRelayHub.relay({
+      sessionId,
+      router: 'messages',
+      proc: 'pendingReminders',
+      input: {},
+    }),
   )
   const respondTo = composeResponders(
     (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
@@ -243,7 +263,10 @@ export async function createDaemonHostRuntime(args: {
       if (request.router === 'session' && request.proc === 'setWorktree') {
         const path = (request.input as { path?: unknown } | null | undefined)?.path
         if (typeof path !== 'string' || !path.startsWith('/')) {
-          return { ok: false, error: 'path must be an absolute directory path' }
+          return {
+            ok: false,
+            error: 'path must be an absolute directory path',
+          }
         }
         const found = await stat(path).catch(() => null)
         if (!found?.isDirectory()) return { ok: false, error: `no such directory: ${path}` }
@@ -355,7 +378,14 @@ export async function createDaemonHostRuntime(args: {
     refreshAndPublishConversations: (full) => discoveryLoop.refreshAndPublishConversations(full),
     quotaFetcher: makeQuotaFetcher({ ...(homeDir ? { homeDir } : {}) }),
     usageMemo: {},
-    restartAfterTransfer: opts.restartAfterTransfer ?? restartAsServer,
+    portableStateFence,
+    restartAfterTransfer:
+      opts.restartAfterTransfer ??
+      (async (expected) => {
+        await restartAsServer({ transferId: expected.transferId })
+        return expected
+      }),
+    retireAfterTransfer: opts.retireAfterTransfer ?? retireTargetDaemonAfterAcknowledgement,
     applyUpdateGrant,
   }
   const frameGuard = createFrameGuard(ctx)
@@ -386,7 +416,10 @@ export async function createDaemonHostRuntime(args: {
         metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
         metricsTimer.unref?.()
       }
-      uploadsGcTimer = setInterval(sweepUploads, UPLOADS_GC_INTERVAL_MS)
+      uploadsGcTimer = setInterval(
+        () => void sweepUploads(portableStateFence),
+        UPLOADS_GC_INTERVAL_MS,
+      )
       uploadsGcTimer.unref?.()
       stopInventoryRefresh = startInventoryRefresh(ctx)
       void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
@@ -440,6 +473,7 @@ export async function createDaemonHostRuntime(args: {
     hookPort: ingest.port,
     ...(ingest.socketPath ? { hookSocketPath: ingest.socketPath } : {}),
     agentRelayPort: agentRelay.port,
+    portableState: portableStateFence,
     connected,
     receive: (raw) => frameGuard.receive(raw),
     close,

@@ -9,7 +9,7 @@ type Action = () => MaybePromise
 export interface UpdateActions {
   reload?: Action
   installApp?: Action
-  updateServer?: Action
+  startUpdate?: Action
 }
 
 interface UpdateDialogProps {
@@ -18,7 +18,7 @@ interface UpdateDialogProps {
   onDismiss?: () => void
 }
 
-type ActionName = 'reload' | 'installApp' | 'updateServer'
+type ActionName = 'reload' | 'installApp' | 'startUpdate'
 
 function viewKey(view: UpdateView): string {
   if (view.state === 'none') return 'none'
@@ -152,15 +152,15 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
                   Install update
                 </Button>
               )}
-              {actions.updateServer && (
+              {actions.startUpdate && (
                 <Button
                   type="button"
                   size="sm"
-                  pending={pendingAction === 'updateServer'}
+                  pending={pendingAction === 'startUpdate'}
                   pendingLabel="Updating…"
-                  onClick={() => void runAction('updateServer', actions.updateServer)}
+                  onClick={() => void runAction('startUpdate', actions.startUpdate)}
                 >
-                  Update server
+                  Update Podium
                 </Button>
               )}
             </div>
@@ -214,13 +214,13 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
             <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
               Dismiss
             </Button>
-            {actions.updateServer && (
+            {actions.startUpdate && (
               <Button
                 type="button"
                 size="sm"
-                pending={pendingAction === 'updateServer'}
+                pending={pendingAction === 'startUpdate'}
                 pendingLabel="Trying again…"
-                onClick={() => void runAction('updateServer', actions.updateServer)}
+                onClick={() => void runAction('startUpdate', actions.startUpdate)}
               >
                 Try again
               </Button>

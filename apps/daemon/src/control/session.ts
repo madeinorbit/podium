@@ -85,7 +85,11 @@ export function spawnEnv(opts: {
   harnessEnv?: Record<string, string>
   podiumEnv: Record<string, string>
 }): Record<string, string> {
-  const merged = { ...(opts.sessionEnv ?? {}), ...(opts.harnessEnv ?? {}), ...opts.podiumEnv }
+  const merged = {
+    ...(opts.sessionEnv ?? {}),
+    ...(opts.harnessEnv ?? {}),
+    ...opts.podiumEnv,
+  }
   const home = merged.HOME
   if (!home) return merged
 
@@ -120,7 +124,10 @@ function instructionRuntimeDir(ctx: DaemonContext, sessionId: SessionId): string
 }
 
 function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): void {
-  rmSync(instructionRuntimeDir(ctx, sessionId), { recursive: true, force: true })
+  rmSync(instructionRuntimeDir(ctx, sessionId), {
+    recursive: true,
+    force: true,
+  })
 }
 
 export function wireBridge(
@@ -177,7 +184,7 @@ export function wireBridge(
       // (natural finish, hibernate, or kill). kill also calls removeSessionUploads
       // directly, so the two are harmlessly idempotent (rmSync force:true is a no-op
       // on a missing dir). The hourly TTL sweep remains a backstop for edge cases.
-      removeSessionUploads(sessionId)
+      removeSessionUploads(sessionId, ctx.portableStateFence)
       removeSessionInstructions(ctx, sessionId)
       ctx.send({ type: 'agentExit', sessionId, code })
     })()
@@ -351,7 +358,11 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     })
     const failure = bindingFailureMessage(outcome)
     if (failure) {
-      ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: failure })
+      ctx.send({
+        type: 'spawnError',
+        sessionId: msg.sessionId,
+        message: failure,
+      })
       return
     }
   } else if (msg.binding) {
@@ -487,7 +498,10 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         // Keep bind/state/redraw above immediate, but pace the allocation-heavy
         // transcript read/parse/reset-send through the existing seed gate.
         const source = await sourceForRead(ctx, msg)
-        const res = await source.readSlice({ direction: 'before', limit: 2000 })
+        const res = await source.readSlice({
+          direction: 'before',
+          limit: 2000,
+        })
         if (res.items.length > 0) {
           ctx.send({
             type: 'transcriptDelta',
@@ -542,7 +556,10 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         cmd: `abduco -a ${socketPath}`,
       }
     } else if (ctx.backend !== 'none' && (await tmuxHasSession(msg.durableLabel))) {
-      found = { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.durableLabel} attach` }
+      found = {
+        session: attachTmuxAgent(attach),
+        cmd: `tmux -L ${msg.durableLabel} attach`,
+      }
     }
     if (!found) {
       ctx.send({
@@ -604,7 +621,7 @@ function stopSessionProcess(
     })()
   }
   ctx.durableLabels.delete(msg.sessionId)
-  removeSessionUploads(msg.sessionId)
+  removeSessionUploads(msg.sessionId, ctx.portableStateFence)
   removeSessionInstructions(ctx, msg.sessionId)
 }
 export const sessionHandlers: Pick<

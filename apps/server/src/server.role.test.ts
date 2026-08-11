@@ -66,9 +66,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
     expect(await trpc.sessions.list.query()).toEqual([])
     // Reading the fleet is core (a node lists its own host machine)…
     const machines = await trpc.machines.list.query()
-    expect(machines.some((m) => m.id === handle.registry.modules.machines.hostMachineId)).toBe(
-      true,
-    )
+    expect(machines.some((m) => m.id === handle.registry.modules.machines.hostMachineId)).toBe(true)
   })
 
   it('pairing/fleet procs are ABSENT: 404 NOT_FOUND, not permission-denied', async () => {
@@ -80,6 +78,12 @@ describe('startServer with the hub role disabled (node shape)', () => {
           name: 'nope',
         }),
       () => trpc.machines.revoke.mutate({ id: handle.registry.modules.machines.hostMachineId }),
+      () =>
+        trpc.machines.transferServer.mutate({
+          targetMachineId: handle.registry.modules.machines.hostMachineId,
+          publicUrl: 'https://podium.example.com',
+          confirmation: 'TRANSFER SERVER',
+        }),
       () =>
         trpc.machines.transferOwnership.mutate({
           id: handle.registry.modules.machines.hostMachineId,
@@ -134,11 +138,14 @@ describe('startServer with the hub role disabled (node shape)', () => {
       .sort()
     expect(hubNames).toEqual([
       'machines.adopt',
+      'machines.applyUpdate',
       'machines.pairingCode',
       'machines.rename',
       'machines.revoke',
+      'machines.setUpdateChannel',
       'machines.share',
       'machines.transferOwnership',
+      'machines.transferServer',
       'machines.unshare',
     ])
     // Non-vacuity: the filter must actually be filtering. If every contract were

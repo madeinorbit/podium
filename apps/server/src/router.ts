@@ -408,6 +408,11 @@ export const appRouter = t.router({
       visibleMachinesFor(familyState(ctx).modules, ctx.capability),
     ),
     // rename · revoke · pairingCode — DERIVED (POD-384). All three are hub-role
+    serverTransferStatus: t.procedure.query(({ ctx }) =>
+      mods(ctx).serverTransfer.publicStatus(
+        visibleMachinesFor(familyState(ctx).modules, ctx.capability),
+      ),
+    ),
     // by contract (`serverRole: 'hub'`), which is where the 404 now comes from.
     ...fleet.machines,
   }),

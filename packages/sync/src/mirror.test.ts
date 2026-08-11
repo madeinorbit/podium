@@ -30,6 +30,8 @@ class FakeDaemonFs {
   readonly readTimes: number[] = []
   readonly errors = new Map<string, string>()
   delayMs = 0
+  /** Optional deterministic gate for parking an issued daemon read in flight. */
+  readBarrier?: Promise<void>
   /** Synchronous spin per read — models the wire decode/encode CPU a real chunk
    *  costs the server (JSON + zod + base64), for the loop-lag regression test. */
   busyMs = 0
@@ -48,6 +50,7 @@ class FakeDaemonFs {
     this.readTimes.push(performance.now())
     this.inFlight += 1
     this.maxInFlight = Math.max(this.maxInFlight, this.inFlight)
+    if (this.readBarrier) await this.readBarrier
     if (this.delayMs > 0) await new Promise((r) => setTimeout(r, this.delayMs))
     if (this.busyMs > 0) {
       const until = performance.now() + this.busyMs
@@ -176,6 +179,128 @@ async function settle(mirror: MirrorService, machineId: string): Promise<void> {
 }
 
 describe('MirrorService', () => {
+  it('fences an in-flight read, preserves queued work, and resumes it after abort', async () => {
+    const { store, fs, mirror } = setup()
+    const pathA = seed(store, 'm1', 'pause-a')
+    const pathB = seed(store, 'm1', 'pause-b')
+    const pathC = seed(store, 'm1', 'pause-c')
+    fs.set(pathA, 'first queued segment\n')
+    fs.set(pathB, 'second queued segment\n')
+    fs.set(pathC, 'dirtied while paused\n')
+
+    let releaseRead!: () => void
+    fs.readBarrier = new Promise<void>((resolve) => {
+      releaseRead = resolve
+    })
+    mirror.enqueue('m1', 'pause-a', pathA)
+    mirror.enqueue('m1', 'pause-b', pathB)
+    await vi.waitFor(() => expect(fs.log).toHaveLength(1))
+
+    let pauseResolved = false
+    const paused = mirror.pause().then(() => {
+      pauseResolved = true
+    })
+    mirror.enqueue('m1', 'pause-c', pathC)
+    mirror.enqueue('m1', 'pause-a', pathA) // still deduplicated while parked
+    await Promise.resolve()
+
+    expect(pauseResolved).toBe(false)
+    expect(store.mirrorCursor('m1', 'pause-a')).toBe(0)
+    releaseRead()
+    await paused
+
+    expect(fs.log).toHaveLength(1)
+    expect(store.mirrorCursor('m1', 'pause-a')).toBe(0)
+    expect(existsSync(mirror.lakePath('m1', 'pause-a'))).toBe(false)
+    expect(existsSync(mirror.lakePath('m1', 'pause-b'))).toBe(false)
+    expect(existsSync(mirror.lakePath('m1', 'pause-c'))).toBe(false)
+
+    mirror.resume()
+    await settle(mirror, 'm1')
+
+    expect(fs.log.map((read) => read.path)).toEqual([pathA, pathA, pathB, pathC])
+    expect(readFileSync(mirror.lakePath('m1', 'pause-a')).toString()).toBe('first queued segment\n')
+    expect(readFileSync(mirror.lakePath('m1', 'pause-b')).toString()).toBe(
+      'second queued segment\n',
+    )
+    expect(readFileSync(mirror.lakePath('m1', 'pause-c')).toString()).toBe('dirtied while paused\n')
+  })
+
+  it('settles an already-started write and resumes from its persisted cursor', async () => {
+    let requestPause = (): void => {}
+    const { store, fs, mirror } = setup({
+      onBytes: () => requestPause(),
+    })
+    let pausePromise: Promise<void> | undefined
+    requestPause = () => {
+      pausePromise ??= mirror.pause()
+    }
+    const content = patternBytes(MirrorService.CHUNK_BYTES + 100, 23)
+    const path = seed(store, 'm1', 'pause-cursor')
+    fs.set(path, content)
+
+    mirror.enqueue('m1', 'pause-cursor', path)
+    await vi.waitFor(() => expect(pausePromise).toBeDefined())
+    await pausePromise
+
+    expect(fs.log.map((read) => read.offset)).toEqual([0])
+    expect(store.mirrorCursor('m1', 'pause-cursor')).toBe(MirrorService.CHUNK_BYTES)
+    expect(readFileSync(mirror.lakePath('m1', 'pause-cursor'))).toEqual(
+      content.subarray(0, MirrorService.CHUNK_BYTES),
+    )
+
+    mirror.resume()
+    await settle(mirror, 'm1')
+
+    expect(fs.log.map((read) => read.offset)).toEqual([0, MirrorService.CHUNK_BYTES])
+    expect(store.mirrorCursor('m1', 'pause-cursor')).toBe(content.length)
+    expect(readFileSync(mirror.lakePath('m1', 'pause-cursor'))).toEqual(content)
+  })
+
+  it('drains a write before resolving pause without mutating the store after dispose', async () => {
+    const { store, fs, mirror } = setup()
+    const content = Buffer.from('write parked between the lake and cursor\n')
+    const path = seed(store, 'm1', 'pause-dispose')
+    fs.set(path, content)
+
+    const internals = mirror as unknown as {
+      writeAt(machineId: string, nativeId: string, offset: number, bytes: Buffer): Promise<void>
+    }
+    const writeAt = internals.writeAt.bind(mirror)
+    let markLakeWritten!: () => void
+    const lakeWritten = new Promise<void>((resolve) => {
+      markLakeWritten = resolve
+    })
+    let releaseWrite!: () => void
+    const writeBarrier = new Promise<void>((resolve) => {
+      releaseWrite = resolve
+    })
+    internals.writeAt = async (...args) => {
+      await writeAt(...args)
+      markLakeWritten()
+      await writeBarrier
+    }
+
+    mirror.enqueue('m1', 'pause-dispose', path)
+    await lakeWritten
+    expect(readFileSync(mirror.lakePath('m1', 'pause-dispose'))).toEqual(content)
+    expect(store.mirrorCursor('m1', 'pause-dispose')).toBe(0)
+
+    let pauseResolved = false
+    const paused = mirror.pause().then(() => {
+      pauseResolved = true
+    })
+    mirror.dispose()
+    await Promise.resolve()
+    expect(pauseResolved).toBe(false)
+
+    releaseWrite()
+    await paused
+
+    expect(store.mirrorCursor('m1', 'pause-dispose')).toBe(0)
+    expect(store.reportedBytes('m1', 'pause-dispose')).toBeUndefined()
+  })
+
   it('pulls a large file in bounded chunks to a byte-identical lake copy', async () => {
     const { store, fs, mirror } = setup()
     const content = patternBytes(MirrorService.CHUNK_BYTES + 1000)

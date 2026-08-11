@@ -299,6 +299,16 @@ export class MemoryService {
     this.lake.triggerSweep(machineId)
   }
 
+  /** Drain and pause transcript mirroring before the transfer's final snapshot. */
+  pauseMirroringForTransfer(): Promise<void> {
+    return this.lake.pauseMirroring()
+  }
+
+  /** Resume transcript mirroring after a transfer abort releases the source fence. */
+  resumeMirroringAfterTransfer(): void {
+    this.lake.resumeMirroring()
+  }
+
   /**
    * Stop the paced, store-touching work this service owns. Called from
    * SessionRegistry.dispose(), i.e. while the store is still open and BEFORE

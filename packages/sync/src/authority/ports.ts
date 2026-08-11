@@ -223,7 +223,7 @@ export interface AuthorityCommit<T> {
    * means the caller declares this write has no concurrent-write question (a
    * `live-ephemeral` fold, a system reconcile); present means the matrix decides.
    */
-  arbitrate?: Omit<ArbitrationRequest, 'attempt'> & {
+  arbitrate?: Omit<ArbitrationRequest, 'attempt' | 'current'> & {
     /**
      * `eventTime` is absent HERE and supplied by the Authority at commit. That
      * omission is ADR 1 D3 condition 1 held as a type: the only clock a
@@ -231,6 +231,8 @@ export interface AuthorityCommit<T> {
      * nowhere for a caller to put a client wall clock even if it wanted to.
      */
     readonly attempt: Omit<ArbitrationAttempt, 'eventTime'>
+    /** Read CURRENT state inside the transaction that performs the write. */
+    readonly current?: () => ArbitrationRequest['current']
   }
   /**
    * The entity write. MUST be synchronous — an async write would commit its

@@ -105,7 +105,7 @@
  * is that a transport is served because a contract NAMES it.
  */
 
-import { UserIdField } from '@podium/model'
+import { UpdateChannel, UserIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -163,6 +163,12 @@ export const machineRenameInput = z.object({
   name: z.string().min(1).max(80),
 })
 
+export const machineSetUpdateChannelInput = z.object({
+  id: z.string(),
+  channel: UpdateChannel,
+})
+
+export const machineApplyUpdateInput = z.object({ id: z.string() })
 export const machineShareInput = z.object({
   id: z.string(),
   grantee: z.string().min(1),
@@ -175,7 +181,8 @@ export const machineRevokeInput = z.object({ id: z.string() })
 export const machineTransferServerInput = z.object({
   targetMachineId: z.string().min(1),
   publicUrl: z.string().min(1).max(2048),
-  confirmation: z.literal(true),
+  port: z.number().int().min(1).max(65535).optional(),
+  confirmation: z.literal('TRANSFER SERVER'),
 })
 
 /** WHO the machine goes to is a payload field; WHO IS ASKING is not, and never
@@ -407,6 +414,82 @@ export const machineRenameContract = {
   conflictRule:
     'Owner-or-admin edit of the name field alone; no precondition, and two concurrent renames resolve to the later Authority commit',
 } as const satisfies FleetCommandContract<typeof machineRenameInput>
+
+/** Select the centrally controlled update authority for one managed machine. */
+export const machineSetUpdateChannelContract = {
+  name: 'machines.setUpdateChannel',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineSetUpdateChannelInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    confirmation: 'none',
+    rationale:
+      'The selected authority controls which signed target may be granted to this machine. The ' +
+      'machine owner or an administrator with manage authority may change it; the daemon cannot ' +
+      'choose its own source and changing the value runs no arbitrary machine command.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: [],
+    note: 'Creates nothing; it updates the authority field on the existing machine row.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'An invisible machine and an unknown id share one refusal. The selection is durable while ' +
+      'offline; target availability and convergence are reported separately.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Select a managed machine update authority' },
+  conflict: 'cmd',
+  conflictRule:
+    'Last Authority commit wins for this field; an old grant remains scoped to the authority under which it was issued',
+} as const satisfies FleetCommandContract<typeof machineSetUpdateChannelInput>
+
+/** Apply the selected trusted target to exactly one managed machine. */
+export const machineApplyUpdateContract = {
+  name: 'machines.applyUpdate',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineApplyUpdateInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    confirmation: 'none',
+    rationale:
+      'Applying a target changes the managed daemon installation and is authorized per machine. ' +
+      'It never widens into a fleet wave and cannot proceed without a resolved trusted target.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: { creates: [], note: 'Creates no row; it issues one scoped convergence grant.' },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'An invisible machine and an unknown id share one refusal. Offline and unavailable target ' +
+      'states remain explicit in the returned machine read model.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Apply a managed machine update target' },
+  conflict: 'cmd',
+  conflictRule:
+    'Idempotent while the same target is in flight; the grant is scoped to this machine and its selected authority',
+} as const satisfies FleetCommandContract<typeof machineApplyUpdateInput>
 
 /**
  * Share one machine verb. The target row gate requires `manage`, then the
@@ -731,13 +814,12 @@ export const machineTransferServerContract = {
   input: machineTransferServerInput,
   policy: {
     action: 'manage',
-    roleFloor: 'member',
+    roleFloor: 'admin',
     resource: 'machine',
     machineVerb: 'manage',
-    machineSharingAuthority: 'owner-only',
     confirmation: 'confirm',
     rationale:
-      'Transfers the server authority and portable state to an online paired machine. Only the current machine owner may start it; the target daemon must validate every byte before promotion and pre-promotion failures must be abortable.',
+      'Transfers every user, credential, secret, and enrollment authority to an online paired machine. It is instance-admin grade, reauthorizes the target at every apply phase, and requires candidate and serving proofs before authority moves.',
   },
   exposure: SERVED_ON,
   delivery: FLEET_DELIVERY,
@@ -750,8 +832,8 @@ export const machineTransferServerContract = {
   errorConsistency: {
     callerSuppliedTargetId: true,
     invisibleFailsAs: 'nonexistent',
-    distinguishesUnauthorizedFromUnreachable: false,
-    note: 'Authorization is resolved before the handler. An authorized offline target is reported as unreachable; it is never queued.',
+    distinguishesUnauthorizedFromUnreachable: true,
+    note: 'An invisible target is absent-shaped. Inside the caller’s visible set, revoked authorization and an offline daemon remain distinct and every apply phase checks both again.',
   },
   serverRole: 'hub',
   cli: { summary: 'Move server authority to another machine' },
@@ -1134,10 +1216,12 @@ export const discoveryScanMachineContract = {
  */
 export const FLEET_CONTRACTS = {
   'machines.rename': machineRenameContract,
+  'machines.setUpdateChannel': machineSetUpdateChannelContract,
   'machines.share': machineShareContract,
   'machines.unshare': machineUnshareContract,
   'machines.transferOwnership': machineTransferOwnershipContract,
   'machines.adopt': machineAdoptContract,
+  'machines.applyUpdate': machineApplyUpdateContract,
   'machines.revoke': machineRevokeContract,
   'machines.transferServer': machineTransferServerContract,
   'machines.pairingCode': machinePairingCodeContract,

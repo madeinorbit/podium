@@ -24,6 +24,27 @@ const m = (id: string, over: Record<string, unknown> = {}) => ({
 })
 
 describe('UpdatesService', () => {
+  it('resolves a machine target without re-entering the enriched machine projection', () => {
+    const machines = vi.fn(() => {
+      throw new Error('wire projection re-entered')
+    })
+    const target = { version: '0.4.2', critical: false, artifacts: {} } as never
+    const svc = new UpdatesService({
+      machines,
+      channelFor: (machineId) => (machineId === 'a' ? 'edge' : undefined),
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+    })
+
+    svc.setTarget('edge', target)
+
+    expect(svc.targetFor('a')).toBe(target)
+    expect(svc.targetUnavailableReasonFor('a')).toBeUndefined()
+    expect(machines).not.toHaveBeenCalled()
+  })
+
   it('issues no grants until a target is set', () => {
     const { svc, send } = make([m('a')])
     svc.tick()
@@ -53,6 +74,17 @@ describe('UpdatesService', () => {
     svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.2' })
     svc.tick()
     expect(send.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('carries one authorization from the canary into the wider wave', () => {
+    const { svc, send } = make([m('a'), m('b'), m('c')])
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+
+    expect(svc.authorize()).toEqual(['a'])
+    expect(send).toHaveBeenCalledTimes(1)
+
+    svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    expect(send).toHaveBeenCalledTimes(3)
   })
 
   it('a rejected canary halts the wave entirely', () => {
@@ -85,6 +117,22 @@ describe('UpdatesService', () => {
     if (!first) throw new Error('test machine missing')
     first.version = '0.4.2'
     expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+  })
+
+  it('requires the raw reconnect identity instead of optimistic current status', () => {
+    const machines = [m('a')]
+    const { svc } = make(machines)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.authorize()
+    svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.2' })
+
+    expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+    expect(svc.machineBootedAtTarget('a', '0.4.2')).toBe(false)
+
+    const machine = machines[0]
+    if (!machine) throw new Error('test machine missing')
+    machine.version = '0.4.2'
+    expect(svc.machineBootedAtTarget('a', '0.4.2')).toBe(true)
   })
 
   it('is idempotent: a second tick with nothing changed grants nothing new', () => {

@@ -64,6 +64,7 @@ function machineWithLogin(
     createdAt: '2026-08-06T00:00:00.000Z',
     lastSeenAt: '2026-08-06T00:00:00.000Z',
     podiumManaged: true,
+    updateChannel: 'stable',
     ownerUserId: null,
     appVersion: null,
     wireSchemaDigest: null,
@@ -311,7 +312,12 @@ describe('accountViews', () => {
 })
 
 describe('accountViews catalog', () => {
-  function catalogMachine(id: string, name: string, fingerprint: string, email: string) {
+  function catalogMachine(
+    id: string,
+    name: string,
+    fingerprint: string,
+    email: string,
+  ): MachineRecord {
     return {
       id: asMachineId(id),
       name,
@@ -319,6 +325,7 @@ describe('accountViews catalog', () => {
       createdAt: '2026-08-04T00:00:00.000Z',
       lastSeenAt: '2026-08-04T00:00:00.000Z',
       podiumManaged: true,
+      updateChannel: 'stable',
       ownerUserId: null,
       // Nothing has reported a build for these fixtures — the shape a machine
       // row carries before its daemon hands up version/delivery detail.

@@ -170,7 +170,7 @@ describe('authorize → arbitrate → write → append → broadcast', () => {
       arbitrate: {
         rowId: rowWith('exp-rev'),
         attempt: { expectedRevision: 1 },
-        current: { revision: 9 },
+        current: () => ({ revision: 9 }),
       },
       write,
       changes: () => [upsert('s1', { a: 1 })],
@@ -214,6 +214,40 @@ describe('authorize → arbitrate → write → append → broadcast', () => {
 // ---------------------------------------------------------------------------
 
 describe('the entity write and the change append share one span', () => {
+  it('reads arbitration current state inside the write transaction', () => {
+    const mem = memoryStore()
+    const trace: string[] = []
+    const authority = new Authority({
+      store: mem.store,
+      now: () => 1000,
+      transact: (work) => {
+        trace.push('transaction-begin')
+        const result = mem.transact(work)
+        trace.push('transaction-end')
+        return result
+      },
+      visibility: new DeviceGradeUnscopedPolicy(),
+      anchors: new DeviceGradeNoAnchors(),
+    })
+    const outcome = authority.commit({
+      arbitrate: {
+        rowId: rowWith('exp-rev'),
+        attempt: { expectedRevision: 4 },
+        current: () => {
+          trace.push('read-current')
+          return { revision: 4 }
+        },
+      },
+      write: () => {
+        trace.push('write')
+        return 'ok'
+      },
+      changes: () => [],
+    })
+    expect(outcome.outcome).toBe('committed')
+    expect(trace).toEqual(['transaction-begin', 'read-current', 'write', 'transaction-end'])
+  })
+
   it('rolls the append back when changes() throws', () => {
     const { mem, authority } = build()
     expect(() =>
@@ -432,7 +466,7 @@ describe('the arbitration clock is the AUTHORITY’s', () => {
     clock = 50
     expect(
       authority.commit({
-        arbitrate: { rowId: lww, attempt: {}, current: { eventTime: 100 } },
+        arbitrate: { rowId: lww, attempt: {}, current: () => ({ eventTime: 100 }) },
         write: () => 'ok',
         changes: () => [],
       }),
@@ -440,7 +474,7 @@ describe('the arbitration clock is the AUTHORITY’s', () => {
     clock = 200
     expect(
       authority.commit({
-        arbitrate: { rowId: lww, attempt: {}, current: { eventTime: 100 } },
+        arbitrate: { rowId: lww, attempt: {}, current: () => ({ eventTime: 100 }) },
         write: () => 'ok',
         changes: () => [],
       }),

@@ -13,6 +13,9 @@ export function buildReport(
   return {
     appVersion:
       env.PODIUM_APP_VERSION ??
+      // Must stay a literal `process.env.PODIUM_APP_VERSION` read: build-bun's
+      // --define replaces this expression with the release baked into the binary.
+      process.env.PODIUM_APP_VERSION ??
       (installDir ? 'dev' : (sourceVersion ?? developmentSourceVersion(DEVELOPMENT_SOURCE_ROOT))),
     wireSchemaDigest: wireSchemaDigest(),
     installKind: installDir ? 'installed' : 'source',
@@ -33,7 +36,9 @@ export function captureDaemonBootBuild(
   const installDir =
     env.PODIUM_HOME ?? (/(?:^|[\\/])podium$/.test(execPath) ? dirname(execPath) : undefined)
   const sourceVersion =
-    installDir || env.PODIUM_APP_VERSION ? undefined : developmentSourceVersion(sourceRoot)
+    installDir || env.PODIUM_APP_VERSION || process.env.PODIUM_APP_VERSION
+      ? undefined
+      : developmentSourceVersion(sourceRoot)
   return { build: buildReport(env, installDir, sourceVersion), installDir }
 }
 

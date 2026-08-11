@@ -28,15 +28,27 @@ export function useServerAppVersion(trpc: Store['trpc']): string | null {
 }
 
 /**
- * An older daemon silently loses additive protocol features (frames it doesn't know
- * are dropped), so any release mismatch counts as "needs update". 'dev' builds carry
- * no comparable release number — never badge against or for one.
+ * Prefer the server's per-machine update verdict: it is derived from the target of
+ * the channel selected for this machine. Falling back to the server build is only
+ * for compatibility with older servers that did not project channel targets.
  */
 export function machineNeedsUpdate(
-  machine: Pick<MachineWire, 'inventory'>,
+  machine: Pick<MachineWire, 'inventory' | 'targetVersion' | 'versionState'>,
   serverAppVersion: string | null,
 ): boolean {
   const daemonVersion = machine.inventory?.podiumVersion
+
+  if (machine.versionState !== undefined) return machine.versionState === 'behind'
+
+  if (machine.targetVersion !== undefined) {
+    return (
+      daemonVersion != null &&
+      machine.targetVersion != null &&
+      daemonVersion !== machine.targetVersion
+    )
+  }
+
+  // Legacy projection: 'dev' carries no comparable release identity.
   return (
     daemonVersion != null &&
     serverAppVersion != null &&

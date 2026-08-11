@@ -38,9 +38,9 @@ function Probe({
   }, [onResult, result])
   return (
     <>
-      {result.actions.updateServer && (
-        <button type="button" onClick={() => void result.actions.updateServer?.()}>
-          update server
+      {result.actions.startUpdate && (
+        <button type="button" onClick={() => void result.actions.startUpdate?.()}>
+          update Podium
         </button>
       )}
       <output data-testid="view-state">
@@ -80,7 +80,7 @@ function setupTransport(version = { appVersion: '0.4.1', target }): void {
   )
 }
 
-describe('useUpdateState server action', () => {
+describe('useUpdateState update action', () => {
   it('moves the shared dialog to in-progress after a successful convergence call', async () => {
     setupTransport()
     mocks.mutate.mockResolvedValue({
@@ -93,9 +93,9 @@ describe('useUpdateState server action', () => {
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
 
-    screen.getByRole('button', { name: /update server/i }).click()
+    screen.getByRole('button', { name: /update Podium/i }).click()
     await waitFor(() =>
       expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
     )
@@ -116,9 +116,9 @@ describe('useUpdateState server action', () => {
       calls += 1
       if (calls === 1) return { total: 3, behind: 3, converging: 0, failed: 0 }
       if (calls === 2)
-        return { total: 3, behind: 2, converging: 2, failed: 0, targetVersion: '0.4.2' }
+        return { total: 3, behind: 3, converging: 1, failed: 0, targetVersion: '0.4.2' }
       if (calls === 3)
-        return { total: 3, behind: 1, converging: 1, failed: 0, targetVersion: '0.4.2' }
+        return { total: 3, behind: 2, converging: 2, failed: 0, targetVersion: '0.4.2' }
       return { total: 3, behind: 0, converging: 0, failed: 0, targetVersion: '0.4.2' }
     })
     mocks.mutate.mockResolvedValue({
@@ -131,8 +131,8 @@ describe('useUpdateState server action', () => {
 
     const results: UpdateStateResult[] = []
     render(<Probe onResult={(result) => results.push(result)} liveFleet />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
-    screen.getByRole('button', { name: /update server/i }).click()
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
+    screen.getByRole('button', { name: /update Podium/i }).click()
 
     await waitFor(() => {
       expect(
@@ -163,9 +163,9 @@ describe('useUpdateState server action', () => {
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
 
-    screen.getByRole('button', { name: /update server/i }).click()
+    screen.getByRole('button', { name: /update Podium/i }).click()
     await waitFor(() => expect(screen.getByTestId('view-state').textContent).toContain('try'))
 
     expect(results.at(-1)?.view).toEqual({
@@ -176,7 +176,7 @@ describe('useUpdateState server action', () => {
     })
     expect(screen.getByTestId('view-state').textContent).not.toMatch(/unable to connect|url/i)
 
-    screen.getByRole('button', { name: /update server/i }).click()
+    screen.getByRole('button', { name: /update Podium/i }).click()
     await waitFor(() =>
       expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
     )
@@ -228,8 +228,8 @@ describe('useUpdateState server action', () => {
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} liveFleet />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
-    screen.getByRole('button', { name: /update server/i }).click()
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
+    screen.getByRole('button', { name: /update Podium/i }).click()
     await waitFor(() => {
       expect(queryCalls).toBeGreaterThanOrEqual(2)
       expect(results.at(-1)?.server.appVersion).toBe('0.4.2')
@@ -238,10 +238,10 @@ describe('useUpdateState server action', () => {
     failAttempt?.()
     await waitFor(() => {
       expect(results.at(-1)?.view.state).toBe('failed')
-      expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy()
     })
 
-    screen.getByRole('button', { name: /update server/i }).click()
+    screen.getByRole('button', { name: /update Podium/i }).click()
     await waitFor(() =>
       expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
     )
@@ -259,7 +259,7 @@ describe('useUpdateState server action', () => {
     })
 
     render(<Probe onResult={() => {}} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
     expect(screen.queryByText('install action')).toBeNull()
   })
 
@@ -305,16 +305,36 @@ describe('useUpdateState server action', () => {
     setupTransport()
 
     render(<Probe onResult={() => {}} withReload />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
     expect(screen.queryByText('reload action')).toBeNull()
   })
 
-  it('does not expose reload when only machines are touched', async () => {
+  it('starts a machine-only update and counts only the affected machine', async () => {
     setupTransport({ appVersion: '0.4.2', target })
+    mocks.mutate.mockResolvedValue({
+      state: 'in-progress',
+      version: '0.4.2',
+      done: 0,
+      total: 1,
+      fleet: {
+        total: 1,
+        behind: 1,
+        converging: 1,
+        failed: 0,
+        targetVersion: '0.4.2',
+      },
+    })
+    const results: UpdateStateResult[] = []
 
-    render(<Probe onResult={() => {}} withReload />)
-    await waitFor(() => expect(screen.getByTestId('view-state').textContent).toBe('available'))
+    render(<Probe onResult={(result) => results.push(result)} withReload />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
     expect(screen.queryByText('reload action')).toBeNull()
-    expect(screen.queryByRole('button', { name: /update server/i })).toBeNull()
+
+    screen.getByRole('button', { name: /update Podium/i }).click()
+    await waitFor(() =>
+      expect(screen.getByTestId('view-state').textContent).toBe('in-progress:0.4.2:0:1'),
+    )
+    expect(results.at(-1)?.view).toMatchObject({ state: 'in-progress', total: 1 })
+    expect(mocks.mutate).toHaveBeenCalledOnce()
   })
 })

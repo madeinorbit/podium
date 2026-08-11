@@ -404,9 +404,11 @@ describe('transport compression on real Bun wires', () => {
       type: 'serverTransferChunkRequest',
       requestId: 'text-proof',
       transferId: randomUUID(),
+      manifestDigest: '0'.repeat(64),
       path: 'transport-proof.txt',
       offset: 0,
       data: LARGE_TEXT,
+      expectedLength: Buffer.byteLength(LARGE_TEXT),
     })
     const sendCpu = process.cpuUsage(sendCpuStart)
     const text = await frameOfType(daemon, 'serverTransferChunkRequest')

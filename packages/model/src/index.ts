@@ -170,7 +170,6 @@ export * from './representations/registry'
 
 // Pure derivations over entity shapes.
 export * from './predicates/idle-verdict'
-export * from './predicates/issue-concurrency'
 export * from './predicates/issue-stage'
 export * from './predicates/machine-selection'
 export * from './predicates/mobile-entry'

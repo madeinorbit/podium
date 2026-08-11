@@ -8,7 +8,8 @@
  * replica). This measures that directly: N frames of one upsert each, at growing
  * N, reporting per-frame cost. Linear per-frame cost ⇒ quadratic total.
  *
- * Not a gate — it prints a measurement. See docs/evidence/pod-perf-coldload/.
+ * Not a gate — it prints a measurement. Run it with `bun run test:perf:sync`.
+ * See docs/evidence/pod-perf-coldload/.
  */
 import { asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -74,8 +75,9 @@ describe('POD-1651: cost of applying N single-row delta frames', () => {
     const first = results[0]
     const last = results[results.length - 1]
     if (first === undefined || last === undefined) throw new Error('no results')
+    const sizeGrowth = last.n / first.n
     console.log(
-      `PER_FRAME_GROWTH n=${first.n}->${last.n} (8x): ${(last.perFrameUs / first.perFrameUs).toFixed(2)}x`,
+      `PER_FRAME_GROWTH n=${first.n}->${last.n} (${sizeGrowth}x): ${(last.perFrameUs / first.perFrameUs).toFixed(2)}x`,
     )
     expect(results.length).toBeGreaterThan(3)
   }, 600_000)

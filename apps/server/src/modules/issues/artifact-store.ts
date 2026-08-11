@@ -2,6 +2,7 @@ import { asArtifactId, type ArtifactId, type IssueId } from '@podium/model'
 import { randomBytes } from 'node:crypto'
 import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 
 /**
  * Permanent artifact snapshot store ([spec:SP-0fc9] #441).
@@ -67,6 +68,14 @@ export interface ArtifactSnapshot {
   files: ArtifactManifestFile[]
 }
 
+export interface ArtifactSnapshotInput {
+  issueId: IssueId
+  root: string
+  machineId?: string
+  sourcePath: string
+  extraPaths?: string[]
+}
+
 /** The two daemon RPCs the snapshotter rides (DaemonRpcService, structurally). */
 export interface ArtifactRpc {
   readAsset(input: {
@@ -103,6 +112,7 @@ export class IssueArtifactStore {
   constructor(
     private readonly baseDir: string,
     private readonly rpc: ArtifactRpc,
+    private readonly writeFence?: PortableStateWriteFence,
   ) {}
 
   private artifactDir(issueId: IssueId, artifactId: ArtifactId): string {
@@ -116,13 +126,12 @@ export class IssueArtifactStore {
    * plain files land at their basename. Any pull/write failure removes the
    * partial dir and rethrows — nothing half-registered.
    */
-  async snapshot(o: {
-    issueId: IssueId
-    root: string
-    machineId?: string
-    sourcePath: string
-    extraPaths?: string[]
-  }): Promise<ArtifactSnapshot> {
+  async snapshot(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {
+    const write = () => this.snapshotWritable(o)
+    return this.writeFence ? this.writeFence.runWriter(write) : write()
+  }
+
+  private async snapshotWritable(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {
     // MINT SITE for an ArtifactId — generated here, so the brand is applied here.
     const artifactId = asArtifactId(randomBytes(6).toString('hex'))
     const dir = this.artifactDir(o.issueId, artifactId)
@@ -255,13 +264,15 @@ export class IssueArtifactStore {
 
   /** Delete one snapshot dir (artifact-remove / post-replace cleanup). */
   async remove(issueId: IssueId, artifactId: ArtifactId): Promise<void> {
-    await rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
+    const write = () => rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
+    await (this.writeFence ? this.writeFence.runWriter(write) : write())
   }
 
   /** Delete every snapshot of an issue (hard issue deletion). */
   async removeIssue(issueId: IssueId): Promise<void> {
     if (!ID_RE.test(issueId)) return
-    await rm(join(this.baseDir, issueId), { recursive: true, force: true })
+    const write = () => rm(join(this.baseDir, issueId), { recursive: true, force: true })
+    await (this.writeFence ? this.writeFence.runWriter(write) : write())
   }
 
   private assertInBase(p: string): void {

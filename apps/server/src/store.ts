@@ -263,6 +263,17 @@ export class SessionStore {
     this.repos.healLocalOrigins()
   }
 
+  /** The exact newest migration identity the transfer target will verify. */
+  schemaVersionForTransfer(): string {
+    const row = this.db
+      .prepare('SELECT name FROM __drizzle_migrations ORDER BY name DESC LIMIT 1')
+      .get() as { name?: unknown } | undefined
+    if (!row || typeof row.name !== 'string' || row.name.length === 0) {
+      throw new Error('database migration identity is unavailable')
+    }
+    return row.name
+  }
+
   /** Force SQLite WAL contents into the portable database before a transfer snapshot. */
   checkpointForTransfer(): void {
     this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)')

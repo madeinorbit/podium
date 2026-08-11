@@ -1,5 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { createHash, sign as cryptoSign } from 'node:crypto'
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  sign as cryptoSign,
+  verify as cryptoVerify,
+} from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile as readFileAsync } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -48,7 +54,6 @@ export function decideDevBuild(ctx: DevBuildDecisionContext): BuildDecision {
 }
 
 export const DEV_BUNDLE_LOCK_NAME = 'podium:dev-bundle'
-export const DEV_BUNDLE_LOCK_TTL = '15m'
 export const DEV_ARTIFACT_ROUTE = '/updates/dev-bundle'
 
 export interface BuiltDevBundle {
@@ -80,11 +85,11 @@ export type DevBuildSpawnResult =
     }
 
 export interface DevBundleBuildDeps {
+  lock: DevBundleLock
   root?: string
   headSha?: string
   spawnBuild?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
   build?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
-  lock?: DevBundleLock
   readFile?: (path: string) => Promise<Uint8Array>
   signingKey?: string
   renewIntervalMs?: number
@@ -119,71 +124,6 @@ function developmentSigningKey(root: string): string {
   throw new Error('development signing key missing at ' + path)
 }
 
-export interface PodiumCommandResult {
-  status: number | null
-  stdout: string
-  stderr: string
-}
-
-export type PodiumCommand = (args: string[], root: string) => Promise<PodiumCommandResult>
-
-function spawnPodiumCommand(args: string[], root: string): Promise<PodiumCommandResult> {
-  const command = process.env.PODIUM_BIN ?? 'podium'
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: root,
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    let stderr = ''
-    child.stdout?.setEncoding('utf8')
-    child.stderr?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
-      stdout += chunk
-    })
-    child.stderr?.on('data', (chunk: string) => {
-      stderr += chunk
-    })
-    child.once('error', reject)
-    child.once('close', (status) => resolve({ status, stdout, stderr }))
-  })
-}
-
-export function createPodiumDevBundleLock(
-  root: string = SOURCE_ROOT,
-  run: PodiumCommand = spawnPodiumCommand,
-): DevBundleLock {
-  const command = async (args: string[]): Promise<void> => {
-    const result = await run(args, root)
-    if (result.status !== 0) {
-      const detail = (result.stderr || result.stdout).trim()
-      throw new Error('podium lock command failed' + (detail ? ': ' + detail : ''))
-    }
-  }
-  return {
-    async acquire() {
-      // Bounded on purpose: a bare `--wait` blocks until granted, and this one
-      // is awaited in-process by a build request. One full lease is the longest
-      // an honest holder can keep it; past that the CLI leaves the queue and
-      // this fails loudly instead of stalling the rebuild forever.
-      await command([
-        'lock',
-        'acquire',
-        DEV_BUNDLE_LOCK_NAME,
-        '--ttl',
-        DEV_BUNDLE_LOCK_TTL,
-        '--wait',
-        '--timeout',
-        DEV_BUNDLE_LOCK_TTL,
-      ])
-      return true
-    },
-    renew: () => command(['lock', 'renew', DEV_BUNDLE_LOCK_NAME, '--ttl', DEV_BUNDLE_LOCK_TTL]),
-    release: () => command(['lock', 'release', DEV_BUNDLE_LOCK_NAME]),
-  }
-}
-
 async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
   await new Promise<void>((resolve, reject) => {
@@ -208,6 +148,10 @@ function sha256Digest(bytes: Uint8Array): string {
   return 'sha256-' + createHash('sha256').update(bytes).digest('base64')
 }
 
+function devBundlePath(root: string, version: string): string {
+  return join(root, 'dist-bun', 'podium-headless-' + version + '.tar.gz')
+}
+
 async function readOptional(
   path: string,
   readFile: (path: string) => Promise<Uint8Array>,
@@ -220,11 +164,52 @@ async function readOptional(
 }
 
 /**
+ * Recover the signed bundle already produced for this checkout's HEAD.
+ *
+ * The publisher itself is process-local, while the tarball is intentionally
+ * durable across source-server restarts. Validate it against this server's
+ * persisted signing identity before restoring it as the current target; a
+ * partial, stale-key, or corrupt artifact is treated as absent and rebuilt.
+ */
+async function readExistingDevBundle(
+  deps: Pick<DevBundleBuildDeps, 'root' | 'readFile' | 'signingKey'> & { headSha: string },
+): Promise<BuiltDevBundle | null> {
+  const root = deps.root ?? SOURCE_ROOT
+  const version = 'dev+' + shortSha(deps.headSha)
+  const path = devBundlePath(root, version)
+  const readFile = deps.readFile ?? defaultReadFile
+  if (!deps.readFile && (!existsSync(path) || !existsSync(path + '.sig'))) return null
+  const bytes = await readOptional(path, readFile)
+  const signatureBytes = await readOptional(path + '.sig', readFile)
+  if (!bytes || !signatureBytes) return null
+
+  const signature = Buffer.from(signatureBytes).toString('utf8').trim()
+  if (!signature) return null
+  if (deps.signingKey) {
+    try {
+      const privateKey = createPrivateKey({
+        key: Buffer.from(deps.signingKey, 'base64'),
+        format: 'der',
+        type: 'pkcs8',
+      })
+      const publicKey = createPublicKey(privateKey)
+      if (!cryptoVerify(null, Buffer.from(bytes), publicKey, Buffer.from(signature, 'base64'))) {
+        return null
+      }
+    } catch {
+      return null
+    }
+  }
+
+  return { version, path, digest: sha256Digest(bytes), signature }
+}
+
+/**
  * Builds the bundle and reads the exact signed tarball bytes before returning.
  * The advisory lease covers the complete operation and is renewed while the
  * asynchronous compile runs.
  */
-export async function buildDevBundle(deps: DevBundleBuildDeps = {}): Promise<BuiltDevBundle> {
+export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDevBundle> {
   const root = deps.root ?? SOURCE_ROOT
   const sha = shortSha(
     deps.headSha ??
@@ -234,7 +219,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps = {}): Promise<Bui
       }),
   )
   const version = 'dev+' + sha
-  const lock = deps.lock ?? createPodiumDevBundleLock(root)
+  const lock = deps.lock
   const acquired = await lock.acquire()
   if (acquired === false) throw new Error('could not acquire the development bundle lock')
 
@@ -262,8 +247,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps = {}): Promise<Bui
 
     const resultObject = typeof result === 'object' && result !== null ? result : undefined
     const artifactPath =
-      (typeof result === 'string' ? result : resultObject?.path) ??
-      join(root, 'dist-bun', 'podium-headless-' + version + '.tar.gz')
+      (typeof result === 'string' ? result : resultObject?.path) ?? devBundlePath(root, version)
     const readFile = deps.readFile ?? defaultReadFile
     const bytes = resultObject?.bytes ?? (await readFile(artifactPath))
     let signature = resultObject?.signature
@@ -362,35 +346,49 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
 
   return {
     requestBuild(explicit = false) {
-      const headSha = shortSha(deps.headSha())
-      const decision = decideDevBuild({
-        isSourceRun: typeof deps.isSourceRun === 'function' ? deps.isSourceRun() : deps.isSourceRun,
-        headSha,
-        builtSha,
-        lastAttemptAt,
-        now: now(),
-        inFlight: inFlight !== null,
-        debounceMs,
-        explicit,
-      })
-      if (!decision.build) return inFlight ?? Promise.resolve(current)
+      try {
+        const headSha = shortSha(deps.headSha())
+        const decision = decideDevBuild({
+          isSourceRun:
+            typeof deps.isSourceRun === 'function' ? deps.isSourceRun() : deps.isSourceRun,
+          headSha,
+          builtSha,
+          lastAttemptAt,
+          now: now(),
+          inFlight: inFlight !== null,
+          debounceMs,
+          explicit,
+        })
+        if (!decision.build) return inFlight ?? Promise.resolve(current)
 
-      lastAttemptAt = now()
-      const build = buildDevBundle({ ...deps, headSha }).then((built) => {
-        current = built
-        builtSha = headSha
-        return built
-      })
-      inFlight = build
-      void build.then(
-        () => {
-          inFlight = null
-        },
-        () => {
-          inFlight = null
-        },
-      )
-      return build
+        lastAttemptAt = now()
+        // A restart loses only the in-memory descriptor, not the signed bytes.
+        // Restore an exact-HEAD artifact first; compile only when it is absent
+        // or no longer verifies under this server's persisted update key.
+        const requested = (
+          current === null
+            ? readExistingDevBundle({ ...deps, headSha }).then(
+                (existing) => existing ?? buildDevBundle({ ...deps, headSha }),
+              )
+            : buildDevBundle({ ...deps, headSha })
+        ).then((built) => {
+          current = built
+          builtSha = headSha
+          return built
+        })
+        inFlight = requested
+        void requested.then(
+          () => {
+            inFlight = null
+          },
+          () => {
+            inFlight = null
+          },
+        )
+        return requested
+      } catch (error) {
+        return Promise.reject(error)
+      }
     },
     current: () => current,
     target: () => {

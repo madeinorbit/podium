@@ -23,29 +23,6 @@ import { SessionTerminal, type SessionTerminalState } from './terminal'
 
 export type Send<T> = (msg: T) => void
 
-export interface PublicationAuthoritySnapshot {
-  revision: number
-  /** Stable, authority-owned identity for this exact allowed-id set. */
-  allowedSignature: string
-  /** Immutable for the lifetime of this snapshot. */
-  allowedSessionIds: readonly string[]
-}
-
-/** Main-authority result used to construct and filter a publication ViewKey. */
-export interface PublicationAuthority {
-  principal: string
-  scope: string
-  serverRole: string
-  protocolVersion: number
-  /** Only a proven global authority may receive unfiltered non-session feeds. */
-  global: boolean
-  snapshot(): PublicationAuthoritySnapshot
-}
-
-export interface ClientPublicationAuthority extends PublicationAuthority {
-  sendPrepared: Send<string>
-}
-
 /**
  * ONE CLIENT CONNECTION — DEFINED IN THE GATEWAY (POD-390).
  *

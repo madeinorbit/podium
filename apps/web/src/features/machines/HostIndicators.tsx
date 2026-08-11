@@ -286,6 +286,8 @@ export function HeaderHostIndicators(): JSX.Element {
         const agentTone = SEVERITY[agents.severity]
         const machine = machines.find((m) => m.id === host.machineId)
         const needsUpdate = machine != null && machineNeedsUpdate(machine, serverAppVersion)
+        const updateTargetVersion =
+          machine?.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
         const reclaimCount = host.machineId ? (reclaimByMachine.get(host.machineId) ?? 0) : 0
         const reclaimablePast =
           reclaimCount >= RECLAIMABLE_WORKTREE_THRESHOLD && health.status === 'ok'
@@ -389,8 +391,8 @@ export function HeaderHostIndicators(): JSX.Element {
                 updateNote={
                   needsUpdate ? (
                     <div className="hp-dim-line text-warning">
-                      Update available: {machine?.inventory?.podiumVersion} → {serverAppVersion} —
-                      run podium update on this machine
+                      Update available: {machine?.inventory?.podiumVersion} →{' '}
+                      {updateTargetVersion} — apply it from Settings → Machines
                     </div>
                   ) : undefined
                 }

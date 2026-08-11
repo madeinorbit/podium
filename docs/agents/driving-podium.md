@@ -64,8 +64,8 @@ erases through xterm's keyboard path, writes a JSON report, then exits the shell
 failure:
 
 ```sh
-bun run perf:typing -- --samples=60 --out=.artifacts/typing-latency.json
-bun run perf:typing -- --verify-off --out=.artifacts/typing-off.json
+bun run perf:typing -- --samples=60 --out=.tmp/typing-latency.json
+bun run perf:typing -- --verify-off --out=.tmp/typing-off.json
 ```
 
 It targets `http://localhost:18787` and mints a short-lived browser session by default;

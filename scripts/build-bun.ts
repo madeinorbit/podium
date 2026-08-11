@@ -23,7 +23,6 @@ import {
 import { fileURLToPath } from 'node:url'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
-import { PUBLISH_WORKER_ENTRY } from '../apps/server/src/modules/sessions/publish-worker-embed.js'
 import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
 import {
   bunVersion,
@@ -198,7 +197,7 @@ function main(): void {
   // worker as an explicit extra entrypoint; worker-client.ts spawns it from
   // DISCOVERY_WORKER_EMBEDDED_PATH (shared via discovery-worker-embed.ts).
   compile('scripts/cli-compiled.ts', names.compiled, {
-    extraEntrypoints: [DISCOVERY_WORKER_ENTRY, PUBLISH_WORKER_ENTRY],
+    extraEntrypoints: [DISCOVERY_WORKER_ENTRY],
   })
   console.log(`[build-bun] done -> dist-bun/${names.compiled}`)
 

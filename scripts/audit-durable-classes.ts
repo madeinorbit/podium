@@ -367,6 +367,14 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'grants', kind: 'drizzle-table', row: 'grant-edge' },
   { store: 'telegram_chat_bindings', kind: 'drizzle-table', row: 'telegram-chat-binding' },
   {
+    store: '<stateDir>/.server-transfer/journal.json',
+    kind: 'filesystem',
+    row: null,
+    notEntityState:
+      'A source-side crash-recovery control record for one atomic server move. It binds the transfer state, target, endpoint, proof and cleanup outcome so boot can fail closed or the coordinator can reconcile; it is infrastructure state rather than a user-owned entity, is never replicated, and is retained after commit only so the desktop supervisor can verify its retarget decision.',
+    writeSites: ['apps/server/src/modules/server-transfer/journal.ts'],
+  },
+  {
     store: '<stateDir>/daemon.json',
     kind: 'filesystem',
     row: 'daemon-identity-file',
@@ -565,9 +573,19 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Stages and promotes a portable snapshot under `<stateDir>/.server-transfer` during cross-machine server move (7c59af7dd). The bytes are the already-classified stores it relocates — `podium.db`, `enrollment.ledger`, transcripts, artifacts, uploads — plus a per-transfer lock and stage journal that exist only for the duration of the move and are deleted on promote or abort. A copy/stage of a classified store is that store, not a new entity class (same shape as `migrations/restore.ts`).',
     },
     {
+      file: 'apps/server/src/modules/server-transfer/lock.ts',
+      reason:
+        'An exclusive-create coordination lock for one source-side transfer. It owns no product entity, is meaningful only while the coordinator process is active, and stale locks are rejected or cleared through the transfer journal recovery path.',
+    },
+    {
+      file: 'apps/server/src/modules/server-transfer/snapshot.ts',
+      reason:
+        'Builds temporary snapshot copies of the already-classified portable stores for hashing and upload. A staged copy is the same durable class as its source, not a second entity class, and the temporary tree is removed after the transfer attempt.',
+    },
+    {
       file: 'apps/server/src/modules/server-transfer/service.ts',
       reason:
-        'Orchestrates the source side of a server transfer: snapshots already-classified portable roots into a staging tree, writes a short-lived transfer journal/lock under stateDir, and drives the daemon-side promote/abort path. It introduces no store of its own; the durable product state is the stores the snapshot enumerates, each classified above.',
+        'Orchestrates the source side of a server transfer and delegates snapshot, journal and lock writes to the classified modules above before driving the daemon RPC path. It is listed because the source scanner sees its storage collaborators, but it writes no independent durable store.',
     },
   ]
 

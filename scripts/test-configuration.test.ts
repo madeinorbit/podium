@@ -23,6 +23,7 @@ import { REUSE_GUARD_SETUP_FILE } from '../apps/server/vitest.shard'
 import serverStoreConfig from '../apps/server/vitest.store.config'
 import webConfig from '../apps/web/vitest.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
+import syncPerfConfig from '../packages/sync/vitest.perf.config'
 import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
 import browserConfig from '../tests/e2e/playwright.config'
 import acceptanceConfig from '../vitest.acceptance.config'
@@ -36,6 +37,7 @@ import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 import { runWithHeavyTestLease } from './test-heavy'
 import scriptsConfig from './vitest.config'
+import rearchConfig from './vitest.rearch.config'
 
 type Project =
   | string
@@ -93,7 +95,7 @@ const smokeTestFiles = (dir: URL, prefix = ''): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name
     if (entry.isDirectory()) {
-      if (['.git', '.worktrees', 'node_modules'].includes(entry.name)) return []
+      if (['.git', '.worktrees', '.claude', 'node_modules'].includes(entry.name)) return []
       return smokeTestFiles(new URL(`${entry.name}/`, dir), relative)
     }
     return /\.smoke\.test\.(?:ts|tsx)$/.test(entry.name) ? [relative] : []
@@ -357,6 +359,29 @@ describe('test lane configuration', () => {
     expect(config(frontendPerfConfig).test?.fileParallelism).toBe(false)
   })
 
+  it('keeps quadratic benchmarks out of the default gate and explicitly heavy', () => {
+    expect(nodeProject(unitConfig).test?.exclude).toContain('**/*.bench.test.{ts,tsx}')
+    expect(config(syncPerfConfig).test?.include).toEqual([
+      'packages/sync/src/adapters/indexeddb/apply-scaling.bench.test.ts',
+    ])
+    expect(config(syncPerfConfig).test?.retry).toBe(0)
+    expect(config(syncPerfConfig).test?.maxWorkers).toBe(1)
+    expect(config(syncPerfConfig).test?.fileParallelism).toBe(false)
+
+    const root = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const sync = JSON.parse(
+      readFileSync(new URL('../packages/sync/package.json', import.meta.url), 'utf8'),
+    ) as { scripts: Record<string, string> }
+    expect(root.scripts['test:perf:sync']).toBe(
+      'bun run --cwd packages/sync test:perf:apply-scaling',
+    )
+    expect(sync.scripts['test:perf:apply-scaling']).toContain(
+      'validation-admission.ts heavy',
+    )
+  })
+
   it('routes the default unit lane through cached package tasks', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
@@ -388,6 +413,30 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
+    expect(pkg.scripts['test:agent']).toContain('--maxWorkers=1')
+    expect(pkg.scripts['test:agent']).not.toContain('validation-admission.ts')
+    expect(pkg.scripts['test:agent']).toContain('packages/runtime/src/boot.test.ts')
+    expect(pkg.scripts['test:agent']).toContain('apps/server/src/router.setup.test.ts')
+    expect(pkg.scripts['test:agent']).toContain('apps/daemon/src/connection-state.test.ts')
+    expect(pkg.scripts['test:agent']).toContain('scripts/test-configuration.test.ts')
+    expect(pkg.scripts['test:agent']).not.toContain('scripts/test.ts')
+  })
+
+  it('keeps rewrite migration tests out of routine package validation', () => {
+    expect(config(scriptsConfig).test?.exclude).toContain('scripts/rearch-audit.test.ts')
+    expect(config(rearchConfig).test?.include).toEqual(['scripts/rearch-audit.test.ts'])
+    expect(config(rearchConfig).test?.maxWorkers).toBe(1)
+
+    const root = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const scripts = JSON.parse(
+      readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+    ) as { scripts: Record<string, string> }
+    expect(root.scripts['test:rearch']).toBe(
+      'bun run audit:rearch && bun run --cwd scripts test:rearch',
+    )
+    expect(scripts.scripts['test:rearch']).toContain('vitest.rearch.config.ts')
   })
 
   it('guards direct package validation and passes root ownership through Turbo', () => {
