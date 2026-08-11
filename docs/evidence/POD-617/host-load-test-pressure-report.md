@@ -72,7 +72,7 @@ The ancestry-preserving child merge did not conflict with POD-619's UI files. It
 ### Immediate changes completed
 
 - Resident sessions were reduced from 38 to 35 by reversibly stopping three clearly finished, clean, decision-free sessions. Eleven uncertain or protected sessions were left alone.
-- `hibernation.maxIdleSessions` was changed from the stale persisted value 30 to 8 through the supported settings API; `idleShellHours` remained unchanged.
+- `hibernation.maxIdleSessions` was changed from the stale persisted value 30 to 8 through the supported settings API; `idleShellMinutes` remained unchanged.
 - Validation commands were serialized instead of overlapping test, focused-test, and typecheck work.
 - Repository guidance now distinguishes root package lanes through `scripts/test.ts` from focused/direct commands and makes within-session ordering explicit.
 

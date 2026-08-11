@@ -40,7 +40,7 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 
 describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
-    // 42 + `hibernation.idleShellHours` (POD-565).
+    // 42 + `hibernation.idleShellMinutes` (POD-565).
     expect(blobLeaves().length).toBe(43)
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
@@ -170,7 +170,7 @@ describe('the composed blob still parses exactly as before', () => {
         loadPerCore: 1.5,
         maxIdleSessions: 8,
         idleMinutes: 30,
-        idleShellHours: null,
+        idleShellMinutes: null,
       },
       notifications: { web: true, ntfyTopic: '', telegramBotToken: '', telegramChatId: '' },
       sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },

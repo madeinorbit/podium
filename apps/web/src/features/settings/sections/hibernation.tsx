@@ -134,23 +134,46 @@ export function HibernationSection({
         />
       </Row>
       <Row
-        label="Idle shell hours"
-        description="Park live shells after this many hours with no input or output. Empty turns shell reaping off (default). Shells are never folded into the agent idle cap."
+        label="Idle shell minutes"
+        description="Park live shells after this many minutes with no input or output. The default is 1 minute; empty turns shell reaping off."
       >
         <Input
-          aria-label="Idle shell hours"
+          aria-label="Idle shell minutes"
           className="w-[90px] flex-none"
           type="number"
           min={1}
-          max={720}
-          placeholder="Off"
-          value={settings.hibernation.idleShellHours ?? ''}
+          max={43200}
+          placeholder="1"
+          value={settings.hibernation.idleShellMinutes ?? ''}
           onChange={(e) =>
             patch({
               hibernation: {
                 ...settings.hibernation,
-                idleShellHours:
-                  e.target.value === '' ? null : clampInt(e.target.value, 1, 720, 24),
+                idleShellMinutes:
+                  e.target.value === '' ? null : clampInt(e.target.value, 1, 43200, 1),
+              },
+            })
+          }
+        />
+      </Row>
+      <Row
+        label="Idle backstop minutes"
+        description="Last resort: park after total quiet time without terminal proof. A future scheduled wakeup keeps the session live; empty disables this backstop."
+      >
+        <Input
+          aria-label="Idle backstop minutes"
+          className="w-[90px] flex-none"
+          type="number"
+          min={60}
+          max={43200}
+          placeholder="2880"
+          value={settings.hibernation.backstopMinutes ?? ''}
+          onChange={(e) =>
+            patch({
+              hibernation: {
+                ...settings.hibernation,
+                backstopMinutes:
+                  e.target.value === '' ? null : clampInt(e.target.value, 60, 43200, 2880),
               },
             })
           }

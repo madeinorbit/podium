@@ -103,7 +103,7 @@ describe('the classification is TOTAL over the split shapes', () => {
     // A cardinality a broken walk cannot reach. 43 = 24 personal + 14 instance
     // + 5 secret; the three parts are pinned separately below so a failure names
     // which half moved rather than only that the total did. Instance went 13 →
-    // 14 with `hibernation.idleShellHours` (POD-565).
+    // 14 with `hibernation.idleShellMinutes` (POD-565).
     expect(SETTINGS_CLASSIFICATION.length).toBe(43)
     expect(settingsPathsInTier('personal-preference').length).toBe(24)
     expect(settingsPathsInTier('instance-preference').length).toBe(14)

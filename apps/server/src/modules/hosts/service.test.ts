@@ -90,7 +90,7 @@ function harness(input: {
   maxIdleSessions: number | null
   enabled?: boolean
   loadPerCore?: number | null
-  idleShellHours?: number | null
+  idleShellMinutes?: number | null
   fail?: Set<string>
   proven?: Set<string>
 }) {
@@ -101,7 +101,7 @@ function harness(input: {
       idleMinutes: 30,
       maxIdleSessions: input.maxIdleSessions,
       ...(input.loadPerCore !== undefined ? { loadPerCore: input.loadPerCore } : {}),
-      ...(input.idleShellHours !== undefined ? { idleShellHours: input.idleShellHours } : {}),
+      ...(input.idleShellMinutes !== undefined ? { idleShellMinutes: input.idleShellMinutes } : {}),
     },
   })
   const parked: string[] = []
@@ -122,6 +122,14 @@ function harness(input: {
       parked.push(sessionId)
       return { ok: true }
     },
+    parkStaleSession: ({ sessionId }) => {
+      const target = input.sessions.find((item) => item.sessionId === sessionId)
+      if (!target || target.status !== 'live') return { ok: false, reason: 'not running' }
+      target.status = target.resume ? 'hibernated' : 'exited'
+      parked.push(sessionId)
+      return { ok: true }
+    },
+    hasScheduledWakeup: () => false,
     parkShellSession: ({ sessionId }) => {
       if (input.fail?.has(sessionId)) return { ok: false, reason: 'raced' }
       const target = input.sessions.find((item) => item.sessionId === sessionId)
@@ -575,8 +583,8 @@ describe('idle-session cap', () => {
         unobserved(asSessionId('still-noisy'), {
           resume: undefined,
           lastActiveAt: new Date(NOW - HOUR).toISOString(),
-          lastInputAtMs: NOW - HOUR,
-          lastOutputAtMs: NOW - HOUR,
+           60_000,
+           60_000,
         }),
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
@@ -641,7 +649,7 @@ describe('idle-session cap', () => {
       expect(sessions[0]?.status).toBe('live')
     })
 
-    it('a quiet shell does not inflate the cap while idleShellHours is off', () => {
+    it('a quiet shell does not inflate the cap while idleShellMinutes is off', () => {
       // With the shell policy off, applyShellIdlePressure never runs, so nothing
       // on this host can park a shell. Counting it would make the known-idle
       // agent pay for a session no policy is acting on. The POD-526 host had a
@@ -661,7 +669,7 @@ describe('idle-session cap', () => {
       expect(sessions[1]?.status).toBe('live')
     })
 
-    it('the same shell DOES count once idleShellHours turns the policy on', () => {
+    it('the same shell DOES count once idleShellMinutes turns the policy on', () => {
       // The predicate follows the policy rather than a constant: switch shell
       // reaping on and the shell becomes both parkable and countable in the same
       // breath. Cap 1 with two sessions is an overage of 1; the shell is quiet
@@ -670,7 +678,7 @@ describe('idle-session cap', () => {
       const { service, shellParked } = harness({
         sessions,
         maxIdleSessions: 1,
-        idleShellHours: 1,
+        idleShellMinutes: 1,
       })
 
       service.onHostMetrics(asMachineId('local'), sample(10))
@@ -678,23 +686,23 @@ describe('idle-session cap', () => {
       expect(shellParked).toEqual(['old-shell'])
     })
 
-    it('parks a quiet shell when idleShellHours is set', () => {
+    it('parks a quiet shell when idleShellMinutes is set', () => {
       const sessions = [
         shell(asSessionId('old-shell'), {
-          lastActiveAt: new Date(NOW - 48 * HOUR).toISOString(),
-          lastInputAtMs: NOW - 48 * HOUR,
-          lastOutputAtMs: NOW - 48 * HOUR,
+          lastActiveAt: new Date(NOW - 48 * 60_000).toISOString(),
+          lastInputAtMs: NOW - 48 * 60_000,
+          lastOutputAtMs: NOW - 48 * 60_000,
         }),
         shell(asSessionId('fresh-shell'), {
-          lastActiveAt: new Date(NOW - HOUR).toISOString(),
-          lastInputAtMs: NOW - HOUR,
-          lastOutputAtMs: NOW - HOUR,
+          lastActiveAt: new Date(NOW - 60_000).toISOString(),
+          lastInputAtMs: NOW - 60_000,
+          lastOutputAtMs: NOW - 60_000,
         }),
       ]
       const { service, parked, shellParked } = harness({
         sessions,
         maxIdleSessions: null,
-        idleShellHours: 24,
+        idleShellMinutes: 24,
       })
 
       service.onHostMetrics(asMachineId('local'), sample(10))
@@ -704,12 +712,12 @@ describe('idle-session cap', () => {
       expect(sessions[1]?.status).toBe('live')
     })
 
-    it('leaves shells alone when idleShellHours is null (default off)', () => {
+    it('leaves shells alone when idleShellMinutes is null (default off)', () => {
       const sessions = [shell(asSessionId('ancient-shell'))]
       const { service, shellParked } = harness({
         sessions,
         maxIdleSessions: null,
-        idleShellHours: null,
+        idleShellMinutes: null,
       })
 
       service.onHostMetrics(asMachineId('local'), sample(10))
@@ -718,23 +726,23 @@ describe('idle-session cap', () => {
       expect(sessions[0]?.status).toBe('live')
     })
 
-    it('parks the oldest quiet shell first under idleShellHours', () => {
+    it('parks the oldest quiet shell first under idleShellMinutes', () => {
       const sessions = [
         shell(asSessionId('newer'), {
-          lastActiveAt: new Date(NOW - 30 * HOUR).toISOString(),
-          lastInputAtMs: NOW - 30 * HOUR,
-          lastOutputAtMs: NOW - 30 * HOUR,
+          lastActiveAt: new Date(NOW - 30 * 60_000).toISOString(),
+          lastInputAtMs: NOW - 30 * 60_000,
+          lastOutputAtMs: NOW - 30 * 60_000,
         }),
         shell(asSessionId('older'), {
-          lastActiveAt: new Date(NOW - 72 * HOUR).toISOString(),
-          lastInputAtMs: NOW - 72 * HOUR,
-          lastOutputAtMs: NOW - 72 * HOUR,
+          lastActiveAt: new Date(NOW - 72 * 60_000).toISOString(),
+          lastInputAtMs: NOW - 72 * 60_000,
+          lastOutputAtMs: NOW - 72 * 60_000,
         }),
       ]
       const { service, shellParked } = harness({
         sessions,
         maxIdleSessions: null,
-        idleShellHours: 24,
+        idleShellMinutes: 24,
       })
 
       service.onHostMetrics(asMachineId('local'), sample(10))

@@ -767,6 +767,15 @@ export class SessionRegistry {
         },
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
         parkShellSession: (input) => sessionsSvc.parkShellSession(input),
+        parkStaleSession: (input) => sessionsSvc.parkStaleSession(input),
+        hasScheduledWakeup: (sessionId, now) => {
+          const lastSpawned = this.store.automations.lastSpawnedSessions()
+          return this.store.automations.list().some((automation) => {
+            if (!automation.enabled || automation.nextRunAt === null) return false
+            const target = automation.targetSessionId ?? lastSpawned.get(automation.id)
+            return target === sessionId && Date.parse(automation.nextRunAt) > now
+          })
+        },
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
         daemonRequest: requestBroker,

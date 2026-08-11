@@ -501,6 +501,11 @@ export class SessionLifecycle {
     return this.sessionTeardown.hibernateSession(input)
   }
 
+  /** Last-resort idle park — non-resumable harnesses become exited. */
+  parkStaleSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string } {
+    return this.sessionTeardown.parkStaleSession(input.sessionId)
+  }
+
   /** Idle-shell policy park — process killed, row inspectable, no worktree free. */
   parkShellSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string } {
     return this.sessionTeardown.parkShellSession(input.sessionId)

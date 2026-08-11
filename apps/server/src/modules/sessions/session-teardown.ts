@@ -128,6 +128,24 @@ export class SessionTeardown {
     this.ports.broadcastSessions()
   }
 
+  /** Last-resort idle park. Unlike proof-backed hibernation, this also retires
+   * a non-resumable harness as exited so it cannot remain resident forever. */
+  parkStaleSession(sessionId: SessionId): { ok: boolean; reason?: string } {
+    const session = this.ports.sessions.get(sessionId)
+    if (!session) return { ok: false, reason: 'unknown session' }
+    if (session.status !== 'live') return { ok: false, reason: 'not running' }
+    session.status = session.agentKind !== 'shell' && !session.resume ? 'exited' : 'hibernated'
+    session.exitCode = session.status === 'exited' ? (session.exitCode ?? 0) : session.exitCode
+    this.ports.autoContinue.onSessionGone(sessionId)
+    session.stoppedAt = new Date(this.ports.now()).toISOString()
+    session.stopReason = 'parent'
+    this.ports.rearmUnread(sessionId)
+    this.ports.repository.persist(session)
+    this.killStoppedSession(session)
+    this.ports.broadcastSessions()
+    return { ok: true }
+  }
+
   /**
    * Idle-shell policy park (POD-565): kill the process, keep the row
    * inspectable as `hibernated`. A fresh spawn is a shell's recovery path, so

@@ -3225,7 +3225,7 @@ describe('hibernation', () => {
         loadPerCore: null,
         maxIdleSessions: null,
         idleMinutes: 1,
-        idleShellHours: null,
+        idleShellMinutes: null,
       },
     })
     const sessionId = liveSession(reg, daemon)
@@ -3275,7 +3275,7 @@ describe('hibernation', () => {
         loadPerCore: null,
         maxIdleSessions: null,
         idleMinutes: 1,
-        idleShellHours: null,
+        idleShellMinutes: null,
       },
     })
     const sessionId = liveSession(reg, daemon)
@@ -3317,7 +3317,7 @@ describe('hibernation', () => {
         loadPerCore: null,
         maxIdleSessions: null,
         idleMinutes: 1,
-        idleShellHours: null,
+        idleShellMinutes: null,
       },
     })
     const sessionId = liveSession(reg, daemon)

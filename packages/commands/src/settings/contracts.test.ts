@@ -283,7 +283,7 @@ describe('the derived path sets find something', () => {
   })
 
   it('the writable set is both preference tiers and NOTHING from the secret tier', () => {
-    // 38 = 24 personal + 14 instance (idleShellHours, POD-565). Secrets stay out.
+    // 38 = 24 personal + 14 instance (idleShellMinutes, POD-565). Secrets stay out.
     expect(WRITABLE_PREFERENCE_PATHS.length).toBe(38)
     for (const key of SERVER_SECRET_KEYS) expect(WRITABLE_PREFERENCE_PATHS).not.toContain(key)
     // …and the exclusion is not an empty-set artefact.
