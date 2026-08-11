@@ -255,7 +255,7 @@ const fleet = fleetProcedures({
           publicUrl,
           pairCode,
           podiumManaged,
-          channel: resolveUpdateChannel(config),
+          channel: resolveUpdateChannel(config) === 'stable' ? 'stable' : 'edge',
         })
       : null
   },

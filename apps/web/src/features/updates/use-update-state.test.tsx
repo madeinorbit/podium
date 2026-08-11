@@ -187,6 +187,41 @@ describe('useUpdateState update action', () => {
     }
   })
 
+  it('discovers a newly ready target on the idle refresh without reloading', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.makeTrpc.mockReturnValue({
+        setup: { channel: { query: vi.fn(async () => 'stable') } },
+        updates: {
+          fleet: { query: vi.fn().mockRejectedValue(new Error('unauthorized')) },
+          converge: { mutate: mocks.mutate },
+        },
+      })
+      let versionReads = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => ({
+          ok: true,
+          json: async () => {
+            if (!url.endsWith('/version')) return { appVersion: '0.4.1' }
+            versionReads += 1
+            return versionReads > 2 ? { appVersion: '0.4.1', target } : { appVersion: '0.4.1' }
+          },
+        })),
+      )
+
+      render(<Probe onResult={() => {}} liveFleet />)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(screen.queryByRole('button', { name: /update Podium/i })).toBeNull()
+
+      await vi.advanceTimersByTimeAsync(30_000)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('moves the shared dialog to a translated, actionable server failure', async () => {
     setupTransport()
     mocks.mutate.mockRejectedValueOnce(

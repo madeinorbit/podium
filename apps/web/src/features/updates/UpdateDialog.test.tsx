@@ -156,6 +156,8 @@ describe('UpdateDialog', () => {
         actions={{}}
       />,
     )
+    expect(screen.getByRole('heading', { name: 'Podium update failed' })).toBeTruthy()
+    expect(screen.queryByText(/Podium update paused/i)).toBeNull()
     expect(screen.getByText(/could not finish/i)).toBeTruthy()
     expect(screen.getByText(/try again/i)).toBeTruthy()
     expect(screen.getByText(/technical details/i)).toBeTruthy()

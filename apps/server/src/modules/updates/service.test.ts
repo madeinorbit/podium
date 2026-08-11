@@ -96,6 +96,18 @@ describe('UpdatesService', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
+  it('treats a second global Apply as authority to retry a failed canary', () => {
+    const { svc, send } = make([m('a'), m('b')])
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    expect(svc.authorize()).toEqual(['a'])
+    svc.onStatus('a', { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
+    send.mockClear()
+
+    expect(svc.authorize()).toEqual(['a'])
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
+  })
+
   it('resets canary health when the target changes', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)

@@ -208,7 +208,7 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
       ) : view.state === 'failed' ? (
         <>
           <div className="gap-1 px-4 pt-4 pb-4">
-            <h2 className="text-[14px] font-semibold">Podium update paused</h2>
+            <h2 className="text-[14px] font-semibold">Podium update failed</h2>
             <p className="mt-1 text-[11px] leading-[1.5] text-muted-foreground">{view.message}</p>
             <p className="mt-2 text-[11px] leading-[1.5] text-foreground">{view.guidance}</p>
             {view.diagnostic && (

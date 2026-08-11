@@ -25,6 +25,7 @@ const FLEET_IDLE_POLL_MS = 30_000
 
 export interface UpdateMachineState {
   id: string
+  name?: string
   version: string
   state: 'current' | 'granted' | 'downloading' | 'restarting' | 'rejected' | 'stuck'
   online: boolean
@@ -66,7 +67,7 @@ type UpdateActionState =
       total: number
       includesServer: boolean
     }
-  | { state: 'failed'; detail: string }
+  | { state: 'failed'; detail: string; machineName?: string }
 
 const EMPTY_FLEET: UpdateFleetState = {
   total: 0,
@@ -152,7 +153,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       .then((c) => c.channel)
       .catch(() => 'stable' as const)
     void channel
-      .then((selected) => check(selected))
+      .then((selected) => check(selected === 'dev' ? 'edge' : selected))
       .then((next) => {
         if (!cancelled) setDesktopUpdate(next ?? undefined)
       })
@@ -190,16 +191,23 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       if (inFlight) return
       inFlight = true
       try {
-        const [next, serverRaw] = await Promise.all([
-          trpc.updates.fleet.query(),
-          active ? readJson(options.httpOrigin + '/version') : Promise.resolve(undefined),
+        const [fleetRead, serverRaw] = await Promise.all([
+          trpc.updates.fleet.query().then(
+            (value) => ({ ok: true as const, value }),
+            () => ({ ok: false as const }),
+          ),
+          readJson(options.httpOrigin + '/version'),
         ])
         if (cancelled) return
+
+        const nextServer = parseServerVersion(serverRaw)
+        if (serverRaw !== undefined) setServer(nextServer)
+        if (!fleetRead.ok) return
+
+        const next = fleetRead.value
         setFleetState(next)
 
         if (active) {
-          const nextServer = parseServerVersion(serverRaw)
-          if (serverRaw !== undefined) setServer(nextServer)
           setUpdateAction((current) => {
             if (current.state !== 'in-progress') return current
             if (next.failed > 0) {
@@ -208,6 +216,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
               )
               return {
                 state: 'failed',
+                ...(failure?.name ? { machineName: failure.name } : {}),
                 detail:
                   failure?.detail ??
                   (next.failed === 1 ? 'A machine' : String(next.failed) + ' machines') +
@@ -352,7 +361,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           total: updateAction.total,
         }
       : updateAction.state === 'failed'
-        ? describeUpdateFailure(updateAction.detail)
+        ? describeUpdateFailure(updateAction.detail, updateAction.machineName)
         : baseView
 
   return { view, actions, server, fleet }

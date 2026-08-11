@@ -48,6 +48,27 @@ describe('describeUpdate', () => {
     expect(machines?.effect).toMatch(/not be interrupted/i)
   })
 
+  it('names the first three affected machines and summarizes the rest', () => {
+    const v = describeUpdate({
+      ...base,
+      fleet: {
+        total: 5,
+        behind: 5,
+        converging: 0,
+        failed: 0,
+        machines: ['flatblock', 'ludovico', 'workstation', 'builder', 'laptop'].map((name) => ({
+          name,
+          version: '0.4.1',
+          state: 'current',
+        })),
+      },
+    } as never)
+    const machines = (v as { places: { kind: string; label: string }[] }).places.find(
+      (place) => place.kind === 'machines',
+    )
+    expect(machines?.label).toBe('flatblock, ludovico, workstation, and 2 more')
+  })
+
   it('says "1 machine" for exactly one', () => {
     const v = describeUpdate({
       ...base,
@@ -179,6 +200,29 @@ describe('describeUpdate', () => {
       diagnostic: "The machines do not support this update's delivery method.",
     })
     expect(JSON.stringify(v)).not.toContain('unsupported-delivery')
+  })
+
+  it('turns a dirty checkout into named, actionable copy', () => {
+    const v = describeUpdate({
+      ...base,
+      fleet: {
+        total: 1,
+        behind: 0,
+        converging: 0,
+        failed: 1,
+        machines: [
+          { name: 'ludovico', state: 'stuck', detail: 'git delivery failed: dirty-working-tree' },
+        ],
+      },
+    } as never)
+
+    expect(v).toMatchObject({
+      state: 'failed',
+      message: 'ludovico has local files or edits that prevent a safe update.',
+      diagnostic: 'Git delivery stopped because the checkout is not clean.',
+    })
+    expect((v as { guidance: string }).guidance).toMatch(/commit, stash, move, or locally exclude/i)
+    expect(JSON.stringify(v)).not.toContain('dirty-working-tree')
   })
 
   it('translates connection failures without exposing raw transport copy', () => {

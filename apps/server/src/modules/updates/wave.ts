@@ -3,6 +3,7 @@ import type { ConvergenceState } from '@podium/protocol'
 
 export interface WaveMachine {
   id: string
+  name?: string
   channel?: UpdateChannel
   version: string
   state: ConvergenceState

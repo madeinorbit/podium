@@ -191,7 +191,7 @@ describe('fleet default channel refresh ordering', () => {
     const order: string[] = []
     let releaseTarget: (() => void) | undefined
     const refreshTarget = vi.fn(
-      () =>
+      (_channel: string) =>
         new Promise<void>((resolve) => {
           order.push('refreshTarget:start')
           releaseTarget = () => {

@@ -64,7 +64,7 @@ function machineWithLogin(
     createdAt: '2026-08-06T00:00:00.000Z',
     lastSeenAt: '2026-08-06T00:00:00.000Z',
     podiumManaged: true,
-    updateChannel: 'stable',
+    updateChannelOverride: null,
     ownerUserId: null,
     appVersion: null,
     wireSchemaDigest: null,
@@ -325,7 +325,7 @@ describe('accountViews catalog', () => {
       createdAt: '2026-08-04T00:00:00.000Z',
       lastSeenAt: '2026-08-04T00:00:00.000Z',
       podiumManaged: true,
-      updateChannel: 'stable',
+      updateChannelOverride: null,
       ownerUserId: null,
       // Nothing has reported a build for these fixtures — the shape a machine
       // row carries before its daemon hands up version/delivery detail.

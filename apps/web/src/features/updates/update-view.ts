@@ -50,7 +50,7 @@ export interface UpdateInput {
     behind: number
     converging: number
     failed: number
-    machines?: readonly { state: string; detail?: string }[]
+    machines?: readonly { name?: string; version?: string; state: string; detail?: string }[]
   }
   touched: { app: boolean; server: boolean; machines: boolean }
   skew: SkewVerdict
@@ -59,6 +59,18 @@ export interface UpdateInput {
 
 function machineLabel(count: number): string {
   return `${count} machine${count === 1 ? '' : 's'}`
+}
+
+function affectedMachineLabel(input: UpdateInput): string {
+  const targetVersion = input.server.target?.version
+  const names = (input.fleet.machines ?? [])
+    .filter((machine) => targetVersion === undefined || machine.version !== targetVersion)
+    .flatMap((machine) => (machine.name ? [machine.name] : []))
+  if (names.length === 0) return machineLabel(input.fleet.behind)
+
+  const shown = names.slice(0, 3)
+  const remaining = Math.max(0, input.fleet.behind - shown.length)
+  return remaining > 0 ? shown.join(', ') + ', and ' + remaining + ' more' : shown.join(', ')
 }
 
 function targetNotes(
@@ -103,7 +115,7 @@ function placesFor(input: UpdateInput): Place[] {
   if (input.touched.machines && input.fleet.behind > 0) {
     places.push({
       kind: 'machines',
-      label: machineLabel(input.fleet.behind),
+      label: affectedMachineLabel(input),
       effect: 'will not be interrupted',
     })
   }
@@ -140,8 +152,20 @@ type FailedUpdateView = Extract<UpdateView, { state: 'failed' }>
 
 /** Keep transport and delivery vocabulary out of the primary failure message.
  * A short, sanitized diagnostic remains available for support and operators. */
-export function describeUpdateFailure(detail?: string): FailedUpdateView {
+export function describeUpdateFailure(detail?: string, machineName?: string): FailedUpdateView {
   const normalized = detail?.trim()
+
+  if (normalized && /dirty[-_\s]working[-_\s]tree/i.test(normalized)) {
+    const subject = machineName ?? 'A machine'
+    const location = machineName ?? 'that machine'
+    return {
+      state: 'failed',
+      message: subject + ' has local files or edits that prevent a safe update.',
+      guidance:
+        'Commit, stash, move, or locally exclude those files on ' + location + ', then try again.',
+      diagnostic: 'Git delivery stopped because the checkout is not clean.',
+    }
+  }
 
   if (normalized && /unsupported[-_\s]delivery/i.test(normalized)) {
     return {
@@ -204,18 +228,17 @@ export function describeUpdateFailure(detail?: string): FailedUpdateView {
 
 export function describeUpdate(input: UpdateInput): UpdateView {
   const target = input.server.target
-  const version =
-    appOnlyFromReleaseFeed(input)
-      ? // The server's target and the desktop app's release feed are DIFFERENT
-        // version streams. When the only place is this app and the target
-        // carries no artifact for it (the dev bundle publishes `headless`
-        // only), the target's label names a version this dialog's action will
-        // not install — the release feed's does.
-        (input.desktopUpdate?.version ?? input.localVersion)
-      : (target?.version ??
-        input.desktopUpdate?.version ??
-        input.server.appVersion ??
-        input.localVersion)
+  const version = appOnlyFromReleaseFeed(input)
+    ? // The server's target and the desktop app's release feed are DIFFERENT
+      // version streams. When the only place is this app and the target
+      // carries no artifact for it (the dev bundle publishes `headless`
+      // only), the target's label names a version this dialog's action will
+      // not install — the release feed's does.
+      (input.desktopUpdate?.version ?? input.localVersion)
+    : (target?.version ??
+      input.desktopUpdate?.version ??
+      input.server.appVersion ??
+      input.localVersion)
 
   if (input.fleet.failed > 0) {
     const failure = input.fleet.machines?.find(
@@ -223,6 +246,7 @@ export function describeUpdate(input: UpdateInput): UpdateView {
     )
     return describeUpdateFailure(
       failure?.detail ?? machineLabel(input.fleet.failed) + ' could not update.',
+      failure?.name,
     )
   }
 

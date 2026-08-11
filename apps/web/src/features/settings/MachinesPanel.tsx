@@ -1440,7 +1440,9 @@ function MachineUpdateControls({
   onApplied: () => void
 }): JSX.Element {
   // The PIN (null = follows the fleet default), not the resolved channel. POD-1882.
-  const [channel, setChannel] = useState<UpdateChannel | null>(machine.updateChannelOverride ?? null)
+  const [channel, setChannel] = useState<UpdateChannel | null>(
+    machine.updateChannelOverride ?? null,
+  )
   const [targetVersion, setTargetVersion] = useState<string | null>(machine.targetVersion ?? null)
   const [unavailableReason, setUnavailableReason] = useState<string | null>(
     machine.targetUnavailableReason ?? null,
@@ -1549,6 +1551,7 @@ function MachineUpdateControls({
   // Busy spans the whole act: the mutation round trip AND the convergence it
   // authorized. The action stays disabled for both.
   const busy = applying || converging
+  const retryable = rowState === 'rejected' || rowState === 'stuck'
   const progressLabel =
     (rowState ? CONVERGENCE_PROGRESS_LABELS[rowState] : undefined) ?? 'Starting update…'
 
@@ -1622,9 +1625,7 @@ function MachineUpdateControls({
         variant="outline"
         size="sm"
         className="ml-auto flex-none"
-        disabled={
-          busy || changingChannel || !machine.online || !targetVersion || alreadyCurrent
-        }
+        disabled={busy || changingChannel || !machine.online || !targetVersion || alreadyCurrent}
         aria-busy={busy}
         aria-label={`Apply update to ${machine.name}`}
         title={
@@ -1634,13 +1635,16 @@ function MachineUpdateControls({
         }
         onClick={() => void applyUpdate()}
       >
-        {busy ? 'Applying…' : alreadyCurrent ? 'Current' : 'Apply'}
+        {busy ? 'Applying…' : alreadyCurrent ? 'Current' : retryable ? 'Try again' : 'Apply'}
       </Button>
 
       {(unavailableReason || updateError || updateStatus) && (
         <div className="flex basis-full flex-col gap-0.5">
           {unavailableReason && (
-            <span className="min-w-0 truncate settings-micro text-warning" title={unavailableReason}>
+            <span
+              className="min-w-0 truncate settings-micro text-warning"
+              title={unavailableReason}
+            >
               {unavailableReason}
             </span>
           )}

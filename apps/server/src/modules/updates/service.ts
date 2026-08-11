@@ -239,7 +239,23 @@ export class UpdatesService {
 
   /** Record the operator decision for one authority and start its controlled wave. */
   authorize(channel: UpdateChannel = 'dev'): string[] {
-    this.rollout(channel).authorized = true
+    const rollout = this.rollout(channel)
+    rollout.authorized = true
+
+    // A deliberate Apply/Try again is new authority. Terminal states are
+    // intentionally sticky during automatic planning, but keeping them here
+    // made the global retry a no-op after a failed canary.
+    const terminalMachineIds = [...this.machineStates.entries()]
+      .filter(([, state]) => state.channel === channel && TERMINAL_STATES.has(state.state))
+      .map(([machineId]) => machineId)
+    if (terminalMachineIds.length > 0) {
+      rollout.halted = false
+      rollout.canaryHealthy = false
+      for (const machineId of terminalMachineIds) {
+        this.machineStates.delete(machineId)
+        this.pendingGrants.delete(machineId)
+      }
+    }
     return this.tick(channel)
   }
 

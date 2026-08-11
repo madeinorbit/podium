@@ -402,7 +402,7 @@ export function resolvePlan(
   if (argv[0] === 'update') {
     return {
       kind: 'update',
-      channel: resolveUpdateChannel(config, env),
+      channel: resolveUpdateChannel(config, env) === 'stable' ? 'stable' : 'edge',
       feedOverride: resolveUpdateFeed(config, env),
     }
   }
@@ -733,7 +733,8 @@ export async function resolveCliFeatures(
     )
   } catch {
     const overrides = resolveFeatureOverrides(config)
-    const channel = resolveUpdateChannel(config, env)
+    const selectedChannel = resolveUpdateChannel(config, env)
+    const channel = selectedChannel === 'stable' ? 'stable' : 'edge'
     const version = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
     return new Set(
       FEATURES.filter(

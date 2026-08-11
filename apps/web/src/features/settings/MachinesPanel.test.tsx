@@ -793,6 +793,26 @@ describe('MachinesPanel update action', () => {
     expect(applyButton()).toHaveProperty('disabled', true)
   })
 
+  it('offers Try again for a terminal machine and issues a fresh apply', async () => {
+    const applyUpdate = vi.fn().mockResolvedValue({
+      machines: [managed()],
+      outcome: { result: 'granted', version: 'dev+4f36e8e' },
+    })
+    storeState.machines = [managed()]
+    setUpdateTrpc({
+      applyUpdate,
+      fleet: vi.fn().mockResolvedValue({
+        allMachines: [{ id: 'ludovico', state: 'stuck', version: 'dev+72c2e0e' }],
+      }),
+    })
+    render(<MachinesPanel />)
+
+    const retry = await screen.findByRole('button', { name: /apply update to ludovico/i })
+    expect(retry.textContent).toBe('Try again')
+    fireEvent.click(retry)
+    await waitFor(() => expect(applyUpdate).toHaveBeenCalledWith({ id: 'ludovico' }))
+  })
+
   it('keeps the action in one place when a message appears under it', async () => {
     const applyUpdate = vi.fn().mockResolvedValue({
       machines: [managed()],
@@ -823,7 +843,9 @@ describe('MachinesPanel update action', () => {
 describe('MachinesPanel per-machine update source', () => {
   function setTrpc() {
     storeState.trpc = {
-      setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion: '0.5.0' }) } },
+      setup: {
+        info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion: '0.5.0' }) },
+      },
       machines: { setUpdateChannel: { mutate: vi.fn().mockResolvedValue([]) } },
     } as unknown as Store['trpc']
   }

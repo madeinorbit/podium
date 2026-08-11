@@ -390,6 +390,7 @@ export class SessionRegistry {
       machines: () =>
         machines.listMachines().map((machine) => ({
           id: machine.id,
+          name: machine.name,
           // Already the RESOLVED channel (pin, else fleet default) — see
           // MachinesService.listMachines.
           channel: machine.updateChannel ?? 'stable',

@@ -24,6 +24,7 @@ function isDevelopmentMachine(machine: { channel?: string }): boolean {
 
 export interface UpdateFleetMachine {
   id: string
+  name?: string
   version: string
   state: ConvergenceState
   online: boolean
