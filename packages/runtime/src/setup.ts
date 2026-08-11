@@ -1,4 +1,10 @@
-import { inspectConfig, loadConfig, type PodiumConfig, saveConfig } from './config'
+import {
+  type FleetUpdateChannel,
+  inspectConfig,
+  loadConfig,
+  type PodiumConfig,
+  saveConfig,
+} from './config'
 import { decodeJoin } from './join'
 
 export type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual'
@@ -238,13 +244,13 @@ export function applyMode(input: {
   return cfg
 }
 
-/** Current self-update channel for the headless build; defaults to 'stable' when unset. */
-export function getUpdateChannel(): 'stable' | 'edge' {
+/** Current fleet default update channel; defaults to 'stable' when unset. */
+export function getUpdateChannel(): FleetUpdateChannel {
   return loadConfig().updateChannel ?? 'stable'
 }
 
-/** Persist the self-update channel and return the resulting value. */
-export function setUpdateChannel(channel: 'stable' | 'edge'): 'stable' | 'edge' {
+/** Persist the fleet default update channel and return the resulting value. */
+export function setUpdateChannel(channel: FleetUpdateChannel): FleetUpdateChannel {
   saveConfig({ ...loadConfig(), updateChannel: channel })
   return channel
 }

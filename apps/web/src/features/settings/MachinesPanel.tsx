@@ -25,6 +25,7 @@ import {
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { NetworkStep } from '@/features/setup/SetupView'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 
@@ -1394,6 +1395,9 @@ export function describeApplyOutcome(
   }
 }
 
+/** Radix Select has no null value, so "no pin" needs a token of its own. */
+const FLEET_DEFAULT_VALUE = '__fleet__'
+
 /**
  * A channel choice changes only this machine's durable update authority. Applying
  * is deliberately separate: it issues one convergence grant after the selected
@@ -1412,11 +1416,13 @@ function MachineUpdateControls({
   /** Ask the panel to poll now, so the row shows progress without a delay. */
   onApplied: () => void
 }): JSX.Element {
-  const [channel, setChannel] = useState<UpdateChannel>(machine.updateChannel ?? 'stable')
+  // The PIN (null = follows the fleet default), not the resolved channel. POD-1882.
+  const [channel, setChannel] = useState<UpdateChannel | null>(machine.updateChannelOverride ?? null)
   const [targetVersion, setTargetVersion] = useState<string | null>(machine.targetVersion ?? null)
   const [unavailableReason, setUnavailableReason] = useState<string | null>(
     machine.targetUnavailableReason ?? null,
   )
+  const developing = useFeature('podium-development')
   const [changingChannel, setChangingChannel] = useState(false)
   const [applying, setApplying] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
@@ -1434,10 +1440,10 @@ function MachineUpdateControls({
   const watching = useRef(false)
 
   useEffect(() => {
-    setChannel(machine.updateChannel ?? 'stable')
+    setChannel(machine.updateChannelOverride ?? null)
     setTargetVersion(machine.targetVersion ?? null)
     setUnavailableReason(machine.targetUnavailableReason ?? null)
-  }, [machine.updateChannel, machine.targetVersion, machine.targetUnavailableReason])
+  }, [machine.updateChannelOverride, machine.targetVersion, machine.targetUnavailableReason])
 
   // Report the transition OUT of an in-flight state once, whoever started it.
   useEffect(() => {
@@ -1464,13 +1470,13 @@ function MachineUpdateControls({
   const adoptMachine = (machines: readonly MachineWire[]): boolean => {
     const updated = machines.find((candidate) => candidate.id === machine.id)
     if (!updated) return false
-    setChannel(updated.updateChannel ?? 'stable')
+    setChannel(updated.updateChannelOverride ?? null)
     setTargetVersion(updated.targetVersion ?? null)
     setUnavailableReason(updated.targetUnavailableReason ?? null)
     return true
   }
 
-  const chooseChannel = async (nextChannel: UpdateChannel): Promise<void> => {
+  const chooseChannel = async (nextChannel: UpdateChannel | null): Promise<void> => {
     if (nextChannel === channel || changingChannel || busy) return
     setChangingChannel(true)
     setUpdateError(null)
@@ -1529,24 +1535,43 @@ function MachineUpdateControls({
       data-machine-update-controls={machine.id}
     >
       <span className="settings-micro flex-none uppercase tracking-wide">Update source</span>
-      <Select
-        value={channel}
-        disabled={changingChannel || busy}
-        onValueChange={(value) => void chooseChannel(value as UpdateChannel)}
-      >
-        <SelectTrigger
-          size="sm"
-          className="w-[132px] flex-none"
-          aria-label={`Update channel for ${machine.name}`}
+      {/* POD-1882: choosing a SOURCE PER MACHINE is a Podium-development affordance,
+          so the control hides with the flag. What the machine is actually on stays
+          readable either way — the Target chip below never hides, and Settings →
+          Updates discloses every machine that is pinned away from the fleet default,
+          so an override can never become invisible by turning the flag off. */}
+      {developing ? (
+        <Select
+          value={channel ?? FLEET_DEFAULT_VALUE}
+          disabled={changingChannel || busy}
+          onValueChange={(value) =>
+            void chooseChannel(value === FLEET_DEFAULT_VALUE ? null : (value as UpdateChannel))
+          }
         >
-          <SelectValue>{UPDATE_CHANNEL_LABELS[channel]}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="dev">Development</SelectItem>
-          <SelectItem value="edge">Edge</SelectItem>
-          <SelectItem value="stable">Stable</SelectItem>
-        </SelectContent>
-      </Select>
+          <SelectTrigger
+            size="sm"
+            className="w-[152px] flex-none"
+            aria-label={`Update channel for ${machine.name}`}
+          >
+            <SelectValue>
+              {channel === null ? 'Fleet default' : UPDATE_CHANNEL_LABELS[channel]}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {/* First, and the only one that is not a pin: it hands the machine back. */}
+            <SelectItem value={FLEET_DEFAULT_VALUE}>Fleet default</SelectItem>
+            <SelectItem value="dev">Development</SelectItem>
+            <SelectItem value="edge">Edge</SelectItem>
+            <SelectItem value="stable">Stable</SelectItem>
+          </SelectContent>
+        </Select>
+      ) : (
+        <span className="flex-none settings-micro" data-machine-update-source={machine.id}>
+          {channel === null
+            ? 'Fleet default'
+            : `${UPDATE_CHANNEL_LABELS[channel]} (pinned for this machine)`}
+        </span>
+      )}
 
       <span
         className={cn(

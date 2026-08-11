@@ -61,6 +61,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260807080429_index-podium-events-subject", sql: "CREATE INDEX `idx_podium_events_subject` ON `podium_events` (`subject`);\n" },
   { name: "20260808223937_queued-lock-lease-metadata", sql: "ALTER TABLE `lock_waiters` ADD `ttl_seconds` integer DEFAULT 120 NOT NULL;--> statement-breakpoint\nALTER TABLE `lock_waiters` ADD `note` text;" },
   { name: "20260810171203_machine-update-channel", sql: "ALTER TABLE `machines` ADD `update_channel` text DEFAULT 'stable' NOT NULL;" },
+  { name: "20260811115738_machine-update-channel-override", sql: "ALTER TABLE `machines` ADD `update_channel_override` text;\n--> statement-breakpoint\n-- POD-1882 backfill. EVERY existing value carries over verbatim, including\n-- 'stable'. A row's stored channel is the last authority decision this install\n-- has on record, and an upgrade is not entitled to reinterpret one of those\n-- values as \"never chosen\" — silently converting 'stable' into inherit would\n-- move machines onto a non-stable fleet default without anyone choosing it.\n-- Clearing a pin is therefore an explicit act in Settings → Machines (\"Fleet\n-- default\"), never something the migration does on the operator's behalf.\nUPDATE `machines` SET `update_channel_override` = `update_channel`;\n" },
 ]
 
 /**

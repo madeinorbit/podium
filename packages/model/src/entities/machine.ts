@@ -272,8 +272,17 @@ export const MachineWire = z.object({
     .optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
-  /** Durable update authority selected for this managed machine. */
+  /**
+   * The channel this machine will actually update from — its own pin when it has
+   * one, otherwise the instance's fleet default. Read this to say what a machine
+   * DOES; read `updateChannelOverride` to say what an operator CHOSE (POD-1882).
+   */
   updateChannel: UpdateChannel.optional(),
+  /**
+   * The operator's per-machine pin, or `null` for "follows the fleet default".
+   * Null is meaningful, so this is nullable rather than merely absent.
+   */
+  updateChannelOverride: UpdateChannel.nullable().optional(),
   /** Peer-asserted build label; absent/null until the daemon reports one. */
   appVersion: z.string().nullable().optional(),
   /** Peer-asserted protocol schema digest; informational only. */

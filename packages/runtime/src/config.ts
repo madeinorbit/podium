@@ -128,8 +128,14 @@ export const PodiumConfig = z.object({
     .optional(),
   /** Base URL of the self-update feed (`podium update`). Env PODIUM_UPDATE_FEED wins. */
   updateFeed: z.string().optional(),
-  /** Self-update channel for the headless build (desktop is always stable). Default 'stable'. */
-  updateChannel: z.enum(['stable', 'edge']).optional(),
+  /**
+   * The FLEET DEFAULT update channel (desktop is always stable). Default 'stable'.
+   * It governs this instance's own self-update AND every joined machine that has
+   * not pinned an override of its own (POD-1882). `dev` is a Podium-development
+   * channel: reachable only while Settings → Experimental has "Podium development"
+   * on, but honoured here whatever the UI is currently showing.
+   */
+  updateChannel: z.enum(['stable', 'edge', 'dev']).optional(),
   /** Externally-reachable base URL captured at setup; embedded into machine join tokens. */
   publicUrl: z.string().optional(),
   /**
@@ -540,12 +546,21 @@ export function resolveAgentHomeDir(
   )
 }
 
-/** Self-update channel: PODIUM_UPDATE_CHANNEL → config.updateChannel → 'stable'. */
+/**
+ * The channels an INSTANCE can default its fleet to. Deliberately the same three
+ * values as `UpdateChannel` in @podium/model, which is what a single machine may
+ * pin — a fleet default and a per-machine override answer the same question at
+ * two scopes, so they must range over the same answers (POD-1882). Restated here
+ * rather than imported because @podium/runtime is the lower layer.
+ */
+export type FleetUpdateChannel = 'stable' | 'edge' | 'dev'
+
+/** Fleet default update channel: PODIUM_UPDATE_CHANNEL → config.updateChannel → 'stable'. */
 export function resolveUpdateChannel(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
-): 'stable' | 'edge' {
-  return (env.PODIUM_UPDATE_CHANNEL ?? config.updateChannel ?? 'stable') as 'stable' | 'edge'
+): FleetUpdateChannel {
+  return (env.PODIUM_UPDATE_CHANNEL ?? config.updateChannel ?? 'stable') as FleetUpdateChannel
 }
 
 /**

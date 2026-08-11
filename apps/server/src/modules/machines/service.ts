@@ -127,6 +127,13 @@ export interface MachinesDeps {
   targetVersion?: (machineId: string) => string | undefined
   /** Actionable reason the selected authority has no trusted target. */
   targetUnavailableReason?: (machineId: string) => string | undefined
+  /**
+   * The instance's fleet default update channel — what a machine with no pin of
+   * its own follows (POD-1882). Injected rather than read from config here so the
+   * service stays free of config I/O and a fixture can state a fleet default.
+   * Absent behaves as 'stable', the same floor config resolution uses.
+   */
+  fleetUpdateChannel?: () => UpdateChannel
   store: SessionStore
   /**
    * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
@@ -558,9 +565,23 @@ export class MachinesService {
    * reads the field and already denies FIRST when it says `'denied'`, so
    * supplying it here is what turns the whole placement surface on.
    */
-  /** Raw persisted update authority, kept separate from the wire projection. */
+  /**
+   * The fleet default every unpinned machine follows (POD-1882). Injected so this
+   * service never reads config directly and tests can state a fleet default.
+   */
+  private fleetChannel(): UpdateChannel {
+    return this.deps.fleetUpdateChannel?.() ?? 'stable'
+  }
+
+  /**
+   * The channel a machine WILL update from: its own pin, or the fleet default.
+   * This is the answer every update path wants — nothing downstream should have
+   * to remember that a missing pin means "ask the instance".
+   */
   updateChannel(machineId: string): UpdateChannel | undefined {
-    return this.machineRecords().find((machine) => machine.id === machineId)?.updateChannel
+    const machine = this.machineRecords().find((candidate) => candidate.id === machineId)
+    if (!machine) return undefined
+    return machine.updateChannelOverride ?? this.fleetChannel()
   }
 
   listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): MachineListing[] {
@@ -583,7 +604,8 @@ export class MachinesService {
         hostname: m.hostname,
         online: this.daemons.has(m.id),
         lastSeenAt: m.lastSeenAt,
-        updateChannel: m.updateChannel,
+        updateChannel: m.updateChannelOverride ?? this.fleetChannel(),
+        updateChannelOverride: m.updateChannelOverride,
         targetVersion: target ?? null,
         targetUnavailableReason: targetUnavailableReason ?? null,
         appVersion: m.appVersion,
@@ -669,8 +691,20 @@ export class MachinesService {
     this.broadcastMachines()
   }
 
-  /** Persist the selected source independently for every Podium-managed machine. */
-  setUpdateChannel(id: string, channel: UpdateChannel): void {
+  /**
+   * The fleet default moved (POD-1882). Every machine with no pin of its own now
+   * resolves to a different channel and, usually, a different target, so the
+   * cached projection is wrong for all of them at once — invalidate and push,
+   * exactly as a per-machine change does for one.
+   */
+  refreshFleetChannel(): void {
+    this.invalidateMachineCache()
+    this.broadcastMachines()
+  }
+
+  /** Persist the selected source independently for every Podium-managed machine.
+   *  `null` removes the pin and hands the machine back to the fleet default. */
+  setUpdateChannel(id: string, channel: UpdateChannel | null): void {
     const machine = this.deps.store.machines.getMachine(id)
     if (!machine) throw new Error(`unknown machine '${id}'`)
     if (!machine.podiumManaged) {

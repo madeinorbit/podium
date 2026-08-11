@@ -75,10 +75,12 @@ export const machineRenameHandler = ({ ctx, input }: FleetArgs<{ id: string; nam
 export const machineSetUpdateChannelHandler = async ({
   ctx,
   input,
-}: FleetArgs<{ id: string; channel: UpdateChannel }>) => {
+}: FleetArgs<{ id: string; channel: UpdateChannel | null }>) => {
   const modules = mods(ctx)
   modules.machines.setUpdateChannel(input.id, input.channel)
-  await modules.updates.refreshTarget(input.channel)
+  // Refresh the channel the machine ACTUALLY lands on, which after a `null` clear
+  // is the fleet default rather than anything in the input (POD-1882).
+  await modules.updates.refreshTarget(modules.machines.updateChannel(input.id) ?? 'stable')
   return modules.machines.listMachines()
 }
 

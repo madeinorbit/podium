@@ -10,6 +10,7 @@ import type {
   VisibilityResolver,
 } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, wireSchemaDigest } from '@podium/protocol'
+import { resolveUpdateChannel } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import { prepareSourceDaemonCutover } from '@podium/runtime/transfer-lifecycle'
@@ -356,6 +357,10 @@ export class SessionRegistry {
       targetVersion: (machineId) =>
         updates ? updates.targetVersion(machineId) : options.targetVersion?.(),
       targetUnavailableReason: (machineId) => updates?.targetUnavailableReasonFor(machineId),
+      // POD-1882: read per call, not captured — Settings → Updates writes the fleet
+      // default into config.json, and an unpinned machine must follow the CURRENT
+      // value rather than whatever it was when this server booted.
+      fleetUpdateChannel: () => resolveUpdateChannel(),
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
@@ -385,6 +390,8 @@ export class SessionRegistry {
       machines: () =>
         machines.listMachines().map((machine) => ({
           id: machine.id,
+          // Already the RESOLVED channel (pin, else fleet default) — see
+          // MachinesService.listMachines.
           channel: machine.updateChannel ?? 'stable',
           version: machine.appVersion ?? 'unreported',
           state: 'current',

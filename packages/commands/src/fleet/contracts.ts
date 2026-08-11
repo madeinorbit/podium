@@ -165,7 +165,8 @@ export const machineRenameInput = z.object({
 
 export const machineSetUpdateChannelInput = z.object({
   id: z.string(),
-  channel: UpdateChannel,
+  /** `null` clears the per-machine pin: the machine returns to the fleet default (POD-1882). */
+  channel: UpdateChannel.nullable(),
 })
 
 export const machineApplyUpdateInput = z.object({ id: z.string() })
@@ -430,7 +431,9 @@ export const machineSetUpdateChannelContract = {
     rationale:
       'The selected authority controls which signed target may be granted to this machine. The ' +
       'machine owner or an administrator with manage authority may change it; the daemon cannot ' +
-      'choose its own source and changing the value runs no arbitrary machine command.',
+      'choose its own source and changing the value runs no arbitrary machine command. Clearing ' +
+      'it (null) is the same authority decision in the other direction: the machine goes back to ' +
+      'following the instance-wide fleet default.',
   },
   exposure: SERVED_ON,
   delivery: FLEET_DELIVERY,

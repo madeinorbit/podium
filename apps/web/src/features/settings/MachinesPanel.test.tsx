@@ -30,10 +30,15 @@ import {
   type ServerTransferStatusSnapshot,
 } from './MachinesPanel'
 
+/** Settings → Experimental "Podium development" (POD-1882). */
+let developing = false
+vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   storeState.machines = []
+  developing = false
   ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = undefined
   ;(window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__ = undefined
 })
@@ -803,5 +808,65 @@ describe('MachinesPanel update action', () => {
 
     const after = applyButton()
     expect([...(after.parentElement?.children ?? [])].indexOf(after)).toBe(siblingsBefore)
+  })
+})
+
+/**
+ * POD-1882. Choosing a source PER MACHINE is a Podium-development affordance; the
+ * pin itself is durable and stays disclosed when the control is gone.
+ */
+describe('MachinesPanel per-machine update source', () => {
+  function setTrpc() {
+    storeState.trpc = {
+      setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion: '0.5.0' }) } },
+      machines: { setUpdateChannel: { mutate: vi.fn().mockResolvedValue([]) } },
+    } as unknown as Store['trpc']
+  }
+
+  it('hides the selector without the flag but still states where the machine is', async () => {
+    storeState.machines = [
+      machine({ updateChannel: 'dev', updateChannelOverride: 'dev', targetVersion: '0.6.0' }),
+    ]
+    setTrpc()
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText(/Development \(pinned for this machine\)/)).toBeTruthy()
+    expect(screen.queryByLabelText('Update channel for mac')).toBeNull()
+  })
+
+  it('reads an unpinned machine as following the fleet default', async () => {
+    storeState.machines = [
+      machine({ updateChannel: 'stable', updateChannelOverride: null, targetVersion: '0.6.0' }),
+    ]
+    setTrpc()
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('Fleet default')).toBeTruthy()
+  })
+
+  it('shows the selector with the flag on', async () => {
+    developing = true
+    storeState.machines = [
+      machine({ updateChannel: 'edge', updateChannelOverride: 'edge', targetVersion: '0.6.0' }),
+    ]
+    setTrpc()
+    render(<MachinesPanel />)
+
+    const trigger = await screen.findByLabelText('Update channel for mac')
+    expect(trigger.textContent).toContain('Edge')
+  })
+
+  it('offers Fleet default first, so a pin can always be cleared', async () => {
+    developing = true
+    storeState.machines = [
+      machine({ updateChannel: 'dev', updateChannelOverride: 'dev', targetVersion: '0.6.0' }),
+    ]
+    setTrpc()
+    render(<MachinesPanel />)
+
+    fireEvent.click(await screen.findByLabelText('Update channel for mac'))
+    const options = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    // First on purpose: it is the only choice that is not a pin (POD-1882).
+    expect(options).toEqual(['Fleet default', 'Development', 'Edge', 'Stable'])
   })
 })

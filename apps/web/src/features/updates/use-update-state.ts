@@ -145,7 +145,12 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     if (!check) return
 
     let cancelled = false
-    const channel = trpc.setup.channel.query().catch(() => 'stable' as const)
+    // setup.channel now answers with the EFFECTIVE fleet default plus whether the
+    // environment forced it (POD-1882); the desktop check only wants the channel.
+    const channel = trpc.setup.channel
+      .query()
+      .then((c) => c.channel)
+      .catch(() => 'stable' as const)
     void channel
       .then((selected) => check(selected))
       .then((next) => {

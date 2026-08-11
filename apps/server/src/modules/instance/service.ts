@@ -20,7 +20,12 @@
  */
 
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
-import { loadConfig, saveConfig } from '@podium/runtime/config'
+import {
+  type FleetUpdateChannel,
+  loadConfig,
+  resolveUpdateChannel,
+  saveConfig,
+} from '@podium/runtime/config'
 import {
   applyJoin,
   applyMode,
@@ -58,6 +63,18 @@ export interface InstanceDeps {
   readonly callerUserId?: string | undefined
   /** `credentialsRequired()` from the composition root — see AuthRouteOptions.loginRequired. */
   readonly loginRequired?: (() => boolean) | undefined
+  /**
+   * Called after the fleet default channel is written (POD-1882). Machines with
+   * no pin of their own resolve against that value, so their projected channel
+   * and target go stale the instant it changes; the composition root uses this
+   * to re-resolve targets and re-broadcast, rather than leaving the UI on the
+   * previous answer until some unrelated broadcast happens along.
+   *
+   * ASYNC AND AWAITED, not fire-and-forget: the new channel's target has to be
+   * loaded BEFORE the projection goes out, or clients get the new channel beside
+   * the old channel's target chip and no second broadcast ever corrects it.
+   */
+  readonly onFleetChannelChanged?: ((channel: FleetUpdateChannel) => Promise<void>) | undefined
 }
 
 /** The slice of `UsersRepository` the auth commands need. */
@@ -97,8 +114,17 @@ export class InstanceService {
     return networkOptionCommand(option, port)
   }
 
+  /**
+   * The EFFECTIVE fleet default, not merely what config.json says. POD-1882:
+   * `PODIUM_UPDATE_CHANNEL` wins over config in `resolveUpdateChannel`, which is
+   * what MachinesService resolves machines against — so reporting the config
+   * value here would let Settings → Updates display, and accept a write of, a
+   * channel the fleet is not actually on. `envForced` is what lets the UI say so
+   * instead of offering a mutation that cannot take effect.
+   */
   channel() {
-    return getUpdateChannel()
+    const envForced = Boolean(process.env.PODIUM_UPDATE_CHANNEL)
+    return { channel: resolveUpdateChannel(), envForced, configured: getUpdateChannel() }
   }
 
   /**
@@ -162,8 +188,25 @@ export class InstanceService {
     }
   }
 
-  setChannel(channel: 'stable' | 'edge') {
-    return setUpdateChannel(channel)
+  async setChannel(channel: FleetUpdateChannel) {
+    if (process.env.PODIUM_UPDATE_CHANNEL) {
+      // Refusing beats writing a value the environment overrides: a silent
+      // no-op would read as success in the UI and leave the fleet elsewhere.
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message:
+          'PODIUM_UPDATE_CHANNEL is set in this deployment\'s environment and overrides the ' +
+          'configured channel. Unset it to choose the fleet default from Settings.',
+      })
+    }
+    setUpdateChannel(channel)
+    // A machine with no pin of its own resolves against this value, so its
+    // projected channel and target are stale the moment it changes. AWAIT the
+    // re-resolve so the mutation only answers once the fleet's new target is
+    // loaded and broadcast — the caller's returned channel and the clients'
+    // projection then describe the same moment (POD-1882).
+    await this.deps.onFleetChannelChanged?.(channel)
+    return this.channel()
   }
 
   // ---- auth ----

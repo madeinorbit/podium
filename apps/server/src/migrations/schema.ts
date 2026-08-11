@@ -527,8 +527,20 @@ export const machines = sqliteTable('machines', {
   )
     .default(1)
     .notNull(),
-  /** Durable authority choice for this machine's next target. */
+  /**
+   * SUPERSEDED by `update_channel_override` (POD-1882) and no longer read.
+   * Kept because migrations here are expand-only; nothing writes it any more.
+   */
   updateChannel: text('update_channel').default('stable').notNull(),
+  /**
+   * Durable authority choice for this machine's next target. NULLABLE and null is
+   * MEANINGFUL (POD-1882): null = this machine follows the FLEET DEFAULT channel
+   * (config.updateChannel), which is what Settings → Updates sets. A value here is
+   * an operator's explicit per-machine pin, made in Settings → Machines, and it
+   * survives the Podium-development flag being switched back off — the selector
+   * hides, the pin does not move.
+   */
+  updateChannelOverride: text('update_channel_override'),
   // MACHINE OWNERSHIP (POD-1079, ADR 9 D6 M1/M3). The person a paired machine
   // belongs to. NULLABLE and null is MEANINGFUL: `machineUseAllowed` refuses
   // `use` on an owner-less machine to EVERYONE, which is the default-closed

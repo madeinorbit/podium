@@ -243,7 +243,12 @@ export interface MachineRecord {
    * "unowned", and the two must not look alike at the type level.
    */
   ownerUserId: string | null
-  updateChannel: UpdateChannel
+  /**
+   * PER-MACHINE PIN, or `null` for "follow the fleet default" (POD-1882).
+   * PRESENT-AND-NULL rather than optional, for the same reason as `ownerUserId`
+   * above: absent must not be able to masquerade as answered.
+   */
+  updateChannelOverride: UpdateChannel | null
   appVersion: string | null
   wireSchemaDigest: string | null
   installKind: string | null
