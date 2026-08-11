@@ -17,8 +17,9 @@
  * all. Every function here then no-ops, which is why `/version` can call
  * `requestBuild` unconditionally without an installed server ever doing work.
  */
-import type { Hono } from 'hono'
+
 import type { UpdateTarget } from '@podium/protocol'
+import type { Hono } from 'hono'
 import { registerDevArtifactRoute } from './artifact-route'
 import { createDevBundlePublisher, developmentHeadSha } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'

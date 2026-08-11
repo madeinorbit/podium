@@ -415,8 +415,7 @@ export async function startServer(
         .some((machine) => machine.id !== hostMachineId && machine.podiumManaged),
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
-    setTargetUnavailable: (reason) =>
-      registry.modules.updates.setTargetUnavailable('dev', reason),
+    setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),
     signingKey: updateSigningKey.privateKey,
     locks: registry.modules.locks,
   })

@@ -160,6 +160,22 @@ describe('setTargetUnavailable', () => {
     )
   })
 
+  it('ends an in-flight rollout observably instead of stranding it', () => {
+    const machines = [m('a', { channel: 'dev' })]
+    const { svc } = make(machines)
+    svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
+    svc.authorize('dev')
+    expect(svc.fleet().find((machine) => machine.id === 'a')?.state).toBe('granted')
+
+    svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
+
+    // Without this the row keeps saying "granted" forever: the pending record
+    // is gone, so nothing can ever age it and no status report is accepted.
+    const row = svc.fleet().find((machine) => machine.id === 'a')
+    expect(row?.state).toBe('stuck')
+    expect(row?.detail).toBe('The source checkout has 2 uncommitted changes.')
+  })
+
   it('is cleared by the next successful publication', () => {
     const { svc } = make([m('a', { channel: 'dev' })])
     svc.setTargetUnavailable('dev', 'Building the development bundle for dev+bbbbbbb.')

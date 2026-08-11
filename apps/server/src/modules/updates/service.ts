@@ -100,6 +100,18 @@ export class UpdatesService {
     for (const [machineId, pending] of this.pendingGrants) {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
     }
+    // Dropping the pending record alone would strand any machine mid-grant:
+    // `onStatus` ignores reports once the target is gone, nothing ages a grant
+    // that no longer exists, and the row would sit in granted/downloading
+    // forever. End those rows observably instead, carrying the same reason the
+    // read model shows, so the fleet says "this stopped, and here is why".
+    for (const [machineId, state] of this.machineStates) {
+      if (state.channel !== channel) continue
+      if (state.state === 'current' || state.state === 'rejected' || state.state === 'stuck') {
+        continue
+      }
+      this.machineStates.set(machineId, { ...state, state: 'stuck', detail: reason })
+    }
   }
 
   setTarget(channel: UpdateChannel, target: UpdateTarget): void

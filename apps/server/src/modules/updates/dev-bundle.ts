@@ -70,13 +70,16 @@ export function decideDevBuild(ctx: DevBuildDecisionContext): BuildDecision {
  * So the check is fail-closed and runs before restore, before build, before
  * publication. Anything git reports as a difference from HEAD blocks it.
  *
- * WHAT IS ALLOWED. Ignored paths never appear in `git status --porcelain`, so
- * everything .gitignore covers — `node_modules/`, `dist-bun/`, the local
- * signing key — is allowed by construction and needs no list. The explicit
- * prefixes below are the build's own outputs, allowed even if they stop being
- * ignored, because the build writes them itself and they are not compiled in.
- * Untracked source files ARE a difference: `bun build` follows imports, so a
- * new untracked module can end up in the bytes.
+ * WHAT IS ALLOWED, and why "ignored" is not the same as "safe". Ignored paths
+ * never appear in `git status --porcelain`, so the first query passes over
+ * `node_modules/`, output trees and the local signing key for free. That is a
+ * cost argument, not a correctness one: an ignored `.ts` under a source tree is
+ * still importable and would still be compiled in. A second, bounded query
+ * (see `classifyIgnoredSourceInputs`) catches exactly that case, and the
+ * allowlist below stays an explicit list of known non-source outputs rather
+ * than a blanket "anything .gitignore covers". Untracked source files are a
+ * difference too: `bun build` follows imports, so a new untracked module can
+ * end up in the bytes.
  */
 export const DEV_BUNDLE_ALLOWED_DIRTY_PREFIXES = ['dist-bun/'] as const
 
@@ -121,6 +124,97 @@ export function classifySourceIdentity(
     }
   }
   return { clean: offending.length === 0, offending }
+}
+
+/**
+ * THE SECOND QUERY: ignored files that are still source.
+ *
+ * `git status` never reports ignored paths, which is what makes the porcelain
+ * check cheap — but "ignored" and "not compiled in" are different claims. An
+ * ignored `.ts` under `apps/`, `packages/`, `scripts/` or `tooling/` can be
+ * imported like any other module and land in the bundle, so treating every
+ * ignored path as safe would leave dev+<sha> able to lie by exactly the route
+ * the first check closes.
+ *
+ * Bounded on purpose: only the repository's own source trees, only extensions a
+ * bundler will resolve, and never the output directories that make up the bulk
+ * of what is ignored. Enumerating `node_modules` here would cost more than the
+ * build.
+ */
+export const DEV_BUNDLE_SOURCE_TREES = ['apps', 'packages', 'scripts', 'tooling'] as const
+
+/** Output and dependency trees, excluded from the ignored-source enumeration. */
+export const DEV_BUNDLE_NON_SOURCE_TREES = [
+  'node_modules',
+  'dist',
+  'dist-bun',
+  'build',
+  'coverage',
+  'target',
+  '.turbo',
+  '.next',
+] as const
+
+/** Extensions a bundler resolves from an import specifier. */
+export const DEV_BUNDLE_SOURCE_EXTENSIONS = [
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.cts',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.json',
+  '.node',
+  '.wasm',
+] as const
+
+/**
+ * Pure classification of `git ls-files -z` output listing ignored files.
+ */
+export function classifyIgnoredSourceInputs(
+  listing: string,
+  allowedPrefixes: readonly string[] = DEV_BUNDLE_ALLOWED_DIRTY_PREFIXES,
+): string[] {
+  const offending: string[] = []
+  for (const path of listing.split('\0')) {
+    if (path === '') continue
+    if (allowedPrefixes.some((prefix) => path === prefix || path.startsWith(prefix))) continue
+    const segments = path.split('/')
+    if (
+      segments.some((segment) =>
+        (DEV_BUNDLE_NON_SOURCE_TREES as readonly string[]).includes(segment),
+      )
+    ) {
+      continue
+    }
+    const dot = path.lastIndexOf('.')
+    const extension = dot === -1 ? '' : path.slice(dot)
+    if (!(DEV_BUNDLE_SOURCE_EXTENSIONS as readonly string[]).includes(extension)) continue
+    if (!offending.includes(path)) offending.push(path)
+  }
+  return offending
+}
+
+function defaultReadIgnoredSourceInputs(root: string): string {
+  const excludes = DEV_BUNDLE_NON_SOURCE_TREES.map((tree) => `:(exclude)**/${tree}/**`)
+  return String(
+    execFileSync(
+      'git',
+      [
+        'ls-files',
+        '-z',
+        '--others',
+        '--ignored',
+        '--exclude-standard',
+        '--',
+        ...DEV_BUNDLE_SOURCE_TREES,
+        ...excludes,
+      ],
+      { cwd: root, encoding: 'utf8' },
+    ),
+  )
 }
 
 function defaultReadSourceStatus(root: string): string {
@@ -180,6 +274,7 @@ export function assertSourceMatchesHead(
   root: string,
   sha: string,
   readSourceStatus: (root: string) => string = defaultReadSourceStatus,
+  readIgnoredSourceInputs: (root: string) => string = defaultReadIgnoredSourceInputs,
 ): void {
   let porcelain: string
   try {
@@ -200,6 +295,33 @@ export function assertSourceMatchesHead(
       sourceIdentityDiagnostic(sha, status.offending),
       `The source checkout has ${count} uncommitted ${count === 1 ? 'change' : 'changes'} and no ` +
         `longer matches HEAD (${sha}). Commit or stash them to publish dev+${sha}.`,
+    )
+  }
+
+  let ignoredListing: string
+  try {
+    ignoredListing = readIgnoredSourceInputs(root)
+  } catch (error) {
+    throw new DevBundleUnavailableError(
+      'development bundle unavailable: could not enumerate ignored source inputs for HEAD (' +
+        sha +
+        '): ' +
+        (error instanceof Error ? error.message : String(error)),
+      `The source checkout could not be verified against HEAD (${sha}).`,
+    )
+  }
+  const ignoredSource = classifyIgnoredSourceInputs(ignoredListing)
+  if (ignoredSource.length > 0) {
+    const shown = ignoredSource.slice(0, 5)
+    const more = ignoredSource.length - shown.length
+    throw new DevBundleUnavailableError(
+      'development bundle unavailable: ignored source files under the build trees can still be ' +
+        `imported into a dev+${sha} bundle. Remove them or stop ignoring them: ` +
+        shown.join(', ') +
+        (more > 0 ? ` (+${more} more)` : ''),
+      `The source checkout has ${ignoredSource.length} ignored source ` +
+        `${ignoredSource.length === 1 ? 'file' : 'files'} that could be compiled into ` +
+        `dev+${sha} without being part of HEAD (${sha}).`,
     )
   }
 }
@@ -481,8 +603,10 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
   debounceMs?: number
   artifactUrl?: string | ((version: string) => string)
   platform?: string
-  /** Seam for tests; defaults to `git status --porcelain` in `root`. */
+  /** Seam for tests; defaults to `git status --porcelain -z` in `root`. */
   readSourceStatus?: (root: string) => string
+  /** Seam for tests; defaults to `git ls-files --others --ignored` in `root`. */
+  readIgnoredSourceInputs?: (root: string) => string
 }
 
 /**
@@ -557,7 +681,12 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         // Fail closed BEFORE restoring or compiling: a dirty checkout cannot
         // produce a dev+<sha> build of that commit, and an artifact left in
         // dist-bun must not be restored under a tree that has since diverged.
-        assertSourceMatchesHead(deps.root ?? SOURCE_ROOT, headSha, deps.readSourceStatus)
+        assertSourceMatchesHead(
+          deps.root ?? SOURCE_ROOT,
+          headSha,
+          deps.readSourceStatus,
+          deps.readIgnoredSourceInputs,
+        )
         // A restart loses only the in-memory descriptor, not the signed bytes.
         // Restore an exact-HEAD artifact first; compile only when it is absent
         // or no longer verifies under this server's persisted update key.

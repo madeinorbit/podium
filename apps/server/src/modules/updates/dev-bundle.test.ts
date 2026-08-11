@@ -2,6 +2,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
   buildDevBundle,
+  classifyIgnoredSourceInputs,
   classifySourceIdentity,
   createDevBundlePublisher,
   type DevBundleLock,
@@ -163,6 +164,45 @@ describe('classifySourceIdentity', () => {
   })
 })
 
+describe('classifyIgnoredSourceInputs', () => {
+  it('catches an ignored module that a bundler would still resolve', () => {
+    // The whole point: git status never mentions this file, but an import of
+    // `./local-override` compiles it straight into the bundle.
+    expect(
+      classifyIgnoredSourceInputs(nul('apps/server/src/local-override.ts')),
+    ).toEqual(['apps/server/src/local-override.ts'])
+  })
+
+  it('ignores non-source evidence living in the same trees', () => {
+    expect(
+      classifyIgnoredSourceInputs(
+        nul('apps/web/screenshot.png', 'packages/harness/notes.md', 'scripts/.podium-update-dev.key'),
+      ),
+    ).toEqual([])
+  })
+
+  it('does not enumerate dependency or output trees as source', () => {
+    expect(
+      classifyIgnoredSourceInputs(
+        nul(
+          'apps/server/node_modules/left-pad/index.js',
+          'packages/model/dist/index.js',
+          'dist-bun/podium-headless-dev+aaaaaaa.tar.gz',
+          'apps/web/.turbo/log.json',
+        ),
+      ),
+    ).toEqual([])
+  })
+
+  it('catches every resolvable extension, once each', () => {
+    expect(
+      classifyIgnoredSourceInputs(
+        nul('packages/pty/native.node', 'scripts/gen.mjs', 'tooling/data.json', 'scripts/gen.mjs'),
+      ),
+    ).toEqual(['packages/pty/native.node', 'scripts/gen.mjs', 'tooling/data.json'])
+  })
+})
+
 function signedFixture() {
   const bytes = new Uint8Array([1, 2, 3, 4])
   const { privateKey } = generateKeyPairSync('ed25519')
@@ -313,6 +353,7 @@ describe('buildDevBundle', () => {
     const publisher = createDevBundlePublisher({
       isSourceRun: true,
       readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
       root: '/repo/podium',
       headSha: () => 'aaaaaaa',
       signingKey,
@@ -348,6 +389,7 @@ describe('buildDevBundle', () => {
     const publisher = createDevBundlePublisher({
       isSourceRun: true,
       readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
       headSha: () => head,
       lock: lockFixture(events),
       now: () => 100_000,
@@ -379,6 +421,7 @@ describe('buildDevBundle', () => {
       headSha: () => 'aaaaaaa',
       signingKey,
       readSourceStatus: () => nul(' M apps/server/src/server.ts', '?? dist-bun/keep.tar.gz'),
+      readIgnoredSourceInputs: () => '',
       readFile: async () => {
         reads++
         return bytes
@@ -408,6 +451,7 @@ describe('buildDevBundle', () => {
       readSourceStatus: () => {
         throw new Error('not a git repository')
       },
+      readIgnoredSourceInputs: () => '',
       lock: lockFixture([]),
       spawnBuild: async () => {
         throw new Error('should not build')
@@ -426,6 +470,7 @@ describe('buildDevBundle', () => {
       isSourceRun: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => porcelain,
+      readIgnoredSourceInputs: () => '',
       lock: lockFixture([]),
       spawnBuild: async ({ version }) => ({ path: '/stage/' + version, bytes, signature }),
     })
@@ -449,6 +494,7 @@ describe('buildDevBundle', () => {
       isSourceRun: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
       lock: lockFixture([]),
       spawnBuild: async ({ version }) => {
         builds++
@@ -476,6 +522,7 @@ describe('development bundle readiness', () => {
       isSourceRun: true,
       headSha: () => head,
       readSourceStatus: options.porcelain ?? (() => ''),
+      readIgnoredSourceInputs: () => '',
       lock: lockFixture([]),
       now: () => 100_000,
       spawnBuild: async ({ version }) => {
@@ -578,6 +625,7 @@ describe('development bundle readiness', () => {
       isSourceRun: true,
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
       lock: lockFixture([]),
       spawnBuild: async ({ version }) => {
         await buildDone
@@ -590,5 +638,70 @@ describe('development bundle readiness', () => {
     resolveBuild()
     await built
     expect(publisher.readiness().state).toBe('ready')
+  })
+})
+
+describe('ignored source inputs gate the build', () => {
+  it('refuses a checkout whose ignored files include importable source', async () => {
+    const { bytes, signature } = signedFixture()
+    let builds = 0
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      headSha: () => 'aaaaaaa',
+      // Clean by git status — the first query sees nothing at all.
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => nul('apps/server/src/local-override.ts'),
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        builds++
+        return { bytes, signature }
+      },
+    })
+
+    await expect(publisher.requestBuild(true)).rejects.toThrow(
+      /ignored source files.*apps\/server\/src\/local-override\.ts/s,
+    )
+    expect(builds).toBe(0)
+    expect(publisher.readiness()).toMatchObject({
+      state: 'failed',
+      publicReason:
+        'The source checkout has 1 ignored source file that could be compiled into ' +
+        'dev+aaaaaaa without being part of HEAD (aaaaaaa).',
+    })
+  })
+
+  it('builds when the ignored files are only outputs and evidence', async () => {
+    const { bytes, signature } = signedFixture()
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      headSha: () => 'aaaaaaa',
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () =>
+        nul('apps/server/node_modules/left-pad/index.js', 'apps/web/shot.png'),
+      lock: lockFixture([]),
+      spawnBuild: async ({ version }) => ({ path: '/stage/' + version, bytes, signature }),
+    })
+
+    await publisher.requestBuild(true)
+    expect(publisher.readiness().state).toBe('ready')
+  })
+
+  it('refuses when the ignored-source query itself cannot be run', async () => {
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      headSha: () => 'aaaaaaa',
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => {
+        throw new Error('git exploded')
+      },
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        throw new Error('should not build')
+      },
+    })
+
+    await expect(publisher.requestBuild(true)).rejects.toThrow(
+      /could not enumerate ignored source inputs.*git exploded/s,
+    )
   })
 })
