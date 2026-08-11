@@ -55,6 +55,18 @@ Before you land:
 - If you added, moved, or deleted an `apps/server` test file, re-run
   `bun scripts/server-test-shards.ts --write`.
 
+## Waiting on the test lane
+
+`test:heavy` is a shared lease and has been contended throughout this epic.
+Two rules learned in chunk 1:
+
+- **Once the repo lane is queued, stop editing.** Every edit while queued
+  means the lane you are waiting on is measuring a tree you no longer intend
+  to land, and you have to kill and relaunch it. Finish the tree first, then
+  queue.
+- A queued lane is **not** a stuck lane. Never force it, never
+  `--uncached-because` your way past it without a concrete reason.
+
 ## After landing
 
 1. Set your issue to review: `podium issue update --id <id> --stage review`.
