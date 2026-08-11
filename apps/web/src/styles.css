@@ -243,7 +243,11 @@ body {
   padding: 0 11px;
   border-radius: 8px;
   background: transparent;
-  color: var(--text-dim);
+  /* An inactive mode is a DESTINATION, not metadata. --text-dim is the ink for
+     timestamps and sub-lines; at nav scale it read as disabled, which is what
+     made the bar look like it had one tab in it. --muted-foreground is the
+     secondary-content tier, and the closest token to the design's own value. */
+  color: var(--muted-foreground);
   font-size: 12.5px;
   font-weight: 500;
   white-space: nowrap;
@@ -265,6 +269,16 @@ body {
   background: var(--secondary);
   color: var(--text-strong);
   font-weight: 600;
+}
+/* THE ACTIVE PILL IS ITS OWN COLOUR, NOT A BRIGHTENED ONE (POD-725). The shared
+   pressable contract brightens anything carrying aria-current / aria-pressed by
+   8%, which is right for a glyph button and wrong for the one control whose
+   fill IS the design's specified tone: it lifted --secondary off #eceae4 toward
+   white, so the mode you are in read as an empty outline rather than a filled
+   pill. Hover and press feedback stay — they change the BACKGROUND here, which
+   is legible without touching the resting colour. */
+.topbar-mode {
+  filter: none;
 }
 /* The proposals count. Bare tabular digits in attention ink — the count IS
    asking something of you, so it keeps the yellow, but a filled pill is a
@@ -1398,11 +1412,11 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   gap: 10px;
   padding: 10px 0;
-  border-right: 1px solid var(--border);
   /* The column's own tone, not --card: collapsing changes the sidebar's width,
      not its material (POD-725, same rule the folded flight deck now follows).
      On paper --card is pure white, so the old value turned a collapsed sidebar
-     into the brightest column in the window. */
+     into the brightest column in the window. No seam, for the same reason the
+     dock and rail lost theirs — tone separates. */
   background: var(--sidebar);
 }
 .collapsed-sidebar-expand,
@@ -1425,13 +1439,18 @@ html[data-density="balanced"] .header-quota-pools {
    That is also where the tint the workspace pane used to carry has gone. A wash
    over the stage claimed the whole centre of the window for one issue; here the
    claim is true and the gradient is spent on a column narrow enough to make it. */
+/* NOT ENGRAVED ANY MORE, despite the name (POD-725). The column kept a groove
+   down both sides and a border on its right; the design has neither. Columns
+   are separated by TONE — work list, deck, gutter are three steps of stone —
+   and the only shadow left is the design's own `0 1px 2px`, which is not
+   elevation so much as a seam you can feel. The class name stays because it is
+   load-bearing across the shell; what it MEANS is now "the mission's column". */
 .engraved-column {
   display: flex;
   width: 100%;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--card)),
@@ -1439,7 +1458,7 @@ html[data-density="balanced"] .header-quota-pools {
   );
   box-shadow:
     inset 0 3px 0 var(--issue),
-    var(--shadow-engraved);
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
 /* The no-colour flow runs the same mechanics quieter (handoff 1b). */
 [data-issue-colored="false"] .engraved-column {
@@ -1450,7 +1469,7 @@ html[data-density="balanced"] .header-quota-pools {
   );
   box-shadow:
     inset 0 3px 0 color-mix(in srgb, var(--issue) 55%, transparent),
-    var(--shadow-engraved);
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
 /* Folding must not change the column's MATERIAL (POD-725) — only its width. The
    open deck is the card tone under an issue fade with a 3px issue inset; the
@@ -1473,7 +1492,7 @@ html[data-density="balanced"] .header-quota-pools {
   );
   box-shadow:
     inset 0 3px 0 var(--issue),
-    var(--shadow-engraved-bar);
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
 .folded-superagent-cell {
   position: relative;
@@ -1552,7 +1571,10 @@ html[data-density="balanced"] .header-quota-pools {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  border-left: 1px solid var(--border);
+  /* NO SEAM (POD-725). The design separates the right edge by TONE alone —
+     stage gutter, dock, rail are three steps of stone with nothing drawn
+     between them. A border plus a groove plus a tone step is three ways of
+     saying one thing, and on paper the drawn ones read as construction. */
   /* Flat, like .engraved-column's surface but without its groove: this column
      scrolls long content and a lip under a sticky header reads as grime. */
   background: var(--engraved);
@@ -1566,9 +1588,11 @@ html[data-density="balanced"] .header-quota-pools {
   min-height: 0;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 14px 0;
-  border-left: 1px solid var(--border);
+  /* The design's own spacing: 14px between cells, 16px off the top. The rail
+     holds six glyphs in a 1000px column — it can afford air, and at 6px they
+     read as one striped object rather than six destinations. */
+  gap: 14px;
+  padding: 16px 0;
   /* --rail, the tier that exists for exactly this and had never been spent.
      The rail is the furthest chrome from the work, so it takes the deepest step
      in whichever direction the theme's ramp runs: rail navy on the dark ground,
@@ -1576,7 +1600,6 @@ html[data-density="balanced"] .header-quota-pools {
      theme's frame was still the darkest thing in the window; now that the bar
      lifts, --bar would have made the rail brighter than the columns it edges. */
   background: var(--rail);
-  box-shadow: var(--shadow-engraved-bar);
   --issue-base: var(--rail);
 }
 .right-rail-cell {
@@ -1587,11 +1610,27 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: var(--radius-row);
+  border-radius: var(--radius);
   background: transparent;
   /* Neutral chrome ink: these cells are Superagent / Git / Files / Shell /
      Messages, none of which belong to the selected issue. */
-  color: var(--muted-foreground);
+  color: var(--text-dim);
+}
+/* THE OPEN PANEL'S CELL (POD-725). The design raises it out of the rail onto the
+   card with a small drop and a 1px issue ring, and puts the issue's own colour
+   in the glyph — the same "raised, ringed, and it is about THIS issue" recipe
+   the active workspace tab uses, so the two objects that say "you are here"
+   say it the same way.
+   It was `bg-secondary text-primary`: brand YELLOW on a light chip, which on
+   paper measured 1.6:1 and is the exact assignment DESIGN.md forbids. Yellow
+   fills; it never writes. */
+.right-rail-cell[aria-pressed="true"] {
+  background: var(--card);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 90%, transparent),
+    inset 0 0 0 1px
+      color-mix(in srgb, var(--issue) calc(35 * var(--issue-line-scale, 1%)), transparent);
+  color: var(--issue);
 }
 
 /* Scrollable region with no visible scrollbar (sidebar work list, transcripts). */
@@ -4189,9 +4228,13 @@ a.ref-link--session::before {
    agent state — a hibernated agent waiting on you still reads as needs-attention.
    Adjacent-sibling on the worker label covers every row type (sidebar, tab strip,
    mobile picker/menu) uniformly. */
+/* ITALIC MEANS ONE THING: "this tab is temporary" (POD-725). It used to mean
+   two — a preview tab, and any hibernated session — so a permanent tab on a
+   parked session read as temporary and the preview idiom stopped carrying
+   information. Hibernation keeps the dim and the parked dot, which is the pair
+   that already distinguished it before italic was borrowed. */
 .dot.parked + .worker-label .worker-name {
   opacity: 0.55;
-  font-style: italic;
 }
 
 /* Rendered markdown preview (.md panels) — a READING surface, not chrome, and the

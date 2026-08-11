@@ -20,7 +20,7 @@ import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
-import { agentBrandText, agentIconFor } from '@/lib/agent-tone'
+import { agentBrandText } from '@/lib/agent-tone'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { NewAgentMenu } from './NewAgentMenu'
@@ -226,11 +226,16 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
   const newAgentAnchorRef = useRef<HTMLDivElement | null>(null)
 
   return (
-    // The sidebar's section bar, on the shell's single horizontal datum
-    // (--section-bar-h, POD-365) so one seam runs across sidebar | tray | tab
-    // strip. pr-4 clears the absolutely-positioned collapse control on the
-    // sidebar's right edge (translateX(50%) into the content column).
-    <div className="flex h-(--section-bar-h) flex-none items-center gap-2 border-b border-hairline-soft pr-4 pl-3">
+    // The design's own block: 10px above the control, 8px below, 12px in from
+    // the column edge, and NO rule under it (POD-725). It used to sit on the
+    // shell's single horizontal datum (--section-bar-h) with a hairline, which
+    // was the right call while every column started at the same y — but the
+    // stage is a sheet inset 12px from the top now and the flight deck's own
+    // header is 32px, so there is no shared datum left to hold. What the seam
+    // was doing, the WORK label below it does better.
+    // pr-4 clears the absolutely-positioned collapse control on the sidebar's
+    // right edge (translateX(50%) into the content column).
+    <div className="flex flex-none items-center gap-2 pt-2.5 pr-4 pb-2 pl-3">
       <div
         ref={newAgentAnchorRef}
         data-testid="new-agent-button"
@@ -246,7 +251,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           // `--secondary` fill and body ink — on paper that is the rail tone, so
           // the control reads as a recess in the column rather than a card
           // floating on it, and `data-pressable` supplies the hover lift.
-          className="flex h-[30px] w-full min-w-0 items-center gap-2 rounded-lg bg-secondary px-[10px] pr-[32px] text-[12px] leading-[normal] font-medium text-foreground disabled:opacity-50"
+          className="flex h-[30px] w-full min-w-0 items-center gap-2 rounded-lg bg-secondary px-[10px] pr-[32px] text-[12px] leading-[normal] text-foreground disabled:opacity-50"
           disabled={!defaultRepo}
           title={
             defaultTarget
@@ -255,16 +260,19 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           }
           onClick={() => defaultRepo && void spawn(defaultAgent, defaultRepo)}
         >
-          {(() => {
-            const AgentIcon = agentIconFor(defaultAgent)
-            return AgentIcon ? (
-              <AgentIcon
-                size={14}
-                aria-hidden="true"
-                className={cn('flex-none', agentBrandText(defaultAgent))}
-              />
-            ) : null
-          })()}
+          {/* A 10px rounded square in the agent's brand colour, not the agent's
+              glyph (POD-725). At 14px the glyph competed with the ID squares
+              two rows below it — three drawn marks in the same 30px column, one
+              of which is not an issue. The design makes it a swatch: it names
+              WHICH agent by hue and nothing else, and the words beside it
+              already say the rest. */}
+          <span
+            aria-hidden="true"
+            className={cn(
+              'size-[10px] flex-none rounded-[3px] bg-current',
+              agentBrandText(defaultAgent),
+            )}
+          />
           <span className="min-w-0 truncate">
             New {panelLabel(defaultAgent)} in {defaultTarget?.repoName ?? '…'}
           </span>

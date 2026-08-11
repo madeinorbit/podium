@@ -38,11 +38,12 @@ function statusInk(phase: MotionPhase): string | undefined {
  * this column. It is a leaf now: everything a mission's subtree has to say is
  * summarised on the single line, and the tree itself lives in the Flight Deck.
  *
- * Queued rows dim whole (.65). The selected row is a BAND, not a card
+ * Every title carries full ink, whatever the row's state — state is said in the
+ * status word alone (see statusInk). The selected row is a BAND, not a card
  * (POD-725): full column bleed, no radius, lifted to the card tone with a
  * whisper of the issue over it, a 3px `--issue` spine on its left edge — which
  * continues across the top of the flight deck beside it — and the notch that
- * crosses the aside border toward the engraved column.
+ * crosses toward the mission's column.
  */
 export function WorkRowShell({
   square,
@@ -172,12 +173,14 @@ export function WorkRowShell({
             : 'border-hairline-soft',
           !active && !hex && 'hover:bg-muted',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
-          phase === 'queued' && !active && 'opacity-65',
-          // A finished row that still carries the tuck-away control stays at full
-          // strength (POD-293) so the control reads crisp — the grey "done" status
-          // already says it's finished; the dim only returns once it can't be
-          // dismissed here (e.g. an unread completion).
-          phase === 'done' && !active && !unread && !onTuck && 'opacity-70',
+          // STATE IS SAID IN THE STATUS LINE, NOT BY FADING THE ROW (POD-725).
+          // A queued or finished row used to drop to 65-70% opacity, which took
+          // the TITLE down with it — and the title is the one thing in the row
+          // that is never about state. The design keeps every title at full ink
+          // and lets the phase word carry the whole difference: `idle` faint,
+          // `done · 42:28 total` secondary, `working` in the live blue,
+          // `needs review` in ochre at 600. Scanning a column of thirty rows for
+          // a name got measurably harder when half of them were half-erased.
           morph === 'waiting' && 'morph-row-flash',
           // Subordinate, by ink alone. The 2% scale-down that used to go with it
           // is gone: on a full-bleed band it opened a sliver of column at both

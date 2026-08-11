@@ -124,14 +124,19 @@ describe('resolveTaskAction', () => {
 })
 
 describe('IssueCompactControls', () => {
-  it('carries the warn treatment on the needs-you action', () => {
+  it('gives the needs-you action the panel’s one filled chip', () => {
     render(<IssueCompactControls issue={makeIssue({ id: 'i', needsHuman: true })} />)
 
     const action = screen.getByTestId('task-primary-action')
     expect(action.dataset.action).toBe('answer')
     expect(action.textContent).toBe('Answer')
-    // The shell's own obligation channel, not a raw palette amber.
-    expect(action.className).toContain('bg-attention/15')
+    // POD-725: the needs-you variant is the SOLID primary, not an ochre-tinted
+    // outline. `primaryAction()` returns exactly one action, so nothing competes
+    // with it — and on paper the old `bg-attention/15` was 15% ochre over
+    // near-white, a washed tan that read quieter than the neutral status pill
+    // beside it. Backwards for the one control asking something of the operator.
+    expect(action.className).not.toContain('bg-attention/15')
+    expect(action.className).toContain('btn-primary-rim')
   })
 
   it('sends the primary action to the coordinator session', () => {

@@ -713,17 +713,24 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
         </Button>
       ) : (
         <div className="flex items-center">
+          {/* THE PANEL'S ONE PRIMARY CHIP. `resolveTaskAction()` returns exactly
+              one action, so there is never a second filled object to compete
+              with — which is why the needs-you variant (Answer / Mark done) now
+              takes the SAME solid yellow as Start work rather than an
+              ochre-tinted outline. On paper that outline was 15% ochre over
+              near-white: a washed tan that read as disabled, and read QUIETER
+              than the neutral status pill beside it — exactly backwards for the
+              one control asking something of the operator (POD-725, The Signal
+              Rule). Yellow fills; ochre writes, and it keeps doing the writing
+              in the status line. */}
           <Button
             type="button"
-            variant={action.warn ? 'outline' : 'default'}
             size="sm"
             data-testid="task-primary-action"
             data-action={action.kind}
             disabled={starting}
             className={cn(
-              'h-7 px-2.5 text-[11.5px] font-semibold',
-              action.warn &&
-                'border-attention/50 bg-attention/15 text-attention hover:bg-attention/25',
+              'btn-primary-rim h-7 border px-2.5 text-[11.5px] font-semibold',
               placement && 'rounded-r-none',
             )}
             onClick={runAction}

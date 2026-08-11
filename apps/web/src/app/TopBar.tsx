@@ -123,14 +123,14 @@ export function TopBar(): JSX.Element {
           target="usage"
           view={view}
           onSelect={setView}
-          icon={<BarChart3 size={14} aria-hidden="true" />}
+          icon={<BarChart3 size={16} aria-hidden="true" />}
         />
         <UtilityNavItem
           label="Settings"
           target="settings"
           view={view}
           onSelect={setView}
-          icon={<Settings size={14} aria-hidden="true" />}
+          icon={<Settings size={16} aria-hidden="true" />}
         />
       </div>
       {desktopBridge && desktopBridge.platform !== 'macos' && (
@@ -254,7 +254,7 @@ function ModeTab({
       className="topbar-mode"
       data-active={active ? 'true' : undefined}
     >
-      <Icon size={13} aria-hidden={true} className="flex-none" />
+      <Icon size={14} aria-hidden={true} className="flex-none" />
       <span>{label}</span>
       {!!badge && <span className="topbar-mode-badge">{badge}</span>}
     </button>
