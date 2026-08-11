@@ -150,7 +150,7 @@ import type { SessionRevival } from './session-revival'
 import { wireSessionLifecycle } from './session-wiring'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
-import type { SessionTerminalProof } from './terminal-proof'
+import type { SessionTerminalProof, TerminalProofStatus } from './terminal-proof'
 import type { SessionView } from './view'
 import type { SessionWorkspace } from './workspace'
 
@@ -488,6 +488,10 @@ export class SessionLifecycle {
   }
   terminalProofMissing(sessionId: SessionId): boolean {
     return this.terminalProof.proofMissing(sessionId)
+  }
+  /** WHY this session is not currently reapable — one reason, for diagnostics. */
+  terminalProofStatus(sessionId: SessionId): TerminalProofStatus {
+    return this.terminalProof.proofStatus(sessionId)
   }
   /** Park a live session: kill process, keep row/transcript/resume ref. */
   hibernateSession(input: { sessionId: SessionId; requireTerminalProof?: boolean }): {
