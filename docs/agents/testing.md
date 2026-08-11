@@ -142,41 +142,24 @@ Measurements and rationale: [POD-520 cache shards](pod-520-server-test-cache-sha
 
 The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe default for a shared development host, so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
 
-Validation uses a two-permit host budget from a live Podium session:
+Validation has no admission gate and no shared permits. Typecheck, related/changed probes,
+focused web/mobile/package tests, and direct package tests run immediately with their existing
+worker ceilings. They must never wait behind a heavyweight suite.
 
-- Heavy lanes reserve both permits and retain the `test:heavy` advisory lease for
-  compatibility with older/manual callers. This includes the default package gate,
-  affected, integration, acceptance, E2E, browser, agent smoke, multi-instance, and the
-  full Bun lane.
-- Focused one-shot tests reserve one permit, so two small probes can coexist when no heavy
-  lane or typecheck is admitted. Root changed/related and focused web/mobile/cached entry
-  points use this tier, as do direct package test scripts.
-- Typecheck reserves both permits because Turbo can run many `tsgo` children. Root and
-  direct package typecheck scripts use this tier, so it does not overlap focused tests.
-- Watch reserves one permit, forces `PODIUM_TEST_WORKERS=1`, and holds a singleton
-  `validation:watch` lease. A second watcher is refused; one focused probe can still use
-  the remaining permit.
+Only two validation locks remain:
 
-A short `validation:admission` gate prevents a new focused probe from slipping ahead while
-a heavy lane or typecheck is draining the permits. Lock notes name the command, so
-`podium lock status` shows which validation is admitted and the admission-gate holder names
-the work waiting for capacity. The gate and every partially acquired permit renew while
-admission is blocked; timeout, interruption, and errors cancel the active waiter and release
-partial acquisition in reverse order. Runtime leases renew while the child runs, and every
-path releases only locks that invocation opened.
+- Full package, integration, acceptance, E2E, browser, performance, agent-smoke,
+  multi-instance, and full Bun lanes hold `test:heavy`.
+- Watch holds only the singleton `validation:watch` lease and forces
+  `PODIUM_TEST_WORKERS=1`; a second watcher is refused.
 
-Root wrappers export `PODIUM_VALIDATION_RESOURCE_HELD`; Turbo passes it to package children
-through `globalPassThroughEnv`, so direct package scripts self-guard without nested
-acquisition or changing cache keys. An outer manually-held `test:heavy` remains caller-owned.
+Both leases renew while their child runs, terminate the child if renewal fails, and release
+only leases the invocation opened. `PODIUM_VALIDATION_RESOURCE_HELD` lets a child of a heavy
+or watch wrapper reuse that one parent lease without reacquiring it. An intentionally
+manual outer `test:heavy` remains caller-owned.
 
-`acquire` refuses when a **sibling** — another session on your issue, or any session sharing
-your worktree — already holds or is queued for that lock [POD-556]. That is the shared-root
-checkout's normal case, and the refusal names the session so you can coordinate; pass
-`--allow-sibling` only when serialized multi-session access is genuinely what you want.
-Re-acquiring your own held lock renews it rather than queueing.
-
-A hand-rolled Vitest or Playwright invocation that bypasses package scripts still skips admission and
-will race other heavy work — and it shares the fixed default port 8799 with any other
+A hand-rolled Vitest or Playwright invocation that bypasses package scripts still skips the
+heavy lease and can race other heavy work — and it shares the fixed default port 8799 with any other
 Playwright run on the host (lease does not cover that). Prefer the package script when
 you can. One-suite verification belongs on the lane (POD-536) so build, selection,
 and exit status stay correct:
@@ -197,18 +180,15 @@ The wrapper renews each 30-minute lease every 10 minutes while the child runs. I
 fails, it terminates the child rather than allowing an unbudgeted test to continue; an
 interrupted process still has the 30-minute TTL as the recovery path.
 
-Automatic lease acquisition is identity-gated on `PODIUM_SESSION_ID`. CI and other non-session runs retain the safe two-worker default but do not serialize against live sessions; a dedicated host can opt out explicitly with `PODIUM_TEST_WORKERS=auto bun run test`.
+Automatic heavy/watch lease acquisition is identity-gated on `PODIUM_SESSION_ID`. CI and
+other non-session runs retain the safe worker default but do not serialize against live sessions;
+a dedicated host can opt out explicitly with `PODIUM_TEST_WORKERS=auto bun run test`.
 
 A human running validation in a terminal without `PODIUM_SESSION_ID` takes no automatic
 budget lease and can still collide with an agent run. On the shared host, run validation
 from a Podium session or coordinate a manual `test:heavy` hold for a heavy command.
 
 ### One lane at a time, inside your own session
-
-Admission bounds work **across** sessions. It does not authorize overlapping validation
-inside one session: the explicit marker exists for parent/child re-entry, and a same-session
-acquire without that marker is refused when the wrapper can identify it. Hand-rolled
-commands can still bypass the contract entirely.
 
 Ordering is still yours to enforce. Run only the end-of-task gate selected above and, when a
 concrete risk requires it, its one specialized lane—**one after another, each to completion**.
