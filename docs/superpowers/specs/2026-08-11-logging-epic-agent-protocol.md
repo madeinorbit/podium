@@ -121,6 +121,51 @@ From outside, a stale hold is indistinguishable from a wedge: `live/working`
 with no commit, no lease and no base change. If you are genuinely blocked,
 say so in mail rather than sitting.
 
+## Testing a diagnostic that moved off the console
+
+Wherever this epic moves a diagnostic from `console.*` to the logger, every
+test watching a console spy for it fails — chunk 2 hit 25 such failures
+across 14 server files, none of them a regression. The answer is
+`captureLogs()` in `apps/server/src/test-support`: it registers a **real
+sink**, so the test observes the production mechanism rather than a mock,
+and it pins **no** `minLevel`, so it follows the namespace level exactly as
+the file and stdout sinks do. A capture pinned at `trace` would see records
+a real deployment never emits, and the test would pass on behaviour that
+does not ship.
+
+Chunks 4 and 5 will hit the same wall in web and mobile. Use that pattern
+rather than inventing a capture.
+
+## One sink owns the stream
+
+`packages/runtime/src/logging.ts` is the composition root, and its rule is
+stricter than "file or stdout": systemd takes stdout, detached takes the
+rotating file, foreground takes the console, and **exactly one** sink is
+registered. Under detached the spawner still points stdio at the legacy
+`<role>.log`, so an extra console sink would write every record into the
+unbounded file this epic exists to replace. That legacy file is now only the
+net for **stray** output — a bun panic, a library's own printf.
+
+Do not register a second process-wide sink. A destination for records
+arriving from *other* processes (chunk 3's per-origin client files) is not a
+sink on this process's stream. `configureProcessLogging` is idempotent by
+replacement, which is what lets the CLI configure as `cli` and re-configure
+as `server`/`daemon`/`janitor` once it knows its role.
+
+## Cross-platform file operations
+
+Chunk 2's rotation leaned on `renameSync` **replacing** its destination,
+which is POSIX-only — on Windows it throws when the destination exists.
+Found by mutation-testing the rotation test rather than trusting it: two
+mutants survived, each masking the other. The consequence would have been a
+Windows install logging to the console forever from its second rotation
+onward, with a full `.1` on disk, silently.
+
+Podium targets win32 (see the ConPTY branch in `durable-backend`). Unlink a
+rename destination first, and treat any filesystem call whose semantics
+differ across platforms as a place to check rather than assume. Chunk 5
+touches the Tauri side and should read this twice.
+
 ## Known-red baseline
 
 `packages/protocol` wire-golden fails on three families (host, model,
