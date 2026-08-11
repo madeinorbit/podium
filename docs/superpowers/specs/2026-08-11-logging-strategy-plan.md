@@ -168,9 +168,21 @@ existing boundary rules). No behavioral tests — mechanical sweep.
 |---|---|---|
 | 1 | Logger core package | — |
 | 2 | Server sinks and rotation | 1 |
-| 3 | Client log ingestion and crash events | 1 |
+| 3 | Client log ingestion and crash events | 1, **2** |
 | 4 | Web and desktop-webview capture | 1, 3 |
 | 5 | Mobile and Tauri native capture | 1, 3 |
 | 6 | Console sweep and lint boundary | 2, 4, 5 |
 
-Chunks 2 and 3 can run in parallel; 4 and 5 can run in parallel.
+Chunks 4 and 5 can run in parallel. Chunks 2 and 3 **cannot**: chunk 3's
+per-origin rotating files need the `@podium/logger/node` file sink that
+chunk 2 creates, and both otherwise edit `logsCommand` in
+`apps/cli/src/cli-lifecycle.ts` (chunk 2 rewrites it for NDJSON and
+`--pretty`; chunk 3 adds `export-crash`). Chunk 2 owns that file; chunk 3
+extends it afterwards.
+
+Chunk 3 also has to widen the router `Context`, which today exposes the
+emitter only as `Pick<TelemetryEmitter, 'buildUsageReport'>`
+(`apps/server/src/trpc.ts`), to reach `recordCrash`. No auth work is needed:
+`/trpc` is already gated by the login session
+(`apps/server/src/server.ts:524-538`), so a logs router on `appRouter` is
+authenticated by construction.

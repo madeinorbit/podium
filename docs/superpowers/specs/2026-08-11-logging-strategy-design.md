@@ -209,6 +209,38 @@ constraint, not a style preference.
    (`podium logs export-crash` / a settings button) — a conscious user act,
    no standing opt-in needed for the full data.
 
+### Serialized crashes and the scrubber (addendum, ratified during chunk 3 planning)
+
+`TelemetryEmitter.recordCrash(err)` already calls `scrubError` internally,
+along with the consent gate, the per-window cap and the cooldown. Ingestion
+therefore hands it a throwable and **must not** scrub first.
+
+That exposes a defect at the wire boundary. `scrubError` derives
+`errorType` from `err.constructor?.name` behind an `err instanceof Error`
+guard, but a forwarded client crash arrives as a serialized
+`{name, message, stack}`. Reconstructing a plain `Error` from it makes
+`constructor.name` be `'Error'` for every client crash — and `'Error'` is a
+member of the closed `ErrorType` enum, so it is silently accepted rather
+than folded to `'Other'`. Two consequences: a client `TypeError` reports as
+`Error`, and since `crashSignature` is `errorType@topFrame` **and** the
+rate-limit key, unrelated crash families sharing a top frame would suppress
+each other through the cooldown.
+
+**Decision: widen `scrubError` to accept a serialized error shape**
+(`{name?, stack?}`) alongside a real `Error`, taking `errorType` from `name`
+via the existing `normalizeErrorType`. Rejected alternatives:
+
+- *Map known names back onto real constructors at ingestion* — brittle,
+  covers only an enumerated set, and fabricates an `Error` solely to read
+  its constructor name back out.
+- *Give the emitter a pre-scrubbed entry point* — creates a path by which a
+  caller can submit unscrubbed data to the vendor hop. The scrubber must
+  stay the single, unavoidable gate.
+
+The widening preserves every existing property: the enum stays closed
+(unknown names still fold to `'Other'`, so no new leak surface), stack
+scrubbing is unchanged, and there remains exactly one scrubbing path.
+
 ### Migration and enforcement
 
 - Sweep `console.*` → logger per package, in order: server, daemon,
