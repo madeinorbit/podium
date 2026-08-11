@@ -21,6 +21,7 @@
   },
   "scripts": {
     "test": "bun validation-admission.ts focused --label scripts:test -- bun --bun ../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
+    "test:rearch": "bun validation-admission.ts focused --label scripts:test:rearch -- bun --bun ../node_modules/vitest/vitest.mjs run --config vitest.rearch.config.ts",
     "typecheck": "bun validation-admission.ts typecheck --label scripts:typecheck -- tsgo --noEmit",
     "typecheck:tsc": "bun validation-admission.ts typecheck --label scripts:typecheck:tsc -- tsc --noEmit"
   },

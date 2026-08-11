@@ -1,31 +1,87 @@
 # Running tests — which lane, when
 
-Doctrine for agents working in this repo [spec:SP-0be7]. The normal path is one
-cacheable package-owned default; the remaining lanes stay explicit because they start
-real processes, browsers, PTYs, or agent CLIs that cannot be safely hidden in a unit cache.
+Doctrine for agents working in this repo [spec:SP-0be7]. Tests are end-of-task evidence,
+not an editing ritual. Do not run tests after each edit or intermediate commit, and do not
+accumulate overlapping lanes merely to say more commands were run.
 
-## Default and explicit lanes
+## The normal agent path
 
-| Lane | Command | What's in it | Cost / guard |
+At the end of an ordinary runtime-affecting task, run:
+
+    bun run test:agent
+
+This is the lean confidence gate. It runs four exact hermetic boot/configuration files with one
+worker:
+
+| Test file | What it cheaply protects |
+| --- | --- |
+| `packages/runtime/src/boot.test.ts` | Runtime boot/configuration assembly |
+| `apps/server/src/router.setup.test.ts` | Server router construction and required wiring |
+| `apps/daemon/src/connection-state.test.ts` | Daemon connection-state startup contract |
+| `scripts/test-configuration.test.ts` | Lane membership, exclusions, hermetic setup, and the lean gate's own composition |
+
+It does not run typecheck, the package sweep, repository rewrite audits, real processes, PTYs,
+ports, browsers, performance probes, or agent CLIs. It deliberately does not enter the shared
+validation queue: this bounded one-worker probe must not wait behind or delay heavyweight suites.
+Docs, copy, fonts, formatting, and generated artifacts may skip it when they cannot affect
+runtime; say so in the handoff.
+
+Only add a specialized lane when the diff matches a trigger below. If that specialized lane
+already proves the relevant basic wiring, use it instead of `test:agent`; otherwise run the
+two commands once each, sequentially, at the end. “More confidence” without a concrete risk
+is not a reason to add a lane.
+
+## Exhaustive command and ownership map
+
+### Lean, package, and selection lanes
+
+| Command | Tests live in / selection rule | Also executed by | Run when |
 | --- | --- | --- | --- |
-| **Default package tests** | `bun run test` (`test:unit` is a compatibility alias) | 28 Turbo tasks covering every default file: one task per package with tests (scripts, desktop, web/mobile, the runtime Bun unit) plus `@podium/server`'s aggregate and its five cache shards | Cached; tasks serial, Vitest capped at 2 workers |
-| **Focused package probes** | `bun run test:web`, `bun run test:mobile`, `bun run test:cached` | One or both app package tasks | Cached; one shared host permit |
-| **Affected package tests** | `bun run test:affected` | Package tasks for changed packages and dependents | Refuses files no package task can cover |
-| **Sync scaling benchmark** | `bun run test:perf:sync` | Deliberately quadratic IndexedDB single-frame apply probe through 16,000 rows | Explicit heavy measurement; excluded from the default merge gate |
-| **Inner loop** | `bun run test:changed`, `test:related`, `test:watch` | Root `node` and `normalized-wire` projects selected by Vitest | One-shot runs use one permit; watch uses one worker and one singleton permit |
-| **Integration** | `bun run test:integration` | `vitest.integration.config.ts` plus acceptance: process/PTY/abduco/daemon suites, real-port boots, and loop-split load | Minutes; shared test lease |
-| **E2E** | `bun run test:e2e` | Full-stack server + daemon Vitest files under `tests/e2e/**` with `@podium/source` | Minutes; heavy; no browser |
-| **Browser** | `bun run test:browser` | Playwright browser suites under `tests/e2e/browser/**.browser.e2e.ts` | Tens of minutes; heavy; see browser census. Scope one suite with `-- --suite <name>` (do not hand-roll `playwright test`) |
-| **Agent smoke** | `bun run test:smoke:agents` | Five real agent CLIs, gated by `PODIUM_REAL_CLI=1` | Real money; explicit human request only |
-| **Multi-instance** | `bun run test:multi-instance` | Separate concurrent runtimes plus installer coverage | Minutes; heavy; see [multi-instance.md](../multi-instance.md) |
-| **Full Bun lane** | `bun run test:bun` | All `*.bun.test.ts` suites, including compiled-daemon/lifecycle integration | Heavy; `bun test`, never Vitest |
+| `bun run test:agent` | The four exact files above via the `node` project in `vitest.unit.config.ts` | No parent command; lock-free | Default end-of-task gate for ordinary runtime code |
+| `bun run test` | Package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, and `scripts/*`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts` | `test:unit`; `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
+| `bun run test:unit` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer `test` when a full sweep is intentionally required |
+| `bun run test:web` | `apps/web/**/*.{test,spec}.*` through `apps/web/vitest.config.ts` | `test:cached`; full `test` | A broad web package change where a few exact tests cannot represent the risk |
+| `bun run test:mobile` | `apps/mobile/**/*.{test,spec}.*` through `apps/mobile/vitest.config.ts` | `test:cached`; full `test` | A broad mobile package change |
+| `bun run test:cached` | The web and mobile package tasks above | No parent command | A deliberately cross-client change; never as generic confidence |
+| `bun run test:affected` | Turbo package tasks for changed package sources and dependents; root/process files are uncovered | No parent command | Optional package-wide checkpoint when the selected set is known to be useful; not a mandatory agent gate |
+| `bun run test:related -- <files>` | Unit tests reachable in Vitest's import graph from the named files; root `node` and `normalized-wire` projects | No parent command | A regression needs exact unit evidence or the user explicitly asks for focused tests |
+| `bun run test:changed` | Same projects, selected from files changed since `HEAD` | No parent command | Optional diagnosis only; do not run automatically after edits |
+| `bun run test:watch` | Same projects in non-terminating watch mode, one worker | No parent command | Human-requested test-driven iteration only |
+| `bun run test:bun:unit` | Exact file `packages/runtime/test/sqlite.bun.test.ts` using `bun:test` | Full `test`; `test:bun` | Focused runtime SQLite changes |
 
-The default package task is the command to run before a commit. It keeps every default
-test attributable to an owner and lets Turbo repeat only tasks whose inputs changed.
-The root process lanes remain explicit so a green unit cache cannot imply a green server,
-browser, multi-instance, or real-agent run.
-`test:bun:unit` remains a compatibility probe for the runtime file; normal agents should use
-`bun run test` so that file is not run twice.
+### Server package shards
+
+The generated `apps/server/test-shards.json` is the authoritative file roster. Each shard is
+independently Turbo-cached inside the server aggregate used by `bun run test`.
+
+| Command | Tests live in / config | Also executed by | Run when |
+| --- | --- | --- | --- |
+| `bun run --cwd apps/server test:contracts` | Generated contracts roster; `apps/server/vitest.contracts.config.ts` | Server aggregate → full `test` | Request/response contracts, schemas, command parsing, validation |
+| `bun run --cwd apps/server test:store` | Generated store roster; `apps/server/vitest.store.config.ts` | Server aggregate → full `test` | Database access, migrations, repositories, durable state |
+| `bun run --cwd apps/server test:services` | Generated services roster; `apps/server/vitest.services.config.ts` | Server aggregate → full `test` | Server service logic without a real process boundary |
+| `bun run --cwd apps/server test:boundary` | Generated boundary roster; `apps/server/vitest.boundary.config.ts` | Server aggregate → full `test` | Routers, auth boundaries, external-facing composition |
+| `bun run --cwd apps/server test:normalized-wire` | Generated normalized-wire roster; `apps/server/vitest.normalized-wire.config.ts` | Server aggregate → full `test` | Normalized wire encoding and its bounded benchmark guard |
+| `bun run --cwd apps/server test:unsharded` | Old whole-package configs | No parent command | Diagnose a suspected shard/configuration discrepancy only |
+
+### Explicit process, browser, rewrite, and performance lanes
+
+| Command | Tests live in / exact selection | Also executed by | Run when |
+| --- | --- | --- | --- |
+| `bun run test:integration` | Patterns and explicit files in `vitest.integration.config.ts`: `*.integration.*`, `*.pty.test.*`, process/daemon/server boot suites; then `test:acceptance` if Vitest is green | `oracle`; CI oracle matrix | Changed real process, PTY, abduco, daemon/server boot, updater process, or agent-bridge behavior |
+| `bun run test:acceptance` | Exact file `scripts/loop-split-load.integration.test.ts` via `vitest.acceptance.config.ts` | Successful `test:integration` | Loop-split load scheduling or its acceptance threshold |
+| `bun run test:acceptance:process` | Exact Bun file `scripts/loop-split-process.acceptance.bun.test.ts` | No parent command | Publication worker, user-systemd recovery, janitor/process recovery |
+| `bun run test:e2e` | Non-browser `tests/e2e/**/*.test.{ts,tsx}` selected through `vitest.integration.config.ts` | `oracle`; CI oracle matrix | A changed full-stack server↔daemon↔client flow cannot be covered at one boundary |
+| `bun run test:multi-instance` | Exact runtime file `scripts/multi-instance-runtime.integration.bun.test.ts`, exact managed-account file `scripts/managed-account-spawn.integration.test.ts`, and `scripts/install-sh.test.sh` | `oracle`; CI oracle matrix | Instance identity, state roots, ports, CLI routing, ownership, lifecycle, installer |
+| `bun run test:browser -- --suite <stem>` | Named `tests/e2e/browser/<stem>.browser.e2e.ts` via `tests/e2e/playwright.config.ts` | Full browser command/CI project matrix | Only when the requested behavior requires a real browser interaction; scope to the changed surface |
+| `bun run test:browser` | Every `tests/e2e/browser/*.browser.e2e.ts`, across requested Playwright projects | CI browser matrix (non-blocking) | Scheduled browser census or explicit full-browser request; never normal agent validation |
+| `bun run test:bun` | `apps/daemon/test/**`, `packages/runtime/test/sqlite.bun.test.ts`, `scripts/lifecycle.integration.bun.test.ts` | No parent command | Bun-runner, compiled-daemon, worker isolation, or lifecycle changes |
+| `bun run test:smoke:agents` | Real-agent files selected by `vitest.agent-smoke.config.ts` and `vitest.smoke-requirements.ts` | No parent; deliberately excluded from oracle | Only on explicit human request after changing real CLI adapters; spends credentials/quota |
+| `bun run test:rearch` | Runs the `audit:rearch` baseline check, then exact file `scripts/rearch-audit.test.ts` via `scripts/vitest.rearch.config.ts` | No default/package parent | Only rewrite migration/audit implementation or baseline changes; never ordinary product work |
+| `bun run test:perf:frontend` | Frontend large-state benchmark in `apps/web/vitest.frontend-perf.config.ts` | CI unit job | Large-state rendering/projection work or scheduled performance monitoring |
+| `bun run test:perf:sync` | Sync scaling benchmark in `packages/sync/vitest.perf.config.ts` | No parent command | Explicit sync scaling investigation on a bounded/dedicated host; deliberately quadratic |
+| `bun run perf:typing` | `tests/e2e/typing-latency-bench.ts` against a live environment | No parent command | Typing/terminal latency work only |
+| `bun run oracle` | Sequential `typecheck`, full `test`, `test:integration`, `test:e2e`, `test:multi-instance` from `scripts/oracle.ts` | No parent command | Rewrite phase boundary, release candidate, or explicit request; never a normal merge gate |
+
 Files named `*.bench.test.ts` are excluded from generic package-owned and root node-unit
 collection. A dedicated project may explicitly re-add a bounded guard such as the server's
 normalized-wire benchmark. A benchmark that intentionally amplifies a known cost curve is not
@@ -154,9 +210,10 @@ inside one session: the explicit marker exists for parent/child re-entry, and a 
 acquire without that marker is refused when the wrapper can identify it. Hand-rolled
 commands can still bypass the contract entirely.
 
-So the ordering is still yours to enforce. Run the focused lane, then `bun run typecheck`, then the final `bun run test`
-gate — **one after another, each to completion**. Do not background a lane and start the next
-(`&`, a second terminal, parallel tool calls) and do not overlap a typecheck with a test run.
+Ordering is still yours to enforce. Run only the end-of-task gate selected above and, when a
+concrete risk requires it, its one specialized lane—**one after another, each to completion**.
+Do not background a lane and start the next (`&`, a second terminal, parallel tool calls), and
+do not overlap typecheck with a test run.
 
 Overlapping does not finish sooner on a host shared with a live Podium instance and every
 other agent session; it multiplies the peak. The worker ceiling and the `test:heavy` lease
@@ -168,58 +225,23 @@ Never run two heavy things concurrently to save time. If a second heavy run genu
 happen, submit it from another session and let `test:heavy` serialize it — it waits for the
 lease and starts when the host is free, which is the outcome you wanted anyway.
 
-## Simple UI and bug changes
+## Selection caveats
 
-A small, local UI or bug fix does not earn a full sweep at every step. The path is:
+`test:changed` and `test:related` are optional diagnostic tools, not required workflow steps.
+They see only Vitest's import graph in the root `node` and `normalized-wire` projects; they do
+not cover web/mobile package configs, process lanes, browser tests, or `bun:test`. They also
+cannot discover a filesystem read. For example, changing `docs/TELEMETRY.md` does not select
+`packages/telemetry/src/docs-drift.test.ts`; explicitly name that reader if its contract is the
+thing being changed.
 
-1. **The smallest focused lane that covers the change.** `bun run test:related -- <file>`
-   for a unit-level fix, or `bun run test:web` / `bun run test:mobile` when the change sits
-   inside one app package. Extending an existing test beats standing up a parallel suite.
-2. **Runtime verification in the running app — mandatory, not a nice-to-have.** A green
-   focused lane is not evidence that a UI change works. Drive the surface
-   ([driving-podium.md](driving-podium.md)) or run the app and look at the change. A
-   `*.browser.e2e.ts` suite counts only if you re-ran it for *this* change; citing an
-   earlier run does not.
-3. **One full `bun run test` gate at the final substantive integration point** — the commit
-   that actually lands the behavior. That is where the standing requirement to run the
-   default lane before a substantive commit bites, and it is not skippable: the focused
-   lanes in step 1 cannot see the other package tasks your edit may have moved.
+`test:affected` uses package ownership. It refuses uncovered runtime files rather than pretending
+they are green, but that refusal is guidance to choose the relevant explicit lane—not an
+instruction to run the full sweep. Inert prose such as ordinary Markdown, `LICENSE`, and `NOTICE`
+is ignored. Its base is the closest merge base among the upstream, `origin/main`, and
+`origin/project/*`; override with `--base=<ref>` when necessary.
 
-This narrows what you run **on the way**, not what has to be green before the change lands.
-Nothing here removes the heavier lanes the decision table calls for — a one-line fix in
-daemon, PTY, or instance-identity code still owes `test:integration` or
-`test:multi-instance`, and a docs-only or otherwise test-independent edit still skips
-automated tests entirely with the reason stated in the handoff.
-
-## Decision table
-
-| Situation | Run |
-| --- | --- |
-| Iterating on changed source | `bun run test:changed` — Vitest's module graph selects tests reachable from the files changed since `HEAD` |
-| Iterating on an explicit file list | `bun run test:related -- path/to/file.ts` — add more paths after `--` as needed |
-| Repeating edits interactively | `bun run test:watch` — plain watch mode keeps the Vitest process warm |
-| Simple, local UI or bug fix | The smallest focused lane (`test:related -- <file>`, or `test:web` / `test:mobile`) **plus** runtime verification in the running app, then one full `bun run test` at the final substantive integration point — see [Simple UI and bug changes](#simple-ui-and-bug-changes) |
-| Before every commit | `bun run test` (fast default) — after the focused lane and typecheck have finished, never alongside them ([one lane at a time](#one-lane-at-a-time-inside-your-own-session)) |
-| Touched agent-bridge / daemon / server process, PTY, or abduco code | Also `bun run test:integration` |
-| Full-stack flows, before landing UI/server interaction work | `bun run test:e2e` |
-| Touched instance identity, state roots, port derivation, CLI routing, agent ownership, or lifecycle | Also `bun run test:multi-instance` |
-| Changed a web UI surface a `*.browser.e2e.ts` suite covers | Also `bun run test:browser` (scope it: `bun run test:browser -- --suite <stem>` or `-- --suite <stem> --project=chromium-pixel`) — and do not cite a suite as runtime verification without re-running it. Prefer the lane over a hand-rolled `playwright test` invocation: positional filters cannot narrow the full-lane argv, `--project` is variadic (use the `=` form), and piping through `tail`/`grep` masks Playwright's exit status |
-| Real agent CLI behavior | `bun run test:smoke:agents` — ONLY on explicit human request |
-
-Always invoke Vitest through the repo's direct Bun entry point (`bun --bun node_modules/vitest/vitest.mjs run ...`), never plain `vitest` and
-never `bun test` for vitest files.
-
-The three inner-loop scripts are deliberately a fast approximation, not a replacement
-for the full suite. They run only the root unit projects (`node` and
-`normalized-wire`); they do not cover the web/mobile, integration, acceptance, or
-`bun:test` lanes. Vitest rebuilds its module graph for each invocation, so these scripts
-do not provide CI caching. Module-graph selection also cannot discover tests that read a
-changed file directly from disk rather than importing it. For example,
-`packages/telemetry/src/docs-drift.test.ts` reads `docs/TELEMETRY.md` with
-`readFileSync`, so changing only that doc can make `test:changed` pass with no selected
-tests. This is a documented limit, not a detected dependency; target the reader with
-`bun run test:related -- packages/telemetry/src/docs-drift.test.ts` when needed. Run
-`bun run test` before a commit.
+Always invoke Vitest through repository scripts. A hand-rolled invocation bypasses admission,
+hermetic setup, lane exclusions, and exit-status safeguards.
 
 ## Invariants
 
