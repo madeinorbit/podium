@@ -120,7 +120,6 @@ export function AppShell(): JSX.Element {
         <AppErrorPage
           title="Podium could not open its private replica"
           message={kernel.failure}
-          onRetry={() => window.location.reload()}
         />
       </TooltipProvider>
     )
