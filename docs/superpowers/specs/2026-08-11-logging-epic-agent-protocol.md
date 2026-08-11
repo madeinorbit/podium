@@ -78,6 +78,23 @@ Two rules learned in chunk 1:
   chunk 1 and nearly caused a false landing. Read the output, not the exit
   code.
 
+## A hold expires; re-check before acting on memory
+
+A compaction boundary is exactly where a stale instruction survives as if it
+were live. Chunk 1 lost an hour sitting on a "hold and wait for my mail"
+that had already been superseded, because it came back from a compaction
+holding the instruction but never re-checked the world.
+
+**A hold is a statement about a moment, not a standing state.** Before
+acting on any remembered instruction — especially one that tells you to
+wait — re-read the live base (`git fetch`, compare against
+`origin/worktree-pod-1897-logging`) and your newest mail. If either has
+moved, the remembered instruction is suspect.
+
+From outside, a stale hold is indistinguishable from a wedge: `live/working`
+with no commit, no lease and no base change. If you are genuinely blocked,
+say so in mail rather than sitting.
+
 ## Known-red baseline
 
 `packages/protocol` wire-golden fails on three families (host, model,
