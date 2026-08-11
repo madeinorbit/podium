@@ -261,13 +261,45 @@ async errors**, including its own retry, disable and degrade behaviour.
 
 `Sink` therefore also carries two optional lifecycle members:
 
-- `flush?(): Promise<void>` — drain buffered writes. Needed for shutdown
-  drain (chunk 2) and flush-before-crash-ship (chunks 3 and 4).
-- `close?()` — release the sink's resources.
+- `flush?(): Promise<void>` — settle what is buffered; resolves when it is
+  durable. Needed for shutdown drain (chunk 2) and flush-before-crash-ship
+  (chunks 3 and 4).
+- `close?(): Promise<void>` — release the sink's resources. **Implies a
+  final flush**, so a caller never has to flush first to avoid losing the
+  tail.
 
 Concretely: the file sink's ENOSPC degrade is swallowed inside the sink and
 falls back to console; the forwarding sink's network failures never leave
 its own boundary.
+
+**A sink must not mutate the record it is given.** Records are shared by
+reference across every sink and with the ring-buffer snapshot, so an
+in-place edit rewrites another sink's history and corrupts the crash
+payload — at the crash-ship end, where nobody is looking. If a sink needs a
+shaped object, it builds a new one. The tempting violation is stamping
+state (a degrade flag, a normalised field) onto the record before
+serialising; put it in the sink's own output instead.
+
+This contract is what lets `snapshot()` return a new array over the *same*
+record objects rather than deep-copying: a deep copy costs on the crash path
+and can throw on a field that resists cloning, which would turn crash-ship
+into a second crash. The shared references are pinned by a test, so
+switching to a copy later is a deliberate decision rather than a silent
+change of meaning.
+
+**Draining: scope matters.** The module-level `flushSinks()` and
+`closeSinks()` helpers are for **whole-process** shutdown and crash-ship,
+where tearing down everything is the intent. A *component* drains through
+the handle that owns the sink it registered — `closeSinks()` empties the
+whole registry, and the all-in-one desktop sidecar runs several components
+in one process, so a registry-wide close during one component's shutdown
+would tear down a sink another component is still writing to.
+
+Two asymmetries in those helpers, both deliberate: a failed **write**
+unregisters the sink, a failed **flush** does not (flush runs at shutdown
+and crash-ship, where disabling a sink would discard the very records being
+saved); and `closeSinks()` empties the registry even if a close fails,
+because a sink whose handle is gone must not still be receiving.
 
 ### Console sink default (addendum, ratified after the chunk-1 review)
 

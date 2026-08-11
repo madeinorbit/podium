@@ -42,6 +42,20 @@ You land your own work when it is complete and tested:
 If the rebase conflicts or foreign commits appear, **stop and mail the
 coordinator** — do not invent an alternative landing route.
 
+**What that rule is actually for**, since chunk 1 hit the edge of it: it
+exists to stop you inventing a route *around* a refusal — cherry-picking,
+force-pushing, pushing a temp branch to the target, or leaving diverged
+history behind. It does not mean a refused fast-forward is always a stop.
+
+If the branch simply moved ahead of you while you were running gates, and
+you are **holding the merge lock**, the correct response is: inspect the
+incoming commits, and if they are ones you can account for, rebase onto
+them, **re-run your gates on the rebased tree**, and then push. The
+re-verification is the non-negotiable part — the tree you tested is not the
+tree you are landing. Stop and mail when the incoming commits are ones you
+cannot account for, when there is a real conflict, or when re-verification
+fails.
+
 ## Definition of done
 
 Before you land:
