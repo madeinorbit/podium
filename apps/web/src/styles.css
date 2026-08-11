@@ -1380,26 +1380,342 @@ html[data-density="balanced"] .header-quota-pools {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.status-strip-hint {
-  display: inline-flex;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE COMMAND PALETTE (POD-745)
+
+   THE PALETTE IS THE COMMAND BAR, ARRIVED.
+
+   It used to be a stock dialog: a bordered input over 13px rows with a grey
+   `bg-accent` wash on the selected one. Nothing in it was made of this system —
+   not the well, not the mono machine voice, not the ID square, not the agent
+   state grammar — which is why the one surface the operator reaches for most
+   was the one that looked least like Podium. This is that surface built out of
+   the shell's own parts:
+
+     · THE FIELD IS A WELL. The command bar's signature control at full width.
+       Its floor is `--bar`, the darkest tier — a groove is a per-ground call
+       (DESIGN §"The Wells"), and on `--chip`, the LIGHTEST tier, a recess has
+       to go down in tone, not up the way it does on the near-black bar.
+     · THE SELECTED ROW IS THE WELL'S RAISED CELL. The same bevel the active
+       mode tab wears, from the same `--well-cell-*` tokens, so it flips with
+       the ground for free.
+     · GROUPS SPEAK MONO. Section labels are the Label role — the same voice the
+       overlay menus and the colour picker name their regions in.
+     · ONE YELLOW THING. `.cmdk-row-cap` marks what Enter will do, on the row it
+       will do it to, and nothing else in the surface may take the signal.
+
+   Layered Tailwind utilities from `DialogContent` sit underneath these plain
+   rules, which is why the geometry is restated here in full rather than
+   patched: `top`, `transform`, `padding`, `gap`, `display` and `max-width` all
+   have a utility to beat.
+   ───────────────────────────────────────────────────────────────────────────*/
+.cmdk-scrim {
+  /* One step deeper than the shared 10% backdrop. The palette takes the whole
+     window's attention for the two seconds it is open; the dialogs that share
+     the default are inspectors you read the page around. */
+  background: rgb(0 0 0 / 0.3);
+}
+.cmdk-panel {
+  top: 13vh;
+  left: 50%;
+  display: flex;
+  width: min(640px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(560px, calc(100dvh - 22vh));
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-tray);
+  background: var(--chip);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--shell-type-primary);
+  gap: 0;
+  overflow: hidden;
+  transform: translateX(-50%);
+}
+/* The one authored moment: the panel drops in from just above its resting
+   place on an exponential ease-out, and everything after that is instant.
+   `translate`/`scale` rather than `transform`, which is carrying the centring. */
+.cmdk-panel[data-open] {
+  animation: cmdk-drop 170ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cmdk-panel[data-closed] {
+  animation: cmdk-lift 110ms ease-in;
+}
+@keyframes cmdk-drop {
+  from {
+    opacity: 0;
+    scale: 0.985;
+    translate: 0 -9px;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+}
+@keyframes cmdk-lift {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.99;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmdk-panel[data-open],
+  .cmdk-panel[data-closed] {
+    animation: none;
+  }
+}
+.cmdk-field {
+  display: flex;
   flex: none;
   align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  padding: 0 4px;
-  border-radius: var(--radius-md, 4.8px);
-  color: var(--text-faint);
-  font-family: inherit;
-  font-size: inherit;
-  transition: color 150ms ease;
+  gap: 10px;
+  height: 46px;
+  margin: 7px 7px 0;
+  padding: 0 13px;
+  border-radius: 8px;
+  background: var(--bar);
+  box-shadow:
+    inset 0 1px 2px var(--well-lip),
+    inset 0 0 0 1px var(--well-rim),
+    inset 0 -1px 0 var(--well-lit);
 }
-.status-strip-hint:hover {
+.cmdk-field-glyph {
+  flex: none;
+  color: var(--text-dim);
+}
+.cmdk-input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-family: inherit;
+  font-size: 14.5px;
+  letter-spacing: -0.005em;
+  outline: none;
+}
+.cmdk-input::placeholder {
+  color: var(--text-dim);
+}
+/* Gated on a search actually being in flight — the same predicate the agent
+   spinner runs on, which is what licenses motion here at all (DESIGN §5). */
+.cmdk-field-spinner {
+  flex: none;
+  color: var(--text-dim);
+}
+.cmdk-list {
+  min-height: 0;
+  flex: 1;
+  padding-bottom: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+.cmdk-group-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 15px 6px;
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.cmdk-group:first-child .cmdk-group-label {
+  padding-top: 10px;
+}
+.cmdk-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* `shown/total` on a capped group. The cap is a design decision, and a surface
+   that silently drops results reads as a surface that found none. */
+.cmdk-group-count {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-dim);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+.cmdk-row {
+  display: flex;
+  width: calc(100% - 12px);
+  height: 32px;
+  align-items: center;
+  gap: 9px;
+  margin: 0 6px;
+  padding: 0 6px 0 9px;
+  border-radius: var(--radius-row);
+  color: var(--foreground);
+  cursor: pointer;
+  text-align: left;
+}
+.cmdk-row:hover {
+  background: var(--well-hover);
+}
+.cmdk-row[data-active] {
+  background: var(--well-cell);
+  box-shadow:
+    inset 0 1px 0 var(--well-cell-lit),
+    inset 0 0 0 1px var(--well-cell-lip);
+  color: var(--text-strong);
+}
+.cmdk-row-lead {
+  display: flex;
+  width: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+}
+.cmdk-row[data-active] .cmdk-row-lead {
   color: var(--muted-foreground);
 }
-.status-strip-hint kbd {
-  font-family: inherit;
-  font-size: inherit;
+.cmdk-row-issue {
+  min-width: 0;
+  flex: 1;
+  gap: 9px;
 }
+.cmdk-row-ref {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.cmdk-row[data-active] .cmdk-row-ref {
+  color: var(--muted-foreground);
+}
+.cmdk-row-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmdk-row[data-active] .cmdk-row-title {
+  font-weight: 500;
+}
+.cmdk-row-hint {
+  max-width: 40%;
+  flex: none;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* THE ONE YELLOW THING. Always laid out, so the hint column never jitters as
+   the highlight walks the list; visible only on the row Enter would run. */
+.cmdk-row-cap {
+  display: grid;
+  min-width: 18px;
+  height: 16px;
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--primary-rim, transparent);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1;
+  place-items: center;
+}
+.cmdk-row[data-active] .cmdk-row-cap {
+  opacity: 1;
+}
+/* The search found nothing, said once, above the one thing still on offer. */
+.cmdk-nomatch {
+  padding: 18px 15px 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-align: center;
+}
+.cmdk-empty {
+  padding: 30px 20px 34px;
+  text-align: center;
+}
+.cmdk-empty-label {
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.cmdk-empty-text {
+  margin: 8px auto 0;
+  max-width: 44ch;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.55;
+}
+/* The status strip's own grammar, borrowed to close the surface: mono at label
+   scale on --bar. A window ends with an edge, and so does this. */
+.cmdk-foot {
+  display: flex;
+  height: 27px;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-top: 1px solid var(--hairline-soft);
+  background: var(--bar);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.cmdk-keys {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.cmdk-keys span {
+  margin-right: 7px;
+}
+.cmdk-keys span:last-child {
+  margin-right: 0;
+}
+.cmdk-keys kbd {
+  display: inline-grid;
+  min-width: 15px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+  color: var(--muted-foreground);
+  font: inherit;
+  place-items: center;
+}
+.cmdk-count {
+  margin-left: auto;
+  flex: none;
+}
+
 .sidebar-collapse-control {
   position: absolute;
   z-index: 20;

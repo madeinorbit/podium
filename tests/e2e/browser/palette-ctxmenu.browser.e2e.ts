@@ -67,7 +67,9 @@ test('command palette: open, search, arrow, enter-to-issue, fallback row, two-st
   await input.fill('Palette target')
   const issueOption = palette.getByRole('option').filter({ hasText: title }).first()
   await expect(issueOption).toBeVisible({ timeout: 10_000 })
-  await expect(palette.getByText('Navigate', { exact: true })).toBeVisible()
+  // Groups are per-kind since POD-745 — tasks, agents, worktrees and actions no
+  // longer share one "Navigate" bucket (and its single cap).
+  await expect(palette.getByRole('group', { name: 'Tasks' })).toBeVisible()
   await page.screenshot({ path: `${SHOT}/palette-02-results.png` })
 
   // ---- ArrowDown moves the highlight ----

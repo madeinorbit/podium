@@ -32,9 +32,16 @@ export function rightPanelAllowed(
 }
 
 /** Window event asking the shell to open a right-dock panel [POD-98] — fired by
- *  deep surfaces (the pane header's git stamp) that don't hold the AppShell's
- *  local panel state. detail = the RightPanelTab to open. */
+ *  deep surfaces (the pane header's git stamp, the command palette) that don't
+ *  hold the AppShell's local panel state. detail = the RightPanelTab to open,
+ *  or {@link CLOSE_RIGHT_PANEL} to shut the dock. */
 export const OPEN_RIGHT_PANEL_EVENT = 'podium:open-right-panel'
+
+/** `detail` value that closes the dock rather than opening a panel (POD-745).
+ *  A distinct token, not `null`/`''`: those are also what a MALFORMED detail
+ *  decodes to, and "unreadable request" must stay a no-op rather than silently
+ *  closing the operator's panel. */
+export const CLOSE_RIGHT_PANEL = 'close'
 
 export function readBooleanState(value: string | null, fallback = false): boolean {
   if (value === 'true' || value === '1') return true

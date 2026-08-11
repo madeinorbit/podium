@@ -38,6 +38,7 @@ import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import {
+  CLOSE_RIGHT_PANEL,
   isOverlayView,
   nextBaseView,
   OPEN_RIGHT_PANEL_EVENT,
@@ -365,6 +366,10 @@ function AppBody(): JSX.Element {
   useEffect(() => {
     const onOpenPanel = (event: Event): void => {
       const detail = (event as CustomEvent).detail
+      if (detail === CLOSE_RIGHT_PANEL) {
+        setRightPanel(null)
+        return
+      }
       const panel = readRightPanel(typeof detail === 'string' ? detail : null)
       if (!panel) return
       setRightPanel(panelAllowed(panel) ? panel : 'issue')

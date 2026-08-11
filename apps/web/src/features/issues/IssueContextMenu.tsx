@@ -15,28 +15,7 @@ import {
   snoozeUntil1h,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import {
-  AlarmClock,
-  AlarmClockOff,
-  Archive,
-  ArchiveRestore,
-  ArrowRightLeft,
-  Bot,
-  Check,
-  ChevronRight,
-  Copy,
-  ExternalLink,
-  Mail,
-  MailOpen,
-  Palette,
-  Pencil,
-  Pin,
-  PinOff,
-  Play,
-  Tag,
-  Trash2,
-  X,
-} from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { Fragment, type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
@@ -86,6 +65,7 @@ import {
   issueMenuEntries,
   issueMenuEntryLabel,
 } from './issue-menu-config'
+import { issueMenuIcon } from './issue-menu-icons'
 import { isIssueStartable } from './issue-startable'
 
 /** Regions get named in mono micro-caps, the way the colour picker names its
@@ -378,48 +358,11 @@ export function IssueContextMenu({
     }
   }
 
+  // Names resolve in `issue-menu-icons` — shared with the command palette, so
+  // the same action cannot wear two different marks on the two surfaces.
   const renderIcon = (icon: IssueMenuIcon): ReactNode => {
-    const props = { size: 14, 'aria-hidden': true }
-    switch (icon) {
-      case 'alarm-clock':
-        return <AlarmClock {...props} />
-      case 'alarm-clock-off':
-        return <AlarmClockOff {...props} />
-      case 'archive':
-        return <Archive {...props} />
-      case 'archive-restore':
-        return <ArchiveRestore {...props} />
-      case 'arrow-right-left':
-        return <ArrowRightLeft {...props} />
-      case 'agent':
-        return <Bot {...props} />
-      case 'check':
-        return <Check {...props} />
-      case 'copy':
-        return <Copy {...props} />
-      case 'external-link':
-        return <ExternalLink {...props} />
-      case 'mail':
-        return <Mail {...props} />
-      case 'mail-open':
-        return <MailOpen {...props} />
-      case 'palette':
-        return <Palette {...props} />
-      case 'pencil':
-        return <Pencil {...props} />
-      case 'pin':
-        return <Pin {...props} />
-      case 'pin-off':
-        return <PinOff {...props} />
-      case 'play':
-        return <Play {...props} />
-      case 'tag':
-        return <Tag {...props} />
-      case 'trash':
-        return <Trash2 {...props} />
-      case 'x':
-        return <X {...props} />
-    }
+    const Glyph = issueMenuIcon(icon)
+    return <Glyph size={14} aria-hidden="true" />
   }
 
   /** The colour row wears the issue's own square rather than a palette glyph —
