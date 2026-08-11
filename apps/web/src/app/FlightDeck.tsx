@@ -772,11 +772,14 @@ function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.El
   return (
     <span
       className={cn(
-        'shell-type-micro font-mono',
-        // A LEAD'S WORD NEVER TRUNCATES. It is one of exactly two strings and
-        // both are short, and `COORDINAT…` is not a caption — it is a word
-        // that failed. The arbitrary-length thing on this row is the NAME, so
-        // the name is what gives way. Every other arm is a phrase that can lose
+        // DROPPED WHOLE BEFORE THE NAME IS CRUSHED. A role is the row's least
+        // load-bearing fact — a lead is already named by its coloured rail and
+        // its fill, and everything here is on the hover title — so on a narrow
+        // column it leaves rather than squeezing the name to `D…`.
+        'shell-type-micro deck-drop-role font-mono',
+        // A LEAD'S WORD NEVER TRUNCATES while it is here. It is one of exactly
+        // two strings and both are short, and `COORDINAT…` is not a caption —
+        // it is a word that failed. Every other arm is a phrase that can lose
         // its tail and still read ("by Spine desig…"), so those still shrink,
         // and first.
         lead
@@ -916,8 +919,8 @@ function SessionRow({
           type="button"
           className={cn(
             // The ONLY fill an agent ever gets is transient: hover, and nothing
-            // else. `px-0` on the left — the row opens onto its rail.
-            'group/session shell-type-secondary flex min-h-7 w-full items-center gap-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
+            // else. No left padding — the row opens onto its rail.
+            'deck-agent group/session shell-type-secondary flex min-h-7 w-full items-center gap-1.5 py-1 pr-2 text-left text-muted-foreground hover:bg-muted hover:text-foreground',
             active && 'text-foreground',
             // Settled agents dim one tier rather than leaving. Removing them is
             // the view bar's job, not the row's.

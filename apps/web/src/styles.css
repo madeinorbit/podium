@@ -6347,6 +6347,23 @@ a.ref-link--session::before {
   }
 }
 
+/* An AGENT row gives way on the same principle, with one thing to drop. Its
+   rigid parts are the 20px harness chip, the ref (which never truncates) and
+   the 70px state column; the name is the arbitrary-length one and the role is
+   the least load-bearing, so under ~300px the role leaves whole and the name
+   gets the room back. Its own container, because an agent row is inset further
+   than the strip it hangs under and narrows before it does. */
+.deck-agent {
+  container-type: inline-size;
+  container-name: deck-agent;
+}
+
+@container deck-agent (max-width: 300px) {
+  .deck-drop-role {
+    display: none;
+  }
+}
+
 /* ── THE MISSION GAUGE — "the split readout" (POD-710) ───────────────────────
    The flight deck's mission bar is a row of bands, one per state, each sized by
    how many tasks it holds and each carrying its own count INSIDE itself. A band
