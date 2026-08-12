@@ -247,10 +247,12 @@ export class SessionStore {
     this.migrateLegacyMachineIdentity(this.hostMachineId)
     this.conversations.ensureFts()
     this.superagent.seedGlobalThread()
-    this.repos.importReposJson(this.path, this.hostMachineId)
-    // Runs immediately after the legacy repos.json import, which is the only writer
-    // left that can give it work. At most once per database (POD-1360).
-    this.upgradeLegacyRepoIdentityOnce()
+    // The legacy repos.json import is the ONE writer left that can still hand the
+    // repo-identity upgrade work — its rows land with a NULL repo_id and no prefix —
+    // so the upgrade is told what it imported rather than trusting boot order to put
+    // the import first forever (POD-1360).
+    const importedRepos = this.repos.importReposJson(this.path, this.hostMachineId)
+    this.upgradeLegacyRepoIdentityOnce(importedRepos > 0)
     // #140 defense in depth (ported from main's boot migrate): renumber any
     // (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
     // no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.
@@ -295,12 +297,21 @@ export class SessionStore {
    * that still has work to do. The marker says what the row shape cannot — this database
    * has been past this code — and the fact that the marker is written in the SAME
    * transaction as the rewrite is what keeps a crash mid-upgrade from spending it.
+   *
+   * `legacyRowsJustImported` IS THE ONE OVERRIDE, and it exists so the bound is a
+   * property of the code rather than of boot order. A spent marker means "no row here
+   * needs this" — true for every writer in the process except `importReposJson`, which
+   * inserts NULL-repo_id rows from a file. Today it runs on the line above, before the
+   * marker can be consulted, so the override never fires; the day someone moves it, or
+   * calls it a second time on a database that has emptied its repos table, the upgrade
+   * still covers those rows instead of leaving them permanently unidentified.
    */
-  private upgradeLegacyRepoIdentityOnce(): void {
+  private upgradeLegacyRepoIdentityOnce(legacyRowsJustImported = false): void {
     const marker = this.db
       .prepare('SELECT value FROM meta WHERE key = ?')
       .get(SessionStore.REPO_IDENTITY_UPGRADE_KEY) as { value?: unknown } | undefined
-    if (typeof marker?.value === 'string' && marker.value.length > 0) return
+    const spent = typeof marker?.value === 'string' && marker.value.length > 0
+    if (spent && !legacyRowsJustImported) return
     this.transact(() => {
       this.migrateLegacyRepoIdentity()
       this.db

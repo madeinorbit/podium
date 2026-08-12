@@ -220,6 +220,35 @@ describe('the repo-identity upgrade is spent once per database (POD-1360)', () =
     }
   })
 
+  it('a legacy repos.json import is covered even on a database that already spent the marker', () => {
+    // THE ONE HOLE A MARKER LEAVES, closed and pinned. `importReposJson` inserts rows
+    // with a NULL repo_id and no prefix — it is the only writer left that can create
+    // work for this upgrade. A spent marker would otherwise mean those rows are never
+    // identified. Today the import runs before the marker is read, so this can only be
+    // reached by moving that call; the test exists so that move fails loudly here
+    // instead of silently stranding repos.
+    const dir = mkdtempSync(join(tmpdir(), 'podium-repos-json-'))
+    try {
+      const file = join(dir, 'podium.db')
+      // Boot once on an empty db with no repos.json: the marker is spent doing nothing.
+      new SessionStore(file).close()
+      // NOW the legacy file appears, and the repos table is empty, so the next boot
+      // imports it — on a database whose marker says the upgrade is already done.
+      writeFileSync(join(dir, 'repos.json'), JSON.stringify(['/legacy/one', '/legacy/two']))
+
+      const second = new SessionStore(file)
+      expect(second.repos.listRepoPaths()).toEqual(['/legacy/one', '/legacy/two'])
+      // Every imported row identified, despite the spent marker…
+      for (const r of second.repos.listRepos()) {
+        expect(r.repoId, `repo ${r.path} has no repo_id`).not.toBeNull()
+        expect(second.repos.prefixForRepoId(r.repoId!), `repo ${r.path} has no prefix`).not.toBeNull()
+      }
+      second.close()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('records the local origin for a repo whose checkout this host can read', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-repo-origin-'))
     try {

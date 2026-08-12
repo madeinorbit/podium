@@ -497,29 +497,43 @@ export class ReposRepository {
     }
   }
 
-  /** One-time import of a legacy ~/.podium/repos.json sitting next to the db. */
-  importReposJson(dbPath: string, machineId: string): void {
-    if (dbPath === ':memory:') return
+  /**
+   * One-time import of a legacy ~/.podium/repos.json sitting next to the db.
+   *
+   * RETURNS HOW MANY ROWS IT INSERTED, and that number is load-bearing rather than
+   * informational: these rows land with a NULL repo_id and no prefix, so this is the
+   * one writer left in the process that can still create work for the repo-identity
+   * upgrade. The facade runs the upgrade when a database has never been past it OR
+   * when this reports an import, so the upgrade's bound does not rest on the
+   * assumption that a legacy import can only ever precede the marker.
+   */
+  importReposJson(dbPath: string, machineId: string): number {
+    if (dbPath === ':memory:') return 0
     const count = (this.db.prepare('SELECT COUNT(*) AS c FROM repos').get() as { c: number }).c
-    if (count > 0) return
+    if (count > 0) return 0
     let raw: string
     try {
       raw = readFileSync(join(dirname(dbPath), 'repos.json'), 'utf8')
     } catch {
-      return // no legacy file
+      return 0 // no legacy file
     }
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
     } catch {
-      return // corrupt file -> skip
+      return 0 // corrupt file -> skip
     }
-    if (!Array.isArray(parsed)) return
+    if (!Array.isArray(parsed)) return 0
     const insert = this.db.prepare(
       'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, added_at) VALUES (?, ?, NULL, ?, ?)',
     )
     const now = new Date().toISOString()
+    let imported = 0
     for (const p of parsed)
-      if (typeof p === 'string') insert.run(machineId, p, p.split('/').pop() ?? null, now)
+      if (typeof p === 'string') {
+        insert.run(machineId, p, p.split('/').pop() ?? null, now)
+        imported += 1
+      }
+    return imported
   }
 }
