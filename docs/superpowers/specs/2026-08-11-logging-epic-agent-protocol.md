@@ -152,6 +152,33 @@ sink on this process's stream. `configureProcessLogging` is idempotent by
 replacement, which is what lets the CLI configure as `cli` and re-configure
 as `server`/`daemon`/`janitor` once it knows its role.
 
+## Being a client of a schema-validated endpoint
+
+The ingestion endpoints validate in the schema, so **one record the server
+refuses is a batch it refuses forever** at the head of a FIFO queue — the
+client wedges and every later record starves behind it. Chunk 4 closed this
+two ways and both are required:
+
+- The contract's text caps are clamped **client-side on the way in**, with a
+  truncated marker, so a well-formed record cannot be refused for size.
+- A batch refused `maxAttempts` times is **dropped**, not retried for the
+  life of the process.
+
+Reuse chunk 4's forwarding sink rather than writing a second one; it has
+both. Reimplementing gets neither unless you remember to.
+
+## One knob, not two
+
+The forwarding sink pins **no** `minLevel`, so it follows the namespace
+level and `setLogLevel` is the single runtime knob. That is what makes the
+spec's "default `warn`+, and raising a client to `debug` forwards `debug`
+too" one control rather than two that can silently disagree. Boot sets
+`warn` explicitly, because the console default is not baked in.
+
+If the client wiring is extracted into `packages/client-core`, preserve
+this: a sink with its own pinned threshold quietly breaks the second half of
+that sentence and nothing will fail to tell you.
+
 ## Cross-platform file operations
 
 Chunk 2's rotation leaned on `renameSync` **replacing** its destination,

@@ -158,6 +158,23 @@ as server-side crash events.
 - Docs: short `docs/agents/logging.md` — level semantics table, how to add
   fields, how to raise verbosity, where logs live.
 
+**Known exemptions to carry into the lint rule**, found by earlier chunks
+and deliberately left converted-not:
+
+- `apps/server/src/migrations/restore.ts` — `console.log` as an injected
+  stdout default; CLI output, not logging.
+- `apps/server/src/test-support/pre-migrated-store.build.ts` — test-fixture
+  build output.
+- `apps/web/src/perf/large-state.frontend-perf.tsx` — two sites: the perf
+  harness printing its own measurements, and a `console.error` spy.
+
+All are the same category as CLI stdout and tests: the boundary should
+**exempt** them rather than have them converted. Note also that
+`audit-durable-classes` refuses any module writing durable bytes that is on
+neither `DURABLE_STORES` nor `NON_CLASS_WRITE_SITES`; chunk 3 had to add
+written excuses for the crash store and the export path, so a sweep that
+adds a writer will trip it.
+
 **Tests:** the lint rule itself (fixture or self-test consistent with
 existing boundary rules). No behavioral tests — mechanical sweep.
 **Acceptance:** `bun run lint` fails on a newly introduced raw
