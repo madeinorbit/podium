@@ -167,7 +167,7 @@ describe('handoff package', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [foreign, base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })
@@ -180,7 +180,7 @@ describe('handoff package', () => {
         resume: { kind: 'claude-session', value: resumeValue },
         branch: 'ignored',
         baseShas: [foreign],
-        repoId: 'repo',
+        repoId: asRepoId('repo'),
         sourceMachineId: 'source',
         homeDir: sourceHome,
       }),
@@ -209,7 +209,7 @@ describe('handoff package', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })
@@ -258,7 +258,7 @@ describe('handoff package', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })
@@ -339,8 +339,8 @@ describe('handoff package', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
-      issueId: '1013',
+      repoId: asRepoId('repo'),
+      issueId: asIssueId('1013'),
       sourceMachineId: 'a',
       homeDir: homeA,
     })
@@ -436,8 +436,8 @@ describe('handoff package', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
-      issueId: '1013',
+      repoId: asRepoId('repo'),
+      issueId: asIssueId('1013'),
       sourceMachineId: 'b',
       homeDir: homeB,
     })
@@ -539,7 +539,7 @@ describe('handoff package', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'b',
       homeDir: homeB,
     })
@@ -570,7 +570,7 @@ describe('handoff package', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })
@@ -603,7 +603,7 @@ describe('handoff package', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })
@@ -643,7 +643,7 @@ describe('handoff package', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })
@@ -697,7 +697,7 @@ describe('handoff manifest read path across file formats ([POD-1153])', () => {
     agentKind: 'claude-code',
     resume: { kind: 'claude-session', value: 'uuid-legacy' },
     transcriptFilename: 'uuid-legacy.jsonl',
-    repoId: 'repo-1',
+    repoId: asRepoId('repo-1'),
     branch: 'issue/498-handoff',
     headSha: 'a'.repeat(40),
     snapshotSha: null,
@@ -794,7 +794,7 @@ describe('handoff manifest read path across file formats ([POD-1153])', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })
@@ -837,7 +837,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
       resume: { kind: 'claude-session', value: input.resumeValue },
       branch: 'ignored',
       baseShas: input.baseShas,
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: input.homeDir,
     })
@@ -1064,7 +1064,7 @@ describe('abandoned stage files ([POD-742])', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })
@@ -1094,7 +1094,7 @@ describe('abandoned stage files ([POD-742])', () => {
       resume: { kind: 'claude-session', value: resumeValue },
       branch: 'ignored',
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source',
       homeDir: sourceHome,
     })

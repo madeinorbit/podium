@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { access, copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
+import { asIssueId, asMachineId, asRepoId, asSessionId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BindingStore } from './binding-store'
 import {
@@ -70,7 +70,7 @@ describe('workspace package', () => {
       fetchId: 'workspace-fetch-copy',
       cwd: source,
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source-machine',
       homeDir: sourceHome,
     })
@@ -106,7 +106,7 @@ describe('workspace package', () => {
       fetchId: 'ws-e2e',
       cwd: source,
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source-machine',
       homeDir: sourceHome,
     })
@@ -156,7 +156,7 @@ describe('workspace package', () => {
       fetchId: 'ws-clean',
       cwd: source,
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source-machine',
       homeDir: sourceHome,
     })
@@ -186,7 +186,7 @@ describe('workspace package', () => {
       fetchId: 'ws-dirty',
       cwd: source,
       baseShas: [base],
-      repoId: 'repo',
+      repoId: asRepoId('repo'),
       sourceMachineId: 'source-machine',
       homeDir: sourceHome,
     })
@@ -208,7 +208,7 @@ describe('workspace package', () => {
         fetchId: 'ws-nobase',
         cwd: source,
         baseShas: ['1234567890abcdef1234567890abcdef12345678'],
-        repoId: 'repo',
+        repoId: asRepoId('repo'),
         sourceMachineId: 'source-machine',
         homeDir: sourceHome,
       }),
