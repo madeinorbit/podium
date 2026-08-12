@@ -38,6 +38,10 @@ interface AcceptedLayoutValue {
   feedConfirmed: boolean
 }
 
+function onlyLayoutKeys(snapshot: LayoutSnapshot): LayoutSnapshot {
+  return Object.fromEntries(Object.entries(snapshot).filter(([key]) => isLayoutKey(key)))
+}
+
 function canonicalLayoutKey(key: string): string {
   if (isLayoutKey(key)) return key
   const mapped = layoutKeyFromLegacy(key)
@@ -106,9 +110,31 @@ export function createReplicatedLayoutController(init: {
   api: PodiumClientApi
   outbox: EngineOutbox
   notices: StoreNotices
+  /**
+   * The persisted base this client last installed, read from the replica at
+   * construction (POD-571).
+   *
+   * Without it `base` starts empty and stays empty until the network answers, so
+   * the shell mounts its DEFAULT branch first — an expanded sidebar, an open
+   * Flight Deck — and swaps once the snapshot lands. This is the same
+   * hydrate-first rule the runtime already applies to the entity slices; layout
+   * is the one slice that never got it, and it is the slice that decides what
+   * mounts.
+   */
+  seed?: LayoutSnapshot
+  /**
+   * Called with every AUTHORITATIVE base this controller installs, so the caller
+   * can write it back to durable storage. Optimistic and queued values are
+   * deliberately NOT reported: a value that has not been accepted yet must not
+   * survive a reload as though it had.
+   */
+  onBaseInstalled?: (snapshot: LayoutSnapshot) => void
 }): ReplicatedLayoutController {
-  const { api, outbox, notices } = init
-  let base: LayoutSnapshot = {}
+  const { api, outbox, notices, onBaseInstalled } = init
+  // The seed is installed WITHOUT `onBaseInstalled` — it came out of durable
+  // storage, so reporting it would only ask the caller to write back what it
+  // just read.
+  let base: LayoutSnapshot = onlyLayoutKeys(init.seed ?? {})
   let nextToken = 1
   let temporary: TemporaryOperation[] = []
   const ignoredAwaiting = new Set<string>()
@@ -120,7 +146,8 @@ export function createReplicatedLayoutController(init: {
   }
 
   const installBase = (snapshot: LayoutSnapshot): void => {
-    base = Object.fromEntries(Object.entries(snapshot).filter(([key]) => isLayoutKey(key)))
+    base = onlyLayoutKeys(snapshot)
+    onBaseInstalled?.(base)
   }
 
   const layoutEntries = (): OutboxEntry[] =>

@@ -48,7 +48,14 @@
  * authentication has produced a principal. The provider renders nothing instead.
  */
 
-import type { IssueId, LayoutWire, ReadPositionWire, SessionId } from '@podium/model'
+import type {
+  IssueId,
+  LayoutSnapshot,
+  LayoutWire,
+  ReadPositionWire,
+  SessionId,
+} from '@podium/model'
+import { asUserId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
@@ -298,6 +305,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     })
     const localUi = this.replica.uiState()
     this.router = createUiStateRouter(localUi, init.routerWindow)
+    // ORDER IS LOAD-BEARING HERE. `createActions()` builds the replicated-layout
+    // controller and seeds its base from the persisted rows (`layoutSeed`), and
+    // that has to happen before the two readers below: `routerUi.hydrate()` a few
+    // lines down reads persisted UI state THROUGH this controller, and every
+    // replicated layout consumer (`usePersistedUiValue`) reads it on its first
+    // render. A base seeded after either one arrived too late to decide what the
+    // shell mounts, which is the whole of POD-571.
     const actions = this.createActions()
     this.replicatedLayout = actions.replicatedLayout
     this.readPosition = createReadPositionClient({
@@ -1008,6 +1022,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       outbox: this.outbox,
       router: this.router,
       notices: this.notices,
+      layoutSeed: layoutSnapshotFromRows(this.replicaBinding.snapshot().userLayouts),
+      onLayoutBaseInstalled: (snapshot) => this.persistLayoutBase(snapshot),
       state: () => this.state,
       apply: (patch) => this.apply(patch),
       enqueueOverlayed: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
@@ -1028,6 +1044,37 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     })
   }
 
+  /**
+   * Cache an authoritative layout base so the NEXT boot paints it on frame one.
+   *
+   * Only on the legacy wire. The kernel feed carries `userLayout` like every
+   * other entity and its cache has exactly one ordered writer — `applySnapshot`
+   * REFUSES there by design, and it is right to: those rows arrive through the
+   * feed and need nothing from us. The legacy wire carries no layout at all, so
+   * `api.layout.get.query()` is the only truth this device ever sees and this is
+   * the one place it can be kept.
+   *
+   * Same `onFeed` split, and for the same reason, as the wire-v1 hub seeding in
+   * `start()`.
+   */
+  private persistLayoutBase(snapshot: LayoutSnapshot): void {
+    if (this.onFeed) return
+    const userId = asUserId(this.principal.userId)
+    try {
+      this.replica.applySnapshot(
+        'userLayouts',
+        Object.entries(snapshot).map(([key, value]) => ({ userId, key, value })),
+      )
+    } catch (err) {
+      // This runs INSIDE `installBase`, so a throw here would take the caller's
+      // `emit()` with it and the base we just installed would never repaint —
+      // trading a cold next boot for a broken current one. A cache write is
+      // never worth that; the replica's own writes fail the same way, loudly in
+      // the log and harmlessly to the app.
+      console.warn('[podium] could not cache the layout base for the next boot', err)
+    }
+  }
+
   private buildStatics(actions: EngineActions<TApi>): EngineStatics<TApi> {
     return {
       hub: this.hub,
@@ -1044,6 +1091,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       ...actions,
     } as EngineStatics<TApi>
   }
+}
+
+/** Persisted layout ROWS → the controller's snapshot shape. The rows are already
+ *  this principal's (the replica is principal-scoped and the feed is per-user),
+ *  so the key/value pair is all the controller needs back. */
+function layoutSnapshotFromRows(rows: readonly LayoutWire[]): LayoutSnapshot {
+  return Object.fromEntries(rows.map((row) => [row.key, row.value]))
 }
 
 /**

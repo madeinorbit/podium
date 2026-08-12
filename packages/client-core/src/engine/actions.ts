@@ -12,6 +12,7 @@ import type {
   AgentKind,
   IssueId,
   IssueWire,
+  LayoutSnapshot,
   SessionId,
   SessionMeta,
   WorkState,
@@ -191,6 +192,11 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly outbox: EngineOutbox
   readonly router: Router
   readonly notices: StoreNotices
+  /** Layout base persisted by an earlier session, for hydrate-first paint
+   *  (POD-571). The runtime reads it out of the replica; absent means cold. */
+  readonly layoutSeed?: LayoutSnapshot
+  /** Write an authoritative layout base back to durable storage (POD-571). */
+  onLayoutBaseInstalled?(snapshot: LayoutSnapshot): void
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
   /**
@@ -296,6 +302,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     outbox: rt.outbox,
     api,
     notices: rt.notices,
+    ...(rt.layoutSeed !== undefined ? { seed: rt.layoutSeed } : {}),
+    ...(rt.onLayoutBaseInstalled !== undefined
+      ? { onBaseInstalled: (snapshot) => rt.onLayoutBaseInstalled?.(snapshot) }
+      : {}),
   })
   /**
    * ONE WRITE PATH for the tab workspaces (POD-710). Every action below rewrites

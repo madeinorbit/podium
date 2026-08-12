@@ -18,6 +18,13 @@ import { useStoreSelector } from '@/app/store'
  * race by construction — the persisted value IS the state, so there is no second
  * source of truth to fall out of step, and a late replica simply re-renders.
  *
+ * "Arrives later" was the whole story until POD-571, and it is worth knowing
+ * that it no longer is: replicated LAYOUT keys are now a persisted replica kind
+ * (`userLayouts`), seeded into the layout controller at construction, so on any
+ * device that has seen them before the first read here already returns the
+ * stored value. A cold device still resolves late — which is the case this hook
+ * has to keep handling, and the reason it subscribes rather than seeds.
+ *
  * `parse` is applied outside the store read (so it may allocate) and memoized on
  * the raw string; pass a module-level or `useCallback`-stable `parse` if you
  * want a stable object identity out.

@@ -302,6 +302,7 @@ describe('replica adapter', () => {
       conversations: [],
       automations: [],
       automationRuns: [],
+      userLayouts: [],
       cursor: null,
       // Degraded storage has no durable entity data, so the cursor triple reads
       // cold too — a persisted cursor would lie about what is on disk (ADR 2 D1).
@@ -330,6 +331,7 @@ describe('replica adapter', () => {
       conversations: [],
       automations: [],
       automationRuns: [],
+      userLayouts: [],
       cursor: null,
       feedCursor: COLD_CURSOR,
       schemaReset: false,

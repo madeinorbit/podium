@@ -154,3 +154,94 @@ test('native mode stays selected after a delayed layout feed', async ({ page }) 
   await page.waitForTimeout(5_000)
   await expect(nativeTab).toHaveAttribute('aria-selected', 'true')
 })
+
+test('a stored collapsed layout paints collapsed — the default branch never mounts', async ({
+  page,
+}) => {
+  // POD-571. POD-540 made the stored value WIN; it still arrived late, so the
+  // shell mounted its default branch — the 292px sidebar, the 360px Flight Deck —
+  // and swapped when the network answered. Both are cheap to prove and expensive
+  // to eyeball, so the oracle is a MutationObserver installed before app code:
+  // it records every node the shell inserts, which means a subtree that mounts
+  // for a single frame and unmounts is still caught. A screenshot cannot make
+  // that claim — it samples, and this is precisely a thing that hides between
+  // samples.
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await openApp(page)
+  await page.waitForFunction(
+    () => !!(window as unknown as { __podium?: unknown }).__podium,
+    undefined,
+    { timeout: 30_000 },
+  )
+
+  const expandedSidebar = '[aria-label="Collapse sidebar"]'
+  const expandedFlightDeck = 'aside[aria-label="Flight Deck"]'
+
+  // Collapse both columns the way a user does, so the server rows are written
+  // through the real command path rather than planted.
+  await expect(page.locator(expandedFlightDeck)).toBeVisible({ timeout: 30_000 })
+  await page.getByTitle('Collapse Flight Deck').click()
+  await expect(page.locator('[data-flight-deck-mode="folded"]')).toBeVisible()
+  await page.locator(expandedSidebar).click()
+  await expect(page.locator('aside.collapsed-sidebar')).toBeVisible()
+
+  // Replicated layout writes are optimistic; cross the durable Outbox boundary
+  // before a process-losing reload, exactly as the specs above do.
+  await page.waitForTimeout(1_000)
+
+  // The probe records the COLLAPSED forms as well as the expanded ones, and the
+  // assertion below requires both answers. A probe that only ever reports
+  // `false` is indistinguishable from a probe that never ran — and this one is
+  // asserting an absence, which is exactly the shape that passes for the wrong
+  // reason. Seeing the folded bar and the rail appear is what proves it was
+  // watching at all.
+  await page.addInitScript(() => {
+    const seen = { sidebar: false, flightDeck: false, rail: false, foldedBar: false }
+    ;(window as unknown as { __firstPaintProbe: typeof seen }).__firstPaintProbe = seen
+    const check = (): void => {
+      if (document.querySelector('[aria-label="Collapse sidebar"]')) seen.sidebar = true
+      if (document.querySelector('aside[aria-label="Flight Deck"]')) seen.flightDeck = true
+      if (document.querySelector('aside.collapsed-sidebar')) seen.rail = true
+      if (document.querySelector('[data-flight-deck-mode="folded"]')) seen.foldedBar = true
+    }
+    // Observe `document`, NOT `document.documentElement`: an init script runs at
+    // document-start, where the element can still be null — and `observe(null)`
+    // throws AFTER the probe object is already on `window`, which reads at the
+    // assertion exactly like "watched everything, saw nothing". `document` is
+    // always there and `subtree: true` covers the same nodes.
+    new MutationObserver(check).observe(document, { childList: true, subtree: true })
+    check()
+  })
+
+  await page.reload()
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 45_000,
+  })
+  // Settle first: the probe's claim is only worth making once the layout the
+  // server holds has certainly had time to arrive and repaint.
+  await expect(page.locator('aside.collapsed-sidebar')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('[data-flight-deck-mode="folded"]')).toBeVisible({ timeout: 30_000 })
+  await page.waitForTimeout(2_000)
+
+  const probe = await page.evaluate(
+    () => (window as unknown as { __firstPaintProbe: unknown }).__firstPaintProbe,
+  )
+
+  // Put the columns back BEFORE asserting. Layout is per-USER state on a server
+  // this file's tests share, so a collapsed shell is not this test's private
+  // business — it is the width the other tests lay out inside. Restoring after
+  // the assertion would skip exactly when it matters: a failure here would then
+  // fail a neighbour too, and the second failure is the one that sends the
+  // reader to the wrong file.
+  //
+  // Belt and braces, because this test is LAST for the same reason: the tests
+  // above share that state with each other already and are order-sensitive about
+  // it (POD-709), so a new test in the middle changes which of them loses.
+  await page.locator('[aria-label="Expand Flight Deck"]').first().click()
+  await expect(page.locator(expandedFlightDeck)).toBeVisible()
+  await page.locator('[aria-label="Expand sidebar"]').click()
+  await expect(page.locator(expandedSidebar)).toBeVisible()
+  await page.waitForTimeout(1_000)
+
+  expect(probe).toEqual({ sidebar: false, flightDeck: false, rail: true, foldedBar: true })
+})

@@ -64,6 +64,7 @@ import type {
   IssueEventWire,
   IssueProjection,
   IssueWire,
+  LayoutWire,
   RepoProjection,
   SessionMeta,
   TranscriptItem,
@@ -133,6 +134,23 @@ export interface ReplicaRows {
   conversations: ConversationSummaryWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
+  /**
+   * This principal's replicated shell layout [POD-1350] — sidebar collapsed,
+   * Flight Deck folded, right-panel tab, per-session presentation.
+   *
+   * It is a cache of authority rows like every other kind here, and it is one
+   * for a reason the other kinds do not have to argue: layout decides what the
+   * shell MOUNTS on the first frame. Left off these rails the snapshot was
+   * network-only (`api.layout.get.query()`), so every reload painted the
+   * defaults until the server answered — the full-size column appearing and
+   * snapping shut — and a failed fetch painted them for the whole session, which
+   * is a collapsed sidebar silently coming back expanded offline (POD-571).
+   *
+   * `userLayout` was already a feed entity and already in the authority's
+   * bootstrap (`latestChangeStates`); only the client's kind table was missing
+   * it, so the rows arrived and were dropped.
+   */
+  userLayouts: LayoutWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -149,6 +167,10 @@ export interface ReplicaHydrateResult {
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
+  /** Persisted layout rows (POD-571). The engine seeds the replicated-layout
+   *  controller's base from these BEFORE any subscriber reads, so the shell's
+   *  first frame paints the stored layout rather than the defaults. */
+  userLayouts: LayoutWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
   /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.

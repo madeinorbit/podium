@@ -55,17 +55,19 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type {
-  AutomationRunWire,
-  AutomationWire,
-  ConversationSummaryWire,
-  IssueDepProjection,
-  IssueEventWire,
-  IssueProjection,
-  IssueWire,
-  RepoProjection,
-  SessionMeta,
-  TranscriptItem,
+import {
+  type AutomationRunWire,
+  type AutomationWire,
+  type ConversationSummaryWire,
+  type IssueDepProjection,
+  type IssueEventWire,
+  type IssueProjection,
+  type IssueWire,
+  type LayoutWire,
+  layoutRowId,
+  type RepoProjection,
+  type SessionMeta,
+  type TranscriptItem,
 } from '@podium/model'
 import type { Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
@@ -476,6 +478,15 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
+      // Keyed on the AUTHORITY's composite id (`layoutRowId`), not on the bare
+      // layout key: that is the id the feed's remove ops carry, and a collection
+      // keyed on anything else could not delete the row a reset produced.
+      userLayouts: this.makeCollection<LayoutWire>(
+        'userLayouts',
+        (row) => layoutRowId(row.userId, row.key),
+        guarded,
+        guardedEvents,
+      ),
       transcripts: this.makeCollection<TranscriptRow>(
         'transcripts',
         (t) => t.key,
@@ -516,6 +527,7 @@ class TanstackReplica implements Replica {
       conversations: [],
       automations: [],
       automationRuns: [],
+      userLayouts: [],
       cursor: null,
       feedCursor: COLD_CURSOR,
       schemaReset: false,
@@ -562,6 +574,7 @@ class TanstackReplica implements Replica {
         conversations: this.cols.conversations.toArray as ConversationSummaryWire[],
         automations: this.cols.automations.toArray as AutomationWire[],
         automationRuns: this.cols.automationRuns.toArray as AutomationRunWire[],
+        userLayouts: this.cols.userLayouts.toArray as LayoutWire[],
         cursor: this.getCursor(),
         feedCursor: this.getFeedCursor(),
         schemaReset,
@@ -1513,10 +1526,17 @@ class TanstackReplica implements Replica {
   }
 
   private keyFor<K extends ReplicaKind>(kind: K): (row: ReplicaRows[K]) => string {
-    return kind === 'sessions'
-      ? (row) => (row as SessionMeta).sessionId
-      : (row) =>
-          (row as IssueWire | ConversationSummaryWire | AutomationWire | AutomationRunWire).id
+    if (kind === 'sessions') return (row) => (row as SessionMeta).sessionId
+    // Layout rows have no `id` of their own — their identity is the authority's
+    // (userId, key) composite, the same one `kernel/kinds.ts` derives.
+    if (kind === 'userLayouts') {
+      return (row) => {
+        const layout = row as LayoutWire
+        return layoutRowId(layout.userId, layout.key)
+      }
+    }
+    return (row) =>
+      (row as IssueWire | ConversationSummaryWire | AutomationWire | AutomationRunWire).id
   }
 
   /** Insert-new + update-changed (skipping byte-identical rows so a re-applied

@@ -17,7 +17,10 @@ import {
   asAutomationId,
   asAutomationRunId,
   asSessionId,
+  asUserId,
   type IssueWire,
+  type LayoutWire,
+  layoutRowId,
   type SessionMeta,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
@@ -333,5 +336,50 @@ describe('replica outbox storage: in-place entry transitions (#263 review findin
     createReplica({ storage, keyPrefix: prefix }).outboxDeadLetterStorage().save([parked])
     const reloaded = createReplica({ storage, keyPrefix: prefix }).outboxDeadLetterStorage().load()
     expect(reloaded).toEqual([parked])
+  })
+})
+
+describe('replica layout rows (POD-571)', () => {
+  const layout = (key: string, value: unknown): LayoutWire =>
+    ({ userId: asUserId('u1'), key, value }) as LayoutWire
+
+  /** Collection rows carry the store's own `$`-prefixed bookkeeping; compare the
+   *  wire fields, which are the only part the layout controller reads back. */
+  const wire = (rows: readonly LayoutWire[]): LayoutWire[] =>
+    rows.map(({ userId, key, value }) => ({ userId, key, value }) as LayoutWire)
+
+  it('survives a reload, which is the whole point of putting them here', async () => {
+    // The round trip is the claim. Layout decides what the shell MOUNTS, so a
+    // row that lives only in memory is a row that cannot stop the first frame
+    // from painting the default — which is what it did before this kind existed.
+    const storage = memoryStorage()
+    const prefix = 'layout.reload'
+    createReplica({ storage, keyPrefix: prefix }).applySnapshot('userLayouts', [
+      layout('sidebar.collapsed', 'true'),
+      layout('superagent.mode', 'folded'),
+    ])
+
+    const reloaded = await createReplica({ storage, keyPrefix: prefix }).hydrate()
+
+    expect(wire(reloaded.userLayouts)).toEqual([
+      layout('sidebar.collapsed', 'true'),
+      layout('superagent.mode', 'folded'),
+    ])
+  })
+
+  it('identifies a row by the authority composite, so a reset actually removes it', () => {
+    // Layout rows carry no `id`. Keyed on the bare layout key they would still
+    // LOOK right — until a reset, whose remove op names `layoutRowId`. A
+    // collection keyed on anything else cannot match that id, and the key stays
+    // painted at its old value forever.
+    const replica = createReplica({ storage: memoryStorage(), keyPrefix: 'layout.id' })
+    replica.applySnapshot('userLayouts', [
+      layout('sidebar.collapsed', 'true'),
+      layout('superagent.mode', 'folded'),
+    ])
+
+    replica.applyChanges('userLayouts', [], [layoutRowId('u1', 'sidebar.collapsed')])
+
+    expect(wire(replica.rows('userLayouts'))).toEqual([layout('superagent.mode', 'folded')])
   })
 })

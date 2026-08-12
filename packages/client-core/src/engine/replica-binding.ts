@@ -26,6 +26,7 @@ export const REPLICA_BINDING_KINDS = [
   'conversations',
   'automations',
   'automationRuns',
+  'userLayouts',
 ] as const satisfies readonly ReplicaKind[]
 
 export type ReplicaBindingSnapshot = {
@@ -132,6 +133,7 @@ function readSnapshot(replica: Replica): ReplicaBindingSnapshot {
     conversations: replica.rows('conversations'),
     automations: replica.rows('automations'),
     automationRuns: replica.rows('automationRuns'),
+    userLayouts: replica.rows('userLayouts'),
   }
 }
 

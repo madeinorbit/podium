@@ -89,7 +89,7 @@ import type {
   UiState,
 } from '../contract'
 import { COLD_CURSOR, type FeedCursor } from '../feed'
-import { kindForEntity } from './kinds'
+import { kindForEntity, rowKey } from './kinds'
 import type { SideCache } from './side-cache'
 
 /**
@@ -186,6 +186,7 @@ const ALL_KINDS: readonly ReplicaKind[] = [
   'conversations',
   'automations',
   'automationRuns',
+  'userLayouts',
 ]
 
 /** Shared identity for an empty kind so engine snapshots do not churn
@@ -264,10 +265,12 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     return frozen
   }
 
+  /** `rowKey` rather than a local copy of the sessions/`id` split: this feeds the
+   *  sort above, and a kind whose identity this copy did not know would key every
+   *  row on `undefined` — an unstable order, which is the one thing that sort
+   *  exists to prevent. `kinds.ts` is where identity is total over the kinds. */
   function keyOf<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): string {
-    return kind === 'sessions'
-      ? (row as ReplicaRows['sessions']).sessionId
-      : (row as ReplicaRows['issues']).id
+    return rowKey(kind, row)
   }
 
   function refuse(method: string): never {
@@ -303,6 +306,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         conversations: project('conversations'),
         automations: project('automations'),
         automationRuns: project('automationRuns'),
+        userLayouts: project('userLayouts'),
         cursor: facade.getCursor(),
         feedCursor: facade.getFeedCursor(),
         // ADR 2 D7 rung 6 is the LEGACY blob's version check. This path has no

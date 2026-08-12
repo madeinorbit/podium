@@ -87,9 +87,10 @@ describe('replica snapshot binding', () => {
     expect(publications).toHaveLength(1)
     // EVERY bound kind, which is the property — a rescope replaces the whole
     // world, so a kind left out of the batch is one the Store would still be
-    // showing from the previous scope. Counted from the list itself so adding a
-    // kind cannot quietly narrow what this asserts.
-    expect([...publications[0]!.changed]).toHaveLength(REPLICA_BINDING_KINDS.length)
+    // showing from the previous scope. Asserted against the list itself so
+    // adding a kind cannot quietly narrow what this asserts (POD-571 added
+    // `userLayouts` and a bare count would have only said the number changed).
+    expect(new Set(publications[0]!.changed)).toEqual(new Set(REPLICA_BINDING_KINDS))
     expect(publications[0]!.snapshot.sessions.map((row) => row.sessionId)).toEqual(['new-session'])
     expect(publications[0]!.snapshot.issues.map((row) => row.id)).toEqual(['new-issue'])
 

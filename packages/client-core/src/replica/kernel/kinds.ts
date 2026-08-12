@@ -17,6 +17,7 @@
  * "not mine" — never "corrupt".
  */
 
+import { layoutRowId } from '@podium/model'
 import type { ReplicaKind, ReplicaRows } from '../contract'
 
 /** Kernel entity name → engine collection kind. */
@@ -39,6 +40,12 @@ const ENTITY_TO_KIND = {
   conversation: 'conversations',
   automation: 'automations',
   automationRun: 'automationRuns',
+  // POD-1350's per-user layout rows. The hub has demuxed this entity since that
+  // issue and the authority has always included it in bootstrap; it was absent
+  // HERE, so the rows reached the client and landed in no collection. That is
+  // what made the shell's layout network-only and gave every reload a default
+  // frame before the stored one (POD-571).
+  userLayout: 'userLayouts',
 } as const satisfies Record<string, ReplicaKind>
 
 /** The entity names the engine's read model renders. */
@@ -67,7 +74,14 @@ export function entityForKind(kind: ReplicaKind): KernelEntity {
  * construct; a shared helper would have dragged the collection layer with it.
  */
 export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): string {
-  return kind === 'sessions'
-    ? (row as ReplicaRows['sessions']).sessionId
-    : (row as ReplicaRows['issues']).id
+  if (kind === 'sessions') return (row as ReplicaRows['sessions']).sessionId
+  // A layout row's identity is the authority's (userId, key) composite — the id
+  // its own change rows are logged under. `layoutRowId` is imported rather than
+  // re-spelled: an id derived two ways is an id that can disagree, and a remove
+  // op that misses leaves a reset key painted forever.
+  if (kind === 'userLayouts') {
+    const layout = row as ReplicaRows['userLayouts']
+    return layoutRowId(layout.userId, layout.key)
+  }
+  return (row as ReplicaRows['issues']).id
 }

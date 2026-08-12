@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model'
+import type { LayoutSnapshot, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -27,7 +27,7 @@ function nestedKeys(value: unknown): string[] {
   return Object.entries(value).flatMap(([key, nested]) => [key, ...nestedKeys(nested)])
 }
 
-function harness() {
+function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] } = {}) {
   const queued: { kind: keyof OutboxKinds; input: unknown }[] = []
   const pending: OutboxEntry[] = []
   const awaiting: OutboxEntry[] = []
@@ -100,6 +100,10 @@ function harness() {
     } as unknown as EngineOutbox,
     router,
     notices: { error: (message: string) => errors.push(message), info: vi.fn() } as StoreNotices,
+    ...(layout.seed !== undefined ? { layoutSeed: layout.seed } : {}),
+    ...(layout.installed !== undefined
+      ? { onLayoutBaseInstalled: (snapshot: LayoutSnapshot) => layout.installed?.push(snapshot) }
+      : {}),
     state: () => state,
     apply: (patch: Partial<typeof state>) => {
       state = { ...state, ...patch }
@@ -207,6 +211,60 @@ describe('engine action ownership boundary', () => {
         input: { values: { panelMode: JSON.stringify({ [sessionId]: 'native' }) } },
       },
     ])
+  })
+
+  it('paints a persisted layout base with no fetch, no await and no frame in between', () => {
+    // POD-571. The controller used to start empty and fill from
+    // `api.layout.get.query()`, so the shell mounted its DEFAULT branch first —
+    // an expanded sidebar, an open Flight Deck — and swapped when the network
+    // answered. Read SYNCHRONOUSLY here on purpose: an assertion behind an
+    // `await` would pass just as happily against the bug it is pinning.
+    const h = harness({ seed: { 'sidebar.collapsed': 'true', 'superagent.mode': 'folded' } })
+
+    expect(h.actions.replicatedLayout.get('sidebar.collapsed')).toBe('true')
+    expect(h.actions.replicatedLayout.get('podium:superagent:mode')).toBe('folded')
+  })
+
+  it('keeps a queued layout write painted over the persisted base', async () => {
+    // The offline-reload fold (#263) has to survive the seed: durable optimism
+    // is NEWER than the base it was queued against, so a restored queue still
+    // wins. Otherwise a reload would paint the value the user just toggled away.
+    const h = harness({ seed: { 'sidebar.collapsed': 'true' } })
+
+    h.actions.replicatedLayout.set('sidebar.collapsed', 'false')
+
+    expect(h.actions.replicatedLayout.get('sidebar.collapsed')).toBe('false')
+    await vi.waitFor(() => expect(h.queued).toHaveLength(1))
+  })
+
+  it('reports authoritative bases for persistence, never the seed or unconfirmed optimism', async () => {
+    // What may be written back is exactly what the authority said. A seed
+    // round-trip is pointless, and persisting an unaccepted local write would
+    // let it survive a reload as though the server had taken it.
+    const installed: LayoutSnapshot[] = []
+    const h = harness({ seed: { 'sidebar.collapsed': 'true' }, installed })
+
+    expect(installed).toEqual([])
+
+    h.actions.replicatedLayout.set('superOpen', '1')
+    await vi.waitFor(() => expect(h.queued).toHaveLength(1))
+    expect(installed).toEqual([])
+
+    h.actions.replicatedLayout.replace({ 'sidebar.collapsed': 'false' })
+    expect(installed).toEqual([{ 'sidebar.collapsed': 'false' }])
+  })
+
+  it('drops a non-layout key from the seed rather than projecting it', () => {
+    // The seed comes off a persisted collection, so it is as trustworthy as the
+    // disk it was read from. `installBase`'s filter is the same one every other
+    // install path goes through — a device-local key must not acquire a
+    // replicated home by being written into the cache.
+    const h = harness({ seed: { 'sidebar.collapsed': 'true', 'podium.shell.density': 'compact' } })
+
+    expect(h.actions.replicatedLayout.get('sidebar.collapsed')).toBe('true')
+    expect(() => h.actions.replicatedLayout.get('podium.shell.density')).toThrow(
+      /not a replicated layout key/,
+    )
   })
 
   it('rolls layout reducer optimism back when durable enqueue fails', async () => {

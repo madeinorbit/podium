@@ -18,13 +18,13 @@ import type {
   SessionMeta,
   SessionMetaInput,
 } from '@podium/model'
-import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { asClientPrincipal } from '../principal'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
-import type { RouterWindow } from '../ui-state'
+import { type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
 import { allTabIds } from '../viewmodels'
 import { COARSE_CLOCK_MS, createClientRuntime } from './runtime'
 
@@ -603,6 +603,32 @@ describe('constructor snapshot seeding (#262 review)', () => {
     // when they only arrived via start()).
     const { engine } = makeEngine({ storage })
     expect(engine.getSnapshot().sessions.map((s) => s.sessionId)).toEqual(['s-seeded'])
+    engine.dispose()
+  })
+
+  it('first read of a replicated layout key already carries the stored value (POD-571)', async () => {
+    // The same claim as above, for the slice that decides what the shell MOUNTS.
+    // Layout was network-only: the controller started empty and filled from
+    // `api.layout.get.query()`, so the shell painted its default branch — an
+    // expanded sidebar, an open Flight Deck — until the server answered, and
+    // kept painting it for the whole session when the fetch failed offline.
+    //
+    // This asserts the WIRING, not the controller: `makeEngine`'s api never
+    // resolves a layout snapshot into this read, and there is no `await` and no
+    // `start()` before the assertion. Deleting `layoutSeed` from `createActions`
+    // fails here and nowhere else — the controller's own tests construct it with
+    // a seed directly and stay green either way.
+    const storage = memoryStorage()
+    const previous = createReplica({ storage })
+    previous.applySnapshot('userLayouts', [
+      { userId: asUserId('operator'), key: 'sidebar.collapsed', value: 'true' },
+      { userId: asUserId('operator'), key: 'superagent.mode', value: 'folded' },
+    ])
+    await settle()
+
+    const { engine } = makeEngine({ storage })
+    expect(engine.ui.get(SIDEBAR_COLLAPSED_KEY)).toBe('true')
+    expect(engine.ui.get(SUPERAGENT_MODE_KEY)).toBe('folded')
     engine.dispose()
   })
 })
