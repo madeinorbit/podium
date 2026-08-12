@@ -168,8 +168,40 @@ and deliberately left converted-not:
 - `apps/web/src/perf/large-state.frontend-perf.tsx` — two sites: the perf
   harness printing its own measurements, and a `console.error` spy.
 
+Found by the whole-epic review, and the first is the most important:
+
+- `packages/client-core/src/logging/forward-sink.ts:283` and `crash.ts:134`
+  — the degraded-notice `console.warn` escape hatches, **inside a swept
+  package**. Converting them creates the exact log-about-logging loop they
+  exist to prevent.
+- `packages/terminal-client/src/terminal-diagnostics.ts` — console output
+  *is* the feature, behind its own enable flag.
+- `packages/client-core/src/perf/switch-trace.ts:245,250` — perf harness,
+  uses `console.table`. Make the lint rule cover `console.table` or state
+  why not.
+- `packages/pty/src/abduco-bin.ts:95,124` — build-time stdout.
+- Non-`*.test.ts` test files (`apps/server/src/test-support/capture-logs.ts`,
+  daemon/web fixtures) — make the test carve-out **by directory**, not by
+  glob.
+- Rust is out of lint scope; say so explicitly.
+
 All are the same category as CLI stdout and tests: the boundary should
-**exempt** them rather than have them converted. Note also that
+**exempt** them rather than have them converted.
+
+**Conversion hazards** for the sweep itself:
+
+- `packages/client-core/src/replica/replica.ts` (21 sites) — verify a logger
+  is live when the module runs; that is composition-root wiring, not just an
+  import.
+- `packages/sync` (`ledger.ts`, `authority.ts`) runs on both server and
+  client hosts, so it needs the ambient logger, not a host-specific import.
+- `socket-hub.ts` POD-1610 sites must land at a level the console sink shows
+  by default, or the incident-visibility property they exist for regresses.
+- Census by **calls**, not lines — several apparent hits are comments
+  (`process-safety.ts:14` among them).
+
+`apps/mobile` is already at zero console sites, and the server family was
+swept in chunk 2. Note also that
 `audit-durable-classes` refuses any module writing durable bytes that is on
 neither `DURABLE_STORES` nor `NON_CLASS_WRITE_SITES`; chunk 3 had to add
 written excuses for the crash store and the export path, so a sweep that
