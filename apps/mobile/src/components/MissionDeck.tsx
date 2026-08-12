@@ -6,11 +6,13 @@ import {
   type FlightDeckMode,
   type FlightDeckRow,
   formatClock,
+  isCoordinatorSession,
   issueNote,
   motionPhase,
   presenceNote,
   sessionNeedsHuman,
   sessionRole,
+  sessionSettled,
   sessionTitle,
   treeGuides,
 } from '@podium/client-core/viewmodels'
@@ -19,14 +21,28 @@ import { issueDisplayRef } from '@podium/protocol'
 import { ChevronsDownUp, Plus } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
-import { applyFolds, coveredByStrip } from '../lib/deck-rows'
-import { issueColorHex } from '../theme/issueColors'
-import { alpha } from '../theme/mix'
+import { applyFolds } from '../lib/deck-rows'
+import { stageColor } from '../theme/stage'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
-import { BAND_PAD, CollapsedPayload, RosterFold, SessionBand, TaskStrip } from './spine'
+import {
+  DeckSection,
+  isLead,
+  ProposalRow,
+  type Rail,
+  type RailTone,
+  ROOT_RAIL,
+  railFor,
+  roleLabel,
+  SessionBand,
+  seatFor,
+  TaskStrip,
+} from './spine'
 import { EmptyState } from './ui'
+
+/** A {@link Rail} as the style a plain `View` draws it with. */
+const toRailStyle = (rail: Rail) => ({ width: rail.width, backgroundColor: rail.color })
 
 /**
  * THE FLIGHT DECK, as the mission screen's pull-down panel [POD-592, POD-724].
@@ -45,6 +61,13 @@ import { EmptyState } from './ui'
  * at the same time as the talking. Now the deck is a panel over the
  * conversation and its session bands SWITCH the transcript in place, which is
  * the thing a phone can do that a desktop column cannot.
+ *
+ * POD-767 brings it onto the LEAD RAIL the web deck landed in POD-758, so the
+ * same mission reads the same on both. Two fills and no more — grey for a task
+ * in every state, fuchsia for a proposal — with selection and attention as
+ * square ticks in the rail's gutter, a lead's branch drawn in the mission
+ * accent, agent rows reduced to contents rather than objects, a census behind
+ * every fold, and proposals sunk to a tail that names who filed them.
  */
 
 const MODES: Array<{ id: FlightDeckMode; label: string }> = [
@@ -53,11 +76,17 @@ const MODES: Array<{ id: FlightDeckMode; label: string }> = [
   { id: 'needs-you', label: 'Needs you' },
 ]
 
+/** Whether a task has anything to fold at all. A payload-less strip draws no
+ *  chevron, so "collapse all" must not claim to have folded it either. */
+const hasPayload = (row: FlightDeckRow): boolean =>
+  row.descendantIds.length > 0 || row.sessions.length > 0
+
 export function MissionDeck({
   root,
   issues,
   sessions,
   allWorktreePaths,
+  accent,
   currentSessionId,
   onOpenSession,
   onOpenTask,
@@ -67,6 +96,8 @@ export function MissionDeck({
   issues: readonly IssueWire[]
   sessions: readonly SessionMeta[]
   allWorktreePaths: string[]
+  /** The mission's own accent — what the lead rail and every tick are drawn in. */
+  accent: string
   /** The session the conversation underneath is showing — the deck marks it so
    *  the panel answers "where am I" as well as "what else is there". */
   currentSessionId: SessionId | undefined
@@ -76,7 +107,6 @@ export function MissionDeck({
 }) {
   const [mode, setMode] = useState<FlightDeckMode>('full')
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
-  const [rosterOpen, setRosterOpen] = useState(false)
 
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const rows = useMemo(
@@ -84,11 +114,108 @@ export function MissionDeck({
     [issues, sessions, root.id, mode, allWorktreePaths],
   )
   const shown = useMemo(() => applyFolds(rows, folded), [rows, folded])
+  /**
+   * PROPOSALS SINK. A childless proposal leaves the sibling order and collects
+   * in a tail at the bottom of the spine: work being offered to the operator is
+   * not part of the mission's SHAPE, and interleaving it with the shape is what
+   * made a proposal read as a task somebody had started. One with sub-tasks
+   * stays in the tree, because by then it is holding structure up.
+   */
+  const proposalIds = useMemo(
+    () =>
+      new Set(
+        rows
+          .filter((r) => r.issue.stage === 'proposed' && r.descendantIds.length === 0)
+          .map((r) => r.issue.id),
+      ),
+    [rows],
+  )
+  const proposals = useMemo(
+    () => rows.filter((r) => proposalIds.has(r.issue.id)),
+    [rows, proposalIds],
+  )
   // The root is NOT a strip — the mission bar above is its row, so it is dropped
   // from the spine and its agents hang directly off the head.
-  const spineRows = useMemo(() => shown.filter((r) => r.issue.id !== root.id), [shown, root.id])
+  const spineRows = useMemo(
+    () => shown.filter((r) => r.issue.id !== root.id && !proposalIds.has(r.issue.id)),
+    [shown, root.id, proposalIds],
+  )
+  // Computed over the rows that ACTUALLY render: a fold or a filter changes which
+  // strip is the last child of its branch, and a rail that outlives its last
+  // child is the tell that the tree was drawn from data rather than from layout.
   const guides = useMemo(() => treeGuides(spineRows), [spineRows])
   const rootRow = useMemo(() => rows.find((r) => r.issue.id === root.id), [rows, root.id])
+
+  /**
+   * THE TASKS THAT HAVE A LEAD — the set the coloured rails are drawn from.
+   *
+   * A designated coordinator whose session has exited is not leading anything,
+   * so the predicate is over LIVE sessions: a rail that stayed lit after its
+   * lead went home would be the deck asserting somebody is driving when nobody
+   * is, which is the one thing this device must never do.
+   */
+  const ledIssueIds = useMemo(() => {
+    const led = new Set<string>()
+    for (const row of rows) {
+      const hasLead = row.sessions.some(
+        (s) => !s.archived && s.status !== 'exited' && isCoordinatorSession(row.issue, s.sessionId),
+      )
+      if (hasLead) led.add(row.issue.id)
+    }
+    return led
+  }, [rows])
+  const leadTone = useCallback(
+    (issueId: string | undefined): RailTone =>
+      issueId === undefined || !ledIssueIds.has(issueId)
+        ? null
+        : issueId === root.id
+          ? 'mission'
+          : 'task',
+    [ledIssueIds, root.id],
+  )
+  /**
+   * WHICH TASK OWNS THE RAIL AT EACH LEVEL of each rendered row.
+   *
+   * The rail at level L descends from the node at depth L-1 — level 1 from the
+   * mission root, level 2 from the depth-1 ancestor — so colouring a lead's
+   * branch means knowing each row's ancestry, which the flat row list does not
+   * carry. Rebuilt here from depth alone, over the rows that actually render,
+   * for the same reason `treeGuides` is: a filtered spine has a different tree.
+   *
+   * One entry longer than the row's depth: the last is the tone of the row's
+   * OWN descent, which is the line its agents hang on.
+   */
+  const rails = useMemo(() => {
+    const trail: (string | undefined)[] = [root.id]
+    return spineRows.map((row) => {
+      trail.length = row.depth
+      trail[row.depth] = row.issue.id
+      const tones: RailTone[] = []
+      for (let level = 1; level <= row.depth + 1; level += 1) tones.push(leadTone(trail[level - 1]))
+      return tones
+    })
+  }, [spineRows, root.id, leadTone])
+
+  /** A session's name, for the roles that are named by another session (a spawn
+   *  edge) rather than by the issue. */
+  const nameOf = useCallback(
+    (sessionId: string) => {
+      const found = sessions.find((s) => s.sessionId === sessionId)
+      return found ? sessionTitle(found) : undefined
+    },
+    [sessions],
+  )
+  /** A proposal names the session that filed it, because the ref is how you go
+   *  and ask it why. Unresolvable (a human create, or an agent long gone) means
+   *  no author line rather than a raw session id. */
+  const authorOf = useCallback(
+    (issue: IssueWire): string | null => {
+      const id = issue.startedBySession
+      if (!id) return null
+      return sessions.find((s) => s.sessionId === id)?.displayRef?.trim() || null
+    },
+    [sessions],
+  )
 
   const toggleFold = useCallback((id: string) => {
     setFolded((prev) => {
@@ -98,6 +225,8 @@ export function MissionDeck({
       return next
     })
   }, [])
+
+  const rootSessions = rootRow ? deckSessions(rootRow, mode) : []
 
   return (
     <View style={styles.panel}>
@@ -128,9 +257,7 @@ export function MissionDeck({
         <PressableScale
           onPress={() =>
             setFolded((prev) =>
-              prev.size > 0
-                ? new Set()
-                : new Set(rows.filter((r) => r.descendantIds.length > 0).map((r) => r.issue.id)),
+              prev.size > 0 ? new Set() : new Set(rows.filter(hasPayload).map((r) => r.issue.id)),
             )
           }
           accessibilityRole="button"
@@ -161,20 +288,52 @@ export function MissionDeck({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* The root's own agents hang straight off the mission bar — the line
-            that leaves the bar IS their rail. */}
-        {rootRow ? (
-          <RootRoster
-            row={rootRow}
-            mode={mode}
-            expanded={rosterOpen}
-            currentSessionId={currentSessionId}
-            onToggle={() => setRosterOpen((v) => !v)}
-            onOpen={onOpenSession}
+        {/* The rail crosses the list's own top padding, so the mission bar's
+            descent meets the first thing under it without a gap. */}
+        <View style={styles.topRail}>
+          <View
+            style={[
+              styles.topRailLine,
+              { left: ROOT_RAIL, ...toRailStyle(railFor(leadTone(root.id), accent)) },
+            ]}
           />
-        ) : null}
+        </View>
 
-        {spineRows.length === 0 && (rootRow?.sessions.length ?? 0) === 0 ? (
+        {/* THE MISSION'S OWN AGENTS, hanging off the mission bar — the line that
+            leaves the bar IS their rail, and it carries on into the first child
+            below.
+
+            NOTHING IS HIDDEN HERE (POD-758/POD-767). This block used to fold its
+            finished agents away behind an "N finished" line, because every
+            session the mission ever had hangs off the header and on a long
+            mission that was a screen of retired rows before the first task. The
+            phone answers the same problem the way the desktop does instead:
+            settled agents stay, one tier dimmer, and what removes them is the
+            view bar above. A second, in-view disclosure that hid what the
+            chosen view had just promised to show was the duplication — and a
+            phone-only one would have put the two decks back out of step, which
+            is the whole reason this work exists. */}
+        {rootRow
+          ? rootSessions.map((session, i) => (
+              <Band
+                key={session.sessionId}
+                row={rootRow}
+                session={session}
+                depth={0}
+                carries={[]}
+                rails={[leadTone(root.id)]}
+                accent={accent}
+                nameOf={nameOf}
+                // The root's rail carries on into the spine below it, so the
+                // last agent's elbow must not close the line.
+                stops={i === rootSessions.length - 1 && spineRows.length === 0}
+                current={session.sessionId === currentSessionId}
+                onPress={() => onOpenSession(session)}
+              />
+            ))
+          : null}
+
+        {spineRows.length === 0 && rootSessions.length === 0 && proposals.length === 0 ? (
           <EmptyState title={mode === 'full' ? 'No subtasks yet.' : 'Nothing matches this view.'} />
         ) : null}
 
@@ -183,9 +342,13 @@ export function MissionDeck({
             key={row.issue.id}
             row={row}
             carries={guides[index] ?? []}
+            rails={rails[index] ?? []}
+            accent={accent}
             stops={!(guides[index + 1] ?? [])[row.depth - 1]}
+            childFollows={(spineRows[index + 1]?.depth ?? 0) > row.depth}
             mode={mode}
             byId={byId}
+            nameOf={nameOf}
             folded={folded.has(row.issue.id)}
             currentSessionId={currentSessionId}
             onToggleFold={() => toggleFold(row.issue.id)}
@@ -193,46 +356,22 @@ export function MissionDeck({
             onOpenSession={onOpenSession}
           />
         ))}
-      </ScrollView>
-    </View>
-  )
-}
 
-/** The root's agents, with the finished ones folded behind a count. */
-function RootRoster({
-  row,
-  mode,
-  expanded,
-  currentSessionId,
-  onToggle,
-  onOpen,
-}: {
-  row: FlightDeckRow
-  mode: FlightDeckMode
-  expanded: boolean
-  currentSessionId: SessionId | undefined
-  onToggle: () => void
-  onOpen: (s: SessionMeta) => void
-}) {
-  const all = deckSessions(row, mode)
-  const live = all.filter((s) => !s.archived && s.status !== 'exited')
-  const finished = all.filter((s) => s.archived || s.status === 'exited')
-  const list = expanded ? [...live, ...finished] : live
-  return (
-    <View>
-      {list.map((session, i) => (
-        <Band
-          key={session.sessionId}
-          row={row}
-          session={session}
-          depth={0}
-          carries={[]}
-          stops={i === list.length - 1 && finished.length === 0}
-          current={session.sessionId === currentSessionId}
-          onPress={() => onOpen(session)}
-        />
-      ))}
-      <RosterFold count={finished.length} expanded={expanded} depth={0} onPress={onToggle} />
+        {proposals.length > 0 ? (
+          <DeckSection label="Proposed" count={proposals.length} tone={stageColor('proposed')}>
+            {proposals.map((row) => (
+              <ProposalRow
+                key={row.issue.id}
+                title={row.issue.title}
+                displayRef={issueDisplayRef(row.issue)}
+                author={authorOf(row.issue)}
+                selected={false}
+                onPress={() => onOpenTask(row.issue)}
+              />
+            ))}
+          </DeckSection>
+        ) : null}
+      </ScrollView>
     </View>
   )
 }
@@ -240,9 +379,13 @@ function RootRoster({
 function SpineRow({
   row,
   carries,
+  rails,
+  accent,
   stops,
+  childFollows,
   mode,
   byId,
+  nameOf,
   folded,
   currentSessionId,
   onToggleFold,
@@ -251,9 +394,16 @@ function SpineRow({
 }: {
   row: FlightDeckRow
   carries: readonly boolean[]
+  rails: readonly RailTone[]
+  accent: string
   stops: boolean
+  /** Whether the next RENDERED row is a child of this task. Its agents and its
+   *  children share one line, so the line has to survive the gap between this
+   *  block and the next row instead of stopping at the last agent's elbow. */
+  childFollows: boolean
   mode: FlightDeckMode
   byId: ReadonlyMap<string, IssueWire>
+  nameOf: (sessionId: string) => string | undefined
   folded: boolean
   currentSessionId: SessionId | undefined
   onToggleFold: () => void
@@ -263,41 +413,47 @@ function SpineRow({
   const state = deckIssueState(row.issue, row.sessions, byId)
   const note = issueNote(row.issue, byId)
   const bands = folded ? [] : deckSessions(row, mode)
-  /**
-   * The presence line explains an ABSENCE the strip cannot already account for.
-   * It sits directly under a strip that has just said the state word, so
-   * `blocked` and `waiting` would print "Blocked by 2 tasks" immediately under
-   * "Blocked · 2 tasks". Saying it twice in adjacent lines reads as two facts,
-   * not one — worse than not saying it at all.
-   */
-  const raw = presenceNote(row.issue, row.sessions, byId)
-  const presence = raw && !coveredByStrip(raw, state.label) ? raw : null
-  const focused = bands.some((s) => s.sessionId === currentSessionId)
+  // The seat is held for work that could be picked up — never under a proposal,
+  // and never to restate a dependency the strip has already named above it.
+  const seat =
+    row.issue.stage === 'proposed' ? null : seatFor(presenceNote(row.issue, row.sessions, byId))
+  // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload:
+  // "2 running" is the thing the fold is hiding, and `3 tasks` is printed on the
+  // same line beside it.
+  const liveWord =
+    folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
+      ? `${row.workingAgentCount} running`
+      : undefined
+  const selected = bands.some((s) => s.sessionId === currentSessionId)
+  // NO GAP BETWEEN BLOCKS, deliberately. Every row draws the rails crossing it
+  // inside its own band, so the tree is continuous only while the rows are
+  // flush: a few points of breathing room between task blocks would cut every
+  // ancestor line in the column at exactly that point.
   return (
     <View>
       <TaskStrip
         depth={row.depth}
         carries={carries}
-        stops={stops && bands.length === 0}
+        rails={rails}
+        accent={accent}
+        // The strip's own rail is its PARENT's descent, at the parent's x. It
+        // ends at this elbow when no sibling follows — the agents and children
+        // below hang one step further in, on a different line.
+        stops={stops}
         title={row.issue.title}
         displayRef={issueDisplayRef(row.issue)}
+        stage={row.issue.stage}
         state={state}
         note={note}
-        colorHex={issueColorHex(row.issue.color) ?? undefined}
-        focused={focused}
-        foldable={row.descendantIds.length > 0}
+        seat={seat}
+        summary={row.collapsedSummary}
         folded={folded}
+        liveWord={liveWord}
+        selected={selected}
+        foldable={hasPayload(row)}
         onPress={() => onOpenTask(row.issue)}
         onToggleFold={onToggleFold}
       />
-      {folded ? <CollapsedPayload summary={row.collapsedSummary} depth={row.depth} /> : null}
-      {/* A blank where an agent row would be is the one thing the deck must
-          never do — "no session" is four situations and only one is a problem. */}
-      {!folded && bands.length === 0 && presence ? (
-        <Text style={[styles.presence, { marginLeft: BAND_PAD(row.depth) }]} numberOfLines={1}>
-          {presence.text}
-        </Text>
-      ) : null}
       {bands.map((session, i) => (
         <Band
           key={session.sessionId}
@@ -305,7 +461,10 @@ function SpineRow({
           session={session}
           depth={row.depth}
           carries={carries}
-          stops={i === bands.length - 1}
+          rails={rails}
+          accent={accent}
+          nameOf={nameOf}
+          stops={i === bands.length - 1 && !childFollows}
           current={session.sessionId === currentSessionId}
           onPress={() => onOpenSession(session)}
         />
@@ -319,6 +478,9 @@ function Band({
   session,
   depth,
   carries,
+  rails,
+  accent,
+  nameOf,
   stops,
   current,
   onPress,
@@ -327,6 +489,9 @@ function Band({
   session: SessionMeta
   depth: number
   carries: readonly boolean[]
+  rails: readonly RailTone[]
+  accent: string
+  nameOf: (sessionId: string) => string | undefined
   stops: boolean
   current: boolean
   onPress: () => void
@@ -340,20 +505,28 @@ function Band({
     inMission: new Set(row.sessions.map((s) => s.sessionId)),
   })
   return (
-    <View style={current ? styles.currentBand : null}>
-      <SessionBand
-        depth={depth}
-        carries={carries}
-        stops={stops}
-        name={sessionTitle(session)}
-        role={role}
-        kind={session.agentKind}
-        asking={asking}
-        working={working}
-        right={current ? 'reading' : stamp(session, phase, working, asking)}
-        onPress={onPress}
-      />
-    </View>
+    <SessionBand
+      depth={depth}
+      carries={carries}
+      rails={rails}
+      accent={accent}
+      stops={stops}
+      name={sessionTitle(session)}
+      displayRef={session.displayRef?.trim() || undefined}
+      role={role}
+      roleText={roleLabel(role, nameOf)}
+      kind={session.agentKind}
+      asking={asking}
+      working={working}
+      settled={sessionSettled(session)}
+      lead={isLead(role)}
+      // `sessionRole` only ever returns `coordinator` at the mission root — a
+      // task's lead is `phase-lead` — so this IS "the mission's own lead".
+      coordinator={role?.kind === 'coordinator'}
+      current={current}
+      right={current ? 'reading' : stamp(session, phase, working, asking)}
+      onPress={onPress}
+    />
   )
 }
 
@@ -375,6 +548,9 @@ function stamp(
     return formatClock(Math.max(0, Date.now() - since) + (state?.workingMsTotal ?? 0))
   }
   if (asking) return null
+  if (session.archived || session.status === 'exited') {
+    return `Retired · ${relativeTime(session.lastActiveAt, Date.now())}`
+  }
   if (phase === 'done' && state?.workingMsTotal) return `∑ ${formatClock(state.workingMsTotal)}`
   return relativeTime(session.lastActiveAt, Date.now())
 }
@@ -455,18 +631,6 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1, minHeight: 0 },
   scrollContent: { paddingBottom: space.xl },
-  // The band whose transcript is showing underneath. A wash, not a rule: the
-  // spine already draws real tree guides at fixed x, and a left border here
-  // would shift the marked band's rail out of line with every other one — the
-  // "you are here" mark must not move the map.
-  currentBand: {
-    backgroundColor: alpha(color.working, 0.12),
-  },
-  presence: {
-    ...mono(400),
-    fontSize: font.micro,
-    color: color.textMicro,
-    paddingBottom: space.sm,
-    paddingRight: space.md,
-  },
+  topRail: { height: space.sm },
+  topRailLine: { position: 'absolute', top: 0, bottom: 0 },
 })

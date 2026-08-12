@@ -1,12 +1,20 @@
-import type { FlightDeckRow, PresenceNote } from '@podium/client-core/viewmodels'
+import type { FlightDeckRow } from '@podium/client-core/viewmodels'
 
 /**
- * The Flight Deck's two phone-only display rules [POD-592].
+ * The Flight Deck's one phone-only display rule [POD-592].
  *
- * Everything else the deck shows comes from the shared mission module. These
- * two exist because the phone renders the spine differently from the desktop —
- * a fold is applied to a flat list here, and a strip carries state and note on
- * one subtitle line — so neither has a home in the shared derivation.
+ * Everything else the deck shows comes from the shared mission module. This
+ * exists because the phone renders the spine differently from the desktop: the
+ * fold is applied to a flat list here rather than by a second tree walk.
+ *
+ * `coveredByStrip` USED TO LIVE HERE and is gone (POD-767). It suppressed the
+ * presence line under a strip whose state word had just said the same thing —
+ * "Blocked by 2 tasks" landing directly below "Blocked · 2 tasks". There is no
+ * presence line any more: the only presence the redesign draws is a HELD SEAT,
+ * and it is a chip in the strip's own chip slot rather than a row beneath it.
+ * `seatFor` in ../components/spine.tsx narrows to the two kinds that are
+ * genuinely a held seat, which is the same suppression one level earlier and
+ * without a text comparison.
  */
 
 /**
@@ -32,25 +40,4 @@ export function applyFolds(
     if (folded.has(row.issue.id)) hideBelow = row.depth
   }
   return out
-}
-
-/** Presence kinds whose fact the strip's own state word already carries. */
-const COVERED_KINDS = new Set<PresenceNote['kind']>(['blocked', 'waiting', 'done', 'review'])
-
-/**
- * Should the presence line be suppressed under this strip?
- *
- * On the desktop the note has a column of its own. Here it sits directly under
- * a strip that has just printed the state word and, when there is one, the
- * issue note — so "Blocked by 2 tasks" would land immediately below
- * "Blocked · 2 tasks", and "Proposed · not started" below "Proposed". Two
- * adjacent lines saying one thing read as two facts; that is worse than not
- * saying it twice.
- *
- * The text comparison catches the second case without a kind list to maintain:
- * `proposed` and `backlog` share the `ready` kind but not their words.
- */
-export function coveredByStrip(presence: PresenceNote, stateLabel: string): boolean {
-  if (COVERED_KINDS.has(presence.kind)) return true
-  return presence.text.toLowerCase().startsWith(stateLabel.toLowerCase())
 }

@@ -431,6 +431,7 @@ function MissionBody({
             issues={issues}
             sessions={sessions}
             allWorktreePaths={allWorktreePaths}
+            accent={accent}
             currentSessionId={current?.sessionId}
             onOpenSession={(session) => {
               onOpenSession(session)
