@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 import { asIssueId } from '@podium/model'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+
+const NOW = Date.parse('2026-08-06T18:20:00.000Z')
 
 const fixture = vi.hoisted(() => {
   const query = vi.fn(async () => ({
@@ -16,24 +18,43 @@ const fixture = vi.hoisted(() => {
       count: index === 14 ? 16 : index % 6,
     })),
   }))
+  const usageQuery = vi.fn(async () => ({
+    hostname: 'test',
+    buckets: [
+      {
+        hour: '2026-08-06T17:00:00.000Z',
+        model: 'gpt-5',
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        messages: 1,
+      },
+    ],
+  }))
   return {
     issue: null as ReturnType<typeof makeIssue> | null,
+    extraIssues: [] as ReturnType<typeof makeIssue>[],
     sessions: [] as Array<{
       status?: string
       archived?: boolean
       agentState?: { phase: string }
     }>,
     query,
+    usageQuery,
     store: {
       paletteOpen: false,
       setPaletteOpen: vi.fn(),
-      trpc: { sessions: { concurrencyHistory: { query } } },
+      trpc: {
+        sessions: { concurrencyHistory: { query } },
+        usage: { summary: { query: usageQuery } },
+      },
     },
   }
 })
 
 vi.mock('./store', () => ({
-  useReplicaIssues: () => (fixture.issue ? [fixture.issue] : []),
+  useReplicaIssues: () => [...(fixture.issue ? [fixture.issue] : []), ...fixture.extraIssues],
   useStoreSelector: (selector: (store: unknown) => unknown) =>
     selector({
       ...fixture.store,
@@ -49,12 +70,21 @@ vi.mock('@/features/machines/ConnectionIndicator', () => ({
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
 import { StatusStrip } from './StatusStrip'
+import { resetUsageCache } from '@/features/usage/useUsageFeed'
+
+beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(NOW)
+})
 
 afterEach(() => {
   cleanup()
+  resetUsageCache()
   fixture.issue = null
+  fixture.extraIssues.length = 0
   fixture.sessions.length = 0
   fixture.query.mockClear()
+  fixture.usageQuery.mockClear()
+  vi.restoreAllMocks()
 })
 
 describe('StatusStrip issue reference', () => {
@@ -69,7 +99,8 @@ describe('StatusStrip issue reference', () => {
 
     const view = render(<StatusStrip />)
     expect(
-      screen.getByLabelText('Review task POD-473: Footer issue status reference').dataset.issueStage,
+      screen.getByLabelText('Review task POD-473: Footer issue status reference').dataset
+        .issueStage,
     ).toBe('review')
 
     fixture.issue = { ...fixture.issue, stage: 'done' }
@@ -87,9 +118,21 @@ describe('StatusStrip agent concurrency history', () => {
     expect(screen.getByTestId('status-strip-working').textContent).toBe('no agents working')
     expect(screen.queryByText('0 agents working')).toBeNull()
     expect(container.querySelector('.status-strip-spinner')).toBeNull()
-    expect(screen.getByTestId('agent-concurrency-history')).toBeTruthy()
-    expect(container.querySelectorAll('.status-strip-history-stack')).toHaveLength(24)
+    const graph = screen.getByTestId('agent-concurrency-history')
+    expect(graph).toBeTruthy()
+    expect(graph.querySelectorAll('.status-strip-history-stack')).toHaveLength(24)
     await waitFor(() => expect(fixture.query).toHaveBeenCalled())
+  })
+
+  it('shares the live concurrency reading through a prefilled X intent', () => {
+    fixture.sessions.push({ status: 'live', agentState: { phase: 'working' } })
+
+    render(<StatusStrip />)
+
+    const share = screen.getByLabelText('Share agent concurrency on X') as HTMLAnchorElement
+    expect(share.target).toBe('_blank')
+    expect(share.rel).toContain('noreferrer')
+    expect(decodeURIComponent(share.href)).toContain('1 AI agent is working in parallel')
   })
 
   it('keeps the existing spinner and count while adding the capped pixel history', async () => {
@@ -131,5 +174,63 @@ describe('StatusStrip agent concurrency history', () => {
     render(<StatusStrip />)
 
     expect(screen.getByTestId('status-strip-working').textContent).toContain('1 agent working')
+  })
+})
+
+describe('StatusStrip burn and ship rates', () => {
+  it('reuses API-equivalent pricing for a rolling hourly burn rate', async () => {
+    render(<StatusStrip />)
+
+    expect(screen.getByTestId('status-strip-burn').textContent).toBe('—/h burn')
+    await waitFor(() =>
+      expect(screen.getByTestId('status-strip-burn').textContent).toBe('$0.10/h burn'),
+    )
+    expect(
+      screen.getByTestId('token-burn-history').querySelectorAll('.status-strip-history-stack'),
+    ).toHaveLength(12)
+    expect(screen.getByLabelText('Share token burn on X').getAttribute('href')).toContain(
+      'x.com/intent/post',
+    )
+  })
+
+  it('counts only confirmed landed issues, including PR-backed merges', () => {
+    fixture.extraIssues.push(
+      makeIssue({
+        id: 'merged-pr',
+        closedAt: '2026-08-06T17:15:00.000Z',
+        prUrl: 'https://github.com/podium/podium/pull/42',
+        gitState: {
+          updatedAt: '2026-08-06T18:00:00.000Z',
+          branch: 'issue/42',
+          shared: false,
+          ahead: 0,
+          dirtyFiles: 0,
+          merged: true,
+        },
+      }),
+      makeIssue({
+        id: 'open-pr',
+        closedAt: '2026-08-06T17:30:00.000Z',
+        prUrl: 'https://github.com/podium/podium/pull/43',
+        gitState: {
+          updatedAt: '2026-08-06T18:00:00.000Z',
+          branch: 'issue/43',
+          shared: false,
+          ahead: 1,
+          dirtyFiles: 0,
+          merged: false,
+        },
+      }),
+    )
+
+    render(<StatusStrip />)
+
+    expect(screen.getByTestId('status-strip-ship').textContent).toBe('0.08 ships/h')
+    expect(screen.getByTestId('ship-rate-history').getAttribute('aria-label')).toContain(
+      '1 confirmed merge over the last 12 hours',
+    )
+    expect(
+      decodeURIComponent(screen.getByLabelText('Share ship rate on X').getAttribute('href') ?? ''),
+    ).toContain('We shipped 1 merge with Podium')
   })
 })

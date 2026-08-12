@@ -84,6 +84,22 @@ test('shows 12-hour peaks beside the live state without duplicating the idle mes
   await expect(strip.locator('.status-strip-spinner')).toHaveCount(0)
   await expect(graph).toBeVisible()
   await expect(graph.locator('.status-strip-history-stack')).toHaveCount(24)
+  await expect(strip.getByTestId('token-burn-history')).toBeVisible()
+  await expect(strip.getByTestId('ship-rate-history')).toBeVisible()
+
+  // The share icon crosses the browser new-tab boundary. Intercept X itself —
+  // the contract here is that Podium dispatches the prefilled intent into a new
+  // tab, not whether an external network happens to be reachable in CI.
+  await page.route('https://x.com/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html', body: '<title>X share</title>' }),
+  )
+  const popupPromise = page.context().waitForEvent('page')
+  await strip.getByRole('link', { name: 'Share agent concurrency on X' }).click()
+  const popup = await popupPromise
+  await popup.waitForLoadState('domcontentloaded')
+  expect(popup.url()).toContain('https://x.com/intent/post?text=')
+  expect(decodeURIComponent(popup.url())).toContain('0 agents working right now')
+  await popup.close()
 
   const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
   const repoPath = repos.find((repo) => basename(repo) === `zz-podium-e2e-repo-${PORT}`) ?? repos[0]
@@ -155,8 +171,11 @@ test('shows 12-hour peaks beside the live state without duplicating the idle mes
   await expect(graph).toHaveAttribute('aria-label', /1 agent working now\. Peak 1\./)
 
   await graph.focus()
-  await expect(strip.locator('.status-strip-history-tooltip')).toBeVisible()
-  await expect(strip.locator('.status-strip-history-reading')).toContainText('1agent at peak')
+  const agentHistory = graph.locator('..')
+  await expect(agentHistory.locator('.status-strip-history-tooltip')).toBeVisible()
+  await expect(agentHistory.locator('.status-strip-history-reading')).toContainText(
+    '1agent at peak',
+  )
   if (process.env.PODIUM_CONCURRENCY_SHOT) {
     await page.screenshot({ path: process.env.PODIUM_CONCURRENCY_SHOT, fullPage: true })
   }

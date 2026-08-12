@@ -5,6 +5,7 @@ import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
+import { StatusPerformanceStats } from './StatusPerformanceStats'
 import { useReplicaIssues, useStoreSelector } from './store'
 
 /**
@@ -15,12 +16,15 @@ import { useReplicaIssues, useStoreSelector } from './store'
  * so the command bar never has to grow again.
  *
  * WHAT IS ALLOWED IN IT is the same test the toolbar slot uses: window scope,
- * and not already stated by a column. Three facts qualify —
+ * and not already stated by a column. The facts that qualify are —
  *
  *   · how many agents are computing right now (fleet-wide; nothing else states
  *     it at window scope — the sidebar shows only rows you can see),
  *   · which task the shell is pointed at, which is the one fact that says what
  *     this WINDOW is about,
+ *   · the fleet's API-equivalent token burn and confirmed-merge velocity — two
+ *     rolling rates whose traces make sudden changes visible without opening
+ *     analytics,
  *   · whether the link is healthy, and only while it is not.
  *
  * The "⌘K commands" hint is gone with it. It failed the same test: a keycap is
@@ -60,20 +64,9 @@ export function StatusStrip(): JSX.Element {
 
   return (
     <footer className="status-strip" data-testid="status-strip">
-      {/* The braille spinner and its count are the shell's only perpetual motion,
-          and only while an agent is actually computing. Stillness means nothing
-          is running, which is information. */}
-      {working > 0 ? (
-        <span className="status-strip-live" data-testid="status-strip-working">
-          <span className="status-strip-spinner" aria-hidden="true" />
-          {working} {working === 1 ? 'agent' : 'agents'} working
-        </span>
-      ) : (
-        <span className="status-strip-idle" data-testid="status-strip-working">
-          no agents working
-        </span>
-      )}
       <AgentConcurrencyHistory working={working} trpc={trpc} />
+      <span className="status-strip-seam" aria-hidden="true" />
+      <StatusPerformanceStats trpc={trpc} />
       {issue && (
         <>
           <span className="status-strip-seam" aria-hidden="true" />

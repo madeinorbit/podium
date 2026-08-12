@@ -1168,7 +1168,7 @@ html[data-density="balanced"] .header-quota-pools {
   display: flex;
   flex: 0 0 var(--status-strip-h);
   align-items: center;
-  gap: 14px;
+  gap: 9px;
   height: var(--status-strip-h);
   padding: 0 16px;
   border-top: 1px solid var(--border);
@@ -1198,6 +1198,23 @@ html[data-density="balanced"] .header-quota-pools {
   flex: none;
   color: var(--text-faint);
 }
+.status-strip-metric {
+  --metric-color: var(--live);
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+.status-strip-metric[data-tone="burn"] {
+  --metric-color: var(--claude);
+}
+.status-strip-metric[data-tone="ship"] {
+  --metric-color: oklch(0.68 0.16 153);
+}
+.status-strip-metric-value {
+  color: var(--metric-color);
+}
 .status-strip-history {
   position: relative;
   display: inline-flex;
@@ -1209,7 +1226,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .status-strip-history-graph:focus-visible {
   border-radius: 2px;
-  box-shadow: 0 0 0 1px var(--live);
+  box-shadow: 0 0 0 1px var(--metric-color);
 }
 .status-strip-history-label {
   color: var(--text-faint);
@@ -1219,9 +1236,9 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .status-strip-history-graph {
   display: grid;
-  width: 71px;
+  width: calc(var(--history-columns, 24) * 3px - 1px);
   height: 12px;
-  grid-template-columns: repeat(24, 2px);
+  grid-template-columns: repeat(var(--history-columns, 24), 2px);
   align-items: end;
   gap: 1px;
 }
@@ -1231,7 +1248,7 @@ html[data-density="balanced"] .header-quota-pools {
   width: 2px;
   height: 12px;
   flex-direction: column-reverse;
-  color: var(--live);
+  color: var(--metric-color);
   opacity: var(--history-strength, 0.54);
 }
 .status-strip-history-stack[data-current="true"] {
@@ -1240,7 +1257,7 @@ html[data-density="balanced"] .header-quota-pools {
 .status-strip-history-stack[data-active="true"]::after {
   position: absolute;
   inset: -2px -1px;
-  border: 1px solid color-mix(in srgb, var(--live) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--metric-color) 78%, transparent);
   content: "";
 }
 .status-strip-history-stack[data-over-cap="true"]::before {
@@ -1249,7 +1266,7 @@ html[data-density="balanced"] .header-quota-pools {
   left: 0;
   width: 2px;
   height: 1px;
-  background: color-mix(in srgb, var(--live) 60%, white);
+  background: color-mix(in srgb, var(--metric-color) 60%, white);
   content: "";
 }
 .status-strip-history-pixel {
@@ -1281,7 +1298,7 @@ html[data-density="balanced"] .header-quota-pools {
     transform 120ms ease;
   visibility: hidden;
 }
-.status-strip-history:hover .status-strip-history-tooltip,
+.status-strip-metric:hover .status-strip-history-tooltip,
 .status-strip-history:focus-within .status-strip-history-tooltip {
   opacity: 1;
   transform: translateY(0);
@@ -1310,7 +1327,7 @@ html[data-density="balanced"] .header-quota-pools {
   gap: 6px;
 }
 .status-strip-history-reading b {
-  color: var(--live);
+  color: var(--metric-color);
   font-size: 18px;
   line-height: 1;
 }
@@ -1331,6 +1348,28 @@ html[data-density="balanced"] .header-quota-pools {
   border-top: 1px solid var(--hairline-soft);
   color: var(--text-faint);
   font-size: 8px;
+}
+.status-strip-share {
+  display: inline-flex;
+  width: 13px;
+  height: 15px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  color: color-mix(in srgb, var(--metric-color) 58%, var(--text-faint));
+  opacity: 0.56;
+  transition:
+    color 120ms ease,
+    opacity 120ms ease,
+    background 120ms ease;
+}
+.status-strip-share:hover,
+.status-strip-share:focus-visible {
+  background: color-mix(in srgb, var(--metric-color) 12%, transparent);
+  color: var(--metric-color);
+  opacity: 1;
+  outline: none;
 }
 /* The braille spinner — the shell's one piece of perpetual motion, reusing the
    agent-state grammar's frames and cadence. */
@@ -1375,6 +1414,9 @@ html[data-density="balanced"] .header-quota-pools {
     animation: none;
   }
   .status-strip-history-tooltip {
+    transition: none;
+  }
+  .status-strip-share {
     transition: none;
   }
 }
