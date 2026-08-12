@@ -35,6 +35,7 @@ import { Flag, ShieldAlert } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
+import { UnreadDot } from '@/components/UnreadMark'
 import { issueColorHex } from '@/lib/issueColors'
 import { BrailleSpinner } from '@/lib/motion'
 import { cn } from '@/lib/utils'
@@ -306,7 +307,7 @@ export function IssueCard({
                 session — so a card and its row answer "who is on this" the same
                 way, in the same words. */}
             {badges.sessions && sessions.length > 0 && (
-              <IssueFleetSummary sessions={sessions} unread={issue.unread === true} size={16} />
+              <IssueFleetSummary sessions={sessions} size={16} />
             )}
             <span className="font-mono text-[10px] text-text-faint tabular-nums">
               {cardAge(issue.updatedAt, now)}
@@ -314,8 +315,14 @@ export function IssueCard({
           </span>
         </div>
 
-        <div className="line-clamp-2 min-w-0 break-words font-medium text-[13.5px] text-[var(--issue-bright)] leading-[1.35]">
-          {issue.title}
+        <div
+          className={cn(
+            'flex min-w-0 items-start gap-1.5 text-[13.5px] text-[var(--issue-bright)] leading-[1.35]',
+            issue.unread ? 'font-semibold' : 'font-medium',
+          )}
+        >
+          <span className="line-clamp-2 min-w-0 flex-1 break-words">{issue.title}</span>
+          {issue.unread ? <UnreadDot className="mt-1.5" /> : null}
         </div>
 
         {slots.length > 0 && (

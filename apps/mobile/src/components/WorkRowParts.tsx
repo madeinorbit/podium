@@ -39,13 +39,8 @@ const PARKED_TONE = { fg: color.textFaint, bg: alpha(color.textDim, 0.1) }
  */
 export function FleetSummary({
   sessions,
-  unread = false,
-  /** The row background the unread dot punches its ring out of. */
-  ground = color.surface,
 }: {
   sessions: readonly SessionMeta[]
-  unread?: boolean
-  ground?: string
 }) {
   const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
   if (present.length === 0) return null
@@ -67,12 +62,6 @@ export function FleetSummary({
               ]}
             >
               <Text style={[styles.tileCh, { color: t.fg }]}>{t.ch}</Text>
-              {/* The row's unopened-update dot rides the corner of the LAST
-                  tile — "this fleet has something new", never a third
-                  free-floating mark. */}
-              {unread && index === shown.length - 1 ? (
-                <View style={[styles.unread, { borderColor: ground }]} />
-              ) : null}
             </View>
           )
         })}
@@ -187,16 +176,6 @@ const styles = StyleSheet.create({
   tileCh: {
     ...mono(600),
     fontSize: 9,
-  },
-  unread: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    width: 7,
-    height: 7,
-    borderRadius: radius.full,
-    borderWidth: 1.5,
-    backgroundColor: color.info,
   },
   fleetTotal: {
     ...mono(400),

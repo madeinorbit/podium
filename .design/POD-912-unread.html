@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Unread language</title>
+    <style>
+      :root {
+        --sidebar: #12141a;
+        --text: #e8e6e1;
+        --strong: #f4f1ea;
+        --faint: #8b8a86;
+        --info: #3b82f6;
+        --claude: #d97757;
+        --chip: #1c1f28;
+        --hair: #2a2d36;
+      }
+      html,
+      body {
+        margin: 0;
+        background: #0c0d11;
+        color: var(--text);
+        font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+      }
+      main {
+        max-width: 720px;
+        margin: 40px auto;
+        padding: 0 24px 64px;
+      }
+      h1 {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 8px;
+      }
+      p {
+        color: var(--faint);
+        margin: 0 0 24px;
+        max-width: 58ch;
+      }
+      h2 {
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--faint);
+        margin: 28px 0 10px;
+      }
+      .col {
+        background: var(--sidebar);
+        border: 1px solid var(--hair);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-bottom: 1px solid #1c1e26;
+      }
+      .row:last-child {
+        border-bottom: 0;
+      }
+      .sq {
+        width: 26px;
+        height: 26px;
+        border-radius: 5px;
+        background: #2a3344;
+        flex: none;
+      }
+      .title {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .unread .title {
+        font-weight: 600;
+        color: var(--strong);
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--info);
+        flex: none;
+      }
+      .fleet {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .tile {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        display: grid;
+        place-items: center;
+        font-size: 9px;
+        font-weight: 600;
+      }
+      .claude {
+        background: var(--claude);
+        color: #fff;
+      }
+      .grok {
+        background: #09090b;
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      .x {
+        font: 10px/1 ui-monospace, monospace;
+        color: var(--faint);
+      }
+      .agent {
+        padding-left: 50px;
+        font-size: 12px;
+        color: var(--faint);
+      }
+      .agent.unread {
+        color: var(--strong);
+        font-weight: 600;
+      }
+      .ref {
+        font: 10px/1 ui-monospace, monospace;
+        color: var(--faint);
+        margin-right: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Unread is a title, not a tile</h1>
+      <p>
+        Agent marks stack and grow a count, so a blue corner cannot mean “this session is new.”
+        Unread is semibold plus a small info dot after the name — same on the sidebar and on
+        every Flight Deck strip, including a collapsed one-agent task that hides its session.
+      </p>
+
+      <h2>Sidebar</h2>
+      <div class="col">
+        <div class="row unread">
+          <div class="sq"></div>
+          <div class="title">Unread indicators</div>
+          <div class="dot"></div>
+          <div class="fleet">
+            <div class="tile grok">G</div>
+            <span class="x">×2</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="sq"></div>
+          <div class="title">Already opened</div>
+          <div class="fleet"><div class="tile claude">C</div></div>
+        </div>
+      </div>
+
+      <h2>Flight Deck — collapsed one-agent</h2>
+      <div class="col">
+        <div class="row unread">
+          <div class="title"><span class="ref">POD-12</span>Child task</div>
+          <div class="dot"></div>
+          <div class="fleet"><div class="tile claude">C</div></div>
+        </div>
+      </div>
+
+      <h2>Flight Deck — expanded, per session</h2>
+      <div class="col">
+        <div class="row">
+          <div class="title"><span class="ref">POD-12</span>Child task</div>
+        </div>
+        <div class="row agent unread">
+          <div class="tile claude">C</div>
+          <div class="title">Sidebar and flight deck</div>
+          <div class="dot"></div>
+        </div>
+        <div class="row agent">
+          <div class="tile grok">G</div>
+          <div class="title">Already read session</div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

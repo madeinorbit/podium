@@ -165,7 +165,7 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     expect(row.getAttribute('data-selected')).toBe('true')
     // (The colour-mixed background itself is inline style — happy-dom drops
     // color-mix() values, so the paint is asserted in the Chromium probe.)
-    // The selected title lifts to semibold (handoff), distinct from UNREAD's medium.
+    // The selected title lifts to semibold (handoff); unread uses the same weight.
     const label = screen.getByText('Read selected issue')
     expect(label.className).toContain('font-semibold')
     expect(label.className).not.toContain('font-medium')
@@ -180,7 +180,7 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
   it('unread remains the sole weight signal', () => {
     render(<SidebarUnified />)
     const unreadLabel = screen.getByText('Unread issue')
-    expect(unreadLabel.className).toContain('font-medium')
+    expect(unreadLabel.className).toContain('font-semibold')
   })
 
   it('selection never changes density-owned row geometry (POD-81)', () => {
@@ -223,16 +223,14 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     expect(plain.getAttribute('data-issue-row')).toBe('a')
   })
 
-  it('marks unread with a quiet info dot on the agent glyph, never a banner (POD-293)', () => {
+  it('marks unread with a quiet info dot next to the title, never on the fleet (POD-912)', () => {
     render(<SidebarUnified />)
     const unreadRow = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
-    // The shouted "new message" banner is gone — unread is a single info dot
-    // bound to the fleet glyph (plus the bold title tested above).
     expect(unreadRow.querySelector('[data-testid="row-unread-chip"]')).toBeNull()
     const dot = unreadRow.querySelector('[data-testid="row-unread-dot"]') as HTMLElement
     expect(dot).toBeTruthy()
-    // The dot lives inside the fleet summary, not free-floating (POD-236).
-    expect(dot.closest('[data-testid="issue-fleet-summary"]')).toBeTruthy()
+    // Fleet tiles stack and show ×N — they cannot carry per-session unread.
+    expect(dot.closest('[data-testid="issue-fleet-summary"]')).toBeNull()
     const activeRow = rowButton('Read selected issue').closest(
       '[class*="group/row"]',
     ) as HTMLElement

@@ -584,8 +584,12 @@ export function legacyIssueReadOverlay(overlay: PendingOverlay): PendingOverlay 
   const readAt = overlay.patch.readAt as string | null
   const unread = readAt === null
   return patchOverlay('issues', overlay.id, overlay.key, { readAt, unread }, (row) => {
-    const issue = row as IssueWire & { unread?: boolean }
-    return unread ? issue.unread === true : issue.unread === false && issue.readAt != null
+    // Unread left IssueWire (POD-797). Covering on `issue.unread === false`
+    // never became true against a replica row, so the remake-on-view reaction
+    // kept seeing the optimistic stamp and would not re-stamp after activity
+    // landed — the sidebar bounce (POD-912). Covering is the cursor itself.
+    const issue = row as IssueWire
+    return unread ? issue.readAt == null : issue.readAt != null
   })
 }
 

@@ -36,7 +36,7 @@ import {
 
 /** The tone an unrecognised harness gets: the old non-Claude branch, verbatim. */
 const GLYPH_TONE_FALLBACK = 'text-foreground'
-const CHIP_TINT_FALLBACK = 'border-border-strong bg-chip'
+const CHIP_TINT_FALLBACK = 'border-border-strong bg-chip text-foreground'
 const FLEET_TILE_TINT_FALLBACK = 'border-border-strong bg-chip text-foreground'
 /** A parked (hibernated) agent's tile — `KindIcon`'s `dimmed` pair, verbatim. */
 const FLEET_TILE_TINT_PARKED = 'border-hairline-bar bg-muted text-muted-foreground/70'
@@ -51,18 +51,18 @@ const GLYPH_TONE: Record<AgentKind, string> = {
 }
 
 const CHIP_TINT: Record<AgentKind, string> = {
-  'claude-code': 'border-claude/50 bg-claude/12',
+  'claude-code': 'border-claude bg-claude text-white',
   codex: CHIP_TINT_FALLBACK,
-  grok: CHIP_TINT_FALLBACK,
+  grok: 'border-white/15 bg-zinc-950 text-white',
   opencode: CHIP_TINT_FALLBACK,
   cursor: CHIP_TINT_FALLBACK,
   shell: CHIP_TINT_FALLBACK,
 }
 
 const FLEET_TILE_TINT: Record<AgentKind, string> = {
-  'claude-code': 'border-claude/50 bg-claude/12 text-claude',
+  'claude-code': 'border-claude bg-claude text-white',
   codex: FLEET_TILE_TINT_FALLBACK,
-  grok: FLEET_TILE_TINT_FALLBACK,
+  grok: 'border-white/15 bg-zinc-950 text-white',
   opencode: FLEET_TILE_TINT_FALLBACK,
   cursor: FLEET_TILE_TINT_FALLBACK,
   shell: FLEET_TILE_TINT_FALLBACK,

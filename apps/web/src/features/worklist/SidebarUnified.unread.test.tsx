@@ -187,10 +187,16 @@ afterEach(() => {
 })
 
 describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
-  it('renders an unread issue row at medium weight and a read one at normal weight', () => {
+  it('renders an unread issue row at semibold with a title dot, not on the fleet tile', () => {
     render(<SidebarUnified />)
-    expect(screen.getByText('Unread issue').className).toContain('font-medium')
-    expect(screen.getByText('Read issue').className).not.toContain('font-medium')
+    expect(screen.getByText('Unread issue').className).toContain('font-semibold')
+    expect(screen.getByText('Read issue').className).not.toContain('font-semibold')
+    const unreadRow = screen.getByText('Unread issue').closest('[class*="group/row"]') as HTMLElement
+    const dot = unreadRow.querySelector('[data-testid="row-unread-dot"]')
+    expect(dot).toBeTruthy()
+    expect(dot?.closest('[data-testid="issue-fleet-summary"]')).toBeNull()
+    const readRow = screen.getByText('Read issue').closest('[class*="group/row"]') as HTMLElement
+    expect(readRow.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
   })
 
   it('marks the issue read when its row is opened', () => {

@@ -592,10 +592,9 @@ function WorkRow({
             >
               {label}
             </Text>
+            {unread ? <View style={styles.unreadDot} /> : null}
             {issue?.audience === 'agent' ? <Text style={styles.internal}>internal</Text> : null}
-            {draftOnly ? null : (
-              <FleetSummary sessions={fleetSessions} unread={unread} ground={rowBg} />
-            )}
+            {draftOnly ? null : <FleetSummary sessions={fleetSessions} />}
             {issue?.pinned ? <Icon as={Pin} size={10} color={color.textMicro} /> : null}
             {snoozed ? <Icon as={AlarmClock} size={10} color={color.textMicro} /> : null}
             {unsnoozed ? <Text style={styles.unsnoozed}>Unsnoozed</Text> : null}
@@ -735,6 +734,13 @@ const styles = StyleSheet.create({
   rowTitleUnread: {
     ...sans(600),
     color: color.text,
+  },
+  unreadDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: color.info,
+    flexShrink: 0,
   },
   internal: {
     ...monoLabel(9),

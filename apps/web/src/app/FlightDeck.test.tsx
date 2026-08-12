@@ -2,7 +2,14 @@
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defaultFolded, FlightDeck, isFolded, readFolds, writeFolds } from './FlightDeck'
+import {
+  deckTaskUnread,
+  defaultFolded,
+  FlightDeck,
+  isFolded,
+  readFolds,
+  writeFolds,
+} from './FlightDeck'
 import { OperatorFocusProvider } from './operator-focus'
 
 /**
@@ -99,6 +106,9 @@ const issue = (id: string, over: Issue = {}): Issue => ({
   deletedAt: null,
   parentId: null,
   memberSessionIds: [],
+  updatedAt: '2026-01-01T00:00:00.000Z',
+  readAt: '2026-01-01T00:10:00.000Z',
+  unread: false,
   // Carried because the shared task menu reads them off the view model; the
   // deck's own projection never looks at either.
   labels: [],
@@ -227,6 +237,48 @@ describe('flight deck fold state (POD-710 §4.2)', () => {
     })
     expect(chevron('Task t1').getAttribute('aria-expanded')).toBe('true')
     expect(readFolds(harness.ui.get('podium.flightDeck.folds') ?? null).get('t1')).toBe('open')
+  })
+})
+
+describe('flight deck unread (POD-912)', () => {
+  it('a collapsed one-agent strip rolls up that session’s unread', () => {
+    const row = {
+      issue: { id: 't1', readAt: '2026-01-01T00:10:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      workingAgentCount: 0,
+      descendantIds: [],
+      collapsedSummary: {
+        crew: [session('s1', { unread: true, lastActiveAt: '2026-01-01T00:20:00.000Z' })],
+      },
+    } as unknown as Parameters<typeof deckTaskUnread>[0]
+    expect(deckTaskUnread(row, true, new Map())).toBe(true)
+    expect(deckTaskUnread(row, false, new Map())).toBe(false)
+  })
+
+  it('an expanded strip leaves session unread to the session row', () => {
+    harness.sessions = [
+      session('s2', { issueId: 't2', unread: true, lastActiveAt: '2026-01-01T00:20:00.000Z' }),
+      session('s3', { issueId: 't2', unread: false }),
+    ]
+    deck()
+    const task = document.querySelector('[data-flight-issue="t2"]') as HTMLElement
+    expect(task.querySelector('.deck-strip [data-testid="row-unread-dot"]')).toBeNull()
+    const unreadSession = document.querySelector('[data-flight-session="s2"]') as HTMLElement
+    expect(unreadSession.querySelector('[data-testid="row-unread-dot"]')).toBeTruthy()
+    const readSession = document.querySelector('[data-flight-session="s3"]') as HTMLElement
+    expect(readSession.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
+  })
+
+  it('a collapsed parent stays unread when a child session is new', () => {
+    const child = { id: 't4', updatedAt: '2026-01-01T00:00:00.000Z' }
+    const row = {
+      issue: { id: 't3', readAt: '2026-01-01T00:10:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+      workingAgentCount: 0,
+      descendantIds: ['t4'],
+      collapsedSummary: {
+        crew: [session('s-child', { unread: true, lastActiveAt: '2026-01-01T00:30:00.000Z' })],
+      },
+    } as unknown as Parameters<typeof deckTaskUnread>[0]
+    expect(deckTaskUnread(row, true, new Map([['t4', child]]))).toBe(true)
   })
 })
 

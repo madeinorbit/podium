@@ -12,6 +12,7 @@
  */
 import { type SessionMeta } from '@podium/model'
 import { isSessionWorking } from '../../session-status'
+import { subtreeUnread } from '../../unread'
 import type { IssueNavigationModel } from '../issues'
 import type { WorktreeNavView } from './nav'
 
@@ -41,15 +42,40 @@ export function rowSessions(row: UnifiedWorkRow): SessionMeta[] {
   return row.kind === 'issue' ? (row.aggregateSessions ?? row.sessions) : row.worktree.sessions
 }
 
+/** Descendants hidden behind a sidebar mission row. */
+function descendantIssues(row: UnifiedIssueRow): IssueNavigationModel[] {
+  const out: IssueNavigationModel[] = []
+  const stack = [...(row.startedByChildren ?? [])]
+  while (stack.length > 0) {
+    const child = stack.pop()
+    if (!child) continue
+    out.push(child.issue)
+    stack.push(...(child.startedByChildren ?? []))
+  }
+  return out
+}
+
 /** Whether a unified WORK/WORKING row should render with unread (email-style)
- *  emphasis. An issue row follows the replica-derived `unread` rollup
- *  (which already aggregates member-session activity), so marking the issue read
- *  clears it. A worktree row owns no `unread` field of its own, so it's unread
- *  iff any of its sessions is. (#126, built on the #124 unread foundation.) */
+ *  emphasis. An issue row follows the replica-derived `unread` rollup for its
+ *  own activity, then rolls descendant issue/session activity against THIS
+ *  issue's readAt — so a collapsed mission stays unread until the click that
+ *  opened it covers the whole tree. A worktree row owns no `unread` field of
+ *  its own, so it's unread iff any of its sessions is. (#126, #124, POD-912.) */
 export function isRowUnread(row: UnifiedWorkRow): boolean {
-  return row.kind === 'issue'
-    ? (row.issue.unread ?? false)
-    : row.worktree.sessions.some((s) => s.unread)
+  if (row.kind !== 'issue') return row.worktree.sessions.some((s) => s.unread)
+  if (row.issue.unread) return true
+  // Fixtures inject `unread: false` with no readAt. Honor that — never-read is
+  // already represented by the replica's unread flag. Only a real cursor can
+  // cover (or fail to cover) descendant activity.
+  if (!row.issue.readAt) return false
+  const children = descendantIssues(row)
+  if (children.length === 0) return false
+  return subtreeUnread({
+    readAt: row.issue.readAt,
+    updatedAt: row.issue.updatedAt,
+    descendantUpdatedAts: children.map((issue) => issue.updatedAt),
+    sessions: row.aggregateSessions ?? row.sessions,
+  })
 }
 
 /** Whether a unified row should actually RENDER the unread (email-style) emphasis.

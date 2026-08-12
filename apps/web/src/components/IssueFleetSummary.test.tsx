@@ -44,7 +44,7 @@ function sess(
   } as unknown as SessionMeta
 }
 
-function fleet(sessions: SessionMeta[], props: { unread?: boolean; size?: number } = {}) {
+function fleet(sessions: SessionMeta[], props: { size?: number } = {}) {
   const { container } = render(<IssueFleetSummary sessions={sessions} {...props} />)
   return container.querySelector('[data-testid="issue-fleet-summary"]')
 }
@@ -104,14 +104,10 @@ describe('IssueFleetSummary', () => {
     expect(fleet([])).toBeNull()
   })
 
-  it('rides the unopened-update dot on the last tile, and says so out loud', () => {
-    const stack = fleet([sess('a'), sess('b', { agentKind: 'codex' })], { unread: true })
-    const tiles = [...(stack?.querySelectorAll('[data-agent-kind]') ?? [])]
-    expect(tiles[0]?.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
-    expect(tiles[1]?.querySelector('[data-testid="row-unread-dot"]')).toBeTruthy()
-    // The dot itself is aria-hidden, so the label is the only unread signal a
-    // screen reader gets.
-    expect(stack?.getAttribute('aria-label')).toBe('2 agents · new update')
+  it('never puts unread on a tile — kinds stack and cannot mean per-session newness', () => {
+    const stack = fleet([sess('a'), sess('b', { agentKind: 'codex' })])
+    expect(stack?.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
+    expect(stack?.getAttribute('aria-label')).toBe('2 agents')
   })
 
   it('takes the board card down to its denser tile without changing the grammar', () => {

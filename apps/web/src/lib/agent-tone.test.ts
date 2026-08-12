@@ -53,9 +53,9 @@ describe('agent tone resolvers are total', () => {
   it('keeps the built-in pixels the old ternaries produced', () => {
     expect(agentGlyphTone('claude-code')).toBe('text-claude')
     expect(agentGlyphTone('shell')).toBe('text-foreground')
-    expect(agentChipTint('claude-code')).toBe('border-claude/50 bg-claude/12')
-    expect(agentChipTint('grok')).toBe('border-border-strong bg-chip')
-    expect(agentFleetTileTint('claude-code')).toBe('border-claude/50 bg-claude/12 text-claude')
+    expect(agentChipTint('claude-code')).toBe('border-claude bg-claude text-white')
+    expect(agentChipTint('grok')).toBe('border-white/15 bg-zinc-950 text-white')
+    expect(agentFleetTileTint('claude-code')).toBe('border-claude bg-claude text-white')
     expect(agentFleetTileTint('cursor')).toBe('border-border-strong bg-chip text-foreground')
   })
 })

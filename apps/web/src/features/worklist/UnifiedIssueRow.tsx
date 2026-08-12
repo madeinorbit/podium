@@ -343,7 +343,7 @@ export function UnifiedIssueRow({
                 the only column, but the Flight Deck owns the tree now and the
                 draft row kept nothing but an issue square, so the one row that
                 is purely an agent was the one row that never named one. */}
-            <IssueFleetSummary sessions={fleetSessions} unread={unread} className="ml-0.5" />
+            <IssueFleetSummary sessions={fleetSessions} className="ml-0.5" />
             {issue.pinned && (
               <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}

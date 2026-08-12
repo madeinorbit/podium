@@ -31,6 +31,9 @@ import {
   sessionNeedsHuman,
   sessionRole,
   sessionSettled,
+  sessionUnreadEmphasized,
+  subtreeUnread,
+  issueOwnContentUnread,
   treeGuides,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind, SessionMeta } from '@podium/model'
@@ -56,6 +59,7 @@ import {
 import { motion, useReducedMotion } from 'motion/react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { UnreadDot } from '@/components/UnreadMark'
 import { Button } from '@/components/ui/button'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
@@ -291,6 +295,31 @@ export function defaultFolded(row: Pick<FlightDeckRow, 'descendantIds' | 'sessio
 export function isFolded(row: FoldableRow, folds: FoldMap): boolean {
   const explicit = folds.get(row.issue.id)
   return explicit === undefined ? defaultFolded(row) : explicit === 'closed'
+}
+
+/**
+ * Unread for a task strip. Working agents suppress the mark (the spinner
+ * already says "live"). A collapsed strip — including the default one-agent
+ * fold — rolls up hidden sessions and descendant issues against THIS issue's
+ * readAt. An expanded strip only marks issue-level activity; sessions and
+ * children speak for themselves.
+ */
+export function deckTaskUnread(
+  row: Pick<FlightDeckRow, 'issue' | 'workingAgentCount' | 'descendantIds' | 'collapsedSummary'>,
+  collapsed: boolean,
+  byId: ReadonlyMap<string, { updatedAt: string }>,
+): boolean {
+  if (row.workingAgentCount > 0) return false
+  if (!collapsed) return issueOwnContentUnread(row.issue)
+  return subtreeUnread({
+    readAt: row.issue.readAt,
+    updatedAt: row.issue.updatedAt,
+    descendantUpdatedAts: row.descendantIds.flatMap((id) => {
+      const child = byId.get(id)
+      return child ? [child.updatedAt] : []
+    }),
+    sessions: row.collapsedSummary.crew,
+  })
 }
 
 /** What the mission search matches on a row: its title, its ref, its agents. */
@@ -820,6 +849,7 @@ function SessionRow({
   const stamp = relativeTime(session.lastActiveAt, now)
   const total = session.agentState?.workingMsTotal
   const name = sessionDisplayName(session)
+  const unread = sessionUnreadEmphasized(session)
   const lead = isLead(role)
   const body = (
     <div
@@ -914,7 +944,15 @@ function SessionRow({
               the right. The name now shrinks last (weight 1) and the role first
               (weight 8), and both truncate instead of overlapping. */}
           <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-            <WorkerLabel session={session} chip />
+            <span className={cn('min-w-0', unread && 'font-semibold text-text-strong')}>
+              <WorkerLabel session={session} chip />
+            </span>
+            {unread ? (
+            <>
+              <UnreadDot />
+              <span className="sr-only">unread</span>
+            </>
+          ) : null}
             {/* THE REF IS THE HANDLE (POD-758). `POD-710-B` is what the operator
                 types, pastes and says out loud, and it is the one string on the
                 row that is worthless partly rendered — so it never truncates
@@ -1192,6 +1230,7 @@ function TaskRow({
   // chip: "2 running" is the thing the fold is hiding, and `3 tasks` is printed
   // two inches to the left of it.
   const folded = collapsed && payload
+  const unread = deckTaskUnread(row, collapsed, byId)
   const liveWord =
     folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
       ? `${row.workingAgentCount} running`
@@ -1318,7 +1357,7 @@ function TaskRow({
           <span
             className={cn(
               'shell-type-secondary min-w-0 flex-1 truncate text-text-strong',
-              selected ? 'font-semibold' : 'font-medium',
+              selected || unread ? 'font-semibold' : 'font-medium',
             )}
           >
             <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
@@ -1326,6 +1365,12 @@ function TaskRow({
             </span>
             {row.issue.title}
           </span>
+          {unread ? (
+            <>
+              <UnreadDot />
+              <span className="sr-only">unread</span>
+            </>
+          ) : null}
           {note && <IssueNoteChip note={note} />}
           {seat && <SeatChip note={seat} />}
           {folded && <CollapsedPayload summary={row.collapsedSummary} />}

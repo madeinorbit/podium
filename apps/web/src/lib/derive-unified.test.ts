@@ -433,6 +433,38 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
   it('a sessionless worktree row is read', () => {
     expect(isRowUnread(wtRow([]))).toBe(false)
   })
+
+  it('a read parent stays unread when a child session is newer than its readAt', () => {
+    const child: Extract<UnifiedWorkRow, { kind: 'issue' }> = {
+      kind: 'issue',
+      issue: issue({
+        id: 'child',
+        unread: false,
+        readAt: '2026-07-06T09:00:00.000Z',
+        updatedAt: '2026-07-06T08:00:00.000Z',
+      }),
+      sessions: [
+        idle('kid', '/w', {
+          lastActiveAt: '2026-07-06T13:00:00.000Z',
+          unread: true,
+        } as Partial<SessionMetaInput>),
+      ],
+      activityAt: NOW,
+    }
+    const parent: Extract<UnifiedWorkRow, { kind: 'issue' }> = {
+      kind: 'issue',
+      issue: issue({
+        unread: false,
+        readAt: '2026-07-06T11:00:00.000Z',
+        updatedAt: '2026-07-06T08:00:00.000Z',
+      }),
+      sessions: [],
+      startedByChildren: [child],
+      aggregateSessions: child.sessions,
+      activityAt: NOW,
+    }
+    expect(isRowUnread(parent)).toBe(true)
+  })
 })
 
 describe('rowUnreadEmphasized (#138: suppress unread while actively working)', () => {

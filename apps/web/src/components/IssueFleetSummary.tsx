@@ -37,29 +37,19 @@ import { cn } from '@/lib/utils'
 
 export function IssueFleetSummary({
   sessions,
-  unread = false,
   size = 18,
   className,
 }: {
   sessions: SessionMeta[]
-  /** An unopened update since last read (POD-293): a single info dot on the
-   *  agent identity, not a shouted banner. Bound to the fleet glyph so it reads
-   *  as "this agent has something new", never a free-floating third dot. */
-  unread?: boolean
   /** Tile edge in px — 18 in the sidebar, 16 on the denser board card, where an
    *  18px tile of saturated terracotta was the loudest thing on the card and won
    *  the first look from the title. */
   size?: number
   className?: string
 }): JSX.Element | null {
-  const { present, tiles, nativeCount, label: presenceLabel } = deriveFleetPresence(sessions)
+  const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
   if (present.length === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)
-  // The unread clause is the component's to add, not the viewmodel's: the dot is
-  // `aria-hidden` and rides this glyph, so without it a screen reader gets no
-  // unread signal at all. It stays out of `deriveFleetPresence` because unread is
-  // a read-state fact about the issue, not about who is on it.
-  const label = unread ? `${presenceLabel} · new update` : presenceLabel
   const glyph = Math.round(size * 0.66)
   return (
     <span
@@ -72,19 +62,11 @@ export function IssueFleetSummary({
       <span className="flex items-center pl-1">
         {shown.map(({ kind, parked }, index) => {
           const AgentIcon = agentIconFor(kind)
-          // Per-kind tint (POD-293): Claude wears its clay, other harnesses a
-          // quiet navy — solid fills so stacked tiles don't ghost through each
-          // other. A table keyed by kind, not a comparison (see @/lib/agent-tone).
-          // A parked kind drops the brand for the muted pair (POD-756).
+          // Per-kind tint (POD-293 / POD-912): solid fills so stacked tiles
+          // don't ghost through each other. Claude is opaque clay, Grok is the
+          // dark mark. Unread no longer rides a tile — kinds collapse and grow
+          // ×N, so a corner dot cannot mean per-session newness.
           const tileTint = agentFleetTileTint(kind, parked)
-          // The row's unopened-update dot rides the corner of the LAST tile (the
-          // artifact's `.fleet-tile .dot`): tight to the glyph at -3px, ringed in
-          // the surface it sits on — "this fleet has something new", not a third
-          // free-floating mark. The ring reads the ground off the host: a tinted
-          // sidebar row publishes `--row-bg`, everything else names its base
-          // (`--issue-base`, `--card` on a board card), and an untinted row falls
-          // through to the sidebar itself.
-          const showDot = unread && index === shown.length - 1
           return (
             <span
               key={kind}
@@ -98,13 +80,6 @@ export function IssueFleetSummary({
               style={{ zIndex: index + 1, width: size, height: size }}
             >
               {AgentIcon ? <AgentIcon size={glyph} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
-              {showDot && (
-                <span
-                  className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,var(--issue-base,var(--sidebar)))] bg-info"
-                  data-testid="row-unread-dot"
-                  aria-hidden="true"
-                />
-              )}
             </span>
           )
         })}

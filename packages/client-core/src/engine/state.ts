@@ -166,13 +166,34 @@ export const asIssueIdOrNull = (v: string | null | undefined): IssueId | null =>
 export const tabIsVisible = (): boolean =>
   typeof document === 'undefined' || document.visibilityState === 'visible'
 
-/** The stamp the server's issue-unread compares against read_at: the issue's own
- *  updatedAt, or a member session's activity when that is newer. Mirrors the
- *  server's computeUnread so the client reacts to exactly the same events. */
-export function issueActivityAt(issue: IssueWire, sessions: SessionMeta[]): string {
+/** The stamp issue-unread compares against read_at: this issue's updatedAt, any
+ *  descendant's updatedAt, and every session in the subtree. Mirrors the
+ *  sidebar/collapsed rollup so remake-on-view sees the same activity the row
+ *  does (POD-912). */
+export function issueActivityAt(
+  issue: Pick<IssueWire, 'id' | 'updatedAt'>,
+  sessions: SessionMeta[],
+  issues: readonly Pick<IssueWire, 'id' | 'parentId' | 'updatedAt'>[] = [],
+): string {
+  const subtree = new Set<string>([issue.id])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const other of issues) {
+      if (other.parentId && subtree.has(other.parentId) && !subtree.has(other.id)) {
+        subtree.add(other.id)
+        grew = true
+      }
+    }
+  }
   let latest = issue.updatedAt
-  for (const s of sessions) {
-    if ((s.issueId ?? null) === issue.id && s.lastActiveAt > latest) latest = s.lastActiveAt
+  for (const other of issues) {
+    if (subtree.has(other.id) && other.updatedAt > latest) latest = other.updatedAt
+  }
+  for (const session of sessions) {
+    if (session.issueId && subtree.has(session.issueId) && session.lastActiveAt > latest) {
+      latest = session.lastActiveAt
+    }
   }
   return latest
 }

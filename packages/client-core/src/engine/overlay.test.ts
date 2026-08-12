@@ -102,6 +102,10 @@ describe('overlayForOutboxEntry projection', () => {
       readAt: new Date(1751500800000).toISOString(),
       unread: false,
     })
+    // Unread left the wire — covering must not require a field the replica
+    // row no longer carries (POD-912 bounce).
+    expect(legacyRead.coveredBy({ readAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
+    expect(legacyRead.coveredBy({ readAt: null } as IssueWire)).toBe(false)
 
     const unread = overlayForOutboxEntry(entry('issueMarkUnread', { id: 'i1' }))
     if (unread?.op !== 'patch') throw new Error('expected patch')

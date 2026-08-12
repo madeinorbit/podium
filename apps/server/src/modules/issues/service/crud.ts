@@ -572,17 +572,43 @@ export class IssueCrudModule {
     return wire
   }
 
-  /** Mark this issue read (issue #124): stamp read_at = now, persist + broadcast, and
-   *  log issue.read. Derived `unread` in the wire flips to false immediately (readAt is
-   *  now the latest timestamp). PER-USER STATE (POD-1076): the marker is written to
-   *  the actor's `(userId, issueId)` row, not to the issue. */
+  /** Mark this issue read (issue #124): stamp a covering read_at, persist + broadcast,
+   *  and log issue.read. The stamp is max(now, this issue's updatedAt, descendant
+   *  updatedAts, subtree lastActiveAt) so a session whose clock is a tick ahead of
+   *  `now` cannot flip derived unread back on the same click (POD-912). PER-USER
+   *  STATE (POD-1076): the marker is written to the actor's `(userId, issueId)`
+   *  row, not to the issue. */
   markIssueRead(id: string): IssueWire {
     const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
-    this.store.writeIssueUserState(row.id, { readAt: this.store.now() })
+    this.store.writeIssueUserState(row.id, { readAt: this.coveringReadAt(row) })
     const wire = this.store.persist(row, { touch: false })
     this.store.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
+  }
+
+  /** The cursor that covers everything currently visible on this issue's row. */
+  private coveringReadAt(row: IssueRow): string {
+    const ids = new Set<string>([row.id])
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const other of this.store.rows.values()) {
+        if (other.parentId && ids.has(other.parentId) && !ids.has(other.id)) {
+          ids.add(other.id)
+          grew = true
+        }
+      }
+    }
+    let latest = this.store.now()
+    for (const other of this.store.rows.values()) {
+      if (!ids.has(other.id)) continue
+      if (other.updatedAt > latest) latest = other.updatedAt
+      for (const session of this.store.sessionsFor(other)) {
+        if (session.lastActiveAt > latest) latest = session.lastActiveAt
+      }
+    }
+    return latest
   }
 
   /** Mark this issue UNREAD again (issue #138, the email-style inverse of

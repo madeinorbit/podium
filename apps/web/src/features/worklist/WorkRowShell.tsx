@@ -8,6 +8,7 @@ import type {
   ReactNode,
   PointerEvent as ReactPointerEvent,
 } from 'react'
+import { UnreadDot, unreadTitleClass } from '@/components/UnreadMark'
 import { FLOW_CSS } from '@/lib/issueColors'
 import { usePhaseMorph } from '@/lib/motion'
 import { cn } from '@/lib/utils'
@@ -106,7 +107,7 @@ export function WorkRowShell({
    *  than a chip on either line. Absent on rows with no real subtree. */
   meter?: ReactNode
   active: boolean
-  /** Email-style unread emphasis (#126): the label reads bold until opened. */
+  /** Email-style unread emphasis: semibold title + info dot until opened. */
   unread?: boolean
   onSelect: () => void
   /** Right-click the row's select button (opens the issue context menu). */
@@ -259,19 +260,23 @@ export function WorkRowShell({
                   // on warm paper a 25% tint into the body ink just read as faded
                   // text. The colour lives on the square, the spine and the band;
                   // the title's job is to be the most readable thing in the row.
-                  // Selection lifts to semibold + strong ink per the design;
-                  // UNREAD keeps its email-style medium independent of it (#126).
-                  active ? 'font-semibold text-text-strong' : 'text-foreground',
-                  !active && unread && 'font-medium',
+                  // Selection and unread both lift to semibold; unread also
+                  // takes the info dot after the title (not on the fleet tile —
+                  // those stack and grow ×N, so they cannot carry per-session
+                  // unread).
+                  unreadTitleClass(unread, active),
                 )}
               >
                 {label}
               </span>
-              {/* Unread no longer shouts a banner (POD-293): the bold title
-                  above and the info dot on the fleet glyph (in `extras`) carry
-                  it, so the row keeps one attention voice. Prior art on why a
-                  free-floating blue dot was rejected: POD-236 — this dot is
-                  bound to the agent identity, not a third positional meaning. */}
+              {unread ? (
+                <>
+                  <UnreadDot />
+                  <span className="sr-only">unread</span>
+                </>
+              ) : (
+                <UnreadDot reserve />
+              )}
               {extras}
               {/* THE NEED PILL (the artifact's `need-pill`). It reads in words —
                   "Needs you" for one, "N need you" for a branch — because a bare
