@@ -29,7 +29,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
-import { asSessionId, type SessionId } from '@podium/model'
+import { asAccountId, asSessionId, type SessionId } from '@podium/model'
 import { type DaemonMessage, SpawnMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -62,7 +62,7 @@ function managedAccountEnv(): Record<string, string> | undefined {
   const db = openAccountsDatabase()
   const accounts = new AccountsRepository(db)
   accounts.upsert({
-    id: 'managed:anthropic',
+    id: asAccountId('managed:anthropic'),
     provider: 'anthropic',
     kind: 'api-key',
     credential: CREDENTIAL,
@@ -70,7 +70,7 @@ function managedAccountEnv(): Record<string, string> | undefined {
     scope: 'role',
     createdAt: 1,
   })
-  const env = resolveAccountEnv(accounts, 'managed:anthropic').env
+  const env = resolveAccountEnv(accounts, asAccountId('managed:anthropic')).env
   db.close()
   return env
 }
@@ -289,7 +289,7 @@ describe('managed account -> real spawned process env (#216)', () => {
     const db = openAccountsDatabase()
     const accounts = new AccountsRepository(db)
     accounts.upsert({
-      id: 'managed:claude-oauth',
+      id: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',
       kind: 'oauth',
       credential: 'oat-test-1',
@@ -297,7 +297,7 @@ describe('managed account -> real spawned process env (#216)', () => {
       scope: 'role',
       createdAt: 1,
     })
-    const { env } = resolveAccountEnv(accounts, 'managed:claude-oauth')
+    const { env } = resolveAccountEnv(accounts, asAccountId('managed:claude-oauth'))
     db.close()
     expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' })
 

@@ -1,3 +1,4 @@
+import { asThreadId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -48,7 +49,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
       const seed = new SessionStore(dbPath)
       const message: MessageRow = {
         id: 'msg_due',
-        threadId: 'thread_due',
+        threadId: asThreadId('thread_due'),
         inReplyTo: null,
         fromKind: 'system',
         fromSession: null,

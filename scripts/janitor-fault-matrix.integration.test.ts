@@ -1,3 +1,4 @@
+import { asThreadId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,7 +20,7 @@ const NOW = Date.parse('2026-07-18T00:00:00.000Z')
 function dueMessage(id: string): MessageRow {
   return {
     id,
-    threadId: `thread_${id}`,
+    threadId: asThreadId(`thread_`),
     inReplyTo: null,
     fromKind: 'system',
     fromSession: null,

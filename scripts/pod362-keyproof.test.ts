@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { machineScopedKey, parseMachineScopedKey, resumeKey } from '../packages/model/src/ids/keys'
 
@@ -9,7 +10,7 @@ describe('POD-362 machineScopedKey adoption is byte-compatible for real ids', ()
       ['__local__', ''],
     ] as const) {
       // The literal the 8 adopted sites used before POD-362.
-      expect(machineScopedKey(m, n)).toBe(`${m}\n${n}`)
+      expect(machineScopedKey(asMachineId(m), n)).toBe(`${m}\n${n}`)
     }
   })
 
@@ -19,8 +20,10 @@ describe('POD-362 machineScopedKey adoption is byte-compatible for real ids', ()
     expect(`m\n${hostile}`).toBe(`m\na\nb`)
     expect(`${'m\na'}\n${'b'}`).toBe(`m\na\nb`)
     // The helper does not.
-    expect(machineScopedKey('m', hostile)).not.toBe(machineScopedKey('m\na', 'b'))
-    expect(parseMachineScopedKey(machineScopedKey('m', hostile))).toEqual({
+    expect(machineScopedKey(asMachineId('m'), hostile)).not.toBe(
+      machineScopedKey(asMachineId('m\na'), 'b'),
+    )
+    expect(parseMachineScopedKey(machineScopedKey(asMachineId('m'), hostile))).toEqual({
       machineId: 'm',
       nativeId: hostile,
     })
