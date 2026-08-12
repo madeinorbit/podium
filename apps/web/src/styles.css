@@ -4158,13 +4158,14 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .feed-tail-body {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   min-width: 0;
 }
 .feed-tail-mark {
   display: flex;
   flex: none;
+  align-self: center;
   align-items: center;
   justify-content: center;
   width: 13px;
