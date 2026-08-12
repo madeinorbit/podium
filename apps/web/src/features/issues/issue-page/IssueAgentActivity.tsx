@@ -121,7 +121,7 @@ export function IssueAgentActivity({
                 style={{ width: `${(doneCount / todos.length) * 100}%` }}
               />
             </div>
-            <span className="font-mono text-[9px] text-text-faint tabular-nums">
+            <span className="font-mono shell-type-micro text-text-faint tabular-nums">
               {Math.round((doneCount / todos.length) * 100)}%
             </span>
           </div>

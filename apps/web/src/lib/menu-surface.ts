@@ -30,13 +30,13 @@ export const MENU_PICKER_PANEL = `${PANEL} w-[196px] px-[11px] py-[10px]`
  *  Carries no horizontal padding: the picker sits flush with its swatch grid,
  *  the menu insets it to the row text column. */
 export const MENU_HEADER =
-  'mb-[9px] flex items-center gap-1.5 font-mono text-[8px] tracking-[.12em] text-label'
+  'mb-[9px] flex items-center gap-1.5 font-mono shell-type-micro tracking-[.12em] text-label'
 export const MENU_HEADER_REF = 'ml-auto tracking-normal text-text-faint'
 
 /** A section rule that names itself. The menu's regions were anonymous <hr>s;
  *  the picker labels its regions, so they do too. */
 export const MENU_SECTION =
-  'mt-[6px] mb-[3px] border-t border-hairline-soft px-[5px] pt-[7px] font-mono text-[8px] tracking-[.12em] text-label'
+  'mt-[6px] mb-[3px] border-t border-hairline-soft px-[5px] pt-[7px] font-mono shell-type-micro tracking-[.12em] text-label'
 
 /** An unlabelled divider, for groups whose heading would be noise. */
 export const MENU_RULE = 'my-[5px] h-px border-0 bg-hairline-soft'
@@ -53,7 +53,7 @@ export const MENU_ITEM_DISABLED =
 export const MENU_ITEM_DESTRUCTIVE = `${MENU_ITEM} text-destructive hover:bg-destructive/10 hover:text-destructive`
 
 /** Trailing machine voice on a row (a handoff rejection, a duplicate's ref). */
-export const MENU_HINT = 'ml-auto pl-2 font-mono text-[9px] text-text-faint'
+export const MENU_HINT = 'ml-auto pl-2 font-mono shell-type-micro text-text-faint'
 
 /** A row's second line — the disabled-with-a-reason shape. */
 export const MENU_SUBTEXT = 'pl-[22px] text-[10.5px] text-text-dim'

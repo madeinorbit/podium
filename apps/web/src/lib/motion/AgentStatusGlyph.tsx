@@ -45,7 +45,7 @@ export function AgentStatusGlyph({
         role="img"
         aria-label={count ? `${count} waiting on you` : 'waiting on you'}
         className={cn(
-          'inline-flex h-[13px] min-w-[13px] flex-none items-center justify-center rounded-full px-[3px] font-mono text-[7.5px] font-bold',
+          'inline-flex h-[13px] min-w-[13px] flex-none items-center justify-center rounded-full px-[3px] font-mono shell-type-micro font-bold',
           className,
         )}
         style={{ background: 'var(--motion-waiting)', color: 'var(--motion-waiting-ink)' }}

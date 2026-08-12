@@ -208,13 +208,13 @@ export function IssueListView({
                       was a hue the palette does not contain, and two word-pills
                       per row out-weighed the title they annotate. */}
                   {issue.deletedAt && (
-                    <span className="flex-none font-mono text-[9.5px] text-destructive uppercase tracking-[0.08em]">
+                    <span className="flex-none font-mono shell-type-micro text-destructive uppercase tracking-[0.08em]">
                       deleted
                     </span>
                   )}
                   {epic && (
                     <span
-                      className="flex-none font-mono text-[9.5px] text-[var(--issue-muted)] uppercase tracking-[0.08em]"
+                      className="flex-none font-mono shell-type-micro text-[var(--issue-muted)] uppercase tracking-[0.08em]"
                       title="Epic"
                     >
                       epic

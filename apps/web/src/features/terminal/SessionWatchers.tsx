@@ -99,7 +99,7 @@ export function SessionWatchers({ sessionId, view, className }: SessionWatchersP
             <span
               key={watcher.key}
               data-testid="session-watcher-chip"
-              className="-ml-[4px] inline-flex size-[18px] flex-none items-center justify-center rounded-full border issue-hairline-45 bg-secondary font-mono text-[8.5px] font-medium tracking-[0.02em] text-(--issue-bright) first:ml-0"
+              className="-ml-[4px] inline-flex size-[18px] flex-none items-center justify-center rounded-full border issue-hairline-45 bg-secondary font-mono shell-type-micro font-medium tracking-[0.02em] text-(--issue-bright) first:ml-0"
             >
               {watcher.isAgent ? <Bot size={10} aria-hidden="true" /> : watcher.initials}
             </span>
@@ -107,7 +107,7 @@ export function SessionWatchers({ sessionId, view, className }: SessionWatchersP
           {overflow > 0 && (
             <span
               data-testid="session-watcher-overflow"
-              className="-ml-[4px] inline-flex h-[18px] flex-none items-center justify-center rounded-full border issue-hairline-45 bg-secondary px-[5px] font-mono text-[8.5px] tabular-nums text-(--issue-muted)"
+              className="-ml-[4px] inline-flex h-[18px] flex-none items-center justify-center rounded-full border issue-hairline-45 bg-secondary px-[5px] font-mono shell-type-micro tabular-nums text-(--issue-muted)"
             >
               +{overflow}
             </span>

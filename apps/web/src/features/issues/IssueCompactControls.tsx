@@ -56,7 +56,7 @@ export const DOCK_BODY = 'text-[12px] leading-[1.5]'
 export const DOCK_ROW = 'text-[12px] leading-[1.4]'
 /** Machine voice at the floor of the scale: trailing state words, timestamps,
  *  the facts a row parks on its right edge. */
-export const DOCK_STAMP = 'font-mono text-[9.5px] leading-none'
+export const DOCK_STAMP = 'font-mono shell-type-micro leading-none'
 
 /** A session is still present when its process is: an exited-but-unarchived
  *  session is gone, and reading it as "standing by" would tell the operator an
@@ -270,7 +270,7 @@ function SessionAnswer({ session }: { session: SessionMeta }): JSX.Element | nul
             >
               {sending === index ? 'Sending…' : action.label}
               {action.input === true && (
-                <span aria-hidden="true" className="text-[9px] opacity-70">
+                <span aria-hidden="true" className="shell-type-micro opacity-70">
                   ✎
                 </span>
               )}

@@ -845,7 +845,7 @@ export function AgentPanel({
                       <span className="min-w-0">
                         Copy resume command
                         <span
-                          className="mt-px block max-w-[26ch] truncate font-mono text-[9.5px] text-muted-foreground"
+                          className="mt-px block max-w-[26ch] truncate font-mono shell-type-micro text-muted-foreground"
                           title={resumeCmd}
                         >
                           {resumeCmd}
@@ -1016,7 +1016,7 @@ export function AgentPanel({
             >
               <div className="border-t issue-hairline-35" aria-hidden="true" />
               {session?.harnessPromptModeHints === true && (
-                <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] text-[9.5px] text-text-dim">
+                <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] shell-type-micro text-text-dim">
                   <span>(shift+tab to cycle modes)</span>
                   <span className="ml-auto">? for shortcuts</span>
                 </div>

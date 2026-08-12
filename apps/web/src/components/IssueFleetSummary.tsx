@@ -111,7 +111,7 @@ export function IssueFleetSummary({
       </span>
       {present.length > 1 && (
         <span
-          className="font-mono text-[9.5px] tabular-nums text-text-dim"
+          className="font-mono shell-type-micro tabular-nums text-text-dim"
           data-testid="issue-fleet-total"
         >
           {present.length}
@@ -119,7 +119,7 @@ export function IssueFleetSummary({
       )}
       {nativeCount > 0 && (
         <span
-          className="rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-[9.5px] leading-[14px] text-claude"
+          className="rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] font-mono shell-type-micro leading-[14px] text-claude"
           data-testid="issue-fleet-subagent-count"
         >
           ×{nativeCount}

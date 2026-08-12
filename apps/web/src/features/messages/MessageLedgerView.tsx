@@ -47,14 +47,14 @@ function LedgerRow({ m, now }: { m: LedgerMessage; now: number }): JSX.Element {
         <span className="text-foreground/70">{m.to}</span>
         <span
           className={cn(
-            'rounded-full px-1.5 text-[9.5px] font-semibold uppercase tracking-wide',
+            'rounded-full px-1.5 shell-type-micro font-semibold uppercase tracking-wide',
             STATUS_CHIP[ledgerStatusTone(m.status)],
           )}
         >
           {m.status}
         </span>
         {m.ackedBy && (
-          <span className="rounded-full bg-success/15 px-1.5 text-[9.5px] font-semibold uppercase tracking-wide text-success">
+          <span className="rounded-full bg-success/15 px-1.5 shell-type-micro font-semibold uppercase tracking-wide text-success">
             acked
           </span>
         )}
@@ -70,20 +70,20 @@ function LedgerRow({ m, now }: { m: LedgerMessage; now: number }): JSX.Element {
         </span>
         {clamp && (
           <span
-            className="rounded border border-amber-500/50 px-1 text-[9px] font-semibold text-amber-600 dark:text-amber-400"
+            className="rounded border border-amber-500/50 px-1 shell-type-micro font-semibold text-amber-600 dark:text-amber-400"
             title={clamp.reasons.join('; ')}
           >
             clamped: {clamp.parts.join(', ')}
           </span>
         )}
         {m.hop > 0 && <span>hop {m.hop}</span>}
-        <span className="ml-auto font-mono text-[9.5px] text-muted-foreground/50">{m.id}</span>
+        <span className="ml-auto font-mono shell-type-micro text-muted-foreground/50">{m.id}</span>
       </div>
       {open && (
         <div className="mt-1 border-t border-border/40 pt-1">
           <div className="text-[10px] text-muted-foreground/70">{deliveryLine(m)}</div>
           {m.inReplyTo && (
-            <div className="font-mono text-[9.5px] text-muted-foreground/50">
+            <div className="font-mono shell-type-micro text-muted-foreground/50">
               in reply to {m.inReplyTo}
             </div>
           )}

@@ -120,7 +120,7 @@ export function IssueDetailHeader({
             </span>
           )}
           {working > 0 && (
-            <span className="flex flex-none items-center gap-1.5 font-mono text-[9.5px] text-live tabular-nums">
+            <span className="flex flex-none items-center gap-1.5 font-mono shell-type-micro text-live tabular-nums">
               <BrailleSpinner size={9} />
               {working} working
             </span>

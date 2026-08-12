@@ -47,7 +47,7 @@ export function MotionDemo(): JSX.Element {
           <h1 className="text-lg font-semibold text-text-strong">Motion primitives</h1>
           <output
             data-testid="phase-label"
-            className="font-mono text-[9px] tracking-[0.12em] text-muted-foreground"
+            className="font-mono shell-type-micro tracking-[0.12em] text-muted-foreground"
           >
             {PHASE_LABEL[phase]}
           </output>
@@ -82,7 +82,7 @@ export function MotionDemo(): JSX.Element {
           <span
             data-testid="motion-square"
             className={cn(
-              'phase-surface relative flex size-[32px] flex-none flex-col items-center justify-center rounded-lg border font-mono text-[7px] font-semibold leading-tight',
+              'phase-surface relative flex size-[32px] flex-none flex-col items-center justify-center rounded-lg border font-mono shell-type-micro font-semibold leading-tight',
               morph === 'working' && 'morph-ignite',
             )}
             style={{

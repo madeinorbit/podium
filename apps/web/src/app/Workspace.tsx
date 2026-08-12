@@ -963,7 +963,7 @@ function SortableTab({
               {issueDot} <WorkerLabel session={tab.session} />
               {coordinator && (
                 <span
-                  className="flex-none rounded border border-sky-500/50 bg-sky-500/15 px-1 text-[8.5px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400"
+                  className="flex-none rounded border border-sky-500/50 bg-sky-500/15 px-1 shell-type-micro font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400"
                   data-testid="coordinator-tab-badge"
                   title="Coordinator session — drives this issue"
                 >

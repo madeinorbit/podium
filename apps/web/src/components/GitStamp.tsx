@@ -49,7 +49,7 @@ export function GitStamp({
         data-testid="git-stamp"
         data-density="stamp"
         title={m.title}
-        className={`inline-flex flex-none items-center gap-1.5 font-mono text-[9px] leading-[13px] ${
+        className={`inline-flex flex-none items-center gap-1.5 font-mono shell-type-micro leading-[13px] ${
           m.mismatch ? 'text-destructive' : 'text-text-dim'
         } ${className}`}
       >

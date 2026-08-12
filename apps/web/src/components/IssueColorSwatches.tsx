@@ -63,12 +63,12 @@ export function IssueColorSwatches({
           aria-pressed={value === undefined}
           onClick={() => onPick(null)}
         >
-          <span className="flex size-4 items-center justify-center rounded-[5px] border border-dashed border-text-dim bg-hairline-soft text-[9px] text-label">
+          <span className="flex size-4 items-center justify-center rounded-[5px] border border-dashed border-text-dim bg-hairline-soft shell-type-micro text-label">
             ✕
           </span>
           <span className="text-[10.5px]">No colour</span>
         </button>
-        <span className="ml-auto font-mono text-[8px] tracking-[.12em] text-text-faint">
+        <span className="ml-auto font-mono shell-type-micro tracking-[.12em] text-text-faint">
           {caption}
         </span>
       </div>

@@ -93,7 +93,7 @@ function previewIndex(q: AskQuestion, peek: number | null, chosen: number): numb
 function OptionPreviewWell({ label, text }: { label: string; text: string }): JSX.Element {
   return (
     <div className="min-w-0" data-testid="ask-preview">
-      <div className="mb-1 truncate font-mono text-[8.5px] font-medium tracking-[0.12em] text-muted-foreground/70 uppercase">
+      <div className="mb-1 truncate font-mono shell-type-micro font-medium tracking-[0.12em] text-muted-foreground/70 uppercase">
         Preview · {label}
       </div>
       <div className="ask-preview">
@@ -406,7 +406,7 @@ export function AskUserQuestionCard({
         <div className="flex min-h-[15px] items-center gap-2.5">
           <span
             className={cn(
-              'flex items-center gap-1.5 font-mono text-[8.5px] font-medium tracking-[0.12em] uppercase',
+              'flex items-center gap-1.5 font-mono shell-type-micro font-medium tracking-[0.12em] uppercase',
               readOnly ? 'text-muted-foreground/80' : 'text-primary',
             )}
           >
@@ -418,25 +418,25 @@ export function AskUserQuestionCard({
               agent chose, "Scope", "Runtime" — rides the eyebrow instead of
               going unsaid. Free: the row is already there. */}
           {!readOnly && questions.length === 1 && (questions[0]?.header?.trim() ?? '') !== '' && (
-            <span className="inline-flex h-[15px] flex-none items-center rounded-[5px] border border-border px-[6px] font-mono text-[8.5px] font-medium tracking-[0.1em] text-muted-foreground uppercase">
+            <span className="inline-flex h-[15px] flex-none items-center rounded-[5px] border border-border px-[6px] font-mono shell-type-micro font-medium tracking-[0.1em] text-muted-foreground uppercase">
               {questions[0]?.header?.trim()}
             </span>
           )}
           {submitState === 'sending' && (
-            <span className="ml-auto flex items-center gap-1.5 font-mono text-[9px] tracking-[0.06em] text-muted-foreground">
+            <span className="ml-auto flex items-center gap-1.5 font-mono shell-type-micro tracking-[0.06em] text-muted-foreground">
               sending
             </span>
           )}
           {submitState === 'failed' && (
             <span
               role="alert"
-              className="ml-auto font-mono text-[9px] tracking-[0.06em] text-destructive"
+              className="ml-auto font-mono shell-type-micro tracking-[0.06em] text-destructive"
             >
               not delivered — choose again
             </span>
           )}
           {submitState === 'idle' && questions.length > 1 && (
-            <span className="ml-auto font-mono text-[9px] tracking-[0.06em] text-muted-foreground/70 tabular-nums">
+            <span className="ml-auto font-mono shell-type-micro tracking-[0.06em] text-muted-foreground/70 tabular-nums">
               {currentIndex + 1} / {questions.length}
             </span>
           )}
@@ -454,7 +454,7 @@ export function AskUserQuestionCard({
                 onClick={() => goToStep(qi)}
                 className={cn(
                   'inline-flex h-5 items-center gap-1.5 rounded-[5px] border border-transparent px-[7px]',
-                  'font-mono text-[9px] font-medium tracking-[0.08em] uppercase transition-colors',
+                  'font-mono shell-type-micro font-medium tracking-[0.08em] uppercase transition-colors',
                   qi === currentIndex
                     ? 'border-input bg-chip text-foreground'
                     : answered(qi)
@@ -463,7 +463,7 @@ export function AskUserQuestionCard({
                 )}
               >
                 {answered(qi) && (
-                  <span className="text-[9px] leading-none text-foreground" aria-hidden="true">
+                  <span className="shell-type-micro leading-none text-foreground" aria-hidden="true">
                     ✓
                   </span>
                 )}
@@ -493,7 +493,7 @@ export function AskUserQuestionCard({
           return (
             <div key={`${tabName(q, qi)}-${qi}`} className={readOnly && i > 0 ? 'mt-3.5' : ''}>
               {readOnly && q.header && (
-                <div className="mt-2 font-mono text-[9px] font-medium tracking-[0.08em] text-muted-foreground/70 uppercase">
+                <div className="mt-2 font-mono shell-type-micro font-medium tracking-[0.08em] text-muted-foreground/70 uppercase">
                   {q.header}
                 </div>
               )}
@@ -550,7 +550,7 @@ export function AskUserQuestionCard({
                             <span
                               aria-hidden="true"
                               className={cn(
-                                'row-span-2 mt-px flex size-4 items-center justify-center font-mono text-[9.5px] font-medium tabular-nums',
+                                'row-span-2 mt-px flex size-4 items-center justify-center font-mono shell-type-micro font-medium tabular-nums',
                                 q.multiSelect ? 'rounded-[3px]' : 'rounded-[4px]',
                                 readOnly
                                   ? chosen
@@ -579,7 +579,7 @@ export function AskUserQuestionCard({
                                 {text}
                               </span>
                               {recommended && (
-                                <span className="inline-flex h-3.5 flex-none items-center rounded-[4px] border border-border px-[5px] font-mono text-[8px] font-medium tracking-[0.1em] text-muted-foreground uppercase">
+                                <span className="inline-flex h-3.5 flex-none items-center rounded-[4px] border border-border px-[5px] font-mono shell-type-micro font-medium tracking-[0.1em] text-muted-foreground uppercase">
                                   rec
                                 </span>
                               )}
@@ -704,7 +704,7 @@ export function AskUserQuestionCard({
             >
               Skip
             </button>
-            <span className="font-mono text-[9px] tracking-[0.05em] text-muted-foreground/70">
+            <span className="font-mono shell-type-micro tracking-[0.05em] text-muted-foreground/70">
               {questions.length > 1 && remaining > 0 ? `${remaining} left · ` : ''}
               {current?.multiSelect ? 'digits toggle' : 'digits choose'} · ↵ send · esc skip
             </span>
@@ -722,7 +722,7 @@ export function AskUserQuestionCard({
             >
               Skip
             </button>
-            <span className="font-mono text-[9px] tracking-[0.05em] text-muted-foreground/70">
+            <span className="font-mono shell-type-micro tracking-[0.05em] text-muted-foreground/70">
               digits choose · ↑↓ move · ↵ free text · esc skip
             </span>
           </div>

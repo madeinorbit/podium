@@ -209,7 +209,7 @@ export function AssigneeAvatar({
     <span
       aria-label={`Assignee: ${assignee}`}
       title={assignee}
-      className="inline-flex shrink-0 items-center justify-center rounded-full bg-primary/15 font-medium text-[9px] text-primary"
+      className="inline-flex shrink-0 items-center justify-center rounded-full bg-primary/15 font-medium shell-type-micro text-primary"
       style={{ width: size, height: size }}
     >
       {assigneeInitials(assignee)}

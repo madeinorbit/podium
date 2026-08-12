@@ -421,7 +421,7 @@ function IssueColumn({
         {remaining > 0 && (
           <div
             ref={sentinel}
-            className="flex-none py-3 text-center font-mono text-[9.5px] text-text-faint"
+            className="flex-none py-3 text-center font-mono shell-type-micro text-text-faint"
             data-testid="column-more"
           >
             {remaining} more

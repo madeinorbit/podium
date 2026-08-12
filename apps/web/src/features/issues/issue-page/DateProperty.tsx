@@ -95,7 +95,7 @@ export function DateProperty({
         {QUICK.map((quick) => (
           <DropdownMenuItem key={quick.label} onClick={() => set(dayOffset(quick.days))}>
             {quick.label}
-            <span className="ml-auto font-mono text-[9px] text-text-faint">
+            <span className="ml-auto font-mono shell-type-micro text-text-faint">
               {formatDateValue(dayOffset(quick.days))}
             </span>
           </DropdownMenuItem>
@@ -174,7 +174,7 @@ export function EstimateProperty({
         {choices.map((minutes) => (
           <DropdownMenuItem key={minutes} onClick={() => onSelect(minutes)}>
             {label(minutes)}
-            <span className="ml-auto font-mono text-[9px] text-text-faint">{minutes}m</span>
+            <span className="ml-auto font-mono shell-type-micro text-text-faint">{minutes}m</span>
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />

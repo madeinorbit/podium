@@ -26,44 +26,10 @@ const sourceRoot = resolve(import.meta.dirname, '..')
 const SUB_FLOOR = /text-\[(?:[6-9])(?:\.\d+)?px\]/g
 
 /**
- * Files that still carry pre-POD-783 sub-floor type. Each one is a sweep waiting
- * to happen (POD-784) — convert the call site to a `shell-type-*` role and take
- * the file off this list. Do not add to it.
+ * Files that still carry pre-POD-783 sub-floor type. POD-807 cleared this debt;
+ * do not add to it.
  */
-const KNOWN_SUB_FLOOR = new Set([
-  'app/FlightDeck.tsx',
-  'app/Workspace.tsx',
-  'components/GitStamp.tsx',
-  'components/IssueColorSwatches.tsx',
-  'components/IssueFleetSummary.tsx',
-  'features/chat/AskUserQuestionCard.tsx',
-  'features/chat/OfferArtifactStrip.tsx',
-  'features/chat/OfferBar.tsx',
-  'features/issues/BoardShortcutSheet.tsx',
-  'features/issues/IssueCard.tsx',
-  'features/issues/IssueCompactControls.tsx',
-  'features/issues/IssueListView.tsx',
-  'features/issues/IssuePanelView.tsx',
-  'features/issues/IssuesKanban.tsx',
-  'features/issues/explorer/IssueExplorerList.tsx',
-  'features/issues/issue-glyphs.tsx',
-  'features/issues/issue-page/DateProperty.tsx',
-  'features/issues/issue-page/IssueActivity.tsx',
-  'features/issues/issue-page/IssueAgentActivity.tsx',
-  'features/issues/issue-page/IssueDetailHeader.tsx',
-  'features/issues/issue-page/IssueProperties.tsx',
-  'features/issues/issue-page/IssueSessionsBlock.tsx',
-  'features/issues/issue-page/IssueSubIssues.tsx',
-  'features/machines/QuotaIndicator.tsx',
-  'features/merge-queue/MergeQueuePanel.tsx',
-  'features/messages/MessageLedgerView.tsx',
-  'features/superagent/SuperagentView.tsx',
-  'features/terminal/AgentPanel.tsx',
-  'features/terminal/SessionWatchers.tsx',
-  'lib/menu-surface.ts',
-  'lib/motion/AgentStatusGlyph.tsx',
-  'lib/motion/MotionDemo.tsx',
-])
+const KNOWN_SUB_FLOOR = new Set<string>()
 
 function productionSources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -119,7 +85,7 @@ describe('shell type floor', () => {
    */
   const CSS_SUB_FLOOR_BUDGET: Record<string, number> = {
     'index.css': 0,
-    'styles.css': 68,
+    'styles.css': 0,
   }
 
   it.each(Object.entries(CSS_SUB_FLOOR_BUDGET))(

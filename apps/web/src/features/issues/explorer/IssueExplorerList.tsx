@@ -131,7 +131,7 @@ export function IssueExplorerList(): JSX.Element {
               {entry.label}
               <span
                 className={cn(
-                  'font-mono text-[9px] tabular-nums',
+                  'font-mono shell-type-micro tabular-nums',
                   // The attention count is the one number here that is asking
                   // something; every other tab count is inventory.
                   entry.id === 'needs' && counts.needs > 0
@@ -148,7 +148,7 @@ export function IssueExplorerList(): JSX.Element {
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-3" data-dock-scroll="">
         {searching && (
-          <div className="border-b border-hairline-soft px-2.5 py-1.5 font-mono text-[9.5px] text-text-dim">
+          <div className="border-b border-hairline-soft px-2.5 py-1.5 font-mono shell-type-micro text-text-dim">
             {rows.length === 0
               ? `No task matches “${query.trim()}”`
               : `${rows.length} ${rows.length === 1 ? 'match' : 'matches'} across every stage`}
@@ -245,7 +245,7 @@ function ExplorerRow({
       <StageGlyph stage={issue.stage} size={13} />
       <span className="min-w-0 truncate">
         <span
-          className="mr-1.5 font-mono text-[9.5px] text-muted-foreground"
+          className="mr-1.5 font-mono shell-type-micro text-muted-foreground"
           title={issueIdTitle(issue)}
         >
           {issueDisplayRef(issue)}

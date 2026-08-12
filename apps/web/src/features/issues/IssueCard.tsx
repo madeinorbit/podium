@@ -56,7 +56,7 @@ function StateSlot({ slot }: { slot: CardStateSlot }): JSX.Element | null {
   switch (slot.kind) {
     case 'deleted':
       return (
-        <span className="font-mono text-[9px] text-destructive uppercase tracking-[0.04em]">
+        <span className="font-mono shell-type-micro text-destructive uppercase tracking-[0.04em]">
           deleted
         </span>
       )
@@ -87,7 +87,7 @@ function StateSlot({ slot }: { slot: CardStateSlot }): JSX.Element | null {
     case 'live':
       return (
         <span
-          className="flex items-center gap-1 font-mono text-[9px] text-live tabular-nums"
+          className="flex items-center gap-1 font-mono shell-type-micro text-live tabular-nums"
           title={`${slot.count} agent${slot.count === 1 ? '' : 's'} working`}
           data-testid="epic-live-agents"
         >
@@ -98,7 +98,7 @@ function StateSlot({ slot }: { slot: CardStateSlot }): JSX.Element | null {
     case 'merge':
       return (
         <span
-          className="font-mono text-[9px] text-attention tabular-nums"
+          className="font-mono shell-type-micro text-attention tabular-nums"
           title={`${slot.ahead} commit${slot.ahead === 1 ? '' : 's'} ahead of the parent branch`}
         >
           ↑{slot.ahead}
@@ -107,7 +107,7 @@ function StateSlot({ slot }: { slot: CardStateSlot }): JSX.Element | null {
     case 'subtree':
       return (
         <span
-          className="flex items-center gap-1.5 font-mono text-[9px] text-muted-foreground tabular-nums"
+          className="flex items-center gap-1.5 font-mono shell-type-micro text-muted-foreground tabular-nums"
           title={`${slot.done} of ${slot.total} subtasks done`}
         >
           <span className="h-[3px] w-[26px] overflow-hidden rounded-full bg-muted">
@@ -125,7 +125,7 @@ function StateSlot({ slot }: { slot: CardStateSlot }): JSX.Element | null {
           {slot.counts.map(({ stage, count }) => (
             <span
               key={stage}
-              className="inline-flex items-center gap-0.5 font-mono text-[9px] text-muted-foreground tabular-nums"
+              className="inline-flex items-center gap-0.5 font-mono shell-type-micro text-muted-foreground tabular-nums"
               title={`${count} ${STAGE_LABELS[stage].toLowerCase()}`}
               data-testid={`stage-chip-${stage}`}
             >
@@ -150,15 +150,15 @@ function StateSlot({ slot }: { slot: CardStateSlot }): JSX.Element | null {
             />
           ))}
           {slot.overflow > 0 && (
-            <span className="font-mono text-[9px] text-text-faint">+{slot.overflow}</span>
+            <span className="font-mono shell-type-micro text-text-faint">+{slot.overflow}</span>
           )}
         </span>
       )
     case 'due':
-      return <span className="font-mono text-[9px] text-muted-foreground">{slot.label}</span>
+      return <span className="font-mono shell-type-micro text-muted-foreground">{slot.label}</span>
     case 'estimate':
       return (
-        <span className="font-mono text-[9px] text-muted-foreground tabular-nums">
+        <span className="font-mono shell-type-micro text-muted-foreground tabular-nums">
           {slot.label}
         </span>
       )
@@ -273,7 +273,7 @@ export function IssueCard({
           <PriorityGlyph priority={issue.priority} size={11} />
           {epic && (
             <span
-              className="font-mono text-[9.5px] text-[var(--issue-muted)] uppercase tracking-[0.08em]"
+              className="font-mono shell-type-micro text-[var(--issue-muted)] uppercase tracking-[0.08em]"
               title="Epic"
             >
               epic
@@ -283,13 +283,13 @@ export function IssueCard({
               note in issue-card.ts. `task` is the default and every card would
               carry it, so only a departure from it is worth the ink. */}
           {badges.type && !epic && issue.type !== 'task' && (
-            <span className="font-mono text-[9.5px] text-text-faint uppercase tracking-[0.08em]">
+            <span className="font-mono shell-type-micro text-text-faint uppercase tracking-[0.08em]">
               {issue.type}
             </span>
           )}
           {issue.origin === 'agent' && (
             <span
-              className="font-mono text-[9.5px] text-text-faint"
+              className="font-mono shell-type-micro text-text-faint"
               role="img"
               title="Created by an agent"
               aria-label="Created by an agent"

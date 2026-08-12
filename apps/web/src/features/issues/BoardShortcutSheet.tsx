@@ -73,7 +73,7 @@ export function BoardShortcutSheet({ onClose }: { onClose: () => void }): JSX.El
                 {shortcut.keys.map((key) => (
                   <kbd
                     key={key}
-                    className="min-w-[18px] rounded-[4px] border border-border-strong bg-chip px-1 text-center font-mono text-[9.5px] text-muted-foreground leading-[16px]"
+                    className="min-w-[18px] rounded-[4px] border border-border-strong bg-chip px-1 text-center font-mono shell-type-micro text-muted-foreground leading-[16px]"
                   >
                     {shortcutGlyph(key)}
                   </kbd>
@@ -81,7 +81,7 @@ export function BoardShortcutSheet({ onClose }: { onClose: () => void }): JSX.El
               </dt>
               <dd className="m-0 min-w-0 flex-1 text-[12px] text-foreground">{shortcut.label}</dd>
               {shortcut.needsFocus && (
-                <span className="flex-none font-mono text-[8.5px] text-text-faint uppercase tracking-[0.08em]">
+                <span className="flex-none font-mono shell-type-micro text-text-faint uppercase tracking-[0.08em]">
                   focused
                 </span>
               )}

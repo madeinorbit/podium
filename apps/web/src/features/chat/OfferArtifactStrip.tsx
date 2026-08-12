@@ -154,7 +154,7 @@ export function OfferArtifactStrip({
       {extra > 0 && (
         <span
           data-testid="offer-artifact-extra"
-          className="flex-none font-mono text-[8.5px] text-text-faint"
+          className="flex-none font-mono shell-type-micro text-text-faint"
         >
           +{extra}
         </span>

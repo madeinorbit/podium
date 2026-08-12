@@ -123,7 +123,7 @@ export function OfferBar({
       // asking you something.
       className="border-t border-hairline-soft pt-4 font-sans"
     >
-      <div className="flex items-baseline gap-2 font-mono text-[9px] tracking-[0.16em] text-attention uppercase">
+      <div className="flex items-baseline gap-2 font-mono shell-type-micro tracking-[0.16em] text-attention uppercase">
         <Lightbulb size={11} aria-hidden="true" className="self-center" />
         Offer · needs you
         {/* THE DECLINE, AT THE EYEBROW'S FAR END. It belongs on the label row

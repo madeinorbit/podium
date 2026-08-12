@@ -367,7 +367,7 @@ function AccountQuotaCard({ g }: { g: AccountQuotaGroup }): JSX.Element {
           ))}
           {models.length > 0 && (
             <>
-              <div className="mt-0.5 font-mono text-[8.5px] tracking-[0.12em] text-muted-foreground/70 uppercase">
+              <div className="mt-0.5 font-mono shell-type-micro tracking-[0.12em] text-muted-foreground/70 uppercase">
                 Model limits
               </div>
               {models.map((w) => (

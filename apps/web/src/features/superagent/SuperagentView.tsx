@@ -236,7 +236,7 @@ export function SuperagentView(): JSX.Element {
       {feed.dividerId > 0 && feed.events.some((e) => e.id > feed.dividerId) && (
         <div
           data-testid="you-were-here"
-          className="flex flex-none items-center gap-2 px-3.5 pt-2 pb-0.5 font-mono text-[9px] tracking-[.08em] text-attention"
+          className="flex flex-none items-center gap-2 px-3.5 pt-2 pb-0.5 font-mono shell-type-micro tracking-[.08em] text-attention"
         >
           <span className="h-px flex-1 bg-attention/40" />
           YOU WERE HERE{feed.dividerTs ? ` · ${clock(feed.dividerTs)}` : ''}

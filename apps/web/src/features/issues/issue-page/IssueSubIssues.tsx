@@ -68,17 +68,17 @@ function SubTaskRow({
       onClick={() => onNavigate(child.id)}
     >
       <StageGlyph stage={child.stage} size={12} />
-      <span className="w-[56px] flex-none font-mono text-[9.5px] text-text-faint tabular-nums">
+      <span className="w-[56px] flex-none font-mono shell-type-micro text-text-faint tabular-nums">
         {issueDisplayRef(child)}
       </span>
       <span className="min-w-0 flex-1 truncate">{child.title}</span>
       {child.archived && (
-        <span className="flex-none font-mono text-[9px] text-text-faint uppercase tracking-[0.04em]">
+        <span className="flex-none font-mono shell-type-micro text-text-faint uppercase tracking-[0.04em]">
           archived
         </span>
       )}
       {state ? (
-        <span className={cn('flex-none font-mono text-[9px] tabular-nums', STATE_TONE[state.tone])}>
+        <span className={cn('flex-none font-mono shell-type-micro tabular-nums', STATE_TONE[state.tone])}>
           {state.text}
         </span>
       ) : (

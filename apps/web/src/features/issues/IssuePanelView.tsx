@@ -535,7 +535,7 @@ function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element 
       />
       {active && (
         <div className="mt-1.5 flex items-center justify-end gap-2">
-          <span className="font-mono text-[9px] text-text-faint">⌘↵</span>
+          <span className="font-mono shell-type-micro text-text-faint">⌘↵</span>
           <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={post}>
             {busy ? 'Posting…' : 'Post'}
           </Button>

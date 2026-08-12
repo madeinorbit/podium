@@ -944,7 +944,7 @@ function SessionRow({
               <>
                 <span
                   aria-hidden
-                  className="flex size-3 flex-none items-center justify-center rounded-full bg-attention text-[8px] leading-none font-bold text-attention-foreground"
+                  className="flex size-3 flex-none items-center justify-center rounded-full bg-attention shell-type-micro leading-none font-bold text-attention-foreground"
                 >
                   !
                 </span>
@@ -1496,7 +1496,7 @@ function DeckSection({
       <div className="flex items-center gap-2">
         <h3
           className={cn(
-            'font-mono text-[8.5px] font-medium tracking-[0.16em] uppercase',
+            'font-mono shell-type-micro font-medium tracking-[0.16em] uppercase',
             tone ?? 'text-label',
           )}
         >

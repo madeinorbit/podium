@@ -279,7 +279,7 @@ export function IssueSessionsBlock({
                 title={dest ? `Session continued on ${issueRefLong(dest)}` : 'Session moved on'}
                 onOpen={() => onOpenSession(s)}
                 trailing={
-                  <span className="flex-none font-mono text-[9px] text-text-faint tabular-nums">
+                  <span className="flex-none font-mono shell-type-micro text-text-faint tabular-nums">
                     ⤷ {dest ? issueDisplayRef(dest) : 'elsewhere'}
                   </span>
                 }

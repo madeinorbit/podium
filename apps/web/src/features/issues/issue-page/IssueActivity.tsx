@@ -87,20 +87,20 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element
               {m.fromAuthor}
             </span>
             {m.status === 'unread' && (
-              <span className="rounded-[4px] bg-attention/12 px-1.5 font-mono text-[9px] text-attention uppercase tracking-[0.04em]">
+              <span className="rounded-[4px] bg-attention/12 px-1.5 font-mono shell-type-micro text-attention uppercase tracking-[0.04em]">
                 unread
               </span>
             )}
             {m.status === 'claimed' && m.claimedBy && (
               <span
-                className="rounded-[4px] bg-muted/50 px-1.5 font-mono text-[9px] text-muted-foreground"
+                className="rounded-[4px] bg-muted/50 px-1.5 font-mono shell-type-micro text-muted-foreground"
                 title={`Claimed by ${m.claimedBy}`}
               >
                 claimed · {m.claimedBy}
               </span>
             )}
             <span
-              className="ml-auto flex-none font-mono text-[9px] text-text-faint tabular-nums"
+              className="ml-auto flex-none font-mono shell-type-micro text-text-faint tabular-nums"
               title={eventStamp(m.createdAt)}
             >
               {relativeTime(m.createdAt, now)}
@@ -157,7 +157,7 @@ function ActivityEvent({ line, ts }: { line: IssueEventLine; ts: string }): JSX.
       />
       <Icon size={12} aria-hidden="true" className="shrink-0 opacity-70" />
       <span className="min-w-0 flex-1 break-words">{line.text}</span>
-      <span className="shrink-0 font-mono text-[9px] tabular-nums" title={eventStamp(ts)}>
+      <span className="shrink-0 font-mono shell-type-micro tabular-nums" title={eventStamp(ts)}>
         {eventClock(ts)}
       </span>
     </div>
@@ -210,7 +210,7 @@ function ActivityRollupRow({
             and a second copy of it in the timestamp column made the one column
             that should read as one thing read as two. */}
         <span
-          className="shrink-0 font-mono text-[9px] tabular-nums"
+          className="shrink-0 font-mono shell-type-micro tabular-nums"
           title={`${count} events, ${eventStamp(firstTs)} – ${eventStamp(ts)}`}
         >
           {eventClock(ts)}
@@ -251,7 +251,7 @@ function ActivityComment({
       <div className="mb-1 flex items-center gap-2">
         <span className="font-medium text-[11.5px] text-foreground">{author}</span>
         <span
-          className="ml-auto shrink-0 font-mono text-[9px] text-text-faint tabular-nums"
+          className="ml-auto shrink-0 font-mono shell-type-micro text-text-faint tabular-nums"
           title={eventStamp(ts)}
         >
           {eventClock(ts)}
@@ -334,7 +334,7 @@ export function IssueActivitySection({
             <span className={MACHINE_LABEL}>Assistant</span>
             {issue.notesUpdatedAt && (
               <span
-                className="font-mono text-[9px] text-text-faint tabular-nums"
+                className="font-mono shell-type-micro text-text-faint tabular-nums"
                 title={eventStamp(issue.notesUpdatedAt)}
               >
                 {relativeTime(issue.notesUpdatedAt, Date.now())}
@@ -434,7 +434,7 @@ export function CommentComposer({
             Post
           </Button>
         ) : (
-          <span className="mb-2 select-none font-mono text-[9px] text-text-faint">⌘↵</span>
+          <span className="mb-2 select-none font-mono shell-type-micro text-text-faint">⌘↵</span>
         )}
       </div>
     </div>

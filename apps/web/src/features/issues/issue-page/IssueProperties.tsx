@@ -277,7 +277,7 @@ export function IssueProperties({
             />
             <span className={MACHINE_LABEL}>More fields</span>
             {!hasLongTail && (
-              <span className="ml-auto font-mono text-[9px] text-text-faint">none set</span>
+              <span className="ml-auto font-mono shell-type-micro text-text-faint">none set</span>
             )}
           </summary>
           <div className="mt-1 flex flex-col">

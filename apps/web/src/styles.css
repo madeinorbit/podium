@@ -845,7 +845,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-figures {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.06em;
   color: var(--text-dim);
   white-space: nowrap;
@@ -856,7 +856,7 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   gap: 5px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -906,7 +906,7 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 6px 12px;
   border-top: 1px solid var(--border);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -932,7 +932,7 @@ html[data-density="balanced"] .header-quota-pools {
   border-radius: 3px;
   background: var(--secondary);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted-foreground);
@@ -940,7 +940,7 @@ html[data-density="balanced"] .header-quota-pools {
 .hp-acct-sub {
   margin-left: auto;
   overflow: hidden;
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   color: var(--text-dim);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -954,7 +954,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-winlabel {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -988,14 +988,14 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-num {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   color: var(--foreground);
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .hp-num small {
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   color: var(--text-dim);
 }
 .hp-pace {
@@ -1003,7 +1003,7 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   gap: 6px;
   margin: 3px 0 5px;
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   color: var(--muted-foreground);
 }
 .hp-pace-chip {
@@ -1011,7 +1011,7 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 1px 5px;
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1045,7 +1045,7 @@ html[data-density="balanced"] .header-quota-pools {
   flex-wrap: wrap;
   gap: 4px 12px;
   margin: 6px 0 4px;
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   color: var(--muted-foreground);
 }
 .hp-legend i {
@@ -1068,7 +1068,7 @@ html[data-density="balanced"] .header-quota-pools {
 .hp-sect-label {
   margin: 10px 0 4px;
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1081,7 +1081,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-model-note {
   margin-top: 5px;
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   line-height: 1.45;
   color: var(--text-dim);
 }
@@ -1105,7 +1105,7 @@ html[data-density="balanced"] .header-quota-pools {
 .hp-prow-detail {
   flex: 1;
   overflow: hidden;
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   color: var(--text-dim);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1113,7 +1113,7 @@ html[data-density="balanced"] .header-quota-pools {
 .hp-prow-bytes {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   color: var(--muted-foreground);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -1175,7 +1175,7 @@ html[data-density="balanced"] .header-quota-pools {
   background: var(--bar);
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -1230,7 +1230,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .status-strip-history-label {
   color: var(--text-faint);
-  font-size: 8px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1320,7 +1320,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .status-strip-history-tip-head span {
   color: var(--text-faint);
-  font-size: 8px;
+  font-size: var(--shell-type-micro);
   text-transform: uppercase;
 }
 .status-strip-history-reading {
@@ -1334,20 +1334,20 @@ html[data-density="balanced"] .header-quota-pools {
 .status-strip-history-reading span {
   color: var(--foreground);
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
 }
 .status-strip-history-reading time {
   margin-left: auto;
   color: var(--text-dim);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
 }
 .status-strip-history-foot {
   margin-top: 8px;
   padding-top: 7px;
   border-top: 1px solid var(--hairline-soft);
   color: var(--text-faint);
-  font-size: 8px;
+  font-size: var(--shell-type-micro);
 }
 .status-strip-share {
   display: inline-flex;
@@ -1597,7 +1597,7 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 14px 15px 6px;
   color: var(--label);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1671,7 +1671,7 @@ html[data-density="balanced"] .header-quota-pools {
 .cmdk-row-ref {
   flex: none;
   color: var(--muted-foreground);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
@@ -1692,7 +1692,7 @@ html[data-density="balanced"] .header-quota-pools {
   overflow: hidden;
   color: var(--muted-foreground);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1711,7 +1711,7 @@ html[data-density="balanced"] .header-quota-pools {
   background: var(--primary);
   color: var(--primary-foreground);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   line-height: 1;
   place-items: center;
 }
@@ -1732,7 +1732,7 @@ html[data-density="balanced"] .header-quota-pools {
 .cmdk-empty-label {
   color: var(--label);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1757,7 +1757,7 @@ html[data-density="balanced"] .header-quota-pools {
   background: var(--bar);
   color: var(--muted-foreground);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   user-select: none;
@@ -2439,7 +2439,7 @@ html[data-density="balanced"] .header-quota-pools {
   display: flex;
   align-items: baseline;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   line-height: 1;
   font-weight: 400;
   letter-spacing: 0.16em;
@@ -2490,7 +2490,7 @@ html[data-density="balanced"] .header-quota-pools {
   display: flex;
   align-items: baseline;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   line-height: 1;
   font-weight: 400;
   letter-spacing: 0.16em;
@@ -2509,7 +2509,7 @@ html[data-density="balanced"] .header-quota-pools {
   margin-left: auto;
   padding-left: 10px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-weight: 400;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
@@ -2541,7 +2541,7 @@ html[data-density="balanced"] .header-quota-pools {
 .transcript-daymark-label {
   flex: none;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2570,7 +2570,7 @@ html[data-density="balanced"] .header-quota-pools {
   flex: none;
   width: 12px;
   text-align: center;
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
 }
 .tool-glyph--ok {
@@ -2585,7 +2585,7 @@ html[data-density="balanced"] .header-quota-pools {
   border-left: 2px solid var(--border);
   color: color-mix(in oklab, var(--destructive) 75%, var(--muted-foreground));
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2630,7 +2630,7 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 1px 6px;
   border-radius: 4px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.06em;
   color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
   transition:
@@ -2772,7 +2772,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .chat-rail-pop-title {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2811,7 +2811,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .chat-rail-todo-n {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -2970,7 +2970,7 @@ html[data-density="balanced"] .header-quota-pools {
 .minimap-flyout-kind {
   flex: none;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -3023,7 +3023,7 @@ html[data-density="balanced"] .header-quota-pools {
   min-width: 34px;
   text-align: right;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
 }
@@ -3105,7 +3105,7 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -3134,7 +3134,7 @@ html[data-density="balanced"] .header-quota-pools {
   margin-block: 5px;
   color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: none;
@@ -3242,14 +3242,14 @@ html[data-density="balanced"] .header-quota-pools {
   flex: none;
   color: color-mix(in oklab, var(--muted-foreground) 48%, transparent);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
 }
 .machine-context-kind,
 .machine-context-time {
   flex: none;
   color: color-mix(in oklab, var(--muted-foreground) 58%, transparent);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -3292,7 +3292,7 @@ html[data-density="balanced"] .header-quota-pools {
 /* The agent's description of a command, demoted beneath the command itself. */
 .tool-aside {
   margin: 0 0 1px 21px;
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   color: color-mix(in oklab, var(--muted-foreground) 65%, transparent);
   white-space: nowrap;
   overflow: hidden;
@@ -3309,7 +3309,7 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 2px 9px;
   border-left: 2px solid color-mix(in oklab, var(--border) 60%, transparent);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   color: color-mix(in oklab, var(--foreground) 72%, transparent);
   min-width: 0;
 }
@@ -3321,7 +3321,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .tool-out-more {
   flex: none;
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.04em;
   color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
 }
@@ -3469,7 +3469,7 @@ html[data-density="balanced"] .header-quota-pools {
   background: color-mix(in oklab, var(--destructive) 12%, transparent);
   color: var(--destructive);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
 }
 /* Machine voice, tabular: the count must not change width as it ticks, or the
@@ -3478,7 +3478,7 @@ html[data-density="balanced"] .header-quota-pools {
 .work-line-count {
   flex: none;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
 }
 .work-line-time {
@@ -3624,7 +3624,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .work-line-preview-more {
   padding-top: 3px;
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   color: var(--text-dim, var(--muted-foreground));
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -4015,7 +4015,7 @@ html[data-density="balanced"] .header-quota-pools {
   border-radius: 6px;
   color: var(--muted-foreground);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   cursor: pointer;
   transition:
     color 120ms ease,
@@ -4245,7 +4245,7 @@ html[data-density="balanced"] .header-quota-pools {
   overflow: hidden;
   color: var(--text-dim, var(--muted-foreground));
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5280,7 +5280,7 @@ a.ref-link--session::before {
 .settings-eyebrow {
   color: var(--label);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -5650,7 +5650,7 @@ a.ref-link--session::before {
 .usage-reading-label {
   color: var(--label);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -5667,7 +5667,7 @@ a.ref-link--session::before {
 .usage-window-label {
   color: var(--label);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -5792,7 +5792,7 @@ a.ref-link--session::before {
   color: var(--text-dim);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -5837,7 +5837,7 @@ a.ref-link--session::before {
   transform: translateY(50%);
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
   line-height: 1;
   white-space: nowrap;
@@ -5933,7 +5933,7 @@ a.ref-link--session::before {
 .usage-day-name {
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -5973,7 +5973,7 @@ a.ref-link--session::before {
 .usage-comp-col {
   color: var(--label);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -6071,7 +6071,7 @@ a.ref-link--session::before {
   border-bottom: 1px solid var(--usage-rule);
   color: var(--label);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-align: left;
@@ -6185,7 +6185,7 @@ a.ref-link--session::before {
   display: block;
   color: var(--label);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -6357,7 +6357,7 @@ a.ref-link--session::before {
   align-items: center;
   gap: 12px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.1em;
@@ -6660,7 +6660,7 @@ a.ref-link--session::before {
 .chat-compact .chat-clk {
   margin-left: auto;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-weight: 400;
   letter-spacing: 0.04em;
   color: var(--text-dim, #6c6c78);
@@ -6777,7 +6777,7 @@ a.ref-link--session::before {
   gap: 6px;
   color: var(--muted-foreground);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
 }
 .composer-notice strong {
   color: var(--foreground);
@@ -6831,7 +6831,7 @@ a.ref-link--session::before {
   flex: none;
   color: var(--text-dim, var(--muted-foreground));
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.02em;
 }
 .attachment-chip-remove {
@@ -7041,7 +7041,7 @@ a.ref-link--session::before {
   overflow: hidden;
   border-radius: 2px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -7182,7 +7182,7 @@ a.ref-link--session::before {
   padding: 8px 8px 9px;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -7229,7 +7229,7 @@ a.ref-link--session::before {
   width: 2.2ch;
   padding-top: 1px;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
 }
 .diff-tone-staged {
@@ -7259,7 +7259,7 @@ a.ref-link--session::before {
   display: inline-flex;
   gap: 5px;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
   font-variant-numeric: tabular-nums;
 }
 .diff-file-dir {
@@ -7268,7 +7268,7 @@ a.ref-link--session::before {
   overflow: hidden;
   color: var(--text-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   line-height: 1.45;
   text-align: left;
   text-overflow: ellipsis;

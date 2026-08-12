@@ -94,11 +94,11 @@ function QueueSection({
   return (
     <section className="border-t border-hairline-soft" aria-labelledby={id}>
       <div className="flex h-8 items-center gap-2 px-3.5">
-        <h3 id={id} className="font-mono text-[8.5px] font-medium tracking-[0.12em] text-label">
+        <h3 id={id} className="font-mono shell-type-micro font-medium tracking-[0.12em] text-label">
           {label}
         </h3>
         {count !== undefined && (
-          <span className="font-mono text-[9px] tabular-nums text-text-dim">{count}</span>
+          <span className="font-mono shell-type-micro tabular-nums text-text-dim">{count}</span>
         )}
       </div>
       <div className="px-2.5 pb-2.5">{children}</div>
@@ -117,7 +117,7 @@ function EmptyLine({ children }: { children: ReactNode }): JSX.Element {
 function IssueIdentity({ issue }: { issue: IssueViewModel }): JSX.Element {
   return (
     <>
-      <span className="flex-none font-mono text-[9.5px] font-semibold text-info">
+      <span className="flex-none font-mono shell-type-micro font-semibold text-info">
         {issueRefLabel(issue)}
       </span>
       <span className="min-w-0 truncate text-[11.5px] font-medium text-foreground/90">
@@ -161,7 +161,7 @@ function ResolvedPrincipal({
       <span className="min-w-0 truncate text-[11.5px] font-medium text-foreground/90">
         {principal.label}
       </span>
-      <span className="ml-auto flex-none text-[9.5px] text-text-dim">
+      <span className="ml-auto flex-none shell-type-micro text-text-dim">
         {principal.issueId ? 'Issue unavailable' : 'No task attached'}
       </span>
     </>
@@ -244,7 +244,7 @@ function ActiveLease({
         />
         <ResolvedPrincipal principal={lock.holder} issuesById={issuesById} />
       </span>
-      <span className="mt-1.5 flex items-center gap-1.5 font-mono text-[9px] tabular-nums text-info">
+      <span className="mt-1.5 flex items-center gap-1.5 font-mono shell-type-micro tabular-nums text-info">
         <Timer size={11} aria-hidden="true" />
         LEASE{' '}
         <LeaseCountdown expiresAt={lock.holder.expiresAt} secondsLeft={lock.holder.secondsLeft} />
@@ -288,7 +288,7 @@ function Waiters({
           <>
             <span className="sr-only">Queue position {waiter.position}: </span>
             <span
-              className="flex size-5 flex-none items-center justify-center rounded border border-border bg-secondary font-mono text-[9px] font-semibold tabular-nums text-label"
+              className="flex size-5 flex-none items-center justify-center rounded border border-border bg-secondary font-mono shell-type-micro font-semibold tabular-nums text-label"
               aria-hidden="true"
             >
               {waiter.position}
@@ -297,7 +297,7 @@ function Waiters({
               <span className="flex min-w-0 items-center gap-2">
                 <ResolvedPrincipal principal={waiter} issuesById={issuesById} />
               </span>
-              <span className="mt-0.5 font-mono text-[9px] tabular-nums text-text-dim">
+              <span className="mt-0.5 font-mono shell-type-micro tabular-nums text-text-dim">
                 <QueueWait enqueuedAt={waiter.enqueuedAt} />
               </span>
             </span>
@@ -367,7 +367,7 @@ function QueueGroup({
         </h2>
         {/* A free-form name can be long; it yields to the title, never wraps. */}
         <span
-          className="ml-auto min-w-0 max-w-[55%] truncate font-mono text-[8.5px] text-text-dim"
+          className="ml-auto min-w-0 max-w-[55%] truncate font-mono shell-type-micro text-text-dim"
           title={group.name}
         >
           {group.name}
@@ -423,11 +423,11 @@ export function MergeQueuePanelView({
   return (
     <section className="min-h-0 flex-1 overflow-y-auto" aria-label="Repository queues">
       <div className="flex h-9 items-center gap-2 border-b border-hairline-soft px-3.5">
-        <span className="font-mono text-[9px] font-semibold tracking-[0.1em] text-label">
+        <span className="font-mono shell-type-micro font-semibold tracking-[0.1em] text-label">
           LIVE QUEUES
         </span>
         {state.status === 'ready' && (
-          <span className="font-mono text-[9px] tabular-nums text-text-dim">
+          <span className="font-mono shell-type-micro tabular-nums text-text-dim">
             {locks.length} held
           </span>
         )}
