@@ -120,7 +120,7 @@ describe('FirstTaskActivation', () => {
     )
 
     const codex = await screen.findByRole('button', { name: /Codex Ready on Studio Mac/ })
-    expect(codex.getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(codex.getAttribute('aria-pressed')).toBe('true'))
     expect(screen.getByText(/Claude Code is not installed on Studio Mac/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue to first task' }))
