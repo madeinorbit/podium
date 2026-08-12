@@ -1,4 +1,4 @@
-import type { IssueId, SessionId, RepoId } from '@podium/model'
+import type { IssueId, RepoId, SessionId } from '@podium/model'
 import type { LockAcquireResultWire, LockHolderWire, LockWire } from '@podium/protocol'
 import type { LockRow, LockSessionKey, LocksRepository, LockWaiterRow } from '../../store/locks'
 import { isSystemLockSession, OPERATOR_LOCK_SESSION } from '../../store/locks'
@@ -58,7 +58,7 @@ export interface LockServiceDeps {
   funnel: Pick<WriteFunnel, 'run'>
   now(): number
   /** repoPath → stable repo_id (ReposRepository.resolveRepoIdForPath). */
-  resolveRepoId(repoPath: string): string
+  resolveRepoId(repoPath: string): RepoId
   /** Is the session still around (waiter pruning)? Unknown/exited → false. */
   /** `LockSessionKey`, not `SessionId`: `advanceQueue` DEPENDS on being able to
    *  look up `UNKNOWN_RELAY_SESSION` and get `false` — that miss is exactly how
@@ -101,11 +101,7 @@ export class LockService {
    *  live for their lease; unknown-relay and missing sessions are dead (same
    *  rule advanceQueue uses for pruning). */
   private isAlive(sessionId: LockHolderId | null): boolean {
-    if (
-      sessionId == null ||
-      sessionId === OPERATOR_LOCK_SESSION ||
-      isSystemLockSession(sessionId)
-    )
+    if (sessionId == null || sessionId === OPERATOR_LOCK_SESSION || isSystemLockSession(sessionId))
       return true
     if (sessionId === 'unknown-session') return false
     return this.deps.sessionAlive(sessionId)
@@ -192,11 +188,7 @@ export class LockService {
       ) {
         return null
       }
-      if (
-        caller.issueId != null &&
-        otherIssueId != null &&
-        otherIssueId === caller.issueId
-      ) {
+      if (caller.issueId != null && otherIssueId != null && otherIssueId === caller.issueId) {
         return 'issue'
       }
       if (callerWorkspace != null) {
@@ -219,10 +211,7 @@ export class LockService {
     for (let i = 0; i < waiters.length; i++) {
       const w = waiters[i]!
       if (w.sessionId === callerKey) continue
-      const reason = matches(
-        w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
-        w.issueId,
-      )
+      const reason = matches(w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId, w.issueId)
       if (reason) {
         return {
           kind: 'waiter',
@@ -306,9 +295,7 @@ export class LockService {
           sessionId: w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
           issueId: w.issueId,
           label: w.label,
-          workspace: this.workspaceOf(
-            w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
-          ),
+          workspace: this.workspaceOf(w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId),
         },
         w.ttlSeconds,
         w.note,
@@ -327,7 +314,7 @@ export class LockService {
     }
   }
 
-  private repoIdFor(repoPath: string): string {
+  private repoIdFor(repoPath: string): RepoId {
     return this.deps.resolveRepoId(repoPath)
   }
 
@@ -381,9 +368,7 @@ export class LockService {
                   ? `${sibling.sessionId} (${sibling.label})`
                   : sibling.label
               const via =
-                sibling.reason === 'workspace'
-                  ? 'sharing this worktree'
-                  : 'on the same issue'
+                sibling.reason === 'workspace' ? 'sharing this worktree' : 'on the same issue'
               if (sibling.kind === 'holder') {
                 throw new Error(
                   `sibling ${who} already holds lock '${input.name}' (${via}) — coordinate with them, or pass --allow-sibling for serialised multi-session access`,

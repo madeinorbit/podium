@@ -1,3 +1,4 @@
+import { asUserId } from '@podium/model'
 import type { SessionId, UserId, MachineId, AccountId } from '@podium/model'
 import {
   type ExecutionProfileWire as ExecutionProfile,
@@ -130,7 +131,7 @@ function toRun(row: Raw): WorkflowRunRow {
     supersedesRunId: nullableText(row.supersedes_run_id),
     startedAt: text(row.started_at),
     completedAt: nullableText(row.completed_at),
-    ownerUserId: text(row.owner_user_id),
+    ownerUserId: asUserId(text(row.owner_user_id)),
   }
 }
 

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type ControlMessage,
   type LocalDaemonLink,
@@ -235,7 +235,7 @@ export async function startServer(
   reconcileSafeServerTransferBoot(stateDir())
   assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
-  const store = new SessionStore(undefined, hostMachineId)
+  const store = new SessionStore(undefined, asMachineId(hostMachineId))
   // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
   // before the open-exposure check below. Order matters between these two: the legacy
   // hash in auth.json is the operator's REAL password and wins, so it is moved into the
@@ -372,7 +372,7 @@ export async function startServer(
     },
     scanRepos: (roots, opts, machineId) => registry.modules.rpc.scanRepos(roots, opts, machineId),
     machineName: (id) => registry.modules.machines.machineName(id),
-    localMachineId: hostMachineId,
+    localMachineId: asMachineId(hostMachineId),
     log: (message) => repoDiscoveryLog.info(message),
   })
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
@@ -469,7 +469,7 @@ export async function startServer(
       connectScan: (machineId) => {
         void repoDiscovery.scan(machineId, { deep: false })
       },
-      localMachineId: hostMachineId,
+      localMachineId: asMachineId(hostMachineId),
     }),
   })
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)

@@ -32,10 +32,7 @@ const query = <In extends z.ZodTypeAny, Out>(
 /** Optional machineId — absent means the server's default/host machine, matching
  *  the shipped client that still calls with no input. Branded as MachineIdField
  *  so the catalog query does not re-create POD-1361 unbranded-field debt. */
-const catalogInput = z
-  .object({ machineId: MachineIdField.optional() })
-  .passthrough()
-  .optional()
+const catalogInput = z.object({ machineId: MachineIdField.optional() }).passthrough().optional()
 
 export const MODEL_QUERIES = {
   catalog: query(catalogInput, (state, input) =>

@@ -25,7 +25,7 @@
  *    operator is an invariant).
  */
 
-import { isSpawnedBy, type IssueId, type MachineId } from '@podium/model'
+import { asThreadId, isSpawnedBy, type IssueId, type MachineId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   exemptFromBrakes,
@@ -434,9 +434,7 @@ export class MessageDeliveryService {
   ): void {
     const session =
       changed ??
-      this.deps.sessions
-        .listSessions()
-        .find((candidate) => candidate.sessionId === sessionId)
+      this.deps.sessions.listSessions().find((candidate) => candidate.sessionId === sessionId)
     const previousIssueId = this.sessionIssueTargets.get(sessionId)
     const nextIssueId = this.issueForSession(session)
     if (nextIssueId) this.sessionIssueTargets.set(sessionId, nextIssueId)
@@ -467,7 +465,10 @@ export class MessageDeliveryService {
     // POD-279: three consecutive sends to the same wrong session while the
     // coordinator was set and live.
     if (nextIssueId) {
-      queue({ kind: 'issue', id: nextIssueId }, this.mayDrainIssueMail(nextIssueId, preferred))
+      queue(
+        { kind: 'issue', id: nextIssueId },
+        this.mayDrainIssueMail(asIssueId(nextIssueId), preferred),
+      )
     }
   }
 
@@ -666,9 +667,7 @@ export class MessageDeliveryService {
 
     const targetSession =
       input.to.kind === 'session'
-        ? this.deps.sessions
-            .listSessions()
-            .find((s) => s.sessionId === toId)
+        ? this.deps.sessions.listSessions().find((s) => s.sessionId === toId)
         : undefined
 
     // v1 defaults: mail stays fyi+wait; session sends declare next-turn.
@@ -765,7 +764,7 @@ export class MessageDeliveryService {
     const authority = this.authorityOf(from)
     const message: MessageRow = {
       id,
-      threadId: input.threadId ?? original?.threadId ?? id,
+      threadId: asThreadId(input.threadId ?? original?.threadId ?? id),
       inReplyTo: input.inReplyTo ?? null,
       fromKind: from.kind,
       fromSession: from.kind === 'agent' ? (from.sessionId ?? null) : null,
@@ -910,7 +909,7 @@ export class MessageDeliveryService {
       if (message.fromSession && message.toId === message.fromSession) {
         return this.suppressSelf(message)
       }
-      target = findSessionById(sessions, message.toId ?? '')
+      target = message.toId ? findSessionById(sessions, asSessionId(message.toId)) : undefined
       if (!target) {
         // The session row is GONE (not merely parked — parked sessions still
         // list). A session-addressed row records no issue to re-route to, so
@@ -1059,11 +1058,7 @@ export class MessageDeliveryService {
     // §3.1.4 M2 / POD-1193. Refuse before recordWake so a denied caller neither
     // starts a process nor burns the wake cooldown.
     {
-      const denied = this.refuseWakeUnlessUsable(
-        message,
-        target.machineId,
-        opts?.viaSweep === true,
-      )
+      const denied = this.refuseWakeUnlessUsable(message, target.machineId, opts?.viaSweep === true)
       if (denied) return denied
     }
     // record the wake against the cooldown window.
@@ -1673,7 +1668,9 @@ export class MessageDeliveryService {
   private wakeKeyOfRow(m: MessageRow): string {
     // By-id, not a full pass [POD-1653]: this runs per stored row on the sweep.
     const target =
-      m.toKind === 'session' ? findSessionById(this.deps.sessions, m.toId ?? '') : undefined
+      m.toKind === 'session' && m.toId
+        ? findSessionById(this.deps.sessions, asSessionId(m.toId))
+        : undefined
     const issueKey = m.toKind === 'issue' ? m.toId : this.issueForSession(target)
     return `${this.senderKeyOfRow(m)}|${issueKey ?? m.toId ?? ''}`
   }
@@ -1728,7 +1725,7 @@ export class MessageDeliveryService {
       // mail") until the agent runs `podium issue mail inbox`.
       if (message.toKind === 'issue' && message.toId) {
         try {
-          this.deps.mirrorMarkIssueMailRead?.(message.toId, [message.id])
+          this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
         } catch {}
       }
       this.turnHop.set(sessionId, message.hop)
@@ -1751,7 +1748,7 @@ export class MessageDeliveryService {
     if (this.deps.messages.markDelivered(message.id, null, at)) {
       if (message.toKind === 'issue' && message.toId) {
         try {
-          this.deps.mirrorMarkIssueMailRead?.(message.toId, [message.id])
+          this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
         } catch {}
       }
       this.emitTransition(

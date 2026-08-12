@@ -81,7 +81,7 @@ export class ReposRepository {
     /** This host's minted machine id (`SessionStore.hostMachineId`) — the machine
      *  half of a path-fallback repo id for a path no repo row claims, and the owner
      *  stamped on rows imported from the legacy `repos.json`. */
-    private readonly hostMachineId: string,
+    private readonly hostMachineId: MachineId,
   ) {
     this.txDb = db
     // Drop the cache from underneath any write issued through this connection,
@@ -213,9 +213,9 @@ export class ReposRepository {
 
   /** The registered repo owning `prefix` (its repoId + a representative path). */
   repoForPrefix(prefix: string): { repoId: RepoId; path: string } | null {
-    const row = this.db
-      .prepare('SELECT repo_id FROM repo_prefixes WHERE prefix = ?')
-      .get(prefix) as { repo_id: RepoId } | undefined
+    const row = this.db.prepare('SELECT repo_id FROM repo_prefixes WHERE prefix = ?').get(prefix) as
+      | { repo_id: RepoId }
+      | undefined
     if (!row) return null
     const pathRow = this.db
       .prepare('SELECT path FROM repos WHERE repo_id = ? LIMIT 1')
@@ -486,8 +486,7 @@ export class ReposRepository {
    * would only reintroduce the heal it replaced.
    */
   legacyRepoResidue(): { repoIdsMissing: number; prefixesMissing: number } {
-    const count = (sql: string): number =>
-      (this.db.prepare(sql).get() as { c: number }).c
+    const count = (sql: string): number => (this.db.prepare(sql).get() as { c: number }).c
     return {
       repoIdsMissing: count('SELECT COUNT(*) AS c FROM repos WHERE repo_id IS NULL'),
       prefixesMissing: count(

@@ -19,7 +19,14 @@ import type {
   UserId,
   MutationId,
 } from '@podium/model'
-import { actorAgent, actorSystem, actorUser, asAgentIdentityId, asUserId } from '@podium/model'
+import {
+  asSessionId,
+  actorAgent,
+  actorSystem,
+  actorUser,
+  asAgentIdentityId,
+  asUserId,
+} from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
@@ -401,7 +408,7 @@ export class SessionInbox {
     let baseOutputMs = 0
     const stop = () => this.activeDrains.delete(sessionId)
     const removeHead = (current: Session, id: string): void => {
-      this.deps.queue.delete(id)
+      this.deps.queue.delete(asSessionId(id))
       current.queuedMessageCount = Math.max(0, current.queuedMessageCount - 1)
       this.deps.persist(current)
       this.deps.broadcast()
@@ -712,19 +719,14 @@ export class SessionInbox {
         'text',
         input.inputOrigin ?? 'controller',
       )
-    const baseline = session.terminal.transcriptItems().filter((item) => item.role === 'user').length
+    const baseline = session.terminal
+      .transcriptItems()
+      .filter((item) => item.role === 'user').length
     // Grok's fresh TUI ignores bracketed paste until a native first turn
     // (POD-549). Type the first prompt as raw keystrokes so chat-view send
     // matches what works in the native composer (POD-901).
-    const payload = this.isRawFirstTurn(session)
-      ? input.text
-      : `\x1b[200~${input.text}\x1b[201~`
-    this.sendInput(
-      session,
-      payload,
-      input.inputOrigin ?? 'controller',
-      principal.attribution,
-    )
+    const payload = this.isRawFirstTurn(session) ? input.text : `\x1b[200~${input.text}\x1b[201~`
+    this.sendInput(session, payload, input.inputOrigin ?? 'controller', principal.attribution)
     setTimeout(
       () => this.sendInput(session, '\r', input.inputOrigin ?? 'controller', principal.attribution),
       SUBMIT_CR_DELAY_MS,
@@ -747,7 +749,8 @@ export class SessionInbox {
       const phase = session.agentState?.phase
       if (phase !== undefined && phase !== 'idle') return
       if (
-        session.terminal.transcriptItems().filter((item) => item.role === 'user').length > baselineUserTurns
+        session.terminal.transcriptItems().filter((item) => item.role === 'user').length >
+        baselineUserTurns
       )
         return
       this.sendInput(session, '\r', 'controller', attribution)

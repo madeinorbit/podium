@@ -30,6 +30,7 @@
  * This is the shape POD-320 established for `issues/service`.
  */
 
+import { asIssueId, asSessionId } from '@podium/model'
 import type { SessionId, SessionMeta, IssueId } from '@podium/model'
 import type { MessageKind, MessageLifecycle, MessageRow, MessageUrgency } from '../../store'
 import type { MessagesRepository } from '../../store/messages'
@@ -420,7 +421,7 @@ export class MessageMailbox {
       this.retireNotificationFact(m, at)
       if (m.toKind === 'issue' && m.toId) {
         try {
-          this.deps.mirrorMarkIssueMailRead?.(m.toId, [m.id])
+          this.deps.mirrorMarkIssueMailRead?.(asIssueId(m.toId), [m.id])
         } catch {}
       }
       const read = {
@@ -441,12 +442,12 @@ export class MessageMailbox {
     if (!message) throw new Error('unknown message ' + messageId)
     const at = this.deps.now()
     // Clearing it is seeing it, for this reader [POD-1379].
-    if (consume) this.deps.messages.recordRead(message.id, consume, at)
+    if (consume) this.deps.messages.recordRead(message.id, asSessionId(consume), at)
     if (message.status === 'queued' || message.status === 'delivered') {
       this.deps.messages.markRead(message.id, consume, at)
       if (message.toKind === 'issue' && message.toId) {
         try {
-          this.deps.mirrorMarkIssueMailRead?.(message.toId, [message.id])
+          this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
         } catch {}
       }
     }

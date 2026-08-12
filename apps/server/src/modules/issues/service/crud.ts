@@ -486,7 +486,9 @@ export class IssueCrudModule {
       patch.parentBranch !== undefined &&
       row.parentBranch !== prevParentBranch
     ) {
-      void this.gitWorkflow().refreshGitState(row.id).catch(() => {})
+      void this.gitWorkflow()
+        .refreshGitState(row.id)
+        .catch(() => {})
     }
     // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
     // flips, so post-close touches (notes, deps, steward writes) never restart
@@ -733,7 +735,7 @@ export class IssueCrudModule {
     id = this.store.resolveRef(id)
     const row = this.store.rowOrThrow(id)
     return this.store.persistWith(row, () =>
-      this.store.deps.store.issues.setIssueLabels(id, labels),
+      this.store.deps.store.issues.setIssueLabels(asIssueId(id), labels),
     )
   }
 

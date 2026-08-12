@@ -40,9 +40,13 @@
  * distinction (M5) compatible with the consistent-error rule.
  */
 
-import { FLEET_CONTRACTS, type FleetContractName
-} from '@podium/commands'
-import { isAdminGrade, spawnedByParentSessionId, type UserRole, type MachineId } from '@podium/model'
+import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
+import {
+  isAdminGrade,
+  spawnedByParentSessionId,
+  type MachineId,
+  type UserRole,
+} from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
@@ -95,18 +99,18 @@ const named = (machineId: MachineId | undefined): FleetTarget =>
  * stops covering the family.
  */
 export const FLEET_TARGETS = {
-  'machines.rename': (input: unknown) => named((input as { id: string }).id),
-  'machines.applyUpdate': (input: unknown) => named((input as { id: string }).id),
-  'machines.setUpdateChannel': (input: unknown) => named((input as { id: string }).id),
-  'machines.share': (input: unknown) => named((input as { id: string }).id),
-  'machines.unshare': (input: unknown) => named((input as { id: string }).id),
+  'machines.rename': (input: unknown) => named((input as { id: MachineId }).id),
+  'machines.applyUpdate': (input: unknown) => named((input as { id: MachineId }).id),
+  'machines.setUpdateChannel': (input: unknown) => named((input as { id: MachineId }).id),
+  'machines.share': (input: unknown) => named((input as { id: MachineId }).id),
+  'machines.unshare': (input: unknown) => named((input as { id: MachineId }).id),
   // The TARGET is the machine being given away, not the recipient. Reading
   // `newOwnerUserId` here would gate the caller against the wrong subject.
-  'machines.transferOwnership': (input: unknown) => named((input as { id: string }).id),
+  'machines.transferOwnership': (input: unknown) => named((input as { id: MachineId }).id),
   // Same asymmetry as transfer: the target is the machine being adopted, never
   // the person it is being adopted FOR.
-  'machines.adopt': (input: unknown) => named((input as { id: string }).id),
-  'machines.revoke': (input: unknown) => named((input as { id: string }).id),
+  'machines.adopt': (input: unknown) => named((input as { id: MachineId }).id),
+  'machines.revoke': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.transferServer': (input: unknown) =>
     named((input as { targetMachineId: MachineId }).targetMachineId),
   // No machine exists yet, so there is no owner column that could admit anyone —
@@ -166,9 +170,9 @@ export interface FleetAuthzDeps {
   role: UserRole | undefined
   /** `machines.defaultMachine()` — resolved lazily, so a command that names its
    *  machine never consults it. */
-  defaultMachine: () => string
+  defaultMachine: () => MachineId
   /** Every machine id this principal might touch on a fleet-wide command. */
-  allMachineIds: () => string[]
+  allMachineIds: () => MachineId[]
   machineName: (machineId: MachineId) => string | undefined
   /**
    * The machine's owner AS THE LEDGER HAS IT — `machines.effectiveOwner`, which

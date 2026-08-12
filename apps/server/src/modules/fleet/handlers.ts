@@ -16,6 +16,7 @@
  * dependency does not drag the whole fleet module into the hub role.
  */
 
+import { asMachineId } from '@podium/model'
 import type { UpdateChannel, UserId, MachineId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
@@ -80,7 +81,9 @@ export const machineSetUpdateChannelHandler = async ({
   modules.machines.setUpdateChannel(input.id, input.channel)
   // Refresh the channel the machine ACTUALLY lands on, which after a `null` clear
   // is the fleet default rather than anything in the input (POD-1882).
-  await modules.updates.refreshTarget(modules.machines.updateChannel(input.id) ?? 'stable')
+  await modules.updates.refreshTarget(
+    modules.machines.updateChannel(asMachineId(input.id)) ?? 'stable',
+  )
   return modules.machines.listMachines()
 }
 
@@ -91,7 +94,7 @@ export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: 
   await modules.updates.refreshTarget(machine.updateChannel ?? 'stable')
   // The outcome is what this machine's row will say. Callers must not infer
   // success from a granted-id list: an empty list has five different meanings.
-  const outcome = modules.updates.authorizeMachine(input.id)
+  const outcome = modules.updates.authorizeMachine(asMachineId(input.id))
   return { machines: modules.machines.listMachines(), outcome }
 }
 

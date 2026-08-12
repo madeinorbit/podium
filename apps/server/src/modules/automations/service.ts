@@ -17,6 +17,7 @@ import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium
 import { createLogger } from '@podium/logger'
 import type { IssueId, SessionId, MutationId, AutomationId } from '@podium/model'
 import {
+  asMutationId,
   type AgentKind,
   type AutomationScheduleKind,
   type AutomationSessionMode,
@@ -611,7 +612,7 @@ export class AutomationsService {
         const resumed = this.deps.resumeAndSend({
           sessionId: previousSessionId,
           text: automation.prompt,
-          mutationId: runId,
+          mutationId: asMutationId(runId),
         })
         if (resumed.ok) return previousSessionId
         const reason = resumed.reason ?? 'unknown resume failure'
@@ -669,7 +670,7 @@ export class AutomationsService {
     const queued = this.deps.queueText({
       sessionId,
       text: automation.prompt,
-      mutationId: runId,
+      mutationId: asMutationId(runId),
       inputOrigin: 'system',
     })
     if (!queued.ok) {

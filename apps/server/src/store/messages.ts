@@ -5,6 +5,8 @@
  */
 
 import {
+  asThreadId,
+  asSessionId,
   actorAgent,
   actorSystem,
   actorUser,
@@ -53,7 +55,7 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
   const actor = storedActor(r)
   return {
     id: r.id as string,
-    threadId: r.thread_id as string,
+    threadId: asThreadId(r.thread_id as string),
     inReplyTo: (r.in_reply_to as string | null) ?? null,
     fromKind: r.from_kind as MessageRow['fromKind'],
     fromSession: (r.from_session as SessionId | null) ?? null,
@@ -500,7 +502,7 @@ export class MessagesRepository {
       .run(deliveredAt, deliveredTo, id)
     // The echo proves it is in THAT session's context [POD-1379] — receipt it,
     // or the per-reader nag keeps asking the session to read what it just saw.
-    if (deliveredTo) this.recordRead(id, deliveredTo, deliveredAt)
+    if (deliveredTo) this.recordRead(id, asSessionId(deliveredTo), deliveredAt)
     return r.changes === 1
   }
 
@@ -531,7 +533,7 @@ export class MessagesRepository {
       )
       .run(deliveredAt, reader, id)
     // The pull proves THIS reader has it, whoever the row was pushed to.
-    if (reader) this.recordRead(id, reader, deliveredAt)
+    if (reader) this.recordRead(id, asSessionId(reader), deliveredAt)
     return r.changes === 1
   }
 
@@ -548,7 +550,7 @@ export class MessagesRepository {
     // The PULL proves this reader has it [POD-1379]. Recorded even when the
     // guarded UPDATE lost (a peer consumed the shared row first): the receipt is
     // about THIS reader, not about who moved the shared delivery ledger.
-    if (deliveredTo) this.recordRead(id, deliveredTo, readAt)
+    if (deliveredTo) this.recordRead(id, asSessionId(deliveredTo), readAt)
     return r.changes === 1
   }
 

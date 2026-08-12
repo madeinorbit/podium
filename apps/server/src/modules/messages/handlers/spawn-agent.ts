@@ -11,7 +11,7 @@
  * the machine the resolved execution profile places the child on.
  */
 
-import { spawnedByTag } from '@podium/model'
+import { asIssueId, spawnedByTag } from '@podium/model'
 import { type ContractInput, type spawnAgentContract, UNADDRESSABLE } from '@podium/commands'
 import { attributionOf, onBehalfOfUser } from '../../../command-principal'
 import { checkIssueAccess } from '../../../issue-authz'
@@ -79,7 +79,7 @@ export function spawnAgentHandler(
   // full PTY sessions. Human intent is never braked (contract: the exemption
   // attaches to a human principal, not to an admin grade).
   const budgeted = caller.capability.scope.kind !== 'all'
-  if (budgeted && !deps.messages.takeSpawnBudget(issueId).ok) {
+  if (budgeted && !deps.messages.takeSpawnBudget(asIssueId(issueId)).ok) {
     try {
       deps.appendEvent?.({
         ts: deps.now?.() ?? new Date().toISOString(),

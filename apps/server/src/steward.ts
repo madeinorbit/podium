@@ -1,6 +1,14 @@
 import { createLogger } from '@podium/logger'
-import type { IssueComment, IssueWire, SessionId, SessionMeta, UserId, MutationId, IssueId } from '@podium/model'
-import { asSessionId, spawnedByParentSessionId } from '@podium/model'
+import type {
+  IssueComment,
+  IssueWire,
+  SessionId,
+  SessionMeta,
+  UserId,
+  MutationId,
+  IssueId,
+} from '@podium/model'
+import { asIssueId, asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
@@ -516,7 +524,7 @@ export class StewardService {
     const closedIssues = new Set(
       events.filter((e) => e.kind === 'issue.closed').map((e) => e.subject),
     )
-    for (const issueId of closedIssues) this.arbiter.retireByIssue(issueId)
+    for (const issueId of closedIssues) this.arbiter.retireByIssue(asIssueId(issueId))
     // Condition-clear retirement (POD-890 / POD-908) [spec:SP-ba61]: when the
     // underlying condition ends, free the (fact,target) so a later genuine edge
     // re-fires — without shortening the 24h cross-producer TTL ceiling.
@@ -569,11 +577,11 @@ export class StewardService {
           seq?: number
         } | null
         if (p?.from === 'review' && p.to !== 'review') {
-          this.retireIssueReviewFacts(e.subject, p)
+          this.retireIssueReviewFacts(asIssueId(e.subject), p)
         }
       } else if (e.kind === 'issue.needs_human_cleared') {
         const seq = (e.payload as { seq?: number } | null)?.seq
-        this.retireNeedsHumanFacts(e.subject, seq)
+        this.retireNeedsHumanFacts(asIssueId(e.subject), seq)
       }
     }
   }
@@ -722,7 +730,7 @@ export class StewardService {
         }
         if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
         // Durable delivery before claim [POD-925].
-        this.deps.sendTextWhenReady(s.sessionId, text, factKey)
+        this.deps.sendTextWhenReady(s.sessionId, text, asMutationId(factKey))
         const claimed = this.arbiter.claim(factKey, s.sessionId, {
           source: `subscription:${sub.id}`,
           issueId,
@@ -842,7 +850,7 @@ export class StewardService {
         this.deps.sendTextWhenReady(
           s.sessionId,
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
-          factKey,
+          asMutationId(factKey),
         )
         this.arbiter.claim(factKey, s.sessionId, {
           source: 'steward.unblock',
@@ -923,7 +931,7 @@ export class StewardService {
     // WAKE: durable delivery BEFORE claim [POD-925]. mutationId=factKey makes
     // crash-retry / multi-poll re-entry idempotent (queueText already-applied).
     if (this.arbiter.isClaimed(factKey, parentId)) return
-    this.deps.sendTextWhenReady(parentId, sub.nudge(childSessionId, label), factKey)
+    this.deps.sendTextWhenReady(parentId, sub.nudge(childSessionId, label), asMutationId(factKey))
     this.arbiter.claim(factKey, parentId, claimOpts)
   }
 
@@ -1025,7 +1033,7 @@ export class StewardService {
       this.deps.sendTextWhenReady(
         s.sessionId,
         sub.nudge(lastChildSeq, { remaining, total }),
-        factKey,
+        asMutationId(factKey),
       )
       this.arbiter.claim(factKey, s.sessionId, {
         source: 'steward.parent-nudge',

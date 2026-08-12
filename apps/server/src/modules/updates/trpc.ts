@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import type { ConvergenceState } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { serverBuildVersion } from '../../build-version'
@@ -23,7 +24,7 @@ function isDevelopmentMachine(machine: { channel?: string }): boolean {
 }
 
 export interface UpdateFleetMachine {
-  id: string
+  id: MachineId
   name?: string
   version: string
   state: ConvergenceState
@@ -87,7 +88,7 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
 export function restartCoordinatorAfterDevelopmentFleet(
   updates: UpdatesService,
   targetVersion: string,
-  affectedMachineIds: readonly string[],
+  affectedMachineIds: readonly MachineId[],
   requestCoordinatorRestart: () => void,
   pollMs = COORDINATOR_RESTART_POLL_MS,
   deadlineMs = COORDINATOR_RESTART_DEADLINE_MS,
