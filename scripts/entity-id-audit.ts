@@ -623,6 +623,43 @@ export function entityIdSites(ctx: AuditContext): EntityIdSite[] {
 
 const site = (s: EntityIdSite): AuditSite => ({ file: s.file, line: s.line, text: s.text })
 
+/**
+ * THE LIVE-TREE ANCHORS, in ONE place because they were in two.
+ *
+ * `MIN_ID_FIELD_SITES` guards the total; these guard its COMPOSITION, which a
+ * single total cannot: a form that silently stopped matching is invisible in a
+ * sum that other forms hold up. Both `entity-id-audit.test.ts` and
+ * `rearch-audit.test.ts` assert this, and until POD-1199 they each carried
+ * their own copy — so fixing one looked exactly like being done. That is the
+ * duplication this constant exists to remove, and it is not hypothetical: the
+ * `db-column` anchor below was updated in one file and failed in the other.
+ *
+ * ANCHOR ON A FAMILY, NEVER ON A FORM A RATCHET DRIVES TO ZERO. `db-column` is
+ * now the raw half of a ratcheted pair, so requiring it to be non-empty would
+ * make POD-1199's win fail this assertion — and a win that reds the guard is
+ * indistinguishable from the broken walk the guard exists to catch. The
+ * invariant that survives is that the scan still SEES columns, branded or not.
+ */
+export const DETECTOR_ANCHORS: readonly {
+  readonly forms: readonly IdFieldForm[]
+  readonly min: number
+}[] = [
+  { forms: ['zod-branded'], min: 100 },
+  { forms: ['ts-string'], min: 20 },
+  { forms: ['db-column', 'db-column-branded'], min: 20 },
+]
+
+/** Which anchors a scan FAILS, as readable strings. Empty means every form
+ *  family the detector parses is still matching on the live tree. */
+export function detectorAnchorFailures(sites: readonly EntityIdSite[]): string[] {
+  const out: string[] = []
+  for (const { forms, min } of DETECTOR_ANCHORS) {
+    const n = sites.filter((s) => forms.includes(s.form)).length
+    if (n <= min) out.push(`${forms.join('|')}: ${n} sites, expected more than ${min}`)
+  }
+  return out
+}
+
 /** An id-SHAPED key: the population {@link brandOfKey} is a filter over. */
 const ID_SHAPED_KEY = /Id$|^id$|_id$/
 

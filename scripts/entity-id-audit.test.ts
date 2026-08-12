@@ -31,6 +31,7 @@ import {
   brandOfPath,
   brandOfSymbol,
   classifyRhs,
+  detectorAnchorFailures,
   entityIdSites,
   ID_BRANDS,
   idFieldsWithNoBrandVocabulary,
@@ -547,17 +548,10 @@ describe('the population floor', () => {
   it('clears the floor against the real tree, and by a wide margin', () => {
     const sites = entityIdSites(loadContext(REPO_ROOT))
     expect(sites.length).toBeGreaterThan(MIN_ID_FIELD_SITES)
-    // Every counted form must be non-empty on the real tree. A form that has
-    // silently stopped matching is invisible in a single total.
-    for (const form of ['zod-branded', 'ts-string'] as const) {
-      expect(sites.filter((s) => s.form === form).length).toBeGreaterThan(20)
-    }
-    // Columns are asserted as a FAMILY, not per form: the whole point of
-    // POD-1199's ratchet is to drive `db-column` to zero, so requiring it to be
-    // non-empty would make the win fail the test. What must stay true is that
-    // the scan can still SEE columns at all.
-    expect(
-      sites.filter((s) => s.form === 'db-column' || s.form === 'db-column-branded').length,
-    ).toBeGreaterThan(20)
+    // The composition, not just the total: a form that silently stopped
+    // matching is invisible in a sum the other forms hold up. Shared with
+    // `rearch-audit.test.ts` via DETECTOR_ANCHORS — they each carried their own
+    // copy until POD-1199, so fixing one read as being done.
+    expect(detectorAnchorFailures(sites)).toEqual([])
   })
 })

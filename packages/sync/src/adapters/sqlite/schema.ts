@@ -49,6 +49,7 @@
  * repository speaks hand-written SQL over the shared connection.
  */
 
+import type { MutationId } from '@podium/model'
 import { sql } from 'drizzle-orm'
 import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -97,7 +98,7 @@ const changeBodyColumns = {
 const changeProvenanceColumns = {
   originId: text('origin_id'),
   causationId: text('causation_id'),
-  mutationId: text('mutation_id'),
+  mutationId: text('mutation_id').$type<MutationId>(),
 } as const
 
 export const changes = sqliteTable(
@@ -218,7 +219,7 @@ export const feedIdentity = sqliteTable(
 export const appliedMutations = sqliteTable(
   'applied_mutations',
   {
-    mutationId: text('mutation_id').primaryKey(),
+    mutationId: text('mutation_id').$type<MutationId>().primaryKey(),
     proc: text().notNull(),
     result: text().notNull(),
     appliedAt: integer('applied_at').notNull(),

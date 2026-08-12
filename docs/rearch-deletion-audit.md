@@ -234,6 +234,56 @@ table is the defect.** The rule the rows apply:
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
 
+### 2026-08-12 — POD-1199 brands the columns: `unbranded-db-columns` 90 → 0, `unbranded-by-decision-ids` 18 → 24
+
+**The product commit that discharges the key added below, and it RAISES a
+different one — which is the hatch working, not a rebaseline.**
+
+84 columns took `$type<Brand>()`. Six did not, and the excuse costs six on
+`unbranded-by-decision-ids` (18 → 24, on top of POD-1361's landing at
+`d02778d8a`, which took it 17 → 18; both values were re-derived on the rebased
+tree rather than merged as text, because the two edits do not conflict
+textually and one would otherwise have silently won). Each one matches a carve-out the zod
+schemas already record, at the same value, for the reason recorded there:
+
+| Column | Whose id space | Where the same carve-out already lives |
+|---|---|---|
+| `provider_session_id` | the PROVIDER's | `protocol/messages/runtime-state.ts` (7 fields) |
+| `from_provider_session_id` | the PROVIDER's | as above |
+| `to_provider_session_id` | the PROVIDER's | as above |
+| `harness_session_id` | the HARNESS's | `protocol/messages/headless.ts` |
+| `conversation_id` | the harness-NATIVE transcript's | `entities/session.ts` (`SessionOrigin` resume arm) |
+| `parent_conversation_id` | the harness-NATIVE transcript's | `entities/conversation.ts` |
+
+Branding any of them `SessionId` / `ConversationId` would launder a foreign id
+into Podium's id space — a well-typed lie, which is the failure `ids/brands.ts`
+warns about at `controllerId`. The Podium-stable conversation identity is a
+DIFFERENT column, `conversation_registry.podium_id`, and that one IS branded.
+
+**The flip emits no SQL and needed no migration.** `$type<>()` is type-level
+only: `drizzle-kit generate` reports "No schema changes" across all 84, and the
+migration journal is untouched. Typecheck is green tree-wide.
+
+**One thing this does NOT yet buy, stated so the number is not over-read.** No
+runtime code imports these schemas — they are read by `drizzle-kit` for
+authoring, and the applier is `drizzle-runner.ts` — so the brands bind inside
+the schema (defaults, references) rather than at call sites today. What the item
+now guarantees is that a NEW entity-id column cannot be added raw without
+raising a committed number. Where the brands will bite immediately is the
+tables' own primary keys, which is the gap below.
+
+**A GAP THIS DID NOT CLOSE, filed rather than swept.** Every foreign key is now
+branded and every table's own `id` primary key is still raw — `sessions.id`,
+`issues.id`, `machines.id`, `users.id`, `accounts.id`, `automations.id`,
+`superagent_threads.id` and more. The detector cannot see them: all three of its
+spellings read a NAME, and `id: text().primaryKey()` inside
+`export const sessions = sqliteTable(…)` has neither a `<brand>Id` key nor a
+declaration name the brand vocabulary matches (`sessions`, lowercase and plural,
+is not `Session`). Sweeping nine invisible sites inside a commit whose whole
+argument is measurement would have been the exact move this file exists to stop,
+so the detector needs a fourth spelling first, as its own extension. Filed as
+discovered work with a `discovered-from` edge.
+
 ### 2026-08-12 — POD-1199 splits the drizzle-column form and adds `unbranded-db-columns` (+1 item, baseline 90)
 
 **A ratchet EXTENSION, in a commit that touches no product code** — the same act
@@ -274,7 +324,7 @@ Three decisions are recorded rather than left implicit:
    the identical judgement `entities/session.ts` already records on the zod side.
    A second excuse key would let that one decision be spent twice at half the
    visible price. `unbranded-by-decision-ids` therefore rises when a column is
-   excused, and stays at **17** on this commit, because this commit excuses none.
+   excused, and is unmoved by this commit, which excuses none.
 3. **The `text()` anchor was tightened, and it cost two sites (92 → 90).**
    `apps/server/src/store/workflows.ts` coerces rows with a local helper it calls
    `text`, so `text(row.owner_user_id)` read as a column. It is a value
