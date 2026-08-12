@@ -132,6 +132,25 @@ describe('ServerTransfer', () => {
     expect(screen.queryByText(/proved it is serving/i)).toBeNull()
   })
 
+  it('replaces a stale aborted retry form with preparing while the new attempt is pending', () => {
+    render(
+      <ServerTransfer
+        {...props({
+          awaitingStatus: true,
+          displayState: 'aborted',
+          detail: 'the previous attempt was safely aborted',
+          showProgress: true,
+        })}
+      />,
+    )
+
+    expect(screen.getByRole('status').textContent).toMatch(/preparing server transfer/i)
+    expect(screen.queryByText(/transfer stopped safely/i)).toBeNull()
+    expect(screen.queryByText(/previous attempt was safely aborted/i)).toBeNull()
+    expect(screen.queryByLabelText('New public URL')).toBeNull()
+    expect(screen.getByRole('dialog').getAttribute('aria-busy')).toBe('false')
+  })
+
   it('marks only acknowledgement waiting as busy and focuses the progress region', async () => {
     const view = render(<ServerTransfer {...props()} />)
 

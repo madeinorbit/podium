@@ -157,6 +157,10 @@ export function ServerTransfer({
   onCheckTarget,
 }: ServerTransferProps): JSX.Element {
   const progressFocusRef = useRef<HTMLDivElement>(null)
+  // The controller retains the last durable abort until the retry produces a new journal state.
+  // While that new mutation is pending, present the new attempt rather than the stale outcome.
+  const progressState =
+    awaitingStatus && displayState === 'aborted' ? 'preparing' : (displayState ?? 'preparing')
 
   useEffect(() => {
     if (open && showProgress) progressFocusRef.current?.focus()
@@ -188,11 +192,7 @@ export function ServerTransfer({
             tabIndex={-1}
             className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ServerTransferProgress
-              state={displayState ?? 'preparing'}
-              targetName={targetName}
-              detail={detail}
-            />
+            <ServerTransferProgress state={progressState} targetName={targetName} detail={detail} />
           </div>
         ) : (
           <div className="flex flex-col gap-3 text-[13px]">
