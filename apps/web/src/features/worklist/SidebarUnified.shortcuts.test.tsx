@@ -196,9 +196,18 @@ describe('⌘N — the shell menu’s New Agent (POD-790)', () => {
     expect(spawnDraftAgent).toHaveBeenCalledTimes(1)
   })
 
+  it('spawns from a ⌘N that actually reaches the page', () => {
+    macShell()
+    render(<SidebarUnified />)
+    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
+    expect(spawnDraftAgent).toHaveBeenCalledTimes(1)
+  })
+
   it('registers nothing in a browser tab, which never surrenders ⌘N', () => {
     render(<SidebarUnified />)
     expect(newAgentCommand()).toBeUndefined()
+    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
+    expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
   it('takes the command back down with the sidebar', () => {

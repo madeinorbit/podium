@@ -755,119 +755,121 @@ function PaletteDialog({
       }}
     >
       <DialogContent aria-label="Command palette" showCloseButton={false} className="cmdk-panel">
-        <DialogTitle className="sr-only">Command palette</DialogTitle>
-        {/* THE FIELD IS THE WELL. The command bar's signature control — a groove
+        <div className="cmdk-surface">
+          <DialogTitle className="sr-only">Command palette</DialogTitle>
+          {/* THE FIELD IS THE WELL. The command bar's signature control — a groove
             carved into the chassis, lit along its lower lip — at full width.
             The palette IS the command bar, arrived at the centre of the screen;
             wearing the bar's own material is what says so. */}
-        <div className="cmdk-field">
-          <Search size={15} className="cmdk-field-glyph" aria-hidden="true" />
-          <input
-            autoFocus
-            type="text"
-            role="combobox"
-            aria-expanded="true"
-            aria-controls="palette-listbox"
-            aria-activedescendant={rowCount > 0 ? `palette-item-${highlight}` : undefined}
-            placeholder="Search tasks, agents and commands…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onInputKeyDown}
-            className="cmdk-input"
-          />
-          {searching && <BrailleSpinner size={11} className="cmdk-field-spinner" />}
-        </div>
-        <div
-          ref={listRef}
-          id="palette-listbox"
-          role="listbox"
-          aria-label="Commands"
-          className="cmdk-list"
-        >
-          {groups.map((g) => (
-            <div key={g.group} role="group" aria-label={groupHeading(g)} className="cmdk-group">
-              <div className="cmdk-group-label" aria-hidden="true">
-                <span className="cmdk-group-name">{groupHeading(g)}</span>
-                {g.total > g.commands.length && (
-                  <span className="cmdk-group-count">
-                    {g.commands.length}/{g.total}
-                  </span>
-                )}
+          <div className="cmdk-field">
+            <Search size={15} className="cmdk-field-glyph" aria-hidden="true" />
+            <input
+              autoFocus
+              type="text"
+              role="combobox"
+              aria-expanded="true"
+              aria-controls="palette-listbox"
+              aria-activedescendant={rowCount > 0 ? `palette-item-${highlight}` : undefined}
+              placeholder="Search tasks, agents and commands…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onInputKeyDown}
+              className="cmdk-input"
+            />
+            {searching && <BrailleSpinner size={11} className="cmdk-field-spinner" />}
+          </div>
+          <div
+            ref={listRef}
+            id="palette-listbox"
+            role="listbox"
+            aria-label="Commands"
+            className="cmdk-list"
+          >
+            {groups.map((g) => (
+              <div key={g.group} role="group" aria-label={groupHeading(g)} className="cmdk-group">
+                <div className="cmdk-group-label" aria-hidden="true">
+                  <span className="cmdk-group-name">{groupHeading(g)}</span>
+                  {g.total > g.commands.length && (
+                    <span className="cmdk-group-count">
+                      {g.commands.length}/{g.total}
+                    </span>
+                  )}
+                </div>
+                {g.commands.map(row)}
               </div>
-              {g.commands.map(row)}
-            </div>
-          ))}
-          {/* Free-text fallback — always the last rows, and the ONLY rows when a
+            ))}
+            {/* Free-text fallback — always the last rows, and the ONLY rows when a
               query matches nothing: spawn an agent with the query as its first
               prompt, one row per target (current worktree / last repo's). */}
-          {/* A search that found nothing has to SAY so. With spawn targets
+            {/* A search that found nothing has to SAY so. With spawn targets
               present the fallback rows keep the list non-empty, so the designed
               empty state below never fires — and a lone "NEW AGENT" heading
               looks like a result, not like the end of the road. */}
-          {flat.length === 0 && fallbackTargets.length > 0 && (
-            <p className="cmdk-nomatch">No match for “{query.trim()}”</p>
-          )}
-          {fallbackTargets.length > 0 && (
-            <div role="group" aria-label="New agent" className="cmdk-group">
-              <div className="cmdk-group-label" aria-hidden="true">
-                <span className="cmdk-group-name">New agent</span>
+            {flat.length === 0 && fallbackTargets.length > 0 && (
+              <p className="cmdk-nomatch">No match for “{query.trim()}”</p>
+            )}
+            {fallbackTargets.length > 0 && (
+              <div role="group" aria-label="New agent" className="cmdk-group">
+                <div className="cmdk-group-label" aria-hidden="true">
+                  <span className="cmdk-group-name">New agent</span>
+                </div>
+                {fallbackTargets.map((target) => {
+                  const idx = rowIndex++
+                  return (
+                    <button
+                      data-pressable
+                      key={target.path}
+                      id={`palette-item-${idx}`}
+                      type="button"
+                      role="option"
+                      aria-selected={idx === highlight}
+                      tabIndex={-1}
+                      className="cmdk-row"
+                      data-active={idx === highlight || undefined}
+                      onMouseMove={() => setHighlight(idx)}
+                      onClick={() => runRow(idx)}
+                    >
+                      <span className="cmdk-row-lead" aria-hidden="true">
+                        <Bot size={15} />
+                      </span>
+                      <span className="cmdk-row-title">
+                        New agent{query.trim() ? `: “${query.trim()}”` : ''}
+                      </span>
+                      <span className="cmdk-row-hint">{target.path.split('/').pop()}</span>
+                      <PaletteEnterCap />
+                    </button>
+                  )
+                })}
               </div>
-              {fallbackTargets.map((target) => {
-                const idx = rowIndex++
-                return (
-                  <button
-                    data-pressable
-                    key={target.path}
-                    id={`palette-item-${idx}`}
-                    type="button"
-                    role="option"
-                    aria-selected={idx === highlight}
-                    tabIndex={-1}
-                    className="cmdk-row"
-                    data-active={idx === highlight || undefined}
-                    onMouseMove={() => setHighlight(idx)}
-                    onClick={() => runRow(idx)}
-                  >
-                    <span className="cmdk-row-lead" aria-hidden="true">
-                      <Bot size={15} />
-                    </span>
-                    <span className="cmdk-row-title">
-                      New agent{query.trim() ? `: “${query.trim()}”` : ''}
-                    </span>
-                    <span className="cmdk-row-hint">{target.path.split('/').pop()}</span>
-                    <PaletteEnterCap />
-                  </button>
-                )
-              })}
-            </div>
-          )}
-          {rowCount === 0 && (
-            <div className="cmdk-empty">
-              <p className="cmdk-empty-label">No match</p>
-              <p className="cmdk-empty-text">
-                Nothing here answers “{query.trim()}”. Add a repo to start an agent from a search.
-              </p>
-            </div>
-          )}
-        </div>
-        {/* The status strip's grammar, borrowed: mono at label scale on --bar,
+            )}
+            {rowCount === 0 && (
+              <div className="cmdk-empty">
+                <p className="cmdk-empty-label">No match</p>
+                <p className="cmdk-empty-text">
+                  Nothing here answers “{query.trim()}”. Add a repo to start an agent from a search.
+                </p>
+              </div>
+            )}
+          </div>
+          {/* The status strip's grammar, borrowed: mono at label scale on --bar,
             closing the surface the way the shell's own bottom edge closes the
             window. It is also where the ⌘K hint that used to sit in the app's
             footer all day now lives — stated once, while it is useful. */}
-        <div className="cmdk-foot">
-          <span className="cmdk-keys">
-            <kbd>↑↓</kbd>
-            <span>move</span>
-            <kbd>↵</kbd>
-            <span>run</span>
-            <kbd>esc</kbd>
-            <span>{query ? 'clear' : 'close'}</span>
-          </span>
-          <span className="cmdk-count">
-            {resting
-              ? `${commands.length} commands`
-              : `${rowCount} ${rowCount === 1 ? 'match' : 'matches'}`}
-          </span>
+          <div className="cmdk-foot">
+            <span className="cmdk-keys">
+              <kbd>↑↓</kbd>
+              <span>move</span>
+              <kbd>↵</kbd>
+              <span>run</span>
+              <kbd>esc</kbd>
+              <span>{query ? 'clear' : 'close'}</span>
+            </span>
+            <span className="cmdk-count">
+              {resting
+                ? `${commands.length} commands`
+                : `${rowCount} ${rowCount === 1 ? 'match' : 'matches'}`}
+            </span>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

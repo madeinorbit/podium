@@ -1480,10 +1480,13 @@ html[data-density="balanced"] .header-quota-pools {
      · ONE YELLOW THING. `.cmdk-row-cap` marks what Enter will do, on the row it
        will do it to, and nothing else in the surface may take the signal.
 
-   Layered Tailwind utilities from `DialogContent` sit underneath these plain
-   rules, which is why the geometry is restated here in full rather than
-   patched: `top`, `transform`, `padding`, `gap`, `display` and `max-width` all
-   have a utility to beat.
+   DialogContent is a full-viewport STAGE, not the card. Its utilities
+   (`top-1/2 left-1/2 -translate-x/y-1/2`, `animate-in`/`zoom-in-95`) used
+   to own the same box that `transform: translateX(-50%)` and the drop
+   animation also wrote — first paint centred, then the enter keyframes
+   wiped the centering transform and the panel snapped to the origin.
+   Pinning the popup to `inset: 0` and drawing the chrome on `.cmdk-surface`
+   means those utilities can no longer move the thing you look at.
    ───────────────────────────────────────────────────────────────────────────*/
 /* The palette keeps the SHARED backdrop rather than inventing a deeper one.
    A literal black scrim was one step darker on the old navy chassis and simply
@@ -1492,16 +1495,37 @@ html[data-density="balanced"] .header-quota-pools {
    A color-mix over --carve-popover-* would theme correctly and collapse to an
    opaque black wall on the Lightning CSS fallback path the well tokens already
    document. The blur plus the popover lift separate the palette; that is enough. */
-.cmdk-panel {
-  top: 13vh;
-  left: 50%;
-  /* DialogContent contributes -translate-x/y-1/2 utilities. The authored
-     animation temporarily overrides that longhand; neutralize its resting
-     value so it cannot return after the animation and shift the panel twice. */
-  translate: 0;
+[data-slot="dialog-content"].cmdk-panel,
+[data-slot="dialog-content"].cmdk-panel[data-open],
+[data-slot="dialog-content"].cmdk-panel[data-closed] {
+  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
-  width: min(640px, calc(100vw - 32px));
+  width: 100%;
   max-width: none;
+  height: 100%;
+  max-height: none;
+  translate: none;
+  transform: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 13vh 16px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+  animation: none;
+  pointer-events: none;
+}
+.cmdk-surface {
+  pointer-events: auto;
+  display: flex;
+  width: min(640px, 100%);
   max-height: min(560px, calc(100dvh - 22vh));
   flex-direction: column;
   padding: 0;
@@ -1512,42 +1536,39 @@ html[data-density="balanced"] .header-quota-pools {
   font-size: var(--shell-type-primary);
   gap: 0;
   overflow: hidden;
-  transform: translateX(-50%);
 }
-/* The one authored moment: the panel drops in from just above its resting
+/* The one authored moment: the card drops in from just above its resting
    place on an exponential ease-out, and everything after that is instant.
-   `translate`/`scale` rather than `transform`, which is carrying the centring. */
-.cmdk-panel[data-open] {
+   Transform here is only the drop — the stage owns placement. */
+.cmdk-panel[data-open] .cmdk-surface {
   animation: cmdk-drop 170ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.cmdk-panel[data-closed] {
+.cmdk-panel[data-closed] .cmdk-surface {
   animation: cmdk-lift 110ms ease-in;
 }
 @keyframes cmdk-drop {
   from {
     opacity: 0;
-    scale: 0.985;
-    translate: 0 -9px;
+    transform: translateY(-9px) scale(0.985);
   }
   to {
     opacity: 1;
-    scale: 1;
-    translate: 0 0;
+    transform: translateY(0) scale(1);
   }
 }
 @keyframes cmdk-lift {
   from {
     opacity: 1;
-    scale: 1;
+    transform: scale(1);
   }
   to {
     opacity: 0;
-    scale: 0.99;
+    transform: scale(0.99);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cmdk-panel[data-open],
-  .cmdk-panel[data-closed] {
+  .cmdk-panel[data-open] .cmdk-surface,
+  .cmdk-panel[data-closed] .cmdk-surface {
     animation: none;
   }
 }

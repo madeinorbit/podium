@@ -197,20 +197,14 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
     }
   }
 
-  // ⌘N — File > New Agent in the desktop shell's macOS menu (POD-790).
+  // ⌘N — the same spawn as the New <Agent> in <Repo> button (POD-790).
   //
-  // A MENU ACCELERATOR, NOT A KEYDOWN. ⌘N never reaches a webview that has not
-  // claimed it in the app menu, exactly as ⌘W did not before POD-710 gave it a
-  // Close Tab item — so the shell owns the chord and hands it back through this
-  // global, the same contract `__PODIUM_CLOSE_TAB__` already runs on
-  // (apps/desktop/src-tauri/src/main.rs).
-  //
-  // It does what the New <Agent> in <Repo> button does, deliberately: the
-  // keystroke's whole promise is that it is that button without the trip to it,
-  // so it spawns the SAME persisted default agent in the SAME most-recent repo.
-  // Registered from here rather than from a component because the button and the
-  // collapsed rail's compact version both already own this hook, and exactly one
-  // of the two is mounted at a time.
+  // Two deliveries, one action. On a rebuilt macOS shell File > New Agent owns
+  // the chord (an unclaimed accelerator never reaches the webview, same as
+  // ⌘W before Close Tab) and evals `__PODIUM_NEW_AGENT__`. A keydown covers
+  // every other native shell that actually hands us the event: Linux/Windows,
+  // and a macOS binary old enough that no menu item claimed ⌘N yet.
+  // Browser tabs are left alone — ⌘N / Ctrl+N open a window there.
   const newAgentRef = useRef<() => void>(() => {})
   newAgentRef.current = () => {
     if (defaultRepo) spawn(defaultAgent, defaultRepo)
@@ -220,10 +214,23 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
     const g = globalThis as { __PODIUM_NEW_AGENT__?: () => void }
     const handler = (): void => newAgentRef.current()
     g.__PODIUM_NEW_AGENT__ = handler
+    const onKey = (event: KeyboardEvent): void => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'n'
+      ) {
+        event.preventDefault()
+        handler()
+      }
+    }
+    window.addEventListener('keydown', onKey)
     return () => {
       // Only ours: an expand/collapse swaps rail and row, and React mounts the
       // arriving one before unmounting the leaving one.
       if (g.__PODIUM_NEW_AGENT__ === handler) delete g.__PODIUM_NEW_AGENT__
+      window.removeEventListener('keydown', onKey)
     }
   }, [])
 

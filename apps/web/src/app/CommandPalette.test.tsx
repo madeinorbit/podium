@@ -105,11 +105,19 @@ afterEach(() => {
 })
 
 describe('CommandPalette', () => {
-  it('keeps its resting translation neutral after the drop animation', () => {
-    const panelRule = styles.match(/\.cmdk-panel\s*\{(?<body>[^}]*)\}/)?.groups?.body
+  it('pins the dialog to the viewport so DialogContent cannot yank the card', () => {
+    const stage = styles.match(
+      /\[data-slot="dialog-content"\]\.cmdk-panel,\s*\[data-slot="dialog-content"\]\.cmdk-panel\[data-open\],\s*\[data-slot="dialog-content"\]\.cmdk-panel\[data-closed\]\s*\{(?<body>[^}]*)\}/,
+    )?.groups?.body
+    const drop = styles.match(/@keyframes cmdk-drop\s*\{(?<body>[\s\S]*?)\n\}/)?.groups?.body
 
-    expect(panelRule).toContain('translate: 0;')
-    expect(panelRule).toContain('transform: translateX(-50%);')
+    expect(stage).toContain('inset: 0;')
+    expect(stage).toContain('transform: none;')
+    expect(stage).toContain('animation: none;')
+    expect(styles).toContain('.cmdk-surface')
+    // The drop may translate the card, never the stage that places it.
+    expect(drop).toContain('translateY(-9px)')
+    expect(drop).not.toContain('translateX(-50%)')
   })
 
   it('mounts — every module it pulls in initialises', () => {
