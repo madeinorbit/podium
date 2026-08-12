@@ -148,10 +148,10 @@ describe('ServerTransfer', () => {
     expect(screen.queryByText(/transfer stopped safely/i)).toBeNull()
     expect(screen.queryByText(/previous attempt was safely aborted/i)).toBeNull()
     expect(screen.queryByLabelText('New public URL')).toBeNull()
-    expect(screen.getByRole('dialog').getAttribute('aria-busy')).toBe('false')
+    expect(screen.getByRole('dialog').getAttribute('aria-busy')).toBe('true')
   })
 
-  it('marks only acknowledgement waiting as busy and focuses the progress region', async () => {
+  it('marks acknowledgement waiting as busy, focuses progress, and clears on advance', async () => {
     const view = render(<ServerTransfer {...props()} />)
 
     view.rerender(<ServerTransfer {...props({ awaitingStatus: true, showProgress: true })} />)
@@ -162,7 +162,7 @@ describe('ServerTransfer', () => {
     view.rerender(
       <ServerTransfer
         {...props({
-          awaitingStatus: true,
+          awaitingStatus: false,
           displayState: 'copying',
           showProgress: true,
         })}

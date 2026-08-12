@@ -168,11 +168,7 @@ export function ServerTransfer({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton
-        className="sm:max-w-lg"
-        aria-busy={awaitingStatus && displayState === null}
-      >
+      <DialogContent showCloseButton className="sm:max-w-lg" aria-busy={awaitingStatus}>
         <DialogHeader>
           <DialogTitle>
             Move the server from {sourceName} to {targetName}?
