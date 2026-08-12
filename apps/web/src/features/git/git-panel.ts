@@ -28,9 +28,7 @@ function unquotePath(p: string): string {
   if (!(p.startsWith('"') && p.endsWith('"') && p.length >= 2)) return p
   return p
     .slice(1, -1)
-    .replace(/\\([\\"tn])/g, (_, c: string) =>
-      c === 't' ? '\t' : c === 'n' ? '\n' : c,
-    )
+    .replace(/\\([\\"tn])/g, (_, c: string) => (c === 't' ? '\t' : c === 'n' ? '\n' : c))
 }
 
 /** Parse `git status --porcelain=v1 -b` output (the statusProbe op). */
@@ -106,36 +104,17 @@ export function parseLog(output: string): LogEntry[] {
   return entries
 }
 
-export type DiffLineKind = 'add' | 'del' | 'hunk' | 'meta' | 'ctx'
-
-/** Classify one unified-diff line for coloring. */
-export function diffLineKind(line: string): DiffLineKind {
-  if (line.startsWith('+++') || line.startsWith('---')) return 'meta'
-  if (line.startsWith('+')) return 'add'
-  if (line.startsWith('-')) return 'del'
-  if (line.startsWith('@@')) return 'hunk'
-  if (
-    line.startsWith('diff ') ||
-    line.startsWith('index ') ||
-    line.startsWith('new file') ||
-    line.startsWith('deleted file') ||
-    line.startsWith('rename ') ||
-    line.startsWith('similarity ') ||
-    line.startsWith('Binary files') ||
-    line.startsWith('\\ No newline')
-  )
-    return 'meta'
-  return 'ctx'
-}
-
-/** Synthesize an all-added diff for an untracked file (git diff HEAD skips it). */
+/**
+ * Synthesize an all-added diff for an untracked file (git diff HEAD skips it).
+ * The hunk header is part of the synthesis, not decoration: it is what lets an
+ * untracked file render through the same parser — and be line-numbered — as a
+ * tracked one, instead of needing a second path in the viewer.
+ */
 export function untrackedDiff(content: string): string {
   const body = content.endsWith('\n') ? content.slice(0, -1) : content
   if (body === '' && content === '') return ''
-  return body
-    .split('\n')
-    .map((l) => `+${l}`)
-    .join('\n')
+  const lines = body.split('\n')
+  return [`@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`)].join('\n')
 }
 
 /** Human word for a porcelain status letter (hover titles). */
@@ -168,12 +147,29 @@ export function entryBadge(e: StatusEntry): string {
   return `${e.x}${e.y}`.trim()
 }
 
-/** Hover title: "modified (staged) — src/a.ts". */
-export function entryTitle(e: StatusEntry): string {
-  if (e.untracked) return `untracked — ${e.path}`
+/** What happened to the file, in words: "modified (staged) + modified". */
+export function entryStatus(e: StatusEntry): string {
+  if (e.untracked) return 'untracked'
   const parts: string[] = []
   if (e.x !== ' ') parts.push(`${statusWord(e.x)} (staged)`)
   if (e.y !== ' ') parts.push(statusWord(e.y))
+  return parts.join(' + ')
+}
+
+/** Hover title: "modified (staged) — src/a.ts". */
+export function entryTitle(e: StatusEntry): string {
   const from = e.renamedFrom ? ` (from ${e.renamedFrom})` : ''
-  return `${parts.join(' + ')} — ${e.path}${from}`
+  return `${entryStatus(e)} — ${e.path}${from}`
+}
+
+/**
+ * Which axis an entry lives on. Both surfaces tint the badge by it — the dock
+ * in utilities, the sheet in its own stylesheet — so the RULE (staged reads
+ * live, unstaged reads warning, untracked stays muted) is decided once here
+ * rather than restated in two class lists that can drift apart.
+ */
+export function entryTone(e: StatusEntry): 'staged' | 'unstaged' | 'untracked' {
+  if (e.untracked) return 'untracked'
+  if (e.x !== ' ' && e.y === ' ') return 'staged'
+  return 'unstaged'
 }

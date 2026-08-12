@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  diffLineKind,
   entryBadge,
+  entryStatus,
   entryTitle,
+  entryTone,
   parseLog,
   parseStatus,
   untrackedDiff,
@@ -67,34 +68,29 @@ describe('parseLog', () => {
   })
 })
 
-describe('diffLineKind', () => {
-  it('classifies unified diff lines', () => {
-    expect(diffLineKind('+added')).toBe('add')
-    expect(diffLineKind('-removed')).toBe('del')
-    expect(diffLineKind('+++ b/a.ts')).toBe('meta')
-    expect(diffLineKind('--- a/a.ts')).toBe('meta')
-    expect(diffLineKind('@@ -1,2 +1,3 @@')).toBe('hunk')
-    expect(diffLineKind('diff --git a/a b/a')).toBe('meta')
-    expect(diffLineKind('index 000..111 100644')).toBe('meta')
-    expect(diffLineKind(' context')).toBe('ctx')
-    expect(diffLineKind('\\ No newline at end of file')).toBe('meta')
-  })
-})
-
 describe('untrackedDiff', () => {
-  it('prefixes every line with + and drops the trailing newline', () => {
-    expect(untrackedDiff('a\nb\n')).toBe('+a\n+b')
+  it('prefixes every line with + under a hunk header, dropping the trailing newline', () => {
+    // The header is what lets an untracked file render — and be numbered —
+    // through the same parser as a tracked one.
+    expect(untrackedDiff('a\nb\n')).toBe('@@ -0,0 +1,2 @@\n+a\n+b')
     expect(untrackedDiff('')).toBe('')
   })
 })
 
-describe('badges and titles', () => {
+describe('badges, tones and titles', () => {
   it('badges: untracked ??, staged-only trimmed', () => {
     const { entries } = parseStatus('## m\nM  s.ts\n?? u.ts\n M w.ts\n')
     expect(entries.map(entryBadge)).toEqual(['M', 'M', '??'])
   })
-  it('titles name both axes', () => {
+  it('tones split the three axes', () => {
+    const { entries } = parseStatus('## m\nM  s.ts\n M w.ts\nMM b.ts\n?? u.ts\n')
+    expect(entries.map(entryTone)).toEqual(['unstaged', 'staged', 'unstaged', 'untracked'])
+  })
+  it('titles name both axes; status is the same sentence without the path', () => {
     const { entries } = parseStatus('## m\nMM both.ts\n')
+    expect(entryStatus(entries[0]!)).toBe('modified (staged) + modified')
     expect(entryTitle(entries[0]!)).toBe('modified (staged) + modified — both.ts')
+    const { entries: untracked } = parseStatus('## m\n?? new.ts\n')
+    expect(entryTitle(untracked[0]!)).toBe('untracked — new.ts')
   })
 })

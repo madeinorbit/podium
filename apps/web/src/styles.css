@@ -37,6 +37,18 @@
      above anything else in that column. */
   --shell-type-column-title: 17px;
   --shell-leading-column-title: 1.3;
+  /* DOCUMENT SCALE, outside the four shell roles [POD-788] — the source editor
+     is content, not chrome, and it is read the way the transcript is read. It
+     was set at 13px on CodeMirror's stock 1.4 leading, which is a diff viewer's
+     density asked to do an hour of reading. 15px matches --shell-type-reading
+     (the shell's own answer to "set for reading, not for fitting") and 1.7
+     leading is a full step above the shell's 1.67 body: code lines are ragged,
+     so the eye needs more air to find the next line's start, and the indent
+     guides only read as columns when the rows are far enough apart to see
+     through. Compact density steps to 14/1.6 rather than following the shell's
+     14/22, which would be tighter than the terminal's 1.7. */
+  --code-type: 15px;
+  --code-leading: 1.7;
 }
 html[data-density="compact"] {
   --shell-type-reading: 14px;
@@ -49,6 +61,8 @@ html[data-density="compact"] {
   --shell-type-micro: 10.5px;
   --shell-leading-micro: 14px;
   --shell-type-column-title: 16px;
+  --code-type: 14px;
+  --code-leading: 1.6;
 }
 .shell-type-reading {
   font-size: var(--shell-type-reading);
@@ -1850,12 +1864,12 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 8px 0 14px;
   background:
     linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--issue) calc(75 * var(--issue-line-scale, 1%)), transparent),
-        color-mix(in srgb, var(--issue) calc(14 * var(--issue-line-scale, 1%)), transparent) 190px,
-        transparent 340px
-      )
-      left top / 2px 100% no-repeat,
+      180deg,
+      color-mix(in srgb, var(--issue) calc(75 * var(--issue-line-scale, 1%)), transparent),
+      color-mix(in srgb, var(--issue) calc(14 * var(--issue-line-scale, 1%)), transparent) 190px,
+      transparent 340px
+    )
+    left top / 2px 100% no-repeat,
     linear-gradient(
       180deg,
       color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--card)),
@@ -1865,15 +1879,15 @@ html[data-density="balanced"] .header-quota-pools {
 }
 /* The no-colour flow runs the same mechanics quieter (handoff 1b), exactly as
    the open column's `.engraved-column` does. */
-[data-issue-colored='false'] .folded-superagent {
+[data-issue-colored="false"] .folded-superagent {
   background:
     linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--issue) calc(55 * var(--issue-line-scale, 1%)), transparent),
-        color-mix(in srgb, var(--issue) calc(10 * var(--issue-line-scale, 1%)), transparent) 190px,
-        transparent 340px
-      )
-      left top / 2px 100% no-repeat,
+      180deg,
+      color-mix(in srgb, var(--issue) calc(55 * var(--issue-line-scale, 1%)), transparent),
+      color-mix(in srgb, var(--issue) calc(10 * var(--issue-line-scale, 1%)), transparent) 190px,
+      transparent 340px
+    )
+    left top / 2px 100% no-repeat,
     linear-gradient(
       180deg,
       color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--card)),
@@ -1895,13 +1909,13 @@ html[data-density="balanced"] .header-quota-pools {
   border-radius: 2px;
   background: color-mix(in srgb, var(--foreground) 10%, transparent);
 }
-.deck-tick[data-s='done'] {
+.deck-tick[data-s="done"] {
   background: var(--success);
 }
-.deck-tick[data-s='run'] {
+.deck-tick[data-s="run"] {
   background: color-mix(in srgb, var(--live) 60%, transparent);
 }
-.deck-tick[data-s='block'] {
+.deck-tick[data-s="block"] {
   background: color-mix(in srgb, var(--foreground) 34%, transparent);
 }
 /* The foot's stacks: glyph in its cell, count under it, the whole stack the
@@ -1932,12 +1946,12 @@ html[data-density="balanced"] .header-quota-pools {
 /* AMBER ONLY WHEN TRUE. The cell is drawn at all only while something is
    actually asking (the component does not render a zero), and when it is, the
    tint and the ring are how it says so from across the desk. */
-.folded-superagent-cell[data-attention='true'] {
+.folded-superagent-cell[data-attention="true"] {
   background: color-mix(in srgb, var(--attention) 14%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 50%, transparent);
   color: var(--attention);
 }
-.folded-superagent-stat:hover .folded-superagent-cell[data-attention='true'] {
+.folded-superagent-stat:hover .folded-superagent-cell[data-attention="true"] {
   background: color-mix(in srgb, var(--attention) 22%, transparent);
   color: var(--attention);
 }
@@ -7055,5 +7069,435 @@ a.ref-link--session::before {
   /* A band resizing is structural motion, but it is still motion. */
   .gauge-band {
     transition: none;
+  }
+}
+
+/* ── THE DIFF SHEET (POD-787) ──────────────────────────────────────────────
+   The dock's Git tab lists what changed; this sheet is where it is READ. It
+   joins the utility tier (POD-365) rather than inventing a surface: inset over
+   a live shell, Esc / backdrop / ✕, and the shell's own chrome scale in its
+   header.
+
+   IT IS THE ONE SHEET THAT EARNS THE FULL 1180. Settings computes a narrower
+   width because nothing in it can reach past its form column; a diff has no
+   such stop — 120 columns of code is ordinary, and every pixel taken off the
+   pane comes straight out of the thing being read. So it takes the shared cap
+   and the full height, and spends the width on the code rather than on a
+   measure. */
+.diff-sheet {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The rail — every changed file, so moving between them is a click and never a
+   close-and-reopen. Two lines per row: the NAME is what you are looking for and
+   gets the readable line; the directory is how you tell two `index.ts` apart
+   and sits under it, truncated from the left because the tail is the half that
+   identifies. */
+.diff-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 252px;
+  padding: 6px 8px 16px;
+  border-right: 1px solid var(--border);
+  background: var(--bar);
+  overflow-y: auto;
+}
+.diff-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 9px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+/* The keyboard route is stated where it applies, once — the same reasoning that
+   puts Esc on the ✕'s tooltip rather than on a keycap of its own. */
+.diff-rail-hint {
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.diff-file {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  width: 100%;
+  column-gap: 7px;
+  padding: 5px 8px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 150ms ease;
+}
+.diff-file + .diff-file {
+  margin-top: 1px;
+}
+.diff-file:hover {
+  background: color-mix(in oklab, var(--accent) 55%, transparent);
+}
+/* The chip tone alone separates the current row on ink; on paper the chip IS
+   white over near-white bar, so the rim is what makes it a cell rather than a
+   slightly brighter patch. */
+.diff-file[aria-current="true"] {
+  background: var(--chip);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.diff-file:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 40%, transparent);
+}
+.diff-file-badge {
+  grid-row: 1 / span 2;
+  align-self: start;
+  width: 2.2ch;
+  padding-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.diff-tone-staged {
+  color: var(--live);
+}
+.diff-tone-unstaged {
+  color: var(--warning);
+}
+.diff-tone-untracked {
+  color: var(--text-faint);
+}
+.diff-file-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-file[aria-current="true"] .diff-file-name {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.diff-file-counts {
+  display: inline-flex;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.diff-file-dir {
+  grid-column: 2 / span 2;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-count-add {
+  color: var(--live);
+}
+.diff-count-del {
+  color: var(--destructive);
+}
+
+/* The reading half. */
+.diff-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* The file's own line: what it is, what happened to it, how much. The path
+   takes the subject's step within a machine-voice surface — mono, because a
+   path is machine voice, and one step over the code it heads. */
+.diff-head {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 12px;
+  padding: 11px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.diff-head-path {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-head-dir {
+  color: var(--text-dim);
+}
+.diff-head-name {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.diff-head-status {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.diff-head-from {
+  color: var(--text-faint);
+}
+.diff-head-counts {
+  display: inline-flex;
+  flex: none;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* THE ONE SCROLLER. Both axes belong to this element: the gutter stays put on
+   the horizontal one (sticky left), the hunk header on the vertical one (sticky
+   top), and nothing inside scrolls on its own. */
+.diff-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+/* Rows stretch to the widest line rather than to the pane, so a row's tint runs
+   the full length of what it is tinting — a colour that stops at the fold reads
+   as a highlight over the code instead of as the state of the line. */
+.diff-lines {
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+  padding-bottom: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.diff-scroll[data-wrap="on"] .diff-lines {
+  min-width: 0;
+}
+/* The cells STRETCH. A gutter cell is empty on half the rows — no old number on
+   an added line — and an empty flex item aligned to flex-start is zero pixels
+   tall, so it painted no ground at all and a horizontally scrolled line ran
+   straight through the line numbers. */
+.diff-row {
+  display: flex;
+  align-items: stretch;
+  /* Every row declares the ground its sticky gutter paints itself with; the
+     mix lands ON the card, so it is opaque and code passes underneath. */
+  --row-bg: var(--card);
+  background: var(--row-bg);
+}
+/* Blue adds, red removes — this theme's activity vocabulary, and it has no
+   green (POD-166 R10). The TINT carries the sign, not the text: over four
+   hundred lines, fully coloured code is two smears you decode character by
+   character, while a tinted row leaves the code in reading ink and still says
+   what happened to it at a glance. */
+.diff-row-add {
+  --row-bg: color-mix(in oklab, var(--live) 13%, var(--card));
+}
+/* Red at the same dose as blue reads about a step louder — a deleted FILE is a
+   solid block of it — so the removal tint runs a shade under the addition's. */
+.diff-row-del {
+  --row-bg: color-mix(in oklab, var(--destructive) 10.5%, var(--card));
+}
+.diff-num {
+  position: sticky;
+  z-index: 1;
+  flex: none;
+  width: 46px;
+  padding-right: 9px;
+  background: var(--row-bg);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+.diff-num:first-child {
+  left: 0;
+}
+.diff-num:nth-child(2) {
+  left: 46px;
+}
+.diff-sign {
+  position: sticky;
+  left: 92px;
+  z-index: 1;
+  flex: none;
+  width: 17px;
+  background: var(--row-bg);
+  text-align: center;
+  user-select: none;
+}
+.diff-row-add .diff-sign,
+.diff-row-add .diff-num:nth-child(2) {
+  color: var(--live);
+}
+.diff-row-del .diff-sign,
+.diff-row-del .diff-num:first-child {
+  color: var(--destructive);
+}
+/* Positioned at z-0 so the sticky gutter's z-1 is decided by z-index rather than
+   by paint order between a positioned cell and a plain flex item. */
+.diff-code {
+  position: relative;
+  z-index: 0;
+  padding: 0 16px 0 7px;
+  color: var(--secondary-foreground);
+  white-space: pre;
+  tab-size: 2;
+}
+.diff-scroll[data-wrap="on"] .diff-code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+/* The hunk header holds the position: which lines these are, and what encloses
+   them. It sticks to the top of the scroller so the function name stays with
+   its body, and its contents stick to the left so scrolling a long line never
+   takes the answer off screen. */
+.diff-row-hunk {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  --row-bg: var(--secondary);
+  border-top: 1px solid var(--hairline-soft);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.diff-row-hunk:first-child {
+  border-top: 0;
+}
+.diff-hunk-inner {
+  position: sticky;
+  left: 0;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100vw;
+  padding: 3px 16px 3px 14px;
+  font-size: 10.5px;
+}
+.diff-hunk-span {
+  flex: none;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.diff-hunk-context {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Git's own asides — `No newline at end of file`, a binary refusal. They are
+   about the diff rather than in it, so they sit in the code column at label
+   scale and take no line number. */
+.diff-row-note {
+  padding: 3px 16px 3px 116px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+.diff-notice {
+  padding: 16px 20px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.diff-notice-error {
+  color: var(--destructive);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+}
+/* Waiting is drawn as the shape of what is coming (POD-394) — lines of code at
+   the right rhythm, unfilled. Deliberately still: stillness is this system's
+   "needs you" signal, and a pulsing placeholder spends it on a local fetch. */
+.diff-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px;
+}
+.diff-skeleton-line {
+  height: 8px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+}
+
+/* The sheet header's own furniture stays at the shell's scale — a utility whose
+   frame grew with its content stops reading as part of the app. */
+.diff-sheet-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.diff-sheet-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 280px;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-sheet-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.diff-sheet-totals {
+  display: inline-flex;
+  gap: 9px;
+  margin-right: 2px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.diff-sheet-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.diff-sheet-tool:hover {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+.diff-sheet-tool[aria-pressed="true"] {
+  background: var(--chip);
+  color: var(--text-strong);
+}
+.diff-sheet-tool:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+/* A narrow window takes it out of the rail's second line and its width before
+   it takes anything off the code — the pane is the reason the sheet exists. */
+@media (max-width: 760px) {
+  .diff-rail {
+    width: 168px;
+  }
+  .diff-file-dir {
+    display: none;
   }
 }
