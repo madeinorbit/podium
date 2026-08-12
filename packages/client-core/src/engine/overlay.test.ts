@@ -574,8 +574,8 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     // Two rapid renames enqueued back-to-back share the same baseline (the
     // replica stayed unpainted between them).
     const base = sess()
-    const first = awaitRename(base, 'first', 'm-1')
-    const second = awaitRename(base, 'second', 'm-2')
+    const first = awaitRename(base, 'first', asMutationId('m-1'))
+    const second = awaitRename(base, 'second', asMutationId('m-2'))
     // The FIRST echo lands: it covers only the first mutation, yet it moves the
     // row past BOTH baselines. The younger entry must survive — retiring it
     // would flash 'first' until its own echo arrives.
@@ -639,7 +639,7 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     const restore = addSink({ name: 'overlay-test-capture', write: (r) => captured.push(r) })
     try {
       const row = sess()
-      const awaiting = [awaitRename(row, 'mine', 'm-stuck', NOW)]
+      const awaiting = [awaitRename(row, 'mine', asMutationId('m-stuck'), NOW)]
       // Within the TTL: held (row still byte-identical to the baseline).
       expect(
         pruneAwaiting(awaiting, 'sessions', [row], keyOf, NOW + AWAITING_TRUTH_TTL_MS - 1),

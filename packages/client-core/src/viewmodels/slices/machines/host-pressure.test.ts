@@ -113,10 +113,10 @@ describe('residency', () => {
         sessionId,
         agentState: { phase: 'idle', since: '2026-08-01T00:00:00.000Z', nativeSubagentCount: 0 },
       })
-    expect(hostAgentsView([idle('a'), idle('b')], 'm1', 2, 'h').severity).toBe('ok')
-    expect(hostAgentsView([idle('a'), idle('b'), idle('c')], 'm1', 2, 'h').severity).toBe(
-      'critical',
-    )
+    expect(hostAgentsView([idle('a'), idle('b')], asMachineId('m1'), 2, 'h').severity).toBe('ok')
+    expect(
+      hostAgentsView([idle('a'), idle('b'), idle('c')], asMachineId('m1'), 2, 'h').severity,
+    ).toBe('critical')
   })
 
   it('omits the meter when maxIdleSessions is unlimited', () => {

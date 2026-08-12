@@ -9,7 +9,6 @@
  */
 
 import { addSink } from '@podium/logger'
-import { asMutationId, asUserId } from '@podium/model'
 import {
   type AutomationId,
   type AutomationRunId,
@@ -17,6 +16,7 @@ import {
   type AutomationWire,
   asAutomationId,
   asAutomationRunId,
+  asMutationId,
   asSessionId,
   asUserId,
   type IssueWire,

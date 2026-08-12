@@ -67,7 +67,7 @@ import type { Replica } from './replica'
  * is O(this issue's neighbourhood) — never O(world).
  */
 export interface IssueView {
-  id: string
+  id: IssueId
   /** Non-shell sessions working this issue, BY ID. Never the sessions themselves. */
   memberSessionIds: SessionId[]
   /** `POD-13`, or `#13` before a repo has a prefix. Derived from (prefix, seq) —
@@ -91,7 +91,7 @@ export interface IssueView {
    *  and `blocked` are). Real dependency edges only — parent/child is carried by
    *  `childIds`, not synthesized in here (issue_deps stores no parent-child row,
    *  #164). Replaces the legacy `IssueWire.dependents`. */
-  dependents: Array<{ id: string; type: string }>
+  dependents: Array<{ id: IssueId; type: string }>
 }
 
 /** Rollups over member sessions' CONTENT. Split from {@link IssueView} because
@@ -108,7 +108,7 @@ export interface IssueSessionRollups {
 export interface IssueViewInput {
   id: string
   seq: number
-  parentId?: string | null
+  parentId?: IssueId | null
   prefix?: string | null
   stage: string
   status?: string
@@ -116,7 +116,7 @@ export interface IssueViewInput {
   readAt?: string | null
   updatedAt: string
   deletedAt?: string | null
-  deps?: Array<{ id: string; type: string }>
+  deps?: Array<{ id: IssueId; type: string }>
 }
 
 /** The session fields these derivations read. Ids and scalars only. */
@@ -200,7 +200,7 @@ export function deriveIssueViews(
   // local derivation, never a wire field — the same reason `blocked` is (both
   // read OTHER issues' edges, so folding either onto B's row would make an edge
   // touching A rewrite B).
-  const dependentsByIssue = new Map<string, { id: string; type: string }[]>()
+  const dependentsByIssue = new Map<IssueId, { id: IssueId; type: string }[]>()
   for (const issue of issues) {
     const parentId = issue.parentId
     if (parentId) {

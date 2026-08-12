@@ -105,7 +105,7 @@ describe('elevateCoordinatorSession / isCoordinatorSession', () => {
     const a = sess('a')
     const b = sess('b')
     const c = sess('c')
-    const ordered = orderTabs([a, b, c], undefined, 'b')
+    const ordered = orderTabs([a, b, c], undefined, asSessionId('b'))
     expect(ordered.map((s) => s.sessionId)).toEqual(['b', 'a', 'c'])
   })
 })

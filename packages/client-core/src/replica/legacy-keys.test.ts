@@ -10,8 +10,7 @@
  * that the keys it actually produces are exactly the ones the importer looks for.
  *
  * WHY THE PROOF IS HERE AND THE LIST IS THERE. `packages/sync` is L2 and may not
- * import { asMutationId } from '@podium/model'
-import `packages/client-core` (L3), so the inventory cannot be derived from the
+ * import `packages/client-core` (L3), so the inventory cannot be derived from the
  * writer at runtime. Splitting it this way makes the drift a TEST FAILURE rather
  * than a silent divergence: rename a collection key in replica.ts and this goes
  * red, naming the key the importer would have missed.
@@ -23,7 +22,7 @@ import `packages/client-core` (L3), so the inventory cannot be derived from the
  * writes before either direction is believed.
  */
 
-import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
+import { asMutationId, type IssueWire, type SessionMeta, type TranscriptItem } from '@podium/model'
 import {
   LEGACY_CURSOR_KEY,
   LEGACY_ENTITY_KEYS,
@@ -76,16 +75,14 @@ async function exerciseLegacyReplica(): Promise<{ keys: string[] }> {
     { id: 'i1', role: 'user', text: 'hi' } as unknown as TranscriptItem,
   ])
   replica.setCursor(42)
-  replica
-    .outboxStorage()
-    .save([
-      {
-        mutationId: asMutationId('mut_1'),
-        kind: 'sessions.rename',
-        input: { title: 'x' },
-        queuedAt: 1,
-      },
-    ])
+  replica.outboxStorage().save([
+    {
+      mutationId: asMutationId('mut_1'),
+      kind: 'sessions.rename',
+      input: { title: 'x' },
+      queuedAt: 1,
+    },
+  ])
   replica.uiState().set('podium.view', 'home')
   // The cursor write is FENCED behind the entity writes issued before it — the
   // cursor-after-data invariant, implemented as a promise chain. So it lands a

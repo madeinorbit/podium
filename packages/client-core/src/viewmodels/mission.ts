@@ -1225,7 +1225,8 @@ export function portfolioActionableCount(
   }
   const memberOf = new Map<SessionId, IssueId>()
   for (const issue of issues) {
-    for (const sessionId of issue.memberSessionIds ?? []) memberOf.set(sessionId, issue.id)
+    for (const sessionId of issue.memberSessionIds ?? [])
+      memberOf.set(asSessionId(sessionId), asIssueId(issue.id))
   }
   for (const session of sessions) {
     if (session.archived) continue
