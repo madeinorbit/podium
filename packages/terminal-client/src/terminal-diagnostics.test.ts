@@ -19,7 +19,7 @@ describe('terminal lifecycle diagnostics', () => {
     a.record('mount', { active: true })
     b.record('mount', { active: false })
 
-    expect(terminalDiagnosticsSnapshot('a')).toMatchObject([
+    expect(terminalDiagnosticsSnapshot(asSessionId('a'))).toMatchObject([
       { sessionId: 'a', mountId: a.mountId, event: 'mount', data: { active: true } },
     ])
     expect(terminalDiagnosticsSnapshot()).toHaveLength(2)
@@ -29,19 +29,22 @@ describe('terminal lifecycle diagnostics', () => {
     const recorder = createTerminalDiagnosticRecorder(asSessionId('s1'))
     for (let i = 0; i < 505; i += 1) recorder.record('fit', { i, nested: { value: i } })
 
-    const snapshot = terminalDiagnosticsSnapshot('s1')
+    const snapshot = terminalDiagnosticsSnapshot(asSessionId('s1'))
     expect(snapshot).toHaveLength(500)
     expect(snapshot[0]?.data).toEqual({ i: 5, nested: { value: 5 } })
     snapshot[0]!.data.i = 999
     ;(snapshot[0]!.data.nested as { value: number }).value = 999
-    expect(terminalDiagnosticsSnapshot('s1')[0]?.data).toEqual({ i: 5, nested: { value: 5 } })
+    expect(terminalDiagnosticsSnapshot(asSessionId('s1'))[0]?.data).toEqual({
+      i: 5,
+      nested: { value: 5 },
+    })
   })
 
   it('installs a global post-failure inspection API', () => {
     const recorder = createTerminalDiagnosticRecorder(asSessionId('s1'))
     recorder.record('reveal:start')
 
-    expect(globalThis.__podiumTerminalDiagnostics?.snapshot('s1')).toMatchObject([
+    expect(globalThis.__podiumTerminalDiagnostics?.snapshot(asSessionId('s1'))).toMatchObject([
       { sessionId: 's1', event: 'reveal:start' },
     ])
     globalThis.__podiumTerminalDiagnostics?.clear()
