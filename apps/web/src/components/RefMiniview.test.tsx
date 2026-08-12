@@ -397,6 +397,85 @@ describe('RefCard outside-click dismissal', () => {
   })
 })
 
+describe('RefCard is not draggable (POD-799)', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  function renderCard(target: ResolvedRef): HTMLElement {
+    act(() => {
+      root.render(
+        <RefCard
+          refToken={rich.displayRef ?? ''}
+          anchor={{ x: 300, y: 200 }}
+          target={target}
+          issues={issues}
+          onClose={() => {}}
+          onOpenFull={() => {}}
+        />,
+      )
+    })
+    const card = document.querySelector('[role=dialog]')
+    if (!(card instanceof HTMLElement)) throw new Error('card did not render')
+    return card
+  }
+
+  /** A pointer press-and-drag across the card's header region. */
+  function dragAcross(card: HTMLElement): void {
+    const head = card.firstElementChild
+    if (!head) throw new Error('card has no header region')
+    act(() => {
+      head.dispatchEvent(
+        new MouseEvent('pointerdown', { bubbles: true, clientX: 300, clientY: 220 }),
+      )
+      head.dispatchEvent(
+        new MouseEvent('pointermove', { bubbles: true, clientX: 700, clientY: 560 }),
+      )
+      head.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 700, clientY: 560 }))
+    })
+  }
+
+  it('keeps the issue card where it opened when dragged by its head', () => {
+    const card = renderCard(issueTarget(rich))
+    const { left, top } = card.style
+    dragAcross(card)
+    expect(card.style.left).toBe(left)
+    expect(card.style.top).toBe(top)
+  })
+
+  it('keeps the session card where it opened when dragged by its title bar', () => {
+    const card = renderCard({
+      kind: 'session',
+      ref: 'POD-13-A',
+      session: {
+        sessionId: asSessionId('sess-1'),
+        displayRef: 'POD-13-A',
+        name: 'POD-13-A',
+        title: 'Session',
+        cwd: '/home/dev/podium',
+      },
+    } as ResolvedRef)
+    const { left, top } = card.style
+    dragAcross(card)
+    expect(card.style.left).toBe(left)
+    expect(card.style.top).toBe(top)
+  })
+
+  it('shows no drag affordance — no grab cursor, no grip handle', () => {
+    const card = renderCard(issueTarget(rich))
+    expect(card.querySelector('[class*="cursor-grab"]')).toBeNull()
+    expect(card.querySelector('.lucide-grip-vertical')).toBeNull()
+  })
+})
+
 describe('seedCardPosition', () => {
   const viewport = { width: 1200, height: 800 }
 

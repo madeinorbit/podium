@@ -11,7 +11,6 @@ import {
   ArchiveRestore,
   Check,
   ExternalLink,
-  GripVertical,
   ListTree,
   LoaderCircle,
   MessagesSquare,
@@ -19,15 +18,7 @@ import {
   User,
   X,
 } from 'lucide-react'
-import {
-  type JSX,
-  type PointerEvent as ReactPointerEvent,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react'
+import { type JSX, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
@@ -67,7 +58,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
  *  - the activator registration (plain click → miniview, Cmd/Ctrl → full view);
  *  - reading the external miniview store and resolving the open ref;
- *  - rendering the draggable <RefCard> when a ref is open and resolvable.
+ *  - rendering the <RefCard> when a ref is open and resolvable.
  */
 export function RefMiniviewHost(): JSX.Element | null {
   const issues = useReplicaIssues()
@@ -186,7 +177,7 @@ export function seedCardPosition(
   }
 }
 
-/** The draggable, fixed-position miniview card. Drag by its header. Exported for tests. */
+/** The fixed-position miniview card, anchored to the ref that opened it. Exported for tests. */
 export function RefCard({
   refToken,
   anchor,
@@ -217,31 +208,40 @@ export function RefCard({
   /** Persist the harness planned for the next session on this issue. */
   onAgentChange?: (issueId: string, defaultAgent: string) => Promise<unknown>
 }): JSX.Element {
-  // Fixed position, dragged by the header. Seeded next to the activating click
-  // (falling back to top-right when there is none); the user drags it wherever.
-  // Kept in state so a re-resolve (issues update) doesn't reset it.
+  // Fixed position, placed once next to the activating click (falling back to
+  // top-right when there is none) and left there. The card is not draggable: it
+  // is a transient reading surface tied to the link you clicked, and a movable
+  // one asked the reader to manage a window for a card that closes on the next
+  // click anywhere. Kept in state so a re-resolve (issues update) doesn't reset it.
   const [pos, setPos] = useState<{ x: number; y: number }>(() =>
     seedCardPosition(anchor, { width: window.innerWidth, height: window.innerHeight }),
   )
-  const drag = useRef<{ dx: number; dy: number } | null>(null)
   const cardEl = useRef<HTMLDivElement | null>(null)
+  const anchorY = anchor?.y
 
   // The seed only estimates the card's height; once real, nudge it fully into
   // view — and if that would cover an anchored link, flip above the click instead.
-  // Mount-only by design (the card is keyed per activation): later height changes
-  // (issue updates) shouldn't yank a card the user may have dragged.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only reposition; see above.
+  // Re-runs whenever the card's height changes (an issue update adding an
+  // activity note, say): with no drag there is no user-chosen position to
+  // protect, and staying inside the viewport is the only thing that matters.
   useLayoutEffect(() => {
     const el = cardEl.current
     if (!el) return
-    const h = el.offsetHeight
-    setPos((p) => {
-      const maxY = window.innerHeight - h - VIEWPORT_MARGIN
-      if (p.y <= maxY) return p
-      const flipY = anchor ? anchor.y - h - 10 : maxY
-      return { ...p, y: Math.max(VIEWPORT_MARGIN, Math.min(maxY, anchor ? flipY : maxY)) }
-    })
-  }, [])
+    const clampIntoView = (): void => {
+      const h = el.offsetHeight
+      setPos((p) => {
+        const maxY = window.innerHeight - h - VIEWPORT_MARGIN
+        if (p.y <= maxY) return p
+        const flipY = anchorY === undefined ? maxY : anchorY - h - 10
+        return { ...p, y: Math.max(VIEWPORT_MARGIN, Math.min(maxY, flipY)) }
+      })
+    }
+    clampIntoView()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(clampIntoView)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [anchorY])
   const targetTitle =
     target?.kind === 'issue'
       ? target.issue.title
@@ -307,32 +307,6 @@ export function RefCard({
     return () => window.removeEventListener('pointerdown', onPointerDown, true)
   }, [onClose])
 
-  // Drag handlers, shared by whichever region acts as the handle (the compact
-  // session header bar, or the issue card's head). Pointer events + capture:
-  // one code path for mouse and touch, and move/up keep arriving even when the
-  // pointer leaves the handle mid-drag.
-  const dragHandlers = {
-    onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (e.target instanceof Element && e.target.closest('button')) return
-      drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }
-      e.currentTarget.setPointerCapture(e.pointerId)
-    },
-    onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!drag.current) return
-      setPos({
-        x: Math.max(0, Math.min(window.innerWidth - 80, e.clientX - drag.current.dx)),
-        y: Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.current.dy)),
-      })
-    },
-    onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => {
-      drag.current = null
-      e.currentTarget.releasePointerCapture(e.pointerId)
-    },
-    onPointerCancel: () => {
-      drag.current = null
-    },
-  }
-
   const closeButton = (
     <button
       data-pressable
@@ -356,12 +330,7 @@ export function RefCard({
     >
       {target?.kind === 'issue' ? (
         <>
-          {/* The head is the drag handle. Identity stays readable rather than
-              doubling as an undiscoverable copy action. */}
-          <div
-            className="cursor-grab touch-none px-4 pt-4 pb-3 active:cursor-grabbing"
-            {...dragHandlers}
-          >
+          <div className="px-4 pt-4 pb-3">
             {/* IDENTITY ROW — what this task IS, in one line: stage glyph, ref,
                 priority. Priority is identity, not enrichment: it outranks
                 everything on the meta line below and was being read last, at the
@@ -431,17 +400,9 @@ export function RefCard({
         </>
       ) : (
         <>
-          {/* Session / unresolved: compact drag bar with the canonical long form
+          {/* Session / unresolved: compact title bar with the canonical long form
               (#474 spec §display) — `POD-13-A · title` truncated, full on hover. */}
-          <div
-            className="flex cursor-grab touch-none items-center gap-1.5 border-b border-border/60 bg-muted/40 px-2 py-1.5 active:cursor-grabbing"
-            {...dragHandlers}
-          >
-            <GripVertical
-              size={13}
-              className="flex-none text-muted-foreground/60"
-              aria-hidden="true"
-            />
+          <div className="flex items-center gap-1.5 border-b border-border/60 bg-muted/40 px-2.5 py-1.5">
             <span
               className="flex-1 truncate font-mono text-[12px] font-medium"
               title={targetTitle ? `${refToken} · ${targetTitle}` : refToken}
