@@ -159,7 +159,7 @@ export class SessionStore {
 
   constructor(
     private readonly path: string = defaultDbPath(),
-    hostMachineId: MachineId = randomUUID(),
+    hostMachineId: MachineId = asMachineId(randomUUID()),
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,

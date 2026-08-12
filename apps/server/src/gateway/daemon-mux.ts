@@ -83,7 +83,7 @@ export const inProcessMachinePrincipal = (machineId: MachineId): MachinePrincipa
 })
 
 const principalOf = (peer: DaemonPeer): MachinePrincipal =>
-  typeof peer === 'string' ? inProcessMachinePrincipal(peer) : peer
+  typeof peer === 'string' ? inProcessMachinePrincipal(asMachineId(peer)) : peer
 
 /**
  * Per-frame dispatch, TOTAL over `DaemonMessage` by construction: the value is a

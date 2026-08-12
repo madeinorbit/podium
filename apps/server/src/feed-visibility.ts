@@ -26,7 +26,9 @@
  */
 
 import {
+  asIssueId,
   asSessionId,
+  asUserId,
   parseIssueDepId,
   parseIssueEventRowId,
   parseLayoutRowId,
@@ -233,25 +235,29 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     mayRead: (userId, ref) => {
       if (userId === 'device:shared-instance-password') return true
       if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
-        return mayReadIssue(userId, ref.entityId, prefetch)
+        return mayReadIssue(asUserId(userId), asIssueId(ref.entityId), prefetch)
       }
       if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)
-        return dep !== null && mayReadIssue(userId, dep.fromId, prefetch)
+        return dep !== null && mayReadIssue(asUserId(userId), dep.fromId, prefetch)
       }
       if (ref.entity === 'issueEvent') {
         // THE SUBJECT IS IN THE ID (POD-1772), so this decision needs no read of
         // the event itself — which is what lets a `delete` be scoped after the
         // row is gone, exactly like the tombstone arms below.
         try {
-          return mayReadIssue(userId, parseIssueEventRowId(ref.entityId).subject, prefetch)
+          return mayReadIssue(
+            asUserId(userId),
+            parseIssueEventRowId(ref.entityId).subject,
+            prefetch,
+          )
         } catch {
           // An unparseable id is not a row anyone may read.
           return false
         }
       }
       if (ref.entity === 'session') {
-        const row = readSession(ref.entityId, prefetch)
+        const row = readSession(asSessionId(ref.entityId), prefetch)
         if (row?.ownerUserId === userId) return true
         return measure('visibility.session.grants.listForResource', () =>
           store.grants
@@ -431,7 +437,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // The issue's feed history rides its audience (POD-1772): a grant that
         // hands somebody the issue and none of its events would give them a
         // chat pane that starts at the moment they were let in.
-        ...(deps.issueEventSubjects?.(ref.entityId) ?? []),
+        ...(deps.issueEventSubjects?.(asIssueId(ref.entityId)) ?? []),
       ]
       return { audience, subjects }
     },

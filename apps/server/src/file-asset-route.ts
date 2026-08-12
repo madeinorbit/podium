@@ -1,11 +1,13 @@
 // apps/server/src/file-asset-route.ts
-import { asSessionId, type SessionId, type MachineId } from '@podium/model'
+import { asMachineId, asSessionId, type MachineId, type SessionId } from '@podium/model'
 import type { Hono } from 'hono'
 import { rawFileHeaders } from './raw-file-headers'
 
 export interface AssetReader {
   readAsset(
-    a: { sessionId: SessionId; path: string } | { machineId?: MachineId; root: string; path: string },
+    a:
+      | { sessionId: SessionId; path: string }
+      | { machineId?: MachineId; root: string; path: string },
   ): Promise<{
     ok: boolean
     dataBase64?: string
@@ -30,7 +32,11 @@ export function registerAssetRoute(app: Hono, registry: AssetReader): void {
     const r = await registry.readAsset(
       sessionId
         ? { sessionId: asSessionId(sessionId), path }
-        : { root: root as string, ...(machineId ? { machineId } : {}), path },
+        : {
+            root: root as string,
+            ...(machineId ? { machineId: asMachineId(machineId) } : {}),
+            path,
+          },
     )
     if (!r.ok || !r.dataBase64) return c.text(r.error ?? 'not found', r.tooLarge ? 413 : 404)
     const bytes = Buffer.from(r.dataBase64, 'base64')
