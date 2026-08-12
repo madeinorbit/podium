@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { defaultInstancePorts } from '@podium/runtime/instance'
 import { describe, expect, it } from 'vitest'
 import {
@@ -735,7 +736,7 @@ describe('daemonOptionsForPlan', () => {
         { mode: 'all-in-one', showSetupHint: false },
         18787,
         'local-secret',
-        'host-machine-id',
+        asMachineId('host-machine-id'),
       ),
     ).toEqual({
       serverUrl: 'ws://localhost:18787',

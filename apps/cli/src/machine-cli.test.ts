@@ -47,8 +47,8 @@ const quiet: MachineWire = {
 }
 
 const repos = [
-  { machineId: 'm-ludovico', path: '/home/mgw/src/podium' },
-  { machineId: 'm-ludovico', path: '/home/mgw/src/other' },
+  { machineId: asMachineId('m-ludovico'), path: '/home/mgw/src/podium' },
+  { machineId: asMachineId('m-ludovico'), path: '/home/mgw/src/other' },
 ]
 
 function fakeClient(machines: MachineWire[], repoRows = repos): MachineClient {

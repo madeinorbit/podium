@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   LogsLevelCliError,
@@ -28,7 +29,7 @@ function client(reply: SetLevelReply): LogsLevelClient & { calls: unknown[] } {
 const TWO_CLIENTS: SetLevelReply = {
   level: 'debug',
   clients: [
-    { clientId: 'c3', role: 'web', v: '0.4.1', machineId: 'ludovico' },
+    { clientId: 'c3', role: 'web', v: '0.4.1', machineId: asMachineId('ludovico') },
     { clientId: 'c7', role: 'mobile' },
   ],
 }
