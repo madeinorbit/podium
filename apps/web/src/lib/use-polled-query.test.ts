@@ -156,4 +156,38 @@ describe('usePolledQuery', () => {
     expect(read).not.toHaveBeenCalled()
     expect(result.current.data).toBe('seeded')
   })
+
+  it('hands a FRESH reading to onData in the read own turn, not a flush later', async () => {
+    // The update dialog folds its reading into React state here. If this arrived
+    // one state-update hop late, the surface would paint the answer a flush
+    // after it landed — which is exactly the regression this callback exists to
+    // prevent, so the assertion is that `data` and the callback agree on the
+    // SAME frame.
+    const read = vi.fn().mockResolvedValue('fresh')
+    const seen: string[] = []
+    const { result } = renderHook(() =>
+      usePolledQuery<string>({ key: 'k', intervalMs: 0, read, onData: (v) => seen.push(v) }),
+    )
+    await act(async () => {})
+    expect(seen).toEqual(['fresh'])
+    expect(result.current.data).toBe('fresh')
+  })
+
+  it('does NOT replay the cached answer to onData on a remount', async () => {
+    // A caller that applies every reading would otherwise re-apply a stale one
+    // every time its sheet reopened.
+    const read = vi.fn().mockResolvedValue('seeded')
+    const seed = renderHook(() => usePolledQuery<string>({ key: 'k', intervalMs: 0, read }))
+    await act(async () => {})
+    seed.unmount()
+
+    const seen: string[] = []
+    read.mockImplementation(() => new Promise<string>(() => {}))
+    const { result } = renderHook(() =>
+      usePolledQuery<string>({ key: 'k', intervalMs: 0, read, onData: (v) => seen.push(v) }),
+    )
+    await act(async () => {})
+    expect(result.current.data).toBe('seeded')
+    expect(seen).toEqual([])
+  })
 })

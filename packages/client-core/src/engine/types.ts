@@ -16,6 +16,7 @@ import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
+  IssueEventWire,
   IssueId,
   IssueWire,
   MachineWire,
@@ -127,6 +128,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   issues: IssueWire[]
   /** Normalized issue rows with pending readAt overlays folded over server truth. */
   issueProjections: IssueProjectionRow[]
+  /** The cross-project issue-event window, replicated (POD-1772). A bounded,
+   *  server-curated tail — the superagent feed reads THESE rows rather than
+   *  re-asking `issues.events` on a timer. */
+  issueEvents: IssueEventWire[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
   conversations: ConversationSummaryWire[]
   /** Scheduled definitions and honest run history mirrored live from the replica. */

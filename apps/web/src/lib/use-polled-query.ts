@@ -95,6 +95,21 @@ export interface PolledQueryOptions<T> {
   /** The read itself. Kept in a ref, so an inline closure is fine. */
   read: () => Promise<T>
   /**
+   * Fold a FRESH reading into the caller's own state, in the same continuation
+   * that received it.
+   *
+   * WHY THIS IS NOT AN EFFECT ON `data`. A surface that derives React state from
+   * a reading (the update dialog folds one into its fleet and action state) must
+   * do it in the read's own turn, exactly as the bespoke timer it replaced did.
+   * Routing it through `data` and a follow-up effect inserts an extra
+   * state-update hop, and one hop is the difference between "the button is there
+   * when the answer lands" and "the button is there one flush later".
+   *
+   * Only fresh reads call it — never the cached answer replayed at mount, which
+   * a caller would otherwise re-apply on every remount.
+   */
+  onData?: (value: T) => void
+  /**
    * Poll only while true. Use it for "this pane is the one on screen" — the tab
    * being visible at all is this hook's own business, never the caller's.
    * A disabled query still serves its cached answer.
@@ -119,6 +134,7 @@ export function usePolledQuery<T>({
   key,
   intervalMs,
   read,
+  onData,
   enabled = true,
 }: PolledQueryOptions<T>): PolledQuery<T> {
   const cached = cache.get(key)
@@ -145,6 +161,8 @@ export function usePolledQuery<T>({
   // the request) instead of restarting the timer on every parent render.
   const readRef = useRef(read)
   readRef.current = read
+  const onDataRef = useRef(onData)
+  onDataRef.current = onData
 
   // A key change must repaint from that key's cache on the SAME frame, not one
   // effect later — the intervening frame would show the previous machine's
@@ -192,7 +210,9 @@ export function usePolledQuery<T>({
           const fetchedAt = Date.now()
           cache.set(key, { value, fetchedAt })
           settle()
-          if (!cancelled) setAnswer({ key, data: value, fetchedAt, failed: false, error: null })
+          if (cancelled) return
+          setAnswer({ key, data: value, fetchedAt, failed: false, error: null })
+          onDataRef.current?.(value)
         },
         (cause: unknown) => {
           settle()

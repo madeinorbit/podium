@@ -1,3 +1,4 @@
+import type { ReadPositionPort } from '@podium/client-core'
 import type { IssueEventWire } from '@podium/model'
 import { issueEventRowId } from '@podium/model'
 import { act, cleanup, renderHook } from '@testing-library/react'
@@ -32,13 +33,23 @@ function readPositionPort(lastEventId = 0) {
   // ONE snapshot object: `useSyncExternalStore` requires a cached snapshot, and
   // a fresh literal per call is an infinite render loop rather than a stale read.
   const cursor = { lastEventId, seenAt: null }
+  // `hydrate`/`replace` belong to the port's OWNER (the runtime drains the
+  // legacy blob, the feed installs another device's truth). The hook only ever
+  // reads and advances, so they are present to satisfy the contract and asserted
+  // never to be called from here.
+  const hydrate = vi.fn(async () => {})
+  const replace = vi.fn()
   return {
     port: {
       subscribe: () => () => {},
       get: () => cursor,
       advance,
-    },
+      hydrate,
+      replace,
+    } satisfies ReadPositionPort,
     advance,
+    hydrate,
+    replace,
   }
 }
 

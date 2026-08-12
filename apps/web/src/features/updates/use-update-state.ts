@@ -214,6 +214,47 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       ])
       return { fleet, serverRaw }
     },
+    // Folded in the read's OWN turn, exactly as the timer it replaced did — a
+    // reading routed through `data` and a follow-up effect lands one flush late,
+    // and the update button is supposed to appear when the answer does.
+    onData: ({ fleet: next, serverRaw }) => {
+      // HALF AN ANSWER FIRST. The server version is applied even when the fleet
+      // arm came back null, so an unreachable fleet does not also cost the
+      // dialog the version it could read.
+      const nextServer = parseServerVersion(serverRaw)
+      if (serverRaw !== undefined) setServer(nextServer)
+      if (next === null) return
+      setFleetState(next)
+      setUpdateAction((current) => {
+        if (current.state !== 'in-progress') return current
+        if (next.failed > 0) {
+          const failure = next.machines?.find(
+            (machine) => machine.state === 'rejected' || machine.state === 'stuck',
+          )
+          return {
+            state: 'failed',
+            ...(failure?.name ? { machineName: failure.name } : {}),
+            detail:
+              failure?.detail ??
+              (next.failed === 1 ? 'A machine' : String(next.failed) + ' machines') +
+                ' could not finish this update.',
+          }
+        }
+        const serverDone =
+          next.targetVersion !== null && nextServer.appVersion === next.targetVersion
+        const serverRemaining = current.includesServer && !serverDone ? 1 : 0
+        const remaining = serverRemaining + next.behind
+        if (next.converging === 0 && remaining === 0) return { state: 'idle' }
+        const done = Math.max(0, Math.min(current.total, current.total - remaining))
+        return {
+          state: 'in-progress',
+          version: next.targetVersion ?? current.version,
+          done,
+          total: current.total,
+          includesServer: current.includesServer,
+        }
+      })
+    },
   })
 
   // A CHANGE IS ITS OWN TRIGGER. During a convergence the interval is the floor,
@@ -225,50 +266,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   useEffect(() => {
     if (active) refreshFleet()
   }, [converging, active, refreshFleet])
-
-  // The reading, folded into the dialog's own state. A failed read leaves the
-  // last known snapshot intact: the version dialog still has useful app/server
-  // information when the fleet is unreachable.
-  const reading = fleetQuery.data
-  useEffect(() => {
-    if (options.fleet !== undefined || reading === null) return
-    // HALF AN ANSWER FIRST. The server version is applied even when the fleet
-    // arm came back null, so an unreachable fleet does not also cost the dialog
-    // the version it could read.
-    const nextServer = parseServerVersion(reading.serverRaw)
-    if (reading.serverRaw !== undefined) setServer(nextServer)
-    const next = reading.fleet
-    if (next === null) return
-    setFleetState(next)
-    setUpdateAction((current) => {
-      if (current.state !== 'in-progress') return current
-      if (next.failed > 0) {
-        const failure = next.machines?.find(
-          (machine) => machine.state === 'rejected' || machine.state === 'stuck',
-        )
-        return {
-          state: 'failed',
-          ...(failure?.name ? { machineName: failure.name } : {}),
-          detail:
-            failure?.detail ??
-            (next.failed === 1 ? 'A machine' : String(next.failed) + ' machines') +
-              ' could not finish this update.',
-        }
-      }
-      const serverDone = next.targetVersion !== null && nextServer.appVersion === next.targetVersion
-      const serverRemaining = current.includesServer && !serverDone ? 1 : 0
-      const remaining = serverRemaining + next.behind
-      if (next.converging === 0 && remaining === 0) return { state: 'idle' }
-      const done = Math.max(0, Math.min(current.total, current.total - remaining))
-      return {
-        state: 'in-progress',
-        version: next.targetVersion ?? current.version,
-        done,
-        total: current.total,
-        includesServer: current.includesServer,
-      }
-    })
-  }, [reading, options.fleet])
 
   const fleet = options.fleet ?? fleetState
   const localVersion = localBuild.appVersion
