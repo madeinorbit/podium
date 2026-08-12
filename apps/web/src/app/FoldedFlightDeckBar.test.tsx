@@ -18,6 +18,8 @@ vi.mock('@podium/client-core/viewmodels', () => ({
   missionRootFor: () => ({ id: 'root', seq: 710, linearIdentifier: 'POD-710', title: 'Mission' }),
   buildFlightDeckRows: () => state.rows,
   missionProgress: () => state.progress,
+  missionCrewLabel: (live: number, working: number) =>
+    working > 0 ? `${working} working` : `${live} agent${live === 1 ? '' : 's'}`,
 }))
 
 afterEach(() => {
@@ -46,9 +48,9 @@ describe('folded Flight Deck', () => {
 
     const activity = screen.getByTestId('flight-deck-activity')
     const attention = screen.getByTestId('flight-deck-attention')
-    expect(activity.getAttribute('aria-label')).toContain('3 live, 1 working')
+    expect(activity.getAttribute('aria-label')).toContain('1 working')
     expect(attention.getAttribute('aria-label')).toContain('2 need you')
-    expect(activity.textContent).toContain('3')
+    expect(activity.textContent).toContain('1')
     expect(attention.textContent).toContain('2')
 
     fireEvent.click(activity)

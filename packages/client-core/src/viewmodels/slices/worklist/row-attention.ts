@@ -239,7 +239,14 @@ export function rowStatusLine(
     const label = urgent ? (agentBadge(urgent, issue)?.label ?? 'needs you') : 'needs you'
     return head + own + label + progress
   }
-  if (phase === 'working') return head + 'working' + progress
+  if (phase === 'working') {
+    // The head-count is "how many sessions", but the word is "working". A
+    // parked or finished teammate is present (the fleet stack already says so)
+    // and must not inflate "2 agents · working" when only one is computing.
+    const computing = sessions.filter(isSessionWorking).length
+    const workingHead = computing > 1 ? `${computing} agents · ` : ''
+    return workingHead + 'working' + progress
+  }
   if (phase === 'done') {
     // A parent whose own sessions are done but whose subtasks aren't is not
     // "done" — the open subtasks ARE its status.

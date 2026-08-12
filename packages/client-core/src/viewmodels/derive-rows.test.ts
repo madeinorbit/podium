@@ -234,6 +234,10 @@ describe('rowStatusLine — the second line copy grammar', () => {
     expect(rowMotionPhase(issueRow([sess()]))).toBe('queued')
     expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('idle')
     expect(rowStatusLine(issueRow([working(), working()]), NOW)).toBe('2 agents · working')
+    // Presence is the fleet stack's job. A parked or finished teammate must
+    // not make one computing session read as "2 agents working".
+    expect(rowStatusLine(issueRow([working(), done()]), NOW)).toBe('working')
+    expect(rowStatusLine(issueRow([working(), sess()]), NOW)).toBe('working')
   })
 
   it('child progress reads as subtasks; open subtasks override a bare "done" (POD-85)', () => {

@@ -21,6 +21,7 @@ import {
   issueNeedsHuman,
   issueNote,
   type MissionProgress,
+  missionCrewLabel,
   missionDepartures,
   missionIssueIds,
   missionProgress,
@@ -851,6 +852,87 @@ describe('missionProgress', () => {
       block: 0,
       wait: 1,
     })
+  })
+
+  it('does not count proposed members as work remaining', () => {
+    // The spine already keeps proposals in their own section. Counting them as
+    // "to go" made a working parent with three discoveries read as nothing
+    // happening — the bar said 3 to go while an agent ran on the root.
+    const onlyProposed = [
+      issue('root', { stage: 'in_progress' }),
+      issue('a', { parentId: 'root', stage: 'proposed' }),
+      issue('b', { parentId: 'root', stage: 'proposed' }),
+      issue('c', { parentId: 'root', stage: 'proposed' }),
+    ]
+    expect(missionProgress(onlyProposed, [], 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 1,
+      block: 0,
+      wait: 0,
+    })
+
+    const acceptedAndProposed = [
+      issue('root', { stage: 'in_progress' }),
+      issue('a', { parentId: 'root', stage: 'in_progress' }),
+      issue('b', { parentId: 'root', stage: 'proposed' }),
+      issue('c', { parentId: 'root', stage: 'proposed' }),
+    ]
+    expect(missionProgress(acceptedAndProposed, [], 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 1,
+      block: 0,
+      wait: 0,
+    })
+
+    const backlogAndProposed = [
+      issue('root', { stage: 'in_progress' }),
+      issue('a', { parentId: 'root', stage: 'backlog' }),
+      issue('b', { parentId: 'root', stage: 'proposed' }),
+    ]
+    expect(missionProgress(backlogAndProposed, [], 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 0,
+      block: 0,
+      wait: 1,
+    })
+
+    // The screenshot case: discoveries grafted by startedBySession, no parentId.
+    const grafted = [
+      issue('root', { stage: 'in_progress' }),
+      issue('a', { stage: 'proposed', startedBySession: 's-root' }),
+      issue('b', { stage: 'proposed', startedBySession: 's-root' }),
+      issue('c', { stage: 'proposed', startedBySession: 's-root' }),
+    ]
+    expect(missionProgress(grafted, [sess('s-root', { issueId: 'root' })], 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 1,
+      block: 0,
+      wait: 0,
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// missionCrewLabel — the gauge chip, never "live"
+// ---------------------------------------------------------------------------
+
+describe('missionCrewLabel', () => {
+  it('names who is computing when someone is, otherwise who is on the task', () => {
+    expect(missionCrewLabel(3, 1)).toBe('1 working')
+    expect(missionCrewLabel(1, 1)).toBe('1 working')
+    expect(missionCrewLabel(5, 2)).toBe('2 working')
+    expect(missionCrewLabel(3, 0)).toBe('3 agents')
+    expect(missionCrewLabel(1, 0)).toBe('1 agent')
+    expect(missionCrewLabel(0, 0)).toBe('0 agents')
+  })
+
+  it('never says live', () => {
+    expect(missionCrewLabel(3, 1)).not.toMatch(/live/i)
+    expect(missionCrewLabel(3, 0)).not.toMatch(/live/i)
   })
 })
 

@@ -289,7 +289,10 @@ function sessionsForIssue(
  * counting it beside them double-counts the same work and puts the bar's
  * denominator one above the number of things anyone can point at.
  *
- * Archived and deleted issues are not units either, at any level.
+ * Archived and deleted issues are not units either, at any level. Proposed
+ * issues are not units either: they have not been accepted, the spine already
+ * keeps them in their own section, and counting them as "to go" makes a
+ * mission that is itself being worked read as nothing happening.
  *
  * Four segments: done / run / block / wait. The artifact's arithmetic (`done` by
  * stage, `run` by stage, `block` by state, `wait` = the remainder) lets one
@@ -306,11 +309,13 @@ export function missionProgress(
   if (!rootId) return empty
   const ids = missionIssueIds(issues, rootId, sessions)
   const scope = issues.filter((issue) => ids.has(issue.id) && !issue.archived && !issue.deletedAt)
-  // The units are the members; the root only becomes one when it has no members
-  // to be the container of. A root that is itself archived is already out of
-  // `scope`, so `members` and `scope` agree and the fallback never resurrects it.
-  const members = scope.filter((issue) => issue.id !== rootId)
-  const units = members.length > 0 ? members : scope
+  // The units are the accepted members; the root only becomes one when it has
+  // no accepted members to be the container of. Proposed work is offered, not
+  // remaining — leaving it in `members` is how a working parent with three
+  // discoveries read as "3 to go". A root that is itself archived is already
+  // out of `scope`, so the fallback never resurrects it.
+  const members = scope.filter((issue) => issue.id !== rootId && issue.stage !== 'proposed')
+  const units = members.length > 0 ? members : scope.filter((issue) => issue.id === rootId)
   let done = 0
   let run = 0
   let block = 0
@@ -321,6 +326,19 @@ export function missionProgress(
   }
   const total = units.length
   return { total, done, run, block, wait: Math.max(0, total - done - run - block) }
+}
+
+/**
+ * What the fleet chip next to the mission gauge says.
+ *
+ * Activity first: if anyone is computing, that is the number. Otherwise
+ * presence, as "N agents" — never "live". A parked agent is on the task
+ * (POD-756) and calling the total live is what taught the sidebar to hide it,
+ * then taught the gauge to disagree with the one running timer (POD-763).
+ */
+export function missionCrewLabel(live: number, working: number): string {
+  if (working > 0) return `${working} working`
+  return `${live} agent${live === 1 ? '' : 's'}`
 }
 
 /** Work that was discovered here and is now running as its own task. */

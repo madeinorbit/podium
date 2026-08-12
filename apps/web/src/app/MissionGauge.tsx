@@ -1,4 +1,4 @@
-import type { missionProgress } from '@podium/client-core/viewmodels'
+import { type missionProgress, missionCrewLabel } from '@podium/client-core/viewmodels'
 import { Users } from 'lucide-react'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
@@ -80,8 +80,9 @@ import { cn } from '@/lib/utils'
  * task-stage fact, for anything that wants to know the mission has running
  * work; `data-working` is the motion fact.
  *
- * Fleet presence stays OUTSIDE the track, as a still neutral chip: `N live` is
- * not one more slice of the work, and presence asks nothing of the operator.
+ * Fleet presence stays OUTSIDE the track, as a still neutral chip. The chip
+ * says who is computing when someone is (`N working`), otherwise who is on
+ * the task (`N agents`) — never `live`, which parked agents are not.
  */
 export function MissionGauge({
   progress,
@@ -93,6 +94,7 @@ export function MissionGauge({
   working: number
 }): JSX.Element {
   const { total, done, run, block, wait } = progress
+  const crew = missionCrewLabel(live, working)
   const reading =
     [
       `${done} of ${total} task${total === 1 ? '' : 's'} done`,
@@ -101,9 +103,7 @@ export function MissionGauge({
       wait > 0 ? `${wait} to go` : null,
     ]
       .filter(Boolean)
-      .join(', ') +
-    ` · ${live} agent${live === 1 ? '' : 's'} live` +
-    `${working > 0 ? `, ${working} working` : ''}`
+      .join(', ') + ` · ${crew}`
   // A band exists iff it holds work. `total === 0` is only reachable for a
   // mission whose root is itself archived; it leaves the empty groove, which is
   // the honest picture of a mission with nothing to measure.
@@ -160,17 +160,17 @@ export function MissionGauge({
           </span>
         ))}
       </span>
-      {/* Fleet presence sits BESIDE the track, never inside it — `N live` must
-          not read as one more progress band. The design makes it the same 24px
-          well rather than a raised chip: on paper --chip IS the card, so a
-          bordered white chip beside a recessed track read as two unrelated
-          objects, and the rim was doing work the tone step already does. */}
+      {/* Fleet sits BESIDE the track, never inside it — crew is not one more
+          progress band. The design makes it the same 24px well rather than a
+          raised chip: on paper --chip IS the card, so a bordered white chip
+          beside a recessed track read as two unrelated objects, and the rim
+          was doing work the tone step already does. */}
       <span
         className="shell-type-micro flex h-[24px] flex-none items-center gap-1.5 rounded-lg bg-background px-[9px] font-mono tabular-nums text-text-dim"
         data-testid="mission-live-chip"
       >
         <Users size={12} aria-hidden="true" className="text-text-faint" />
-        {live} live
+        {crew}
       </span>
     </div>
   )

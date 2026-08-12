@@ -1,6 +1,8 @@
 import { useSlice } from '@podium/client-core/react'
 import {
   agentBadge,
+  isSessionWorking,
+  missionCrewLabel,
   missionProgress,
   missionRootFor,
   missionSessions as missionSessionsOf,
@@ -52,7 +54,7 @@ import { color, font, mono, monoLabel, radius, space, spring } from '../theme/th
  * is not merely "the chat screen with a button":
  *
  *  1. THE BAR IS THE DECK, COLLAPSED. Even shut, it carries the mission's vital
- *     signs — progress, live agents, how many are asking. You do not open the
+ *     signs — progress, who is working, how many are asking. You do not open the
  *     panel to find out whether you need to; the bar already told you.
  *  2. THE PANEL SWITCHES THE TRANSCRIPT IN PLACE. Tapping an agent band swaps
  *     the conversation underneath and closes the panel. No push, no back stack,
@@ -121,6 +123,7 @@ export function MissionScreen() {
   )
   const attention = missionSessions.filter(sessionNeedsHuman).length
   const live = missionSessions.filter((s) => !s.archived && s.status !== 'exited').length
+  const working = missionSessions.filter(isSessionWorking).length
 
   const accent = root ? (issueColorHex(root.color) ?? FLOW_HEX) : undefined
 
@@ -232,6 +235,7 @@ export function MissionScreen() {
             currentIssue={currentIssue}
             progress={progress}
             live={live}
+            working={working}
             attention={attention}
             accent={accent ?? FLOW_HEX}
             reduceMotion={reduceMotion}
@@ -307,6 +311,7 @@ function MissionBody({
   currentIssue,
   progress,
   live,
+  working,
   attention,
   accent,
   reduceMotion,
@@ -322,6 +327,7 @@ function MissionBody({
   currentIssue: IssueWire | undefined
   progress: { total: number; done: number; run: number; block: number; wait: number }
   live: number
+  working: number
   attention: number
   accent: string
   reduceMotion: boolean
@@ -393,6 +399,7 @@ function MissionBody({
           <MissionBar
             progress={progress}
             live={live}
+            working={working}
             attention={attention}
             accent={accent}
             open={open}
@@ -463,13 +470,15 @@ function MissionBody({
  * THE MISSION BAR — the deck, collapsed to one line it can always afford.
  *
  * Four facts, in the order an operator triages them: how much of the mission is
- * done, whether anything is asking, how many agents are live, and that there is
- * more behind it. The segmented meter is the same derivation the deck's own
- * progress uses, so the shut bar and the open panel can never disagree.
+ * done, whether anything is asking, who is computing (or who is on the task),
+ * and that there is more behind it. The segmented meter is the same derivation
+ * the deck's own progress uses, so the shut bar and the open panel can never
+ * disagree.
  */
 function MissionBar({
   progress,
   live,
+  working,
   attention,
   accent,
   open,
@@ -477,6 +486,7 @@ function MissionBar({
 }: {
   progress: { total: number; done: number; run: number; block: number; wait: number }
   live: number
+  working: number
   attention: number
   accent: string
   open: boolean
@@ -484,12 +494,14 @@ function MissionBar({
 }) {
   const total = Math.max(1, progress.total)
   const pct = (n: number) => `${Math.round((n / total) * 10000) / 100}%` as const
+  const crew = missionCrewLabel(live, working)
+  const crewCount = working > 0 ? working : live
   return (
     <PressableScale
       accessibilityRole="button"
       accessibilityState={{ expanded: open }}
       accessibilityLabel="Flight deck"
-      accessibilityHint={`${progress.done} of ${progress.total} tasks done, ${live} live agent${live === 1 ? '' : 's'}${attention > 0 ? `, ${attention} asking` : ''}`}
+      accessibilityHint={`${progress.done} of ${progress.total} tasks done, ${crew}${attention > 0 ? `, ${attention} asking` : ''}`}
       onPress={onToggle}
       scaleTo={0.995}
       haptic={false}
@@ -503,10 +515,10 @@ function MissionBar({
       <Text style={styles.barCount}>
         {progress.done}/{progress.total}
       </Text>
-      {live > 0 ? (
+      {crewCount > 0 ? (
         <View style={styles.barLive}>
-          <BrailleSpinner size={9} />
-          <Text style={styles.barLiveText}>{live}</Text>
+          {working > 0 ? <BrailleSpinner size={9} /> : null}
+          <Text style={styles.barLiveText}>{crewCount}</Text>
         </View>
       ) : null}
       {attention > 0 ? <Text style={styles.barAsk}>{`${attention} asking`}</Text> : null}

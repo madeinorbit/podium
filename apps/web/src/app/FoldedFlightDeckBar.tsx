@@ -2,6 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import {
   buildFlightDeckRows,
   type MissionProgress,
+  missionCrewLabel,
   missionProgress,
   missionRootFor,
 } from '@podium/client-core/viewmodels'
@@ -222,6 +223,7 @@ export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX
   )
   const live = rows[0]?.liveAgentCount ?? 0
   const working = rows[0]?.workingAgentCount ?? 0
+  const crew = missionCrewLabel(live, working)
   const needs = rows[0]?.actionableCount ?? 0
   const label = root ? idSquareLabel(root) : null
   return (
@@ -281,14 +283,14 @@ export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX
         )}
         <FootStat
           testId="flight-deck-activity"
-          label={`Expand Flight Deck · ${live} live${working ? `, ${working} working` : ''}`}
-          title={`${live} live agents${working ? ` · ${working} working` : ''}`}
-          count={live > 0 ? live : null}
+          label={`Expand Flight Deck · ${crew}`}
+          title={crew}
+          count={working > 0 ? working : live > 0 ? live : null}
           onExpand={onExpand}
         >
           {/* The spinner replaces the static fleet glyph only while an agent is
-              genuinely computing; the neutral count below goes on saying how
-              many are present. */}
+              genuinely computing; the count is who is working then, otherwise
+              who is present. */}
           {working > 0 ? <BrailleSpinner size={13} /> : <Users size={16} aria-hidden="true" />}
         </FootStat>
       </div>

@@ -35,7 +35,7 @@ describe('Flight Deck mission gauge', () => {
     expect(track.parentElement).toBe(gauge)
     expect(live.parentElement).toBe(gauge)
     expect(track.contains(live)).toBe(false)
-    expect(live.textContent).toContain('4 live')
+    expect(live.textContent).toContain('4 agents')
 
     view.rerender(
       <MissionGauge
@@ -75,7 +75,7 @@ describe('Flight Deck mission gauge', () => {
     expect(bands().map((band) => band.getAttribute('data-s'))).toEqual(['run'])
     expect(label(bands()[0])).toBe('1 running')
     expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
-      '0 of 1 task done, 1 running · 1 agent live, 1 working',
+      '0 of 1 task done, 1 running · 1 working',
     )
 
     view.rerender(
@@ -96,7 +96,29 @@ describe('Flight Deck mission gauge', () => {
     // Blocked is hueless: the deck's own "stopped" texture, never the signal colour.
     expect(bands()[2]?.className).toContain('gauge-hatch')
     expect(screen.getByTestId('mission-gauge').getAttribute('title')).toBe(
-      '3 of 8 tasks done, 2 running, 1 blocked, 2 to go · 5 agents live, 5 working',
+      '3 of 8 tasks done, 2 running, 1 blocked, 2 to go · 5 working',
     )
+  })
+
+  it('the chip says who is computing, never "live"', () => {
+    const view = render(
+      <MissionGauge
+        progress={{ total: 3, done: 0, run: 1, block: 0, wait: 0 }}
+        live={3}
+        working={1}
+      />,
+    )
+    expect(screen.getByTestId('mission-live-chip').textContent).toBe('1 working')
+    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toContain('1 working')
+    expect(screen.getByTestId('mission-live-chip').textContent).not.toMatch(/live/i)
+
+    view.rerender(
+      <MissionGauge
+        progress={{ total: 3, done: 0, run: 0, block: 0, wait: 1 }}
+        live={3}
+        working={0}
+      />,
+    )
+    expect(screen.getByTestId('mission-live-chip').textContent).toBe('3 agents')
   })
 })
