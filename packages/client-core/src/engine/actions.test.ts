@@ -1,5 +1,5 @@
 import type { LayoutSnapshot, SessionMeta } from '@podium/model'
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
@@ -62,7 +62,7 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
   const enqueue = vi.fn(async (kind: keyof OutboxKinds, input: unknown) => {
     queued.push({ kind, input })
     const entry = {
-      mutationId: `m-${queued.length}`,
+      mutationId: asMutationId(`m-`),
       kind,
       input,
       queuedAt: queued.length,

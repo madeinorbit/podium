@@ -9,7 +9,7 @@
  * which MUTATES a session and re-reads the issue can see.
  */
 
-import type { IssueProjection } from '@podium/model'
+import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildIssueBoard,
@@ -39,9 +39,9 @@ const STAGES = ['backlog', 'planning', 'in_progress', 'review', 'done']
 describe('membership by local index — the field POD-791 asked us to kill', () => {
   it('indexes sessions onto their issue', () => {
     const index = indexSessionsByIssue([
-      session({ sessionId: 's1', issueId: 'i1' }),
-      session({ sessionId: 's2', issueId: 'i1' }),
-      session({ sessionId: 's3', issueId: 'i2' }),
+      session({ sessionId: asSessionId('s1'), issueId: asIssueId('i1') }),
+      session({ sessionId: asSessionId('s2'), issueId: asIssueId('i1') }),
+      session({ sessionId: asSessionId('s3'), issueId: asIssueId('i2') }),
     ])
     expect(index.get('i1')).toEqual(['s1', 's2'])
     expect(index.get('i2')).toEqual(['s3'])
@@ -50,16 +50,20 @@ describe('membership by local index — the field POD-791 asked us to kill', () 
   it('ignores sessions with no issue', () => {
     expect(
       indexSessionsByIssue([
-        session({ sessionId: 's1' }),
-        session({ sessionId: 's2', issueId: null }),
+        session({ sessionId: asSessionId('s1') }),
+        session({ sessionId: asSessionId('s2'), issueId: null }),
       ]).size,
     ).toBe(0)
   })
 
   it('keeps terminal shells out of issue membership', () => {
     const index = indexSessionsByIssue([
-      session({ sessionId: 'agent', issueId: 'i1', agentKind: 'codex' }),
-      session({ sessionId: 'dock-shell', issueId: 'i1', agentKind: 'shell' }),
+      session({ sessionId: asSessionId('agent'), issueId: asIssueId('i1'), agentKind: 'codex' }),
+      session({
+        sessionId: asSessionId('dock-shell'),
+        issueId: asIssueId('i1'),
+        agentKind: 'shell',
+      }),
     ])
 
     expect(index.get('i1')).toEqual(['agent'])
@@ -71,14 +75,14 @@ describe('membership by local index — the field POD-791 asked us to kill', () 
     // second spelling of the edge could, and nothing would arbitrate.
     const before = deriveIssueViews(
       [issue({ id: 'i1' }), issue({ id: 'i2' })],
-      [session({ sessionId: 's1', issueId: 'i1' })],
+      [session({ sessionId: asSessionId('s1'), issueId: asIssueId('i1') })],
     )
     expect(before.get('i1')?.memberSessionIds).toEqual(['s1'])
     expect(before.get('i2')?.memberSessionIds).toEqual([])
 
     const after = deriveIssueViews(
       [issue({ id: 'i1' }), issue({ id: 'i2' })],
-      [session({ sessionId: 's1', issueId: 'i2' })],
+      [session({ sessionId: asSessionId('s1'), issueId: asIssueId('i2') })],
     )
     expect(after.get('i1')?.memberSessionIds).toEqual([])
     expect(after.get('i2')?.memberSessionIds).toEqual(['s1'])
@@ -89,12 +93,12 @@ describe('membership by local index — the field POD-791 asked us to kill', () 
     // re-embedded them would put the same O(world) rebuild back on the client.
     const views = deriveIssueViews(
       [issue({ id: 'i1' })],
-      [session({ sessionId: 's1', issueId: 'i1' })],
+      [session({ sessionId: asSessionId('s1'), issueId: asIssueId('i1') })],
     )
     const view = views.get('i1')
     expect(view?.memberSessionIds).toEqual(['s1'])
     expect(Object.values(view ?? {}).flat()).not.toContainEqual(
-      expect.objectContaining({ sessionId: 's1' }),
+      expect.objectContaining({ sessionId: asSessionId('s1') }),
     )
   })
 })
@@ -238,19 +242,29 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
       updatedAt: '2026-07-17T08:00:00.000Z',
     }
     const quiet = [
-      session({ sessionId: 's1', issueId: 'i1', lastActiveAt: '2026-07-17T09:00:00.000Z' }),
+      session({
+        sessionId: asSessionId('s1'),
+        issueId: asIssueId('i1'),
+        lastActiveAt: '2026-07-17T09:00:00.000Z',
+      }),
     ]
     expect(deriveIssueRollups(read, ['s1'], sessionById(quiet)).unread).toBe(false)
 
     // The session speaks. THIS must move.
     const active = [
-      session({ sessionId: 's1', issueId: 'i1', lastActiveAt: '2026-07-17T11:00:00.000Z' }),
+      session({
+        sessionId: asSessionId('s1'),
+        issueId: asIssueId('i1'),
+        lastActiveAt: '2026-07-17T11:00:00.000Z',
+      }),
     ]
     expect(deriveIssueRollups(read, ['s1'], sessionById(active)).unread).toBe(true)
   })
 
   it('a never-read issue with any active session is unread', () => {
-    const sessions = [session({ sessionId: 's1', lastActiveAt: '2026-07-17T09:00:00.000Z' })]
+    const sessions = [
+      session({ sessionId: asSessionId('s1'), lastActiveAt: '2026-07-17T09:00:00.000Z' }),
+    ]
     expect(
       deriveIssueRollups(
         { readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' },
@@ -296,7 +310,9 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
         deletedAt: '2026-07-17T12:00:00.000Z',
       },
       ['s1'],
-      sessionById([session({ sessionId: 's1', lastActiveAt: '2026-07-17T13:00:00.000Z' })]),
+      sessionById([
+        session({ sessionId: asSessionId('s1'), lastActiveAt: '2026-07-17T13:00:00.000Z' }),
+      ]),
     )
     expect(rollups.unread).toBe(false)
     expect(rollups.sessionSummary.total).toBe(1)
@@ -304,9 +320,9 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
 
   it('summarises members by phase', () => {
     const sessions = [
-      session({ sessionId: 's1', phase: 'working' }),
-      session({ sessionId: 's2', phase: 'working' }),
-      session({ sessionId: 's3', phase: 'idle' }),
+      session({ sessionId: asSessionId('s1'), phase: 'working' }),
+      session({ sessionId: asSessionId('s2'), phase: 'working' }),
+      session({ sessionId: asSessionId('s3'), phase: 'idle' }),
     ]
     const rollups = deriveIssueRollups(
       { readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' },
@@ -322,7 +338,7 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
     const rollups = deriveIssueRollups(
       { readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' },
       ['s1', 'ghost'],
-      sessionById([session({ sessionId: 's1' })]),
+      sessionById([session({ sessionId: asSessionId('s1') })]),
     )
     expect(rollups.sessionSummary.total).toBe(1)
   })
@@ -338,7 +354,9 @@ describe('reading straight off the replica', () => {
       { id: 'i2', seq: 14, repoId: 'repo_a', stage: 'done', parentId: 'i1' } as never,
     ])
     replica.applySnapshot('repos', [{ id: 'repo_a', prefix: 'POD' } as never])
-    replica.applySnapshot('sessions', [{ sessionId: 's1', issueId: 'i1' } as never])
+    replica.applySnapshot('sessions', [
+      { sessionId: asSessionId('s1'), issueId: asIssueId('i1') } as never,
+    ])
 
     const { issues, sessions } = readViewInputs(replica)
     const views = deriveIssueViews(issues, sessions)

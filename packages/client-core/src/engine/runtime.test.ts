@@ -18,7 +18,14 @@ import type {
   SessionMeta,
   SessionMetaInput,
 } from '@podium/model'
-import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model'
+import {
+  asArtifactId,
+  asIssueId,
+  asMachineId,
+  asMutationId,
+  asSessionId,
+  asUserId,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { asClientPrincipal } from '../principal'
@@ -227,7 +234,7 @@ function makeEngine(
   const fatals: string[] = []
   const errors: string[] = []
   const engine = createClientRuntime({
-    principal: asClientPrincipal(opts.principal ?? 'operator'),
+    principal: asClientPrincipal(asUserId(opts.principal ?? 'operator')),
     config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
     api: (opts.api ?? makeApi()) as PodiumClientApi,
     onFatalError: (m) => fatals.push(m),
@@ -259,7 +266,7 @@ describe('engine replica construction (POD-1239)', () => {
     // ambient storage silently. This drives the RUNTIME arm — without it, the
     // check is a declaration whose refusing branch nothing has ever produced.
     const init = {
-      principal: asClientPrincipal('operator'),
+      principal: asClientPrincipal(asUserId('operator')),
       config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
       api: makeApi() as PodiumClientApi,
       onFatalError: () => {},
@@ -279,7 +286,7 @@ describe('engine replica construction (POD-1239)', () => {
     expect(engine).toBeDefined()
     expect(() =>
       createClientRuntime({
-        principal: asClientPrincipal('operator'),
+        principal: asClientPrincipal(asUserId('operator')),
         config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
         api: makeApi() as PodiumClientApi,
         onFatalError: () => {},
@@ -1052,7 +1059,7 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     oldReplica.applyChanges('sessions', [session('s1', '/w')], [])
     oldReplica.outboxStorage().save([
       {
-        mutationId: 'm-old',
+        mutationId: asMutationId('m-old'),
         kind: 'rename',
         input: { sessionId: 's1', name: 'held' },
         queuedAt: Date.now() - 2000,
@@ -1129,7 +1136,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
         target: {
           path: '/w',
           repoPath: '/w',
-          machineId: 'machine-1',
+          machineId: asMachineId('machine-1'),
           placement,
         },
         agentKind: 'claude-code',

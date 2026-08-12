@@ -20,7 +20,7 @@
  * about what it MEANS.
  */
 
-import type { MutationId } from '@podium/model'
+import { asMutationId, type MutationId } from '@podium/model'
 import {
   type AuthorityRefusal,
   MAX_AGE_REASON,
@@ -394,7 +394,7 @@ export class Outbox<M extends Record<string, object>> {
     opts?: { baseline?: string; chained?: boolean },
   ): OutboxEntry {
     const entry: OutboxEntry = {
-      mutationId: this.randomId(),
+      mutationId: asMutationId(this.randomId()),
       kind,
       input,
       queuedAt: this.now(),
@@ -499,7 +499,7 @@ export class Outbox<M extends Record<string, object>> {
     // would let a receipt for the original suppress it (D11.4/D11.7).
     const revised: OutboxEntry = {
       ...parked.entry,
-      mutationId: this.randomId(),
+      mutationId: asMutationId(this.randomId()),
       input,
       queuedAt: this.now(),
     }
@@ -535,9 +535,7 @@ export class Outbox<M extends Record<string, object>> {
     if (aged.length === 0) return []
     this.entries = this.entries.filter((e) => e.queuedAt >= cutoff)
     const parked = aged.flatMap((entry) =>
-      this.shouldDiscardDeadLetter(entry)
-        ? []
-        : [this.park(entry, MAX_AGE_REASON, 'expired')],
+      this.shouldDiscardDeadLetter(entry) ? [] : [this.park(entry, MAX_AGE_REASON, 'expired')],
     )
     this.persist()
     return parked

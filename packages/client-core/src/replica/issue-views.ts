@@ -69,7 +69,7 @@ import type { Replica } from './replica'
 export interface IssueView {
   id: string
   /** Non-shell sessions working this issue, BY ID. Never the sessions themselves. */
-  memberSessionIds: string[]
+  memberSessionIds: SessionId[]
   /** `POD-13`, or `#13` before a repo has a prefix. Derived from (prefix, seq) —
    *  server-side this meant a repo's prefix change recomputed every issue in it. */
   displayRef: string
@@ -152,8 +152,10 @@ export interface SessionViewInput {
  * ONE atomic swap, so "issues without sessions" is not a state a replica can
  * observe. The transient does not exist, so the field defending it need not.
  */
-export function indexSessionsByIssue(sessions: readonly SessionViewInput[]): Map<string, string[]> {
-  const index = new Map<string, string[]>()
+export function indexSessionsByIssue(
+  sessions: readonly SessionViewInput[],
+): Map<IssueId, SessionId[]> {
+  const index = new Map<IssueId, SessionId[]>()
   for (const session of sessions) {
     // Shells are terminal plumbing, not issue workers. In particular, the
     // right dock stamps its persistent shell with the active issue id, but the
@@ -192,7 +194,7 @@ export function deriveIssueViews(
   const now = opts.now ?? Date.now
   const sessionsByIssue = indexSessionsByIssue(sessions)
   const stageById = new Map(issues.map((i) => [i.id, i.stage]))
-  const childrenByParent = new Map<string, string[]>()
+  const childrenByParent = new Map<IssueId, SessionId[]>()
   // Reverse of every issue's `deps`: an edge A→B (A's dep on B) contributes B a
   // dependent { id: A, type }. Built once here in O(deps) so `dependents` is a
   // local derivation, never a wire field — the same reason `blocked` is (both
@@ -251,8 +253,8 @@ export function deriveIssueViews(
  */
 export function deriveIssueRollups(
   issue: Pick<IssueViewInput, 'readAt' | 'updatedAt' | 'deletedAt'>,
-  memberSessionIds: readonly string[],
-  sessionById: (id: string) => SessionViewInput | undefined,
+  memberSessionIds: readonly SessionId[],
+  sessionById: (id: SessionId) => SessionViewInput | undefined,
 ): IssueSessionRollups {
   const byPhase: Record<string, number> = {}
   let total = 0

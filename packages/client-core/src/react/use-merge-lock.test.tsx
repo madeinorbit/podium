@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asRepoId, asSessionId } from '@podium/model'
 import type { LockWire } from '@podium/protocol'
 import { act, cleanup, render } from '@testing-library/react'
 import type { JSX } from 'react'
@@ -22,7 +22,7 @@ const { LOCK_POLL_MS, MERGE_LOCK_NAME, useLockState, useRepoLocks } = await impo
 type LockState = ReturnType<typeof useLockState>
 
 const LOCK: LockWire = {
-  repoId: 'repo_1',
+  repoId: asRepoId('repo_1'),
   name: 'merge:main',
   holder: {
     sessionId: asSessionId('sess_holder'),

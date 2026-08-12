@@ -6,8 +6,8 @@
  * shares ONE construction path with zero React involvement.
  */
 
-import type { ConfirmationRule, MutationId } from '@podium/commands'
-import type { SessionId, WorkState } from '@podium/model'
+import type { ConfirmationRule } from '@podium/commands'
+import type { MutationId, SessionId, WorkState } from '@podium/model'
 import {
   ENQUEUEABLE_DELIVERY,
   type OutboxCommand,
@@ -259,10 +259,7 @@ export const OUTBOX_COMMANDS: Record<
  */
 export type OutboxDeadLetterHandling = 'recover' | 'discard-automatic'
 
-export const OUTBOX_DEAD_LETTER_HANDLING: Record<
-  keyof OutboxKinds,
-  OutboxDeadLetterHandling
-> = {
+export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLetterHandling> = {
   pinSet: 'recover',
   tabSetOrder: 'recover',
   layoutSet: 'recover',
@@ -643,8 +640,7 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
     storage: args.replica.outboxStorage(),
     awaitingStorage: args.replica.outboxAwaitingStorage(),
     deadLetterStorage: args.replica.outboxDeadLetterStorage(),
-    shouldDiscardDeadLetter: (entry) =>
-      deadLetterHandlingFor(entry.kind) === 'discard-automatic',
+    shouldDiscardDeadLetter: (entry) => deadLetterHandlingFor(entry.kind) === 'discard-automatic',
     executors: outboxExecutors(api),
     onApplied: args.onApplied,
     // A definitively-refused entry can never sync AS IT IS — but it is no longer

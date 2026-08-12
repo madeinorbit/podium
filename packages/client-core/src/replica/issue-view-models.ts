@@ -6,7 +6,7 @@
  * React into a platform-neutral slice, and it must not restate unread
  * derivation (POD-843).
  */
-import type { IssueProjection, IssueWire, IssueId } from '@podium/model'
+import type { IssueId, IssueProjection, IssueWire, SessionId } from '@podium/model'
 import {
   buildIssueTree,
   deriveIssueRollups,
@@ -41,7 +41,7 @@ type ProjectionOnly = Partial<Omit<IssueProjection, keyof IssueWire>>
  * commentCount are structurally absent. The builder always supplies member ids. */
 export type IssueViewModel = LegacyIssueSupplement &
   ProjectionOnly &
-  Partial<IssueSessionRollups> & { childIds?: string[]; memberSessionIds?: string[] }
+  Partial<IssueSessionRollups> & { childIds?: string[]; memberSessionIds?: SessionId[] }
 
 /**
  * The projection's three keys that DISAGREE in shape with the legacy wire,
@@ -69,9 +69,10 @@ export type IssueViewModel = LegacyIssueSupplement &
  * in front of the UI during the additive cutover: POD-797 deletes the legacy
  * collection, and at that point this function is what changes, not every reader.
  */
-function projectionOnLegacySpelling(
-  projection: IssueProjection,
-): Omit<IssueProjection, 'description' | 'worktreePath' | 'branch'> & {
+function projectionOnLegacySpelling(projection: IssueProjection): Omit<
+  IssueProjection,
+  'description' | 'worktreePath' | 'branch'
+> & {
   description: string
   worktreePath: string | null
   branch: string | null

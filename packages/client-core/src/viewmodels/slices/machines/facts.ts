@@ -23,6 +23,7 @@
  * Platform-neutral: no DOM, no storage.
  */
 import {
+  asIssueId,
   type GitRepositoryWire,
   type HostMetricsWire,
   isIssueClosed,
@@ -373,11 +374,7 @@ export function hostAgentsView(
     }
   }
   const ratio =
-    maxIdleSessions > 0
-      ? observedIdleCount / maxIdleSessions
-      : observedIdleCount > 0
-        ? 1
-        : 0
+    maxIdleSessions > 0 ? observedIdleCount / maxIdleSessions : observedIdleCount > 0 ? 1 : 0
   const meterPct = Math.min(100, Math.round(ratio * 100))
   // At the target is converged, not an alarm. Only a known overage is red.
   const severity: MemorySeverity = observedIdleCount > maxIdleSessions ? 'critical' : 'ok'
@@ -465,7 +462,7 @@ export function listReclaimableWorktreesClient(args: {
       return !occupied
     })
     .map((row) => ({
-      issueId: row.id,
+      issueId: asIssueId(row.id),
       title: row.title,
       worktreePath: row.worktreePath as string,
       closedAt: row.closedAt as string,

@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   machineViews,
@@ -33,12 +34,12 @@ const grants = (over: Partial<MachineGrants> = {}): MachineGrants => ({
 /** A repo present on both machines. */
 const repo = {
   machines: [
-    { machineId: 'm-mine', path: '/repo' },
-    { machineId: 'm-theirs', path: '/repo' },
+    { machineId: asMachineId('m-mine'), path: '/repo' },
+    { machineId: asMachineId('m-theirs'), path: '/repo' },
   ],
 }
 
-const sessions = [{ machineId: 'm-mine', createdAt: '2026-07-01T00:00:00.000Z' }]
+const sessions = [{ machineId: asMachineId('m-mine'), createdAt: '2026-07-01T00:00:00.000Z' }]
 
 describe('machineViews — the three verbs stay separate', () => {
   it('a machine you may SEE but not USE is visible AND unauthorized', () => {
@@ -95,8 +96,8 @@ describe('resolveSpawnTargetMachine — never returns a machine you lack USE on'
     // reason to be chosen except the one that matters.
     const views = machineViews([machine('m-theirs', true)], () => grants({ use: false }))
     const r = resolveSpawnTargetMachine(
-      { machines: [{ machineId: 'm-theirs', path: '/repo' }] },
-      [{ machineId: 'm-theirs', createdAt: '2026-07-02T00:00:00.000Z' }],
+      { machines: [{ machineId: asMachineId('m-theirs'), path: '/repo' }] },
+      [{ machineId: asMachineId('m-theirs'), createdAt: '2026-07-02T00:00:00.000Z' }],
       views,
     )
     expect(r.machineId).toBeUndefined()
@@ -106,7 +107,7 @@ describe('resolveSpawnTargetMachine — never returns a machine you lack USE on'
   it('distinguishes unreachable from unauthorized', () => {
     const offline = machineViews([machine('m-mine', false)], () => grants())
     const r = resolveSpawnTargetMachine(
-      { machines: [{ machineId: 'm-mine', path: '/repo' }] },
+      { machines: [{ machineId: asMachineId('m-mine'), path: '/repo' }] },
       sessions,
       offline,
     )

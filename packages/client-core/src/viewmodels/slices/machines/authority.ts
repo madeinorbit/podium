@@ -21,6 +21,7 @@
  * Platform-neutral: no DOM, no storage.
  */
 import {
+  asMachineId,
   machinesWithRepo,
   type MachineWire,
   resolveTargetMachine,
@@ -92,9 +93,7 @@ export function machineViews<M extends SelectableMachine>(
 }
 
 /** The machines a spawn/handoff may actually target. */
-export function usableMachines<M extends SelectableMachine>(
-  views: readonly MachineView<M>[],
-): M[] {
+export function usableMachines<M extends SelectableMachine>(views: readonly MachineView<M>[]): M[] {
   return views.filter((v) => v.availability === 'available').map((v) => v.machine)
 }
 
@@ -123,9 +122,7 @@ export function usableMachines<M extends SelectableMachine>(
  * server's per-principal projection already dropped what the principal cannot
  * see, and a machine that arrived is a machine that is visible.
  */
-export function machineViewsFromWire(
-  machines: readonly MachineWire[],
-): MachineView<MachineWire>[] {
+export function machineViewsFromWire(machines: readonly MachineWire[]): MachineView<MachineWire>[] {
   const scoped = machines.some((m) => m.use !== undefined)
   return machineViews(machines, (m) => ({
     see: true,
@@ -160,10 +157,7 @@ export interface SpawnTargetResolution {
  * When it refuses, it says which refusal it is — M5's "denied and offline
  * produce the same empty list otherwise".
  */
-export function resolveSpawnTargetMachine<
-  S extends RecentSession,
-  M extends SelectableMachine,
->(
+export function resolveSpawnTargetMachine<S extends RecentSession, M extends SelectableMachine>(
   repo: RepoMachines,
   sessions: readonly S[],
   views: readonly MachineView<M>[],

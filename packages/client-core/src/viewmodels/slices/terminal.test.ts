@@ -61,14 +61,14 @@ describe('orderTabs', () => {
   })
 
   it('lifts the coordinator to the front even when a stale saved order buries it', () => {
-    expect(ids(orderTabs([a, b, c], ['c', 'a', 'b'], 'b'))).toEqual(['b', 'c', 'a'])
+    expect(ids(orderTabs([a, b, c], ['c', 'a', 'b'], asSessionId('b')))).toEqual(['b', 'c', 'a'])
   })
 
   it('is a NO-OP for a coordinator id that resolves to no visible session', () => {
     // The coordinator was evicted (or has not arrived). The strip is the two
     // sessions we can see, in their own order — not a gap, not a placeholder.
-    expect(ids(orderTabs([a, b], ['a', 'b'], 'gone'))).toEqual(['a', 'b'])
-    expect(ids(elevateCoordinatorSession([a, b], 'gone'))).toEqual(['a', 'b'])
+    expect(ids(orderTabs([a, b], ['a', 'b'], asSessionId('gone')))).toEqual(['a', 'b'])
+    expect(ids(elevateCoordinatorSession([a, b], asSessionId('gone')))).toEqual(['a', 'b'])
     expect(ids(elevateCoordinatorSession([a, b], null))).toEqual(['a', 'b'])
   })
 
@@ -130,17 +130,25 @@ describe('orphanSessionFor', () => {
   const b = session('b', { cwd: '/repo/gone/src' })
 
   it('prefers the session already in pane A', () => {
-    expect(orphanSessionFor({ selectedWorktree: '/repo/gone', sessions: [a, b], paneA: 'b' })?.sessionId).toBe('b')
+    expect(
+      orphanSessionFor({ selectedWorktree: '/repo/gone', sessions: [a, b], paneA: 'b' })?.sessionId,
+    ).toBe('b')
   })
 
   it('falls back to the first orphan, including one stamped with a subdirectory', () => {
-    expect(orphanSessionFor({ selectedWorktree: '/repo/gone', sessions: [b], paneA: null })?.sessionId).toBe('b')
+    expect(
+      orphanSessionFor({ selectedWorktree: '/repo/gone', sessions: [b], paneA: null })?.sessionId,
+    ).toBe('b')
   })
 
   it('is null with no selection or no orphans', () => {
     expect(orphanSessionFor({ selectedWorktree: null, sessions: [a], paneA: null })).toBeNull()
     expect(
-      orphanSessionFor({ selectedWorktree: '/repo/gone', sessions: [session('c', { cwd: '/other' })], paneA: null }),
+      orphanSessionFor({
+        selectedWorktree: '/repo/gone',
+        sessions: [session('c', { cwd: '/other' })],
+        paneA: null,
+      }),
     ).toBeNull()
   })
 })

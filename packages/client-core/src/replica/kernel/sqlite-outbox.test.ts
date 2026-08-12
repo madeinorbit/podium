@@ -96,7 +96,7 @@ async function openBinding(
 }
 
 const entry = (over: Partial<OutboxEntry> = {}): OutboxEntry => ({
-  mutationId: 'mut_1',
+  mutationId: asMutationId('mut_1'),
   kind: 'sessions.rename',
   input: { title: 'renamed' },
   queuedAt: 10,
@@ -113,7 +113,7 @@ describe('the queue is durable in SQLite, and the client bookkeeping survives it
     const first = await openBinding(file)
     first.storages.queued.save([
       entry({ baseline: 'fingerprint-abc', chained: true }),
-      entry({ mutationId: 'mut_2', queuedAt: 20 }),
+      entry({ mutationId: asMutationId('mut_2'), queuedAt: 20 }),
     ])
     first.close()
 
@@ -135,8 +135,8 @@ describe('the queue is durable in SQLite, and the client bookkeeping survives it
     const file = newFile()
     const first = await openBinding(file)
     first.storages.queued.save([
-      entry({ mutationId: 'zzz_first', queuedAt: 1 }),
-      entry({ mutationId: 'aaa_second', queuedAt: 2 }),
+      entry({ mutationId: asMutationId('zzz_first'), queuedAt: 1 }),
+      entry({ mutationId: asMutationId('aaa_second'), queuedAt: 2 }),
     ])
     first.close()
 
@@ -171,8 +171,10 @@ describe('the two homes are views over one store and must not clobber each other
     // clobbering OutboxStorePort.apply's record-level contract exists to prevent.
     const file = newFile()
     const { storages } = await openBinding(file)
-    storages.awaiting.save([entry({ mutationId: 'mut_held', state: 'awaiting-truth' })])
-    storages.queued.save([entry({ mutationId: 'mut_queued' })])
+    storages.awaiting.save([
+      entry({ mutationId: asMutationId('mut_held'), state: 'awaiting-truth' }),
+    ])
+    storages.queued.save([entry({ mutationId: asMutationId('mut_queued') })])
 
     expect(storages.awaiting.load().map((e) => e.mutationId)).toEqual(['mut_held'])
     expect(storages.queued.load().map((e) => e.mutationId)).toEqual(['mut_queued'])
@@ -210,7 +212,7 @@ describe('a write that cannot be persisted is LOUD, never swallowed', () => {
     const file = newFile()
     const { storages } = await openBinding(file)
 
-    storages.queued.save([entry({ mutationId: 'mut_durable' })])
+    storages.queued.save([entry({ mutationId: asMutationId('mut_durable') })])
 
     const second = openDatabase(file)
     try {

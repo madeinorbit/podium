@@ -16,7 +16,7 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type { IssueUpdatePatch, MutationId, MachineId } from '@podium/commands'
+import type { IssueUpdatePatch } from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
@@ -24,7 +24,9 @@ import type {
   GitRepositoryWire,
   IssueId,
   LayoutSnapshot,
+  MachineId,
   MachineQuotaWire,
+  MutationId,
   ReadPositionSnapshot,
   SessionId,
   UsageBucketWire,

@@ -7,7 +7,12 @@
 
 import { sessionStateCommand, sessionStateCommandNames } from '@podium/commands'
 import { addSink, resetLevels, setLogLevel } from '@podium/logger'
-import type { IssueWire, SessionMeta, SessionMetaInput } from '@podium/model'
+import {
+  asMutationId,
+  type IssueWire,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 
 import { describe, expect, it } from 'vitest'
 import type { OutboxEntry } from '../outbox'
@@ -28,7 +33,7 @@ import {
 } from './overlay'
 
 const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEntry => ({
-  mutationId: `m-${kind}`,
+  mutationId: asMutationId(`m-`),
   kind,
   input,
   queuedAt,
@@ -520,7 +525,7 @@ describe('pruneAwaiting (retirement rule (a))', () => {
   const awaitRename = (
     row: SessionMeta | undefined,
     name = 'mine',
-    mutationId = `m-${name}`,
+    mutationId = asMutationId(`m-`),
     resolvedAt = NOW,
   ): AwaitingTruth => {
     const o = overlayForOutboxEntry({
@@ -602,7 +607,7 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     const arch = overlayForOutboxEntry(entry('setArchived', { sessionId: 's1', archived: true }))
     const ws = overlayForOutboxEntry({
       ...entry('setWorkState', { sessionId: 's1', workState: 'done' }),
-      mutationId: 'm-ws',
+      mutationId: asMutationId('m-ws'),
     })
     if (arch?.op !== 'patch' || ws?.op !== 'patch') throw new Error('expected patches')
     const awaiting: AwaitingTruth[] = [
