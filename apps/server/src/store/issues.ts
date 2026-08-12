@@ -30,13 +30,67 @@ export class IssuesRepository {
    *  structurally corrupt (row-level quarantine). Diagnostic counter. */
   quarantinedRowCount = 0
 
+  /**
+   * THE FRAME READ CACHE [POD-1931].
+   *
+   * The publish fan-out is O(events x sessions), and every pass resolves the
+   * owning issue of every session it admits. Measured on the live server: ONE
+   * event-loop frame ran 242 `getIssues` calls returning 94,138 rows plus 5,163
+   * `getIssue` calls — 13 seconds of CPU, most of it `mapIssueRow` parsing the
+   * same JSON columns over and over, with RSS climbing to 4.6GB and the GC that
+   * followed costing another 12-14 seconds of stall.
+   *
+   * A row cannot change inside a frame that never yields, so within one
+   * synchronous turn the second read of an id is the first read's answer. The
+   * cache holds MAPPED rows and hands out a shallow COPY per call, so callers
+   * keep the fresh-object-per-read contract they had before for their own
+   * fields; only the parse is shared, not the object.
+   *
+   * `queueMicrotask` is the invalidation because a microtask cannot run inside a
+   * synchronous frame: the cache lives exactly as long as the turn that filled
+   * it, and the first `await` anywhere re-reads.
+   */
+  private rowCache: Map<string, IssueRow | null> | undefined
+  /**
+   * A frame that WRITES issues does not cache at all. Populating a cache from
+   * inside an open transaction would survive a rollback for the rest of the
+   * turn, and no read path is worth that; write frames are rare, and the frames
+   * this exists for are pure fan-out reads.
+   */
+  private rowCacheDisabledForFrame = false
+
   constructor(
     private readonly db: SqlDatabase,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
     private readonly resolveRepoIdForPath: (repoPath: string) => string,
   ) {}
 
+  /** Every issue-row WRITE calls this: the frame stops caching, and whatever it
+   *  had already cached is dropped. */
+  private invalidateRowCache(): void {
+    this.rowCache = undefined
+    if (this.rowCacheDisabledForFrame) return
+    this.rowCacheDisabledForFrame = true
+    queueMicrotask(() => {
+      this.rowCacheDisabledForFrame = false
+    })
+  }
+
+  /** The current frame's cache, opened on first use and closed by the microtask
+   *  that ends the frame. Undefined while a write has disabled caching. */
+  private frameRows(): Map<string, IssueRow | null> | undefined {
+    if (this.rowCacheDisabledForFrame) return undefined
+    if (this.rowCache) return this.rowCache
+    const opened = new Map<string, IssueRow | null>()
+    this.rowCache = opened
+    queueMicrotask(() => {
+      if (this.rowCache === opened) this.rowCache = undefined
+    })
+    return opened
+  }
+
   upsertIssue(row: IssueRow): void {
+    this.invalidateRowCache()
     if (
       !row.ownerUserId ||
       !row.visibility ||
@@ -293,10 +347,15 @@ export class IssuesRepository {
   }
 
   getIssue(id: string): IssueRow | null {
+    const cache = this.frameRows()
+    const hit = cache?.get(id)
+    if (hit !== undefined) return hit === null ? null : { ...hit }
     const r = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(id) as
       | Record<string, unknown>
       | undefined
-    return r ? this.mapIssueRow(r) : null
+    const mapped = r ? this.mapIssueRow(r) : null
+    cache?.set(id, mapped)
+    return mapped === null ? null : { ...mapped }
   }
 
   /**
@@ -401,21 +460,40 @@ export class IssuesRepository {
     const out = new Map<string, IssueRow>()
     const unique = [...new Set(ids)]
     if (unique.length === 0) return out
+    // Serve what this frame has already parsed, and ask SQLite only for the
+    // rest. A miss recorded as null is an ANSWER ("no such issue"), the same
+    // one the query would give, so it must not be re-asked either.
+    const cache = this.frameRows()
+    const wanted = cache === undefined ? unique : []
+    if (cache !== undefined) {
+      for (const id of unique) {
+        const hit = cache.get(id)
+        if (hit === undefined) wanted.push(id)
+        else if (hit !== null) out.set(id, { ...hit })
+      }
+    }
+    if (wanted.length === 0) return out
     const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const chunk = unique.slice(i, i + CHUNK)
+    for (let i = 0; i < wanted.length; i += CHUNK) {
+      const chunk = wanted.slice(i, i + CHUNK)
       const rows = this.db
         .prepare(`SELECT * FROM issues WHERE id IN (${chunk.map(() => '?').join(',')})`)
         .all(...chunk) as Record<string, unknown>[]
       for (const r of rows) {
         try {
           if (typeof r.id !== 'string') continue
-          out.set(r.id, this.mapIssueRow(r))
+          const mapped = this.mapIssueRow(r)
+          cache?.set(r.id, mapped)
+          out.set(r.id, { ...mapped })
         } catch (err) {
           log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null, err })
         }
       }
     }
+    // An id asked for and not returned is absent — record the answer so a later
+    // pass in this frame does not re-ask. A QUARANTINED row is absent from `out`
+    // too, and caching it as absent is the same verdict the caller already got.
+    if (cache !== undefined) for (const id of wanted) if (!out.has(id)) cache.set(id, null)
     return out
   }
 
@@ -484,6 +562,7 @@ export class IssuesRepository {
     // or it outlives the row, and the comment above will read as if it were
     // covered.
     this.db.prepare('DELETE FROM issue_ref_letters WHERE issue_id = ?').run(id)
+    this.invalidateRowCache()
     this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
   }
 
@@ -566,6 +645,7 @@ export class IssuesRepository {
       }
     }
     if (updates.length === 0) return 0
+    this.invalidateRowCache()
     const stmt = this.db.prepare('UPDATE issues SET seq = ? WHERE id = ?')
     transaction(this.db, () => {
       for (const u of updates) stmt.run(u.seq, u.id)
@@ -594,6 +674,7 @@ export class IssuesRepository {
       .get(repoId) as { m: number | null }
     let next = (max.m ?? 0) + 1
     const taken = this.db.prepare('SELECT id FROM issues WHERE repo_id = ? AND seq = ?')
+    this.invalidateRowCache()
     const upd = this.db.prepare('UPDATE issues SET repo_id = ?, seq = ? WHERE id = ?')
     for (const r of rows) {
       let seq = r.seq
@@ -644,6 +725,7 @@ export class IssuesRepository {
     const issues = this.db
       .prepare('SELECT id, repo_path FROM issues WHERE repo_id IS NULL')
       .all() as { id: string; repo_path: string }[]
+    this.invalidateRowCache()
     const setIssue = this.db.prepare('UPDATE issues SET repo_id = ? WHERE id = ?')
     for (const i of issues) setIssue.run(this.resolveRepoIdForPath(i.repo_path), i.id)
   }
