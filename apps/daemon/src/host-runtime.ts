@@ -134,7 +134,7 @@ export async function createDaemonHostRuntime(args: {
     // POD-600's loop-stall classifier stays in loop-attribution.ts; boot merely
     // turns it on. Moving connection code must never absorb this instrumentation.
     startLoopAttribution()
-    startLoopMetrics({ label: 'daemon', onLongTick: reportLongTick })
+    startLoopMetrics({ onLongTick: reportLongTick })
   }
   const discoveryLoop = createDiscoveryLoop({
     workerClient,

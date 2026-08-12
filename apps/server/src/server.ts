@@ -22,7 +22,7 @@ import {
   readOrCreateLocalMachineId,
   stateDir,
 } from '@podium/runtime/local-machine'
-import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import {
   formatTopQueries,
   queryAttributionTotals,
@@ -738,11 +738,10 @@ export async function startServer(
         }
       })
       startLoopMetrics({
-        label: 'server',
+        // The sole record of a server stall — the probe reports here and logs
+        // nothing itself, so every field lands on one queryable record (POD-1932).
         onLongTick: (ms, classification) => {
           const mu = process.memoryUsage()
-          const mb = (b: number) => (b / 1048576).toFixed(0)
-          const cls = classification ? ` | ${formatStallClassification(classification)}` : ''
           // The stall reporter could name the COST but never the CAUSE; the
           // tRPC and phase counters could not fill the gap because the work
           // is not on either path. The top statements are that missing name.
@@ -751,7 +750,15 @@ export async function startServer(
             durationMs: ms,
             heapUsedBytes: mu.heapUsed,
             rssBytes: mu.rss,
-            ...(cls ? { stall: cls } : {}),
+            // Each classification number its own NUMBER field: a query can ask
+            // "which stalls were starved" only if the verdict is a field.
+            ...(classification
+              ? {
+                  ownCpuMs: classification.ownCpuMs,
+                  runqueueWaitMs: classification.runqueueWaitMs,
+                  stallVerdict: classification.verdict,
+                }
+              : {}),
             ...(sql ? { sql } : {}),
           })
         },

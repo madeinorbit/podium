@@ -143,10 +143,12 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       registry.modules.perf.reset()
       const loopWarnings: string[] = []
       loop = startLoopMetrics({
-        label: 'loop-split-acceptance',
         longTickMs: LOOP_P99_TARGET_MS,
         sampleMs: 50,
-        log: (message) => loopWarnings.push(message),
+        onLongTick: (ms, classification) =>
+          loopWarnings.push(
+            `long tick ${ms.toFixed(0)}ms${classification ? ` verdict=${classification.verdict}` : ''}`,
+          ),
       })
       await new Promise((resolve) => setTimeout(resolve, 25))
 

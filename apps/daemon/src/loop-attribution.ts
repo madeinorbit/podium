@@ -10,7 +10,7 @@
  * Everything here is a no-op unless `PODIUM_LOOP_PROFILE` is set.
  */
 import { createLogger } from '@podium/logger'
-import { formatStallClassification, type StallClassification } from '@podium/runtime/loop-metrics'
+import type { StallClassification } from '@podium/runtime/loop-metrics'
 
 const log = createLogger('daemon:loop')
 
@@ -80,7 +80,9 @@ export function reportLongTick(ms: number, classification?: StallClassification)
   const controlDetail = formatControlCosts(controlCosts)
   // Every number stays a NUMBER and every count its own field: this record
   // exists to be compared across stalls, and the old single formatted string
-  // could only be read by eye, one occurrence at a time.
+  // could only be read by eye, one occurrence at a time. It is also the ONLY
+  // record of the stall — the runtime probe reports here and logs nothing of
+  // its own, which is what stopped every stall being written twice (POD-1932).
   log.warn('daemon event-loop stall', {
     durationMs: ms,
     frames: ctr.frames,
@@ -91,7 +93,13 @@ export function reportLongTick(ms: number, classification?: StallClassification)
     heapUsedBytes: mu.heapUsed,
     rssBytes: mu.rss,
     ...(controlDetail ? { controlTypes: controlDetail } : {}),
-    ...(classification ? { stall: formatStallClassification(classification) } : {}),
+    ...(classification
+      ? {
+          ownCpuMs: classification.ownCpuMs,
+          runqueueWaitMs: classification.runqueueWaitMs,
+          stallVerdict: classification.verdict,
+        }
+      : {}),
   })
 }
 

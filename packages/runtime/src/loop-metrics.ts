@@ -1,19 +1,11 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks'
-import { createLogger } from '@podium/logger'
-import {
-  createStallClassifier,
-  formatStallClassification,
-  type StallClassification,
-} from './loop-stall'
-
-const loopLog = createLogger('runtime:loop')
+import { createStallClassifier, type StallClassification } from './loop-stall'
 
 // Re-exported so callers wiring an onLongTick reporter (daemon loop-attribution,
 // server) can name the classification without a second subpath import.
 export {
   classifyStall,
   createStallClassifier,
-  formatStallClassification,
   parseSchedstat,
   type StallClassification,
   type StallClassifier,
@@ -25,8 +17,8 @@ export interface LoopMetricsHandle {
 }
 
 /**
- * Sample this process's event-loop delay and warn when a single tick blocks the
- * loop longer than `longTickMs`. The systemd watchdog only catches a full wedge
+ * Sample this process's event-loop delay and call `onLongTick` when a single tick
+ * blocks the loop longer than `longTickMs`. The systemd watchdog only catches a full wedge
  * (>30s); this surfaces the sub-second stalls that ruin typing.
  *
  * Measurement uses two sources that complement each other:
@@ -37,19 +29,22 @@ export interface LoopMetricsHandle {
  *    a delayed probe fire always reflects the full stall.
  */
 export function startLoopMetrics(opts: {
-  label: string
   longTickMs?: number
   sampleMs?: number
-  log?: (m: string) => void
   now?: () => number
-  /** Called with the stall duration (ms) each time a long tick is logged, so a
-   *  caller can attribute it (e.g. dump what the loop was busy with). The
-   *  classification (starved vs busy, POD-600) rides along where available. */
-  onLongTick?: (ms: number, classification?: StallClassification) => void
+  /** Called once per detected long tick, with the stall duration (ms) and, where
+   *  available, the starved-vs-busy classification (POD-600).
+   *
+   *  This is the ONLY report of a stall: the probe detects, the caller records.
+   *  Required, because a probe whose detections go nowhere is invisible — and
+   *  because this module previously ALSO logged a prose line of its own, which
+   *  meant every stall was recorded twice, once unqueryably (POD-1932). The
+   *  caller owns the record so the fields it can name (heap, activity mix, SQL)
+   *  land on the SAME record as the duration. */
+  onLongTick: (ms: number, classification?: StallClassification) => void
 }): LoopMetricsHandle {
   const longTickMs = opts.longTickMs ?? 100
   const sampleMs = opts.sampleMs ?? 1000
-  const log = opts.log ?? ((m: string) => loopLog.warn(m))
   const now = opts.now ?? (() => Date.now())
 
   const h = monitorEventLoopDelay({ resolution: 10 })
@@ -79,14 +74,8 @@ export function startLoopMetrics(opts: {
       if (late > lifetimeMaxMs) lifetimeMaxMs = late
       if (late > windowMaxMs) windowMaxMs = late
       if (!loggedThisWindow && late > longTickMs) {
-        const cls = classifier?.classify(late)
-        log(
-          `[podium:loop] ${opts.label} long tick ${late.toFixed(0)}ms${
-            cls ? ` | ${formatStallClassification(cls)}` : ''
-          }`,
-        )
         loggedThisWindow = true
-        opts.onLongTick?.(late, cls)
+        opts.onLongTick(late, classifier?.classify(late))
       }
     }
   }, probeMs)

@@ -64,11 +64,6 @@ export function classifyStall(input: {
   return { ownCpuMs, runqueueWaitMs, verdict }
 }
 
-/** Render the classification the way the loop log lines expect. */
-export function formatStallClassification(c: StallClassification): string {
-  return `own-cpu=${c.ownCpuMs.toFixed(0)}ms runqueue-wait=${c.runqueueWaitMs.toFixed(0)}ms verdict=${c.verdict}`
-}
-
 export interface StallClassifier {
   /** Re-anchor the deltas; call once per sample window. */
   refreshBaseline(): void

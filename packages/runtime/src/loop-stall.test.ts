@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  classifyStall,
-  createStallClassifier,
-  formatStallClassification,
-  parseSchedstat,
-} from './loop-stall'
+import { classifyStall, createStallClassifier, parseSchedstat } from './loop-stall'
 
 describe('parseSchedstat', () => {
   it('parses the 2nd field (runqueue wait, ns)', () => {
@@ -52,14 +47,6 @@ describe('classifyStall', () => {
   it('never divides by zero on a degenerate stall', () => {
     const c = classifyStall({ stallMs: 0, cpuDeltaUs: 0, waitDeltaNs: 0 })
     expect(c.verdict).toBe('mixed')
-  })
-})
-
-describe('formatStallClassification', () => {
-  it('renders the log-line fragment', () => {
-    expect(
-      formatStallClassification({ ownCpuMs: 90.4, runqueueWaitMs: 680.2, verdict: 'starved' }),
-    ).toBe('own-cpu=90ms runqueue-wait=680ms verdict=starved')
   })
 })
 
