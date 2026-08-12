@@ -1251,6 +1251,14 @@ export const messages = sqliteTable(
   },
   (table) => [
     index('idx_messages_delivered_to').on(table.deliveredTo),
+    // The THIRD arm of the ledger's OR [POD-1931]. `messages.ledger` asks
+    // `from_session = ? OR (to_kind='session' AND to_id = ?) OR delivered_to = ?`;
+    // the other two arms were indexed and this one was not, so SQLite could not
+    // take the OR-by-union path and fell back to SCAN messages + a temp B-tree
+    // for the ORDER BY. Measured on the live server: 8 calls costing 8,214ms of
+    // blocked event loop in five minutes, over only 6,969 rows — `SELECT *`
+    // drags every message body through the scan.
+    index('idx_messages_from_session').on(table.fromSession),
     index('idx_messages_thread').on(table.threadId),
     index('idx_messages_recipient').on(table.toKind, table.toId, table.status),
     index('idx_messages_recipient_order').on(
