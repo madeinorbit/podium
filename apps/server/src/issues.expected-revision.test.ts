@@ -309,11 +309,12 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       .sort()
     // THE LIST GREW WITH THE CLIENT OUTBOX (POD-781), which is the enumeration
     // doing its job rather than a re-baseline: `archive`, `delete`, `defer`,
-    // `undefer` and `setLabels` are now queued by the client, and a queued write
-    // is replayed on reconnect — so each gained a `mutationId` and a
-    // `ctx.withMutation` in the same change. The point the test makes is
-    // unchanged: dedupe is still per-handler and reaches only the contracts that
-    // carry the field, which is why `claim` is asserted below to be outside it.
+    // `undefer`, `setLabels`, then `restore` and `setPlacement`, are now queued
+    // by the client, and a queued write is replayed on reconnect — so each
+    // gained a `mutationId` and a `ctx.withMutation` in the same change. The
+    // point the test makes is unchanged: dedupe is still per-handler and reaches
+    // only the contracts that carry the field, which is why `claim` is asserted
+    // below to be outside it.
     expect(carriers).toEqual([
       'addComment',
       'archive',
@@ -323,7 +324,9 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       'delete',
       'markRead',
       'markUnread',
+      'restore',
       'setLabels',
+      'setPlacement',
       'setTucked',
       'undefer',
       'update',

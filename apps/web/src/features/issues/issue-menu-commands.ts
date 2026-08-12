@@ -26,6 +26,9 @@ export interface IssueMenuCommandDeps {
   deferIssue: (id: string, until: string | null) => Promise<unknown>
   undeferIssue: (id: string) => Promise<unknown>
   setIssueLabels: (id: string, labels: string[]) => Promise<unknown>
+  /** Optimistic + outboxed (POD-781): the undo of a delete. A delete still in the
+   *  queue collapses against it rather than round-tripping out and back. */
+  restoreIssue: (id: string) => Promise<unknown>
   setOpenIssueId: (id: string) => void
   setView: (view: 'issues') => void
   handoff?: (machineId: string) => void
@@ -64,7 +67,7 @@ export function runIssueMenuCommand(
         // two commands for one word, and both are outboxed now.
         return deps.updateIssue(id, { archived: !data.first.archived })
       case 'restore':
-        return deps.trpc.issues.restore.mutate({ id })
+        return deps.restoreIssue(id)
       case 'delete': {
         const count = data.issues.length
         const sessions = new Set(data.issues.flatMap((issue) => issue.memberSessionIds ?? []))

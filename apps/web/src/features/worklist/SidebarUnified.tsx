@@ -296,12 +296,12 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   }, [transitionRows])
 
   // Grip-drag manual sort (POD-168): drops persist fractional sortKeys through
-  // issues.update; crossing the PINNED boundary toggles `pinned`. The preview
-  // holds until the store echoes the new order (settleDrag in the effect below),
-  // and reordering never touches row KEYS — so useArrivals stays silent (no
-  // arrival one-shot on a drag, only on genuinely new rows).
+  // issues.update; crossing the PINNED boundary toggles `pinned`. Outboxed
+  // (POD-781), so the drop's own overlay repaints the order and the hook keeps no
+  // preview of its own. Reordering never touches row KEYS — so useArrivals stays
+  // silent (no arrival one-shot on a drag, only on genuinely new rows).
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  const { startDrag, settleDrag } = useRowDrag({
+  const { startDrag } = useRowDrag({
     allowedTargets: (sourceScope, movedId) => {
       if (sourceScope === 'pinned') {
         // NARROWING AT THE DISCRIMINANT, not an adapter cast: `useRowDrag` hands
@@ -315,27 +315,25 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       if (sourceScope.startsWith('group:')) return ['pinned']
       return [] // children scopes: strictly within the parent
     },
-    onDrop: ({ sourceScope, targetScope, movedId, order }) => {
+    onDrop: ({ sourceScope, targetScope, movedId, order }): Promise<unknown> => {
       // Same DOM-attribute origin and same narrowing as `allowedTargets` above:
       // every scope this sidebar drags within is an issue row scope.
       const patches = planReorderKeys(order, movedId, (id) => issueById.get(asIssueId(id))?.sortKey)
       const crossedPinned = sourceScope !== targetScope
-      void applySortPatches(
+      // RETURNED, not fire-and-forget: the hook holds the gesture's transforms
+      // until the enqueue settles, which is the one frame between the release and
+      // the overlay's repaint. No `.catch` beyond that — the queue owns the write
+      // from here, and a definitive refusal drops the overlay and toasts rather
+      // than silently reverting a row nobody was told about.
+      return applySortPatches(
         patches.map((p) => ({
           ...p,
           ...(crossedPinned && p.id === movedId ? { pinned: targetScope === 'pinned' } : {}),
         })),
-      ).catch(() => settleDrag())
+      )
     },
   })
   const onGripDown = (e: ReactPointerEvent, issueId: string) => startDrag(e, issueId)
-  // The mutation round-trips over the ws; when the derived order lands, drop
-  // the held drag preview (transforms) in the same commit.
-  useEffect(() => {
-    // `work` is the trigger: a fresh derived order means the reorder landed.
-    void work
-    settleDrag()
-  }, [work, settleDrag])
 
   const renderWorkRow = (item: TransitionWorkRow, animate = true) => {
     const { row, lane } = item.value

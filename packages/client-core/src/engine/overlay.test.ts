@@ -285,6 +285,46 @@ describe('overlayForOutboxEntry projection', () => {
     expect(o.coveredBy({ labels: ['bug'] } as IssueWire)).toBe(false)
   })
 
+  it('issueSetPlacement paints the PARENT LINK — into a mission, and back out of one', () => {
+    const intoMission = overlayForOutboxEntry(
+      entry('issueSetPlacement', { id: 'i1', placement: 'mission', originId: 'origin-1' }),
+    )
+    if (intoMission?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(intoMission.entity).toBe('issues')
+    expect(intoMission.id).toBe('i1')
+    expect(intoMission.patch).toEqual({ parentId: 'origin-1' })
+    expect(intoMission.coveredBy({ parentId: 'origin-1' } as IssueWire)).toBe(true)
+    expect(intoMission.coveredBy({ parentId: 'someone-else' } as IssueWire)).toBe(false)
+    expect(intoMission.coveredBy({} as IssueWire)).toBe(false)
+
+    const ownThing = overlayForOutboxEntry(
+      entry('issueSetPlacement', { id: 'i1', placement: 'own', originId: 'origin-1' }),
+    )
+    if (ownThing?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(ownThing.patch).toEqual({ parentId: null })
+    // Top-level is spelled BOTH ways on the wire — `parentId` is optional — so
+    // an absent field covers a cleared one, as it does for a cleared colour.
+    expect(ownThing.coveredBy({} as IssueWire)).toBe(true)
+    expect(ownThing.coveredBy({ parentId: 'origin-1' } as IssueWire)).toBe(false)
+  })
+
+  it('issueRestore clears the tombstone — the exact inverse of what issueDelete paints', () => {
+    const del = overlayForOutboxEntry(entry('issueDelete', { id: 'i1' }, 1751500800000))
+    const o = overlayForOutboxEntry(entry('issueRestore', { id: 'i1' }))
+    if (del?.op !== 'patch' || o?.op !== 'patch') throw new Error('expected patch overlays')
+    expect(o.entity).toBe('issues')
+    expect(o.id).toBe('i1')
+    expect(o.patch).toEqual({ deletedAt: null })
+    // They write the one cell, which is why they share a collapse key.
+    expect(Object.keys(o.patch)).toEqual(Object.keys(del.patch))
+    // Truth spells "not deleted" as an ABSENT field — `IssueWire.deletedAt` is
+    // optional, which is why the wire type refuses the null form below without a
+    // cast, and why `sameCell` is what judges this rather than `===`.
+    expect(o.coveredBy({ deletedAt: null } as unknown as IssueWire)).toBe(true)
+    expect(o.coveredBy({} as IssueWire)).toBe(true)
+    expect(o.coveredBy({ deletedAt: '2026-07-03T00:00:00.000Z' } as IssueWire)).toBe(false)
+  })
+
   // ---------------------------------------------------------------------------
   // POD-781 — the curation mirror onto the normalized projection, which is what
   // the issue BOARD and the issue page read (the sidebar reads the legacy wire).

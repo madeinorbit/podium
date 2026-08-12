@@ -322,8 +322,8 @@ export const attachSessionInput = z.object({
 })
 
 /**
- * ARCHIVE, DELETE, DEFER, UNDEFER AND SET-LABELS CARRY A `mutationId`, and
- * `restore` does not — POD-781.
+ * ARCHIVE, DELETE, RESTORE, DEFER, UNDEFER, SET-LABELS AND SET-PLACEMENT CARRY A
+ * `mutationId` — POD-781.
  *
  * The field is the caller's replay identity: `MutationLedgerPort.once` keys the
  * receipt on it, which is the ONE property that makes a queued write safe to
@@ -335,10 +335,18 @@ export const attachSessionInput = z.object({
  * `close` needed nothing here — it has carried a `mutationId` since it was first
  * written, which is why the outbox could take it as it stood.
  *
- * `restore` is deliberately left bare: nothing queues it yet (POD-781 group 3),
- * and an input field that no caller sends and no handler reads is exactly the
- * decoration ADR 3 D3's "permission is not wiring" rule warns about. It gains
- * the field on the day it gains an outbox kind.
+ * `restore` was deliberately left bare through groups 1 and 2 — "it gains the
+ * field on the day it gains an outbox kind", and group 3 is that day. Its replay
+ * hazard is not double-application (restoring a live issue returns early) but
+ * ORDER: a queued restore re-sent after the operator deleted the issue AGAIN
+ * would resurrect it, along with every session that second delete tombstoned.
+ * The receipt is what refuses the second pass.
+ *
+ * `setPlacement` gains it for the reason its handler is two writes rather than
+ * one — the provenance edge and the parent link, deliberately ordered so no
+ * interleaving leaves the issue top-level with nothing pointing back. A replay
+ * lands that pair against a hierarchy that may have moved on since; the receipt
+ * keeps the pair a single application of a single decision.
  */
 export const archiveInput = byIssueId.extend({
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
@@ -348,7 +356,9 @@ export const deleteInput = byIssueId.extend({
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
-export const restoreInput = byIssueId
+export const restoreInput = byIssueId.extend({
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
 
 export const actionInput = z.object({ id: IssueIdField, kind: z.enum(['rebase', 'pr', 'merge']) })
 
@@ -468,6 +478,10 @@ export const setPlacementInput = z.object({
   placement: z.enum(['own', 'mission']),
   /** The issue it was discovered from — its parent, or its spin-off origin. */
   originId: IssueIdField,
+  // Outboxed (POD-781 group 3) — see the archive/delete/restore note above for
+  // why a queued write needs a replay identity, and why this one's two-write
+  // handler needs it especially.
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 /**

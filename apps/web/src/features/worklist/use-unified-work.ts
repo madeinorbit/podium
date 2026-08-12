@@ -69,7 +69,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     repos,
     sessions,
     pins,
-    trpc,
     selectedWorktree,
     setSelectedWorktree,
     selectedIssueId,
@@ -91,7 +90,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       repos: s.repos,
       sessions: s.sessions,
       pins: s.pins,
-      trpc: s.trpc,
       selectedWorktree: s.selectedWorktree,
       setSelectedWorktree: s.setSelectedWorktree,
       selectedIssueId: s.selectedIssueId,
@@ -267,11 +265,12 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   }
 
   // Concrete mutation callbacks rather than the raw trpc client, so the hook's
-  // inferred return type stays portable across packages.
+  // inferred return type stays portable across packages. The client itself is no
+  // longer read here at all — every write this hook owns is a store action now.
   //
-  // OPTIMISTIC (POD-781): rename, colour, archive and delete go through the
-  // engine's outbox-as-overlay rather than straight to tRPC, so the row repaints
-  // on the press. There is no `.catch(() => {})` any more and that is the point — a
+  // OPTIMISTIC (POD-781): rename, colour, archive, delete and the drag reorder go
+  // through the engine's outbox-as-overlay rather than straight to tRPC, so the
+  // row repaints on the press. There is no `.catch(() => {})` any more and that is the point — a
   // swallowed rejection was the old way of saying "the click may have done
   // nothing and we will not mention it". The queue keeps the write, replays it
   // on reconnect, and parks it in the recovery surface with a toast if the
@@ -285,15 +284,18 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   const deleteIssue = (id: string): Promise<unknown> => deleteIssueAction(id)
   // Manual-sort persistence (POD-168): one patch per row whose key changes
   // (fast path = exactly the dragged row; legacy backfill = the whole scope).
+  //
+  // Outboxed too (POD-781), and this is the call that let the drop preview go:
+  // the new order is derived from `sortKey`, the overlay paints `sortKey` the
+  // moment the drop enqueues, so the rows land where they were dropped without a
+  // hand-held transform waiting for the server to say the same thing. One entry
+  // per row, each in its own `issue:<id>` partition — the fast path writes one.
   const applySortPatches = (
     patches: Array<{ id: string; sortKey: string; pinned?: boolean }>,
   ): Promise<unknown> =>
     Promise.all(
       patches.map(({ id, sortKey, pinned }) =>
-        trpc.issues.update.mutate({
-          id,
-          patch: { sortKey, ...(pinned === undefined ? {} : { pinned }) },
-        }),
+        updateIssue(id, { sortKey, ...(pinned === undefined ? {} : { pinned }) }),
       ),
     )
 

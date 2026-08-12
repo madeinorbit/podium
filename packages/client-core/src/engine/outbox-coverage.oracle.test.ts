@@ -9,7 +9,7 @@
  *
  * Recorded here because the issue brief says "offline queueing is issue-writes
  * only today", and that is not what the code does: the covered set spans eight
- * SESSION writes plus TEN issue writes and five replicated per-user writes.
+ * SESSION writes plus TWELVE issue writes and five replicated per-user writes.
  * Only live interaction (`sendText`, `ask`, and `uploadImage`) remains a
  * deliberate direct-only exclusion: replaying chat, a seance, or an image
  * upload hours later is worse than an immediate failure.
@@ -24,11 +24,11 @@
  * ---------------------------------------------------------------------------
  *
  * The issue half of this set was THREE per-user markers (`markRead`,
- * `markUnread`, `setTucked`) and is now TEN: `issues.update`, `issues.archive`
+ * `markUnread`, `setTucked`) and is now TWELVE: `issues.update`, `issues.archive`
  * and `issues.delete` joined them, then `issues.close`, `issues.defer`,
- * `issues.undefer` and `issues.setLabels`. Every case here is tagged
- * must-not-change ON PURPOSE, so growing the set is a product decision and this
- * paragraph is where it is taken.
+ * `issues.undefer` and `issues.setLabels`, and finally `issues.setPlacement` and
+ * `issues.restore`. Every case here is tagged must-not-change ON PURPOSE, so
+ * growing the set is a product decision and this paragraph is where it is taken.
  *
  * WHY. The sidebar's delete, dismiss and inline rename went straight to the
  * server and painted NOTHING until it answered — on a slow link the click read
@@ -37,8 +37,18 @@
  * offers: the colour, the pin, close, snooze, unsnooze, stage, priority and
  * labels. The commands were already `offline-eligible` on ADR 1's `issueCore`
  * row, and idempotency was already framework-owned (`MutationLedgerPort.once`);
- * what was missing was the client half — and, for `defer`/`undefer`/`setLabels`,
- * a `mutationId` on the input to key the receipt on.
+ * what was missing was the client half — and, for
+ * `defer`/`undefer`/`setLabels`/`restore`/`setPlacement`, a `mutationId` on the
+ * input to key the receipt on.
+ *
+ * THE LAST TWO ARE THE SAME DECISION SEEN FROM THE EDGES OF THE FAMILY.
+ * `setPlacement` moves a row between missions — the operator's triage answer, and
+ * as much a row edit as a stage change. `restore` is the UNDO of a write already
+ * in this set, and leaving it out would have been the odd choice: an instant
+ * delete whose undo waits on the network reads as the undo having failed. It
+ * also buys the one collapse in the family that spares real work — a delete still
+ * queued is cancelled by the restore rather than round-tripping out and back,
+ * PTYs and all.
  *
  * WHY NOT THE WHOLE ISSUE SURFACE. What joined are the CURATION writes: edits to
  * a row the operator is looking at, whose effect is that row looking different.
@@ -57,9 +67,11 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../api'
+import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { createOutbox, type OutboxEntry, type OutboxStorage } from '../outbox'
 import type { Replica } from '../replica/replica'
 import type { StoreNotices } from './types'
+import { openKernelEngineOutbox } from './kernel-outbox'
 import { createEngineOutbox, type OutboxKinds } from './wiring'
 
 const MUST_NOT_CHANGE = 'must-not-change'
@@ -115,6 +127,8 @@ function recordingApi() {
       defer: proc('issues.defer'),
       undefer: proc('issues.undefer'),
       setLabels: proc('issues.setLabels'),
+      setPlacement: proc('issues.setPlacement'),
+      restore: proc('issues.restore'),
     },
   } as unknown as PodiumClientApi
   return { api, calls }
@@ -199,10 +213,74 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
   { kind: 'issueDefer', input: { id: 'i1', until: null }, path: 'issues.defer' },
   { kind: 'issueUndefer', input: { id: 'i1' }, path: 'issues.undefer' },
   { kind: 'issueSetLabels', input: { id: 'i1', labels: ['bug'] }, path: 'issues.setLabels' },
+  {
+    kind: 'issueSetPlacement',
+    input: { id: 'i1', placement: 'mission', originId: 'i2' },
+    path: 'issues.setPlacement',
+  },
+  { kind: 'issueRestore', input: { id: 'i1' }, path: 'issues.restore' },
 ]
 
+/**
+ * THE KERNEL QUEUE IS THE ONE THE WEB APP RUNS (`apps/web/src/lib/kernelReplica.ts`
+ * → `openKernelEngineOutbox`), and until POD-781 group 3 nothing in the repo
+ * drove it. Everything above this line exercises the COMPATIBILITY queue, and
+ * the two used to name their procedures in two hand-written tables: this one as
+ * a `switch` over dotted command names that stopped at `issues.setTucked`. Seven
+ * curation commands were queued, routed, overlaid and unit-tested, and every one
+ * of them fell through to the switch's BAD_REQUEST — a definitive refusal — so
+ * the optimistic row painted and then snapped back. Found by driving a drag in a
+ * real browser, not by any test here.
+ *
+ * The tables are one table now (`outboxExecutors`). This walks the covered set
+ * through the kernel adapter so the claim is checked on the queue that ships,
+ * rather than on the one that happened to be easy to construct.
+ */
+describe('oracle: the KERNEL queue delivers the same covered set', () => {
+  it(`${MUST_NOT_CHANGE}: every covered kind reaches its tRPC procedure through the queue the web app runs`, async () => {
+    const { api, calls } = recordingApi()
+    const create = await openKernelEngineOutbox({
+      store: new InMemoryOutboxStore(),
+      principal: 'user-1',
+      api,
+      onDegraded: () => {},
+    })
+    const outbox = create({
+      api,
+      replica: {
+        outboxStorage: memoryStorage,
+        outboxAwaitingStorage: memoryStorage,
+        outboxDeadLetterStorage: memoryStorage,
+      } as unknown as Replica,
+      notices: { error: () => {}, info: () => {}, warn: () => {} } as unknown as StoreNotices,
+    })
+
+    // ONE TARGET PER ENTRY. The kernel queue COLLAPSES (POD-785): the pairs that
+    // share a cell — markRead/markUnread, snoozeSet/snoozeClear, delete/restore —
+    // supersede each other when they name the same row, which is the point of
+    // them and would read here as "the executor was never called". Giving each
+    // entry its own id asks the question this test is asking: can every kind be
+    // SENT. The collapse itself is pinned in wiring.test.ts.
+    for (const [index, covered] of COVERED.entries()) {
+      const input = { ...(covered.input as Record<string, unknown>) }
+      for (const key of ['id', 'sessionId', 'worktree']) {
+        if (typeof input[key] === 'string') input[key] = `${input[key] as string}-${index}`
+      }
+      await outbox.enqueue(covered.kind, input as OutboxKinds[typeof covered.kind])
+    }
+    await drainFully(outbox)
+
+    // Sorted: the kernel drains per PARTITION, so the order across targets is not
+    // the enqueue order. What must hold is that none was refused for want of an
+    // executor — a missing one dead-letters instead of calling anything.
+    expect(calls.map((c) => c.path).sort()).toEqual(COVERED.map((c) => c.path).sort())
+    expect(outbox.deadLetters()).toEqual([])
+    outbox.dispose()
+  })
+})
+
 describe('oracle: the offline-queued write set', () => {
-  it(`${MUST_NOT_CHANGE}: eight session writes, ten issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
+  it(`${MUST_NOT_CHANGE}: eight session writes, twelve issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
     const { outbox, calls } = makeOutbox()
 
     for (const covered of COVERED) {
@@ -215,9 +293,9 @@ describe('oracle: the offline-queued write set', () => {
       calls.filter((c) => c.path.startsWith('sessions.') || c.path.startsWith('snooze')),
     ).toHaveLength(8)
     // Counted, not implied by the list above: POD-781 took the issue half from
-    // three to ten, and a future edit that drops one of the curation kinds while
-    // leaving its row in COVERED would still pass the ordering assertion.
-    expect(calls.filter((c) => c.path.startsWith('issues.'))).toHaveLength(10)
+    // three to twelve, and a future edit that drops one of the curation kinds
+    // while leaving its row in COVERED would still pass the ordering assertion.
+    expect(calls.filter((c) => c.path.startsWith('issues.'))).toHaveLength(12)
     outbox.dispose()
   })
 
@@ -257,6 +335,36 @@ describe('oracle: the offline-queued write set', () => {
       {
         path: 'issues.setLabels',
         input: { id: 'i1', labels: ['bug'], mutationId: labels.mutationId },
+      },
+    ])
+    outbox.dispose()
+  })
+
+  it(`${MUST_NOT_CHANGE}: restore and setPlacement replay with a mutationId — the last two inputs to gain one`, async () => {
+    const { outbox, calls } = makeOutbox()
+
+    // `restore` is the sharp one here, and its hazard is ORDER rather than
+    // double-application: restoring a live issue is already a no-op, but a
+    // re-sent restore arriving after the operator deleted the issue AGAIN would
+    // resurrect it and every session that second delete took with it.
+    const restore = outbox.enqueue('issueRestore', { id: 'i1' })
+    const placement = outbox.enqueue('issueSetPlacement', {
+      id: 'i2',
+      placement: 'mission',
+      originId: 'i3',
+    })
+    await drainFully(outbox)
+
+    expect(calls).toEqual([
+      { path: 'issues.restore', input: { id: 'i1', mutationId: restore.mutationId } },
+      {
+        path: 'issues.setPlacement',
+        input: {
+          id: 'i2',
+          placement: 'mission',
+          originId: 'i3',
+          mutationId: placement.mutationId,
+        },
       },
     ])
     outbox.dispose()

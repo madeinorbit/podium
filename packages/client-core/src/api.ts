@@ -168,6 +168,16 @@ export interface PodiumClientApi {
     defer: ApiMutation<WithMutationId<{ id: string; until: string | null }>>
     undefer: ApiMutation<WithMutationId<{ id: string }>>
     setLabels: ApiMutation<WithMutationId<{ id: string; labels: string[] }>>
+    /**
+     * THE LAST TWO (POD-781 group 3), and neither is expressible as a patch.
+     * `setPlacement` writes an ordered PAIR — the provenance edge and the parent
+     * link — and `restore` un-tombstones the issue together with the sessions its
+     * delete took, in one ledger transaction.
+     */
+    setPlacement: ApiMutation<
+      WithMutationId<{ id: string; placement: 'own' | 'mission'; originId: string }>
+    >
+    restore: ApiMutation<WithMutationId<{ id: string }>>
   }
   pins: {
     list: ApiQuery<void, PinState>

@@ -92,6 +92,23 @@ export type OutboxKinds = {
   issueDefer: { id: string; until: string | null }
   issueUndefer: { id: string }
   issueSetLabels: { id: string; labels: string[] }
+  /**
+   * THE LAST TWO (POD-781 group 3), and both are `issues.update`-adjacent
+   * commands that a patch could not stand in for.
+   *
+   * `issueSetPlacement` writes a PAIR — the provenance edge and the parent link,
+   * in an order the server chose so no interleaving leaves the issue top-level
+   * with nothing pointing back at where it came from. A patch kind reaches
+   * neither: `parentId` is on the issue row but `reparent` maintains the
+   * hierarchy around it, and dependency edges are not row fields at all.
+   *
+   * `issueRestore` is the inverse of `issueDelete` and, like it, is a
+   * CROSS-AGGREGATE act: it un-tombstones the issue and the exact sessions its
+   * delete killed, in one ledger transaction. `issues.update{deletedAt:null}`
+   * would move the issue alone and strand the sessions.
+   */
+  issueSetPlacement: { id: string; placement: 'own' | 'mission'; originId: string }
+  issueRestore: { id: string }
 }
 
 /** The engine-facing queue contract. Kernel-backed web clients inject this
@@ -216,6 +233,14 @@ export const OUTBOX_COMMANDS: Record<
   // rather than WRITE_POLICY. Copied from the contract either way, and
   // `outbox-contract-table.test.ts` pins it there.
   issueSetLabels: { name: 'issues.setLabels', version: 1, delivery, confirmation: 'confirm' },
+  issueSetPlacement: {
+    name: 'issues.setPlacement',
+    version: 1,
+    delivery,
+    confirmation: 'confirm',
+  },
+  // `manage` again, like `setLabels`: undoing a delete is the heavier authority.
+  issueRestore: { name: 'issues.restore', version: 1, delivery, confirmation: 'confirm' },
 }
 
 /**
@@ -392,6 +417,32 @@ export const OUTBOX_ROUTING: {
     partitionKey: `issue:${i.id}`,
     collapseKey: `issue-labels:${i.id}`,
   }),
+
+  // POD-781 group 3.
+  //
+  // THE COLLAPSE KEY CARRIES THE ORIGIN, which no other kind here needs to do.
+  // A placement is absolute — "part of the mission" or "its own thing" — but only
+  // RELATIVE TO ONE ORIGIN, and the command writes an edge naming that origin.
+  // Keyed on the issue alone, "own w.r.t. A" then "mission w.r.t. B" would
+  // collapse to the second, and A's discovered-from edge — the whole point of the
+  // first decision — would never be written. Two decisions about the SAME origin
+  // do subsume each other, and those still collapse.
+  issueSetPlacement: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-placement:${i.id}:${i.originId}`,
+  }),
+  // RESTORE SHARES `issue-deleted` WITH DELETE, which is `snoozeSet`/`snoozeClear`'s
+  // arrangement and is chosen for the same reason: both write the one `deletedAt`
+  // cell, so "delete — no, undo" must send the operator's LAST word rather than
+  // both words in order. Collapsing the pair away is strictly better than sending
+  // it: the delete that never leaves is a cascade that never kills the member
+  // sessions' PTYs, and the restore the operator meant is where the row ends up
+  // either way. (Only PENDING entries collapse — a delete already drained is
+  // beyond this and the restore follows it down the same partition, in order.)
+  issueRestore: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-deleted:${i.id}`,
+  }),
 }
 
 /** Route one queued write. Falls back to the entry's own private partition — D12's
@@ -464,6 +515,61 @@ export function createEngineHub(args: {
   })
 }
 
+/**
+ * THE ONE PLACE A QUEUED KIND MEETS ITS PROCEDURE, and it is one place because
+ * POD-781 group 3 found out what two places cost.
+ *
+ * This map used to live inline in `createEngineOutbox` below, and the
+ * kernel-backed queue (`engine/kernel-outbox.ts`, which is what the WEB app
+ * actually runs) carried a hand-written `switch` over dotted command names
+ * doing the same job. The two drifted the moment this issue added a kind: seven
+ * curation commands were queued, routed, overlaid and tested, and every one of
+ * them hit the switch's `default` arm — a synthetic BAD_REQUEST, classified as a
+ * definitive refusal. So the row painted on the press, dead-lettered, and
+ * snapped back a beat later. Nothing failed loudly enough to notice in a unit
+ * test, because the unit tests exercised THIS map.
+ *
+ * A `{ [K in keyof OutboxKinds]: … }` mapped type is total by construction: a new
+ * kind fails to compile here rather than failing at runtime on a user's drop.
+ * Both queues read it.
+ */
+export function outboxExecutors(api: PodiumClientApi): {
+  [K in keyof OutboxKinds]: (input: OutboxKinds[K]) => Promise<unknown>
+} {
+  return {
+    pinSet: (i) => api.pins.set.mutate(i),
+    tabSetOrder: (i) => api.tabs.setOrder.mutate(i),
+    layoutSet: (i) => api.layout.set.mutate(i),
+    layoutClear: (i) => api.layout.clear.mutate(i),
+    settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
+    resumeAndSend: async (i) => {
+      const result = await api.sessions.resumeAndSend.mutate(i)
+      // dead_letter / refused is HTTP 200 with ok:false — must not be applied
+      assertSendAccepted(result)
+      return result
+    },
+    rename: (i) => api.sessions.rename.mutate(i),
+    setArchived: (i) => api.sessions.setArchived.mutate(i),
+    setWorkState: (i) => api.sessions.setWorkState.mutate(i),
+    snoozeSet: (i) => api.snoozes.set.mutate(i),
+    snoozeClear: (i) => api.snoozes.clear.mutate(i),
+    sessionMarkRead: (i) => api.sessions.markRead.mutate(i),
+    sessionMarkUnread: (i) => api.sessions.markUnread.mutate(i),
+    issueMarkRead: (i) => api.issues.markRead.mutate(i),
+    issueMarkUnread: (i) => api.issues.markUnread.mutate(i),
+    issueSetTucked: (i) => api.issues.setTucked.mutate(i),
+    issueUpdate: (i) => api.issues.update.mutate(i),
+    issueArchive: (i) => api.issues.archive.mutate(i),
+    issueDelete: (i) => api.issues.delete.mutate(i),
+    issueClose: (i) => api.issues.close.mutate(i),
+    issueDefer: (i) => api.issues.defer.mutate(i),
+    issueUndefer: (i) => api.issues.undefer.mutate(i),
+    issueSetLabels: (i) => api.issues.setLabels.mutate(i),
+    issueSetPlacement: (i) => api.issues.setPlacement.mutate(i),
+    issueRestore: (i) => api.issues.restore.mutate(i),
+  }
+}
+
 /** Durable write path for the covered mutations. The queue doubles as the
  *  optimistic overlay (#263: the outbox IS the overlay — see overlay.ts): a
  *  pending entry paints its patch over the replica's server truth, so an
@@ -482,36 +588,7 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
     storage: args.replica.outboxStorage(),
     awaitingStorage: args.replica.outboxAwaitingStorage(),
     deadLetterStorage: args.replica.outboxDeadLetterStorage(),
-    executors: {
-      pinSet: (i) => api.pins.set.mutate(i),
-      tabSetOrder: (i) => api.tabs.setOrder.mutate(i),
-      layoutSet: (i) => api.layout.set.mutate(i),
-      layoutClear: (i) => api.layout.clear.mutate(i),
-      settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
-      resumeAndSend: async (i) => {
-        const result = await api.sessions.resumeAndSend.mutate(i)
-        // dead_letter / refused is HTTP 200 with ok:false — must not be applied
-        assertSendAccepted(result)
-        return result
-      },
-      rename: (i) => api.sessions.rename.mutate(i),
-      setArchived: (i) => api.sessions.setArchived.mutate(i),
-      setWorkState: (i) => api.sessions.setWorkState.mutate(i),
-      snoozeSet: (i) => api.snoozes.set.mutate(i),
-      snoozeClear: (i) => api.snoozes.clear.mutate(i),
-      sessionMarkRead: (i) => api.sessions.markRead.mutate(i),
-      sessionMarkUnread: (i) => api.sessions.markUnread.mutate(i),
-      issueMarkRead: (i) => api.issues.markRead.mutate(i),
-      issueMarkUnread: (i) => api.issues.markUnread.mutate(i),
-      issueSetTucked: (i) => api.issues.setTucked.mutate(i),
-      issueUpdate: (i) => api.issues.update.mutate(i),
-      issueArchive: (i) => api.issues.archive.mutate(i),
-      issueDelete: (i) => api.issues.delete.mutate(i),
-      issueClose: (i) => api.issues.close.mutate(i),
-      issueDefer: (i) => api.issues.defer.mutate(i),
-      issueUndefer: (i) => api.issues.undefer.mutate(i),
-      issueSetLabels: (i) => api.issues.setLabels.mutate(i),
-    },
+    executors: outboxExecutors(api),
     onApplied: args.onApplied,
     // A definitively-refused entry can never sync AS IT IS — but it is no longer
     // dropped (POD-316), so the old copy ("and dropped") had become a lie about

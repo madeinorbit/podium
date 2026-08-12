@@ -136,6 +136,8 @@ export const COMMAND_ACTIONS = [
   'deferIssue',
   'undeferIssue',
   'setIssueLabels',
+  'setIssuePlacement',
+  'restoreIssue',
   'setSessionDraft',
   'setSidebarSettings',
 ] as const
@@ -191,7 +193,18 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly notices: StoreNotices
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
-  enqueueOverlayed<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): void
+  /**
+   * Queue a write and repaint from it (#263). RESOLVES WHEN THE OVERLAY IS
+   * PUBLISHED, not when the call is made (POD-781): the durable enqueue is a real
+   * await, and a caller that has to hand a gesture over to the repainted list —
+   * the sidebar's drag, which holds its transforms exactly that long — needs a
+   * promise that means something. Voiding it here made every issue action resolve
+   * a couple of frames before the row moved.
+   */
+  enqueueOverlayed<K extends keyof OutboxKinds & string>(
+    kind: K,
+    input: OutboxKinds[K],
+  ): Promise<void>
   revealFileTab(args: {
     tabId: string
     worktreePath?: string
@@ -742,6 +755,9 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     deferIssue: async (id, until) => rt.enqueueOverlayed('issueDefer', { id, until }),
     undeferIssue: async (id) => rt.enqueueOverlayed('issueUndefer', { id }),
     setIssueLabels: async (id, labels) => rt.enqueueOverlayed('issueSetLabels', { id, labels }),
+    setIssuePlacement: async (id, placement, originId) =>
+      rt.enqueueOverlayed('issueSetPlacement', { id, placement, originId }),
+    restoreIssue: async (id) => rt.enqueueOverlayed('issueRestore', { id }),
     setSessionDraft: (sessionId, text) => rt.setSessionDraft(sessionId, text),
     setSidebarSettings: async (next) => {
       const previous = rt.state().sidebarSettings

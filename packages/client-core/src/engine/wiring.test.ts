@@ -62,6 +62,12 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
   issueDefer: { id: 'POD-1', until: null } as OutboxKinds['issueDefer'],
   issueUndefer: { id: 'POD-1' } as OutboxKinds['issueUndefer'],
   issueSetLabels: { id: 'POD-1', labels: ['bug'] } as OutboxKinds['issueSetLabels'],
+  issueSetPlacement: {
+    id: 'POD-1',
+    placement: 'mission',
+    originId: 'POD-2',
+  } as OutboxKinds['issueSetPlacement'],
+  issueRestore: { id: 'POD-1' } as OutboxKinds['issueRestore'],
 }
 
 const kinds = Object.keys(OUTBOX_COMMANDS) as (keyof OutboxKinds)[]
@@ -169,6 +175,8 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
       route('issueDefer', { id, until: null }).partitionKey,
       route('issueUndefer', { id }).partitionKey,
       route('issueSetLabels', { id, labels: ['bug'] }).partitionKey,
+      route('issueSetPlacement', { id, placement: 'own', originId: 'POD-9' }).partitionKey,
+      route('issueRestore', { id }).partitionKey,
     ])
     expect([...partitions]).toEqual([`issue:${id}`])
     // ...and two DIFFERENT issues still never serialise against each other.
@@ -210,6 +218,40 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
       route('issueSetLabels', { id, labels: ['a'] }).collapseKey,
     )
     expect(route('issueUpdate', { id, patch: { stage: 'backlog' } }).collapseKey).toBeUndefined()
+  })
+
+  it('shares the deleted cell between delete and restore, so an undo cancels the delete outright', () => {
+    // POD-781 group 3, and the same reasoning as defer/undefer above: both write
+    // `deletedAt`, so the operator's last word is the one that should travel. It
+    // is the one pair where collapsing also SPARES work — a delete that never
+    // leaves is a cascade that never kills the member sessions' PTYs, and the
+    // row ends up restored either way.
+    const id = 'POD-1'
+    expect(route('issueDelete', { id }).collapseKey).toBe(route('issueRestore', { id }).collapseKey)
+    expect(route('issueRestore', { id }).collapseKey).not.toBe(
+      route('issueRestore', { id: 'POD-2' }).collapseKey,
+    )
+    // Archiving is a different cell, and an un-archive rides `issueUpdate`,
+    // which collapses with nothing.
+    expect(route('issueRestore', { id }).collapseKey).not.toBe(
+      route('issueArchive', { id }).collapseKey,
+    )
+  })
+
+  it('keys a placement by its ORIGIN as well as its issue', () => {
+    // POD-781 group 3. A placement is absolute only RELATIVE TO ONE ORIGIN: the
+    // command writes a `discovered-from` edge naming it. Keyed on the issue
+    // alone, "own w.r.t. A" then "mission w.r.t. B" would collapse to the second
+    // and A's edge — the whole content of the first decision — would never be
+    // written. Same origin still collapses: that IS the operator changing their
+    // mind about one question.
+    const id = 'POD-1'
+    expect(route('issueSetPlacement', { id, placement: 'own', originId: 'POD-2' }).collapseKey).toBe(
+      route('issueSetPlacement', { id, placement: 'mission', originId: 'POD-2' }).collapseKey,
+    )
+    expect(
+      route('issueSetPlacement', { id, placement: 'own', originId: 'POD-2' }).collapseKey,
+    ).not.toBe(route('issueSetPlacement', { id, placement: 'own', originId: 'POD-3' }).collapseKey)
   })
 
   it('never shares a collapse key across different targets or different cells', () => {

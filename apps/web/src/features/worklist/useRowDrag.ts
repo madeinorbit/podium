@@ -9,13 +9,40 @@
  *
  * DOM contract: every draggable row is wrapped in `[data-drag-key="<issueId>"]`
  * placed as a DIRECT child of its `[data-drag-scope="<scopeId>"]` container.
- * On drop the hook reports the target scope and the full new id order there;
- * the caller persists sortKeys and clears the preview once React re-renders
- * the new order (keys stay mounted, so the arrival one-shot never fires).
+ * On drop the hook reports the target scope and the full new id order there and
+ * hands the rows back unstyled; the caller persists sortKeys and the store
+ * repaints the new order (keys stay mounted, so the arrival one-shot never
+ * fires).
+ *
+ * THE DROP PREVIEW IS GONE (POD-781), and the line between what went and what
+ * stayed is worth stating, because the two look alike from a distance.
+ *
+ * WHAT WENT: a post-drop HOLD. The transforms stayed applied after the pointer
+ * lifted — a 1500ms timer, plus a `settleDrag` the sidebar called from an effect
+ * on the derived work list — so the row would not snap back "until the real order
+ * arrived". That was a fourth optimism mechanism beside the outbox-as-overlay
+ * (#263 collapsed three into one precisely because parallel mechanisms drift):
+ * it held a value the SERVER had not confirmed, on a timeout, in the DOM, where
+ * nothing else could see it. The reorder now enqueues through the overlay, so
+ * the overlay is the preview and nothing here waits on a round trip.
+ *
+ * WHAT STAYED is drag MECHANICS: pointer math, hit-testing the legal containers,
+ * and the FLIP transforms that show where the row would land while the pointer is
+ * down. They describe a gesture in progress, not a write in flight.
+ *
+ * AND THE HANDOFF, measured rather than assumed. `onDrop` may return the enqueue's
+ * promise, which resolves when the overlay has been PUBLISHED; the transforms are
+ * released in the `requestAnimationFrame` after that. Both halves are ordering,
+ * not waiting: the promise is one local await on a durable write (no timer, no
+ * opinion about the server), and the rAF is the event loop's own guarantee that
+ * React's commit — scheduled by that publish — runs before the frame paints.
+ * Release earlier and the drive measured five painted frames of the pre-drop
+ * order: the row visibly went home, then moved again. Release on a refusal too,
+ * which is right — there is no overlay then, and home is where the row belongs.
  */
 
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useRef } from 'react'
 
 export interface RowDrop {
   /** Scope the row was picked up from. */
@@ -59,25 +86,22 @@ function siblingWrappers(container: HTMLElement): HTMLElement[] {
 export function useRowDrag(opts: {
   /** Legal drop scopes for a drag out of `sourceScope` (source itself is always legal). */
   allowedTargets: (sourceScope: string, movedId: string) => string[]
-  onDrop: (drop: RowDrop) => void
+  /** Persist the drop. Return the write's promise to hold the gesture's
+   *  transforms until it settles (see the handoff note in the file header). */
+  onDrop: (drop: RowDrop) => void | Promise<unknown>
 }): {
   startDrag: (e: ReactPointerEvent, movedId: string) => void
-  /** Clear any lingering post-drop preview (call when the real order arrived). */
-  settleDrag: () => void
 } {
   const session = useRef<DragSession | null>(null)
-  /** Post-drop hold: transforms stay applied until the store echoes the new
-   *  order (or a timeout), so the row doesn't snap back for a frame. */
-  const hold = useRef<{ clear: () => void; timer: ReturnType<typeof setTimeout> } | null>(null)
-
-  const settleDrag = useCallback(() => {
-    if (!hold.current) return
-    clearTimeout(hold.current.timer)
-    hold.current.clear()
-    hold.current = null
+  /** The last drop's un-styling, until its write settles. Held here so a NEW drag
+   *  can run it first: the closure belongs to the previous drag's elements, and
+   *  running it late would wipe the new drag's own transforms. */
+  const handoff = useRef<(() => void) | null>(null)
+  const endHandoff = useCallback((clear: () => void) => {
+    if (handoff.current !== clear) return
+    handoff.current = null
+    clear()
   }, [])
-
-  useEffect(() => () => settleDrag(), [settleDrag])
 
   const startDrag = useCallback(
     (e: ReactPointerEvent, movedId: string) => {
@@ -89,8 +113,9 @@ export function useRowDrag(opts: {
       if (!wrapper || !sourceContainer || !sourceScope) return
       e.preventDefault()
       e.stopPropagation()
-      // Flush any previous drop still holding its preview.
-      settleDrag()
+      // A previous drop still holding its transforms belongs to the frame before
+      // this one — settle it now rather than letting its promise land mid-drag.
+      if (handoff.current) endHandoff(handoff.current)
 
       const containers = new Map<string, HTMLElement>([[sourceScope, sourceContainer]])
       for (const scope of opts.allowedTargets(sourceScope, movedId)) {
@@ -217,16 +242,18 @@ export function useRowDrag(opts: {
           .filter((el) => el !== wrapper)
           .map((el) => el.dataset.dragKey!)
         const order = [...others.slice(0, index), movedId, ...others.slice(index)]
-        // Hold the preview until React renders the new order (settleDrag), so
-        // the row doesn't snap back while the mutation round-trips.
-        hold.current = {
-          clear: clearAll,
-          timer: setTimeout(() => {
-            hold.current = null
-            clearAll()
-          }, 1500),
+        // The order is read from DOCUMENT order, which the preview never moved —
+        // only the insertion index came from the previewed geometry.
+        const queued = opts.onDrop({ sourceScope, targetScope: scope, movedId, order })
+        if (queued === undefined) {
+          clearAll()
+          return
         }
-        opts.onDrop({ sourceScope, targetScope: scope, movedId, order })
+        handoff.current = clearAll
+        const settle = (): void => {
+          requestAnimationFrame(() => endHandoff(clearAll))
+        }
+        void Promise.resolve(queued).then(settle, settle)
       }
 
       const onUp = () => finish(true)
@@ -241,8 +268,8 @@ export function useRowDrag(opts: {
       }
       session.current = state
     },
-    [opts, settleDrag],
+    [opts, endHandoff],
   )
 
-  return { startDrag, settleDrag }
+  return { startDrag }
 }

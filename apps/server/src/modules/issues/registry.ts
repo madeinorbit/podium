@@ -652,7 +652,12 @@ const defs = {
   restore: def('restore', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.restoreIssue(input.id),
+    // POD-781: outboxed, and the inverse of `delete` needs the receipt for the
+    // inverse reason. Restoring a live issue is already a no-op, so the hazard
+    // is not a double apply but a LATE one — a re-sent restore arriving after a
+    // second delete would un-tombstone the issue and every session that delete
+    // took with it.
+    handler: (ctx, input) => ctx.withMutation(input.mutationId, () => ctx.restoreIssue(input.id)),
   }),
   action: def('action', {
     kind: 'mutation',
@@ -954,15 +959,22 @@ const defs = {
       if (!origin) {
         throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.originId}` })
       }
-      if (input.placement === 'own') {
-        const withEdge = ctx.hierarchy.addDep(input.id, input.originId, 'discovered-from')
-        return issue.parentId ? ctx.hierarchy.reparent(input.id, null) : withEdge
-      }
-      ctx.hierarchy.reparent(input.id, input.originId)
-      // The edge is removed only after the parent link exists, and only the one
-      // pointing at THIS origin — an issue discovered from somewhere else keeps
-      // saying so.
-      return ctx.hierarchy.removeDep(input.id, input.originId, 'discovered-from')
+      // POD-781: outboxed, so the PAIR of writes below is guarded as one. The
+      // operator check and the two lookups stay outside the ledger, like
+      // `archive`'s scope guard does — D8 re-authorizes at every apply, and a
+      // replayed placement must not be waved through on a receipt minted when
+      // the caller's scope looked different.
+      return ctx.withMutation(input.mutationId, () => {
+        if (input.placement === 'own') {
+          const withEdge = ctx.hierarchy.addDep(input.id, input.originId, 'discovered-from')
+          return issue.parentId ? ctx.hierarchy.reparent(input.id, null) : withEdge
+        }
+        ctx.hierarchy.reparent(input.id, input.originId)
+        // The edge is removed only after the parent link exists, and only the one
+        // pointing at THIS origin — an issue discovered from somewhere else keeps
+        // saying so.
+        return ctx.hierarchy.removeDep(input.id, input.originId, 'discovered-from')
+      })
     },
   }),
   claim: def('claim', {

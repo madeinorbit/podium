@@ -107,6 +107,8 @@ export function IssueContextMenu({
     deferIssue,
     undeferIssue,
     setIssueLabels,
+    setIssuePlacement,
+    restoreIssue,
     sessions,
     repos,
     machines,
@@ -121,6 +123,8 @@ export function IssueContextMenu({
       deferIssue: s.deferIssue,
       undeferIssue: s.undeferIssue,
       setIssueLabels: s.setIssueLabels,
+      setIssuePlacement: s.setIssuePlacement,
+      restoreIssue: s.restoreIssue,
       sessions: s.sessions,
       repos: s.repos,
       machines: s.machines,
@@ -244,8 +248,10 @@ export function IssueContextMenu({
     // leave the sidebar on the press, not after the cascade round-trips.
     run(() => Promise.all(ids.map((id) => deleteIssue(id))))
   }
-  const restore = (): void =>
-    run(() => Promise.all(ids.map((id) => trpc.issues.restore.mutate({ id }))))
+  // Optimistic + outboxed (POD-781): the row comes back on the press, and a
+  // delete still sitting in the queue collapses against this restore instead of
+  // making the round trip out and back.
+  const restore = (): void => run(() => Promise.all(ids.map((id) => restoreIssue(id))))
 
   /**
    * Move discovered work between "part of the mission" and "its own thing"
@@ -257,7 +263,11 @@ export function IssueContextMenu({
     const byId = new Map(allIssues.map((issue) => [issue.id as string, issue]))
     const originId = discoveredPlacement(first, byId)?.originId
     if (!originId) return
-    run(() => trpc.issues.setPlacement.mutate({ id: first.id, placement, originId }))
+    // Optimistic + outboxed (POD-781): the row nests into the mission, or leaves
+    // it, on the press. The placement CHIP still waits for the round trip — the
+    // overlay paints the parent link and the provenance edge is derived
+    // server-side (see the `issueSetPlacement` case in overlay.ts).
+    run(() => setIssuePlacement(first.id, placement, originId))
   }
 
   const menuData = createIssueMenuData({

@@ -26,12 +26,12 @@ import {
   platformOnlineEvents,
 } from '../outbox'
 import { reasonSummary } from '../outbox-recovery-copy'
-import { assertSendAccepted } from './send-outcome'
 import {
   type CreateEngineOutbox,
   type EngineOutbox,
   type EngineOutboxCallbacks,
   OUTBOX_COMMANDS,
+  outboxExecutors,
   type OutboxKinds,
   outboxRoutingFor,
 } from './wiring'
@@ -56,50 +56,33 @@ function kindFor(record: Pick<OutboxRecord, 'command'>): keyof OutboxKinds {
   return kind
 }
 
+/**
+ * Send one envelope through the SAME executor table the compatibility queue uses
+ * (`outboxExecutors`, wiring.ts).
+ *
+ * IT USED TO BE A SWITCH HERE, and that is the bug POD-781 group 3 drove into:
+ * this file listed the dotted command names by hand, stopped at
+ * `issues.setTucked`, and every curation command groups 1 and 2 added fell
+ * through to a synthetic BAD_REQUEST — which `classifyRefusal` reads as a
+ * DEFINITIVE refusal, so the write dead-lettered and the optimistic row snapped
+ * back a beat after the press. The unit tests all passed: they drive the other
+ * table. Two hand-maintained lists of the same fact, one of them the one the web
+ * app actually runs.
+ *
+ * `kindFor` already owns name → kind, so the shared table is reachable from an
+ * envelope, and a new kind now fails to COMPILE rather than failing under a
+ * user's pointer.
+ */
 function submit(api: PodiumClientApi, envelope: OutboxEnvelope): Promise<unknown> {
   const input = { ...(envelope.input as object), mutationId: envelope.mutationId }
-  switch (envelope.command) {
-    case 'pins.set':
-      return api.pins.set.mutate(input as never)
-    case 'tabs.setOrder':
-      return api.tabs.setOrder.mutate(input as never)
-    case 'layout.set':
-      return api.layout.set.mutate(input as never)
-    case 'layout.clear':
-      return api.layout.clear.mutate(input as never)
-    case 'settings.updatePersonal':
-      return api.settings.updatePersonal.mutate(input as never)
-    case 'sessions.resumeAndSend':
-      return api.sessions.resumeAndSend.mutate(input as never).then((result) => {
-        // dead_letter / refused is HTTP 200 with ok:false — must not be applied
-        assertSendAccepted(result)
-        return result
-      })
-    case 'sessions.rename':
-      return api.sessions.rename.mutate(input as never)
-    case 'sessions.setArchived':
-      return api.sessions.setArchived.mutate(input as never)
-    case 'sessions.setWorkState':
-      return api.sessions.setWorkState.mutate(input as never)
-    case 'snoozes.set':
-      return api.snoozes.set.mutate(input as never)
-    case 'snoozes.clear':
-      return api.snoozes.clear.mutate(input as never)
-    case 'sessions.markRead':
-      return api.sessions.markRead.mutate(input as never)
-    case 'sessions.markUnread':
-      return api.sessions.markUnread.mutate(input as never)
-    case 'issues.markRead':
-      return api.issues.markRead.mutate(input as never)
-    case 'issues.markUnread':
-      return api.issues.markUnread.mutate(input as never)
-    case 'issues.setTucked':
-      return api.issues.setTucked.mutate(input as never)
-    default:
-      throw Object.assign(new Error(`unknown kernel Outbox command: ${envelope.command}`), {
-        data: { code: 'BAD_REQUEST' },
-      })
+  const kind = kindByCommand.get(envelope.command)
+  const execute = kind === undefined ? undefined : outboxExecutors(api)[kind]
+  if (execute === undefined) {
+    throw Object.assign(new Error(`unknown kernel Outbox command: ${envelope.command}`), {
+      data: { code: 'BAD_REQUEST' },
+    })
   }
+  return Promise.resolve(execute(input as never))
 }
 
 class KernelEngineOutbox implements EngineOutbox {

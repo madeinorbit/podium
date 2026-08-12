@@ -444,6 +444,25 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** REWRITE an issue's whole label set — `issues.setLabels`, `manage` authority.
    *  The caller sends the set it wants, not a delta. Optimistic + outboxed. */
   setIssueLabels: (id: string, labels: string[]) => Promise<void>
+  /**
+   * MOVE discovered work between "part of the mission" and "its own thing"
+   * (POD-679) — `issues.setPlacement`, one command so the parent link and the
+   * provenance edge can never disagree.
+   *
+   * Optimistic + outboxed: the row leaves or joins the mission on the press. The
+   * overlay paints the parent link only — the edge is derived server-side — so
+   * the placement CHIP settles a round trip behind the row it describes.
+   */
+  setIssuePlacement: (
+    id: string,
+    placement: 'own' | 'mission',
+    originId: string,
+  ) => Promise<void>
+  /** UNDO a delete — `issues.restore`, `manage` authority: the issue comes back
+   *  and, server-side, the exact sessions its delete tombstoned. Optimistic +
+   *  outboxed, and a delete still QUEUED collapses against it, so the undo of a
+   *  fresh mistake never reaches the server at all. */
+  restoreIssue: (id: string) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the

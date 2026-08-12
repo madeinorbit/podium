@@ -138,6 +138,8 @@ export function kindLabel(kind: string): string {
     issueDefer: 'Issue snoozed',
     issueUndefer: 'Issue unsnoozed',
     issueSetLabels: 'Issue labels',
+    issueSetPlacement: 'Issue moved',
+    issueRestore: 'Issue restored',
     resumeAndSend: 'Message',
   }
   return labels[kind] ?? kind

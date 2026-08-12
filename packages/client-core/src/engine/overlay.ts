@@ -453,6 +453,53 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
         return current.length === labels.length && labels.every((l) => current.includes(l))
       })
     }
+    case 'issueSetPlacement': {
+      // WHAT MOVES ON SCREEN IS THE PARENT LINK, so that is what this paints.
+      // `'mission'` hangs the issue under the origin (it nests into that mission
+      // in the sidebar and on the deck's spine); `'own'` cuts it loose to
+      // top-level. Both are `parentId`, and `sameCell` is why `null` is honest
+      // for the second: the wire spells "no parent" as an absent field.
+      //
+      // THE PROVENANCE EDGE IS NOT PAINTED, deliberately, and this is the one
+      // POD-781 kind that paints less than its command writes. `deps` is on the
+      // wire, but it is DERIVED from `issue_deps` and the input names one edge,
+      // not the resulting set — so an overlay could only guess at the array by
+      // reading the current row, and an overlay is a pure function of its entry
+      // (the same rule that kept `issueDelete` off `memberSessionIds`). The
+      // consequence is bounded and visible in one place: `discoveredPlacement`
+      // reads a spin-off's edge BEFORE it reads `parentId`, so the placement
+      // CHIP on an issue moving back into a mission keeps saying "own" until the
+      // round trip lands, while the row itself has already moved. A chip that
+      // lags by a round trip is what the whole app did before this issue; the
+      // row that lags was the complaint.
+      const i = entry.input as OutboxKinds['issueSetPlacement']
+      const parentId = i.placement === 'mission' ? i.originId : null
+      return patchOverlay('issues', i.id, entry.mutationId, { parentId }, (r) =>
+        sameCell((r as IssueWire).parentId, parentId),
+      )
+    }
+    case 'issueRestore': {
+      // THE INVERSE OF `issueDelete`, and honest about being a PARTIAL inverse.
+      //
+      // Clearing `deletedAt` brings the issue row back — and, because ownership
+      // is delete-aware (`issueIdOwningSession`), it brings back every member
+      // session the replica still knows about. What it cannot bring back is a
+      // session row the SERVER tombstoned when the delete landed for real: those
+      // carry their own `deletedAt` in the replica, the restore input names no
+      // sessions, and the same rule that stopped the delete overlay from
+      // touching `memberSessionIds` stops this one. So a restore of a delete that
+      // already reached the server paints the row instantly and refills it as the
+      // sessions echo back — which is the same order the server itself applies
+      // them in, not a state the app invents.
+      //
+      // The commoner case pays nothing at all: a delete still QUEUED collapses
+      // against this restore (they share `issue-deleted:<id>`), no cascade ever
+      // ran, and the row returns with its sessions intact.
+      const i = entry.input as OutboxKinds['issueRestore']
+      return patchOverlay('issues', i.id, entry.mutationId, { deletedAt: null }, (r) =>
+        sameCell((r as IssueWire).deletedAt, null),
+      )
+    }
     case 'resumeAndSend': {
       // A WAKE *IS* ROW-VISIBLE (POD-762). This used to project null on the
       // grounds that it is delivery rather than curation, and the row said
@@ -504,9 +551,9 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
  *
  * THE ISSUE KINDS ARE DELIBERATELY ABSENT, and always have been: `issueMarkRead`,
  * `issueMarkUnread` and `issueSetTucked` have reducer cases above without an entry
- * here, and POD-781's seven curation kinds (`issueUpdate`, `issueArchive`,
- * `issueDelete`, `issueClose`, `issueDefer`, `issueUndefer`, `issueSetLabels`)
- * follow them.
+ * here, and POD-781's nine curation kinds (`issueUpdate`, `issueArchive`,
+ * `issueDelete`, `issueClose`, `issueDefer`, `issueUndefer`, `issueSetLabels`,
+ * `issueSetPlacement`, `issueRestore`) follow them.
  * This map's totality test is stated against `sessionStateCommandNames()` — the
  * PRESENCE family — so it asserts equality, not containment, and an `issues.*`
  * name in it would red the suite by being a key with no eligible contract to

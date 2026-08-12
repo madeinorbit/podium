@@ -192,6 +192,7 @@ function PaletteDialog({
     deferIssue,
     undeferIssue,
     setIssueLabels,
+    restoreIssue,
     markSessionRead,
     markSessionUnread,
     openIssueId,
@@ -225,6 +226,7 @@ function PaletteDialog({
       deferIssue: s.deferIssue,
       undeferIssue: s.undeferIssue,
       setIssueLabels: s.setIssueLabels,
+      restoreIssue: s.restoreIssue,
       markSessionRead: s.markSessionRead,
       markSessionUnread: s.markSessionUnread,
       openIssueId: s.openIssueId,
@@ -435,6 +437,7 @@ function PaletteDialog({
           deferIssue,
           undeferIssue,
           setIssueLabels,
+          restoreIssue,
           setOpenIssueId: (id) => setOpenIssueId(id as IssueId),
           setView: (view) => setView(view),
           handoff: (machineId) => {
