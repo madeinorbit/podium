@@ -10,6 +10,8 @@ export const ACTIVATION_MODE_PARAM = 'activationMode'
 export type ActivationRoute =
   | 'welcome'
   | 'local-project'
+  | 'agent'
+  | 'first-task'
   | 'existing-podium'
   | 'existing-client'
   | 'existing-machine'
@@ -31,6 +33,8 @@ function isActivationRoute(value: string | null): value is ActivationRoute {
   return (
     value === 'welcome' ||
     value === 'local-project' ||
+    value === 'agent' ||
+    value === 'first-task' ||
     value === 'existing-podium' ||
     value === 'existing-client' ||
     value === 'existing-machine' ||
@@ -64,14 +68,19 @@ export function isActivationEligible({
   loaded,
   repoCount,
   sessionCount,
+  hasActivationCheckpoint,
   hasVpsCheckpoint,
 }: {
   loaded: boolean
   repoCount: number
   sessionCount: number
+  hasActivationCheckpoint: boolean
   hasVpsCheckpoint: boolean
 }): boolean {
-  return loaded && ((repoCount === 0 && sessionCount === 0) || hasVpsCheckpoint)
+  return (
+    loaded &&
+    ((repoCount === 0 && sessionCount === 0) || hasActivationCheckpoint || hasVpsCheckpoint)
+  )
 }
 
 /**

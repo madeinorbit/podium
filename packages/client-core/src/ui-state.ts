@@ -222,6 +222,8 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.switchTrace',
   /** In-progress GitHub repository search and clone destination for first-run recovery. */
   'podium.githubProjectIntake.draft',
+  /** Project, agent, model, effort, and prompt for first-task activation. */
+  'podium.firstTaskActivation.draft',
 ] as const
 
 export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
@@ -235,6 +237,7 @@ export const SHELL_DENSITY_KEY = 'podium.shell.density'
 export const ECHO_HUD_KEY = 'podium.echoHud'
 export const SWITCH_TRACE_KEY = 'podium.switchTrace'
 export const GITHUB_PROJECT_INTAKE_DRAFT_KEY = 'podium.githubProjectIntake.draft'
+export const FIRST_TASK_ACTIVATION_DRAFT_KEY = 'podium.firstTaskActivation.draft'
 
 export type ShellDensity = 'balanced' | 'compact'
 

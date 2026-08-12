@@ -2,7 +2,7 @@ import { asMachineId } from '@podium/model'
 import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useStoreSelector } from '@/app/store'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -43,6 +43,15 @@ export function RepoScanFlow({
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
   const [selectedMachineId, setSelectedMachineId] = useState<string | undefined>(initialMachineId)
+  // RepoPickerModal closes after a successful direct add/clone. Remember that
+  // the close belongs to completion so it cannot also drive the caller's
+  // cancel/back route after onDone has advanced activation.
+  const committed = useRef(false)
+
+  function finish(changedCount: number): void {
+    committed.current = true
+    onDone(changedCount)
+  }
 
   // Settle on a machine as soon as the fleet is known: the picker browses a
   // machine's daemon, so "none selected" is not a usable state. Preference order —
@@ -84,6 +93,7 @@ export function RepoScanFlow({
   async function addThisFolder(path: string): Promise<void> {
     await trpc.repos.add.mutate({ path, ...repoMachineInput() })
     await refreshRepos()
+    finish(1)
   }
 
   async function cloneFromGitHub(repository: string, destination: string): Promise<void> {
@@ -94,7 +104,7 @@ export function RepoScanFlow({
       destination,
     })
     await refreshRepos()
-    onDone(1)
+    finish(1)
   }
 
   /** Commit the results screen's desired end state: add what was checked, remove
@@ -122,7 +132,7 @@ export function RepoScanFlow({
         setAdding(false)
         return
       }
-      onDone(add.length + remove.length)
+      finish(add.length + remove.length)
     } catch (e) {
       setAddError(formatAppError(e, 'Could not save repos'))
       setAdding(false)
@@ -147,7 +157,9 @@ export function RepoScanFlow({
 
   return (
     <RepoPickerModal
-      onClose={onClose}
+      onClose={() => {
+        if (!committed.current) onClose()
+      }}
       onPick={addThisFolder}
       onScan={scanFrom}
       onCloneGithub={cloneFromGitHub}

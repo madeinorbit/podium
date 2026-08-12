@@ -41,6 +41,10 @@ export function activationRouteLabel(route: ActivationRoute): string {
       return 'welcome'
     case 'local-project':
       return 'local projects'
+    case 'agent':
+      return 'agent readiness'
+    case 'first-task':
+      return 'your first task draft'
     case 'existing-podium':
       return 'existing Podium setup'
     case 'existing-client':

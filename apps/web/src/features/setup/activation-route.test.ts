@@ -42,6 +42,12 @@ describe('activation route persistence', () => {
     })
   })
 
+  it('restores the agent and first-task activation routes exactly', () => {
+    for (const route of ['agent', 'first-task'] as const) {
+      expect(readActivationState(`?activation=${route}`)).toEqual({ route, mode: 'active' })
+    }
+  })
+
   it('preserves shell/router query state while writing activation', () => {
     const url = activationUrl(
       {
@@ -83,6 +89,7 @@ describe('activation route persistence', () => {
         loaded: true,
         repoCount: 1,
         sessionCount: 2,
+        hasActivationCheckpoint: false,
         hasVpsCheckpoint: true,
       }),
     ).toBe(true)
@@ -91,8 +98,18 @@ describe('activation route persistence', () => {
         loaded: true,
         repoCount: 1,
         sessionCount: 0,
+        hasActivationCheckpoint: false,
         hasVpsCheckpoint: false,
       }),
     ).toBe(false)
+    expect(
+      isActivationEligible({
+        loaded: true,
+        repoCount: 1,
+        sessionCount: 1,
+        hasActivationCheckpoint: true,
+        hasVpsCheckpoint: false,
+      }),
+    ).toBe(true)
   })
 })

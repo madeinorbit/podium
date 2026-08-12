@@ -115,7 +115,8 @@ describe('RepoScanFlow machine selection', () => {
 
   it('adds ONLY a git repo — the button is disabled off a repo, enabled and named on one', async () => {
     const onClose = vi.fn()
-    render(<RepoScanFlow onClose={onClose} onDone={() => {}} />)
+    const onDone = vi.fn()
+    render(<RepoScanFlow onClose={onClose} onDone={onDone} />)
     fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
 
     // Landed on a non-repo home: the add button is disabled and generic.
@@ -131,7 +132,8 @@ describe('RepoScanFlow machine selection', () => {
     await waitFor(() =>
       expect(addRepo).toHaveBeenCalledWith({ path: '/home/vmi34/myrepo', machineId: 'vmi34' }),
     )
-    expect(onClose).toHaveBeenCalled()
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith(1))
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('scans from the browsed folder plus the machine (POD-855 atPath)', async () => {
@@ -172,7 +174,8 @@ describe('RepoScanFlow machine selection', () => {
 
   it('keeps the typed-path fallback for adding a repo directly', async () => {
     const onClose = vi.fn()
-    render(<RepoScanFlow onClose={onClose} onDone={() => {}} />)
+    const onDone = vi.fn()
+    render(<RepoScanFlow onClose={onClose} onDone={onDone} />)
 
     fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
     fireEvent.change(screen.getByLabelText('Repo path on vmi34'), {
@@ -183,6 +186,7 @@ describe('RepoScanFlow machine selection', () => {
     await waitFor(() =>
       expect(addRepo).toHaveBeenCalledWith({ path: '/home/vmi34/podium', machineId: 'vmi34' }),
     )
-    expect(onClose).toHaveBeenCalled()
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith(1))
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

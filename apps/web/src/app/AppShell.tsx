@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import type { IssueId } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
@@ -236,6 +237,7 @@ function AppBody(): JSX.Element {
     repos,
     reposLoaded,
     selectedIssueId,
+    setSelectedIssueId,
     superOpen,
     setSuperOpen,
     paletteOpen,
@@ -246,6 +248,7 @@ function AppBody(): JSX.Element {
       repos: s.repos,
       reposLoaded: s.reposLoaded,
       selectedIssueId: s.selectedIssueId,
+      setSelectedIssueId: s.setSelectedIssueId,
       superOpen: s.superOpen,
       setSuperOpen: s.setSuperOpen,
       paletteOpen: s.paletteOpen,
@@ -279,24 +282,18 @@ function AppBody(): JSX.Element {
     clear: clearActivation,
   } = useActivationRoute()
   const vpsActivation = useConfirmedVpsActivation(trpc)
-  const emptyActivationEligible = reposLoaded && repos.length === 0 && sessions.length === 0
+  const hasActivationCheckpoint = hasActivationState(window.location.search)
   const activationEligible = isActivationEligible({
     loaded: reposLoaded,
     repoCount: repos.length,
     sessionCount: sessions.length,
+    hasActivationCheckpoint,
     hasVpsCheckpoint: vpsActivation.state !== null,
   })
   const activationVisible =
     activationEligible && activationState.mode === 'active' && workspaceActive
   const activationResumeVisible =
     activationEligible && (activationState.mode === 'exploring' || !workspaceActive)
-
-  // Repo/session creation completes the ordinary local draft. A durable VPS lane is different:
-  // it must survive exploration and existing work until daemon-only or connected completion.
-  useEffect(() => {
-    if (!reposLoaded || emptyActivationEligible || vpsActivation.state) return
-    if (hasActivationState(window.location.search)) clearActivation()
-  }, [clearActivation, emptyActivationEligible, reposLoaded, vpsActivation.state])
 
   // Desktop transfer retargeting can arrive on a clean destination URL. The replicated VPS
   // checkpoint is authoritative in that case; reconstruct the exact nested route it names.
@@ -323,9 +320,11 @@ function AppBody(): JSX.Element {
     navigateActivation(next.route)
   }
 
-  const completeActivation = (): void => {
+  const completeActivation = (issueId: IssueId): void => {
     clearActivation()
     if (vpsActivation.state) void vpsActivation.clear().catch(() => {})
+    setSelectedIssueId(issueId)
+    setView('workspace')
   }
 
   const resumeActivation = (): void => {

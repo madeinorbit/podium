@@ -1,3 +1,4 @@
+import type { IssueId } from '@podium/model'
 import { ArrowRight } from 'lucide-react'
 import type { JSX } from 'react'
 import type { Trpc } from '@/app/trpc'
@@ -11,6 +12,7 @@ import {
 import type { ActivationRoute } from './activation-route'
 import { ExistingPodiumActivation, isExistingPodiumRoute } from './ExistingPodiumActivation'
 import { GuidedVpsActivation } from './GuidedVpsActivation'
+import { FirstTaskActivation } from './FirstTaskActivation'
 import { RepoScanFlow } from './RepoScanFlow'
 import type { ConfirmedVpsActivation } from './use-vps-activation'
 import { isVpsActivationRoute, type VpsReturnRoute } from './vps-activation'
@@ -34,7 +36,7 @@ export function OnboardingWizard({
   route: ActivationRoute
   onRouteChange: (route: ActivationRoute) => void
   onExplore: () => void
-  onComplete: () => void
+  onComplete: (issueId: IssueId) => void
   onConnectionConfigured: () => Promise<void>
   onEnterVps: (returnRoute: VpsReturnRoute) => Promise<void>
   trpc: Trpc
@@ -63,6 +65,17 @@ export function OnboardingWizard({
     )
   }
 
+  if (route === 'agent' || route === 'first-task') {
+    return (
+      <FirstTaskActivation
+        route={route}
+        onRouteChange={onRouteChange}
+        onExplore={onExplore}
+        onComplete={onComplete}
+      />
+    )
+  }
+
   if (route === 'local-project') {
     return (
       <>
@@ -75,7 +88,7 @@ export function OnboardingWizard({
         </ActivationShell>
         <RepoScanFlow
           onClose={() => onRouteChange('welcome')}
-          onDone={onComplete}
+          onDone={() => onRouteChange('agent')}
           intro={
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="max-w-[52ch] text-muted-foreground">

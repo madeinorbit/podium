@@ -70,7 +70,7 @@ describe('OnboardingWizard activation routes', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: /Start with a project/ })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /Start locally/ })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Set up a VPS' }))
     expect(onEnterVps).toHaveBeenCalledWith('welcome')
     fireEvent.click(screen.getByRole('button', { name: 'Find local projects' }))
@@ -109,7 +109,8 @@ describe('OnboardingWizard activation routes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close browser' }))
     expect(onRouteChange).toHaveBeenCalledWith('welcome')
     fireEvent.click(screen.getByRole('button', { name: 'Finish scan' }))
-    expect(onComplete).toHaveBeenCalledOnce()
+    expect(onRouteChange).toHaveBeenCalledWith('agent')
+    expect(onComplete).not.toHaveBeenCalled()
   })
 
   it('offers an accessible durable resume action', () => {
