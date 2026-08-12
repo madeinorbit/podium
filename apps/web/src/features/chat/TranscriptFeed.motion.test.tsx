@@ -39,6 +39,7 @@ function render(
         scrollerRef={createRef<HTMLDivElement>()}
         onScroll={() => {}}
         compact={false}
+        superagent={false}
         phase={opts.phase ?? 'ready'}
         rows={rowsFor(items)}
         blocks={blocks}

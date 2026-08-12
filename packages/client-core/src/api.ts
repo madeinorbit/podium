@@ -268,5 +268,11 @@ export interface PodiumClientApi {
       { threadId: string; text: string },
       { threadId: string; podiumSessionId?: SessionId }
     >
+    /** Mint the thread's headless session without running a turn (POD-782), so
+     *  the pane can mount the ordinary chat before the first message. */
+    ensureSession: ApiMutation<
+      { threadId: string },
+      { threadId: string; podiumSessionId?: SessionId }
+    >
   }
 }

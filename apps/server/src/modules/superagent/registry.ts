@@ -1,13 +1,14 @@
 /**
- * THE JOIN — the seven superagent contracts (L1, `@podium/commands`) paired
+ * THE JOIN — the eight superagent contracts (L1, `@podium/commands`) paired
  * with the handlers that implement them (L3, `SuperagentService`), per ADR 3 D1
  * and POD-311's three-way split. POD-383 (3.3a).
  *
  * A transport does not reach a service method; it reaches a CONTRACT by name,
  * the contract's schema validates the input, and only then does the joined
- * handler run. An eighth thread command added to this table is validated,
+ * handler run. A ninth thread command added to this table is validated,
  * classified and exposure-checked because it declared itself — not because
- * whoever added it remembered.
+ * whoever added it remembered. `ensureSession` (POD-782) is the eighth and it
+ * arrived exactly that way.
  *
  * WHAT THIS TABLE DELIBERATELY DOES NOT DO: it does not re-implement, re-order
  * or relax anything the service does. Every handler is a one-line call onto the
@@ -32,8 +33,8 @@ import {
   type SuperagentContractName,
   type TransportTag,
 } from '@podium/commands'
-import type { SuperagentService } from './service'
 import type { UserId } from '@podium/model'
+import type { SuperagentService } from './service'
 
 /** The PARSED input of a contract — the handler's argument type, derived from
  *  the contract's own schema so a handler cannot disagree with what validates. */
@@ -50,7 +51,9 @@ export interface SuperagentCommand {
  * dispatches on. The wire names are kept — renaming one is a
  * client-compatibility change and this is a migration.
  *
- * SIX KEYS WHERE THERE WERE SEVEN PROCEDURES. `superagent.send` was
+ * SIX KEYS WHERE THERE WERE SEVEN PROCEDURES, plus POD-782's `ensureSession`
+ * — eight contracts, seven of them one-for-one with a surviving procedure.
+ * `superagent.send` was
  * `superagent.sendTurn`'s byte-identical alias, forwarding to the same service
  * method; the caller census (eleven `sendTurn` sites across web, mobile, the
  * client engine and the browser e2e; ZERO for `send`) decided which name
@@ -83,6 +86,11 @@ export const SUPERAGENT_COMMANDS = {
     contract: SUPERAGENT_CONTRACTS.restart,
     handler: (s: SuperagentService, input: In<'restart'>, ownerUserId: UserId) =>
       s.restartThread({ ...input, ownerUserId }),
+  },
+  ensureSession: {
+    contract: SUPERAGENT_CONTRACTS.ensureSession,
+    handler: (s: SuperagentService, input: In<'ensureSession'>, ownerUserId: UserId) =>
+      s.ensureSession({ ...input, ownerUserId }),
   },
   startBtw: {
     contract: SUPERAGENT_CONTRACTS.startBtw,

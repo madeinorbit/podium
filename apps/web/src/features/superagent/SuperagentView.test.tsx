@@ -29,7 +29,24 @@ const fakeHub = {
   },
 }
 
-const superagentThreads = [{ id: 'global', kind: 'global' as const, harnessSessionId: 'harness-1' }]
+type SuperThreadFake = {
+  id: string
+  kind: 'global'
+  harnessSessionId?: string
+  podiumSessionId?: SessionId
+  agentKind?: string
+}
+const GLOBAL_THREAD: SuperThreadFake = {
+  id: 'global',
+  kind: 'global' as const,
+  harnessSessionId: 'harness-1',
+  // POD-782: a thread has its headless session from the moment the pane opens
+  // (superagent.ensureSession), which is what lets this pane mount the ORDINARY
+  // ChatView instead of carrying a second composer for the empty case.
+  podiumSessionId: asSessionId('hp-1'),
+  agentKind: 'claude-code',
+}
+let superagentThreads: SuperThreadFake[] = [GLOBAL_THREAD]
 
 let isMobile = false
 let storeSessions: Array<{ sessionId: SessionId; cwd: string }> = []
@@ -68,6 +85,9 @@ const fakeTrpc = {
     sendTurn: { mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'hp-1' })) },
     clear: { mutate: vi.fn(async () => {}) },
     openInTerminal: { mutate: vi.fn(async () => ({ sessionId: asSessionId('pty-1') })) },
+    ensureSession: {
+      mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: asSessionId('hp-1') })),
+    },
   },
   issues: {
     events: { query: vi.fn(async () => []) },
@@ -132,6 +152,24 @@ vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
 vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` }))
+/**
+ * THE CHAT IS STUBBED, AND THAT IS THE POINT OF THIS FILE (POD-782).
+ *
+ * This pane used to own a composer, so its tests had to assert on a textarea,
+ * an @-menu and a send path — all of which were a SECOND implementation of the
+ * chat's own. The pane now mounts `ChatView` and nothing else, so what is left
+ * to test here is what SURROUNDS the conversation (one header, no tray, the two
+ * dock actions, the return marker) plus the props it hands down. The conversation
+ * itself is covered where it lives: `ChatView.headless.test.tsx` owns the
+ * headless send path, the composer and the running-turn gate.
+ */
+const chatProps: Array<Record<string, unknown>> = []
+vi.mock('@/features/chat/ChatView', () => ({
+  ChatView: (props: Record<string, unknown>) => {
+    chatProps.push(props)
+    return <div data-testid="chat-view" />
+  },
+}))
 
 const { SuperagentView } = await import('./SuperagentView')
 
@@ -143,6 +181,8 @@ let dockHeaderSlot: HTMLElement
 
 beforeEach(() => {
   isMobile = false
+  superagentThreads = [{ ...GLOBAL_THREAD }]
+  chatProps.length = 0
   storeSessions = []
   storeIssues = []
   storeSelectedIssueId = null
@@ -187,8 +227,39 @@ describe('Superagent pane structure (POD-516 §1.2)', () => {
   it('is the conversation and its composer — nothing else', async () => {
     await mount()
     expect(container.querySelector('[data-superagent-composer]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull()
     // The dock-top is the pane's only chrome: no second collapsible bar.
     expect(container.querySelector('[data-testid="super-bar"]')).toBeNull()
+  })
+
+  /**
+   * THE DEDUPE, ASSERTED (POD-782). The pane mounts the shared chat over the
+   * thread's own headless session, in compact mode, bound to the global thread —
+   * and mounts it exactly once. A second composer reappearing here is the
+   * regression this guards, and it would show up as a `ChatView` that is absent
+   * (something else is drawing the box) or a second one.
+   */
+  it('mounts ONE shared ChatView over the thread — no second composer', async () => {
+    await mount()
+    expect(container.querySelectorAll('[data-testid="chat-view"]')).toHaveLength(1)
+    expect(chatProps.at(-1)).toMatchObject({
+      sessionId: 'hp-1',
+      compact: true,
+      superThread: { threadId: 'global', kind: 'global' },
+    })
+    // No hand-rolled box left behind it.
+    expect(container.querySelector('[data-testid="super-composer"]')).toBeNull()
+  })
+
+  /**
+   * A thread with no session yet cannot render a transcript, which is the whole
+   * reason the second composer existed. The pane asks for one instead of growing
+   * a different screen.
+   */
+  it('mints the thread’s headless session so the chat has something to render', async () => {
+    superagentThreads = [{ id: 'global', kind: 'global', harnessSessionId: 'harness-1' }]
+    await mount()
+    expect(fakeTrpc.superagent.ensureSession.mutate).toHaveBeenCalledWith({ threadId: 'global' })
   })
 
   // POD-516 item 10: "Superagent" is the dock title; a "Portfolio copilot"
@@ -255,26 +326,26 @@ describe('Superagent pane structure (POD-516 §1.2)', () => {
   // "the 'auto delegate on' and other infos there can be removed". The composer
   // is a box: no status strip under it, and the scope it does state is stated
   // once, by the placeholder, inside the box.
+  // "the 'auto delegate on' and other infos there can be removed". The composer
+  // is a box: no status strip under it, and the scope it does state is stated
+  // once, by the placeholder, inside the box. (The placeholder itself is the
+  // shared composer's now — `composerState` in the chat slice owns the wording
+  // and `chat.test.ts` asserts it, so it is not restated here.)
   it('carries no meta strip under the prompt box', async () => {
     await mount()
-    const composer = container.querySelector('[data-testid="super-composer"]')
-    expect(composer).not.toBeNull()
-    expect(composer?.textContent).not.toContain('auto-delegate')
-    expect(composer?.textContent).not.toContain('shift+tab to cycle')
-    expect(composer?.textContent).not.toContain('? for shortcuts')
-    expect(container.querySelector('textarea')?.getAttribute('placeholder')).toBe(
-      'Ask across all tasks…',
-    )
+    expect(container.textContent).not.toContain('auto-delegate')
+    expect(container.textContent).not.toContain('shift+tab to cycle')
+    expect(container.textContent).not.toContain('? for shortcuts')
   })
 
-  it('keeps the composer mounted — there is no section to collapse it into', async () => {
+  it('keeps the conversation mounted — there is no section to collapse it into', async () => {
     // The chat used to fold behind its own section bar, persisted under
     // podium:superagent:chat. Collapsing the only content of a dock panel is
     // just closing the panel, which the dock-top already does.
     uiStateMap.set('podium:superagent:chat', 'false')
     uiStateMap.set('podium:tray:open', 'false')
     await mount()
-    expect(container.querySelector('textarea')).not.toBeNull()
+    expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull()
     expect(container.querySelector('[data-superagent-composer]')).not.toBeNull()
   })
 })
@@ -356,33 +427,16 @@ describe('Open in terminal', () => {
 })
 
 describe('legacy chrome stays gone (#66 preview correction)', () => {
-  it('renders NO CTX badge above the composer even with an issue selected — the focus payload still rides the turn', async () => {
+  // The focus payload still rides every turn — that lives in `use-chat-send`
+  // and is asserted in `ChatView.headless.test.tsx`, which owns the send path.
+  // What this pane must never grow back is the BADGE that reported it.
+  it('renders NO CTX badge above the composer even with an issue selected', async () => {
     storeIssues = [makeIssue({ id: 'p', seq: 35, title: 'Parent epic' })]
     storeSelectedIssueId = 'p'
     await mount()
     expect(container.querySelector('[data-testid="ctx-badge"]')).toBeNull()
     expect(container.textContent).not.toContain('CTX')
     expect(container.textContent).not.toContain('answering with')
-    // The context CAPABILITY is intact: sending a turn still carries the focus payload.
-    const textarea = container.querySelector('textarea')
-    expect(textarea).not.toBeNull()
-    await act(async () => {
-      if (!textarea) return
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLTextAreaElement.prototype,
-        'value',
-      )?.set
-      setter?.call(textarea, 'hello')
-      textarea.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
-    await act(async () => {
-      container.querySelector('textarea')?.dispatchEvent(enter)
-      await Promise.resolve()
-    })
-    expect(fakeTrpc.superagent.sendTurn.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'hello', focus: { view: 'workspace' } }),
-    )
   })
 
   it('renders NO "Earlier conversation" block and NO transcript search input', async () => {

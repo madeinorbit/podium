@@ -1,9 +1,13 @@
 /**
- * THE SEVEN SUPERAGENT THREAD COMMAND CONTRACTS (ADR 3 D1, POD-311's L1/L3
+ * THE EIGHT SUPERAGENT THREAD COMMAND CONTRACTS (ADR 3 D1, POD-311's L1/L3
  * split; POD-383 is 3.3a of the POD-313 family).
  *
  * `sendTurn · interruptTurn · openInTerminal · clear · restart · startBtw ·
- *  concierge`
+ *  concierge · ensureSession`
+ *
+ * `ensureSession` is POD-782's: it mints a thread's headless session without
+ * running anything, so the pane can mount the ORDINARY chat from its first frame
+ * instead of carrying a second composer for the not-yet-started case.
  *
  * L1 DATA ONLY. Every handler lives with the superagent feature in
  * `apps/server/src/modules/superagent` and is joined to its contract at
@@ -37,7 +41,7 @@
  * ONE VISIBILITY CLASS, READ OFF THE MATRIX ROW AND NOT COPIED FROM A NEIGHBOUR
  * ---------------------------------------------------------------------------
  *
- * All seven write superagent state, which is ONE row on ADR 1's ownership
+ * All eight write superagent state, which is ONE row on ADR 1's ownership
  * matrix — `superagent_threads` / `superagent_messages` /
  * `superagent_queued_inputs` / `superagent_pending_turns` — classified
  * `personal` by ADR 9 D8 S2 ("MY threads never surface in YOUR sidebar"). The
@@ -59,12 +63,12 @@
  *
  * The matrix row's `offline: 'offline-eligible'` is a statement about
  * REPLICATING THE ROWS, not about queueing these COMMANDS, and conflating the
- * two is how a queue learns to replay a harness turn. Six of the seven govern a
- * LIVE harness — they refuse while a turn is in flight or while the terminal
- * lock is held, and a refusal conditioned on liveness cannot be honoured at
- * drain time, when the world has moved. `startBtw` is the one exception and it
- * earns it: it upserts a thread row, runs no turn, and is idempotent by
- * construction. Each class carries its own reasoning in
+ * two is how a queue learns to replay a harness turn. Six of the eight govern a
+ * LIVE harness — they refuse while the terminal lock is held, or act on a turn
+ * that is in flight, and a decision conditioned on liveness cannot be honoured
+ * at drain time, when the world has moved. `startBtw` and `ensureSession` are
+ * the exceptions and they earn it: each writes one row, runs no turn, and is
+ * idempotent by construction. Each class carries its own reasoning in
  * `outboxReconciliation`; none is derived from a rule stated elsewhere.
  *
  * NOTHING names `outbox`. ADR 3 D3 is default-closed: a transport is served
@@ -112,9 +116,29 @@ export const superagentUserFocus = z.object({
   issueId: z.string().max(128).pipe(IssueIdField).optional(),
   /** The session in the focused pane, and any other on-screen ones. */
   focusedSessionId: z.string().max(128).pipe(SessionIdField).optional(),
-  visibleSessionIds: z.array(z.string().max(128).pipe(SessionIdField)).max(4).optional(),
+  /** Raised from 4 to 8 (POD-782). Four was the two-pane world's number, and a
+   *  layout may split further — a pane the operator can see but the payload
+   *  silently dropped is the orchestrator being told a smaller truth than the
+   *  screen tells. Still bounded: this is a prompt block, not a session list. */
+  visibleSessionIds: z.array(z.string().max(128).pipe(SessionIdField)).max(8).optional(),
   /** An open file tab in the focused pane. */
   filePath: z.string().max(1024).optional(),
+  /**
+   * EVERY file/artifact tab on screen, not just the focused pane's (POD-782).
+   *
+   * `filePath` reports one tab and only when it happens to hold focus, so
+   * "what tabs do I have open" — the question a person means when they say
+   * "this file" or "these files" — was unanswerable. The focused one stays
+   * separately named because focus is a different fact from openness.
+   */
+  openFilePaths: z.array(z.string().max(1024)).max(12).optional(),
+  /**
+   * The issue DETAIL DRAWER, when one is open (POD-782). It sits over the
+   * workspace and is what the operator is actually reading, while `issueId`
+   * still names the selected workspace underneath — so reporting only the
+   * latter names the wrong issue for the whole time the drawer is up.
+   */
+  openIssueId: z.string().max(128).pipe(IssueIdField).optional(),
 })
 export type SuperagentUserFocus = z.infer<typeof superagentUserFocus>
 
@@ -282,10 +306,30 @@ const MACHINE_ERRORS = {
 // THE TURN COMMANDS — work placed on owned compute
 // ---------------------------------------------------------------------------
 
+/**
+ * The prompt box's backend choice (POD-782), sent with the turn that carries it.
+ *
+ * Free text rather than an enum on purpose, and bounded rather than open: the
+ * model catalog is per-harness and partly LIVE (grok/cursor/opencode report
+ * their own lists), so an enum here would be a fourth copy of a list that
+ * already disagrees with itself the day a provider ships a model. The harness
+ * validates what it was given; a name it does not know fails the turn VISIBLY
+ * rather than being silently swapped, which is the behaviour the rest of the
+ * spawn surfaces already have.
+ *
+ * `'auto'` is meaningful and is the way to CLEAR a choice: it returns the thread
+ * to the `superagent` settings role.
+ */
+const backendChoice = z.string().min(1).max(120)
+
 export const superagentSendTurnInput = z.object({
   threadId: ThreadIdField.default(asThreadId('global')),
   text: turnText,
   focus: superagentUserFocus.optional(),
+  /** Persisted onto the thread and used for this turn and every later one until
+   *  changed. Omitted = leave the thread's current choice alone. */
+  model: backendChoice.optional(),
+  effort: backendChoice.optional(),
 })
 
 /**
@@ -521,6 +565,63 @@ export const superagentRestartContract = {
     'Nulls two binding columns on the thread row; the next sendTurn mints the replacement session, so two concurrent restarts leave one nulled row rather than two sessions',
 } as const satisfies CommandContract<typeof superagentRestartInput>
 
+export const superagentEnsureSessionInput = z.object({
+  threadId: ThreadIdField.default(asThreadId('global')),
+})
+
+/**
+ * Mint the thread's headless Podium session WITHOUT running a turn (POD-782).
+ *
+ * WHY THIS EXISTS AT ALL. A superagent thread used to have no session until its
+ * first message landed, so the pane had nothing to render a transcript against
+ * and carried a SECOND, hand-written composer for the empty case — a different
+ * box, with its own send path, its own @-menu wiring and none of the real one's
+ * attachments, offer bar, queue notice or stop button. One conversation surface
+ * wearing two implementations is one of them being wrong at any given moment.
+ * With a session available up front the pane mounts the ordinary chat from the
+ * first frame, and the fork is deleted rather than kept in sync.
+ *
+ * IDEMPOTENT, and cheap: a headless session is a row plus a resume binding —
+ * there is no process, no PTY and no harness invocation. Nothing executes until
+ * `sendTurn`, which is where the machine `use` verb correctly lives; that is why
+ * this is a plain session write and needs no confirmation.
+ *
+ * Every list that shows sessions to a human already excludes headless rows
+ * (tray, ownership, the sidebar), so an operator who opens the pane and never
+ * types has gained an invisible row and nothing else.
+ */
+export const superagentEnsureSessionContract = {
+  name: 'superagent.ensureSession',
+  version: 1,
+  visibility: SUPERAGENT_VISIBILITY,
+  input: superagentEnsureSessionInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'session',
+    confirmation: 'none',
+    rationale:
+      'Creates the thread’s PTY-less headless session row so the chat surface has something to ' +
+      'render, and binds it to the thread. It starts no process and invokes no harness — the ' +
+      'machine `use` boundary is `sendTurn`’s, not this one — so it is an ordinary session write. ' +
+      'Idempotent and reversible via `clear`, hence no confirmation.',
+  },
+  exposure: SERVED_ON,
+  delivery: LIVE_TURN_DELIVERY,
+  redaction: CONTROL_REDACTION,
+  ownership: OWNED_BY_HUMAN(
+    ['podium-session'],
+    'The headless session is owned by the human the superagent acts for — the same owner ' +
+      '`sendTurn` would have given it had the first turn minted it instead.',
+  ),
+  attribution: ATTRIBUTION,
+  errorConsistency: THREAD_ERRORS,
+  cli: { summary: 'Ensure a superagent thread has its headless session' },
+  conflict: 'cmd',
+  conflictRule:
+    'Idempotent: a thread already holding a live session keeps it, so two concurrent calls leave one session rather than two',
+} as const satisfies CommandContract<typeof superagentEnsureSessionInput>
+
 export const superagentClearInput = z.object({
   threadId: ThreadIdField.default(asThreadId('global')),
 })
@@ -635,6 +736,7 @@ export const SUPERAGENT_CONTRACTS = {
   openInTerminal: superagentOpenInTerminalContract,
   clear: superagentClearContract,
   restart: superagentRestartContract,
+  ensureSession: superagentEnsureSessionContract,
   startBtw: superagentStartBtwContract,
   concierge: superagentConciergeContract,
 } as const

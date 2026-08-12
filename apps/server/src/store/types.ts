@@ -13,8 +13,8 @@ import type {
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
-  UpdateChannel,
   ThreadId,
+  UpdateChannel,
   UserId,
   VisibilityClass,
 } from '@podium/model'
@@ -651,6 +651,12 @@ export interface SuperagentThreadRow {
   /** PTY session holding the "open in terminal" one-writer lock; sendTurn
    *  rejects while this session is live (lazily checked, lazily cleared). */
   terminalSessionId?: string
+  /** The thread's own model / effort (POD-782). Undefined = follow the
+   *  `superagent` settings role; a value OVERRIDES it, including the role's
+   *  fall-through to the `coding` backend. Unlike `agentKind` these are not
+   *  frozen — the operator may change them between turns on one conversation. */
+  model?: string
+  effort?: string
   createdAt: string
   updatedAt: string
   archived: boolean

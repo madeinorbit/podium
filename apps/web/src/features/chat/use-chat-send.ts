@@ -255,7 +255,11 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
                 : null,
             )
           }
-          await headlessTurn.sendTurn(route, text, focus)
+          // A superagent turn sent while one is running is QUEUED (POD-782), not
+          // refused — same affordance the PTY path has had all along, so the
+          // bubble says "waiting its turn" rather than sitting in a false
+          // "sending" that settles to a lie 30 seconds later.
+          if (await headlessTurn.sendTurn(route, text, focus)) onQueued()
           return
         }
         case 'session': {

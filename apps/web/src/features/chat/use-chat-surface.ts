@@ -142,6 +142,12 @@ export interface ChatSurface {
   // -- headless superagent routing -------------------------------------------
   headlessTurn: UseHeadlessTurnResult
   canInterrupt: boolean
+  /** The thread's harness + model + effort, for the prompt box's pickers
+   *  (POD-782). `agentKind` undefined = the thread has not frozen a harness yet
+   *  (no turn has run), in which case the pickers stay out of the way. */
+  backend: { agentKind: string | undefined; model: string; effort: string }
+  setBackendModel: (model: string) => void
+  setBackendEffort: (effort: string) => void
 
   // -- scrolling -------------------------------------------------------------
   scrollerRef: RefObject<HTMLDivElement | null>
@@ -301,12 +307,45 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     rowsToRender,
   })
 
+  // THE THREAD'S BACKEND (POD-782) — what the prompt box's two pills read and
+  // write. The stored value lives on the thread (so it survives a reload and is
+  // the same on every client), and a fresh pick is held locally until the send
+  // that carries it lands, which is what lets picking and sending be one act
+  // rather than a settings detour.
+  const superThreadRow = useMemo(
+    () => (superThread ? superThreads?.find((t) => t.id === superThread.threadId) : undefined),
+    [superThreads, superThread],
+  )
+  const [backendPick, setBackendPick] = useState<{ model?: string; effort?: string }>({})
+  const backend = useMemo(
+    () => ({
+      // Scoped to the harness FROZEN onto the thread, not the settings default:
+      // the model list for claude-code is not codex's, and the thread cannot
+      // change harness without starting a new harness session (#199).
+      agentKind: superThreadRow?.agentKind,
+      // 'auto' is the real default and it means "follow the settings role" —
+      // the same word the New Issue composer's pickers use for the same idea.
+      model: backendPick.model ?? superThreadRow?.model ?? 'auto',
+      effort: backendPick.effort ?? superThreadRow?.effort ?? 'auto',
+    }),
+    [superThreadRow, backendPick],
+  )
+  const setBackendModel = useCallback((model: string) => {
+    // Effort is scoped to the model (a model can narrow the ladder or support
+    // none), so changing the model resets it — as every other picker pair does.
+    setBackendPick((p) => ({ ...p, model, effort: 'auto' }))
+  }, [])
+  const setBackendEffort = useCallback((effort: string) => {
+    setBackendPick((p) => ({ ...p, effort }))
+  }, [])
+
   const headlessTurn = useHeadlessTurn({
     sessionId,
     hub,
     trpc,
     headless,
     superThread,
+    backend: { model: backend.model, effort: backend.effort },
     initialTurnRunning,
     blockCount: blocks.length,
   })
@@ -535,6 +574,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
 
     headlessTurn,
     canInterrupt: superThread !== undefined,
+    backend,
+    setBackendModel,
+    setBackendEffort,
 
     scrollerRef,
     scroll,

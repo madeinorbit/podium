@@ -513,6 +513,20 @@ export const superagentThreads = sqliteTable('superagent_threads', {
   podiumSessionId: text('podium_session_id'),
   harnessSessionId: text('harness_session_id'),
   terminalSessionId: text('terminal_session_id'),
+  /**
+   * The thread's own model / effort (POD-782). NULLABLE and null is MEANINGFUL:
+   * null = "follow the `superagent` settings role", which is what every thread
+   * did before this column existed and what a thread keeps doing until the
+   * operator picks something in the prompt box. A value here is an explicit
+   * per-thread choice and OVERRIDES the role — including the role's silent
+   * fall-through to the `coding` backend, which is the drift this fixes.
+   *
+   * Not folded into `agent_kind`: the harness is FROZEN onto the thread at its
+   * first turn (changing it hands off to a fresh harness session, #199), while
+   * model and effort are free to change turn to turn on the same conversation.
+   */
+  model: text(),
+  effort: text(),
 })
 
 export const machines = sqliteTable('machines', {
@@ -1155,7 +1169,24 @@ export const superagentQueuedInputs = sqliteTable(
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
   },
-  (table) => [unique('superagent_queued_inputs_thread_id_unique').on(table.threadId)],
+  /**
+   * ONE ROW PER THREAD IS GONE (POD-782), and it was the schema-level half of a
+   * product bug.
+   *
+   * `thread_id` used to be UNIQUE, so a thread could stage exactly one input —
+   * which is why `sendTurn` REFUSED a second message while a turn was running
+   * ("a turn is already running on this thread"). The superagent has the longest
+   * turns in the product and was the one surface where typing a second thought
+   * lost it, while the ordinary chat has queued sends all along.
+   *
+   * The queue is now genuinely a queue: many waiting inputs per thread, drained
+   * oldest-first by the service's pump, exactly one turn in flight at a time.
+   * The ordering key is `created_at` and the index below is what keeps taking
+   * the head cheap. One-writer-per-harness-session is unchanged — it was never
+   * this constraint that enforced it (`turnInFlight` + the pending-turn row do),
+   * which is precisely why removing it costs no safety.
+   */
+  (table) => [index('idx_superagent_queued_thread_order').on(table.threadId, table.createdAt)],
 )
 
 export const superagentPendingTurns = sqliteTable(

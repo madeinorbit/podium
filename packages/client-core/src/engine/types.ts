@@ -90,6 +90,11 @@ export interface UserFocus {
   focusedSessionId?: SessionId
   visibleSessionIds?: SessionId[]
   filePath?: string
+  /** Every file/artifact tab on screen (POD-782), not only the focused one. */
+  openFilePaths?: string[]
+  /** The issue detail drawer open over the workspace, when there is one. Not
+   *  branded, for the same mirror-fidelity reason as `issueId` above. */
+  openIssueId?: string
 }
 
 /**

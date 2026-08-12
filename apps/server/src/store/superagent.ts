@@ -151,6 +151,10 @@ export class SuperagentRepository {
       podiumSessionId?: SessionId | null
       harnessSessionId?: string | null
       terminalSessionId?: string | null
+      /** null clears the per-thread override and returns the thread to the
+       *  `superagent` settings role (POD-782). */
+      model?: string | null
+      effort?: string | null
     },
   ): void {
     const sets: string[] = []
@@ -158,6 +162,14 @@ export class SuperagentRepository {
     if (patch.agentKind !== undefined) {
       sets.push('agent_kind = ?')
       args.push(patch.agentKind)
+    }
+    if (patch.model !== undefined) {
+      sets.push('model = ?')
+      args.push(patch.model)
+    }
+    if (patch.effort !== undefined) {
+      sets.push('effort = ?')
+      args.push(patch.effort)
     }
     if (patch.podiumSessionId !== undefined) {
       sets.push('podium_session_id = ?')
@@ -202,10 +214,19 @@ export class SuperagentRepository {
     return { ...row, createdAt }
   }
 
-  listQueuedInputs(): QueuedSuperagentInputRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM superagent_queued_inputs ORDER BY created_at ASC')
-      .all() as Record<string, unknown>[]
+  /** Queued inputs oldest-first — every thread's, or one thread's. The order is
+   *  the delivery order: the pump takes the head and only ever runs one turn per
+   *  thread, so a burst of sends reaches the harness in the order it was typed. */
+  listQueuedInputs(threadId?: string): QueuedSuperagentInputRow[] {
+    const rows = (
+      threadId
+        ? this.db
+            .prepare(
+              'SELECT * FROM superagent_queued_inputs WHERE thread_id = ? ORDER BY created_at ASC',
+            )
+            .all(threadId)
+        : this.db.prepare('SELECT * FROM superagent_queued_inputs ORDER BY created_at ASC').all()
+    ) as Record<string, unknown>[]
     return rows.map((row) => ({
       inputId: row.input_id as string,
       ownerUserId: row.owner_user_id as UserId,
@@ -297,6 +318,8 @@ export class SuperagentRepository {
       podiumSessionId: (r.podium_session_id as SessionId | null) ?? undefined,
       harnessSessionId: (r.harness_session_id as string | null) ?? undefined,
       terminalSessionId: (r.terminal_session_id as string | null) ?? undefined,
+      model: (r.model as string | null) ?? undefined,
+      effort: (r.effort as string | null) ?? undefined,
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,
       archived: Boolean(r.archived),

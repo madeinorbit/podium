@@ -208,14 +208,30 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     ).resolves.toBeDefined()
   })
 
-  it('refuses to clear while a turn is running', async () => {
+  /**
+   * POD-782 INVERTED THIS. `clear` used to REFUSE while a turn was running, so
+   * the one state the reset exists for — a turn whose result never came — was
+   * the one state it would not act on, and the operator was stranded on a thread
+   * they could neither chat with nor reset. Clearing IS "throw away what is
+   * happening here", so it now abandons the turn: the pending row goes, the
+   * thread stops being in-flight, and a turn-end reopens the composer.
+   */
+  it('ABANDONS a running turn rather than refusing to clear', async () => {
     const h = await harness()
     await h.sa.sendTurn({
       ownerUserId: FIRST_ADMIN_USER_ID,
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    expect(() => h.sa.clear(FIRST_ADMIN_USER_ID, asThreadId('global'))).toThrow(/turn is running/)
+    expect(() => h.sa.clear(FIRST_ADMIN_USER_ID, asThreadId('global'))).not.toThrow()
+    // The thread is usable again immediately — the whole point of the hatch.
+    await expect(
+      h.sa.sendTurn({
+        ownerUserId: FIRST_ADMIN_USER_ID,
+        threadId: asThreadId('global'),
+        text: 'after the reset',
+      }),
+    ).resolves.toMatchObject({ queued: false })
   })
 
   it('clear RELEASES a terminal lock — a locked thread can always be reset', async () => {
@@ -455,7 +471,19 @@ describe('sendTurn (headless harness turns)', () => {
     expect(resumed.systemPrompt).not.toContain('EXPANDED:')
   })
 
-  it('rejects a second send while a turn is running (per-thread turn lock)', async () => {
+  /**
+   * POD-782 INVERTED THIS TOO. A second send used to be REJECTED with "a turn is
+   * already running" — the superagent was the one surface in the product where
+   * typing a second thought lost it, and it has the longest turns in the
+   * product, which is exactly when a person types again. It is now queued
+   * durably and drained in arrival order when the running turn ends.
+   *
+   * ONE TURN AT A TIME IS UNCHANGED and is the invariant this asserts: the
+   * queued message must NOT reach the daemon while the first turn is live (two
+   * writers on one harness session), and must reach it — with its own text, in
+   * order — the moment the first one finishes.
+   */
+  it('QUEUES a second send while a turn is running, and drains it in order', async () => {
     const h = await harness()
     await h.sa.sendTurn({
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -468,17 +496,27 @@ describe('sendTurn (headless harness turns)', () => {
         threadId: asThreadId('global'),
         text: 'two',
       }),
-    ).rejects.toThrow(/turn is already running/)
-    // Completion releases the lock.
-    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
-    await h.settle()
+    ).resolves.toMatchObject({ queued: true })
     await expect(
       h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'three',
       }),
-    ).resolves.toBeTruthy()
+    ).resolves.toMatchObject({ queued: true })
+    // Still exactly ONE turn in flight — the queue is not a second writer.
+    expect(h.turnReqs).toHaveLength(1)
+
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    await h.settle()
+    // The drain took the OLDEST waiting message, not the newest.
+    expect(h.turnReqs).toHaveLength(2)
+    expect(h.turnReqs[1]?.prompt).toBe('two')
+
+    h.resolveTurn(h.turnReqs[1]!, { harnessSessionId: 'h1' })
+    await h.settle()
+    expect(h.turnReqs).toHaveLength(3)
+    expect(h.turnReqs[2]?.prompt).toBe('three')
   })
 
   it('a failed turn records a persisted notice, broadcasts the error, and unlocks', async () => {

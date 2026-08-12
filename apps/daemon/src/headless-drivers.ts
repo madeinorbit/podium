@@ -467,7 +467,17 @@ function runResumeExecTurn(
   const done = (async (): Promise<HeadlessTurnOutcome> => {
     // grok: create via --session-id, then resume via --resume; id minted here.
     // cursor: chat id pre-allocated via `create-chat`, then always --resume.
-    let sessionId = spec.resumeValue
+    //
+    // `spec.sessionUuid` IS THE SERVER'S PRE-MINTED ID AND MUST WIN (POD-782).
+    // The manifest declares `daemon-minted-uuid` as PRE-MINTABLE, so the server
+    // sends a uuid and the control layer binds the transcript tail to it before
+    // the turn starts (control/headless.ts). This branch used to ignore that
+    // field and mint a second uuid — so the harness wrote its conversation under
+    // an id nobody was tailing, and the thread rendered an empty transcript
+    // until the turn ended (by which time the tail was already bound to the
+    // wrong file and never rebound). The durable driver has always honoured it;
+    // this is the in-process path catching up.
+    let sessionId = spec.resumeValue ?? spec.sessionUuid
     if (!sessionId) {
       if (headless.resumeIdAllocation === 'daemon-minted-uuid') {
         sessionId = randomUUID()

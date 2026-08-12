@@ -42,6 +42,15 @@ export interface SuperThreadView {
   /** Query-backed running state for reloads and late joiners; live events keep
    *  the embedded chat current after mount. */
   turnRunning?: boolean
+  /** The harness frozen onto the thread at its first turn. The prompt box's
+   *  model list is scoped to it — 'claude-code' does not offer codex's models. */
+  agentKind?: string
+  /** The thread's own model / effort (POD-782). UNDEFINED IS MEANINGFUL and is
+   *  the common case: it means "follow the `superagent` settings role", which is
+   *  what the pickers render as `auto`. A value is an explicit choice made in
+   *  the prompt box, and it survives reloads because it lives on the thread. */
+  model?: string
+  effort?: string
 }
 
 /** The store fields this slice reads. Structural, so the slice does not depend
@@ -63,21 +72,23 @@ export interface SuperagentSliceValue {
   readonly activeSessionId: SessionId | undefined
 }
 
-export const superagentSlice: SliceDefinition<SuperagentSource, SuperagentSliceValue> = defineSlice({
-  name: 'superagent',
-  derive: (s) => {
-    const active = s.superThreads.find((t) => t.id === s.superThreadId)
-    return {
-      threads: s.superThreads,
-      active,
-      ...(active?.podiumSessionId !== undefined
-        ? { activeSessionId: active.podiumSessionId }
-        : { activeSessionId: undefined }),
-    }
+export const superagentSlice: SliceDefinition<SuperagentSource, SuperagentSliceValue> = defineSlice(
+  {
+    name: 'superagent',
+    derive: (s) => {
+      const active = s.superThreads.find((t) => t.id === s.superThreadId)
+      return {
+        threads: s.superThreads,
+        active,
+        ...(active?.podiumSessionId !== undefined
+          ? { activeSessionId: active.podiumSessionId }
+          : { activeSessionId: undefined }),
+      }
+    },
+    isEqual: (a, b) =>
+      a.threads === b.threads && a.active === b.active && a.activeSessionId === b.activeSessionId,
   },
-  isEqual: (a, b) =>
-    a.threads === b.threads && a.active === b.active && a.activeSessionId === b.activeSessionId,
-})
+)
 
 /** The thread the view should render for an id, or undefined. Takes the LIST,
  *  never a store or a fetcher: a function that could go and get a thread by id

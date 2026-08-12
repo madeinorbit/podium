@@ -108,6 +108,7 @@ export function TranscriptFeed({
   scrollerRef,
   onScroll,
   compact,
+  superagent,
   phase,
   rows,
   blocks,
@@ -141,6 +142,9 @@ export function TranscriptFeed({
   scrollerRef: RefObject<HTMLDivElement | null>
   onScroll: () => void
   compact: boolean
+  /** This feed fronts a SUPERAGENT thread rather than an agent's session — it
+   *  changes what an empty transcript means, and nothing else. */
+  superagent: boolean
   phase: TranscriptPhase
   rows: readonly RenderableRow[]
   blocks: readonly ChatBlock[]
@@ -221,7 +225,9 @@ export function TranscriptFeed({
           reader to type into rather than centred in a void (POD-746). */}
       <div className="mt-auto" aria-hidden="true" />
       {phase === 'loading' && <TranscriptCold compact={compact} />}
-      {phase === 'empty' && <TranscriptStandby session={session} cwd={cwd} />}
+      {phase === 'empty' && (
+        <TranscriptStandby session={session} cwd={cwd} superagent={superagent} />
+      )}
       {/* Top sentinel: only the bounded tail of ROWS is mounted; more exist
           above (windowed-out locally or still on disk). Scrolling here autoloads
           them (onScroll → loadOlder); this is also a manual fallback if the

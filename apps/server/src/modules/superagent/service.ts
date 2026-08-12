@@ -8,7 +8,7 @@
  * the daemon accepts the turn, progress streams to clients as
  * `headlessActivity` frames, and the canonical items arrive via the tail.
  */
-import { spawnedByTag } from '@podium/model'
+
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { SuperagentUserFocus } from '@podium/commands'
@@ -18,15 +18,16 @@ import {
   HarnessAgent,
   type IssueWire,
   type SessionId,
+  spawnedByTag,
   type ThreadId,
   type UserId,
 } from '@podium/model'
+import { resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import {
   harnessPremintsHeadlessResumeId,
   harnessResumeKind,
   harnessSupportsMcp,
 } from '../../harness-manifest'
-import { resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
 import type {
@@ -49,6 +50,7 @@ import {
 import {
   buildFocusBlock,
   buildGlobalSeed,
+  type FocusIssueInfo,
   type FocusSessionInfo,
   type GlobalQuestion,
   type GlobalRepoDigest,
@@ -71,6 +73,39 @@ export const SUPERAGENT_HARNESS_TIMEOUT_MS = 600_000
 /** Persisted marker for a failed headless turn (a visible, durable line on the
  *  thread — never a silent fallback). */
 export const TURN_FAILED_MARKER = 'the headless harness turn failed'
+
+/**
+ * How many times a RETRYABLE dispatch failure (transport timeout, an
+ * unreachable machine) is re-sent before the turn is failed for good.
+ *
+ * There used to be no cap: `dispatchPendingTurn` re-armed a 1s timer on every
+ * retryable result, forever. A daemon that never came back therefore left the
+ * thread `turnInFlight` for the life of the process — the composer stayed shut,
+ * `clear` and `restart` both refused (they check the same flag), and the user
+ * saw a spinner with no error and no way out. A bounded ladder ending in a
+ * VISIBLE failure is strictly better than an invisible infinite one.
+ */
+export const TURN_DISPATCH_MAX_ATTEMPTS = 6
+/** Backoff for retryable dispatch, capped. Attempt n waits 1s·2^(n-1) ≤ 30s. */
+const dispatchBackoffMs = (attempt: number): number => Math.min(30_000, 1000 * 2 ** (attempt - 1))
+
+/**
+ * Grace on top of the harness timeout before the reaper calls a pending turn
+ * dead. The daemon's own transport timeout is `timeoutMs + 10s`, so anything
+ * still pending this long after it was written has lost its result — the server
+ * restarted mid-turn, or the daemon died without reporting.
+ */
+export const TURN_REAP_GRACE_MS = 120_000
+/** How often the reaper sweeps. Injectable for tests. */
+const TURN_REAP_INTERVAL_MS = 30_000
+/**
+ * How long `interruptTurn` waits for the daemon to report the stop before
+ * force-finishing the turn server-side. The daemon can only interrupt a turn it
+ * still holds in memory (`ctx.runningHeadlessTurns`), so after a daemon restart
+ * the request lands nowhere — and Stop was the user's last exit from a wedged
+ * thread. It now always terminates, one way or the other.
+ */
+export const INTERRUPT_FORCE_AFTER_MS = 5_000
 const SYSTEM_PROMPT = `You are Podium's superagent — the orchestrator with cross-project context.
 You manage real coding-agent sessions (Claude Code, Codex, Grok CLIs in PTYs), worktrees, and tickets
 for a developer. You can start/steer/stop agents, inspect their transcripts, run constrained git
@@ -168,6 +203,12 @@ export class SuperagentService {
   /** Pending rows currently dispatched by THIS server process. The durable row
    * remains the source of truth across a restart. */
   private readonly dispatchedTurnIds = new Set<string>()
+  /** Retryable dispatch attempts per turn, for the bounded ladder. Process-local
+   *  on purpose: a restart is itself a fresh chance for the turn to land. */
+  private readonly dispatchAttempts = new Map<string, number>()
+  /** Pending force-stop timers from `interruptTurn`, keyed by turn. */
+  private readonly interruptFallbacks = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly reaper: ReturnType<typeof setInterval> | undefined
   private readonly preparingInputs = new Map<
     string,
     Promise<{ threadId: ThreadId; podiumSessionId: SessionId }>
@@ -195,19 +236,32 @@ export class SuperagentService {
     private readonly modules: RegistryModules,
     private readonly repos: { list(): string[] },
     private readonly store: SessionStore,
-    opts?: { waitPollMs?: number; eventReadLimit?: number },
+    opts?: { waitPollMs?: number; eventReadLimit?: number; reapIntervalMs?: number },
   ) {
     this.waitPollMs = opts?.waitPollMs ?? 2000
     this.eventReadLimit = opts?.eventReadLimit ?? 500
+    // Only a PENDING row means a turn is in flight. A QUEUED row does not: it is
+    // a message waiting its turn, and marking its thread in-flight at boot was
+    // what made a queue impossible to drain (the pump refuses a thread that is
+    // already flagged, so the flag had to be set by dispatch, not by arrival).
     for (const pending of this.store.superagent.listPendingTurns()) {
       this.turnInFlight.add(pending.threadId)
-    }
-    for (const queued of this.store.superagent.listQueuedInputs()) {
-      this.turnInFlight.add(queued.threadId)
     }
     this.modules.bus.on('machine.connected', ({ machineId }) => {
       this.resumePendingTurns(machineId)
     })
+    const reapEvery = opts?.reapIntervalMs ?? TURN_REAP_INTERVAL_MS
+    if (reapEvery > 0) {
+      this.reaper = setInterval(() => this.reapStaleTurns(), reapEvery)
+      this.reaper.unref?.()
+    }
+  }
+
+  /** Stop the reaper (test teardown / server shutdown). */
+  dispose(): void {
+    if (this.reaper) clearInterval(this.reaper)
+    for (const timer of this.interruptFallbacks.values()) clearTimeout(timer)
+    this.interruptFallbacks.clear()
   }
 
   private globalThreadId(ownerUserId: UserId): ThreadId {
@@ -351,9 +405,11 @@ export class SuperagentService {
   clear(ownerUserId: UserId, requested: ThreadId = asThreadId('global')): void {
     const thread = this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
-    if (this.turnInFlight.has(threadId)) {
-      throw new Error('a turn is running on this thread — wait for it to finish')
-    }
+    // A running turn no longer refuses the reset — it is abandoned by it
+    // (POD-782, see `abandonInFlight`). Clearing IS "throw away what is
+    // happening here", so the one state that most needs the hatch cannot be the
+    // one state that is denied it.
+    this.abandonInFlight(threadId, thread.podiumSessionId)
     if (thread.kind !== 'global') {
       this.store.superagent.archiveSuperagentThread(threadId)
       return
@@ -404,36 +460,166 @@ export class SuperagentService {
     threadId: requested,
     text,
     focus,
+    model,
+    effort,
   }: {
     ownerUserId: UserId
     threadId: ThreadId
     text: string
     /** What the sending client has on screen (#225) — prepended to every turn. */
     focus?: SuperagentUserFocus
-  }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
+    /** Per-thread backend choice from the prompt box (POD-782). Persisted onto
+     *  the thread, so it holds for every later turn until changed. */
+    model?: string
+    effort?: string
+  }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; queued: boolean }> {
     const thread = this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
-    if (this.turnInFlight.has(threadId)) {
-      throw new Error('a turn is already running on this thread — stop it or wait for it to finish')
-    }
     const lockError = this.terminalLockError(thread)
     if (lockError) throw new Error(lockError)
+    this.applyBackendChoice(threadId, {
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+    })
+    const queued = this.store.superagent.putQueuedInput({
+      inputId: randomUUID(),
+      ownerUserId,
+      threadId,
+      text,
+      ...(focus ? { focus } : {}),
+    })
+
+    // A TURN IS ALREADY RUNNING — QUEUE, DON'T REFUSE (POD-782).
+    //
+    // This used to throw "a turn is already running on this thread". The main
+    // chat has queued sends since forever (`Queued · N` in the composer), so the
+    // superagent was the one surface in the product where typing a second
+    // thought lost it and returned an error — and the orchestrator's turns are
+    // the LONGEST in the product, which is exactly when a person types again.
+    // The durable queue row is already written above; the pump drains it in
+    // arrival order the moment the running turn ends (see `finishPendingTurn`).
+    if (this.turnInFlight.has(threadId)) {
+      return { threadId, podiumSessionId: this.ensureHeadlessSession(thread), queued: true }
+    }
+
     this.turnInFlight.add(threadId)
-    let queued: QueuedSuperagentInputRow | undefined
     try {
-      queued = this.store.superagent.putQueuedInput({
-        inputId: randomUUID(),
-        ownerUserId,
-        threadId,
-        text,
-        ...(focus ? { focus } : {}),
-      })
-      return await this.prepareQueuedInput(queued, true)
+      const ack = await this.prepareQueuedInput(queued, true)
+      return { ...ack, queued: false }
     } catch (err) {
-      if (queued) this.store.superagent.deleteQueuedInput(queued.inputId)
+      // The FIRST send of a burst reports its own failure synchronously — the
+      // client can hand the text back for a retry. A queued one cannot (nobody
+      // is waiting on it), which is why the pump writes a visible failure line
+      // on the thread instead.
+      this.store.superagent.deleteQueuedInput(queued.inputId)
       this.turnInFlight.delete(threadId)
       throw err
     }
+  }
+
+  /** Persist a prompt-box model/effort choice onto the thread. 'auto' clears the
+   *  override rather than storing a sentinel: the absence of a value is what
+   *  "follow the settings role" means everywhere else in this file. */
+  private applyBackendChoice(
+    threadId: ThreadId,
+    choice: { model?: string; effort?: string },
+  ): void {
+    const patch: { model?: string | null; effort?: string | null } = {}
+    if (choice.model !== undefined) patch.model = choice.model === 'auto' ? null : choice.model
+    if (choice.effort !== undefined) patch.effort = choice.effort === 'auto' ? null : choice.effort
+    if (Object.keys(patch).length === 0) return
+    this.store.superagent.updateSuperagentThreadBinding(threadId, patch)
+  }
+
+  /**
+   * Run the next queued input on a thread, if any and if nothing is running.
+   * Fire-and-forget: nobody awaits a queued turn, so a preparation failure is
+   * reported the only way it can be — a durable failure line on the thread and a
+   * turn-end carrying the error — and the pump moves on to the next input rather
+   * than wedging the queue behind one bad message.
+   */
+  private pump(threadId: ThreadId): void {
+    if (this.turnInFlight.has(threadId)) return
+    const next = this.store.superagent.listQueuedInputs(threadId)[0]
+    if (!next) return
+    this.turnInFlight.add(threadId)
+    // Same MCP exemption a DIRECT send gets, and for the same reason: this is a
+    // message the human sent through the front door, which merely arrived while
+    // something else was running. Holding a drained message to a stricter rule
+    // than the one it was typed behind would mean the second of two messages
+    // sent a second apart could hang where the first ran. (The stricter rule
+    // still governs `resumePendingTurns`' PENDING rows, where the concern is a
+    // stale serialized credential from an older process — a different thing.)
+    void this.prepareQueuedInput(next, true).catch((error) => {
+      this.store.superagent.deleteQueuedInput(next.inputId)
+      this.failQueuedInput(next, error)
+      this.turnInFlight.delete(threadId)
+      this.pump(threadId)
+    })
+  }
+
+  /** A queued input that never became a turn: durable line + turn-end, so the
+   *  composer reopens and the reader sees why their message did not run. */
+  private failQueuedInput(queued: QueuedSuperagentInputRow, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error)
+    this.store.superagent.appendSuperagentMessage(queued.threadId, {
+      ownerUserId: queued.ownerUserId,
+      role: 'assistant',
+      content: `${TURN_FAILED_MARKER}: ${message}`,
+    })
+    const sessionId = this.store.superagent.getSuperagentThread(queued.threadId)?.podiumSessionId
+    if (sessionId) {
+      this.modules.headless.broadcastHeadlessActivity(sessionId, {
+        kind: 'turn-end',
+        error: message,
+      })
+    }
+  }
+
+  /**
+   * Give the thread its headless session without running anything (POD-782).
+   *
+   * Idempotent, and the ONLY reason it is a command rather than a side effect of
+   * the first turn: the pane needs a session to render the ordinary chat
+   * against, and without one it had to carry a second composer for the
+   * not-yet-started case. Creates the global thread on demand for the same
+   * reason `listThreads` does — a user who has never sent a message still has a
+   * global thread, they just have not used it.
+   */
+  ensureSession({
+    ownerUserId,
+    threadId: requested,
+  }: {
+    ownerUserId: UserId
+    threadId: ThreadId
+  }): { threadId: ThreadId; podiumSessionId: SessionId } {
+    const thread =
+      requested === 'global'
+        ? this.ownedThread(ownerUserId, this.ensureGlobalThread(ownerUserId))
+        : this.ownedThread(ownerUserId, requested)
+    return {
+      threadId: asThreadId(thread.id),
+      podiumSessionId: this.ensureHeadlessSession(thread),
+    }
+  }
+
+  /** The thread's headless Podium session, created if the row is missing. Split
+   *  out of the turn path so a QUEUED send can still ack with a session id — the
+   *  client needs one to keep rendering the thread's transcript. */
+  private ensureHeadlessSession(thread: SuperagentThreadRow): SessionId {
+    const bound = thread.podiumSessionId
+    if (bound && this.sessionById(bound)) return bound
+    const agent = HarnessAgent.safeParse(thread.agentKind)
+    const { sessionId } = this.modules.headless.createHeadlessSession({
+      agentKind: agent.success
+        ? agent.data
+        : superagentHarnessAgent(this.store.settings.getSettingsFor(thread.ownerUserId)),
+      cwd: this.threadCwd(thread),
+      title: thread.title ?? thread.id,
+      spawnedBy: spawnedByTag({ kind: 'superagent', threadId: asThreadId(thread.id) }),
+    })
+    this.store.superagent.updateSuperagentThreadBinding(thread.id, { podiumSessionId: sessionId })
+    return sessionId
   }
 
   private prepareQueuedInput(
@@ -488,25 +674,11 @@ export class SuperagentService {
       agent = frozen.data
     }
     const cwd = this.threadCwd(thread)
-    // Ensure the headless Podium session (recreate if the row was deleted).
-    const boundSessionId = thread.podiumSessionId
-    const existingSession = boundSessionId
-      ? this.sessionById(boundSessionId)
-      : undefined
-    let sessionId: SessionId
-    if (existingSession) {
-      sessionId = existingSession.sessionId
-    } else {
-      sessionId = this.modules.headless.createHeadlessSession({
-        agentKind: agent,
-        cwd,
-        title: thread.title ?? threadId,
-        spawnedBy: spawnedByTag({ kind: 'superagent', threadId }),
-      }).sessionId
-      this.store.superagent.updateSuperagentThreadBinding(threadId, {
-        podiumSessionId: sessionId,
-      })
-    }
+    // Ensure the headless Podium session (recreate if the row was deleted). A
+    // queued send may already have minted it — `ensureHeadlessSession` is the one
+    // place that decides, so the two paths cannot mint two sessions for one
+    // thread. `agentKind` was frozen above, so the row it may create is right.
+    const sessionId = this.ensureHeadlessSession({ ...thread, agentKind: agent })
     // First HARNESS turn = no harness session yet. A legacy thread (buffered
     // messages, no harness session) re-primes through the seed the same way.
     const firstTurn = !thread.harnessSessionId
@@ -519,11 +691,28 @@ export class SuperagentService {
         ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
         : SYSTEM_PROMPT
     const systemPrompt = baseSystemPrompt + '\n\n' + superagentResponseContract(text)
+    // WHICH MODEL THIS TURN RUNS ON (POD-782).
+    //
+    // The thread's own choice wins — that is what the prompt box's two pills
+    // write, and an explicit pick must not be reinterpreted. Only when the
+    // thread has no choice does the settings role decide, and only then does the
+    // `coding` fall-through apply: the `superagent` role can be pointed at an
+    // API backend, or at a different harness than the one frozen onto this
+    // thread, and neither can name a model this harness understands.
+    //
+    // That fall-through used to be silent AND unconditional, so Settings could
+    // show one model while every turn ran another with no way to tell. It is now
+    // reachable only when nobody has said otherwise, and the resolved pair rides
+    // back to the client on `listThreads` so the pills state what actually ran.
     const backend = resolveRole(settings, 'superagent')
-    const turnBackend =
+    const roleBackend =
       backend.execution === 'harness' && backend.harness === agent
         ? backend
         : resolveRole(settings, 'coding')
+    const turnBackend = {
+      model: thread.model ?? roleBackend.model,
+      effort: thread.effort ?? roleBackend.effort,
+    }
     // The manifest declares whether the harness accepts a pre-minted first-turn id.
     const sessionUuid =
       firstTurn && harnessPremintsHeadlessResumeId(agent) ? randomUUID() : undefined
@@ -554,25 +743,25 @@ export class SuperagentService {
     return { threadId, podiumSessionId: sessionId }
   }
 
+  /**
+   * Re-drive durable work after a restart or a machine reconnect: first the
+   * turns that were already dispatched (they own their threads), then one queued
+   * input per still-idle thread.
+   *
+   * ORDER MATTERS, and it is why pending comes first. Marking a thread in-flight
+   * from its pending row before the queue is consulted is what stops a thread
+   * with a live turn AND a waiting message from starting a second turn against
+   * the same harness session.
+   */
   private resumePendingTurns(machineId?: string): void {
-    for (const queued of this.store.superagent.listQueuedInputs()) {
-      this.turnInFlight.add(queued.threadId)
-      void this.prepareQueuedInput(queued).catch((error) => {
-        this.store.superagent.deleteQueuedInput(queued.inputId)
-        this.store.superagent.appendSuperagentMessage(queued.threadId, {
-          ownerUserId: queued.ownerUserId,
-          role: 'assistant',
-          content: `${TURN_FAILED_MARKER}: ${error instanceof Error ? error.message : String(error)}`,
-        })
-        this.turnInFlight.delete(queued.threadId)
-      })
-    }
     for (const pending of this.store.superagent.listPendingTurns()) {
       const session = this.sessionById(pending.podiumSessionId)
       if (!session || (machineId !== undefined && session.machineId !== machineId)) continue
       this.turnInFlight.add(pending.threadId)
       this.dispatchPendingTurn(pending)
     }
+    const threads = new Set(this.store.superagent.listQueuedInputs().map((q) => q.threadId))
+    for (const threadId of threads) this.pump(threadId)
   }
 
   private dispatchPendingTurn(pending: PendingSuperagentTurnRow, allowWithoutMcp = false): void {
@@ -586,7 +775,20 @@ export class SuperagentService {
       return
     }
     // Full-MCP harnesses need a fresh endpoint/token after every server restart;
-    // never replay the stale credential serialized by an older process.
+    // never replay the stale credential serialized by an older process. A gated
+    // turn is not lost — it stays a pending row, and `setMcpEndpoint` +
+    // `machine.connected` both re-drive it.
+    //
+    // POD-782 INVESTIGATED THE EXEMPTION AND LEFT IT. `allowWithoutMcp` is set
+    // only by a direct `sendTurn`, and the worry was that a first send racing a
+    // fresh server would run the orchestrator with zero Podium tools — an agent
+    // that cannot see a session, issue or repo, which reads as "the superagent
+    // is broken". It cannot happen over tRPC: `server.ts` calls
+    // `setMcpEndpoint` in the SAME synchronous block as `serveNative`, so the
+    // event loop cannot deliver a request between the two. Closing the
+    // exemption anyway would convert a race that cannot occur into a real
+    // hang — an in-process caller during boot would wait on the reaper instead
+    // of answering — so the exemption stays and this note replaces the guess.
     if (harnessSupportsMcp(agent.data) && !this.mcpEndpoint && !allowWithoutMcp) {
       return
     }
@@ -607,17 +809,57 @@ export class SuperagentService {
     void turn.then((result) => {
       this.dispatchedTurnIds.delete(pending.turnId)
       if (result.retryable) {
+        const attempt = (this.dispatchAttempts.get(pending.turnId) ?? 0) + 1
+        this.dispatchAttempts.set(pending.turnId, attempt)
+        if (attempt >= TURN_DISPATCH_MAX_ATTEMPTS) {
+          // The ladder is spent. Fail VISIBLY rather than retrying forever: a
+          // silent infinite retry is indistinguishable from a hang, and it holds
+          // the thread's in-flight flag against `clear` and `restart`.
+          this.finishPendingTurn(pending, {
+            ok: false,
+            error: `${result.error ?? 'the turn could not be delivered'} (gave up after ${attempt} attempts)`,
+          })
+          return
+        }
         const retry = setTimeout(() => {
           const current = this.store.superagent
             .listPendingTurns()
             .find((row) => row.turnId === pending.turnId)
           if (current) this.dispatchPendingTurn(current)
-        }, 1000)
+        }, dispatchBackoffMs(attempt))
         retry.unref?.()
         return
       }
       this.finishPendingTurn(pending, result)
     })
+  }
+
+  /**
+   * Fail pending turns that have outlived any possible result (POD-782).
+   *
+   * A pending row is the ONLY thing that keeps a thread in-flight, and its
+   * result arrives over a promise held by one server process. Kill that process
+   * mid-turn and the row survives while the promise does not: the thread stays
+   * flagged forever, the composer stays shut, and `clear`/`restart` both refuse
+   * because they check the same flag. Nothing swept those rows.
+   *
+   * The daemon's own transport timeout is `timeoutMs + 10s`, so a row older than
+   * the harness budget plus a grace has demonstrably lost its answer. Rows this
+   * process is actively driving are skipped — their promise is still live.
+   */
+  private reapStaleTurns(): void {
+    const now = Date.now()
+    for (const pending of this.store.superagent.listPendingTurns()) {
+      if (this.dispatchedTurnIds.has(pending.turnId)) continue
+      const budget =
+        (pending.payload.timeoutMs ?? SUPERAGENT_HARNESS_TIMEOUT_MS) + TURN_REAP_GRACE_MS
+      const age = now - Date.parse(pending.createdAt)
+      if (!Number.isFinite(age) || age < budget) continue
+      this.finishPendingTurn(pending, {
+        ok: false,
+        error: 'the turn was lost — its harness never reported a result. Send it again.',
+      })
+    }
   }
 
   private finishPendingTurn(
@@ -683,6 +925,17 @@ export class SuperagentService {
       this.modules.headless.headlessTurnAck(pending.podiumSessionId, pending.turnId)
       this.turnInFlight.delete(pending.threadId)
       this.dispatchedTurnIds.delete(pending.turnId)
+      this.dispatchAttempts.delete(pending.turnId)
+      const fallback = this.interruptFallbacks.get(pending.turnId)
+      if (fallback) {
+        clearTimeout(fallback)
+        this.interruptFallbacks.delete(pending.turnId)
+      }
+      // DRAIN. Messages the user typed while this turn ran are durable queue
+      // rows; the thread is free now, so the next one starts immediately and in
+      // arrival order. Runs whether the turn succeeded or failed — a failed turn
+      // must not strand everything typed behind it.
+      this.pump(pending.threadId)
       // After turnInFlight is released so a subscriber can immediately dispatch
       // the thread's next turn [spec:SP-5d81].
       this.modules.bus.emit('superagent.turnEnded', {
@@ -713,19 +966,32 @@ export class SuperagentService {
   }): void {
     const thread = this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
-    if (this.turnInFlight.has(threadId)) {
-      throw new Error('a turn is running on this thread — wait for it to finish')
-    }
     const lockError = this.terminalLockError(thread)
     if (lockError) throw new Error(lockError)
+    // Same reasoning as `clear`: a wedged turn is the reason to restart, so it
+    // is abandoned rather than allowed to refuse the restart.
+    this.abandonInFlight(threadId, thread.podiumSessionId)
     this.store.superagent.updateSuperagentThreadBinding(threadId, {
       harnessSessionId: null,
       podiumSessionId: null,
     })
   }
 
-  /** Interrupt the thread's running headless turn (fire-and-forget; the turn's
-   *  own result broadcasts the turn-end). */
+  /**
+   * Stop the thread's running turn — and ALWAYS end up stopped (POD-782).
+   *
+   * The daemon can only interrupt a turn it still holds in memory
+   * (`ctx.runningHeadlessTurns`). After a daemon restart that map is empty, so
+   * the request landed nowhere and the thread stayed in-flight with the composer
+   * shut — Stop was the user's last exit from a wedged thread and it silently
+   * did nothing. So: ask the daemon nicely, then force-finish server-side if it
+   * has not reported back. The fallback is cancelled by a real result
+   * (`finishPendingTurn`), so a daemon that DOES stop the turn still wins the
+   * race and reports the true outcome.
+   *
+   * Queued messages are dropped with the turn: stopping is "I want out of this",
+   * not "run the rest of my backlog immediately".
+   */
   interruptTurn({
     ownerUserId,
     threadId: requested,
@@ -736,7 +1002,57 @@ export class SuperagentService {
     const thread = this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
     if (!thread?.podiumSessionId) throw new Error(`no headless session for thread: ${threadId}`)
+    for (const queued of this.store.superagent.listQueuedInputs(threadId)) {
+      this.store.superagent.deleteQueuedInput(queued.inputId)
+    }
     this.modules.headless.headlessInterrupt(thread.podiumSessionId)
+    for (const pending of this.store.superagent.listPendingTurns()) {
+      if (pending.threadId !== threadId) continue
+      if (this.interruptFallbacks.has(pending.turnId)) continue
+      const timer = setTimeout(() => {
+        this.interruptFallbacks.delete(pending.turnId)
+        const still = this.store.superagent
+          .listPendingTurns()
+          .find((row) => row.turnId === pending.turnId)
+        if (still) this.finishPendingTurn(still, { ok: false, error: 'stopped' })
+      }, INTERRUPT_FORCE_AFTER_MS)
+      timer.unref?.()
+      this.interruptFallbacks.set(pending.turnId, timer)
+    }
+  }
+
+  /**
+   * Abandon whatever this thread has in flight, so a reset is always possible.
+   *
+   * `clear` and `restart` are the operator's recovery hatches, and they used to
+   * refuse while a turn was in flight — which meant the exact state you need
+   * them for (a turn whose result never came) was the one state they would not
+   * act on. Refusing there strands the user on a thread they can neither chat
+   * with nor reset, so the recovery paths now clear the way instead: the daemon
+   * is told to stop, the durable rows go, and the thread comes back.
+   */
+  private abandonInFlight(threadId: ThreadId, podiumSessionId?: SessionId): void {
+    for (const queued of this.store.superagent.listQueuedInputs(threadId)) {
+      this.store.superagent.deleteQueuedInput(queued.inputId)
+    }
+    if (podiumSessionId) this.modules.headless.headlessInterrupt(podiumSessionId)
+    for (const pending of this.store.superagent.listPendingTurns()) {
+      if (pending.threadId !== threadId) continue
+      const fallback = this.interruptFallbacks.get(pending.turnId)
+      if (fallback) {
+        clearTimeout(fallback)
+        this.interruptFallbacks.delete(pending.turnId)
+      }
+      this.store.superagent.deletePendingTurn(pending.turnId)
+      this.modules.headless.headlessTurnAck(pending.podiumSessionId, pending.turnId)
+      this.dispatchedTurnIds.delete(pending.turnId)
+      this.dispatchAttempts.delete(pending.turnId)
+      this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
+        kind: 'turn-end',
+        error: 'stopped',
+      })
+    }
+    this.turnInFlight.delete(threadId)
   }
 
   /**
@@ -1081,7 +1397,18 @@ export class SuperagentService {
    *  MCP-driven or automation turn). */
   private focusBlock(focus: SuperagentUserFocus | undefined): string | undefined {
     if (!focus) return undefined
-    const issue = focus.issueId ? this.issueById(focus.issueId) : undefined
+    const issueInfo = (id: string | undefined): FocusIssueInfo | undefined => {
+      const issue = id ? this.issueById(id) : undefined
+      if (!issue) return undefined
+      return {
+        seq: issue.seq,
+        title: issue.title,
+        ...(issue.stage ? { stage: issue.stage } : {}),
+        ...(issue.repoPath ? { repoPath: issue.repoPath } : {}),
+      }
+    }
+    const issue = issueInfo(focus.issueId)
+    const openIssue = issueInfo(focus.openIssueId)
     const focused = focus.focusedSessionId ? this.sessionInfo(focus.focusedSessionId) : undefined
     const alsoVisible = (focus.visibleSessionIds ?? [])
       .filter((id) => id !== focus.focusedSessionId)
@@ -1090,20 +1417,13 @@ export class SuperagentService {
     return buildFocusBlock({
       now: new Date().toISOString(),
       ...(focus.view ? { view: focus.view } : {}),
-      ...(issue
-        ? {
-            issue: {
-              seq: issue.seq,
-              title: issue.title,
-              ...(issue.stage ? { stage: issue.stage } : {}),
-              ...(issue.repoPath ? { repoPath: issue.repoPath } : {}),
-            },
-          }
-        : {}),
+      ...(issue ? { issue } : {}),
+      ...(openIssue ? { openIssue } : {}),
       ...(focus.worktreePath ? { worktreePath: focus.worktreePath } : {}),
       ...(focused ? { focused } : {}),
       ...(alsoVisible.length ? { alsoVisible } : {}),
       ...(focus.filePath ? { filePath: focus.filePath } : {}),
+      ...(focus.openFilePaths?.length ? { openFilePaths: focus.openFilePaths } : {}),
     })
   }
 

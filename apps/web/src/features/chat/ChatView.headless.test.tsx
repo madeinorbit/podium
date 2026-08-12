@@ -279,8 +279,17 @@ describe('ChatView headless mode', () => {
     expect(sendTurn).not.toHaveBeenCalled()
   })
 
-  it('surfaces a sendTurn rejection inline (turn running / terminal lock)', async () => {
-    sendTurn.mockRejectedValueOnce(new Error('a turn is already running on this thread'))
+  /**
+   * The translated "turn is already running" copy is GONE with the refusal it
+   * translated (POD-782): the server queues a second send now, so the client no
+   * longer has a rejection to dress up. What remains is the honest general case
+   * — a refusal the server DOES still make (the terminal one-writer lock) is
+   * shown verbatim rather than re-worded into a guess about which one it was.
+   */
+  it('surfaces a sendTurn rejection inline, in the server’s own words', async () => {
+    sendTurn.mockRejectedValueOnce(
+      new Error('this thread is open in a terminal session — close it to chat here'),
+    )
     drafts = { h1: 'x' }
     mount()
     await flush()
@@ -288,8 +297,33 @@ describe('ChatView headless mode', () => {
     await act(async () => {
       send.click()
     })
-    expect(container.textContent).toContain('Super agent is still working on the previous message.')
-    expect(textarea().disabled).toBe(true)
+    expect(container.textContent).toContain('open in a terminal session')
+  })
+
+  /**
+   * QUEUED IS NOT FAILED (POD-782). A send that arrives mid-turn resolves with
+   * `queued: true`, and the optimistic bubble must take the queued affordance —
+   * the same one the PTY path has always had — instead of sitting in a "sending"
+   * state that settles into a lie 30 seconds later.
+   */
+  it('marks the optimistic bubble queued when the server queues the turn', async () => {
+    sendTurn.mockResolvedValueOnce({
+      threadId: 'global',
+      podiumSessionId: 'h1',
+      queued: true,
+    } as never)
+    drafts = { h1: 'and another thing' }
+    mount()
+    await flush()
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
+    await act(async () => {
+      send.click()
+    })
+    await flush()
+    // The text is still on screen, wearing the queued mark and NOT the failed one.
+    expect(container.textContent).toContain('and another thing')
+    expect(container.querySelector('.transcript-delivery')?.textContent).toBe('queued')
+    expect(container.querySelector('.transcript-pending--failed')).toBeNull()
   })
 
   it('collapses machine-authored [CONCIERGE CONTEXT] user blocks into a disclosure row', async () => {

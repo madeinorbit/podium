@@ -53,10 +53,27 @@ interface StandbyCopy {
   asking: boolean
 }
 
-/** What "empty" means for THIS session. Keyed on the two facts that change the
- *  answer — whether the harness writes a transcript at all, and whether the
- *  process is still running. */
-export function standbyCopy(session: SessionMeta | undefined): StandbyCopy {
+/**
+ * What "empty" means for THIS session. Keyed on the facts that change the
+ * answer — whether this is the orchestrator's own thread, whether the harness
+ * writes a transcript at all, and whether the process is still running.
+ *
+ * `superagent` is checked FIRST and it is the only arm that carries a note on an
+ * actionable state, which the rule above otherwise forbids. It earns the
+ * exception because the note is not "where did the output go" — it is the one
+ * thing about this box a person cannot discover by looking at it: that the chat
+ * spans every task, and that `@` reaches repos, worktrees, tasks and past
+ * conversations. That sentence used to live in a bespoke empty state inside
+ * `SuperagentView`; POD-782 deleted that screen and the sentence moved here,
+ * because this is where the product already says what an empty chat is.
+ */
+export function standbyCopy(session: SessionMeta | undefined, superagent = false): StandbyCopy {
+  if (superagent)
+    return {
+      title: 'What do you want to work on?',
+      note: 'Your orchestrator — it starts agents, sets up worktrees, digs through past conversations and works tickets. Type @ to reference a repo, worktree, task or conversation.',
+      asking: true,
+    }
   if (session?.agentKind === 'shell')
     return {
       title: 'A shell keeps no transcript',
@@ -93,12 +110,18 @@ function coordinates(session: SessionMeta | undefined, cwd: string): readonly st
 export function TranscriptStandby({
   session,
   cwd,
+  superagent = false,
 }: {
   session: SessionMeta | undefined
   cwd: string
+  /** This is the orchestrator's own thread, not an agent's session. */
+  superagent?: boolean
 }): JSX.Element {
-  const copy = standbyCopy(session)
-  const where = coordinates(session, cwd)
+  const copy = standbyCopy(session, superagent)
+  // The orchestrator's coordinates are noise: its cwd is the home directory (it
+  // works ACROSS checkouts rather than in one), and "the wrong worktree" — the
+  // expensive mistake this line exists to prevent — is not a mistake it can make.
+  const where = superagent ? [] : coordinates(session, cwd)
 
   return (
     <div

@@ -52,6 +52,9 @@ export interface UseHeadlessTurnOptions {
   /** True when this session has no PTY — the whole hook is inert otherwise. */
   headless: boolean
   superThread: SuperThreadRef | undefined
+  /** The thread's model/effort, sent with every turn so the operator's pick in
+   *  the prompt box takes effect on the next thing they send (POD-782). */
+  backend?: HeadlessBackendChoice
   /** Query-backed state for a client that mounted after turn-start. */
   initialTurnRunning: boolean
   /** Grows as transcript items land — the streamed preview is superseded by the
@@ -67,14 +70,25 @@ export interface UseHeadlessTurnResult {
   turnError: string | null
   setTurnError: (message: string | null) => void
   /** Send one turn along an already-decided route. Throws on rejection so the
-   *  caller can mark its optimistic bubble failed. */
-  sendTurn: (route: ChatSendRoute, text: string, focus: UserFocus) => Promise<void>
+   *  caller can mark its optimistic bubble failed. Resolves `true` when the
+   *  server QUEUED the turn behind a running one rather than starting it. */
+  sendTurn: (route: ChatSendRoute, text: string, focus: UserFocus) => Promise<boolean>
   /** Stop the running turn. Available only while one is running. */
   interrupt: () => void
 }
 
+/** The thread's backend choice, sent with the turn that carries it (POD-782).
+ *  Undefined fields leave the thread's stored choice alone. */
+export interface HeadlessBackendChoice {
+  model?: string
+  effort?: string
+}
+
 export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnResult {
-  const { sessionId, hub, trpc, headless, superThread, initialTurnRunning, blockCount } = opts
+  const { sessionId, hub, trpc, headless, superThread, backend, initialTurnRunning, blockCount } =
+    opts
+  const model = backend?.model
+  const effort = backend?.effort
 
   const [turnRunning, setTurnRunning] = useState(initialTurnRunning)
   const [overlay, setOverlay] = useState<HeadlessOverlay | null>(null)
@@ -138,26 +152,47 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
         throw new Error(UNKNOWN_THREAD_REFUSAL)
       }
       setTurnError(null)
+      // The backend choice rides the turn rather than a settings round-trip, so
+      // picking a model and sending is ONE act — the server persists it onto the
+      // thread as a side effect of running the turn.
+      const choice = {
+        ...(model && model !== 'auto' ? { model } : {}),
+        ...(effort && effort !== 'auto' ? { effort } : {}),
+      }
       try {
         // Every turn carries what the user has on screen (POD-225), so the
         // orchestrator can resolve "this session"/"this issue" without asking.
         if (route.kind === 'concierge') {
-          await trpc.superagent.concierge.mutate({ repoPath: route.repoPath, text, focus })
-        } else if (route.kind === 'superagent-turn') {
-          await trpc.superagent.sendTurn.mutate({ threadId: route.threadId, text, focus })
+          await trpc.superagent.concierge.mutate({
+            repoPath: route.repoPath,
+            text,
+            focus,
+            ...choice,
+          })
+          return false
         }
+        if (route.kind === 'superagent-turn') {
+          const ack = await trpc.superagent.sendTurn.mutate({
+            threadId: route.threadId,
+            text,
+            focus,
+            ...choice,
+          })
+          // QUEUED, not refused (POD-782). A second send during a running turn
+          // used to reject with "a turn is already running"; the server now
+          // holds it and runs it next, so the caller marks its bubble queued
+          // instead of failed. `turnRunning` stays true — one turn is still the
+          // thing actually happening.
+          return ack?.queued === true
+        }
+        return false
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
-        if (message.includes('turn is already running')) setTurnRunning(true)
-        setTurnError(
-          message.includes('turn is already running')
-            ? 'Super agent is still working on the previous message. Wait for it to finish or stop the turn before sending another.'
-            : message,
-        )
+        setTurnError(message)
         throw e
       }
     },
-    [trpc],
+    [trpc, model, effort],
   )
 
   const interrupt = useCallback(() => {

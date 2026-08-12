@@ -253,6 +253,7 @@ export function ChatView({
           scrollerRef={chat.scrollerRef}
           onScroll={chat.scroll.onScroll}
           compact={compact}
+          superagent={superThread !== undefined}
           phase={chat.phase}
           rows={chat.rowsToRender}
           blocks={chat.blocks}
@@ -364,6 +365,17 @@ export function ChatView({
         offlineAsOf={chat.offlineAsOf}
         autoFocusKey={sessionId}
         transcriptSettled={chat.phase !== 'loading'}
+        // The backend rail is the superagent thread's, so it is offered only
+        // where there IS a thread — a PTY session's model is the session's, set
+        // when it was spawned, and is reported by the agent panel rather than
+        // being editable from the middle of a conversation.
+        {...(superThread
+          ? {
+              backend: chat.backend,
+              onBackendModelChange: chat.setBackendModel,
+              onBackendEffortChange: chat.setBackendEffort,
+            }
+          : {})}
       />
       <ImageLightbox src={chat.lightbox} onClose={() => chat.setLightbox(null)} />
     </div>

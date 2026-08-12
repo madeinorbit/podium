@@ -11,6 +11,8 @@ import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { useFileMentions } from '@/lib/at-mention/useFileMentions'
+import { issueAgentKind } from '@/lib/issue-agents'
+import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
@@ -127,6 +129,9 @@ export function ChatComposer({
   offlineAsOf,
   autoFocusKey,
   transcriptSettled,
+  backend,
+  onBackendModelChange,
+  onBackendEffortChange,
 }: {
   taRef: RefObject<HTMLTextAreaElement | null>
   draft: string
@@ -156,6 +161,12 @@ export function ChatComposer({
   /** False while the initial transcript read is outstanding, so focus is not
    *  grabbed mid-load. */
   transcriptSettled: boolean
+  /** The thread's harness/model/effort (POD-782). Present only for a superagent
+   *  thread; `agentKind` undefined means no harness is frozen yet and the rail
+   *  stays absent rather than offering a list it cannot scope. */
+  backend?: { agentKind: string | undefined; model: string; effort: string }
+  onBackendModelChange?: (model: string) => void
+  onBackendEffortChange?: (effort: string) => void
 }): JSX.Element {
   // Autofocus the composer when the chat view becomes active for a session that
   // can take input, so the user can type straight away. Gated on an enabled
@@ -472,6 +483,67 @@ export function ChatComposer({
           <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
         </div>
       </div>
+      {backend && onBackendModelChange && onBackendEffortChange && (
+        <BackendRail
+          backend={backend}
+          onModelChange={onBackendModelChange}
+          onEffortChange={onBackendEffortChange}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * THE PROMPT BOX'S BACKEND RAIL (POD-782) — which model this thread thinks with,
+ * stated where you are about to use it.
+ *
+ * It sits UNDER the well, not inside it. POD-178 removed a second row from
+ * inside the box because an empty line below the caret reads as unreachable
+ * text; this row is outside that boundary, is never empty, and is never a text
+ * target — so it does not reintroduce that problem. It is also the shape the
+ * native CLIs use, which is the shape this box has been imitating since POD-159.
+ *
+ * QUIET BY DEFAULT. Both pills read `auto` until someone chooses otherwise, and
+ * `auto` is not a placeholder — it is the real, correct answer: "whatever
+ * Settings → Superagent says". A person who never touches this row is not
+ * missing a decision, and the row's ink says so by staying at Dim.
+ *
+ * The choice is PER THREAD and persists: it rides the next turn's mutation and
+ * the server writes it onto the thread, so it survives a reload and holds for
+ * every later turn until changed. That is why there is no Save — the send IS
+ * the save, and a picker that needed confirming would make choosing a model a
+ * two-step act in the one place it should be a one-step one.
+ */
+function BackendRail({
+  backend,
+  onModelChange,
+  onEffortChange,
+}: {
+  backend: { agentKind: string | undefined; model: string; effort: string }
+  onModelChange: (model: string) => void
+  onEffortChange: (effort: string) => void
+}): JSX.Element | null {
+  // No harness frozen onto the thread yet (nothing has run on it). Offering a
+  // model list would mean guessing which agent's list to offer, and guessing
+  // wrong shows models the thread can never run.
+  const agentKind = issueAgentKind(backend.agentKind)
+  if (!agentKind) return null
+  return (
+    <div className="mt-1.5 flex items-center gap-1 px-0.5" data-testid="composer-backend">
+      <ModelPicker
+        agentKind={agentKind}
+        value={backend.model}
+        onChange={onModelChange}
+        variant="pill"
+      />
+      <EffortPicker
+        agentKind={agentKind}
+        model={backend.model}
+        value={backend.effort}
+        onChange={onEffortChange}
+        variant="pill"
+      />
     </div>
   )
 }

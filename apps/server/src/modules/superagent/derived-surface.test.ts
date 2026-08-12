@@ -11,7 +11,7 @@
  *  · this arm can be fooled by a router that was never assembled.
  *
  * So this file asserts the POSITIVE first, on the same object: `sendTurn` IS
- * served, as a MUTATION, and there are exactly seven superagent writes. An
+ * served, as a MUTATION, and there are exactly eight superagent writes. An
  * `appRouter` that failed to assemble, or a table that lost its entries, fails
  * those before it can pass "and `send` is gone".
  */
@@ -41,7 +41,7 @@ describe('the assembled superagent router', () => {
     for (const name of Object.keys(SUPERAGENT_COMMANDS)) {
       expect([name, typeOf(`superagent.${name}`)]).toEqual([name, 'mutation'])
     }
-    expect(Object.keys(SUPERAGENT_COMMANDS)).toHaveLength(7)
+    expect(Object.keys(SUPERAGENT_COMMANDS)).toHaveLength(8)
   })
 
   it('serves the two reads as QUERIES — a write cannot hide among them', () => {
@@ -57,11 +57,13 @@ describe('the assembled superagent router', () => {
   it('does not serve the deleted `send` alias', () => {
     expect(superagentPaths()).not.toContain('superagent.send')
     expect(superagentPaths()).toContain('superagent.sendTurn')
-    // Nothing else crept onto the router either: the nine paths are the seven
-    // derived writes plus the two hand-written reads, and no tenth.
+    // Nothing else crept onto the router either: the ten paths are the eight
+    // derived writes plus the two hand-written reads, and no eleventh.
+    // `ensureSession` is POD-782's eighth write.
     expect(superagentPaths()).toEqual([
       'superagent.clear',
       'superagent.concierge',
+      'superagent.ensureSession',
       'superagent.history',
       'superagent.interruptTurn',
       'superagent.listThreads',
@@ -107,6 +109,6 @@ describe('the assembled superagent router', () => {
     // …and it builds again once the declaration is back, so the throw above was
     // about the exposure and not about the builder being broken.
     const { superagentFamilyProcedures } = await import('./trpc')
-    expect(Object.keys(superagentFamilyProcedures())).toHaveLength(7)
+    expect(Object.keys(superagentFamilyProcedures())).toHaveLength(8)
   })
 })

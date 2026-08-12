@@ -431,13 +431,25 @@ export function userFocus(st: EngineState): UserFocus {
   const focusedId = focusedPaneSession(st)
   const isSession = (id: SessionId): boolean => st.sessions.some((s) => s.sessionId === id)
   const focusedFile = focusedId ? st.fileTabs.find((f) => f.id === focusedId) : undefined
+  // EVERY visible tab that is a FILE, not just the focused one (POD-782). The
+  // sessions half of `paneIds` has always been reported in full; the files half
+  // was thrown away by the `.filter(isSession)` above and only the focused pane's
+  // path survived, so a second open file was invisible to the orchestrator.
+  const openFilePaths = paneIds
+    .map((id) => st.fileTabs.find((f) => f.id === id)?.path)
+    .filter((path): path is string => path !== undefined)
   return {
     view: st.view,
     ...(st.selectedWorktree ? { worktreePath: st.selectedWorktree } : {}),
     ...(st.selectedIssueId ? { issueId: st.selectedIssueId } : {}),
+    // The issue detail drawer is what the operator is READING while it is
+    // open, even though the workspace underneath keeps its own selection — so
+    // reporting only `issueId` names the wrong issue for as long as it is up.
+    ...(st.openIssueId ? { openIssueId: st.openIssueId } : {}),
     ...(focusedId && isSession(focusedId) ? { focusedSessionId: focusedId } : {}),
     visibleSessionIds: paneIds.filter(isSession),
     ...(focusedFile ? { filePath: focusedFile.path } : {}),
+    ...(openFilePaths.length ? { openFilePaths } : {}),
   }
 }
 

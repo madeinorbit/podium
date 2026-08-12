@@ -442,6 +442,8 @@ export {
   superagentClearInput,
   superagentConciergeContract,
   superagentConciergeInput,
+  superagentEnsureSessionContract,
+  superagentEnsureSessionInput,
   superagentInterruptTurnContract,
   superagentInterruptTurnInput,
   superagentOpenInTerminalContract,

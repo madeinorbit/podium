@@ -112,6 +112,11 @@ export interface FocusSessionInfo extends ConciergeSessionInfo {
 export type FocusIssueInfo = Pick<IssueWire, 'seq' | 'title'> &
   Partial<Pick<IssueWire, 'stage' | 'repoPath'>>
 
+/** One issue, as the focus block names it. Shared by the selected issue and the
+ *  peek overlay so the two cannot describe the same entity differently. */
+const issueLine = (i: FocusIssueInfo): string =>
+  `#${i.seq} "${i.title}"${i.stage ? ` (stage ${i.stage})` : ''}${i.repoPath ? ` · ${i.repoPath}` : ''}`
+
 const focusSessionLine = (s: FocusSessionInfo): string =>
   `${s.name ?? s.sessionId} · ${s.agentKind ?? '?'} · ${s.phase ?? s.status ?? '?'}` +
   `${s.cwd ? ` · ${s.cwd}` : ''}`
@@ -126,25 +131,34 @@ export function buildFocusBlock(opts: {
   now: string
   view?: string
   issue?: FocusIssueInfo
+  /** The issue detail drawer, when one is open over the workspace (POD-782). */
+  openIssue?: FocusIssueInfo
   worktreePath?: string
   focused?: FocusSessionInfo
   alsoVisible?: FocusSessionInfo[]
   filePath?: string
+  /** Every file/artifact tab on screen, focused one included (POD-782). */
+  openFilePaths?: string[]
 }): string | undefined {
   const lines: string[] = []
   if (opts.view) lines.push(`Screen: ${opts.view}`)
-  if (opts.issue) {
-    lines.push(
-      `Issue in view: #${opts.issue.seq} "${opts.issue.title}"` +
-        `${opts.issue.stage ? ` (stage ${opts.issue.stage})` : ''}` +
-        `${opts.issue.repoPath ? ` · ${opts.issue.repoPath}` : ''}`,
-    )
+  // The drawer is READ FIRST because it is literally on top: while it is open it
+  // is what the operator is looking at, and the workspace selection beneath it
+  // is context for where they will be when they close it.
+  if (opts.openIssue) {
+    lines.push(`Issue drawer open: ${issueLine(opts.openIssue)}`)
   }
+  if (opts.issue) lines.push(`Issue in view: ${issueLine(opts.issue)}`)
   if (opts.worktreePath) lines.push(`Worktree in view: ${opts.worktreePath}`)
   if (opts.focused) lines.push(`Focused pane: ${focusSessionLine(opts.focused)}`)
   const others = opts.alsoVisible ?? []
   if (others.length) lines.push(`Also on screen: ${others.map(focusSessionLine).join('; ')}`)
   if (opts.filePath) lines.push(`Open file: ${opts.filePath}`)
+  // The other tabs, named without repeating the focused one — "open tabs" is a
+  // question about the strip, and answering it with one path was answering a
+  // different question.
+  const otherFiles = (opts.openFilePaths ?? []).filter((path) => path !== opts.filePath)
+  if (otherFiles.length) lines.push(`Other open tabs: ${otherFiles.join(', ')}`)
   if (lines.length === 0) return undefined
   return [
     `[USER VIEW @ ${opts.now}]`,
