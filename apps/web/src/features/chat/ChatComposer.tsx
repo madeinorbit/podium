@@ -365,7 +365,16 @@ export function ChatComposer({
                     // this ground Faint is under 4.5:1 and this is the only line
                     // of copy left in the box.
                     'prompt-input min-w-0 flex-1 px-0 shadow-none placeholder:text-text-dim'
-                  : 'block max-h-44 w-full overflow-y-auto p-0.5 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
+                  : // The vertical padding is NOT decoration: it pads the single
+                    // line out to the 28px (size-7) send button beside it, so
+                    // the row's `items-start` field and its `self-end` action
+                    // cluster land on one centre line. At p-0.5 the field box
+                    // was 22px inside a 28px row and the prompt text sat 3px
+                    // high (POD-791). Derived from the leading rather than
+                    // written as 5px so the compact density (17px) centres too.
+                    // The Superagent's box does the same sum with its own
+                    // numbers: `.prompt-input` pads 3px against 24px buttons.
+                    'block max-h-44 w-full overflow-y-auto px-0.5 py-[calc((28px-var(--shell-leading-primary))/2)] transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
               )}
               value={draft}
               disabled={!enabled}
