@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId, MachineId } from '@podium/model'
 import { mkdir, open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
@@ -10,7 +10,7 @@ export interface HandoffTransferRpc {
     stagePath: string,
     offset: number,
     length: number,
-    machineId: string,
+    machineId: MachineId,
   ): Promise<{ ok: boolean; data?: string; error?: string }>
   /**
    * PROPERTY SYNTAX, DELIBERATELY — and it is the whole guard (POD-1171).
@@ -28,7 +28,7 @@ export interface HandoffTransferRpc {
     stageToken: HandoffStageToken,
     offset: number,
     data: Buffer,
-    machineId: string,
+    machineId: MachineId,
   ) => Promise<{ ok: boolean; sizeBytes?: number; error?: string }>
 }
 
@@ -113,8 +113,8 @@ export const stageTokenAsFrozenWireField = (token: HandoffStageToken): SessionId
 export async function transferHandoffPackage(input: {
   rpc: HandoffTransferRpc
   stageToken: HandoffStageToken
-  sourceMachineId: string
-  targetMachineId: string
+  sourceMachineId: MachineId
+  targetMachineId: MachineId
   sourceStagePath: string
   sizeBytes: number
 }): Promise<void> {

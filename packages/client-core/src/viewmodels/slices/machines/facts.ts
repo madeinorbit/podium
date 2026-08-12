@@ -30,6 +30,8 @@ import {
   repoNameFromOrigin,
   type SessionMeta,
   type SessionStatus,
+  type MachineId,
+  type IssueId,
 } from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
 
@@ -77,7 +79,7 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
     const repoId = group.find((r) => r.repoId !== undefined)?.repoId
 
     const worktrees: WorktreeView[] = []
-    const machines: { machineId: string; path: string }[] = []
+    const machines: { machineId: MachineId; path: string }[] = []
 
     for (const r of group) {
       const machineId = r.machineId
@@ -298,7 +300,7 @@ export function hostLoadView(
 /** Sessions whose process is resident on this machine (not working-count). */
 export function residentSessionsOnMachine(
   sessions: readonly SessionMeta[],
-  machineId: string | undefined,
+  machineId: MachineId | undefined,
 ): SessionMeta[] {
   if (!machineId) return []
   return sessions.filter(
@@ -354,7 +356,7 @@ export interface HostAgentsView {
  */
 export function hostAgentsView(
   sessions: readonly SessionMeta[],
-  machineId: string | undefined,
+  machineId: MachineId | undefined,
   maxIdleSessions: number | null,
   hostname: string,
 ): HostAgentsView {
@@ -392,7 +394,7 @@ export function hostAgentsView(
 /** Split idle-live sessions into parkable vs protected (needs_user / no resume). */
 export function idleSessionSplit(
   sessions: readonly SessionMeta[],
-  machineId: string | undefined,
+  machineId: MachineId | undefined,
 ): { parkable: number; protected: number; idle: number } {
   if (!machineId) return { parkable: 0, protected: 0, idle: 0 }
   let parkable = 0
@@ -409,11 +411,11 @@ export function idleSessionSplit(
 }
 
 export interface ReclaimableWorktree {
-  issueId: string
+  issueId: IssueId
   title: string
   worktreePath: string
   closedAt: string
-  machineId: string | null
+  machineId: MachineId | null
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -442,7 +444,7 @@ export function listReclaimableWorktreesClient(args: {
     closedAt?: string | null
     deletedAt?: string | null
     worktreePath?: string | null
-    machineId?: string | null
+    machineId?: MachineId | null
   }[]
   /** Working directories of resident sessions — see {@link residentWorktreeKey}. */
   occupiedRoots: readonly string[]
@@ -496,7 +498,7 @@ export function listReclaimableWorktreesClient(args: {
  */
 export function placeReclaimable(
   candidates: readonly ReclaimableWorktree[],
-  args: { machineId?: string | undefined; soleMachine: boolean },
+  args: { machineId?: MachineId | undefined; soleMachine: boolean },
 ): { here: ReclaimableWorktree[]; unplaceable: number } {
   const here: ReclaimableWorktree[] = []
   let unplaceable = 0
@@ -514,7 +516,7 @@ export function placeReclaimable(
 /** Phase breakdown for an AGT tooltip (working ≠ resident). */
 export function residencyBreakdown(
   sessions: readonly SessionMeta[],
-  machineId: string | undefined,
+  machineId: MachineId | undefined,
 ): { working: number; idle: number; waiting: number; other: number } {
   let working = 0
   let idle = 0

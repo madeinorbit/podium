@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId, IssueId, MachineId } from '@podium/model'
 import type { DaemonMessage, LiveServerMessage } from '@podium/protocol'
 import { harnessUsesPromptTitleFallback } from '../../harness-manifest'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
@@ -37,7 +37,7 @@ export interface SessionDaemonProjectionPorts {
   persist(session: Session): void
   broadcastSessions(): void
   broadcastToClients(message: LiveServerMessage): void
-  adoptWorktree(issueId: string, message: Extract<DaemonMessage, { type: 'sessionCwd' }>): void
+  adoptWorktree(issueId: IssueId, message: Extract<DaemonMessage, { type: 'sessionCwd' }>): void
 }
 
 /** Applies daemon-observed metadata to the session projection and its module views. */
@@ -51,7 +51,7 @@ export class SessionDaemonProjection {
     this.titleDebouncers.delete(sessionId)
   }
 
-  handle(machineId: string, message: SessionProjectionDaemonFrame): void {
+  handle(machineId: MachineId, message: SessionProjectionDaemonFrame): void {
     switch (message.type) {
       case 'agentColor': {
         const session = this.ports.sessions.get(message.sessionId)

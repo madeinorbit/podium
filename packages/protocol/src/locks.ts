@@ -7,7 +7,7 @@
  * server-assigned, one-based FIFO position and is not a client sort key.
  */
 
-import type { IssueId, SessionId } from '@podium/model'
+import type { IssueId, SessionId, RepoId } from '@podium/model'
 
 /**
  * A real agent session or one of the lock service's documented non-session
@@ -46,7 +46,7 @@ export interface LockQueueEntryWire extends Omit<LockHolderWire, 'sessionId'> {
 }
 
 export interface LockWire {
-  repoId: string
+  repoId: RepoId
   name: string
   holder: LockHolderWire
   note: string | null

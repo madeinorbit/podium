@@ -1,4 +1,4 @@
-import type { AgentKind, ResumeRef, TranscriptItem } from '@podium/model'
+import type { AgentKind, ResumeRef, TranscriptItem, MachineId } from '@podium/model'
 import { MirrorService } from '@podium/sync'
 import { fileChainSource, fileIdFor } from '@podium/transcript'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
@@ -33,7 +33,7 @@ const MIRROR_READ = daemonRequestKind<{
 }>('mr')
 
 export interface LakeReadSession {
-  machineId: string
+  machineId: MachineId
   agentKind: AgentKind
   resume?: ResumeRef | undefined
 }
@@ -138,7 +138,7 @@ export class TranscriptLake {
     this.mirror?.resume()
   }
 
-  triggerSweep(machineId: string): void {
+  triggerSweep(machineId: MachineId): void {
     if (this.stopped) return
     if (!this.mirror) return
     this.mirror.enqueueDirty(machineId)
@@ -148,12 +148,12 @@ export class TranscriptLake {
     )
   }
 
-  pathHint(machineId: string, nativeId: string): { pathHint: string } | undefined {
+  pathHint(machineId: MachineId, nativeId: string): { pathHint: string } | undefined {
     const path = this.deps.store.registry.segmentPath(machineId, nativeId)
     return path ? { pathHint: path } : undefined
   }
 
-  hasPredecessors(machineId: string, nativeId: string): boolean {
+  hasPredecessors(machineId: MachineId, nativeId: string): boolean {
     return this.deps.store.mirror
       .incarnations(machineId, nativeId)
       .some((incarnation) => !incarnation.active && incarnation.mirroredBytes > 0)
@@ -198,7 +198,7 @@ export class TranscriptLake {
   }
 
   private read(
-    machineId: string,
+    machineId: MachineId,
     request: { path: string; offset: number; maxBytes: number },
   ): Promise<MirrorReadReply> {
     if (this.stopped) return Promise.resolve(DISPOSED_READ)
@@ -218,7 +218,7 @@ export class TranscriptLake {
   }
 
   private requestRead(
-    machineId: string,
+    machineId: MachineId,
     request: { path: string; offset: number; maxBytes: number },
   ): Promise<MirrorReadReply> {
     return this.deps.daemonRequest.request({
@@ -240,7 +240,7 @@ export class TranscriptLake {
    *  correlator. `machineId` is who ANSWERED: the broker drops a reply from a
    *  machine other than the one this ranged read was sent to (POD-1175). */
   onMirrorResult(
-    machineId: string,
+    machineId: MachineId,
     message: {
       requestId: string
       data: string

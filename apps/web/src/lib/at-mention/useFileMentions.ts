@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import type { AtOption } from './at-mention'
@@ -30,7 +31,7 @@ export function useFileMentions({
   /** The text after the `@`, or null when no mention is open. */
   query: string | null
   root: string | undefined
-  machineId?: string | undefined
+  machineId?: MachineId | undefined
   enabled?: boolean
   limit?: number
   debounceMs?: number

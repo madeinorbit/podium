@@ -42,6 +42,7 @@
  * is POD-1079's call, not this scaffold's.
  */
 
+import type { UserId } from '@podium/model'
 import { assertUnreachable } from '../exhaustive'
 import { FIRST_ADMIN_USER_ID } from '../identity/user'
 import type { IssueId, SessionId, UserId } from '../ids/brands'
@@ -110,7 +111,7 @@ export type AuthTarget =
       grants?: readonly string[]
     }
   /** One row of the per-user state family, identified by whose row it is. */
-  | { kind: 'per-user-row'; userId: string }
+  | { kind: 'per-user-row'; userId: UserId }
 
 /** Full authz outcome: a hard role denial vs. a scope violation the caller may knowingly override. */
 export type AuthDecision = 'allow' | 'forbidden' | 'confirm-required'

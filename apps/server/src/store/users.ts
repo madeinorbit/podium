@@ -86,7 +86,7 @@ export class UsersRepository {
    * caller's next move is the same — refuse — and giving the caller three arms
    * to get wrong is how one of them ends up permissive.
    */
-  get(userId: string): UserAccountRow | undefined {
+  get(userId: UserId): UserAccountRow | undefined {
     const cache = this.frameCache()
     if (cache.has(userId)) {
       const hit = cache.get(userId)
@@ -97,7 +97,7 @@ export class UsersRepository {
     return account === undefined ? undefined : { ...account }
   }
 
-  private read(userId: string): UserAccountRow | undefined {
+  private read(userId: UserId): UserAccountRow | undefined {
     const r = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as
       | Record<string, unknown>
       | undefined
@@ -116,7 +116,7 @@ export class UsersRepository {
   }
 
   /** The account role, or `undefined` for an account that cannot act. */
-  roleOf(userId: string): UserRole | undefined {
+  roleOf(userId: UserId): UserRole | undefined {
     return this.get(userId)?.role
   }
 
@@ -130,7 +130,7 @@ export class UsersRepository {
     })
   }
 
-  credentialFor(userId: string): UserCredentialRow | undefined {
+  credentialFor(userId: UserId): UserCredentialRow | undefined {
     if (!this.get(userId)) return undefined
     const row = this.db.prepare('SELECT * FROM user_credentials WHERE user_id = ?').get(userId) as
       | Record<string, unknown>
@@ -183,7 +183,7 @@ export class UsersRepository {
     }
   }
 
-  setPasswordHash(userId: string, passwordHash: string, updatedAt: string): void {
+  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void {
     if (!this.get(userId)) throw new Error(`unknown user: ${userId}`)
     this.db
       .prepare(

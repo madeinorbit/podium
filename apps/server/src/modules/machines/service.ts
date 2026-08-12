@@ -13,6 +13,7 @@ import {
   type MachineUseDecision,
   type MachineWire,
   type UpdateChannel,
+  type UserId,
 } from '@podium/model'
 import type {
   ControlMessage,
@@ -42,7 +43,7 @@ export { sha256 } from './enrollment'
  * (`apps/server/src/machine-access.ts`), which is where the principal lives;
  * this service stays principal-free and only carries the answer.
  */
-export type MachineUseResolver = (machineId: string) => MachineUseDecision
+export type MachineUseResolver = (machineId: MachineId) => MachineUseDecision
 
 /**
  * One principal's OWNERSHIP answer, per machine (POD-1495) — "are you this
@@ -50,7 +51,7 @@ export type MachineUseResolver = (machineId: string) => MachineUseDecision
  * reason as {@link MachineUseResolver}: the principal lives in the command
  * layer, and this service carries only the answer.
  */
-export type MachineOwnedResolver = (machineId: string) => boolean
+export type MachineOwnedResolver = (machineId: MachineId) => boolean
 
 /**
  * A machine row with the calling principal's `use` decision attached.
@@ -110,7 +111,7 @@ export interface PairingGrant {
    * forgets to name an owner produces a machine nobody can run code on, which is
    * visible and fixable, rather than one everybody can.
    */
-  ownerUserId?: string
+  ownerUserId?: UserId
   copyAgentCredentials?: boolean
   podiumManaged?: boolean
 }
@@ -124,9 +125,9 @@ export interface MachinesDeps {
    * The version in the server's injected update target. Absent means this
    * deployment has no target descriptor yet, so every machine is unreported.
    */
-  targetVersion?: (machineId: string) => string | undefined
+  targetVersion?: (machineId: MachineId) => string | undefined
   /** Actionable reason the selected authority has no trusted target. */
-  targetUnavailableReason?: (machineId: string) => string | undefined
+  targetUnavailableReason?: (machineId: MachineId) => string | undefined
   /**
    * The instance's fleet default update channel — what a machine with no pin of
    * its own follows (POD-1882). Injected rather than read from config here so the
@@ -159,11 +160,11 @@ export interface MachinesDeps {
    * and owner reconcile: an unresolvable owner lands the machine in quarantine
    * (D19.4b), never auto-assigned to the first admin.
    */
-  userExists?(userId: string): boolean
+  userExists?(userId: UserId): boolean
   /** Production reaction transport for derived session fields. */
   bus?: EventBus
   /** Compatibility-only for isolated fixtures without a bus. */
-  sessionsChangedForMachine?(machineId: string): void
+  sessionsChangedForMachine?(machineId: MachineId): void
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
   /** Principal-scoped projection supplied by the command-policy composition boundary. */
@@ -244,7 +245,7 @@ export class MachinesService {
 
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
-  attach(machineId: string, send: Send<ControlMessage>): void {
+  attach(machineId: MachineId, send: Send<ControlMessage>): void {
     this.daemons.set(machineId, send)
     // The daemon may have (re-)registered/touched its machine row on the way in
     // (pair/hello, or a test upserting directly before attaching) — drop the cache.
@@ -254,7 +255,7 @@ export class MachinesService {
   /** Flush control messages buffered while this machine was offline (e.g. a boot
    *  session's spawn produced before the host daemon's ws connected). Every queue is
    *  keyed by a real machine id, so there is nothing to carry over on attach. */
-  flushQueued(machineId: string): void {
+  flushQueued(machineId: MachineId): void {
     const send = this.daemons.get(machineId)
     if (!send) return
     const pending = this.pendingByMachine.get(machineId)
@@ -275,7 +276,7 @@ export class MachinesService {
    *  the 35s "no daemon answered" timeout.
    *
    *  Returns false when the closing socket is already superseded (nothing to do). */
-  detach(machineId: string, send?: Send<ControlMessage>): boolean {
+  detach(machineId: MachineId, send?: Send<ControlMessage>): boolean {
     if (send !== undefined && this.daemons.get(machineId) !== send) return false
     this.daemons.delete(machineId)
     this.invalidateMachineCache()
@@ -283,13 +284,13 @@ export class MachinesService {
   }
 
   /** True when `machineId` has a live daemon socket right now. */
-  hasDaemon(machineId: string): boolean {
+  hasDaemon(machineId: MachineId): boolean {
     return this.daemons.has(machineId)
   }
 
   /** Route a control message to the daemon that owns `machineId`; queue it if that
    *  machine is briefly offline (flushed in order on its next attach). */
-  readonly toMachine = (machineId: string, msg: ControlMessage): void => {
+  readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
     const send = this.daemons.get(machineId)
     if (send) {
       send(msg)
@@ -319,7 +320,7 @@ export class MachinesService {
   authenticateDaemon(
     frame: DaemonHandshake,
   ):
-    | { ok: true; machineId: string; name: string; token?: string; pairingGrant?: PairingGrant }
+    | { ok: true; machineId: MachineId; name: string; token?: string; pairingGrant?: PairingGrant }
     | { ok: false; reason: string } {
     return credentials.authenticateDaemon(this.enrollmentHost, frame)
   }
@@ -333,8 +334,8 @@ export class MachinesService {
   /** Transfer ownership, ledger append first (D19.4d).
    *  See {@link credentials.transferOwnership}. */
   transferOwnership(
-    machineId: string,
-    newOwnerUserId: string,
+    machineId: MachineId,
+    newOwnerUserId: UserId,
     opts: { skipRowUpdate?: boolean; txnId?: string } = {},
   ): void {
     credentials.transferOwnership(this.enrollmentHost, machineId, newOwnerUserId, opts)
@@ -342,19 +343,19 @@ export class MachinesService {
 
   /** Owner-only ownership transfer (POD-1480) — the product surface behind
    *  `machines.transferOwnership`. See {@link credentials.transferMachineOwnership}. */
-  transferMachineOwnership(id: string, newOwnerUserId: string, currentOwner: string): void {
+  transferMachineOwnership(id: string, newOwnerUserId: UserId, currentOwner: string): void {
     credentials.transferMachineOwnership(this.enrollmentHost, id, newOwnerUserId, currentOwner)
   }
 
   /** Give an owner to a machine that has none (POD-1494) — the product surface
    *  behind `machines.adopt`. See {@link credentials.adoptMachine}. */
-  adoptMachine(id: string, newOwnerUserId: string): void {
+  adoptMachine(id: string, newOwnerUserId: UserId): void {
     credentials.adoptMachine(this.enrollmentHost, id, newOwnerUserId)
   }
 
   /** Effective owner for authorization: ledger wins over the row (D19.4d rule 4).
    *  See {@link credentials.effectiveOwner}. */
-  effectiveOwner(machineId: string): string | null | undefined {
+  effectiveOwner(machineId: MachineId): string | null | undefined {
     return credentials.effectiveOwner(this.enrollmentHost, machineId)
   }
 
@@ -368,7 +369,7 @@ export class MachinesService {
 
   /** Resolve the native login identity available on the machine that will run a session. */
   nativeAccountIdForMachine(
-    machineId: string,
+    machineId: MachineId,
     agentKind: AgentKind,
     accountId: AccountId,
   ): AccountId {
@@ -482,7 +483,7 @@ export class MachinesService {
   }
 
   /** Throw a human-readable reason when a machine cannot run an agent. */
-  requireAgent(machineId: string, agentKind: AgentKind, use?: MachineUseResolver): void {
+  requireAgent(machineId: MachineId, agentKind: AgentKind, use?: MachineUseResolver): void {
     const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
     if (!machine) throw new Error(`unknown machine '${machineId}'`)
     const rejection = agentCapabilityRejection(machine, agentKind)
@@ -513,7 +514,7 @@ export class MachinesService {
    * machine reconnects; a machine without the repo fails later with raw git-speak.
    * Throwing here gives the caller an actionable message instead.
    */
-  requireMachineForRepo(machineId: string, repoPath: string): void {
+  requireMachineForRepo(machineId: MachineId, repoPath: string): void {
     const name = this.machineName(machineId)
     if (!this.daemons.has(machineId)) {
       throw new Error(
@@ -578,7 +579,7 @@ export class MachinesService {
    * This is the answer every update path wants — nothing downstream should have
    * to remember that a missing pin means "ask the instance".
    */
-  updateChannel(machineId: string): UpdateChannel | undefined {
+  updateChannel(machineId: MachineId): UpdateChannel | undefined {
     const machine = this.machineRecords().find((candidate) => candidate.id === machineId)
     if (!machine) return undefined
     return machine.updateChannelOverride ?? this.fleetChannel()
@@ -621,7 +622,7 @@ export class MachinesService {
   }
 
   /** Current login condition for a session's machine and harness. */
-  agentLoginCondition(machineId: string, agentKind: AgentKind): 'logged-out' | undefined {
+  agentLoginCondition(machineId: MachineId, agentKind: AgentKind): 'logged-out' | undefined {
     const machine = this.listMachines().find((candidate) => candidate.id === machineId)
     return machine ? agentLoginCondition(machine, agentKind) : undefined
   }
@@ -635,7 +636,7 @@ export class MachinesService {
    * not need to be told who owns it in order to be refused. Served from the same
    * cache, which every write to the table invalidates.
    */
-  ownershipRows(): { id: string; name: string; ownerUserId: string | null }[] {
+  ownershipRows(): { id: string; name: string; ownerUserId: UserId | null }[] {
     // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
     // row when the durable append has already committed a transition.
     return this.machineRecords().map((m) => ({
@@ -654,12 +655,12 @@ export class MachinesService {
    * the exact failure ADR 9 D2 rule 4 forbids — a revoked share that keeps
    * working until somebody remembers to invalidate.
    */
-  grantsForMachine(machineId: string): { grantee: string; verb: string }[] {
+  grantsForMachine(machineId: MachineId): { grantee: string; verb: string }[] {
     return this.deps.store.grants.listForResource('machine', machineId)
   }
 
   /** Persist a daemon's inventoryReport (#222) on its machine row. */
-  recordInventory(machineId: string, inventory: Inventory): void {
+  recordInventory(machineId: MachineId, inventory: Inventory): void {
     this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
@@ -668,7 +669,7 @@ export class MachinesService {
   }
 
   /** Persist a daemon's advisory build report and offered delivery capabilities. */
-  setMachineBuild(machineId: string, build: PeerBuild, caps: string[], at: string): void {
+  setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): void {
     this.deps.store.machines.setMachineBuild(machineId, build, caps, at)
     this.invalidateMachineCache()
     this.broadcastMachines()
@@ -676,7 +677,7 @@ export class MachinesService {
 
   /** Route a daemon-local warning with machine scope supplied by the transport. */
   recordDiagnostic(
-    machineId: string,
+    machineId: MachineId,
     diagnostic: Extract<DaemonMessage, { type: 'machineDiagnostic' }>,
   ): void {
     const { type: _type, ...detail } = diagnostic

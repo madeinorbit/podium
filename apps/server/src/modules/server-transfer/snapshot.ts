@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
 import { copyFile, lstat, mkdir, open, readdir, rename, rm, statfs } from 'node:fs/promises'
@@ -194,8 +195,8 @@ export async function createPortableSnapshot(input: {
   packageDir: string
   transferId: string
   sourceInstanceId: string
-  sourceMachineId: string
-  targetMachineId: string
+  sourceMachineId: MachineId
+  targetMachineId: MachineId
   sourceFeedId: string
   sourceFeedEpoch: string
   sourceApplicationVersion: string

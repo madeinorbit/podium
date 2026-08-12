@@ -21,7 +21,7 @@
  */
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
-import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model'
+import type { IssueId, SessionId, SessionMeta, UserId, MachineId } from '@podium/model'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
 import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
@@ -61,7 +61,7 @@ export interface MessageGateDeps {
     forceUnknownModel?: boolean
     issueId?: IssueId
     spawnedBy?: string
-    machineId?: string
+    machineId?: MachineId
     /** Curated child session name (spawner-prescribed) [spec:SP-4ef9][spec:SP-eb60]. */
     name?: string
     workflowRunId?: string
@@ -74,7 +74,7 @@ export interface MessageGateDeps {
     model?: string | null
     effort?: string | null
     machine?: string
-    machineId?: string
+    machineId?: MachineId
     accountId?: string | null
   }
   /** Resolve a named workflow execution profile. When a run + step are present,
@@ -87,7 +87,7 @@ export interface MessageGateDeps {
   }): {
     id: string
     accountId: string
-    machineId: string | null
+    machineId: MachineId | null
     harness: string
     model: string
     effort: string

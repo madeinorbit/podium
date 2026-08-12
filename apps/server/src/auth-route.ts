@@ -146,7 +146,7 @@ export function clientAuthGuard(opts: {
 }
 
 export interface AccountCredentialStore {
-  get(userId: string): { role: UserRole } | undefined
+  get(userId: UserId): { role: UserRole } | undefined
   create(
     account: {
       id: string
@@ -158,7 +158,7 @@ export interface AccountCredentialStore {
     passwordHash: string,
   ): void
   credentialFor(
-    userId: string,
+    userId: UserId,
   ): { source: CredentialSource; passwordHash: string | null } | undefined
   hasPerUserCredentials(): boolean
 }

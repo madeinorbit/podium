@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId, MachineId, IssueId } from '@podium/model'
 export type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent'
 export type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed'
 
@@ -52,7 +52,7 @@ export interface CloudAgentSourceSession {
   agent: CloudAgentKind
   resumeRef?: string | undefined
   cwd?: string | undefined
-  machineId?: string | undefined
+  machineId?: MachineId | undefined
 }
 
 /**
@@ -69,7 +69,7 @@ export function toCloudAgentSourceSession(source: {
   agent: CloudAgentKind
   resume?: { value?: string | undefined } | undefined
   cwd?: string | undefined
-  machineId?: string | undefined
+  machineId?: MachineId | undefined
 }): CloudAgentSourceSession {
   return {
     sessionId: source.sessionId,
@@ -93,7 +93,7 @@ export interface CloudAgentRequest {
   displayName: string
   size?: CloudRuntimeSize | undefined
   repo: CloudRepoRequest
-  issueId?: string | undefined
+  issueId?: IssueId | undefined
   purpose?: string | undefined
   sourceSession?: CloudAgentSourceSession | undefined
 }
@@ -105,7 +105,7 @@ export interface CloudRuntime {
   state: CloudRuntimeState
   provider: string
   displayName: string
-  machineId: string
+  machineId: MachineId
   createdAt: string
   updatedAt: string
   previewBaseUrl?: string | undefined

@@ -1,9 +1,9 @@
-import type { AgentInventory, HarnessAgent } from '@podium/model'
+import type { AgentInventory, HarnessAgent, MachineId } from '@podium/model'
 import type { MachineRecord } from './store/types'
 
 type LoginIdentity = NonNullable<AgentInventory['login']['identity']>
 export interface LoginCatalogMachine {
-  machineId: string
+  machineId: MachineId
   machineName: string
   harness: HarnessAgent
   freshness?: number

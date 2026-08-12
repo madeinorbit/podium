@@ -1,3 +1,4 @@
+import type { UserId } from '@podium/model'
 /**
  * THE CLIENT'S PRINCIPAL (POD-404, docs/multi-user-readiness.md §3.2).
  *
@@ -51,7 +52,7 @@ export interface ClientPrincipal {
    * Opaque to the client: never parsed, never displayed as an identity claim
    * beyond what the server also renders, never constructed locally.
    */
-  readonly userId: string
+  readonly userId: UserId
 }
 
 /**
@@ -85,7 +86,7 @@ export function samePrincipal(
  * namespace exists to prevent. Callers holding a possibly-absent id must decide
  * to FAIL CLOSED (render nothing) rather than pass a placeholder here.
  */
-export function asClientPrincipal(userId: string): ClientPrincipal {
+export function asClientPrincipal(userId: UserId): ClientPrincipal {
   if (userId.length === 0) {
     throw new Error(
       'a client principal needs an authenticated user id; an unauthenticated client must fail closed, not adopt a placeholder',

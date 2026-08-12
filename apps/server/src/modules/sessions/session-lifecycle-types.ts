@@ -13,6 +13,7 @@ import type {
   SessionMeta,
   TranscriptItem,
   WorkState,
+  MachineId,
 } from '@podium/model'
 import type { AgentKind, UserId } from '@podium/model'
 import type { MetadataChange, SubscriptionRegistry } from '@podium/protocol'
@@ -119,7 +120,7 @@ export interface SessionLifecycleDeps {
   machines: MachinesService
   rpc: DaemonRpcService
   /** Start-path notification; the propagation service decides whether login is needed. */
-  onSpawnTargetLogin?(input: { machineId: string; agentKind: AgentKind; ownerUserId: UserId }): void
+  onSpawnTargetLogin?(input: { machineId: MachineId; agentKind: AgentKind; ownerUserId: UserId }): void
   memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex
@@ -127,7 +128,7 @@ export interface SessionLifecycleDeps {
   snapshotTail(): SnapshotTail
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
-  onWorktreesChanged(repoPath: string, machineId?: string): void
+  onWorktreesChanged(repoPath: string, machineId?: MachineId): void
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
   instructionsForStart(input: {

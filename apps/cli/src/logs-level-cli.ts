@@ -55,6 +55,7 @@
  * making on the side.
  */
 
+import type { MachineId } from '@podium/model'
 import { localServerUrl, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -83,7 +84,7 @@ export interface RaisedClientWire {
   clientId: string
   role?: string
   v?: string
-  machineId?: string
+  machineId?: MachineId
 }
 
 export interface SetLevelReply {
@@ -104,7 +105,7 @@ export interface LogsLevelClient {
 export interface SetLevelInput {
   level: RaiseLevel | null
   ttlMs?: number
-  target?: { clientId?: string; role?: string; machineId?: string }
+  target?: { clientId?: string; role?: string; machineId?: MachineId }
 }
 
 /** `clients` and `reset` send the same frame; they differ in what the operator
@@ -184,7 +185,7 @@ export function parseLogsLevelArgs(argv: string[]): LogsLevelPlan {
   const rest = argv.slice(1)
   let json = false
   let ttlMs: number | undefined
-  const target: { clientId?: string; role?: string; machineId?: string } = {}
+  const target: { clientId?: string; role?: string; machineId?: MachineId } = {}
   const positional: string[] = []
 
   for (let i = 0; i < rest.length; i += 1) {

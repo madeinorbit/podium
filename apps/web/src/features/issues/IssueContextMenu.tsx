@@ -13,6 +13,7 @@ import {
   type IssueStage,
   isIssueColorSlot,
   snoozeUntil1h,
+  type MachineId,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { Check, ChevronRight } from 'lucide-react'
@@ -94,7 +95,7 @@ export function IssueContextMenu({
   anchor: ContextMenuAnchor
   onClose: () => void
   onOpen: (id: IssueId) => void
-  onRename?: (id: string) => void
+  onRename?: (id: IssueId) => void
   onRequestClose?: (reason: IssueCloseReason) => void
   surface?: IssueMenuSurface
   /** Flight Deck proposals use the sidebar's one-click start action instead of
@@ -194,7 +195,7 @@ export function IssueContextMenu({
     onClose()
   }
 
-  const handoffTo = (machineId: string, machineName: string): void => {
+  const handoffTo = (machineId: MachineId, machineName: string): void => {
     if (!handoffSession) return
     onClose()
     void trpc.sessions.handoff.mutate({ sessionId: handoffSession.sessionId, machineId }).then(

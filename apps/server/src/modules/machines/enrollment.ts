@@ -1,3 +1,4 @@
+import type { MachineId, UserId } from '@podium/model'
 import { createHash, randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import type { DaemonHandshake } from '@podium/protocol'
@@ -70,7 +71,7 @@ export function authenticateDaemon(
 ):
   | {
       ok: true
-      machineId: string
+      machineId: MachineId
       name: string
       token?: string
       pairingGrant?: PairingGrant
@@ -145,8 +146,8 @@ export function authenticateDaemon(
  */
 function mintEnrolledToken(
   host: EnrollmentHost,
-  machineId: string,
-  ownerUserId: string | null,
+  machineId: MachineId,
+  ownerUserId: UserId | null,
 ): string {
   const ledger = host.deps.enrollment
   if (!ledger) return randomUUID()
@@ -164,7 +165,7 @@ function mintEnrolledToken(
   return token
 }
 
-function isTokenRevoked(host: EnrollmentHost, machineId: string, token: string): boolean {
+function isTokenRevoked(host: EnrollmentHost, machineId: MachineId, token: string): boolean {
   const ledger = host.deps.enrollment
   if (!ledger) return false
   const claims = verifyPairingToken(ledger.pairingRoot, token)
@@ -184,7 +185,7 @@ function helloMissingRow(
   host: EnrollmentHost,
   frame: Extract<DaemonHandshake, { type: 'hello' }>,
 ):
-  | { ok: true; machineId: string; name: string; updatePubkey?: string }
+  | { ok: true; machineId: MachineId; name: string; updatePubkey?: string }
   | { ok: false; reason: string } {
   const ledger = host.deps.enrollment
   if (!ledger) return { ok: false, reason: HELLO_DENIED_REASON }
@@ -220,7 +221,7 @@ function reEnrolMachine(
   host: EnrollmentHost,
   input: {
     claims: PairingTokenClaims
-    ownerUserId: string | null
+    ownerUserId: UserId | null
     token: string
     name: string
     hostname: string
@@ -256,7 +257,7 @@ function resolveOwnerForRecovery(host: EnrollmentHost, recorded: string | null):
 function logVerdict(
   host: EnrollmentHost,
   verdict: 're-enrolled' | 'revoked' | 'unverifiable',
-  machineId: string,
+  machineId: MachineId,
 ): void {
   // Diagnostics follow the decision (D19.4): log the verdict + instance id +
   // state root the check ran against. Client-facing reason stays opaque.
@@ -318,8 +319,8 @@ export function reconcileOwnersFromLedger(host: EnrollmentHost): void {
  */
 export function transferOwnership(
   host: EnrollmentHost,
-  machineId: string,
-  newOwnerUserId: string,
+  machineId: MachineId,
+  newOwnerUserId: UserId,
   opts: { skipRowUpdate?: boolean; txnId?: string } = {},
 ): void {
   const ledger = host.deps.enrollment
@@ -362,7 +363,7 @@ export function transferOwnership(
 export function transferMachineOwnership(
   host: EnrollmentHost,
   id: string,
-  newOwnerUserId: string,
+  newOwnerUserId: UserId,
   currentOwner: string,
 ): void {
   const machine = host.deps.store.machines.getMachine(id)
@@ -411,7 +412,7 @@ export function transferMachineOwnership(
  * reachable from more than one transport must not depend on every one of them
  * remembering.
  */
-export function adoptMachine(host: EnrollmentHost, id: string, newOwnerUserId: string): void {
+export function adoptMachine(host: EnrollmentHost, id: string, newOwnerUserId: UserId): void {
   const machine = host.deps.store.machines.getMachine(id)
   if (!machine) throw new Error(`unknown machine '${id}'`)
   // THE LEDGER DECIDES, not `machine.ownerUserId`. The row is a projection
@@ -451,7 +452,7 @@ export function adoptMachine(host: EnrollmentHost, id: string, newOwnerUserId: s
  * when a ledger is present; {@link reconcileOwnersFromLedger} keeps the row
  * in sync, but a concurrent transfer can land between reconcile and check.
  */
-export function effectiveOwner(host: EnrollmentHost, machineId: string): string | null | undefined {
+export function effectiveOwner(host: EnrollmentHost, machineId: MachineId): string | null | undefined {
   const ledger = host.deps.enrollment
   if (ledger) {
     const recorded = ledger.recordedOwner(machineId)

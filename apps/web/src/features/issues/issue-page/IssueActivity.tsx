@@ -26,6 +26,7 @@
  * pixels of history is a reply box nobody reaches.
  */
 
+import type { IssueId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   type ActivityDay,
@@ -382,7 +383,7 @@ export function CommentComposer({
   onChange,
   onPost,
 }: {
-  issueId: string
+  issueId: IssueId
   busy: boolean
   value: string
   onChange: (body: string) => void

@@ -1,7 +1,8 @@
+import type { MachineId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 export interface TranscriptSearchCandidate {
-  machineId: string
+  machineId: MachineId
   nativeId: string
   itemUuid?: string
   ts?: string
@@ -32,7 +33,7 @@ export class TranscriptIndexRepository {
   }
 
   segmentsToIndex(
-    machineId: string,
+    machineId: MachineId,
   ): { nativeId: string; mirroredBytes: number; indexedBytes: number }[] {
     const rows = this.db
       .prepare(`SELECT native_id,mirrored_bytes,indexed_bytes
@@ -45,7 +46,7 @@ export class TranscriptIndexRepository {
     }))
   }
 
-  indexedCursor(machineId: string, nativeId: string): number {
+  indexedCursor(machineId: MachineId, nativeId: string): number {
     const row = this.db
       .prepare('SELECT indexed_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?')
       .get(machineId, nativeId) as { indexed_bytes: number } | undefined
@@ -53,7 +54,7 @@ export class TranscriptIndexRepository {
   }
 
   append(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     rows: { content: string; itemUuid?: string; ts?: string }[],
     indexedBytes: number,
@@ -73,7 +74,7 @@ export class TranscriptIndexRepository {
     })
   }
 
-  rows(machineId: string, nativeId: string): { content: string; itemUuid?: string; ts?: string }[] {
+  rows(machineId: MachineId, nativeId: string): { content: string; itemUuid?: string; ts?: string }[] {
     if (!this.available) return []
     const rows = this.db
       .prepare(`SELECT content,item_uuid,ts FROM transcript_fts
@@ -117,7 +118,7 @@ export class TranscriptIndexRepository {
     }))
   }
 
-  drop(machineId: string, nativeId: string): void {
+  drop(machineId: MachineId, nativeId: string): void {
     if (this.available) {
       this.db
         .prepare('DELETE FROM transcript_fts WHERE machine_id=? AND native_id=?')

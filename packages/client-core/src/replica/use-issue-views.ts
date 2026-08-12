@@ -28,7 +28,7 @@
  * point of deriving at the replica rather than in each view.
  */
 
-import type { IssueProjection, IssueWire } from '@podium/model'
+import type { IssueProjection, IssueWire, IssueId } from '@podium/model'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import {
   buildIssueBoard,
@@ -116,7 +116,7 @@ export function useIssueViews(replica: Replica): IssueViewsSnapshot {
 /** One issue's view + its session rollups. */
 export function useIssueView(
   replica: Replica,
-  issueId: string,
+  issueId: IssueId,
 ): { view: IssueView | undefined; rollups: IssueSessionRollups } {
   const snapshot = useIssueViews(replica)
   return useMemo(
@@ -161,6 +161,6 @@ export function useIssueViewModels(
 }
 
 /** One issue's flat render model, or undefined if the replica does not hold it. */
-export function useIssueViewModel(replica: Replica, issueId: string): IssueViewModel | undefined {
+export function useIssueViewModel(replica: Replica, issueId: IssueId): IssueViewModel | undefined {
   return useIssueViewModels(replica).get(issueId)
 }

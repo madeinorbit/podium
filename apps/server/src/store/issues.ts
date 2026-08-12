@@ -582,7 +582,7 @@ export class IssuesRepository {
    *  single seq sequence and two machines with different paths can no longer mint
    *  colliding numbers. Callers resolve the path to a repo_id (resolveRepoIdForPath)
    *  before allocating. UNIQUE(repo_id, seq) enforces the invariant at the SQL layer. */
-  nextIssueSeq(repoId: string): number {
+  nextIssueSeq(repoId: RepoId): number {
     const r = this.db.prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_id = ?').get(repoId) as {
       m: number | null
     }
@@ -607,7 +607,7 @@ export class IssuesRepository {
       .prepare('SELECT id, repo_id, repo_path, seq, created_at FROM issues')
       .all() as {
       id: string
-      repo_id: string | null
+      repo_id: RepoId | null
       repo_path: string
       seq: number
       created_at: string
@@ -659,7 +659,7 @@ export class IssuesRepository {
    *  upgrade merges two path-keyed buckets into one logical repo, any seq
    *  already taken in the target bucket is renumbered to the next free seq
    *  (oldest row first keeps its number), loudly logged. */
-  assignRepoIdToIssuesUnder(repoId: string, repoPath: string): void {
+  assignRepoIdToIssuesUnder(repoId: RepoId, repoPath: string): void {
     const rows = this.db
       .prepare(
         `SELECT id, seq FROM issues
@@ -704,7 +704,7 @@ export class IssuesRepository {
    * Transactional: the read-increment-return is atomic, so two concurrent
    * allocations can never mint the same `POD-13-A`.
    */
-  allocateSessionLetter(issueId: string): string {
+  allocateSessionLetter(issueId: IssueId): string {
     return transaction(this.db, () => {
       const row = this.db
         .prepare('SELECT next_index FROM issue_ref_letters WHERE issue_id = ?')
@@ -750,7 +750,7 @@ export class IssuesRepository {
 
   // ---- labels ----
 
-  setIssueLabels(issueId: string, labels: string[]): void {
+  setIssueLabels(issueId: IssueId, labels: string[]): void {
     const clean = [...new Set(labels.filter((l) => typeof l === 'string' && l.trim()))].map((l) =>
       l.trim(),
     )
@@ -761,7 +761,7 @@ export class IssuesRepository {
     for (const l of clean) ins.run(issueId, l)
   }
 
-  getIssueLabels(issueId: string): string[] {
+  getIssueLabels(issueId: IssueId): string[] {
     return (
       this.db
         .prepare('SELECT label FROM issue_labels WHERE issue_id = ? ORDER BY label ASC')
@@ -774,7 +774,7 @@ export class IssuesRepository {
   listIssueLabelsByIssue(): Map<string, string[]> {
     const rows = this.db
       .prepare('SELECT issue_id, label FROM issue_labels ORDER BY issue_id ASC, label ASC')
-      .all() as { issue_id: string; label: string }[]
+      .all() as { issue_id: IssueId; label: string }[]
     const byIssue = new Map<string, string[]>()
     for (const row of rows) {
       const labels = byIssue.get(row.issue_id)
@@ -878,7 +878,7 @@ export class IssuesRepository {
   }
 
   /** Comment count for ONE issue — the single-issue toWire path (#175). */
-  countIssueComments(issueId: string): number {
+  countIssueComments(issueId: IssueId): number {
     const r = this.db
       .prepare('SELECT COUNT(*) AS n FROM issue_comments WHERE issue_id = ?')
       .get(issueId) as { n: number }
@@ -892,7 +892,7 @@ export class IssuesRepository {
   countIssueCommentsByIssue(): Map<string, number> {
     const rows = this.db
       .prepare('SELECT issue_id, COUNT(*) AS n FROM issue_comments GROUP BY issue_id')
-      .all() as { issue_id: string; n: number }[]
+      .all() as { issue_id: IssueId; n: number }[]
     return new Map(rows.map((r) => [r.issue_id, r.n]))
   }
 
@@ -901,7 +901,7 @@ export class IssuesRepository {
   searchIssueComments(
     query: string,
     limit: number | null = 30,
-  ): { issueId: string; body: string; createdAt: string }[] {
+  ): { issueId: IssueId; body: string; createdAt: string }[] {
     const q = query.trim()
     if (!q) return []
     const escaped = '%' + q.replace(/[%_]/g, (c) => '\\' + c) + '%'
@@ -952,7 +952,7 @@ export class IssuesRepository {
   }
 
   listIssueMessages(
-    issueId: string,
+    issueId: IssueId,
     opts?: { status?: IssueMessageRow['status'] },
   ): IssueMessageRow[] {
     const rows = (
@@ -971,7 +971,7 @@ export class IssuesRepository {
     return rows.map((r) => this.mapIssueMessage(r))
   }
 
-  countUnreadIssueMessages(issueId: string): number {
+  countUnreadIssueMessages(issueId: IssueId): number {
     const r = this.db
       .prepare("SELECT COUNT(*) AS n FROM issue_messages WHERE issue_id = ? AND status = 'unread'")
       .get(issueId) as { n: number }
@@ -989,7 +989,7 @@ export class IssuesRepository {
    * it is written for EVERY named message rather than only the unread ones: my
    * having read a message somebody else already claimed is still true.
    */
-  markIssueMessagesRead(userId: string, issueId: string, ids: string[], readAt: string): void {
+  markIssueMessagesRead(userId: UserId, issueId: IssueId, ids: string[], readAt: string): void {
     requireUserId(userId)
     const upd = this.db.prepare(
       `UPDATE issue_messages SET status = 'read'
@@ -1006,7 +1006,7 @@ export class IssuesRepository {
   }
 
   /** One user's tracker-mail read markers, `issueMessageId → readAt`. */
-  listIssueMessageReadAt(userId: string): Record<string, string | null> {
+  listIssueMessageReadAt(userId: UserId): Record<string, string | null> {
     requireUserId(userId)
     const rows = this.db
       .prepare('SELECT issue_message_id, read_at FROM issue_message_user_state WHERE user_id = ?')
@@ -1026,14 +1026,14 @@ export class IssuesRepository {
    * all three markers null are deleted rather than kept (see {@link setIssueUserState}),
    * so absence is the only spelling.
    */
-  listIssueUserState(userId: string): Map<string, StoredIssueUserState> {
+  listIssueUserState(userId: UserId): Map<string, StoredIssueUserState> {
     requireUserId(userId)
     const rows = this.db
       .prepare(
         'SELECT issue_id, read_at, tucked_at, pinned_at FROM issue_user_state WHERE user_id = ?',
       )
       .all(userId) as {
-      issue_id: string
+      issue_id: IssueId
       read_at: string | null
       tucked_at: string | null
       pinned_at: string | null
@@ -1045,7 +1045,7 @@ export class IssuesRepository {
     return out
   }
 
-  getIssueUserState(userId: string, issueId: string): StoredIssueUserState | undefined {
+  getIssueUserState(userId: UserId, issueId: IssueId): StoredIssueUserState | undefined {
     requireUserId(userId)
     const r = this.db
       .prepare(
@@ -1065,7 +1065,7 @@ export class IssuesRepository {
    * A row whose three markers all end up null is DELETED, so the table holds only
    * issues a person has actually touched and "absent" keeps its single meaning.
    */
-  setIssueUserState(userId: string, issueId: string, patch: Partial<StoredIssueUserState>): void {
+  setIssueUserState(userId: UserId, issueId: IssueId, patch: Partial<StoredIssueUserState>): void {
     requireUserId(userId)
     if (!issueId) throw new Error('issue user-state issue id is empty')
     const current = this.getIssueUserState(userId, issueId) ?? {
@@ -1098,7 +1098,7 @@ export class IssuesRepository {
   /** Drop every user's per-user rows for an issue. Called from the issue's own
    *  purge path: the rows are not the issue's (they follow the USER), but a
    *  hard-deleted issue leaves them addressing nothing. */
-  purgeIssueUserState(issueId: string): void {
+  purgeIssueUserState(issueId: IssueId): void {
     this.db.prepare('DELETE FROM issue_user_state WHERE issue_id = ?').run(issueId)
   }
 
@@ -1114,11 +1114,11 @@ export class IssuesRepository {
     return r.changes === 1
   }
 
-  deleteIssueMessagesForIssue(issueId: string): void {
+  deleteIssueMessagesForIssue(issueId: IssueId): void {
     this.db.prepare('DELETE FROM issue_messages WHERE issue_id = ?').run(issueId)
   }
 
-  deleteIssueChildRows(issueId: string): void {
+  deleteIssueChildRows(issueId: IssueId): void {
     this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
     this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? OR to_id = ?').run(issueId, issueId)
     this.db.prepare('DELETE FROM issue_comments WHERE issue_id = ?').run(issueId)

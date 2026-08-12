@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { IssueComment, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
+import type { IssueComment, IssueWire, SessionId, SessionMeta, UserId, MutationId, IssueId } from '@podium/model'
 import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
@@ -303,7 +303,7 @@ export interface StewardDeps {
    *  resume ref it ALSO resurrects (wake rights). Issue-parentnudge deliberately
    *  filters to live/starting; session-parent wake does not — a parked parent
    *  must be woken (POD-904 / POD-279). */
-  sendTextWhenReady: (sessionId: SessionId, text: string, mutationId?: string) => void
+  sendTextWhenReady: (sessionId: SessionId, text: string, mutationId?: MutationId) => void
   /** Ack-fallback seam (#237) [spec:SP-34d7 acks]: notify the senders of the
    *  settled session's delivered-but-unacked messages, with issue stage + last
    *  commit stitched in. Wired to MessageDeliveryService.systemAckFallback in
@@ -388,8 +388,8 @@ export class StewardService {
    * missing information.
    */
   private alreadyCommunicated(
-    subjectIssueId: string | undefined,
-    target: { sessionId?: string; issueId?: string },
+    subjectIssueId: IssueId | undefined,
+    target: { sessionId?: string; issueId?: IssueId },
     changeTs: string,
   ): boolean {
     if (!subjectIssueId) return false
@@ -594,7 +594,7 @@ export class StewardService {
   }
 
   /** Issue left review — free review parentnudge + stage_changed sub facts. */
-  private retireIssueReviewFacts(issueId: string, p: { parentId?: string; seq?: number }): void {
+  private retireIssueReviewFacts(issueId: IssueId, p: { parentId?: string; seq?: number }): void {
     const at = this.now()
     if (p.parentId != null && p.seq != null) {
       this.arbiter.retireFactKey(`parentnudge:review:${p.parentId}:${p.seq}`, at)
@@ -604,7 +604,7 @@ export class StewardService {
   }
 
   /** needs_human cleared — free needs_human parentnudge + sub facts. */
-  private retireNeedsHumanFacts(issueId: string, seq: number | undefined): void {
+  private retireNeedsHumanFacts(issueId: IssueId, seq: number | undefined): void {
     const at = this.now()
     const parentId = this.deps.issues.getMeta(issueId)?.parentId
     if (parentId != null && seq != null) {
@@ -653,7 +653,7 @@ export class StewardService {
    *    ancestor). 'my-blockers'/'my-parent' are not yet resolvable here (TODO). */
   private sourceMatches(
     sub: Subscription,
-    ev: { isSession: boolean; subject: string; srcIssueId: string | null },
+    ev: { isSession: boolean; subject: string; srcIssueId: IssueId | null },
     sessions: SessionMeta[],
   ): boolean {
     if (sub.sourceKind === 'session') {

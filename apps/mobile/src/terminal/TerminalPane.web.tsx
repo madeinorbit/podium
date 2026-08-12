@@ -1,5 +1,5 @@
 import { resolveIssueReference } from '@podium/client-core/viewmodels'
-import type { SessionId } from '@podium/model'
+import type { SessionId, IssueId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
 import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-client-react'
 import { Mic } from 'lucide-react-native'
@@ -54,7 +54,7 @@ export interface TerminalPaneProps {
    * belongs to the SCREEN, not to a pane that could be mounted anywhere, so the
    * pane resolves the token against the live projection and hands back an id.
    */
-  onOpenIssue?: (issueId: string) => void
+  onOpenIssue?: (issueId: IssueId) => void
   /** Publish who is driving the PTY so the screen header can own the action. */
   onControlState?: (state: TerminalControlState) => void
 }

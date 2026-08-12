@@ -35,18 +35,18 @@ export interface MachineAuthenticator {
    *  the id minted in `<stateDir>/machine.id`. Read from the service rather than
    *  written as a constant here: the directory must not be a second opinion about who
    *  the host is, and there is no id in this process that is not minted material. */
-  readonly hostMachineId: string
+  readonly hostMachineId: MachineId
   authenticateDaemon(frame: {
     type: 'pair' | 'hello'
     code?: string
-    machineId: string
+    machineId: MachineId
     token?: string
     hostname: string
     name?: string
   }):
     | {
         ok: true
-        machineId: string
+        machineId: MachineId
         name: string
         token?: string
         pairingGrant?: PairingGrant
@@ -59,7 +59,7 @@ export interface MachineAuthenticator {
 }
 
 const resolved = (
-  machineId: string,
+  machineId: MachineId,
   name: string,
   pairingGrant?: PairingGrant,
   updatePubkey?: string,

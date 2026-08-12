@@ -11,7 +11,7 @@ import {
   usableMachines,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, MachineId } from '@podium/model'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, FolderPlus, Search } from 'lucide-react'
 import type { JSX } from 'react'
@@ -160,7 +160,7 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
    * `spawnTargetForRepo` turns into the repo's own main checkout as it always
    * has. That split is what keeps single-user parity while closing the hole.
    */
-  function resolveSpawnMachine(repo: RepoNavView, machineId?: string): string | undefined | null {
+  function resolveSpawnMachine(repo: RepoNavView, machineId?: MachineId): string | undefined | null {
     // An explicit pick is honoured only if it is still a machine this principal
     // may USE. The menu never offers an unauthorized one, but the views can go
     // stale between render and click (a grant revoked mid-menu).
@@ -171,7 +171,7 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
     return resolved
   }
 
-  function spawn(agentKind: AgentKind, repo: RepoNavView, machineId?: string): void {
+  function spawn(agentKind: AgentKind, repo: RepoNavView, machineId?: MachineId): void {
     const targetMachine = resolveSpawnMachine(repo, machineId)
     if (targetMachine === null) return
     const { worktree: wt } = spawnTargetForRepo(repo, targetMachine)

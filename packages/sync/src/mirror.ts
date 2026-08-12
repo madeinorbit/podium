@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { open, rename, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { machineScopedKey } from '@podium/model'
+import { machineScopedKey, type MachineId } from '@podium/model'
 
 /** Node-only half of this package; same namespace convention as `sync:ledger`. */
 const log = createLogger('sync:mirror')
@@ -13,25 +13,25 @@ const log = createLogger('sync:mirror')
  *  ConversationsRepository (store/conversations.ts) satisfies this structurally
  *  — it's passed straight through at the call site. */
 export interface MirrorStore {
-  segmentsToMirror(machineId: string): { nativeId: string; path: string; mirroredBytes: number }[]
+  segmentsToMirror(machineId: MachineId): { nativeId: string; path: string; mirroredBytes: number }[]
   segmentsToMirrorDirty(
-    machineId: string,
+    machineId: MachineId,
   ): { nativeId: string; path: string; mirroredBytes: number }[]
-  setReportedBytes(machineId: string, nativeId: string, bytes: number): void
-  mirrorCursor(machineId: string, nativeId: string): number
-  setMirrorCursor(machineId: string, nativeId: string, bytes: number, at: string): void
+  setReportedBytes(machineId: MachineId, nativeId: string, bytes: number): void
+  mirrorCursor(machineId: MachineId, nativeId: string): number
+  setMirrorCursor(machineId: MachineId, nativeId: string, bytes: number, at: string): void
   activeIncarnation(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
   ): { sequence: number; device: string; inode: string } | undefined
   startIncarnation(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     identity: { device: string; inode: string },
     at: string,
   ): void
   rotateIncarnation(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     identity: { device: string; inode: string },
     archivedBytes: number,
@@ -59,15 +59,15 @@ export interface MirrorServiceOptions {
   passBudgetBytes?: number
   /** Fires after each chunk write + cursor advance — the transcript indexer's feed
    *  (docs/spec/search-v1.md §2.3). MirrorService itself stays indexing-free. */
-  onBytes?: (machineId: string, nativeId: string, lakePath: string) => void
+  onBytes?: (machineId: MachineId, nativeId: string, lakePath: string) => void
   /** Fires when a rewrite (source shrank) truncated the lake copy — the indexed
    *  content for the segment is invalid and must be dropped before the re-mirror. */
-  onTruncate?: (machineId: string, nativeId: string) => void
+  onTruncate?: (machineId: MachineId, nativeId: string) => void
   /** Fires when the same native id resolves to a different file identity. The
    *  predecessor lake file has already been archived and the current cursor
    *  reset; consumers must reset current-incarnation state without treating the
    *  predecessor bytes as invalid. */
-  onIncarnation?: (machineId: string, nativeId: string) => void
+  onIncarnation?: (machineId: MachineId, nativeId: string) => void
 }
 
 /**
@@ -125,15 +125,15 @@ export class MirrorService {
 
   private readonly chunkDelayMs: number
   private readonly passBudgetBytes: number
-  private readonly onBytes: (machineId: string, nativeId: string, lakePath: string) => void
-  private readonly onTruncate: (machineId: string, nativeId: string) => void
-  private readonly onIncarnation: (machineId: string, nativeId: string) => void
+  private readonly onBytes: (machineId: MachineId, nativeId: string, lakePath: string) => void
+  private readonly onTruncate: (machineId: MachineId, nativeId: string) => void
+  private readonly onIncarnation: (machineId: MachineId, nativeId: string) => void
 
   constructor(
     private readonly store: MirrorStore,
     private readonly lakeDir: string,
     private readonly read: (
-      machineId: string,
+      machineId: MachineId,
       req: { path: string; offset: number; maxBytes: number },
     ) => Promise<MirrorReadResult>,
     private readonly now: () => number = Date.now,
@@ -146,11 +146,11 @@ export class MirrorService {
     this.onIncarnation = options.onIncarnation ?? (() => {})
   }
 
-  lakePath(machineId: string, nativeId: string): string {
+  lakePath(machineId: MachineId, nativeId: string): string {
     return join(this.lakeDir, machineId, `${nativeId}.jsonl`)
   }
 
-  archivedLakePath(machineId: string, nativeId: string, sequence: number): string {
+  archivedLakePath(machineId: MachineId, nativeId: string, sequence: number): string {
     return join(this.lakeDir, machineId, `${nativeId}.incarnation-${sequence}.jsonl`)
   }
 
@@ -160,7 +160,7 @@ export class MirrorService {
    *  costs one daemon eof-check round trip PER SEGMENT (~1,150 reads ≈ 2s wall on
    *  the hot control channel per attach), which is exactly the regression the
    *  dirty set eliminates. */
-  enqueueMachine(machineId: string): void {
+  enqueueMachine(machineId: MachineId): void {
     for (const seg of this.store.segmentsToMirror(machineId)) {
       this.enqueue(machineId, seg.nativeId, seg.path)
     }
@@ -170,13 +170,13 @@ export class MirrorService {
    *  cursor, plus never-reported (NULL) rows which stay dirty until one pull
    *  records their observed size (upgrade path — the fleet converges, then a
    *  caught-up machine enqueues NOTHING and issues ZERO mirror reads). */
-  enqueueDirty(machineId: string): void {
+  enqueueDirty(machineId: MachineId): void {
     for (const seg of this.store.segmentsToMirrorDirty(machineId)) {
       this.enqueue(machineId, seg.nativeId, seg.path)
     }
   }
 
-  enqueue(machineId: string, nativeId: string, path: string): void {
+  enqueue(machineId: MachineId, nativeId: string, path: string): void {
     const key = machineScopedKey(machineId, nativeId)
     if (this.queued.has(key)) return
     const backoff = this.backoffUntil.get(key)
@@ -232,11 +232,11 @@ export class MirrorService {
   }
 
   /** Resolves when the machine's queue is idle — a test/shutdown seam, not API. */
-  async settled(machineId: string): Promise<void> {
+  async settled(machineId: MachineId): Promise<void> {
     while (this.active.has(machineId)) await new Promise((r) => setTimeout(r, 5))
   }
 
-  private async drain(machineId: string): Promise<void> {
+  private async drain(machineId: MachineId): Promise<void> {
     if (this.stopped || this.paused || this.active.has(machineId)) return
     this.active.add(machineId)
     try {
@@ -312,7 +312,7 @@ export class MirrorService {
 
   /** Budget exhausted: clear the machine's remaining queue AND its queued-state,
    *  so the next trigger can re-enqueue everything that was deferred. */
-  private dropQueue(machineId: string): void {
+  private dropQueue(machineId: MachineId): void {
     const queue = this.queues.get(machineId)
     if (!queue) return
     for (const item of queue) this.queued.delete(machineScopedKey(machineId, item.nativeId))
@@ -320,7 +320,7 @@ export class MirrorService {
   }
 
   private async mirrorOne(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     path: string,
     pass: { remainingBytes: number },
@@ -450,7 +450,7 @@ export class MirrorService {
   /** Truncate the lake file to `offset`, then append `bytes` — enforcing
    *  "lake size === cursor" before every write, so replays can't leave tails. */
   private async writeAt(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     offset: number,
     bytes: Buffer,
@@ -469,7 +469,7 @@ export class MirrorService {
     }
   }
 
-  private async lakeSize(machineId: string, nativeId: string): Promise<number> {
+  private async lakeSize(machineId: MachineId, nativeId: string): Promise<number> {
     try {
       return (await stat(this.lakePath(machineId, nativeId))).size
     } catch {
@@ -481,7 +481,7 @@ export class MirrorService {
    *  crash already completed the move but not the DB rotation, keep and measure
    *  that predecessor rather than replacing it with an empty file. */
   private async archiveCurrent(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     archivedPath: string,
     currentSize: number,

@@ -16,7 +16,7 @@
  * after a different principal took over (POD-404 AC).
  */
 
-import type { IssueWire, SessionId } from '@podium/model'
+import type { IssueWire, SessionId, IssueId } from '@podium/model'
 import { markSwitch } from '../perf/switch-trace'
 import type { SocketHub } from '../socket-transport'
 import { planWorktreeMoves, pruneWorkspace, reposToViews, type TabId } from '../viewmodels'
@@ -62,7 +62,7 @@ export interface ReactionPorts {
   readonly notices: StoreNotices
   /** Resolved lazily: the action surface is built after this object exists. */
   readonly markSessionRead: (sessionId: SessionId) => void
-  readonly markIssueRead: (issueId: string) => void
+  readonly markIssueRead: (issueId: IssueId) => void
   /** Test seam: overrides {@link WORKSPACE_PRUNE_GRACE_MS}. */
   readonly pruneGraceMs?: number
 }
@@ -333,7 +333,7 @@ export class Reactions {
     }, wait)
   }
 
-  private fireMarkIssueRead(issueId: string): void {
+  private fireMarkIssueRead(issueId: IssueId): void {
     const st = this.ports.state()
     const issue: IssueWire | undefined = foregroundIssue(st)
     if (issue?.id !== issueId || !tabIsVisible()) return

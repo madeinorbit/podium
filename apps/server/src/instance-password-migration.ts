@@ -28,7 +28,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import {
   deleteLegacyInstancePasswordFile,
   hashPassword,
@@ -40,9 +40,9 @@ const log = createLogger('server:migrations')
 /** The slice of `UsersRepository` this file needs — narrow so a test can pass a fake and so
  *  nothing here can reach a repository method that mints accounts. */
 export interface FirstAdminCredentialStore {
-  get(userId: string): { role: string } | undefined
-  credentialFor(userId: string): { source: string; passwordHash: string | null } | undefined
-  setPasswordHash(userId: string, passwordHash: string, updatedAt: string): void
+  get(userId: UserId): { role: string } | undefined
+  credentialFor(userId: UserId): { source: string; passwordHash: string | null } | undefined
+  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void
 }
 
 export interface RetireInstancePasswordResult {

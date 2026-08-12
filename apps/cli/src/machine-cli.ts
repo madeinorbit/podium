@@ -20,7 +20,7 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
-import { type AgentInventory, type MachineWire, machineByRef } from '@podium/model'
+import { type AgentInventory, type MachineWire, machineByRef, type MachineId } from '@podium/model'
 import { resolveAgentRelay } from '@podium/runtime/config'
 
 type Proc = { query(input?: unknown): Promise<unknown> }
@@ -45,7 +45,7 @@ export class MachineCliError extends Error {}
 
 /** The `repos.listDetailed` row shape, narrowed to what this view renders. */
 interface RepoRow {
-  machineId: string
+  machineId: MachineId
   path: string
 }
 

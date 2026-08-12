@@ -15,6 +15,7 @@
  * step further. Every apply re-resolves (ADR 3 D8/D16.1).
  */
 
+import type { IssueId } from '@podium/model'
 import type { AgentIdentityId, DelegationRef, UserId } from '../planes/principal'
 
 /**
@@ -25,7 +26,7 @@ import type { AgentIdentityId, DelegationRef, UserId } from '../planes/principal
 export interface SpawnedForScope {
   readonly kind: 'spawned-for'
   readonly sessionId?: string
-  readonly issueId?: string
+  readonly issueId?: IssueId
   /** The issue subtree the agent may reach; widening stays explicit (D16.3). */
   readonly subtreeRootId?: string
 }

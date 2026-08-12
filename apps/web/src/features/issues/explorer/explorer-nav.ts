@@ -1,3 +1,4 @@
+import type { IssueId } from '@podium/model'
 /**
  * The issue explorer's navigation stack, as pure functions.
  *
@@ -42,7 +43,7 @@ export function resetTo(stack: ExplorerStack, id: string | null): string[] {
 /** One rendered breadcrumb: the list root, an issue, or the elision between. */
 export type Crumb =
   | { kind: 'root'; depth: 0 }
-  | { kind: 'issue'; id: string; depth: number }
+  | { kind: 'issue'; id: IssueId; depth: number }
   | { kind: 'gap' }
 
 /**

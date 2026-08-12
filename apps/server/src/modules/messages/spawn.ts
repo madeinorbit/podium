@@ -12,7 +12,7 @@
  */
 
 import { type SpawnedByRef, spawnedByTag } from '@podium/model'
-import type { AgentKind, IssueId, SessionId, UserId } from '@podium/model'
+import type { AgentKind, IssueId, SessionId, UserId, MachineId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import type { SpawnOnWake } from './service'
@@ -27,7 +27,7 @@ export interface SpawnOnWakeDeps {
     effort?: string
     issueId?: IssueId
     spawnedBy?: string
-    machineId?: string
+    machineId?: MachineId
     ownerUserId: UserId
   }): { sessionId: SessionId }
 }

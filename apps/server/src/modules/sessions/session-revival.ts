@@ -36,7 +36,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { IssueId, ResumeRef, SessionId, SessionMeta, UserId } from '@podium/model'
+import type { IssueId, ResumeRef, SessionId, SessionMeta, UserId, MachineId } from '@podium/model'
 import { type AgentKind, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type {
   ControlMessage,
@@ -72,7 +72,7 @@ export interface SessionRevivalPorts {
   rpc: DaemonRpcService
   listSessions(): SessionMeta[]
   broadcastSessions(): void
-  toMachine(machineId: string, message: ControlMessage): void
+  toMachine(machineId: MachineId, message: ControlMessage): void
   /** Fresh-mint path of resume — owned by SessionStart. */
   spawn: SessionStart['spawn']
   machineUseGate(caller: HandoffCaller): AssertMachineUse
@@ -84,7 +84,7 @@ export interface SessionRevivalPorts {
     issueId?: IssueId
     existingOnly?: boolean
   }): PreparedSessionInstructions
-  onWorktreesChanged(repoPath: string, machineId?: string): void
+  onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
 export class SessionRevival {
@@ -102,7 +102,7 @@ export class SessionRevival {
       resume: ResumeRef
       conversationId: string
       title?: string
-      machineId?: string
+      machineId?: MachineId
       /** Provenance for the FRESH-SPAWN fallback only (issue #60). When the resume
        *  lands on an existing row (reuse/resurrect below), that row's original
        *  spawnedBy is kept — a resume never rewrites who created the session. */
@@ -205,7 +205,7 @@ export class SessionRevival {
    * `machineUseGate` arrives as a port — it is not decided here.
    */
   handoffSession(
-    input: { sessionId: SessionId; machineId: string },
+    input: { sessionId: SessionId; machineId: MachineId },
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {

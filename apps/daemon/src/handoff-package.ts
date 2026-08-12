@@ -17,7 +17,7 @@ import { declaredValue, manifestFor } from '@podium/harness'
 
 export { codexTranscriptPlacement } from '@podium/harness'
 
-import type { Attribution, SessionId } from '@podium/model'
+import type { Attribution, SessionId, RepoId, IssueId, MachineId } from '@podium/model'
 import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/model'
 import { gitWorktree } from './worktree-resolve'
 
@@ -247,7 +247,7 @@ function worktreeContains(root: string, cwd: string): boolean {
 interface HandoffResidue {
   format: 1
   sessionId: SessionId
-  repoId: string
+  repoId: RepoId
   branch: string
   worktreeRoot: string
   treeSha: string
@@ -410,10 +410,10 @@ export async function exportHandoffPackage(input: {
   resume: HandoffManifestType['resume']
   branch: string
   baseShas: string[]
-  repoId: string
+  repoId: RepoId
   title?: string
-  issueId?: string
-  sourceMachineId: string
+  issueId?: IssueId
+  sourceMachineId: MachineId
   /** Stamped by the authenticated server transport, never read from a manifest. */
   exportedBy: Attribution
   owner: Extract<HandoffManifestType, { format: 2 }>['owner']

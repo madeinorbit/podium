@@ -1,4 +1,5 @@
-import type { IssueUpdatePatch } from '@podium/commands'
+import type { IssueUpdatePatch   MachineId,
+} from '@podium/commands'
 import { DEFER_NEXT_MESSAGE, isIssueColorSlot, snoozeUntil1h } from '@podium/model'
 import type { Trpc } from '@/app/trpc'
 import { deferDateFromNow, toggleLabelAcross } from './issue-context-menu'
@@ -31,7 +32,7 @@ export interface IssueMenuCommandDeps {
   restoreIssue: (id: string) => Promise<unknown>
   setOpenIssueId: (id: string) => void
   setView: (view: 'issues') => void
-  handoff?: (machineId: string) => void
+  handoff?: (machineId: MachineId) => void
   confirm?: (message: string) => boolean
 }
 

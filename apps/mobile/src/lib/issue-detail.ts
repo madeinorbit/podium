@@ -1,4 +1,5 @@
-import type { ActivityComment, IssueEvent } from '@podium/client-core/viewmodels'
+import type { ActivityComment, IssueEvent   IssueId,
+} from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
 import type { IssueWire } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
@@ -37,7 +38,7 @@ import type { MobileTrpc } from '../client/trpc'
  *  pre-read status; the server never marks mail read for an operator peek. */
 export interface IssueMailMessage {
   id: string
-  issueId: string
+  issueId: IssueId
   fromAuthor: string
   body: string
   createdAt: string

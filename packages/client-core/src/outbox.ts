@@ -20,6 +20,7 @@
  * about what it MEANS.
  */
 
+import type { MutationId } from '@podium/model'
 import {
   type AuthorityRefusal,
   MAX_AGE_REASON,
@@ -34,7 +35,7 @@ import { randomUUID } from './id'
 
 /** One queued mutation. `input` is the exact tRPC input, minus `mutationId`. */
 export interface OutboxEntry {
-  mutationId: string
+  mutationId: MutationId
   kind: string
   input: unknown
   queuedAt: number
@@ -250,7 +251,7 @@ export function classifyRefusal(err: unknown): AuthorityRefusal | undefined {
 
 /** Kind -> tRPC-input map; executors receive the input plus the entry's mutationId. */
 export type OutboxExecutors<M extends Record<string, object>> = {
-  [K in keyof M]: (input: M[K] & { mutationId: string }) => Promise<unknown>
+  [K in keyof M]: (input: M[K] & { mutationId: MutationId }) => Promise<unknown>
 }
 
 export interface OutboxInit<M extends Record<string, object>> {
@@ -429,7 +430,7 @@ export class Outbox<M extends Record<string, object>> {
    *  here would recompute the caller's overlays mid-retirement — promoting a
    *  younger same-row awaiting entry to "oldest" (escape-eligible) within the
    *  SAME pass, exactly what the oldest-first rule exists to prevent. */
-  retireAwaiting(mutationId: string): void {
+  retireAwaiting(mutationId: MutationId): void {
     const idx = this.awaitingEntries.findIndex((e) => e.mutationId === mutationId)
     if (idx === -1) return
     this.awaitingEntries.splice(idx, 1)
@@ -448,7 +449,7 @@ export class Outbox<M extends Record<string, object>> {
    *  offer byte-identical affordances. That is not tidiness: withholding a
    *  button for one flavour of `unauthorized` would let the existence oracle the
    *  kernel carefully closed leak back out through the button row. */
-  recoveryFor(mutationId: string): RecoveryPlan | undefined {
+  recoveryFor(mutationId: MutationId): RecoveryPlan | undefined {
     const parked = this.deadLetterEntries.find((d) => d.entry.mutationId === mutationId)
     return parked ? recoveryPlanFor(parked.reason.code) : undefined
   }
@@ -462,7 +463,7 @@ export class Outbox<M extends Record<string, object>> {
    * rejection. `max-age` demands a fresh `mutationId` (D11.4 — the old id may
    * still have a receipt) and the caller supplies it in the satisfaction.
    */
-  retry(mutationId: string, satisfaction: RetrySatisfaction): OutboxEntry {
+  retry(mutationId: MutationId, satisfaction: RetrySatisfaction): OutboxEntry {
     const idx = this.deadLetterEntries.findIndex((d) => d.entry.mutationId === mutationId)
     const parked = this.deadLetterEntries[idx]
     if (idx === -1 || !parked) throw new Error(`no dead-letter entry ${mutationId}`)
@@ -490,7 +491,7 @@ export class Outbox<M extends Record<string, object>> {
    * recovery an `invalid` entry has, and kept available for `unauthorized` so
    * the affordance set never varies with the flavour of denial.
    */
-  edit(mutationId: string, input: unknown): OutboxEntry {
+  edit(mutationId: MutationId, input: unknown): OutboxEntry {
     const idx = this.deadLetterEntries.findIndex((d) => d.entry.mutationId === mutationId)
     const parked = this.deadLetterEntries[idx]
     if (idx === -1 || !parked) throw new Error(`no dead-letter entry ${mutationId}`)
@@ -513,7 +514,7 @@ export class Outbox<M extends Record<string, object>> {
   /** The user's own decision to let the work go — D9 `cancelled`, and one of the
    *  only two licences to make it gone. Works with no read of the target, so it
    *  stays available for an entity the author can no longer see. */
-  discard(mutationId: string): boolean {
+  discard(mutationId: MutationId): boolean {
     const idx = this.deadLetterEntries.findIndex((d) => d.entry.mutationId === mutationId)
     if (idx === -1) return false
     this.deadLetterEntries.splice(idx, 1)

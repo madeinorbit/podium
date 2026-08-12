@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   hostAgentsView,
@@ -66,7 +67,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
   // The open host-info modal, plus which machine it's about. A memory chip opens
   // its own machine; the connection glyph is machine-agnostic (its tab lists all
   // hosts), so it opens without a specific machine.
-  const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: string } | null>(null)
+  const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: MachineId } | null>(null)
   const showHostname = !compact && hostMetrics.length > 1
   // The visible icon only shows the detail on hover; a persistent polite live
   // region announces degraded/down transitions to assistive tech (empty while
@@ -208,7 +209,7 @@ export function HeaderHostIndicators(): JSX.Element {
   // features, so skew earns a spot in the 44px header, not just Settings → Machines.
   const serverAppVersion = useServerAppVersion(trpc)
   const { health } = useStableConnection()
-  const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: string } | null>(null)
+  const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: MachineId } | null>(null)
   const announce =
     health.status === 'ok'
       ? ''

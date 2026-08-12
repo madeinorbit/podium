@@ -7,6 +7,7 @@ import {
   type SessionId,
   type SessionMeta,
   spawnedByTag,
+  type MachineId,
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
@@ -45,7 +46,7 @@ function watchesParentBranch(row: IssueRow): boolean {
 
 /** Groups one machine/repo/ref for one `rev-parse`; JSON prevents path separator collisions. */
 function parentBranchKey(
-  machineId: string | null | undefined,
+  machineId: MachineId | null | undefined,
   repoPath: string,
   ref: string,
 ): string {
@@ -58,7 +59,7 @@ type ParentBranchGroup = {
   repoPath: string
   /** The ref under watch — either an issue's parentBranch or the landing base. */
   watchedRef: string
-  machineId: string | null
+  machineId: MachineId | null
   ids: string[]
 }
 
@@ -641,7 +642,7 @@ export class IssueGitWorkflowModule {
    * Falls back to the issue's own path on absence, deliberately: that is what makes
    * requireMachineForRepo still able to say NO, naming a path the user recognises.
    */
-  private repoPathOnMachine(repoPath: string, machineId: string | null | undefined): string {
+  private repoPathOnMachine(repoPath: string, machineId: MachineId | null | undefined): string {
     if (!machineId) return repoPath
     return this.store.d.findRepoOnMachine?.(repoPath, machineId) ?? repoPath
   }
@@ -654,7 +655,7 @@ export class IssueGitWorkflowModule {
    */
   async ensureWorktree(
     id: string,
-    requestedMachineId?: string,
+    requestedMachineId?: MachineId,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
     const row = this.store.rowOrThrow(id)
     const machineId = requestedMachineId ?? row.machineId ?? undefined
@@ -755,7 +756,7 @@ export class IssueGitWorkflowModule {
     failure: string,
     path: string,
     branch: string,
-    machineId: string | undefined,
+    machineId: MachineId | undefined,
   ): Promise<boolean> {
     if (!/already exists/i.test(failure)) return false
     const st = await this.store.d.repoOp('status', path, undefined, machineId)

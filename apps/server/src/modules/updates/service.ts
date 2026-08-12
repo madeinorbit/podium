@@ -1,4 +1,4 @@
-import type { UpdateChannel } from '@podium/model'
+import type { UpdateChannel, MachineId } from '@podium/model'
 import type {
   ConvergenceState,
   UpdateGrantMessage,
@@ -9,8 +9,8 @@ import { IN_FLIGHT_STATES, planWave, TERMINAL_STATES, type WaveMachine } from '.
 
 export interface UpdatesDeps {
   machines(): readonly WaveMachine[]
-  channelFor?(machineId: string): UpdateChannel | undefined
-  send(machineId: string, message: UpdateGrantMessage): void
+  channelFor?(machineId: MachineId): UpdateChannel | undefined
+  send(machineId: MachineId, message: UpdateGrantMessage): void
   now(): number
   nextGrantId(): string
   concurrency: number
@@ -81,7 +81,7 @@ export class UpdatesService {
 
   constructor(private readonly deps: UpdatesDeps) {}
 
-  targetVersion(machineId?: string): string | undefined {
+  targetVersion(machineId?: MachineId): string | undefined {
     return machineId === undefined
       ? this.target('dev')?.version
       : this.targetFor(machineId)?.version
@@ -93,13 +93,13 @@ export class UpdatesService {
   }
 
   /** Resolve a machine through its durable channel choice. */
-  targetFor(machineId: string): UpdateTarget | undefined {
+  targetFor(machineId: MachineId): UpdateTarget | undefined {
     const channel = this.channelForMachine(machineId)
     return channel ? this.target(channel) : undefined
   }
 
   /** Explain why a machine's selected authority cannot currently advertise a target. */
-  targetUnavailableReasonFor(machineId: string): string | undefined {
+  targetUnavailableReasonFor(machineId: MachineId): string | undefined {
     const channel = this.channelForMachine(machineId)
     if (!channel) return 'Machine is no longer registered.'
     if (this.target(channel)) return undefined
@@ -190,7 +190,7 @@ export class UpdatesService {
     }
   }
 
-  onStatus(machineId: string, message: UpdateStatusMessage): void {
+  onStatus(machineId: MachineId, message: UpdateStatusMessage): void {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     if (!machine) return
     const channel = this.channelOf(machine)
@@ -271,7 +271,7 @@ export class UpdatesService {
    * it. A deliberate human Apply is exactly that reset, so it clears this
    * machine's terminal state before planning.
    */
-  authorizeMachine(machineId: string): MachineApplyOutcome {
+  authorizeMachine(machineId: MachineId): MachineApplyOutcome {
     const machine = this.fleet().find((candidate) => candidate.id === machineId)
     if (!machine) return { result: 'unknown-machine' }
     const channel = this.channelOf(machine)
@@ -408,12 +408,12 @@ export class UpdatesService {
   }
 
   /** Raw handshake proof, deliberately bypassing optimistic convergence state. */
-  machineBootedAtTarget(machineId: string, targetVersion: string): boolean {
+  machineBootedAtTarget(machineId: MachineId, targetVersion: string): boolean {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     return machine?.online === true && machine.version === targetVersion
   }
 
-  private grantExpired(machineId: string): boolean {
+  private grantExpired(machineId: MachineId): boolean {
     const pending = this.pendingGrants.get(machineId)
     if (!pending) return false
     return (
@@ -453,7 +453,7 @@ export class UpdatesService {
     return issued
   }
 
-  private channelForMachine(machineId: string): UpdateChannel | undefined {
+  private channelForMachine(machineId: MachineId): UpdateChannel | undefined {
     return (
       this.deps.channelFor?.(machineId) ??
       this.deps.machines().find((candidate) => candidate.id === machineId)?.channel

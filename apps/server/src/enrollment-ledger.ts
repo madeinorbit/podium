@@ -20,6 +20,7 @@
  * reasons never carry the verdict; server logs do.
  */
 
+import type { MachineId, UserId } from '@podium/model'
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   appendFileSync,
@@ -42,7 +43,7 @@ const TOKEN_VERSION = 'v1' as const
 // ---------------------------------------------------------------------------
 
 export interface PairingTokenClaims {
-  machineId: string
+  machineId: MachineId
   serial: number
 }
 
@@ -93,10 +94,10 @@ export interface EnrollEvent {
   kind: 'enroll'
   /** Idempotency key — re-appending the same id is a no-op. */
   id: string
-  machineId: string
+  machineId: MachineId
   serial: number
   /** Recorded owner at pair time. `null` = unowned (usable by nobody). */
-  ownerUserId: string | null
+  ownerUserId: UserId | null
   at: string
 }
 
@@ -104,7 +105,7 @@ export interface RevokeEvent {
   v: typeof LEDGER_VERSION
   kind: 'revoke'
   id: string
-  machineId: string
+  machineId: MachineId
   /** Serial of the token being revoked — step 2 compares `serial >= token.serial`. */
   serial: number
   by: string | null
@@ -115,8 +116,8 @@ export interface OwnerEvent {
   v: typeof LEDGER_VERSION
   kind: 'owner'
   id: string
-  machineId: string
-  ownerUserId: string
+  machineId: MachineId
+  ownerUserId: UserId
   at: string
 }
 
@@ -144,14 +145,14 @@ export interface EnrollmentLedger {
   readonly path: string
   readonly pairingRoot: Buffer
   /** Next enrollment serial for a machine (max known + 1, or 1). */
-  nextSerial(machineId: string): number
+  nextSerial(machineId: MachineId): number
   /**
    * Highest revoke serial recorded for this machine, or `undefined` if never
    * revoked. Step 2 of the verdict algorithm: deny when this is `>= token.serial`.
    */
-  revokeSerial(machineId: string): number | undefined
+  revokeSerial(machineId: MachineId): number | undefined
   /** Latest recorded owner from enroll/owner events, or `undefined` if none. */
-  recordedOwner(machineId: string): string | null | undefined
+  recordedOwner(machineId: MachineId): string | null | undefined
   /** Every machine id that has ever been enrolled (for boot reconcile). */
   enrolledMachineIds(): string[]
   /**
@@ -290,13 +291,13 @@ export function openEnrollmentLedger(
   return {
     path,
     pairingRoot,
-    nextSerial(machineId: string): number {
+    nextSerial(machineId: MachineId): number {
       return (serials.get(machineId) ?? 0) + 1
     },
-    revokeSerial(machineId: string): number | undefined {
+    revokeSerial(machineId: MachineId): number | undefined {
       return revokes.get(machineId)
     },
-    recordedOwner(machineId: string): string | null | undefined {
+    recordedOwner(machineId: MachineId): string | null | undefined {
       if (!owners.has(machineId)) return undefined
       return owners.get(machineId) ?? null
     },
@@ -328,7 +329,7 @@ export function verdictForMissingRow(
   ledger: EnrollmentLedger,
   token: string,
 ):
-  | { verdict: 're-enroll'; claims: PairingTokenClaims; ownerUserId: string | null }
+  | { verdict: 're-enroll'; claims: PairingTokenClaims; ownerUserId: UserId | null }
   | { verdict: 'revoked' | 'unverifiable' } {
   const claims = verifyPairingToken(ledger.pairingRoot, token)
   if (!claims) return { verdict: 'unverifiable' }

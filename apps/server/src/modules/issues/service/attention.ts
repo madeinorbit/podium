@@ -42,7 +42,7 @@ interface ReapPass {
  *  rather than on the worktree module. */
 interface IssueAttentionWorktreePort {
   releaseWorktreeIfIdle(
-    id: string,
+    id: IssueId,
     principal: CommandPrincipal,
   ): Promise<{ freed: boolean; reason?: string }>
 }
@@ -436,10 +436,10 @@ export class IssueAttentionModule {
    */
   tryAutoArchiveObserved(
     observed: {
-      issueId: string
+      issueId: IssueId
       stage: string
       closedReason: string | null
-      readerUserId: string
+      readerUserId: UserId
       archived: false
       deletedAt: null
     },

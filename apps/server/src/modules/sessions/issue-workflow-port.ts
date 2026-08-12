@@ -1,4 +1,4 @@
-import type { IssueRehomeTarget, IssueWire, SessionId } from '@podium/model'
+import type { IssueRehomeTarget, IssueWire, SessionId, IssueId, MachineId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 
 /**
@@ -9,15 +9,15 @@ import type { CommandPrincipal } from '../../command-principal'
  */
 export interface SessionIssueWorkflowPort {
   ensureWorktree(
-    issueId: string,
-    machineId?: string,
+    issueId: IssueId,
+    machineId?: MachineId,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }>
   freeWorktreeKeepBranch(
-    issueId: string,
+    issueId: IssueId,
     principal: CommandPrincipal,
     options: { force: boolean },
   ): Promise<{ ok: boolean; output: string; worktreeFreed: boolean }>
-  rehome(issueId: string, where: IssueRehomeTarget): IssueWire | null
+  rehome(issueId: IssueId, where: IssueRehomeTarget): IssueWire | null
   recordSessionGitActivity?(
     sessionId: SessionId,
     input: { commits?: string[]; touched?: string[] },

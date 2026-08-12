@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
 import {
@@ -55,8 +56,8 @@ interface StageMeta {
   totalBytes: number
   received: Record<string, number>
   state: StageState
-  targetMachineId: string
-  sourceMachineId: string
+  targetMachineId: MachineId
+  sourceMachineId: MachineId
   proof?: ServerTransferProof
   servingProof?: ServerTransferServingProof
   promotionPlan?: PromotionInventoryEntry[]
@@ -409,7 +410,7 @@ function validateManifest(
   manifest: ServerTransferManifest,
   manifestDigest: string,
   transferId: string,
-  targetMachineId: string,
+  targetMachineId: MachineId,
 ): void {
   if (manifest.transferId !== transferId) fail('identity-mismatch', 'manifest transfer id changed')
   if (manifest.targetMachineId !== targetMachineId)

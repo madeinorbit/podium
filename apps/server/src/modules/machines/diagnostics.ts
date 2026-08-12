@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto'
-import { asIssueId, type IssueId, type UserId } from '@podium/model'
+import { asIssueId, type IssueId, type UserId, type MachineId } from '@podium/model'
 import type { EventMap } from '../bus'
 import type { CreateIssueInput } from '../issues/service'
 
 export type MachineDiagnostic = EventMap['machine.diagnostic']
 
 export interface MachineDiagnosticRouterDeps {
-  recipients(machineId: string): UserId[]
-  repoPath(machineId: string): string | undefined
+  recipients(machineId: MachineId): UserId[]
+  repoPath(machineId: MachineId): string | undefined
   issueExists(id: IssueId): boolean
   createIssue(input: CreateIssueInput): void
   sendMail(issueId: IssueId, body: string): void

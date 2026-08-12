@@ -6,7 +6,7 @@ import {
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, isIssueDeferred } from '@podium/model'
+import { asIssueId, isIssueDeferred, type IssueId } from '@podium/model'
 import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useId, useMemo, useState } from 'react'
@@ -132,7 +132,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   const shouldReduceMotion = useReducedMotion()
   const layoutGroupId = useId()
   const [selectedClosedPlacement, setSelectedClosedPlacement] = useState<{
-    issueId: string
+    issueId: IssueId
     folded: boolean
   } | null>(null)
   /**
@@ -335,7 +335,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       )
     },
   })
-  const onGripDown = (e: ReactPointerEvent, issueId: string) => startDrag(e, issueId)
+  const onGripDown = (e: ReactPointerEvent, issueId: IssueId) => startDrag(e, issueId)
 
   // ⌘-hold row shortcuts (POD-790). The order is the column's own reading order
   // — pinned first, then each project group's live rows — taken from the SETTLED

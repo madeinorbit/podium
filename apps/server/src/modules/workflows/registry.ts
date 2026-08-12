@@ -10,6 +10,7 @@
  * it remembered to write the check.
  */
 
+import type { MutationId } from '@podium/model'
 import {
   type AdvanceIdempotencyPort,
   type AnyCommandContract,
@@ -159,7 +160,7 @@ export function dispatchWorkflowCommand(
   const advance = workflowAdvanceOf(proc)
   if (advance === undefined) return run(ctx, input)
 
-  const identity = input as { mutationId?: string; stepId?: string; runId?: string }
+  const identity = input as { mutationId?: MutationId; stepId?: string; runId?: string }
   // Resolving the target FIRST is deliberate on two counts. It runs the run's
   // visibility decision before anything else, so a caller cannot probe the
   // idempotency ledger for a run it may not see; and it is what tells the

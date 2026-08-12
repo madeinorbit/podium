@@ -125,7 +125,7 @@ export class SessionMetaOps {
     sessionId,
     until,
   }: {
-    userId: string
+    userId: UserId
     sessionId: SessionId
     until: string | null
   }): void {
@@ -133,7 +133,7 @@ export class SessionMetaOps {
   }
 
 
-  clearSnooze(userId: string, sessionId: SessionId): void {
+  clearSnooze(userId: UserId, sessionId: SessionId): void {
     this.ports.state.clearSnooze(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
   }
 
@@ -149,7 +149,7 @@ export class SessionMetaOps {
    * in eleven handlers.
    */
 
-  markSessionRead(userId: string, sessionId: SessionId): void {
+  markSessionRead(userId: UserId, sessionId: SessionId): void {
     this.ports.state.markRead(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
   }
 
@@ -157,7 +157,7 @@ export class SessionMetaOps {
    *  markSessionRead): DELETE the actor's marker so the derived `unread` (readAt
    *  null ⇒ unread) flips back to true, then broadcast. Marking MY copy unread
    *  never touches yours. No-op for an unknown session. */
-  markSessionUnread(userId: string, sessionId: SessionId): void {
+  markSessionUnread(userId: UserId, sessionId: SessionId): void {
     this.ports.state.markUnread(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
   }
 
@@ -211,9 +211,9 @@ export class SessionMetaOps {
   tryAutoArchiveStoppedObserved(
     observed: {
       sessionId: SessionId
-      issueId: string | null
+      issueId: IssueId | null
       stoppedAt: string
-      readerUserId: string
+      readerUserId: UserId
       archived: false
     },
     nowMs: number,
@@ -329,7 +329,7 @@ export class SessionMetaOps {
   }
 
 
-  prepareIssueSessionDelete(issueId: string, worktreePath: string | null): SessionDeletePlan {
+  prepareIssueSessionDelete(issueId: IssueId, worktreePath: string | null): SessionDeletePlan {
     const localMetas = [...this.ports.sessions.values()].map((s) =>
       s.toMeta(this.ports.view.overlay(s.sessionId)),
     )
@@ -353,7 +353,7 @@ export class SessionMetaOps {
   /** Prepare restoration of the sessions tombstoned by one issue deletion. The
    *  durable rows and ledger upserts commit with the issue restore; runtime
    *  installation follows only after that transaction succeeds. */
-  prepareIssueSessionRestore(issueId: string): SessionRestorePlan {
+  prepareIssueSessionRestore(issueId: IssueId): SessionRestorePlan {
     const rows = this.ports.store.sessions.loadDeletedSessionsForIssue(issueId) as SessionRow[]
     const restored = rows
       .map((row) => ({

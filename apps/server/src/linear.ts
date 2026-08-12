@@ -1,3 +1,4 @@
+import type { IssueId } from '@podium/model'
 /**
  * Minimal Linear GraphQL client for the superagent's ticket tools. Raw fetch —
  * three queries don't justify an SDK. All functions throw on HTTP/GraphQL
@@ -99,7 +100,7 @@ export async function createIssue(
 
 export async function moveIssue(
   apiKey: string,
-  input: { issueId: string; stateName: string },
+  input: { issueId: IssueId; stateName: string },
 ): Promise<LinearIssue> {
   type Found = {
     issue: { id: string; identifier: string; title: string; url: string; team: { id: string } }

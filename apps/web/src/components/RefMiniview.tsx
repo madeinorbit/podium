@@ -208,11 +208,11 @@ export function RefCard({
   /** Jump to the session running this task (or the ancestor's that covers it). */
   onGoToSession?: (sessionId: string) => void
   /** Start an agent on the issue (POD-110) — `trpc.issues.start` in the host. */
-  onStart?: (issueId: string) => Promise<unknown>
+  onStart?: (issueId: IssueId) => Promise<unknown>
   /** Approve an agent proposal into backlog without starting it. */
-  onPromote?: (issueId: string) => Promise<unknown>
+  onPromote?: (issueId: IssueId) => Promise<unknown>
   /** Persist the harness planned for the next session on this issue. */
-  onAgentChange?: (issueId: string, defaultAgent: string) => Promise<unknown>
+  onAgentChange?: (issueId: IssueId, defaultAgent: string) => Promise<unknown>
 }): JSX.Element {
   // Fixed position, placed once next to the activating click (falling back to
   // top-right when there is none) and left there. The card is not draggable: it
@@ -500,7 +500,7 @@ function IssueHarnessPicker({
   onAgentChange,
 }: {
   issue: RefIssueLike
-  onAgentChange: (issueId: string, defaultAgent: string) => Promise<unknown>
+  onAgentChange: (issueId: IssueId, defaultAgent: string) => Promise<unknown>
 }): JSX.Element {
   const persisted = issueAgentKind(issue.defaultAgent) ?? 'claude-code'
   const [selected, setSelected] = useState(persisted)
@@ -592,8 +592,8 @@ function IssueActions({
   onPromote,
 }: {
   issue: RefIssueLike
-  onStart: (issueId: string) => Promise<unknown>
-  onPromote?: (issueId: string) => Promise<unknown>
+  onStart: (issueId: IssueId) => Promise<unknown>
+  onPromote?: (issueId: IssueId) => Promise<unknown>
 }): JSX.Element {
   const [starting, setStarting] = useState<'idle' | 'busy' | 'done'>('idle')
   const [promoting, setPromoting] = useState<'idle' | 'busy' | 'done'>('idle')

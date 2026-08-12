@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import type { PeerHello, PeerHelloReply } from '../handshake/envelope'
 import type { ControlMessage } from './control'
 import type { DaemonMessage } from './daemon'
@@ -7,7 +8,7 @@ export type LocalDaemonAttachment =
   | {
       readonly established: true
       readonly reply: PeerHelloReply
-      readonly machineId: string
+      readonly machineId: MachineId
       deliver(msg: DaemonMessage): void
       close(): void
     }

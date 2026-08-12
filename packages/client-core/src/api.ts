@@ -16,7 +16,9 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type { IssueUpdatePatch } from '@podium/commands'
+import type { IssueUpdatePatch   MutationId,
+  MachineId,
+} from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
@@ -44,7 +46,7 @@ export interface ApiMutation<I, O = unknown> {
 }
 
 /** Outboxed mutations replay with a stable id so the server dedupes. */
-type WithMutationId<T> = T & { mutationId?: string }
+type WithMutationId<T> = T & { mutationId?: MutationId }
 
 /**
  * THE ID MEMBERS BELOW ARE BRANDED, AND THE PAIR MOVED TOGETHER (POD-1192).
@@ -110,10 +112,10 @@ export interface PodiumClientApi {
         title?: string
         issueId?: IssueId
         draftIssue?: { repoPath: string; issueId?: IssueId }
-        machineId?: string
+        machineId?: MachineId
         /** First prompt; argv harnesses get it on launch (POD-549). */
         initialPrompt?: string
-        mutationId?: string
+        mutationId?: MutationId
       },
       { sessionId: SessionId }
     >
@@ -225,21 +227,21 @@ export interface PodiumClientApi {
       | { sessionId: SessionId; path: string }
       // Artifact-snapshot reads ([spec:SP-0fc9] #441).
       | { issueId: IssueId; artifactId: ArtifactId; path: string }
-      | { machineId?: string; root: string; path: string },
+      | { machineId?: MachineId; root: string; path: string },
       unknown
     >
     write: ApiMutation<
       | { sessionId: SessionId; path: string; content: string; baseHash?: string }
-      | { machineId?: string; root: string; path: string; content: string; baseHash?: string }
+      | { machineId?: MachineId; root: string; path: string; content: string; baseHash?: string }
     >
-    list: ApiQuery<{ machineId?: string; root: string; path?: string }, unknown>
+    list: ApiQuery<{ machineId?: MachineId; root: string; path?: string }, unknown>
   }
   /** Git dock panel [POD-114] — raw output of fixed read-only repo ops. */
   git: {
-    status: ApiQuery<{ machineId?: string; root: string }, { ok: boolean; output: string }>
-    log: ApiQuery<{ machineId?: string; root: string }, { ok: boolean; output: string }>
+    status: ApiQuery<{ machineId?: MachineId; root: string }, { ok: boolean; output: string }>
+    log: ApiQuery<{ machineId?: MachineId; root: string }, { ok: boolean; output: string }>
     diffFile: ApiQuery<
-      { machineId?: string; root: string; path: string },
+      { machineId?: MachineId; root: string; path: string },
       { ok: boolean; output: string }
     >
   }

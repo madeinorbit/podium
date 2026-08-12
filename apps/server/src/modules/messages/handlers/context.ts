@@ -29,7 +29,7 @@ import {
   resolveAddress,
   SINGLE_USER_CEILING,
 } from '@podium/commands'
-import { asIssueId, asSessionId, type IssueId, isSpawnedBy, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type IssueId, isSpawnedBy, type SessionId, type MachineId } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
@@ -54,8 +54,8 @@ export interface MailCaller {
  * from a separate fleet ACL.
  */
 export interface MachineAccess {
-  mayUse(machineId: string): boolean
-  isReachable(machineId: string): boolean
+  mayUse(machineId: MachineId): boolean
+  isReachable(machineId: MachineId): boolean
 }
 
 /**
@@ -277,7 +277,7 @@ export class MailAccess {
   }
 
   /** Placement, authorization decided before reachability (§3.1.4 M5). */
-  placement(machineId: string): PlacementDecision {
+  placement(machineId: MachineId): PlacementDecision {
     return placementDecision(machineId, this.machines)
   }
 

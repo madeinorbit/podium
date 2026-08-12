@@ -4,6 +4,7 @@ import {
   type IssueSessionSummary,
   type SessionId,
   type SessionMeta,
+  type IssueId,
 } from '@podium/model'
 
 export function slugifyBranch(seq: number, title: string): string {
@@ -27,7 +28,7 @@ export function isMemberCwd(issueWorktree: string | null, cwd: string): boolean 
 export function sessionsForIssue(
   worktreePath: string | null,
   sessions: SessionMeta[],
-  issueId?: string,
+  issueId?: IssueId,
 ): SessionMeta[] {
   return sessions.filter((s) => isIssueMember(worktreePath, issueId, s))
 }
@@ -46,8 +47,8 @@ export function sessionsForIssue(
  */
 export function isIssueMember(
   worktreePath: string | null,
-  issueId: string | undefined,
-  session: { issueId?: string; cwd: string },
+  issueId: IssueId | undefined,
+  session: { issueId?: IssueId; cwd: string },
 ): boolean {
   return session.issueId ? session.issueId === issueId : isMemberCwd(worktreePath, session.cwd)
 }

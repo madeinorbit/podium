@@ -31,6 +31,8 @@ import {
   parseIssueEventRowId,
   parseLayoutRowId,
   parseReadPositionRowId,
+  type IssueId,
+  type UserId,
 } from '@podium/model'
 import type { Principal } from '@podium/protocol'
 import type {
@@ -101,7 +103,7 @@ export interface FeedVisibilityDeps {
    *
    * Omitted in tests that predate the kind: no rows, no subjects.
    */
-  readonly issueEventSubjects?: (issueId: string) => { entity: 'issueEvent'; entityId: string }[]
+  readonly issueEventSubjects?: (issueId: IssueId) => { entity: 'issueEvent'; entityId: string }[]
 }
 
 /** What the composition root names: two ports plus the tracing bracket. */
@@ -123,7 +125,7 @@ export interface FeedVisibility {
    * resolution-time ceiling asks the same question the feed does and a second
    * copy of that answer is how the two quietly stop agreeing.
    */
-  readonly mayReadIssue: (userId: string, issueId: string) => boolean
+  readonly mayReadIssue: (userId: UserId, issueId: IssueId) => boolean
 }
 
 export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
@@ -152,7 +154,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     }
   }
 
-  const readIssue = (issueId: string, prefetch?: BootstrapVisibilityPrefetch): IssueRow | null => {
+  const readIssue = (issueId: IssueId, prefetch?: BootstrapVisibilityPrefetch): IssueRow | null => {
     if (prefetch?.issueIds.has(issueId)) return prefetch.issues.get(issueId) ?? null
     return measure('visibility.issue.getIssue', () => store.issues.getIssue(issueId))
   }
@@ -180,8 +182,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   }
 
   const mayReadIssue = (
-    userId: string,
-    issueId: string,
+    userId: UserId,
+    issueId: IssueId,
     prefetch?: BootstrapVisibilityPrefetch,
   ): boolean => {
     // Authority publishes after the transaction commits but before IssueService

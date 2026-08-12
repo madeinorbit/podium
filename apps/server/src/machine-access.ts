@@ -66,7 +66,7 @@
  * this principal is concerned there is nothing at all.
  */
 
-import type { MachineId, MachineUseDecision } from '@podium/model'
+import type { MachineId, MachineUseDecision, UserId } from '@podium/model'
 import type { MachineGrant, MachineVerb, ResolvedMachine, UserId } from '@podium/protocol'
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
@@ -95,7 +95,7 @@ export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'g
  */
 export interface MachineOwnershipIndex {
   /** `undefined` = no such machine row exists at all. */
-  rowFor(machineId: string): MachineOwnershipRow | undefined
+  rowFor(machineId: MachineId): MachineOwnershipRow | undefined
   /**
    * A per-delegation narrowing: which machine ids THIS agent session may use,
    * when its delegation restricts them. `undefined` = no narrowing declared,
@@ -118,7 +118,7 @@ export interface MachineOwnershipIndex {
  * fake is exactly what makes a grant test unable to say YES.
  */
 export interface MachineGrantSource {
-  grantsForMachine?(machineId: string): { grantee: string; verb: string }[]
+  grantsForMachine?(machineId: MachineId): { grantee: string; verb: string }[]
 }
 
 /**
@@ -143,7 +143,7 @@ export interface MachineGrantSource {
  * simply forgot to thread it.
  */
 export interface MachineRowSource extends MachineGrantSource {
-  ownershipRows(): { id: string; name?: string; ownerUserId: string | null }[]
+  ownershipRows(): { id: string; name?: string; ownerUserId: UserId | null }[]
 }
 
 /** The verbs a machine grant can carry, as a runtime membership test. A stored
@@ -218,7 +218,7 @@ const verbsFromRow = (row: MachineOwnershipRow, subject: UserId | null): Set<Mac
  */
 export function machineVerbsFor(
   principal: CommandPrincipal,
-  machineId: string,
+  machineId: MachineId,
   ownership: MachineOwnershipIndex,
 ): ReadonlySet<MachineVerb> {
   // NO ROW MEANS NO VERBS, with no arm underneath it. There used to be one: `'local'`
@@ -261,7 +261,7 @@ export function machineVerbsFor(
 /** Can this principal know the machine exists at all? */
 export function canSeeMachine(
   principal: CommandPrincipal,
-  machineId: string,
+  machineId: MachineId,
   ownership: MachineOwnershipIndex,
 ): boolean {
   return machineVerbsFor(principal, machineId, ownership).has('see')
@@ -270,7 +270,7 @@ export function canSeeMachine(
 /** The `use` verdict, in the vocabulary `@podium/model`'s predicate consumes. */
 export function machineUseDecision(
   principal: CommandPrincipal,
-  machineId: string,
+  machineId: MachineId,
   ownership: MachineOwnershipIndex,
 ): MachineUseDecision {
   return machineVerbsFor(principal, machineId, ownership).has('use') ? 'granted' : 'denied'
@@ -296,7 +296,7 @@ export function machineUseDecision(
  */
 export function isMachineOwner(
   principal: CommandPrincipal,
-  machineId: string,
+  machineId: MachineId,
   ownership: MachineOwnershipIndex,
 ): boolean {
   const row = ownership.rowFor(machineId)
@@ -317,7 +317,7 @@ export type MachineAccessFailure = 'absent' | 'unauthorized'
  */
 export function checkMachineUse(
   principal: CommandPrincipal,
-  machineId: string,
+  machineId: MachineId,
   ownership: MachineOwnershipIndex,
 ): MachineAccessFailure | undefined {
   return checkMachineVerb(principal, machineId, ownership, 'use')
@@ -338,7 +338,7 @@ export function checkMachineUse(
  */
 export function checkMachineVerb(
   principal: CommandPrincipal,
-  machineId: string,
+  machineId: MachineId,
   ownership: MachineOwnershipIndex,
   verb: MachineVerb,
 ): MachineAccessFailure | undefined {
@@ -359,7 +359,7 @@ export function checkMachineVerb(
  */
 export function machineAccessMessage(
   failure: MachineAccessFailure,
-  machineId: string,
+  machineId: MachineId,
   machineName: string | undefined,
 ): string {
   return failure === 'absent'

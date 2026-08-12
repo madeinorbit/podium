@@ -771,7 +771,7 @@ export class SqliteSyncStore {
       .prepare(
         `SELECT principal, mutation_id, ordinal, record FROM ${OUTBOX_TABLE} ORDER BY ordinal ASC`,
       )
-      .all() as { principal: string; mutation_id: string; ordinal: number; record: string }[]
+      .all() as { principal: string; mutation_id: MutationId; ordinal: number; record: string }[]
 
     this.entities.clear()
     this.cursors.clear()

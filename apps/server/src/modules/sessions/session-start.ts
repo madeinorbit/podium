@@ -99,7 +99,7 @@ export interface SessionSpawnResult {
   model: string | null
   effort: string | null
   machine: string
-  machineId: string
+  machineId: MachineId
   accountId: AccountId | null
 }
 
@@ -120,9 +120,9 @@ export interface SessionStartPorts {
   registerSession(session: Session): void
   sessionMachineId(sessionId: SessionId): string | undefined
   defaultMachine(): MachineId
-  machineName(machineId: string): string
+  machineName(machineId: MachineId): string
   nativeAccountIdForMachine(
-    machineId: string,
+    machineId: MachineId,
     agentKind: AgentKind,
     accountId: AccountId,
   ): AccountId
@@ -132,8 +132,8 @@ export interface SessionStartPorts {
     agentKind: AgentKind,
     use?: MachineUseResolver,
   ): MachineId
-  onSpawnTargetLogin?(input: { machineId: string; agentKind: AgentKind; ownerUserId: UserId }): void
-  toMachine(machineId: string, message: ControlMessage): void
+  onSpawnTargetLogin?(input: { machineId: MachineId; agentKind: AgentKind; ownerUserId: UserId }): void
+  toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
   soleOwnerForCwd(cwd: string): IssueId | undefined
@@ -159,7 +159,7 @@ export class SessionStart {
     cwd: string
     title?: string
     name?: string
-    machineId?: string
+    machineId?: MachineId
     initialPrompt?: string
     model?: string
     effort?: string
@@ -316,7 +316,7 @@ export class SessionStart {
     nameSource?: 'user' | 'agent'
     origin: SessionMeta['origin']
     resume?: ResumeRef
-    machineId?: string
+    machineId?: MachineId
     initialPrompt?: string
     instructions?: AgentInstruction[]
     model?: string

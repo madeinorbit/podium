@@ -2,7 +2,7 @@ import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import type { GitRepositoryWire } from '@podium/model'
+import type { GitRepositoryWire, MachineId } from '@podium/model'
 import type { ScanReposResult, SessionRegistry } from './relay'
 import { readLocalOriginUrl } from './repo-id'
 import { normalizeRepoPath, type SessionStore } from './store'
@@ -92,17 +92,17 @@ export class RepoRegistry {
   ) {}
 
   /** Flat list of registered repo paths. Optionally filtered to a machine. */
-  list(machineId?: string): string[] {
+  list(machineId?: MachineId): string[] {
     return this.store.repos.listRepoPaths(machineId)
   }
 
   /** The longest registered repo root that contains `path` (cwd → repo inference).
    *  Pure over `list()` — see {@link inferRepoFromRoots}. */
-  inferFromPath(path: string, machineId?: string): string | undefined {
+  inferFromPath(path: string, machineId?: MachineId): string | undefined {
     return inferRepoFromRoots(this.list(machineId), path)
   }
 
-  async add(path: string, machineId?: string, prefix?: string): Promise<void> {
+  async add(path: string, machineId?: MachineId, prefix?: string): Promise<void> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
@@ -118,7 +118,7 @@ export class RepoRegistry {
 
   /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
    *  server-wide; previously written refs stop resolving (the caller warns). */
-  setPrefix(path: string, prefix: string, machineId?: string): void {
+  setPrefix(path: string, prefix: string, machineId?: MachineId): void {
     const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
     this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase())
     this.publishRepos()
@@ -153,7 +153,7 @@ export class RepoRegistry {
     }
   }
 
-  async remove(path: string, machineId?: string): Promise<void> {
+  async remove(path: string, machineId?: MachineId): Promise<void> {
     const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
     this.store.repos.removeRepo(normalizeRepoPath(path), mid)
   }
@@ -176,7 +176,7 @@ export class RepoRegistry {
    * no principal to filter by (boot reconcile, tests) — every transport path
    * supplies it, and `audit:machine-grants` checks that.
    */
-  async scanReposAll(mayUse?: (machineId: string) => boolean): Promise<ScanReposResult> {
+  async scanReposAll(mayUse?: (machineId: MachineId) => boolean): Promise<ScanReposResult> {
     const machineIds = this.sessionReg.modules.machines
       .onlineMachineIds()
       .filter((id) => mayUse?.(id) ?? true)

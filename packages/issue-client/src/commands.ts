@@ -6,6 +6,7 @@ import {
   type IssueWire,
   machineByRef,
   type NameableMachine,
+  type IssueId,
 } from '@podium/model'
 import {
   bareSelfRefCount,
@@ -953,7 +954,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           if (!a.body) throw new Error('mail send needs --body')
           const m = (await c.issues.mailSend.mutate({ id: ref, body: a.body as string })) as {
             id: string
-            issueId: string
+            issueId: IssueId
             ok?: boolean
             disposition?: string
             reason?: string

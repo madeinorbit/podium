@@ -49,6 +49,7 @@
  * refused and logged rather than resolving the wrong caller's promise.
  */
 
+import type { MachineId } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import type { ControlMessage } from '@podium/protocol'
 
@@ -79,7 +80,7 @@ export interface DaemonRequestSpec<T> {
   build(requestId: string): ControlMessage
   /** The machine the request is sent to — and the only one allowed to answer.
    *  Omitted means the fleet's default machine, resolved at send time. */
-  readonly machineId?: string | undefined
+  readonly machineId?: MachineId | undefined
 }
 
 /**
@@ -99,7 +100,7 @@ export interface DaemonRequestPort {
   settle<T>(
     kind: DaemonRequestKind<T>,
     requestId: string,
-    answeringMachineId: string,
+    answeringMachineId: MachineId,
     value: NoInfer<T>,
   ): boolean
   /** Globally-unique id mint, shared so ids never collide across families. */
@@ -107,14 +108,14 @@ export interface DaemonRequestPort {
 }
 
 export interface DaemonRequestBrokerDeps {
-  toMachine(machineId: string, msg: ControlMessage): void
+  toMachine(machineId: MachineId, msg: ControlMessage): void
   defaultMachine(): string
 }
 
 /** One in-flight request: who may answer it, and what happens when they do. */
 interface PendingDaemonRequest {
   readonly prefix: string
-  readonly targetMachineId: string
+  readonly targetMachineId: MachineId
   readonly resolve: (value: unknown) => void
 }
 
@@ -166,7 +167,7 @@ export class DaemonRequestBroker implements DaemonRequestPort {
   settle<T>(
     kind: DaemonRequestKind<T>,
     requestId: string,
-    answeringMachineId: string,
+    answeringMachineId: MachineId,
     value: NoInfer<T>,
   ): boolean {
     const entry = this.pending.get(requestId)

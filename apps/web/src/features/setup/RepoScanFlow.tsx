@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
@@ -31,7 +32,7 @@ export function RepoScanFlow({
   onDone: (changedCount: number) => void
   intro?: ReactNode
   /** Preselect a machine (e.g. the machines panel's per-row "Find repos"). */
-  initialMachineId?: string
+  initialMachineId?: MachineId
 }): JSX.Element {
   const { trpc, refreshRepos, machines } = useStoreSelector(
     (s) => ({ trpc: s.trpc, refreshRepos: s.refreshRepos, machines: s.machines }),
@@ -57,7 +58,7 @@ export function RepoScanFlow({
     if (preferred) setSelectedMachineId(preferred.id)
   }, [machines, selectedMachineId])
 
-  function repoMachineInput(): { machineId?: string } {
+  function repoMachineInput(): { machineId?: MachineId } {
     return selectedMachineId ? { machineId: selectedMachineId } : {}
   }
 

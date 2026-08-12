@@ -34,6 +34,7 @@
  * replies reattachFailed, and only then does 'exited' stand.
  */
 
+import type { MachineId } from '@podium/model'
 import type { ControlMessage, MachinePrincipal } from '@podium/protocol'
 import type { Session, SessionVolatileField } from './session'
 
@@ -43,15 +44,15 @@ export interface MachineReconcilerPorts {
   /** Re-arm a parked queued-send drain. */
   drainInbox(sessionId: Session['sessionId']): void
   /** Transcript-lake catch-up sweep for this machine. */
-  triggerLakeSweep(machineId: string): void
+  triggerLakeSweep(machineId: MachineId): void
   /** Clear the relay-priority delta cache, then re-push the full map. */
   resetPriorities(): void
   pushPriorities(): void
   /** Archive means stopped: park a survivor that is still live/reconnecting. */
   parkArchivedSession(sessionId: Session['sessionId']): void
   /** Build the reattach control message for one survivor. */
-  reattachMessage(session: Session, machineId: string): ControlMessage
-  toMachine(machineId: string, message: ControlMessage): void
+  reattachMessage(session: Session, machineId: MachineId): ControlMessage
+  toMachine(machineId: MachineId, message: ControlMessage): void
   /** Rank survivors: lower tier reattaches sooner. */
   viewTiers(sessionIds: Session['sessionId'][]): Map<Session['sessionId'], number>
   /** Headless sessions have no PTY; re-establish their daemon-side tails. */

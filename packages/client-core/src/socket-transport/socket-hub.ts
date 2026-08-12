@@ -320,7 +320,7 @@ export interface HubEvents {
   /** A repo's worktrees changed on the daemon side (POD-665). No cached list —
    *  this is a one-shot invalidation; the subscriber re-fetches through the same
    *  path it already uses at boot. */
-  worktreesChanged: [repoPath: string, machineId: string | undefined]
+  worktreesChanged: [repoPath: string, machineId: MachineId | undefined]
   /** Approval broker [spec:SP-edbb]: undecided management-op requests. */
   approvals: [pending: ApprovalWire[]]
   /** Full issue list after any change. */

@@ -1,3 +1,4 @@
+import type { IssueId } from '@podium/model'
 /**
  * WORKSPACE LAYOUT — the editor-style tab model (POD-710).
  *
@@ -84,7 +85,7 @@ export type SplitPath = readonly number[]
  */
 export function workspaceKeyFor(sel: {
   missionRootId?: string | null
-  issueId?: string | null
+  issueId?: IssueId | null
   worktreePath?: string | null
 }): WorkspaceKey {
   if (sel.missionRootId) return `mission:${sel.missionRootId}`

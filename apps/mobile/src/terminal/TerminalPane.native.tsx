@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId, IssueId } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import type { TerminalControlState } from './terminal-control'
 
@@ -13,7 +13,7 @@ export function TerminalPane({
 }: {
   sessionId: SessionId
   active: boolean
-  onOpenIssue?: (issueId: string) => void
+  onOpenIssue?: (issueId: IssueId) => void
   onControlState?: (state: TerminalControlState) => void
 }) {
   return (

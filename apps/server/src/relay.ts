@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
-import type { AgentKind, IssueEventWire, SessionId, SessionMeta } from '@podium/model'
+import type { AgentKind, IssueEventWire, SessionId, SessionMeta, MachineId } from '@podium/model'
 import {
   asMachineId,
   asSessionId,
@@ -589,7 +589,7 @@ export class SessionRegistry {
     // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
     // Shared by every path that creates or destroys a worktree behind the
     // clients' backs: issue start, and handoff import (POD-821).
-    const broadcastWorktreesChanged = (repoPath: string, machineId?: string): void => {
+    const broadcastWorktreesChanged = (repoPath: string, machineId?: MachineId): void => {
       const msg: LiveServerMessage = {
         type: 'worktreesChanged',
         repoPath,
@@ -1325,7 +1325,7 @@ export class SessionRegistry {
           if (workflowPrincipal.onBehalfOf === null) {
             return {
               mayUse: () => false,
-              isReachable: (machineId: string) => machines.hasDaemon(machineId),
+              isReachable: (machineId: MachineId) => machines.hasDaemon(machineId),
             }
           }
           if (workflowPrincipal.actor.startsWith('session:')) {
@@ -1341,10 +1341,10 @@ export class SessionRegistry {
             principal = role ? userCommandPrincipal(userId, role) : undefined
           }
           return {
-            mayUse: (machineId: string) =>
+            mayUse: (machineId: MachineId) =>
               principal !== undefined &&
               checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
-            isReachable: (machineId: string) => machines.hasDaemon(machineId),
+            isReachable: (machineId: MachineId) => machines.hasDaemon(machineId),
           }
         },
         ledger: {

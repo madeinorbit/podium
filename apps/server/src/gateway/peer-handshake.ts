@@ -10,7 +10,7 @@
  * envelope peer without a second auth path (POD-308).
  */
 
-import type { MachineId } from '@podium/model'
+import type { MachineId, UserId } from '@podium/model'
 import {
   type AcceptorStep,
   type CapabilityRef,
@@ -27,7 +27,6 @@ import {
   type PeerBuild,
   PeerHello,
   type PeerHelloReply,
-  type UserId,
 } from '@podium/protocol'
 import { createMachineDirectory, type MachineAuthenticator } from './machine-directory'
 
@@ -95,7 +94,7 @@ export type DaemonFrameOutcome =
        * value by construction.
        */
       readonly principal: MachinePrincipal
-      readonly machineId: string
+      readonly machineId: MachineId
       readonly name: string
       /** The legacy reply to send BEFORE attaching (see `wireDaemonSocket`). */
       readonly reply: DaemonHandshakeReply | PeerHelloReply
@@ -106,7 +105,7 @@ export type DaemonFrameOutcome =
       readonly offeredCaps: string[]
     }
   | { readonly kind: 'rejected'; readonly reply: DaemonHandshakeReply | PeerHelloReply }
-  | { readonly kind: 'deliver'; readonly machineId: string; readonly raw: string }
+  | { readonly kind: 'deliver'; readonly machineId: MachineId; readonly raw: string }
 
 /**
  * Feed one pre- or post-handshake frame to the acceptor and translate the step
@@ -183,7 +182,7 @@ export function recordHelloBuild(
   store: {
     setMachineBuild: (id: string, build: PeerBuild, caps: string[], at: string) => void
   },
-  machineId: string,
+  machineId: MachineId,
   hello: { build: PeerBuild | undefined; caps: string[]; at: string },
 ): void {
   if (!hello.build) return

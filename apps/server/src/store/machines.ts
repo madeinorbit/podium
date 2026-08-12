@@ -3,12 +3,14 @@
  * their token hashes).
  */
 
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual
+} from 'node:crypto'
 import {
   Inventory,
   type MachineId,
   UpdateChannel,
   type UpdateChannel as UpdateChannelValue,
+  type UserId,
 } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
@@ -90,7 +92,7 @@ export class MachinesRepository {
     name: string
     hostname: string
     tokenHash: string
-    ownerUserId: string | null
+    ownerUserId: UserId | null
     podiumManaged?: boolean
   }): void {
     const now = new Date().toISOString()
@@ -179,7 +181,7 @@ export class MachinesRepository {
    * owner transition: the ledger append is the commit point, and this method
    * projects it onto the row. `null` is quarantine (usable by nobody).
    */
-  setMachineOwner(id: string, ownerUserId: string | null): void {
+  setMachineOwner(id: string, ownerUserId: UserId | null): void {
     this.db.prepare('UPDATE machines SET owner_user_id = ? WHERE id = ?').run(ownerUserId, id)
   }
 

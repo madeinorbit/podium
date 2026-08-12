@@ -1,3 +1,4 @@
+import type { MutationId } from '@podium/model'
 /**
  * RUN-SCOPED IDEMPOTENCY for the five workflow advances — the framework half of
  * "a duplicate checkpoint delivery must not double-advance a step".
@@ -83,7 +84,7 @@ export interface AdvanceIdempotencyPort {
 export function advanceIdempotencyKey(args: {
   readonly contract: string
   readonly runId: string
-  readonly mutationId: string
+  readonly mutationId: MutationId
 }): string {
   // The separator is an ESCAPED NUL, never a literal one. A literal 0x00 byte
   // makes this file BINARY: `grep -n` and `rg -n` suppress line hits inside it
@@ -103,7 +104,7 @@ export interface AdvanceDeliveryIdentity {
   /** Client-minted delivery id. A retry replays the SAME id; a new command
    *  mints a new one. That distinction is the client's to make and cannot be
    *  reconstructed here — see this module's header. */
-  readonly mutationId?: string | undefined
+  readonly mutationId?: MutationId | undefined
   /** The step the advance names. Naming it makes the shipped linear-step guard
    *  refuse a second delivery, which is the other closed branch. */
   readonly stepId?: string | undefined

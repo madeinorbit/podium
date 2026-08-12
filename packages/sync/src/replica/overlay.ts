@@ -27,6 +27,7 @@
  *    replica arbitrating.
  */
 
+import type { MutationId } from '@podium/model'
 import type { SyncSpan } from './ports'
 
 /**
@@ -66,7 +67,7 @@ export interface PendingAttribution {
  * Replica must not be able to interpret it — interpreting it would be arbitration.
  */
 export interface PendingMutation {
-  readonly mutationId: string
+  readonly mutationId: MutationId
   readonly entity: string
   readonly entityId: string
   readonly command: unknown
@@ -148,7 +149,7 @@ export interface RetirementIntent {
   readonly entity: string
   readonly entityId: string
   readonly causationId?: string
-  readonly mutationId?: string
+  readonly mutationId?: MutationId
 }
 
 export interface OptimisticOverlayPort {

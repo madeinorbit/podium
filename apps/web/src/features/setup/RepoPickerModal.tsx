@@ -1,4 +1,4 @@
-import { type MachineWire, repoNameFromOrigin } from '@podium/model'
+import { type MachineWire, repoNameFromOrigin, type MachineId } from '@podium/model'
 import {
   Check,
   ChevronUp,
@@ -74,8 +74,8 @@ export function RepoPickerModal({
   /** Machines that can own a repo. Offline ones are listed but not selectable. */
   machines?: RepoPickerMachine[]
   /** The machine every action targets; the parent defaults it (see RepoScanFlow). */
-  selectedMachineId?: string
-  onMachineChange?: (machineId: string | undefined) => void
+  selectedMachineId?: MachineId
+  onMachineChange?: (machineId: MachineId | undefined) => void
 }): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const isMobile = useIsMobile()

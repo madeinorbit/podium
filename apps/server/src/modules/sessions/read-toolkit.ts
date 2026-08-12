@@ -20,6 +20,7 @@ import type {
   SessionStatusResult,
   SessionStatusSubagent,
   TranscriptItem,
+  MachineId,
 } from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
@@ -59,7 +60,7 @@ export interface SessionReadToolkitDeps {
   repoOp(
     op: 'log' | 'status',
     cwd: string,
-    machineId?: string,
+    machineId?: MachineId,
   ): Promise<{ ok: boolean; output: string }>
   /** The uuid-cursor transcript window read (modules/machines/rpc.readTranscript). */
   readTranscript(input: {

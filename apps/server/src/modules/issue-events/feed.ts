@@ -39,6 +39,7 @@ import {
   isFeedEventKind,
   issueEventRowId,
   parseIssueEventRowId,
+  type IssueId,
 } from '@podium/model'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
 import type { PodiumEventRecord } from '../../store/events'
@@ -117,7 +118,7 @@ export class IssueEventFeedPublisher {
   /** The feed rows currently carried for one issue — the subject list an
    *  authorization change has to re-scope alongside the issue itself. Answered
    *  from the window, so a grant costs no table read. */
-  subjectsFor(issueId: string): { entity: 'issueEvent'; entityId: string }[] {
+  subjectsFor(issueId: IssueId): { entity: 'issueEvent'; entityId: string }[] {
     const subjects: { entity: 'issueEvent'; entityId: string }[] = []
     for (const id of this.window) {
       try {

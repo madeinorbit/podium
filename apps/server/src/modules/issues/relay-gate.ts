@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId, MachineId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import type { Capability } from '../../issue-authz'
 
@@ -107,7 +107,7 @@ export interface AgentRelayGateDeps {
     input: unknown,
   ): Promise<unknown> | undefined
   capabilityForSession(sessionId: SessionId): Capability
-  toMachine(machineId: string, msg: ControlMessage): void
+  toMachine(machineId: MachineId, msg: ControlMessage): void
   /**
    * After a successful agentRelayResult is on the wire. Used to arm self-stop
    * kill only once the CLI has received the reply [spec:SP-9904] — never a
@@ -140,7 +140,7 @@ export class AgentRelayGate {
   constructor(private readonly deps: AgentRelayGateDeps) {}
 
   async run(
-    machineId: string,
+    machineId: MachineId,
     msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>,
   ): Promise<void> {
     const reply = (r: { ok: boolean; result?: unknown; error?: string }): void =>

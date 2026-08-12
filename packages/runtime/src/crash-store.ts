@@ -28,6 +28,7 @@
  * cannot parse.
  */
 
+import type { MachineId } from '@podium/model'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logDir } from './run-registry'
@@ -42,7 +43,7 @@ export const CRASH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 export interface CrashOrigin {
   role: string
   v?: string
-  machineId?: string
+  machineId?: MachineId
 }
 
 export interface CrashError {

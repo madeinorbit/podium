@@ -27,7 +27,7 @@ export interface HeadlessDeps {
   registerSession(session: Session): void
   resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): MachineId
   defaultMachine(): MachineId
-  toMachine(machineId: string, msg: ControlMessage): void
+  toMachine(machineId: MachineId, msg: ControlMessage): void
   /** Mint a globally unique requestId with the given prefix (shared counter —
    *  ids must never collide across the registry's pending maps). */
   nextRequestId(prefix: string): string
@@ -94,7 +94,7 @@ export class HeadlessService {
     cwd: string
     title?: string
     spawnedBy?: string
-    machineId?: string
+    machineId?: MachineId
   }): { sessionId: SessionId } {
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.

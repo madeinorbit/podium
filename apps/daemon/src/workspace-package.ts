@@ -1,3 +1,4 @@
+import type { RepoId, MachineId } from '@podium/model'
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
@@ -53,8 +54,8 @@ export async function exportWorkspaceSnapshot(input: {
   fetchId: string
   cwd: string
   baseShas: string[]
-  repoId: string
-  sourceMachineId: string
+  repoId: RepoId
+  sourceMachineId: MachineId
   homeDir?: string
 }): Promise<{ manifest: WorkspaceManifestType; stagePath: string; sizeBytes: number }> {
   const home = input.homeDir ?? homedir()

@@ -38,7 +38,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  * as a later comparison baseline.
  */
 
-import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type SessionId, type MachineId } from '@podium/model'
 import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 
 import { SessionRegistry } from '../../relay'
@@ -168,7 +168,7 @@ export interface OfflineMachine {
  */
 export function makeOracle(
   opts: {
-    machineId?: string
+    machineId?: MachineId
     offlineMachines?: OfflineMachine[]
     portableStateFence?: PortableStateFence
   } = {},

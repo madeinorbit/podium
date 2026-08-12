@@ -1,6 +1,7 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
+import type { RecentFileEntry, RepoView, WorktreeView   MachineId,
+} from '@podium/client-core/viewmodels'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import type { AgentKind, IssueId, MachineWire, SessionId } from '@podium/model'
 import {
@@ -166,12 +167,12 @@ export function NewPanelMenu({
   }
 
   /** Local path to use when opening an agent on machine M. */
-  function cwdFor(machineId: string | undefined): string {
+  function cwdFor(machineId: MachineId | undefined): string {
     if (!machineId || machineId === worktree.machineId) return worktree.path
     return repoView.machines.find((m) => m.machineId === machineId)?.path ?? worktree.path
   }
 
-  async function create(agentKind: AgentKind, machineId?: string) {
+  async function create(agentKind: AgentKind, machineId?: MachineId) {
     const cwd = cwdFor(machineId)
     const { sessionId } = await trpc.sessions.create.mutate({
       agentKind,
@@ -476,7 +477,7 @@ function MachineSubmenu({
   now,
 }: {
   machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: string) => Promise<void>
+  onCreate: (kind: AgentKind, machineId: MachineId) => Promise<void>
   onResume: (hit: ConversationHit) => Promise<void>
   hits: ConversationHit[]
   now: number

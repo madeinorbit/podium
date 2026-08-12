@@ -85,7 +85,7 @@ const repoOp = (op: 'statusProbe' | 'logPanel' | 'diffFile') =>
     }) as z.ZodType<
       { machineId?: MachineId | undefined; root: string; path?: string },
       z.ZodTypeDef,
-      { machineId?: string | undefined; root: string; path?: string }
+      { machineId?: MachineId | undefined; root: string; path?: string }
     >,
     (s, input) => {
       assertAllowedRoot(fileState(s), input.root)

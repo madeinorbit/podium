@@ -7,6 +7,7 @@ import type {
   IssueWire,
   SessionId,
   SessionMeta,
+  MachineId,
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
@@ -112,7 +113,7 @@ export interface DepReportRef {
 
 /** Per-issue dependency status inside a set (epic subtree or repo) — see depReport(). */
 export interface DepReportEntry {
-  id: string
+  id: IssueId
   seq: number
   title: string
   stage: string
@@ -156,7 +157,7 @@ export interface IssueDeps {
    *  [POD-1639]. Optional so the test fixtures that satisfy this interface with
    *  `listSessions` alone keep working — `IssueStore.sessionsFor` falls back to
    *  filtering the full list, which is the same answer at the old price. */
-  listSessionsForIssue?(worktreePath: string | null, issueId: string): SessionMeta[]
+  listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): SessionMeta[]
   getSettings(): PodiumSettings
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —
@@ -177,7 +178,7 @@ export interface IssueDeps {
     forceUnknownModel?: boolean
     initialPrompt?: string
     spawnedBy?: string
-    machineId?: string
+    machineId?: MachineId
     ownerUserId?: import('@podium/model').UserId
   }): {
     sessionId: SessionId
@@ -195,12 +196,12 @@ export interface IssueDeps {
     op: RepoOp,
     cwd: string,
     args?: Record<string, string>,
-    machineId?: string,
+    machineId?: MachineId,
   ): Promise<{ ok: boolean; output: string }>
   /** Pre-flight for an explicit machine pin: throws (actionable message) when the
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
-  requireMachineForRepo?(machineId: string, repoPath: string): void
+  requireMachineForRepo?(machineId: MachineId, repoPath: string): void
   /**
    * Prepare a machine-pinned start (POD-1424): put the right REPOSITORY on the target
    * (resolved by repo IDENTITY, cloned on absence — POD-1386) and the right COMMITS in
@@ -216,7 +217,7 @@ export interface IssueDeps {
    */
   prepareMachineStart?(input: {
     repoPath: string
-    machineId: string
+    machineId: MachineId
     startPoint?: string
   }): Promise<{ repoPath: string; startPoint?: string }>
   /**
@@ -226,7 +227,7 @@ export interface IssueDeps {
    * clone anything, so they get the lookup-only resolver and keep requireMachineForRepo
    * as the refusal. Optional so existing test deps literals stay valid.
    */
-  findRepoOnMachine?(repoPath: string, machineId: string): string | null
+  findRepoOnMachine?(repoPath: string, machineId: MachineId): string | null
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel
@@ -256,7 +257,7 @@ export interface IssueDeps {
    *  in every menu until reload. [spec:SP-4ef9] worktree is a per-(branch,machine)
    *  materialization the client has no other way to learn about live. Injected by
    *  the relay; optional so existing test deps literals stay valid. */
-  onWorktreesChanged?(repoPath: string, machineId?: string): void
+  onWorktreesChanged?(repoPath: string, machineId?: MachineId): void
   defaultRepoBranch?(repoPath: string): Promise<string>
   llm?: typeof llmClient
   linearSearch?(key: string, q: string): Promise<LinearIssue[]>
@@ -270,7 +271,7 @@ export interface IssueDeps {
     snapshot(o: {
       issueId: IssueId
       root: string
-      machineId?: string
+      machineId?: MachineId
       sourcePath: string
       extraPaths?: string[]
     }): Promise<{ artifactId: ArtifactId; entry: string; files: { path: string; size: number }[] }>

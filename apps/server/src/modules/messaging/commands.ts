@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionMeta, IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { InlineButton } from './types'
 
@@ -99,7 +99,7 @@ export function formatIssues(issues: IssueWire[], mode: string | undefined): str
 const LIVE_STATUSES = new Set(['live', 'starting', 'reconnecting'])
 
 /** Telegram `callback_data` for an issue open button (≤64 bytes). */
-export function issueCallbackData(issueId: string): string {
+export function issueCallbackData(issueId: IssueId): string {
   return `i:${issueId}`
 }
 

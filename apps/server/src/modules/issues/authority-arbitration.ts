@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { ROW } from '@podium/model'
+import { ROW, type IssueId } from '@podium/model'
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import {
   AuthorityArbitrationRejected,
@@ -10,7 +10,7 @@ import { throwIssueRevisionConflict } from './conflict'
 
 export interface IssueArbitrationInput {
   command: string
-  issueId: string
+  issueId: IssueId
   expectedRevision?: number
   /** Read through the issue service while the ledger transaction is active. */
   currentRevision: () => number | undefined

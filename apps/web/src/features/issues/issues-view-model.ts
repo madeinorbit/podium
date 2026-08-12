@@ -61,7 +61,7 @@ export function deriveIssuesViewModel({
   filter: BoardFilter
   expanded: ReadonlySet<string>
   isMobile: boolean
-  openIssueId: string | null
+  openIssueId: IssueId | null
 }): IssuesViewModel {
   const nonArchived = issues.filter((issue) => !issue.archived && !issue.deletedAt)
   const scope = filterBoardScope(nonArchived, display.showAgentTasks)

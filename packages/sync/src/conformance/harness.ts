@@ -205,7 +205,7 @@ export type Client = Awaited<ReturnType<typeof openClient>> & {
  * `as never` at each of the four call sites.
  */
 export const mutationIdsOf = (
-  matches: readonly { readonly mutationId?: string; readonly causationId?: string }[],
+  matches: readonly { readonly mutationId?: MutationId; readonly causationId?: string }[],
 ): readonly MutationId[] =>
   matches
     .map((match) => match.mutationId ?? match.causationId)

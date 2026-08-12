@@ -32,6 +32,7 @@
  * never wedge boot.
  */
 
+import type { MutationId } from '@podium/model'
 import type { IdbDatabaseLike } from './idb'
 
 export const REPLICA_DB_NAME = 'podium-replica'
@@ -83,7 +84,7 @@ export interface StoredMeta {
  */
 export interface StoredOutboxRecord {
   readonly principal: string
-  readonly mutationId: string
+  readonly mutationId: MutationId
   readonly ordinal: number
   readonly record: unknown
 }

@@ -39,7 +39,7 @@ export function IssueListView({
   focusId: string | null
   selected: string[]
   onToggleSelect: (id: IssueId) => void
-  onToggleExpand: (id: string) => void
+  onToggleExpand: (id: IssueId) => void
   onContextMenu: (id: IssueId, e: ReactMouseEvent) => void
 }): JSX.Element {
   // Row ages tick at minute granularity, as they do on the board — a list of

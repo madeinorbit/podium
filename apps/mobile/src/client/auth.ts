@@ -1,9 +1,10 @@
+import type { UserId } from '@podium/model'
 /** REST auth client for the server's single-user password gate (/auth/*). */
 
 export interface AuthStatus {
   needsAuth: boolean
   authed: boolean
-  userId: string | null
+  userId: UserId | null
 }
 
 /**

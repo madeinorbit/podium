@@ -32,7 +32,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { asMachineId, HandoffManifestV1, type MachineId } from '@podium/model'
+import { asMachineId, HandoffManifestV1, type MachineId, type RepoId } from '@podium/model'
 import type { Session } from '../session'
 import { type ExportedIdentity, exportedIdentity } from './attribution'
 import {
@@ -58,7 +58,7 @@ const isResumable = (session: Session | undefined): session is ResumableSession 
 /** A repo row that carries a repo id. The bundle's repo identity is what makes
  *  the package match the tree it lands in, so an unregistered repo is refused
  *  rather than exported without one. */
-export type RegisteredRepo = HandoffRepo & { repoId: string }
+export type RegisteredRepo = HandoffRepo & { repoId: RepoId }
 
 const isRegistered = (repo: HandoffRepo | undefined): repo is RegisteredRepo =>
   Boolean(repo?.repoId)

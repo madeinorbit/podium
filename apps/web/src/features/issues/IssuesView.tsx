@@ -74,7 +74,7 @@ export function IssuesView(): JSX.Element {
   const updateDisplay = (patch: IssuesDisplayPatch): void => {
     setDisplay({ ...display, ...patch, badges: { ...display.badges, ...(patch.badges ?? {}) } })
   }
-  const toggleExpand = (id: string): void =>
+  const toggleExpand = (id: IssueId): void =>
     setExpanded((current) => {
       const next = new Set(current)
       if (next.has(id)) next.delete(id)
@@ -91,8 +91,8 @@ export function IssuesView(): JSX.Element {
     setError('')
     promise.catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
   }
-  const moveIssue = (id: string, stage: IssueStage): void => runMut(updateIssue(id, { stage }))
-  const approveIssue = (id: string): void => runMut(trpc.issues.promote.mutate({ id }))
+  const moveIssue = (id: IssueId, stage: IssueStage): void => runMut(updateIssue(id, { stage }))
+  const approveIssue = (id: IssueId): void => runMut(trpc.issues.promote.mutate({ id }))
   // `approve & start` and `archive` left this file with the card's three-button
   // bar (POD-591). They are not lost: both are on the right-click menu, which
   // acts on a selection rather than on one card, and that is where a decision
@@ -102,9 +102,9 @@ export function IssuesView(): JSX.Element {
   // contract's patch is branded — the brand is a compile-time claim about which
   // string this is, and the dropdown's options come from the issues' own
   // assignees, so it is the same string either way.
-  const setAssignee = (id: string, assignee: string): void =>
+  const setAssignee = (id: IssueId, assignee: string): void =>
     runMut(updateIssue(id, { assignee: asUserId(assignee) }))
-  const setPriority = (id: string, priority: number): void => runMut(updateIssue(id, { priority }))
+  const setPriority = (id: IssueId, priority: number): void => runMut(updateIssue(id, { priority }))
   const toggleLabel = (issue: IssueViewModel, label: string): void => {
     const labels = issue.labels.includes(label)
       ? issue.labels.filter((candidate) => candidate !== label)

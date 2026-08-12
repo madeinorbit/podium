@@ -1,12 +1,13 @@
 // apps/server/src/file-artifact-route.ts
+import type { IssueId, ArtifactId } from '@podium/model'
 import type { Hono } from 'hono'
 import { rawFileHeaders } from './raw-file-headers'
 
 /** The store face the route needs (IssueArtifactStore, structurally). */
 export interface ArtifactBundleReader {
   read(
-    issueId: string,
-    artifactId: string,
+    issueId: IssueId,
+    artifactId: ArtifactId,
     relPath: string,
   ): Promise<{ bytes: Buffer; contentType: string } | null>
 }

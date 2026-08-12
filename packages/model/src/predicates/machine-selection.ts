@@ -15,13 +15,14 @@
  * 4, its `use` decision) as INPUT and stay pure; they never resolve a principal,
  * and no type in this file grows an owner field.
  */
+import type { MachineId, RepoId } from '@podium/model'
 import type { z } from 'zod'
 import type { MachineUseDecision } from '../entities/machine'
 import type { IssueWorkspace } from '../fields/issue'
 import { worktreeForCwd, worktreeSubpath } from '../identity/worktree'
 
 export interface RepoMachines {
-  machines?: { machineId: string; path: string }[]
+  machines?: { machineId: MachineId; path: string }[]
   /** A fresh machine can materialize this repository when an origin is known. */
   originUrl?: string | null
 }
@@ -31,7 +32,7 @@ export interface SelectableMachine {
   online: boolean
 }
 export interface RecentSession {
-  machineId?: string
+  machineId?: MachineId
   createdAt: string
 }
 
@@ -106,7 +107,7 @@ export function onlineMachinesForRepoOrClone<M extends SelectableMachine>(
 
 export interface HandoffSession {
   cwd: string
-  machineId?: string
+  machineId?: MachineId
   agentKind: string
 }
 /**
@@ -129,9 +130,9 @@ export interface HandoffSession {
 export type HandoffIssue = {
   [K in 'branch' | 'worktreePath']?: z.infer<typeof IssueWorkspace>[K] | null
 }
-export type HandoffWorktree = { path: string; isMain: boolean; machineId?: string }
+export type HandoffWorktree = { path: string; isMain: boolean; machineId?: MachineId }
 export interface HandoffRepo extends RepoMachines {
-  repoId?: string
+  repoId?: RepoId
   originUrl?: string
   worktrees: HandoffWorktree[]
 }

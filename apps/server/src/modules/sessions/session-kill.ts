@@ -19,7 +19,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { SessionId } from '@podium/model'
+import type { SessionId, MachineId, IssueId } from '@podium/model'
 import type { ControlMessage, MetadataChange } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
@@ -52,7 +52,7 @@ export interface SessionKillPorts {
   machines: Pick<MachinesService, 'defaultMachine'>
   daemonProjection: Pick<SessionDaemonProjection, 'disposeTitle'>
   now(): number
-  toMachine(machineId: string, message: ControlMessage): void
+  toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
   ledger: KillLedger
 }
@@ -65,7 +65,7 @@ export class SessionKill {
    *  worktree, no children, and every attached session dead (exited/archived) or
    *  gone. Hibernation does NOT land here via a dead status ('hibernated' blocks
    *  the reap inside reapIfEmptyDraft), so a parked draft survives. */
-  maybeReapDraftIssue(issueId: string | null | undefined): void {
+  maybeReapDraftIssue(issueId: IssueId | null | undefined): void {
     if (!issueId) return
     try {
       this.ports.bus.emit('issue.sessionDerived', { kind: 'reapDraft', issueId })

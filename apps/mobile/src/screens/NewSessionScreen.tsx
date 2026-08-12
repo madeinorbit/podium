@@ -7,7 +7,7 @@ import {
   spawnTargetForRepo,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, IssueId } from '@podium/model'
 import { asIssueId, machinesWithRepo } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
@@ -40,7 +40,7 @@ export function NewSessionScreen() {
   const { sections } = useSlice(worklistSlice)
   const params = useLocalSearchParams<{
     cwd?: string | string[]
-    issueId?: string | string[]
+    issueId?: IssueId | string[]
     backTo?: string | string[]
   }>()
   const presetCwd = param(params.cwd)

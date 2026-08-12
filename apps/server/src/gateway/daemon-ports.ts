@@ -40,7 +40,7 @@ export type ControlSend = (msg: ControlMessage) => void
  * D8/D16; POD-394).
  */
 export interface SessionInputGatewayPort {
-  sendInput(machineId: string, message: Extract<ControlMessage, { type: 'input' }>): void
+  sendInput(machineId: MachineId, message: Extract<ControlMessage, { type: 'input' }>): void
 }
 
 /**
@@ -59,37 +59,37 @@ export interface SessionsDaemonPort {
 
 /** MACHINES. Socket bookkeeping plus the machine's own reported inventory. */
 export interface MachinesDaemonPort {
-  attach(machineId: string, send: ControlSend): void
-  detach(machineId: string, send?: ControlSend): boolean
-  flushQueued(machineId: string): void
+  attach(machineId: MachineId, send: ControlSend): void
+  detach(machineId: MachineId, send?: ControlSend): boolean
+  flushQueued(machineId: MachineId): void
   broadcastMachines(): void
-  recordInventory(machineId: string, inventory: DaemonFrame<'inventoryReport'>['inventory']): void
-  recordDiagnostic(machineId: string, diagnostic: DaemonFrame<'machineDiagnostic'>): void
+  recordInventory(machineId: MachineId, inventory: DaemonFrame<'inventoryReport'>['inventory']): void
+  recordDiagnostic(machineId: MachineId, diagnostic: DaemonFrame<'machineDiagnostic'>): void
 }
 
 /** UPDATES. Status is scoped by the authenticated daemon transport. */
 export interface UpdatesDaemonPort {
-  onUpdateStatus(machineId: string, message: DaemonFrame<'updateStatus'>): void
+  onUpdateStatus(machineId: MachineId, message: DaemonFrame<'updateStatus'>): void
 }
 
 /** HOSTS. Health samples are per-machine facts and are scoped by the principal;
  *  so is the memory-breakdown reply, which the correlator checks the sender of. */
 export interface HostsDaemonPort {
   onHostMetrics(machineId: MachineId, sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>): void
-  onMemoryBreakdownResult(machineId: string, msg: DaemonFrame<'memoryBreakdownResult'>): void
+  onMemoryBreakdownResult(machineId: MachineId, msg: DaemonFrame<'memoryBreakdownResult'>): void
 }
 
 /** CONVERSATIONS. Discovery is per-machine; the mirror read is request-correlated
  *  and settles through the same correlator, so it takes the answering machine. */
 export interface ConversationsDaemonPort {
   onDiscovery(
-    machineId: string,
+    machineId: MachineId,
     conversations: ConversationSummaryWire[],
     diagnostics: ConversationDiagnosticWire[],
     removed?: string[],
   ): void
-  onTranscriptMirrorResult(machineId: string, msg: DaemonFrame<'transcriptMirrorResult'>): void
-  triggerLakeSweep(machineId: string): void
+  onTranscriptMirrorResult(machineId: MachineId, msg: DaemonFrame<'transcriptMirrorResult'>): void
+  triggerLakeSweep(machineId: MachineId): void
 }
 
 /**
@@ -108,7 +108,7 @@ export interface ConversationsDaemonPort {
  * tell a reply to your request from a reply to someone else's (POD-1175).
  */
 export interface RpcDaemonPort {
-  settleDaemonReply(machineId: string, msg: RpcDaemonFrame): void
+  settleDaemonReply(machineId: MachineId, msg: RpcDaemonFrame): void
 }
 
 /** HEADLESS turns. */
@@ -133,7 +133,7 @@ export interface ApprovalsDaemonPort {
  * separate port with exactly one frame reaching it.
  */
 export interface AgentRelayDaemonPort {
-  run(machineId: string, msg: DaemonFrame<'agentRelayRequest'>): void
+  run(machineId: MachineId, msg: DaemonFrame<'agentRelayRequest'>): void
 }
 
 /** Everything the mux is given. */

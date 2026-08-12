@@ -14,6 +14,8 @@ import {
   type RepoProjection,
   repoToWire,
   toWire,
+  type IssueId,
+  type RepoId,
 } from '@podium/model'
 import type { IssueRow } from '../../store'
 import { fromStorage } from '../../store/issue-storage'
@@ -184,7 +186,7 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
 export function issueProjectionRows(
   rows: Iterable<IssueRow>,
   labelsOf: (id: string) => string[],
-): { id: string; value: IssueProjection }[] | undefined {
+): { id: IssueId; value: IssueProjection }[] | undefined {
   const out: { id: string; value: IssueProjection }[] = []
   for (const row of rows) {
     try {
@@ -252,7 +254,7 @@ export function issueDepToProjection(dep: {
  */
 export function issueDepProjectionRows(
   deps: Iterable<{ fromId: string; toId: string; type: string }>,
-): { id: string; value: IssueDepProjection }[] | undefined {
+): { id: IssueId; value: IssueDepProjection }[] | undefined {
   const out: { id: string; value: IssueDepProjection }[] = []
   for (const dep of deps) {
     try {
@@ -284,8 +286,8 @@ export function issueDepProjectionRows(
  * unchanged set appends nothing. This never runs per-issue.
  */
 export function repoProjectionRows(
-  repos: Iterable<{ repoId: string | null; prefix: string | null }>,
-): { id: string; value: RepoProjection }[] {
+  repos: Iterable<{ repoId: RepoId | null; prefix: string | null }>,
+): { id: IssueId; value: RepoProjection }[] {
   const byId = new Map<string, RepoProjection>()
   for (const repo of repos) {
     if (!repo.repoId) continue

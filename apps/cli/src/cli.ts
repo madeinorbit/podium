@@ -11,7 +11,7 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
-import { asSessionId, isAgentKind } from '@podium/model'
+import { asSessionId, isAgentKind, type MachineId } from '@podium/model'
 import {
   type ApprovalOp,
   FEATURES,
@@ -765,7 +765,7 @@ export async function resolveCliFeatures(
 export interface DaemonStartOptions {
   serverUrl: string
   bootstrapToken?: string
-  machineId?: string
+  machineId?: MachineId
   pairCode?: string
   name?: string
   /** Production daemons install the global codex hook instrumentation at boot. */
@@ -784,7 +784,7 @@ export function daemonOptionsForPlan(
   /** This host's minted id (`<stateDir>/machine.id`). Defaulted rather than required so
    *  the argv-shaped tests keep calling this with three arguments; the same file the
    *  server read is the same file read here, because it is the same host. */
-  hostMachineId: string = readOrCreateLocalMachineId(),
+  hostMachineId: MachineId = readOrCreateLocalMachineId(),
 ): DaemonStartOptions {
   const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : localServerWsUrl(serverPort)
   if (!serverUrl)

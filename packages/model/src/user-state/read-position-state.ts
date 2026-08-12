@@ -52,6 +52,7 @@
  * user field at all — there is nothing for a client to assert.
  */
 
+import type { UserId } from '@podium/model'
 import { z } from 'zod'
 import { UserIdField } from '../ids'
 import { perUserKeyOfString } from './session-state'
@@ -188,14 +189,14 @@ const CURSOR_ROW_SEP = '\n'
  * {@link layoutRowId}: a userId containing the separator must not be able to
  * collide with another pair.
  */
-export function readPositionRowId(userId: string, streamId: string): string {
+export function readPositionRowId(userId: UserId, streamId: string): string {
   const esc = (p: string) =>
     p.replaceAll('\\', '\\\\').replaceAll(CURSOR_ROW_SEP, `\\${CURSOR_ROW_SEP}`)
   return `${esc(userId)}${CURSOR_ROW_SEP}${esc(streamId)}`
 }
 
 /** Inverse of {@link readPositionRowId}. Throws on a malformed id. */
-export function parseReadPositionRowId(id: string): { userId: string; streamId: string } {
+export function parseReadPositionRowId(id: string): { userId: UserId; streamId: string } {
   const parts: string[] = []
   let current = ''
   for (let i = 0; i < id.length; i++) {

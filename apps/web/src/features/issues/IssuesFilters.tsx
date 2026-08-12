@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage, IssueType } from '@podium/model'
+import { ISSUE_STAGES, type IssueStage, IssueType, type IssueId } from '@podium/model'
 import { Check, ListFilter, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -43,9 +43,9 @@ export function AnchoredIssueMenu({
   kind: PropMenuKind
   assignees: string[]
   labelPool: string[]
-  onMoveIssue: (id: string, stage: IssueStage) => void
-  onSetPriority: (id: string, priority: number) => void
-  onSetAssignee: (id: string, assignee: string) => void
+  onMoveIssue: (id: IssueId, stage: IssueStage) => void
+  onSetPriority: (id: IssueId, priority: number) => void
+  onSetAssignee: (id: IssueId, assignee: string) => void
   onToggleLabel: (issue: IssueViewModel, label: string) => void
   onClose: () => void
 }): JSX.Element {

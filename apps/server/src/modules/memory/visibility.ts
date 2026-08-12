@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf } from '@podium/model'
+import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf, type MachineId, type UserId, type IssueId } from '@podium/model'
 import { mayReadOwned } from '../../issue-authz'
 import type { IssueRow, SessionRow, SessionStore } from '../../store'
 import type { GrantRow } from '../../store/grants'
@@ -57,8 +57,8 @@ export const MEMORY_EXISTENCE_POLICY = {
 export type MemoryDocumentRef =
   | { class: 'session'; id: string }
   | { class: 'issue'; id: string }
-  | { class: 'conversation' | 'transcript'; machineId: string; nativeId: string }
-  | { class: 'superagent-thread'; id: string; ownerUserId: string }
+  | { class: 'conversation' | 'transcript'; machineId: MachineId; nativeId: string }
+  | { class: 'superagent-thread'; id: string; ownerUserId: UserId }
   | { class: 'setting'; id: string }
 
 type VisibilityRequest = {
@@ -72,7 +72,7 @@ type VisibilityRequest = {
   readonly grants: Map<string, string[]>
 }
 
-const nativeKey = (machineId: string, nativeId: string): string => `${machineId}\0${nativeId}`
+const nativeKey = (machineId: MachineId, nativeId: string): string => `${machineId}\0${nativeId}`
 
 const readGranteesFrom = (edges: readonly GrantRow[]): string[] =>
   edges
@@ -209,7 +209,7 @@ export class MemoryVisibilityPolicy {
     )
   }
 
-  private issueById(issueId: string): IssueRow | null {
+  private issueById(issueId: IssueId): IssueRow | null {
     if (!this.request) return this.store.issues.getIssue(issueId)
     if (!this.request.issues.has(issueId)) {
       this.request.issues.set(issueId, this.store.issues.getIssue(issueId))
@@ -217,7 +217,7 @@ export class MemoryVisibilityPolicy {
     return this.request.issues.get(issueId) ?? null
   }
 
-  private mayReadSessionRow(userId: string, row: SessionRow): boolean {
+  private mayReadSessionRow(userId: UserId, row: SessionRow): boolean {
     const issueId = row.issueId ?? undefined
     const owner = issueId
       ? (this.issueById(issueId)?.ownerUserId ?? row.ownerUserId)
@@ -233,7 +233,7 @@ export class MemoryVisibilityPolicy {
     })
   }
 
-  private mayReadNativeConversation(userId: string, machineId: string, nativeId: string): boolean {
+  private mayReadNativeConversation(userId: UserId, machineId: MachineId, nativeId: string): boolean {
     const siblings = this.store.conversations.registry.siblingSegments(machineId, nativeId)
     const evidence = siblings.length > 0 ? siblings : [{ machineId, nativeId }]
     const keys = new Set(evidence.map((segment) => nativeKey(segment.machineId, segment.nativeId)))

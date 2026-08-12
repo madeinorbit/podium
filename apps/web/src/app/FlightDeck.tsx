@@ -33,7 +33,7 @@ import {
   sessionSettled,
   treeGuides,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, SessionMeta } from '@podium/model'
+import type { AgentKind, SessionMeta, IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,
@@ -1923,7 +1923,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     return led
   }, [rows])
   const leadTone = useCallback(
-    (issueId: string | undefined): RailTone =>
+    (issueId: IssueId | undefined): RailTone =>
       issueId === undefined || !ledIssueIds.has(issueId)
         ? null
         : issueId === root?.id
@@ -2094,7 +2094,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * projection and the shared menu acts on the full view model.
    */
   const [issueMenu, setIssueMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null)
-  const openIssueMenu = useCallback((issueId: string, event: ReactMouseEvent): void => {
+  const openIssueMenu = useCallback((issueId: IssueId, event: ReactMouseEvent): void => {
     event.preventDefault()
     setIssueMenu({ id: issueId, anchor: { x: event.clientX, y: event.clientY } })
   }, [])
@@ -2105,7 +2105,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     void setIssueTucked(root.id, true)
   }
   const selectSession = (
-    issueId: string | null,
+    issueId: IssueId | null,
     session: SessionMeta,
     opts: { permanent: boolean; native?: boolean },
   ): void => {

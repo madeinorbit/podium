@@ -7,7 +7,7 @@
  * reconciliation seam for authoritative snapshots.
  */
 
-import { isLayoutKey, type LayoutSnapshot, layoutKeyFromLegacy } from '@podium/model'
+import { isLayoutKey, type LayoutSnapshot, layoutKeyFromLegacy, type MutationId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import type { StoreNotices } from './types'
@@ -29,7 +29,7 @@ interface TemporaryOperation {
  * the just-confirmed value with the older snapshot it was already carrying.
  */
 interface AcceptedLayoutValue {
-  readonly mutationId: string
+  readonly mutationId: MutationId
   readonly present: boolean
   readonly value?: unknown
   /** The command's covering read/feed has observed this value. Keep the hold

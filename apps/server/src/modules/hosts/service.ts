@@ -39,7 +39,7 @@ interface CountHibernateBudget {
  *  projection of Session so the service never touches the registry's map. */
 export interface HostSessionView {
   sessionId: SessionId
-  machineId: string
+  machineId: MachineId
   status: string
   /** Distinguishes shells (no observer, no resume) from harness agents. */
   agentKind: string
@@ -169,7 +169,7 @@ export class HostsService {
    *  off the payload meant a `?? '__local__'` fallback on all three of these methods,
    *  i.e. a scope that silently collapsed to a placeholder if the tag were ever
    *  dropped. Passing it down cannot. */
-  private maybeAutoHibernate(machineId: string, sample: HostMetricsWire): number | undefined {
+  private maybeAutoHibernate(machineId: MachineId, sample: HostMetricsWire): number | undefined {
     const cfg = this.deps.getSettings().hibernation
     if (!cfg.enabled) {
       this.lastCapUnmetByMachine.delete(machineId)
@@ -293,7 +293,7 @@ export class HostsService {
   }
 
   private applyCountPressure(
-    machineId: string,
+    machineId: MachineId,
     idleMinutes: number,
     targetCount: number,
     now: number,
@@ -348,7 +348,7 @@ export class HostsService {
    * (same one-park discipline as memory/load), oldest quiet first.
    */
   private applyShellIdlePressure(
-    machineId: string,
+    machineId: MachineId,
     idleShellMinutes: number,
     now: number,
     failed: Set<string>,
@@ -377,7 +377,7 @@ export class HostsService {
 
   /** Last-resort process bound: complete quiet authorizes parking without terminal proof. */
   private applyIdleBackstop(
-    machineId: string,
+    machineId: MachineId,
     backstopMinutes: number,
     now: number,
     failed: Set<string>,
@@ -440,7 +440,7 @@ export class HostsService {
    * POD-565.
    */
   private idleLiveSessions(
-    machineId: string,
+    machineId: MachineId,
     idleMinutes: number,
     now: number,
     idleShellMinutes: number | null,
@@ -464,7 +464,7 @@ export class HostsService {
   }
 
   private eligibleCandidates(
-    machineId: string,
+    machineId: MachineId,
     idleMinutes: number,
     now: number,
     excluded: ReadonlySet<string>,
@@ -558,7 +558,7 @@ export class HostsService {
     return timestamps.every(Number.isFinite) ? Math.max(...timestamps) : Number.POSITIVE_INFINITY
   }
 
-  private countBudgetFor(machineId: string, now: number): CountHibernateBudget {
+  private countBudgetFor(machineId: MachineId, now: number): CountHibernateBudget {
     let budget = this.countHibernateBudgetByMachine.get(machineId)
     if (!budget) {
       budget = { tokens: COUNT_HIBERNATE_BURST, lastRefillMs: now }
@@ -577,7 +577,7 @@ export class HostsService {
     return budget
   }
 
-  private reportCapUnmet(machineId: string, targetCount: number, overage: number): void {
+  private reportCapUnmet(machineId: MachineId, targetCount: number, overage: number): void {
     const signature = `${targetCount}:${overage}`
     if (this.lastCapUnmetByMachine.get(machineId) === signature) return
     this.lastCapUnmetByMachine.set(machineId, signature)
@@ -604,7 +604,7 @@ export class HostsService {
    * total would claim a cap pressure that is not being applied.
    */
   private reportUnobservedCounted(
-    machineId: string,
+    machineId: MachineId,
     idleMinutes: number,
     now: number,
     idleShellMinutes: number | null,
@@ -665,7 +665,7 @@ export class HostsService {
   /** Ask a daemon who owns the used memory. Resolves undefined when no daemon
    *  answers in time. `machineId` targets a specific machine (the one whose chip
    *  was clicked); omitted → the default online machine. */
-  memoryBreakdown(roots: string[], machineId?: string): Promise<MemoryBreakdown | undefined> {
+  memoryBreakdown(roots: string[], machineId?: MachineId): Promise<MemoryBreakdown | undefined> {
     return this.deps.daemonRequest.request({
       kind: MEMORY_BREAKDOWN,
       timeoutMs: MEMORY_BREAKDOWN_TIMEOUT_MS,
@@ -680,7 +680,7 @@ export class HostsService {
    *  other than the one it was sent to is dropped by the broker (POD-1175),
    *  which matters here because a breakdown IS that machine's process list. */
   onMemoryBreakdownResult(
-    machineId: string,
+    machineId: MachineId,
     msg: Extract<DaemonMessage, { type: 'memoryBreakdownResult' }>,
   ): void {
     const { type: _type, requestId: _requestId, ...breakdown } = msg

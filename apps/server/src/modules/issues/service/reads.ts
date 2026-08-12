@@ -628,7 +628,7 @@ export class IssueReportsModule {
    *  children + blockers; unbound = a ready-work lobby. Ends with prime-only
    *  rules — system-pointer policy is not restated. */
   prime(
-    opts: { repoPath?: string; boundIssueId?: string | null; sessionId?: string },
+    opts: { repoPath?: string; boundIssueId?: IssueId | null; sessionId?: string },
     mayRead: (id: string) => boolean = () => true,
   ): string {
     // Static tail: only what the always-on system pointer does NOT already carry.

@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
@@ -38,13 +39,13 @@ export interface ServerTransferTargetState {
 export interface ServerTransferDeps {
   stateRoot: string
   sourceInstanceId: string
-  sourceMachineId: string
+  sourceMachineId: MachineId
   sourceFeedIdentity: () => { feedId: string; feedEpoch: string }
   sourceApplicationVersion: string
   sourceSchemaVersion: () => string
   sourceWireSchemaDigest: string
   rpc: ServerTransferRpc
-  targetState(machineId: string): ServerTransferTargetState
+  targetState(machineId: MachineId): ServerTransferTargetState
   localPromotedTransfer():
     | PromotedTargetMetadata
     | undefined
@@ -57,7 +58,7 @@ export interface ServerTransferDeps {
   /** Persist daemon mode/config without exiting the source process. */
   demoteSource(input: {
     transferId: string
-    targetMachineId: string
+    targetMachineId: MachineId
     publicUrl: string
   }): void | Promise<void>
   /** Called only after the committed journal has been fsync'd. */
@@ -91,7 +92,7 @@ function classified(
 function proofMatches(
   proof: TransferProof | undefined,
   manifest: ServerTransferManifest,
-  targetMachineId: string,
+  targetMachineId: MachineId,
 ): proof is TransferProof {
   return (
     proof !== undefined &&
@@ -108,7 +109,7 @@ function proofMatches(
 function healthProofMatches(
   proof: TargetHealthProof | undefined,
   manifest: ServerTransferManifest,
-  targetMachineId: string,
+  targetMachineId: MachineId,
   publicUrl: string,
 ): proof is TargetHealthProof {
   return (
@@ -143,7 +144,7 @@ function normalizedPublicUrl(input: ServerTransferInput): string {
 async function uploadSnapshot(
   packageDir: string,
   manifest: ServerTransferManifest,
-  targetMachineId: string,
+  targetMachineId: MachineId,
   rpc: ServerTransferRpc,
   onProgress: (bytesCopied: number, totalBytes: number) => void,
 ): Promise<void> {
@@ -512,7 +513,7 @@ export class ServerTransferService {
   private async stage(
     manifest: ServerTransferManifest,
     packageDir: string,
-    targetMachineId: string,
+    targetMachineId: MachineId,
     onProgress: (bytesCopied: number, totalBytes: number) => void,
   ): Promise<void> {
     const result = await this.deps.rpc.serverTransferPrepare(
@@ -549,7 +550,7 @@ export class ServerTransferService {
 
   private async validate(
     manifest: ServerTransferManifest,
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<TransferProof> {
     const result = await this.deps.rpc.serverTransferValidate(
       { transferId: manifest.transferId, manifestDigest: manifest.digest },
@@ -570,7 +571,7 @@ export class ServerTransferService {
 
   private async acknowledgePromoted(
     manifest: ServerTransferManifest,
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<{ result: 'pending'; detail: string } | undefined> {
     try {
       const result = await this.deps.rpc.serverTransferAcknowledge(
@@ -612,7 +613,7 @@ export class ServerTransferService {
 
   private async abortPrepared(
     prepared: { transferId: string; manifestDigest: string },
-    targetMachineId: string,
+    targetMachineId: MachineId,
     reason: string,
   ): Promise<void> {
     const result = await this.deps.rpc.serverTransferAbort(
@@ -651,7 +652,7 @@ export class ServerTransferService {
     await assertSnapshotCapacity(this.deps.stateRoot, portableBytes, available)
   }
 
-  private assertTarget(targetMachineId: string): void {
+  private assertTarget(targetMachineId: MachineId): void {
     if (targetMachineId === this.deps.sourceMachineId) {
       throw fail(TRANSFER_FAILURE_CODES.TARGET_IS_SOURCE, 'target machine is the current server')
     }

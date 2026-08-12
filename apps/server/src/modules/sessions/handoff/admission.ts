@@ -27,7 +27,7 @@
  * refusals be reported as a rejected promise with nothing to unwind.
  */
 
-import type { SessionId } from '@podium/model'
+import type { SessionId, MachineId } from '@podium/model'
 import { harnessSupportsHandoff } from '../../../harness-manifest'
 import {
   type AssertMachineUse,
@@ -39,7 +39,7 @@ import {
 } from './ports'
 
 interface InFlight {
-  readonly machineId: string
+  readonly machineId: MachineId
   readonly promise: Promise<HandoffResult>
 }
 

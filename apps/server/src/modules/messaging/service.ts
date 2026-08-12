@@ -57,7 +57,7 @@ export interface SuperagentTurnPort {
 /** Persisted forum-topic ↔ superagent-thread bindings. */
 export interface MessagingTopicsPort {
   listForChat(chatId: string): MessagingIssueTopicRow[]
-  getByIssue(chatId: string, issueId: string): MessagingIssueTopicRow | undefined
+  getByIssue(chatId: string, issueId: IssueId): MessagingIssueTopicRow | undefined
   getByThreadRef(chatId: string, threadRef: string): MessagingIssueTopicRow | undefined
   upsert(row: MessagingIssueTopicRow): void
 }
@@ -730,7 +730,7 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   private persistTopicBinding(
-    issueId: string,
+    issueId: IssueId,
     chatId: string,
     threadRef: string,
     superagentThreadId: string,
