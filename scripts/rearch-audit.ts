@@ -45,6 +45,7 @@ import {
   rawStringEntityIds,
   unbrandedByDecisionFields,
   unbrandedDbColumns,
+  unbrandedTsIdMembers,
 } from './entity-id-audit'
 import {
   capabilitySnapshots,
@@ -1709,6 +1710,24 @@ export const CHECKS: AuditCheck[] = [
     collect: (ctx) => unbrandedDbColumns(ctx),
   },
   {
+    // ADDED at POD-1937. The detector has printed `ts-string` since POD-301,
+    // but no baseline key held it, so the class drifted from 725 sites at that
+    // issue's close to 1,229 here. Unlike drizzle's old single-form classifier,
+    // this class is already drivable: writing `SessionId` changes the RHS from
+    // `ts-string` to `other`. The planted test proves both halves of that flip.
+    //
+    // Not folded into either zod or drizzle: this is a third mechanism with
+    // real call-site fallout, and progress on either easier class must not mask
+    // it. The detector's established population excludes test and captured-
+    // fixture files but includes production characterization/support doubles;
+    // provider-native ids use the existing counted `UNBRANDED` hatch.
+    id: 'unbranded-ts-id-members',
+    title: 'TypeScript entity-id member still declared as a bare string',
+    phase: 'POD-1937',
+    unit: 'one TypeScript member whose key names a branded entity id and whose declared type is string',
+    collect: (ctx) => unbrandedTsIdMembers(ctx),
+  },
+  {
     // The escape hatch, counted so it cannot be used quietly. Without this key
     // the item above is zeroable by writing the word UNBRANDED above every
     // field. With it, an excuse RAISES a committed number and the audit fails
@@ -1717,7 +1736,7 @@ export const CHECKS: AuditCheck[] = [
     id: 'unbranded-by-decision-ids',
     title: 'Entity id fields excused from branding by an UNBRANDED doc comment',
     phase: 'POD-301',
-    unit: 'one zod or drizzle entity-id field carrying the UNBRANDED excuse marker',
+    unit: 'one zod, drizzle, or TypeScript id field carrying the UNBRANDED excuse marker',
     collect: (ctx) => unbrandedByDecisionFields(ctx),
   },
 ]

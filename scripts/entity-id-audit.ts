@@ -884,6 +884,27 @@ export function unbrandedDbColumns(ctx: AuditContext): AuditSite[] {
 }
 
 /**
+ * POD-1937's item: a hand-written TypeScript member whose key names a branded
+ * entity id but whose declared type is still a bare `string`.
+ *
+ * This form was already reported by the CLI, but no baseline key held it. It
+ * does not need the extra raw/branded split drizzle needed: `classifyRhs`
+ * classifies `sessionId: string` as `ts-string`, while `sessionId: SessionId`
+ * is `other`, so writing the brand makes the count move and the ratchet can
+ * reach zero.
+ *
+ * The scanner's long-standing population excludes test and captured-fixture
+ * files; production characterization/support doubles remain visible. The
+ * counted `UNBRANDED` hatch is available for provider- or harness-native ids
+ * whose names are entity-shaped but which must not enter Podium's id space.
+ */
+export function unbrandedTsIdMembers(ctx: AuditContext): AuditSite[] {
+  return sitesOnce(ctx)
+    .filter((s) => s.form === 'ts-string' && !s.excused)
+    .map(site)
+}
+
+/**
  * The escape hatch, counted. An id field excused by an `UNBRANDED` doc
  * comment — harness-native ids, external correlation ids, and the four sites
  * POD-423 checked individually and upheld.
@@ -902,7 +923,10 @@ export function unbrandedDbColumns(ctx: AuditContext): AuditSite[] {
  */
 export function unbrandedByDecisionFields(ctx: AuditContext): AuditSite[] {
   return sitesOnce(ctx)
-    .filter((s) => (s.form === 'zod-string' || s.form === 'db-column') && s.excused)
+    .filter(
+      (s) =>
+        (s.form === 'zod-string' || s.form === 'db-column' || s.form === 'ts-string') && s.excused,
+    )
     .map(site)
 }
 
@@ -914,9 +938,9 @@ export function unbrandedByDecisionFields(ctx: AuditContext): AuditSite[] {
  * `bun scripts/entity-id-audit.ts [--sites] [--form <form>]`
  *
  * The ratchet lives in `rearch-audit.ts`; this prints the WHOLE classified
- * population, including the drizzle-column and TS-member classes that are
- * deliberately not in a baseline key (Limit 1). Without a way to see them, "not
- * counted" would read as "not there".
+ * population, including discharged forms and the wider classes that are not in
+ * a baseline key. Without a way to see them, "not counted" would read as "not
+ * there".
  */
 if (import.meta.main) {
   const { loadContext } = await import('./rearch-audit')
@@ -928,7 +952,7 @@ if (import.meta.main) {
   console.log(`entity-id field positions: ${sites.length} (floor ${MIN_ID_FIELD_SITES})`)
   for (const [form, n] of [...byForm].sort((a, b) => b[1] - a[1])) console.log(`  ${form}: ${n}`)
   console.log(
-    `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && s.form === 'zod-string' && !s.excused).length} column=${sites.filter((s) => s.form === 'db-column' && !s.excused).length} excused=${sites.filter((s) => (s.form === 'zod-string' || s.form === 'db-column') && s.excused).length}`,
+    `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && s.form === 'zod-string' && !s.excused).length} column=${sites.filter((s) => s.form === 'db-column' && !s.excused).length} ts=${sites.filter((s) => s.form === 'ts-string' && !s.excused).length} excused=${sites.filter((s) => (s.form === 'zod-string' || s.form === 'db-column' || s.form === 'ts-string') && s.excused).length}`,
   )
   if (argv.includes('--unreachable')) {
     const wider = idFieldsWithNoBrandVocabulary(loadContext(REPO_ROOT))

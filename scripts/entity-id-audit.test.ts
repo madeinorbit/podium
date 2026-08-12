@@ -42,6 +42,7 @@ import {
   rawStringEntityIds,
   unbrandedByDecisionFields,
   unbrandedDbColumns,
+  unbrandedTsIdMembers,
 } from './entity-id-audit'
 import type { AuditContext } from './rearch-audit'
 import { loadContext, stripComments } from './rearch-audit'
@@ -187,6 +188,12 @@ describe('classifyRhs', () => {
   it('names the other two forms', () => {
     expect(classifyRhs('text("session_id").notNull()')).toBe('db-column')
     expect(classifyRhs('string')).toBe('ts-string')
+  })
+
+  it('moves a branded TypeScript member out of the raw form', () => {
+    expect(classifyRhs('string | null')).toBe('ts-string')
+    expect(classifyRhs('SessionId')).toBe('other')
+    expect(classifyRhs('SessionId | null')).toBe('other')
   })
 
   it('separates a branded drizzle column from a raw one', () => {
@@ -544,6 +551,54 @@ describe('the unbranded-db-columns item', () => {
     )
     expect(unbrandedDbColumns(ctxOf(excused))).toHaveLength(0)
     expect(unbrandedByDecisionFields(ctxOf(excused))).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-1937 — the hand-written TypeScript-member item
+// ---------------------------------------------------------------------------
+
+describe('the unbranded-ts-id-members item', () => {
+  it('FIRES on a raw member and goes quiet once it carries the brand', () => {
+    expect(
+      unbrandedTsIdMembers(ctxOf(`${SCAFFOLD}export interface A { sessionId: string }`)),
+    ).toHaveLength(1)
+    expect(
+      unbrandedTsIdMembers(ctxOf(`${SCAFFOLD}export interface A { sessionId: SessionId }`)),
+    ).toHaveLength(0)
+  })
+
+  it('includes production characterization doubles', () => {
+    const source = `${SCAFFOLD}export interface FakeSession { sessionId: string }`
+    expect(
+      unbrandedTsIdMembers(
+        ctxOf(source, 'apps/server/src/modules/messages/characterization-support.ts'),
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('preserves the detector population exclusion for test files', () => {
+    const source = `${SCAFFOLD}export interface FakeSession { sessionId: string }`
+    const ctx = ctxOf(source, 'apps/server/src/service.test.ts')
+    ctx.files[0]!.isTest = true
+    expect(unbrandedTsIdMembers(ctx)).toHaveLength(0)
+  })
+
+  it('counts a raw TypeScript member in neither zod nor drizzle items', () => {
+    const ctx = ctxOf(`${SCAFFOLD}export interface A { machineId: string }`)
+    expect(unbrandedTsIdMembers(ctx)).toHaveLength(1)
+    expect(rawStringEntityIds(ctx)).toHaveLength(0)
+    expect(machineIdUnbrandedFields(ctx)).toHaveLength(0)
+    expect(unbrandedDbColumns(ctx)).toHaveLength(0)
+  })
+
+  it('moves a foreign native id to the counted exception key', () => {
+    const source = `${SCAFFOLD}export interface A {
+      /** UNBRANDED: provider-native, not a Podium SessionId. */
+      providerSessionId: string
+    }`
+    expect(unbrandedTsIdMembers(ctxOf(source))).toHaveLength(0)
+    expect(unbrandedByDecisionFields(ctxOf(source))).toHaveLength(1)
   })
 })
 
