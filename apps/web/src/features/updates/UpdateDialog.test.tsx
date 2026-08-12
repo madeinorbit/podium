@@ -40,15 +40,19 @@ describe('UpdateDialog', () => {
     expect(screen.queryByTestId('update-dialog')).toBeNull()
   })
 
-  it('is NOT dismissible when required', () => {
+  it('lets the operator hide a required compatibility update', () => {
+    const onDismiss = vi.fn()
     render(
       <UpdateDialog
         view={{ ...available, state: 'required', reason: 'Your server is behind this app.' }}
         actions={{}}
+        onDismiss={onDismiss}
       />,
     )
     expect(screen.queryByRole('button', { name: /later/i })).toBeNull()
-    expect(screen.getByTestId('update-dialog').getAttribute('aria-modal')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    expect(onDismiss).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('update-dialog')).toBeNull()
   })
 
   it('stays in one panel while the phase changes', () => {

@@ -329,7 +329,8 @@ export class UpdatesService {
 
   /** Wave-machine projection used by the fleet read model and the planner. */
   fleet(): WaveMachine[] {
-    return this.deps.machines().map((machine) => {
+    const channelsReadyToContinue = new Set<UpdateChannel>()
+    const fleet: WaveMachine[] = this.deps.machines().map((machine) => {
       const channel = this.channelOf(machine)
       const targetVersion = this.target(channel)?.version
       const state = this.machineStates.get(machine.id)
@@ -338,7 +339,11 @@ export class UpdatesService {
       // reports the selected authority's target, that durable fact wins over a
       // stale in-memory grant from before a restart or channel switch.
       if (targetVersion !== undefined && machine.version === targetVersion) {
-        if (currentState) this.rollout(channel).canaryHealthy = true
+        if (currentState) {
+          const rollout = this.rollout(channel)
+          rollout.canaryHealthy = true
+          if (rollout.authorized) channelsReadyToContinue.add(channel)
+        }
         this.machineStates.delete(machine.id)
         this.pendingGrants.delete(machine.id)
         return { ...machine, state: 'current', version: machine.version }
@@ -364,6 +369,16 @@ export class UpdatesService {
         ...(currentState.detail ? { detail: currentState.detail } : {}),
       }
     })
+
+    // An installed daemon normally proves its new build by reconnecting. That
+    // refreshes the machine directory before an updateStatus message is
+    // guaranteed to arrive. The directory proof already made the canary
+    // healthy above; continue the authorized wave here as well, otherwise the
+    // UI reaches "1 of N" and waits for a second Apply that should never be
+    // necessary. Run only after the projection is complete so tick() can read
+    // fleet() again without re-entering this transition.
+    for (const channel of channelsReadyToContinue) this.tick(channel)
+    return fleet
   }
 
   /**

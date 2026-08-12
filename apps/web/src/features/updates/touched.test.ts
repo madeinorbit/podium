@@ -49,6 +49,17 @@ describe('computeTouched', () => {
     expect(t.app).toBe(false)
   })
 
+  it('touches the browser app when a source dev redeploy rebuilds it with the server', () => {
+    const t = computeTouched({
+      localDigests: { app: 'web-old' },
+      target: { version: 'dev+abc1234', critical: false, artifacts: {} } as never,
+      fleetBehind: 2,
+      serverBehind: true,
+      sourceAppFollowsServer: true,
+    })
+    expect(t.app).toBe(true)
+  })
+
   it('touches machines only when some machine is behind', () => {
     expect(
       computeTouched({

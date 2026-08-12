@@ -112,6 +112,79 @@ test('machine-only update starts from the shared action', async ({ page }) => {
   expect(convergeCalls).toBe(1)
 })
 
+test('development update names the browser with its source server', async ({ page }) => {
+  const devTarget = { version: 'dev+abc1234', critical: false, artifacts: {} }
+  await page.route('**/version', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ appVersion: 'dev+old1234', target: devTarget }),
+    })
+  })
+  await page.route('**/trpc/updates.fleet*', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify([{
+        result: {
+          data: {
+            total: 2,
+            behind: 2,
+            converging: 0,
+            failed: 0,
+            targetVersion: devTarget.version,
+            machines: [
+              { id: 'flatblock', name: 'flatblock', version: 'dev+old1234', state: 'current', online: true, busy: false },
+              { id: 'ludovico', name: 'ludovico', version: 'dev+old1234', state: 'current', online: true, busy: false },
+            ],
+          },
+        },
+      }]),
+    })
+  })
+
+  await page.goto(`/?server=&e2e=1`)
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 45_000,
+  })
+
+  const dialog = page.getByTestId('update-dialog')
+  await expect(dialog).toContainText('This app and your server', { timeout: 30_000 })
+  await expect(dialog).toContainText('this page will need to reload')
+  await expect(dialog).toContainText('flatblock, ludovico')
+})
+
+test('required compatibility update can be hidden', async ({ page }) => {
+  await page.route('**/version', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        appVersion: 'dev+old1234',
+        wireSchemaDigest: 'different',
+        target: { version: 'dev+abc1234', critical: false, artifacts: {} },
+      }),
+    })
+  })
+  await page.route('**/trpc/updates.fleet*', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify([{
+        result: {
+          data: { total: 0, behind: 0, converging: 0, failed: 0, targetVersion: 'dev+abc1234', machines: [] },
+        },
+      }]),
+    })
+  })
+
+  await page.goto(`/?server=&e2e=1`)
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 45_000,
+  })
+
+  const dialog = page.getByTestId('update-dialog')
+  await expect(dialog).toContainText('Podium dev+abc1234 is required', { timeout: 30_000 })
+  await dialog.getByRole('button', { name: 'Hide' }).click()
+  await expect(dialog).toHaveCount(0)
+})
+
 test('failed update explains recovery, dismisses, and retries', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('podium.panelModeDefault', 'native'))
   await page.route('**/version', async (route) => {

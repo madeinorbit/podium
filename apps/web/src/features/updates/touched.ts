@@ -5,6 +5,8 @@ export interface TouchedContext {
   target: UpdateTarget
   fleetBehind: number
   serverBehind: boolean
+  /** A source-host dev redeploy rebuilds the browser bundle with the server. */
+  sourceAppFollowsServer?: boolean
 }
 
 export interface TouchedPlaces {
@@ -22,7 +24,9 @@ export interface TouchedPlaces {
 export function computeTouched(ctx: TouchedContext): TouchedPlaces {
   const targetDigest = ctx.target.artifacts.web?.digest
   return {
-    app: targetDigest !== undefined && ctx.localDigests.app !== targetDigest,
+    app:
+      (targetDigest !== undefined && ctx.localDigests.app !== targetDigest) ||
+      (ctx.sourceAppFollowsServer === true && ctx.serverBehind),
     server: ctx.serverBehind,
     machines: ctx.fleetBehind > 0,
   }

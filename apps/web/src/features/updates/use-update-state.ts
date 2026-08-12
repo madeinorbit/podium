@@ -278,6 +278,8 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         target,
         fleetBehind: machinesBehind,
         serverBehind,
+        sourceAppFollowsServer:
+          (surface === 'web' || surface === 'mobile') && target.version.startsWith('dev+'),
       })
     : { app: false, server: serverBehind, machines: machinesBehind > 0 }
   if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true

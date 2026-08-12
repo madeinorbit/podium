@@ -38,7 +38,6 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
 
   if (view.state === 'none' || dismissed) return null
 
-  const canClose = view.state === 'available' || view.state === 'failed'
   const dismiss = () => {
     onDismiss?.()
     setDismissed(true)
@@ -123,11 +122,9 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
-            {canClose ? (
-              <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
-                Later
-              </Button>
-            ) : null}
+            <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
+              {view.state === 'required' ? 'Hide' : 'Later'}
+            </Button>
             <div className="flex flex-wrap justify-end gap-2">
               {actions.reload && appTouched && (
                 <Button

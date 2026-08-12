@@ -85,6 +85,17 @@ export function convergeViaGit(
   if (clean.status !== 0) return failed('status-failed')
   if (clean.stdout.length > 0) return failed('dirty-working-tree')
 
+  // The coordinating source host commonly has already moved its clean main
+  // checkout to the target while its still-running server reports the previous
+  // boot identity. In that case there is nothing to deliver. Checking out the
+  // same SHA with --detach needlessly abandons main, which prevents the next
+  // pull from moving HEAD and therefore prevents the next dev update from ever
+  // being published.
+  const current = deps.run('git', ['-C', artifact.repo, 'rev-parse', 'HEAD'])
+  if (current.status === GIT_TIMED_OUT_STATUS) return failed('timed-out')
+  if (current.status !== 0) return failed('status-failed')
+  if (current.stdout.trim().startsWith(artifact.sha)) return { ok: true }
+
   const fetched = deps.run('git', ['-C', artifact.repo, 'fetch', '--all', '--prune'])
   if (fetched.status === GIT_TIMED_OUT_STATUS) return failed('timed-out')
   if (fetched.status !== 0) return failed('fetch-failed')
