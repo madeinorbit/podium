@@ -210,6 +210,12 @@ export default defineConfig(({ mode }) => {
     // Use it on a local build, never on one you hand to someone else.
     //
     // A development build always links them — see `isDevBuild` above.
+    //
+    // `vite build` EMPTIES dist, so each build deletes the map the last crash report
+    // needs. The `build` script therefore copies every emitted map into a retained
+    // store (apps/web/.sourcemaps, last 10 builds, POD-1957) right after this runs —
+    // scripts/archive-web-sourcemaps.ts. That step only ever reads dist, so nothing
+    // here changes, nothing new is served, and the maps stay `hidden`.
     build: {
       sourcemap: isDevBuild || process.env.PODIUM_SOURCEMAP === 'linked' ? true : 'hidden',
       ...(isDevBuild ? { minify: false as const } : {}),

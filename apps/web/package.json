@@ -56,9 +56,9 @@
     "tailwind-merge": "^3.6.0"
   },
   "scripts": {
-    "build": "vite build && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/precompress-dist.ts dist",
+    "build": "vite build && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist",
     "//build:dev": "Same artefact layout as `build`, but unminified, with linked source maps and React's DEVELOPMENT build — so a crash on a locally-served bundle reports the real error sentence and real component names instead of `Minified React error #185` (POD-1954). Slower and much larger; never what you hand to someone else.",
-    "build:dev": "vite build --mode development && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/precompress-dist.ts dist",
+    "build:dev": "vite build --mode development && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist",
     "dev": "vite --host 0.0.0.0",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsgo --noEmit",

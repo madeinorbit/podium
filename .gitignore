@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# Retained source maps for the last 10 web builds (POD-1957) — build output that
+# deliberately outlives `dist`, so a crash report stays resolvable across rebuilds.
+.sourcemaps/
 coverage/
 *.tsbuildinfo
 *.log
