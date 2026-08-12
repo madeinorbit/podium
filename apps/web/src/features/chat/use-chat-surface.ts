@@ -27,10 +27,9 @@ import {
   visibleOffer,
 } from '@podium/client-core/viewmodels'
 import { isAgentComputing, type SessionId, type SessionMeta } from '@podium/model'
-import { useVoiceInput } from '@podium/terminal-client-react'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useChatVerbosityPreference } from '@/lib/chat-verbosity'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
@@ -47,8 +46,8 @@ import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
  *
  * Three inputs meet here and nowhere else:
  *
- *  - the STORE (sessions, drafts, the actions seam, the principal's superagent
- *    threads), read through one selector;
+ *  - the STORE (the addressed session, actions seam, and the principal's
+ *    superagent threads), read through keyed/scalar selectors;
  *  - the TRANSCRIPT WINDOW (`useTranscriptWindow`: the disk read, the live tail,
  *    back-paging and the bounded render window);
  *  - the CHAT SLICE (`@podium/client-core/viewmodels`), which answers every
@@ -122,14 +121,12 @@ export interface ChatSurface {
   deepeningSearch: boolean
 
   // -- composing and sending -------------------------------------------------
-  draft: string
   setDraft: (text: string) => void
   composer: ComposerState
   attachments: UseAttachmentsResult
-  voice: ReturnType<typeof useVoiceInput>
   isMobile: boolean
   taRef: RefObject<HTMLTextAreaElement | null>
-  submit: () => void
+  submitDraft: (draft: string) => void
   pending: readonly PendingItem[]
   restoredQueued: readonly QueuedChatMessage[]
   queuedTotal: number
@@ -145,7 +142,7 @@ export interface ChatSurface {
   // -- headless superagent routing -------------------------------------------
   headlessTurn: UseHeadlessTurnResult
   canInterrupt: boolean
-  interrupt: () => void
+  interrupt: (draft: string) => void
   /** The thread's harness + model + effort, for the prompt box's pickers
    *  (POD-782). `agentKind` undefined = Auto (follow Settings). */
   backend: { agentKind: string | undefined; model: string; effort: string }
@@ -171,8 +168,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     hub,
     trpc,
     replica,
-    sessions,
-    drafts,
     setSessionDraft,
     resumeAndSend,
     setPanelMode,
@@ -187,8 +182,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       hub: s.hub,
       trpc: s.trpc,
       replica: s.replica,
-      sessions: s.sessions,
-      drafts: s.drafts,
       setSessionDraft: s.setSessionDraft,
       resumeAndSend: s.resumeAndSend,
       setPanelMode: s.setPanelMode,
@@ -201,6 +194,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     }),
     shallowEqual,
   )
+  const session = useSession(sessionId)
+  const sessionExitKind = useSessionExitKind(sessionId)
 
   // The chat's referent, resolved over a PARTIAL world. `exitKind` is optional
   // on the replica CONTRACT (POD-1510) — test fakes and the legacy TanStack
@@ -209,10 +204,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // this used to carry is gone: the contract declares the method now, so the
   // optional call is checked rather than asserted.
   const reference = useMemo(
-    () => chatSessionReference(sessionId, sessions, (id) => replica?.exitKind?.('session', id)),
-    [sessionId, sessions, replica],
+    () => chatSessionReference(sessionId, session ? [session] : [], () => sessionExitKind),
+    [sessionId, session, sessionExitKind],
   )
-  const session = reference.value
   const cwd = session?.cwd ?? '/'
   const headless = session?.headless === true
 
@@ -464,14 +458,12 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // Draft: read from the store, written through the actions seam (POD-402) —
   // one call, no merge. See ChatComposer's header for the classification and why
   // this stays a single action rather than becoming view-side reconciliation.
-  const draft = drafts[sessionId] ?? ''
   const setDraft = useCallback(
     (text: string) => setSessionDraft(sessionId, text),
     [setSessionDraft, sessionId],
   )
-  const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
 
-  const submit = useCallback(() => {
+  const submitDraft = useCallback((draft: string) => {
     const text = draft.trim()
     const { paths, tags } = attachments.ready()
     if (!text && paths.length === 0) return
@@ -484,12 +476,12 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       tags.length > 0 ? tags : undefined,
       paths.length > 0 ? paths : undefined,
     )
-  }, [draft, attachments, setDraft, send])
+  }, [attachments, setDraft, send])
 
   const canInterrupt = headless
     ? superThread !== undefined && headlessTurn.turnRunning
     : (session !== undefined && isAgentComputing(session)) || send.justSent
-  const interrupt = useCallback(() => {
+  const interrupt = useCallback((draft: string) => {
     if (!canInterrupt) return
     // The keyboard chord is accepted only from an empty field. Keep that same
     // safety here so the stop button never overwrites a reply already in flight.
@@ -503,7 +495,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       return
     }
     void trpc.sessions.interrupt.mutate({ sessionId }).catch(() => {})
-  }, [canInterrupt, draft, headless, headlessTurn, latestOperatorPrompt, sessionId, setDraft, trpc])
+  }, [canInterrupt, headless, headlessTurn, latestOperatorPrompt, sessionId, setDraft, trpc])
 
   // Answer a live AskUserQuestion from its chat card: option digits, free text
   // via the native Other entry, or skip (Esc). The server types the matching
@@ -608,14 +600,12 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     moveMatchCursor,
     deepeningSearch,
 
-    draft,
     setDraft,
     composer,
     attachments,
-    voice,
     isMobile,
     taRef,
-    submit,
+    submitDraft,
     pending: send.pending,
     restoredQueued: queued.restored,
     queuedTotal: queued.total,

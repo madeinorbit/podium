@@ -1,7 +1,8 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { asSessionId } from '@podium/model'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSession, useStoreSelector } from '@/app/store'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,25 +19,29 @@ import { conciergeThreadId, resolveConciergeRepo } from './concierge'
  * genuinely ambiguous the button becomes a minimal repo picker.
  */
 export function ConciergeButton(): JSX.Element {
-  const { repos, sessions, selectedWorktree, paneA, setSuperThreadId, setSuperOpen } =
-    useStoreSelector(
-      (s) => ({
-        repos: s.repos,
-        sessions: s.sessions,
-        selectedWorktree: s.selectedWorktree,
-        paneA: s.paneA,
-        setSuperThreadId: s.setSuperThreadId,
-        setSuperOpen: s.setSuperOpen,
-      }),
-      shallowEqual,
-    )
+  const { repos, selectedWorktree, paneA, setSuperThreadId, setSuperOpen } = useStoreSelector(
+    (s) => ({
+      repos: s.repos,
+      selectedWorktree: s.selectedWorktree,
+      paneA: s.paneA,
+      setSuperThreadId: s.setSuperThreadId,
+      setSuperOpen: s.setSuperOpen,
+    }),
+    shallowEqual,
+  )
+  const focusedSession = useSession(paneA ? asSessionId(paneA) : undefined)
 
   const open = (repoPath: string) => {
     setSuperThreadId(conciergeThreadId(repoPath))
     setSuperOpen(true)
   }
 
-  const resolution = resolveConciergeRepo({ repos, selectedWorktree, sessions, paneA })
+  const resolution = resolveConciergeRepo({
+    repos,
+    selectedWorktree,
+    sessions: focusedSession ? [focusedSession] : [],
+    paneA,
+  })
 
   const button = (
     <button

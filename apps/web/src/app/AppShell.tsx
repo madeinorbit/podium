@@ -222,7 +222,7 @@ function AppBody(): JSX.Element {
   }, [view])
   const closeOverlay = (): void => setView(baseView)
   const workspaceActive = baseView === 'workspace'
-  const sessions = useStoreSelector((s) => s.sessions)
+  const hasSessions = useStoreSelector((s) => s.sessions.length > 0)
   const [dismissed, setDismissed] = useState(false)
   // SUBSCRIBED, not seeded — the same bug as the two below, on the worklist
   // column (POD-540 handoff patch 1c). `sidebar.collapsed` is per-user
@@ -435,7 +435,7 @@ function AppBody(): JSX.Element {
       </>
     )
   }
-  if (repos.length === 0 && sessions.length === 0 && !dismissed) {
+  if (repos.length === 0 && !hasSessions && !dismissed) {
     return (
       <>
         {menuHost}

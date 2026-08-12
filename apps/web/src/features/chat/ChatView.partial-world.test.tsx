@@ -94,6 +94,10 @@ vi.mock('@/app/store', () => {
   return {
     useStore,
     useReplicaIssues: () => [],
+    useSession: (id: string | undefined) =>
+      storeSessions.find((session) => session.sessionId === id),
+    useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (storeDrafts[id] ?? '')),
+    useSessionExitKind: (id: string | undefined) => (id === undefined ? undefined : exits[id]),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })

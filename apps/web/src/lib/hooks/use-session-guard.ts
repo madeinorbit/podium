@@ -16,25 +16,39 @@ import { useConfirm } from './use-confirm'
  * `isSessionWorking` (green-dot semantics) and the popup is the app-wide
  * `useConfirm` dialog.
  */
-export function useSessionGuard(): {
+export function useSessionGuard(scopedSessionId?: SessionId): {
   /** Close (kill) a session, prompting first if it's still working. */
   guardedKill: (sessionId: SessionId) => Promise<void>
   /** Archive/unarchive a session, prompting first only when archiving a
    *  working session (unarchive is never destructive). */
   guardedArchive: (sessionId: SessionId, archived: boolean) => Promise<void>
 } {
-  const { sessions, killSession, archiveSession } = useStoreSelector(
-    (s) => ({ sessions: s.sessions, killSession: s.killSession, archiveSession: s.archiveSession }),
+  const { scopedWorking, sessions, killSession, archiveSession } = useStoreSelector(
+    (s) => ({
+      scopedWorking:
+        scopedSessionId === undefined
+          ? undefined
+          : (() => {
+              const session = s.sessions.find(
+                (candidate) => candidate.sessionId === scopedSessionId,
+              )
+              return session ? isSessionWorking(session) : false
+            })(),
+      sessions: scopedSessionId === undefined ? s.sessions : undefined,
+      killSession: s.killSession,
+      archiveSession: s.archiveSession,
+    }),
     shallowEqual,
   )
   const confirm = useConfirm()
 
   const isWorking = useCallback(
     (sessionId: SessionId): boolean => {
-      const session = sessions.find((s) => s.sessionId === sessionId)
+      if (sessionId === scopedSessionId) return scopedWorking ?? false
+      const session = sessions?.find((s) => s.sessionId === sessionId)
       return session ? isSessionWorking(session) : false
     },
-    [sessions],
+    [scopedSessionId, scopedWorking, sessions],
   )
 
   const guardedKill = useCallback(

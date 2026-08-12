@@ -1,11 +1,12 @@
 import { asThreadId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { superagentSlice } from '@podium/client-core/viewmodels'
+import { asSessionId } from '@podium/model'
 import { Eraser, SquareTerminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { DockHeaderActions } from '@/app/DockHeaderSlot'
-import { useSlice, useStoreSelector } from '@/app/store'
+import { useSession, useSlice, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { ChatView } from '@/features/chat/ChatView'
 import { useIssueEvents } from './useIssueEvents'
@@ -78,7 +79,6 @@ export function SuperagentView(): JSX.Element {
   const {
     hub,
     trpc,
-    sessions,
     refreshSuperThreads,
     setPane,
     setSelectedWorktree,
@@ -89,7 +89,6 @@ export function SuperagentView(): JSX.Element {
     (s) => ({
       hub: s.hub,
       trpc: s.trpc,
-      sessions: s.sessions,
       refreshSuperThreads: s.refreshSuperThreads,
       setPane: s.setPane,
       setSelectedWorktree: s.setSelectedWorktree,
@@ -150,9 +149,10 @@ export function SuperagentView(): JSX.Element {
   // "Open in terminal": focus the PTY session once its row lands in the
   // sessions broadcast (a fresh resume may beat the broadcast by a beat).
   const [focusSessionId, setFocusSessionId] = useState<string | null>(null)
+  const focusSession = useSession(focusSessionId ? asSessionId(focusSessionId) : undefined)
   useEffect(() => {
     if (!focusSessionId) return
-    const s = sessions.find((x) => x.sessionId === focusSessionId)
+    const s = focusSession
     if (!s) return
     setFocusSessionId(null)
     // Clear the issue selection first: an issue workspace scopes its tab strip to
@@ -162,7 +162,7 @@ export function SuperagentView(): JSX.Element {
     setSelectedWorktree(s.cwd)
     setPane('A', s.sessionId)
     setView('workspace')
-  }, [focusSessionId, sessions, setSelectedWorktree, setSelectedIssueId, setPane, setView])
+  }, [focusSessionId, focusSession, setSelectedWorktree, setSelectedIssueId, setPane, setView])
 
   const openInTerminal = async () => {
     setError(null)

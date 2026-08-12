@@ -111,12 +111,16 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     drafts: storeDrafts,
     panelMode: storePanelMode,
+    issues: [],
     ...stableStoreFns,
   })
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
     useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
+    useSession: (id: string | undefined) =>
+      storeSessions.find((session) => session.sessionId === id),
+    useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (storeDrafts[id] ?? '')),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })

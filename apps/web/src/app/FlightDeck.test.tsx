@@ -92,6 +92,7 @@ vi.mock('./store', () => ({
       trpc: harness.trpc,
     }),
   useReplicaIssues: () => harness.issues,
+  useSessionDraft: () => '',
 }))
 
 type Issue = Record<string, unknown>

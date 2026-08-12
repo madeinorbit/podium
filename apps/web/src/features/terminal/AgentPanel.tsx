@@ -35,7 +35,7 @@ import type { JSX } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useSession, useSessionDraft, useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -136,6 +136,19 @@ export function modelToken(session: {
   return effort ? `${label} · ${effort}` : label
 }
 
+/** The native draft bridge is deliberately its own leaf: chat typing updates
+ * the latest-value ref without re-running the terminal panel. */
+function SessionDraftRef({
+  sessionId,
+  valueRef,
+}: {
+  sessionId: SessionId
+  valueRef: { current: string }
+}): null {
+  valueRef.current = useSessionDraft(sessionId)
+  return null
+}
+
 export function AgentPanel({
   sessionId,
   active = true,
@@ -147,11 +160,8 @@ export function AgentPanel({
 }): JSX.Element {
   const {
     hub,
-    sessions,
-    pendingSpawnIds,
     machines,
     trpc,
-    drafts,
     startBtw,
     setSessionDraft,
     hibernateSession,
@@ -161,14 +171,11 @@ export function AgentPanel({
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
-      sessions: s.sessions,
-      pendingSpawnIds: s.pendingSpawnIds,
       machines: s.machines,
       // `repos` is deliberately NOT selected (POD-1704). Its only use here was the
       // worktree-missing guess; subscribing to it re-rendered every agent panel on
       // each repo scan for a fact the panel had no business deriving.
       trpc: s.trpc,
-      drafts: s.drafts,
       startBtw: s.startBtw,
       setSessionDraft: s.setSessionDraft,
       hibernateSession: s.hibernateSession,
@@ -178,19 +185,24 @@ export function AgentPanel({
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
+  const session = useSession(sessionId)
+  const spawnConfirmed = useStoreSelector((s) => !s.pendingSpawnIds.has(sessionId))
+  // Agent chrome needs durable issue fields (colour, branch, git state), not
+  // session-derived rollups. `useReplicaIssues` intentionally invalidates on
+  // every session row change to refresh those rollups, which would wake all
+  // warm panels again; the engine's issue rows stay stable across session-only
+  // publications and carry every field used below.
+  const issues = useStoreSelector((s) => s.issues)
   // Live stage lookup for native-terminal ref underlines (POD-529). A ref keeps
   // the getter fresh without remounting the terminal when the replica updates.
   const issuesRef = useRef(issues)
   issuesRef.current = issues
-  const { guardedArchive } = useSessionGuard()
-  const session = sessions.find((s) => s.sessionId === sessionId)
+  const { guardedArchive } = useSessionGuard(sessionId)
   // An optimistically-spawned session doesn't exist server-side yet (#119): the
   // terminal's one-shot `hub.attach` would be dropped and never retried, leaving
   // the pane black. Hold the mount until the real session reconciles in — the
   // "Starting…" overlay covers the wait, and the mount effect (which depends on
   // this) fires the instant it flips true.
-  const spawnConfirmed = !pendingSpawnIds.has(sessionId)
   const traceIssueId = session?.issueId ?? selectedIssueId ?? null
   const freshStartTracedRef = useRef(false)
   // A fresh optimistic spawn has no existing session-tab click to start a
@@ -381,7 +393,6 @@ export function AgentPanel({
   // (chat→native sync, #17/#62) WITHOUT depending on `drafts` directly — a dep
   // there would tear down and remount the whole terminal on every keystroke.
   const draftRef = useRef('')
-  draftRef.current = drafts[sessionId] ?? ''
   // Draft Sync v2 (POD-859): when the session's daemon runs the composer engine, it
   // owns native scrape + chat→native inject — so this client retires BOTH its 150ms
   // native sampler and its one-shot chat→native flush. Read via a ref so the runtime
@@ -624,6 +635,7 @@ export function AgentPanel({
     // `relative` anchors the handover veil below the header (the terminal surface
     // positions its own overlays against itself, so nothing else moves).
     <div className="relative flex min-w-0 flex-1 flex-col">
+      <SessionDraftRef sessionId={sessionId} valueRef={draftRef} />
       {/* Session header [POD-121, remetered POD-725]: 36px, no surface of its own
           — the sheet's card tone runs straight through it and a soft hairline is
           the only thing under it. It was a 24%-issue-tinted band, which made

@@ -21,6 +21,7 @@ import {
   useIssueViewModels,
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
+import type { SessionId, SessionMeta } from '@podium/model'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
@@ -106,6 +107,32 @@ export function useStoreSelector<T>(
   isEqual?: (a: T, b: T) => boolean,
 ): T {
   return useCoreStoreSelector<T, Trpc>(selector, isEqual)
+}
+
+/** One replica-backed session row. The replica preserves unchanged row
+ * identities, so Object.is keeps this reader asleep when another session moves. */
+export function useSession(sessionId: SessionId | undefined): SessionMeta | undefined {
+  return useStoreSelector((s) =>
+    sessionId === undefined
+      ? undefined
+      : s.sessions.find((session) => session.sessionId === sessionId),
+  )
+}
+
+/** One composer document value. Draft writes replace the containing record,
+ * but an addressed string keeps unrelated composers asleep via Object.is. */
+export function useSessionDraft(sessionId: SessionId | undefined): string {
+  return useStoreSelector((s) => (sessionId === undefined ? '' : (s.drafts[sessionId] ?? '')))
+}
+
+/** Exit state paired with an addressed session read. A row can be absent
+ * because it is pending, removed, or outside this principal's replica scope. */
+export function useSessionExitKind(
+  sessionId: SessionId | undefined,
+): 'removed' | 'evicted' | undefined {
+  return useStoreSelector((s) =>
+    sessionId === undefined ? undefined : s.replica.exitKind?.('session', sessionId),
+  )
 }
 
 /** Read a PUBLISHED slice (POD-330): derived once per store change and shared by

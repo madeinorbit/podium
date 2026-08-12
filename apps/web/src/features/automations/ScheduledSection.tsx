@@ -1,5 +1,4 @@
 import type { AutomationId } from '@podium/model'
-import { shallowEqual } from '@podium/client-core/store'
 import {
   ChevronDown,
   ChevronRight,
@@ -14,7 +13,7 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSession, useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -302,16 +301,10 @@ function AutomationCard({
 
 /** One run: what happened, when, and — for a spawn — the session it produced. */
 function RunRow({ run }: { run: AutomationRun }): JSX.Element {
-  const { sessions, navigateToSession } = useStoreSelector(
-    (s) => ({
-      sessions: s.sessions,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  const navigateToSession = useStoreSelector((s) => s.navigateToSession)
   // Only a session that still exists can be opened — a deleted one leaves the run
   // row intact (the history is the truth about what happened, not about what lives).
-  const session = run.sessionId ? sessions.find((s) => s.sessionId === run.sessionId) : undefined
+  const session = useSession(run.sessionId ?? undefined)
 
   const open = (): void => {
     if (session) navigateToSession(session.sessionId)

@@ -105,11 +105,15 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     drafts: {},
     panelMode: storePanelMode,
+    issues: [],
     ...stableStoreFns,
   })
   return {
     useStore,
     useReplicaIssues: () => [],
+    useSession: (id: string | undefined) =>
+      storeSessions.find((session) => session.sessionId === id),
+    useSessionDraft: () => '',
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })

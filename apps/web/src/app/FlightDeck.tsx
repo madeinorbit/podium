@@ -74,7 +74,7 @@ import { useClickIntent } from './click-intent'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { OPEN_RIGHT_PANEL_EVENT } from './shell-state'
-import { useReplicaIssues, useStoreSelector } from './store'
+import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
 
 const MODES: Array<{ id: FlightDeckMode; label: string }> = [
   { id: 'full', label: 'Full spine' },
@@ -1757,7 +1757,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     markIssueRead,
     markSessionRead,
     setIssueTucked,
-    drafts,
     coarseNow,
   } = useStoreSelector(
     (store) => ({
@@ -1782,7 +1781,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       markIssueRead: store.markIssueRead,
       markSessionRead: store.markSessionRead,
       setIssueTucked: store.setIssueTucked,
-      drafts: store.drafts,
       // The shared coarse clock, not one interval per row: the "N ago" stamp on
       // a stopped session must not disagree with the ordering derived from the
       // same clock elsewhere in the shell (sidebar-common, POD-407).
@@ -2041,6 +2039,8 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   }, [rows])
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
+  const rootDraft = useSessionDraft(draftFilling ? rootSession?.sessionId : undefined)
+  const focusedDraft = useSessionDraft(root ? undefined : focusedSession?.sessionId)
   const repoName = useMemo(() => reposToViews(repos)[0]?.name ?? null, [repos])
   // The root is never in the fold set — see `rootRow`. Neither are proposals:
   // they left the tree, and "fold every branch" is about the tree.
@@ -2252,7 +2252,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               </button>
               <p className="shell-type-secondary mt-[7px] line-clamp-4 leading-[1.6] text-muted-foreground">
                 {draftFilling
-                  ? drafts[rootSession?.sessionId ?? '']
+                  ? rootDraft
                     ? 'Your first prompt is taking shape. This mission will fill in as the conversation develops.'
                     : 'Start with a message. The mission, plan, and team will fill in here as the agent learns what you need.'
                   : root.description?.trim() ||
@@ -2587,7 +2587,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       ) : (
         <IntakeCanvas
           session={focusedSession}
-          draft={focusedSession ? drafts[focusedSession.sessionId] : undefined}
+          draft={focusedDraft}
           repoName={repoName}
         />
       )}

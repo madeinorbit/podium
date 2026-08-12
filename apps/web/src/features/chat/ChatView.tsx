@@ -2,10 +2,11 @@ import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { issueReferenceModel, type SuperThreadRef } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
+import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
-import type { JSX } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useReplicaIssues } from '@/app/store'
+import type { JSX, MutableRefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useReplicaIssues, useSessionDraft } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
@@ -14,7 +15,7 @@ import { ImageLightbox } from './ImageLightbox'
 import { OpenTodosNotice, stoppedWithOpenTodos, useIssueTodos } from './TodoBridge'
 import { TranscriptFeed } from './TranscriptFeed'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
-import { useChatSurface } from './use-chat-surface'
+import { type ChatSurface, useChatSurface } from './use-chat-surface'
 
 /**
  * CHAT (POD-405) — the SHELL, and nothing else.
@@ -75,6 +76,69 @@ import { useChatSurface } from './use-chat-surface'
  */
 export type { SuperThreadRef }
 
+type QuoteDraftRef = MutableRefObject<((markdown: string) => void) | null>
+
+/** Keep draft keystrokes in the composer leaf rather than re-running the whole
+ * transcript/rail shell for every character. */
+function ScopedChatComposer({
+  sessionId,
+  superThread,
+  compact,
+  chat,
+  quoteDraftRef,
+}: {
+  sessionId: SessionId
+  superThread: SuperThreadRef | undefined
+  compact: boolean
+  chat: ChatSurface
+  quoteDraftRef: QuoteDraftRef
+}): JSX.Element {
+  const draft = useSessionDraft(sessionId)
+  const setDraft = chat.setDraft
+  const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
+  quoteDraftRef.current = (markdown) => {
+    setDraft(draft ? `${draft.replace(/\s*$/, '\n\n')}${markdown}` : markdown)
+    chat.taRef.current?.focus()
+  }
+  const submit = useCallback(() => chat.submitDraft(draft), [chat.submitDraft, draft])
+  const interrupt = useCallback(() => chat.interrupt(draft), [chat.interrupt, draft])
+
+  return (
+    <ChatComposer
+      taRef={chat.taRef}
+      draft={draft}
+      onDraftChange={setDraft}
+      enabled={chat.composer.enabled}
+      placeholder={chat.composer.placeholder}
+      compact={compact}
+      isMobile={chat.isMobile}
+      onSend={submit}
+      voice={voice}
+      attachments={chat.attachments}
+      headless={chat.headless}
+      turnRunning={chat.headlessTurn.turnRunning}
+      canInterrupt={chat.canInterrupt}
+      onInterrupt={interrupt}
+      offer={chat.offer}
+      onOfferAction={chat.sendOfferPrompt}
+      onOfferDismiss={chat.dismissOffer}
+      session={chat.session}
+      queuedTotal={chat.queuedTotal}
+      turnError={chat.headlessTurn.turnError}
+      offlineAsOf={chat.offlineAsOf}
+      autoFocusKey={sessionId}
+      transcriptSettled={chat.phase !== 'loading'}
+      {...(superThread
+        ? {
+            backend: chat.backend,
+            onBackendModelChange: chat.setBackendModel,
+            onBackendEffortChange: chat.setBackendEffort,
+          }
+        : {})}
+    />
+  )
+}
+
 export function ChatView({
   sessionId,
   active = true,
@@ -116,6 +180,7 @@ export function ChatView({
       : { initialPendingText: undefined }),
   })
   const issues = useReplicaIssues()
+  const quoteDraftRef = useRef<((markdown: string) => void) | null>(null)
   const issueReferences = useMemo(
     () =>
       new Map(
@@ -286,10 +351,7 @@ export function ChatView({
           // shell owns the draft. Appended rather than replacing, so quoting
           // twice — or quoting into a half-written reply — never eats text.
           onQuote={(markdown) => {
-            chat.setDraft(
-              chat.draft ? `${chat.draft.replace(/\s*$/, '\n\n')}${markdown}` : markdown,
-            )
-            chat.taRef.current?.focus()
+            quoteDraftRef.current?.(markdown)
           }}
           issueReferences={issueReferences}
         />
@@ -342,41 +404,12 @@ export function ChatView({
           end of the transcript where the reader already is, and pointing at the
           panel — chat does not keep a second copy of the list (TodoBridge). */}
       {!compact && showTodoStop && todos && <OpenTodosNotice todos={todos} />}
-      <ChatComposer
-        taRef={chat.taRef}
-        draft={chat.draft}
-        onDraftChange={chat.setDraft}
-        enabled={chat.composer.enabled}
-        placeholder={chat.composer.placeholder}
+      <ScopedChatComposer
+        sessionId={sessionId}
+        superThread={superThread}
         compact={compact}
-        isMobile={chat.isMobile}
-        onSend={chat.submit}
-        voice={chat.voice}
-        attachments={chat.attachments}
-        headless={chat.headless}
-        turnRunning={chat.headlessTurn.turnRunning}
-        canInterrupt={chat.canInterrupt}
-        onInterrupt={chat.interrupt}
-        offer={chat.offer}
-        onOfferAction={chat.sendOfferPrompt}
-        onOfferDismiss={chat.dismissOffer}
-        session={chat.session}
-        queuedTotal={chat.queuedTotal}
-        turnError={chat.headlessTurn.turnError}
-        offlineAsOf={chat.offlineAsOf}
-        autoFocusKey={sessionId}
-        transcriptSettled={chat.phase !== 'loading'}
-        // The backend rail is the superagent thread's, so it is offered only
-        // where there IS a thread — a PTY session's model is the session's, set
-        // when it was spawned, and is reported by the agent panel rather than
-        // being editable from the middle of a conversation.
-        {...(superThread
-          ? {
-              backend: chat.backend,
-              onBackendModelChange: chat.setBackendModel,
-              onBackendEffortChange: chat.setBackendEffort,
-            }
-          : {})}
+        chat={chat}
+        quoteDraftRef={quoteDraftRef}
       />
       <ImageLightbox src={chat.lightbox} onClose={() => chat.setLightbox(null)} />
     </div>

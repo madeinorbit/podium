@@ -25,11 +25,17 @@
  * card shows the PAIR: who acted, and which human they acted for. A row with no
  * human is shown as such rather than attributed to the operator by default.
  */
-import { currentStepOf, runAdvances, runAttribution, runSubjectReference } from '@podium/client-core/viewmodels'
+import {
+  currentStepOf,
+  runAdvances,
+  runAttribution,
+  runSubjectReference,
+} from '@podium/client-core/viewmodels'
+import { asSessionId } from '@podium/model'
 import type { WorkflowRunWire } from '@podium/protocol'
 import { Check } from 'lucide-react'
 import type { JSX } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSession, useStoreSelector } from '@/app/store'
 import { cn } from '@/lib/utils'
 import type { WorkflowsSource } from './use-workflows'
 import { workflowCommands, type WorkflowRights } from './workflow-commands'
@@ -87,13 +93,18 @@ function RunCard({
   source: WorkflowsSource
   rights: WorkflowRights
 }): JSX.Element {
-  const { issues, sessions } = useStoreSelector((s) => ({ issues: s.issues, sessions: s.sessions }))
+  const issues = useStoreSelector((s) => s.issues)
+  const subjectSession = useSession(
+    run.subjectKind === 'session' ? asSessionId(run.subjectId) : undefined,
+  )
   const current = currentStepOf(run)
   const advances = runAdvances(run)
   const subject = runSubjectReference(run, (id) =>
     run.subjectKind === 'issue'
       ? issues.find((issue) => issue.id === id)
-      : sessions.find((session) => session.sessionId === id),
+      : subjectSession?.sessionId === id
+        ? subjectSession
+        : undefined,
   )
   const attribution = runAttribution(run)
 
