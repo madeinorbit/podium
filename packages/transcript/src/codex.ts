@@ -195,14 +195,73 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
 }
 
 function recordString(input: unknown, key: string): string | undefined {
-  if (!isRecord(input)) return undefined
-  return typeof input[key] === 'string' ? input[key] : undefined
+  if (isRecord(input)) return typeof input[key] === 'string' ? input[key] : undefined
+  if (typeof input !== 'string') return undefined
+  const value = jsObjectScalar(input, key)
+  return typeof value === 'string' ? value : undefined
 }
 
 function recordScalar(input: unknown, key: string): string | number | undefined {
-  if (!isRecord(input)) return undefined
-  const value = input[key]
-  return typeof value === 'string' || typeof value === 'number' ? value : undefined
+  if (isRecord(input)) {
+    const value = input[key]
+    return typeof value === 'string' || typeof value === 'number' ? value : undefined
+  }
+  return typeof input === 'string' ? jsObjectScalar(input, key) : undefined
+}
+
+/**
+ * Read one scalar from the generated JavaScript object literal used by Codex's
+ * unified `exec` transport. Current rollouts use `{cmd:"..."}` rather than
+ * JSON's `{"cmd":"..."}`, so JSON.parse cannot recover the command even
+ * though the shape is otherwise just data.
+ *
+ * This recognizes only quoted strings and finite numbers. It never evaluates
+ * the expression, and ignores matching words inside strings and comments.
+ */
+function jsObjectScalar(source: string, key: string): string | number | undefined {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const field = new RegExp(`\\b${escapedKey}\\s*:\\s*`, 'g')
+  for (const match of source.matchAll(field)) {
+    if (match.index === undefined || !isCodePosition(source, match.index)) continue
+    const previous = source.slice(0, match.index).trimEnd().at(-1)
+    if (previous !== '{' && previous !== ',') continue
+    const start = match.index + match[0].length
+    if (source[start] === '"') {
+      const literal = quotedJsonString(source, start)
+      if (literal !== undefined) return literal
+      continue
+    }
+    const number = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(source.slice(start))?.[0]
+    if (number !== undefined) {
+      const value = Number(number)
+      if (Number.isFinite(value)) return value
+    }
+  }
+  return undefined
+}
+
+/** Decode a JSON-compatible double-quoted literal without evaluating code. */
+function quotedJsonString(source: string, start: number): string | undefined {
+  let escaped = false
+  for (let i = start + 1; i < source.length; i += 1) {
+    const char = source[i]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+    if (char !== '"') continue
+    try {
+      const value: unknown = JSON.parse(source.slice(start, i + 1))
+      return typeof value === 'string' ? value : undefined
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
 }
 
 function patchPaths(patch: string): string[] {

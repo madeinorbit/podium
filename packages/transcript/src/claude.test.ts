@@ -262,6 +262,9 @@ describe('claudeRecordToItems', () => {
 describe('toolInputPreview', () => {
   it('prefers the human-meaningful field', () => {
     expect(toolInputPreview({ command: 'bun test', description: 'Run tests' })).toBe('bun test')
+    expect(toolInputPreview({ cmd: 'bun run test:web', workdir: '/repo' })).toBe(
+      'bun run test:web',
+    )
     expect(toolInputPreview({ file_path: '/a/b.ts' })).toBe('/a/b.ts')
   })
   it('falls back to compact JSON', () => {

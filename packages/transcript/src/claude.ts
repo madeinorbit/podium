@@ -388,7 +388,16 @@ function toolTitleFromInput(input: unknown): string | undefined {
 export function toolInputPreview(input: unknown): string {
   if (typeof input !== 'object' || input === null) return ''
   const i = input as Record<string, unknown>
-  for (const key of ['command', 'file_path', 'path', 'pattern', 'query', 'url', 'description']) {
+  for (const key of [
+    'command',
+    'cmd',
+    'file_path',
+    'path',
+    'pattern',
+    'query',
+    'url',
+    'description',
+  ]) {
     if (typeof i[key] === 'string' && i[key]) return truncate(i[key] as string, 160)
   }
   try {

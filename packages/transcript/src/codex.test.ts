@@ -147,6 +147,38 @@ describe('codexRecordToItems', () => {
     })
   })
 
+  it('unwraps current exec calls whose generated object uses JavaScript keys', () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call_exec_js_object',
+        input:
+          'const r = await tools.exec_command({cmd:"rg -n \\"Bash|exec\\" packages/transcript\\nsed -n \'1,80p\' package.json",workdir:"/repo",yield_time_ms:10000}); text(r.output);',
+      }),
+    )
+
+    expect(items[0]).toMatchObject({
+      role: 'tool',
+      toolName: 'Bash',
+      toolInput: 'rg -n "Bash|exec" packages/transcript\nsed -n \'1,80p\' package.json',
+      toolUseId: 'call_exec_js_object',
+    })
+  })
+
+  it('does not read a fake cmd field from inside a generated command string', () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        input:
+          'const r = await tools.exec_command({workdir:"/repo",cmd:"printf \'{cmd:\\\"fake\\\"}\'"}); text(r.output);',
+      }),
+    )
+
+    expect(items[0]).toMatchObject({ toolName: 'Bash', toolInput: 'printf \'{cmd:"fake"}\'' })
+  })
+
   it('does not mistake tool names inside a command string for nested calls', () => {
     const items = codexRecordToItems(
       env('response_item', {
