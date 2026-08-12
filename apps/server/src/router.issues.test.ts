@@ -681,3 +681,87 @@ describe('issues.subscription* authz (Phase B)', () => {
     ).resolves.toMatchObject({ updated: true })
   })
 })
+
+/**
+ * POD-1926 — A VANISHED ISSUE IS A 404, NOT A 500.
+ *
+ * These assert a transport property, not an aesthetic one. The client outbox
+ * sorts drain failures through `classifyRefusal`
+ * (packages/client-core/src/outbox.ts): `NOT_FOUND` is DEFINITIVE — dead-letter,
+ * zero automatic retries — while an unrecognised code, which is what a bare
+ * `Error` becomes once tRPC has turned it into INTERNAL_SERVER_ERROR, is
+ * TRANSIENT, and ADR 3 D10 retries a transient failure until the 14-day age
+ * limit. The code below is the difference between a queued write parking once
+ * and the same write looping every 60s for a fortnight.
+ *
+ * Two holes fed the live incident and both are covered here:
+ *   - `guardIssueCommand` extracts `def.target` only for a CONSTRAINED
+ *     capability, so an OPERATOR reaches the service for every command;
+ *   - the per-user commands declare no target extractor at all, for any caller.
+ */
+describe('issues.* on an issue that does not exist (POD-1926)', () => {
+  const registries: SessionRegistry[] = []
+  let registry: SessionRegistry
+
+  beforeEach(() => {
+    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    registries.push(registry)
+  })
+
+  afterEach(() => {
+    for (const r of registries.splice(0)) r.dispose()
+  })
+
+  const operator = () =>
+    appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    })
+
+  const GONE = 'iss_00000000-0000-4000-8000-000000000000'
+
+  /** The refusal's tRPC code, or undefined if the call did not refuse at all. */
+  const codeOf = async (call: Promise<unknown>): Promise<string | undefined> => {
+    try {
+      await call
+    } catch (err) {
+      return (err as { code?: string }).code
+    }
+    return undefined
+  }
+
+  // The exact call from the incident: a read receipt queued for a draft the
+  // reaper had already purged.
+  it('markRead answers NOT_FOUND so the outbox parks it instead of retrying', async () => {
+    expect(await codeOf(operator().issues.markRead({ id: GONE }))).toBe('NOT_FOUND')
+  })
+
+  it('the other per-user commands answer NOT_FOUND too', async () => {
+    expect(await codeOf(operator().issues.markUnread({ id: GONE }))).toBe('NOT_FOUND')
+    expect(await codeOf(operator().issues.setTucked({ id: GONE, tucked: true }))).toBe('NOT_FOUND')
+  })
+
+  // An operator skips the capability guard's target extraction entirely, so a
+  // targeted command reached the service's bare throw as well.
+  it('a targeted command from an operator answers NOT_FOUND, not a 500', async () => {
+    expect(await codeOf(operator().issues.update({ id: GONE, patch: { title: 'x' } }))).toBe(
+      'NOT_FOUND',
+    )
+  })
+
+  // The regression itself, stated as the thing that must never come back.
+  it('never answers INTERNAL_SERVER_ERROR for an id that does not exist', async () => {
+    const codes = [
+      await codeOf(operator().issues.markRead({ id: GONE })),
+      await codeOf(operator().issues.markUnread({ id: GONE })),
+      await codeOf(operator().issues.setTucked({ id: GONE, tucked: true })),
+      await codeOf(operator().issues.update({ id: GONE, patch: { title: 'x' } })),
+    ]
+    expect(codes).not.toContain('INTERNAL_SERVER_ERROR')
+    // …and every one of them must still REFUSE, or the assertion above is vacuous.
+    expect(codes).not.toContain(undefined)
+  })
+})

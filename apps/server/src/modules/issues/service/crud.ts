@@ -19,6 +19,7 @@ import type { IssueRow } from '../../../store'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import { findSessionById } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
+import { IssueNotFound } from './not-found'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
 
@@ -414,7 +415,7 @@ export class IssueCrudModule {
     opts?: { actorSessionId?: string },
   ): IssueWire {
     const row = this.store.rows.get(this.store.resolveRef(id))
-    if (!row) throw new Error(`unknown issue ${id}`)
+    if (!row) throw new IssueNotFound(id)
     const prevStage = row.stage
     const wasClosed = this.store.isClosed(row)
     // COLOUR IS A TOP-LEVEL PROPERTY [spec:SP-b4d1]. A sub-issue runs under its
@@ -573,7 +574,7 @@ export class IssueCrudModule {
    *  the actor's `(userId, issueId)` row, not to the issue. */
   markIssueRead(id: string): IssueWire {
     const row = this.store.rows.get(this.store.resolveRef(id))
-    if (!row) throw new Error(`unknown issue ${id}`)
+    if (!row) throw new IssueNotFound(id)
     this.store.writeIssueUserState(row.id, { readAt: this.store.now() })
     const wire = this.store.persist(row, { touch: false })
     this.store.emitEvent('issue.read', row.id, { seq: row.seq })
@@ -587,7 +588,7 @@ export class IssueCrudModule {
    *  marking MY copy unread never touches yours. */
   markIssueUnread(id: string): IssueWire {
     const row = this.store.rows.get(this.store.resolveRef(id))
-    if (!row) throw new Error(`unknown issue ${id}`)
+    if (!row) throw new IssueNotFound(id)
     this.store.writeIssueUserState(row.id, { readAt: null })
     const wire = this.store.persist(row, { touch: false })
     this.store.emitEvent('issue.unread', row.id, { seq: row.seq })
@@ -606,7 +607,7 @@ export class IssueCrudModule {
    *  parked on an open row would fire the moment it later closed. */
   setIssueTucked(id: string, tucked: boolean): IssueWire {
     const row = this.store.rows.get(this.store.resolveRef(id))
-    if (!row) throw new Error(`unknown issue ${id}`)
+    if (!row) throw new IssueNotFound(id)
     if (tucked && !this.store.isClosed(row)) throw new Error(`issue ${id} is not finished`)
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
     // client pressing the same control) must not move the dismissal moment.
@@ -663,7 +664,16 @@ export class IssueCrudModule {
     const id = this.store.resolveRef(ref)
     this.store.rowOrThrow(id)
     this.store.deps.ledger.commit({
-      write: () => this.store.deps.store.issues.deleteIssue(id),
+      write: () => {
+        // The reaper detaches every session it can SEE before calling this
+        // (attention.reapIfEmptyDraft), but it sees them through `loadSessions()`
+        // — `deleted_at IS NULL` — so a TOMBSTONED session keeps pointing at the
+        // row we are about to delete, and `sessions.issue_id` has no foreign key
+        // to catch it (POD-1926). Same transaction as the delete: a reference to
+        // a half-deleted issue must never be observable.
+        this.store.deps.store.sessions.detachTombstonesFromIssue(id)
+        this.store.deps.store.issues.deleteIssue(id)
+      },
       changes: () => [{ entity: 'issue', id, op: 'remove' }],
     })
     this.store.reload()
@@ -780,7 +790,7 @@ export class IssueCrudModule {
    *  through update() would misfire issue.snoozed. No-op when the issue isn't deferred. */
   undefer(id: string): IssueWire {
     const row = this.store.rows.get(this.store.resolveRef(id))
-    if (!row) throw new Error(`unknown issue ${id}`)
+    if (!row) throw new IssueNotFound(id)
     if (row.deferUntil == null) return this.store.toWire(row)
     row.deferUntil = new Date(Date.parse(this.store.now()) - UNSNOOZE_BACKDATE_MS).toISOString()
     const wire = this.store.persist(row)

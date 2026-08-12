@@ -34,6 +34,7 @@ import {
   repoProjectionRows,
 } from '../projection'
 import type { PublishSpec } from '../publish'
+import { IssueNotFound } from './not-found'
 import type { IssueDeps } from './types'
 
 const log = createLogger('server:issues')
@@ -953,7 +954,7 @@ export class IssueStore {
   /** @internal */
   rowOrThrow(id: string): IssueRow {
     const r = this.rows.get(this.resolveRef(id))
-    if (!r) throw new Error(`unknown issue ${id}`)
+    if (!r) throw new IssueNotFound(id)
     return r
   }
   /** @internal */

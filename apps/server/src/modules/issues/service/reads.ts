@@ -29,6 +29,7 @@ import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore } from '../../../store'
 import type { IssueStore } from './core'
+import { IssueNotFound } from './not-found'
 import { countContextAwarePendingMail } from './mail-pending'
 import type {
   DepReportEntry,
@@ -184,7 +185,7 @@ export class IssueReportsModule {
     const maxDepth = opts.maxDepth ?? ISSUE_TREE_DEFAULT_MAX_DEPTH
     const maxNodes = opts.maxNodes ?? ISSUE_TREE_DEFAULT_MAX_NODES
     const rootRow = this.store.rowOrThrow(this.store.resolveRef(ref))
-    if (!mayRead(rootRow.id)) throw new Error(`unknown issue ${ref}`)
+    if (!mayRead(rootRow.id)) throw new IssueNotFound(ref)
     const byParent = new Map<string, IssueRow[]>()
     for (const r of this.store.rows.values()) {
       if (!mayRead(r.id) || !r.parentId || r.archived) continue
@@ -267,7 +268,7 @@ export class IssueReportsModule {
     let members: IssueRow[]
     if (opts.id) {
       const root = this.store.rowOrThrow(opts.id)
-      if (!mayRead(root.id)) throw new Error(`unknown issue ${opts.id}`)
+      if (!mayRead(root.id)) throw new IssueNotFound(opts.id)
       members = [root]
       const walk = (pid: string): void => {
         for (const r of this.store.rows.values()) {

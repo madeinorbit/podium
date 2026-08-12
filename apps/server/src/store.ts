@@ -256,6 +256,27 @@ export class SessionStore {
     // (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
     // no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.
     this.issues.renumberCollidingIssueSeqs()
+    // POD-1926: references left behind by a hard purge of an empty draft. Neither
+    // `sessions.issue_id` nor `issue_ref_letters.issue_id` declares a foreign key,
+    // so before the purge learned to scrub them a deleted draft left a session row
+    // (and a letter counter) naming an issue that no longer exists. Runs HERE, in
+    // the facade constructor, for the same reason the machine-identity upgrade
+    // does: ahead of every reader, so no in-memory `Session` can be holding the
+    // stale pointer when it is cleared.
+    this.healDanglingIssueReferences()
+  }
+
+  /** Per-boot heal (idempotent): clear session pointers and letter counters whose
+   *  issue was hard-purged. Reports only when it actually found something. */
+  private healDanglingIssueReferences(): void {
+    const sessions = this.sessions.detachDanglingIssueReferences()
+    const letters = this.issues.pruneOrphanRefLetters()
+    if (sessions > 0 || letters > 0) {
+      console.warn(
+        `[podium:store] boot heal detached ${sessions} session(s) and dropped ` +
+          `${letters} ref-letter counter(s) pointing at deleted issues`,
+      )
+    }
   }
 
   /** Per-boot heal (idempotent): fill NULL repo_ids on repos and issues, then

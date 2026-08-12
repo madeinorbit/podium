@@ -474,7 +474,28 @@ export class IssuesRepository {
     // scalar back-references on OTHER rows (parent_id / superseded_by /
     // duplicate_of) clear via ON DELETE SET NULL — no manual scrub needed
     // (PRAGMA foreign_keys is enabled per-connection by the store facade).
+    //
+    // TWO TABLES ARE OUTSIDE THAT GUARANTEE (POD-1926), because neither declares
+    // a foreign key: `issue_ref_letters` below, and `sessions.issue_id` /
+    // `sessions.ref_issue_id` — which `IssueAttentionModule.reapIfEmptyDraft`
+    // clears for the sessions it can see and `SessionsRepository`
+    // .detachTombstonesFromIssue clears for the ones it cannot. Anything added
+    // here that points at an issue without a constraint must be scrubbed by hand
+    // or it outlives the row, and the comment above will read as if it were
+    // covered.
+    this.db.prepare('DELETE FROM issue_ref_letters WHERE issue_id = ?').run(id)
     this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
+  }
+
+  /** Per-boot heal (POD-1926): drop letter counters whose issue is already gone —
+   *  rows a hard purge before {@link deleteIssue} scrubbed them left behind. The
+   *  counter exists so a letter is never reused WITHIN an issue, so once the issue
+   *  is deleted it protects nothing. Returns the number of rows dropped. */
+  pruneOrphanRefLetters(): number {
+    const stmt = this.db.prepare(
+      'DELETE FROM issue_ref_letters WHERE issue_id NOT IN (SELECT id FROM issues)',
+    )
+    return Number(stmt.run().changes)
   }
 
   /** Next human-facing issue number, allocated per LOGICAL repo — scoped by the

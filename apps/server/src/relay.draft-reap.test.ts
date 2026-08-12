@@ -170,3 +170,101 @@ describe('boot-time leaked-draft sweep', () => {
     expect(reg2.issues.get(hib.draft.id)).not.toBeNull()
   })
 })
+
+/**
+ * POD-1926 — THE PURGE MUST NOT LEAVE A SESSION POINTING AT THE ROW IT DELETED.
+ *
+ * `purgeEmptyDraft` really does `DELETE FROM issues`, and `sessions.issue_id`
+ * declares no foreign key (only `parent_id`, `superseded_by` and `duplicate_of`
+ * have `ON DELETE SET NULL`), so nothing at the SQL layer catches a stale
+ * pointer. The reaper detaches what it can SEE — and it looks through
+ * `loadSessions()`, which is `deleted_at IS NULL`, so a TOMBSTONED session is
+ * invisible to it in both directions: it does not block the reap (correct — a
+ * deleted session should not keep a draft alive) and it did not get detached
+ * (the bug).
+ *
+ * The live row that produced this issue: spawned 16:19:20, soft-deleted 16:19:29
+ * with `status` still `live`, still naming a draft that no longer exists.
+ */
+describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () => {
+  const freshFile = () => join(mkdtempSync(join(tmpdir(), 'podium-dangle-')), 'state.sqlite')
+
+  it('a session tombstoned before the reap does not outlive its draft pointer', () => {
+    const file = freshFile()
+    const reg1 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    const { draft, sessionId } = draftWithSession(reg1)
+
+    // Tombstone it the way a standalone delete does. The row keeps a RUNNABLE
+    // status — the reaper blocks on `!archived && status !== 'exited'` — so had
+    // it been able to see this row at all it would have refused the reap. It
+    // cannot: `loadSessions()` is `deleted_at IS NULL`.
+    const store = new SessionStore(file)
+    store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
+    const tombstone = store.sessions.getSession(sessionId)
+    expect(tombstone?.archived).toBe(false)
+    expect(tombstone?.status).not.toBe('exited')
+    expect(store.sessions.loadSessions().map((r) => r.id)).not.toContain(sessionId)
+
+    // Boot: the draft looks empty (its only session is invisible) and is purged.
+    const reg2 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+    expect(reg2.issues.get(draft.id)).toBeNull()
+
+    const after = new SessionStore(file).sessions.getSession(sessionId)
+    expect(after).toBeDefined()
+    expect(after?.deletedAt).not.toBeNull() // still a tombstone, not resurrected
+    expect(after?.issueId).toBeNull()
+    expect(after?.refIssueId).toBeNull()
+    expect(after?.refLetter).toBeNull()
+  })
+
+  it('boot heals references a purge before this fix already left behind', () => {
+    const file = freshFile()
+    const reg1 = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    const { draft, sessionId } = draftWithSession(reg1)
+
+    // The PRE-FIX state, reconstructed: the issue row is deleted straight from
+    // the table (what `purgeEmptyDraft` used to amount to) while the session row
+    // keeps naming it. `deleteIssue` deliberately does not touch sessions — only
+    // the purge path does — so this leaves the exact damage found in the field.
+    const store = new SessionStore(file)
+    store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
+    store.issues.deleteIssue(draft.id)
+    expect(store.sessions.getSession(sessionId)?.issueId).toBe(draft.id)
+
+    // Reopening the store runs the boot heal ahead of every reader.
+    const healed = new SessionStore(file)
+    expect(healed.sessions.getSession(sessionId)?.issueId).toBeNull()
+    expect(healed.sessions.getSession(sessionId)?.refIssueId).toBeNull()
+
+    // Idempotent: a clean database heals nothing.
+    expect(healed.sessions.detachDanglingIssueReferences()).toBe(0)
+    expect(healed.issues.pruneOrphanRefLetters()).toBe(0)
+  })
+
+  it('a LIVE session keeps its pointers — the reaper owns those, not the SQL scrub', () => {
+    const file = freshFile()
+    const reg = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const { draft, sessionId } = draftWithSession(reg)
+
+    // Scrubbing a live row behind the in-memory `Session` map's back would
+    // desync it, so `detachTombstonesFromIssue` must leave it strictly alone.
+    new SessionStore(file).sessions.detachTombstonesFromIssue(draft.id)
+    expect(new SessionStore(file).sessions.getSession(sessionId)?.issueId).toBe(draft.id)
+  })
+
+  it('the deleted issue takes its ref-letter counter with it', () => {
+    const file = freshFile()
+    const reg = new SessionRegistry(new SessionStore(file), undefined, { instanceId: 'default' })
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const { draft } = draftWithSession(reg)
+
+    const store = new SessionStore(file)
+    store.issues.allocateSessionLetter(draft.id)
+    store.issues.deleteIssue(draft.id)
+    // Nothing left to prune: the delete already took the counter.
+    expect(store.issues.pruneOrphanRefLetters()).toBe(0)
+  })
+})

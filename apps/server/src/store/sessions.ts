@@ -408,6 +408,68 @@ export class SessionsRepository {
       .run(issueId)
   }
 
+  /**
+   * Clear a TOMBSTONED session's pointers at an issue that is being hard-purged
+   * (POD-1926).
+   *
+   * `purgeEmptyDraft` really does `DELETE FROM issues`, and `sessions.issue_id`
+   * carries no foreign key — only `parent_id`, `superseded_by` and `duplicate_of`
+   * have `ON DELETE SET NULL` — so nothing at the SQL layer stops a session row
+   * outliving the issue it names. The reaper detaches the sessions it can SEE
+   * before deleting, but it sees them through `loadSessions()`, which is
+   * `deleted_at IS NULL`: a soft-deleted session is invisible to it and kept its
+   * `issue_id` forever. One such row (deleted nine seconds after it was spawned,
+   * `status` still `live`) is how POD-1926 was found.
+   *
+   * Deliberately scoped to `deleted_at IS NOT NULL`. Live rows are already
+   * detached by the reaper through `setSessionIssueId`, which persists AND
+   * refreshes the in-memory `Session`; a raw UPDATE behind that map's back would
+   * desync it. Tombstones are not in the map at all, so SQL is the whole truth
+   * for them.
+   *
+   * `ref_issue_id`/`ref_letter` go with it: the pair is sticky on upsert
+   * (`COALESCE(sessions.ref_issue_id, excluded.ref_issue_id)`) so a dead ref would
+   * never be reallocated, and `prepareRefAllocation` returns early whenever
+   * `refIssueId` is set — leaving the session permanently unable to earn the draft
+   * ref it should now get.
+   */
+  detachTombstonesFromIssue(issueId: string): void {
+    this.db
+      .prepare(
+        `UPDATE sessions
+         SET issue_id = CASE WHEN issue_id = ?1 THEN NULL ELSE issue_id END,
+             ref_issue_id = CASE WHEN ref_issue_id = ?1 THEN NULL ELSE ref_issue_id END,
+             ref_letter = CASE WHEN ref_issue_id = ?1 THEN NULL ELSE ref_letter END
+         WHERE deleted_at IS NOT NULL AND (issue_id = ?1 OR ref_issue_id = ?1)`,
+      )
+      .run(issueId)
+  }
+
+  /**
+   * Per-boot heal for references left behind by a purge that predates
+   * {@link detachTombstonesFromIssue} (POD-1926). Idempotent, and unscoped by
+   * `deleted_at` on purpose: it runs from the store facade's constructor, ahead
+   * of every reader in the process, so no in-memory `Session` exists yet to
+   * desync. Returns the number of rows healed.
+   */
+  detachDanglingIssueReferences(): number {
+    const stmt = this.db.prepare(
+      `UPDATE sessions
+         SET issue_id = CASE
+               WHEN issue_id IS NOT NULL AND issue_id NOT IN (SELECT id FROM issues)
+               THEN NULL ELSE issue_id END,
+             ref_letter = CASE
+               WHEN ref_issue_id IS NOT NULL AND ref_issue_id NOT IN (SELECT id FROM issues)
+               THEN NULL ELSE ref_letter END,
+             ref_issue_id = CASE
+               WHEN ref_issue_id IS NOT NULL AND ref_issue_id NOT IN (SELECT id FROM issues)
+               THEN NULL ELSE ref_issue_id END
+         WHERE (issue_id IS NOT NULL AND issue_id NOT IN (SELECT id FROM issues))
+            OR (ref_issue_id IS NOT NULL AND ref_issue_id NOT IN (SELECT id FROM issues))`,
+    )
+    return Number(stmt.run().changes)
+  }
+
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   purgeSession(id: SessionId): void {
     this.purgeObservationCheckpoint(id)

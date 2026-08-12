@@ -1,6 +1,7 @@
 import type { IssueWire } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import type { IssueService } from './issues/service'
+import { IssueNotFound } from './issues/service/not-found'
 import type { HandoffCaller } from './sessions/handoff/ports'
 import type { SessionLifecycle } from './sessions/lifecycle'
 
@@ -55,7 +56,7 @@ export class IssueSessionLifecycle {
     // Full wire is intentional: no-op deletes return the public IssueWire, and
     // projected membership is the cascade boundary this lifecycle owns.
     const current = this.deps.issues.get(id)
-    if (!current) throw new Error(`unknown issue ${id}`)
+    if (!current) throw new IssueNotFound(id)
     if (current.deletedAt) return { issue: current, deletedSessionIds: [] }
 
     const sessionPlan = this.deps.sessions.prepareIssueSessionDelete(
@@ -91,7 +92,7 @@ export class IssueSessionLifecycle {
   restoreIssue(id: string): RestoreIssueResult {
     // Full wire is intentional for the symmetric public/no-op return contract.
     const current = this.deps.issues.get(id)
-    if (!current) throw new Error(`unknown issue ${id}`)
+    if (!current) throw new IssueNotFound(id)
     if (!current.deletedAt) return { issue: current, restoredSessionIds: [] }
 
     const sessionPlan = this.deps.sessions.prepareIssueSessionRestore(current.id)
