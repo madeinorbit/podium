@@ -13,7 +13,9 @@ const log = createLogger('sync:mirror')
  *  ConversationsRepository (store/conversations.ts) satisfies this structurally
  *  — it's passed straight through at the call site. */
 export interface MirrorStore {
-  segmentsToMirror(machineId: MachineId): { nativeId: string; path: string; mirroredBytes: number }[]
+  segmentsToMirror(
+    machineId: MachineId,
+  ): { nativeId: string; path: string; mirroredBytes: number }[]
   segmentsToMirrorDirty(
     machineId: MachineId,
   ): { nativeId: string; path: string; mirroredBytes: number }[]
@@ -87,9 +89,9 @@ export interface MirrorServiceOptions {
  */
 export class MirrorService {
   /** Per-machine FIFO of segments awaiting a pull. */
-  private readonly queues = new Map<string, { nativeId: string; path: string }[]>()
+  private readonly queues = new Map<MachineId, { nativeId: string; path: string }[]>()
   /** Machines with a drain loop running (single-flight per machine). */
-  private readonly active = new Set<string>()
+  private readonly active = new Set<MachineId>()
   /** Segment keys queued or in flight — an enqueue for one is a no-op. */
   private readonly queued = new Set<string>()
   /** Segment keys in error backoff until the mapped epoch-ms. */

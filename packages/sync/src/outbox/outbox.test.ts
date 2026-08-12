@@ -1,4 +1,4 @@
-import { actorUser, asSessionId, asUserId, type MutationId } from '@podium/model'
+import { actorUser, asMutationId, asSessionId, asUserId, type MutationId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   applyMutation,
@@ -428,7 +428,7 @@ describe('D10 — age limit', () => {
       /requires new-mutation-id/,
     )
 
-    const reissued = await outbox.retry(record.mutationId, { mutationId: 'm-fresh' })
+    const reissued = await outbox.retry(record.mutationId, { mutationId: asMutationId('m-fresh') })
     expect(reissued.mutationId).toBe('m-fresh')
     expect(reissued.state).toBe('queued')
     expect(reissued.input).toEqual({ issueId: 'POD-1', comment: 'shipping this' })
@@ -1239,7 +1239,7 @@ describe('review round 1 — the blockers, each with the test that would have ca
     expect(state(outbox, doomed.mutationId)).toBe('dead-letter')
     expect(outbox.all().filter((r) => r.mutationId === other.mutationId)).toHaveLength(1)
 
-    const reissued = await outbox.retry(doomed.mutationId, { mutationId: 'm-fresh' })
+    const reissued = await outbox.retry(doomed.mutationId, { mutationId: asMutationId('m-fresh') })
     expect(reissued.mutationId).toBe('m-fresh')
   })
 

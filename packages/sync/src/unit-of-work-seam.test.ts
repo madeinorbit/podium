@@ -123,7 +123,7 @@ async function wired(): Promise<{
       enrolments.push(span)
       const ids = matches
         .map((match) => match.mutationId)
-        .filter((id): id is string => id !== undefined) as MutationId[]
+        .filter((id): id is MutationId => id !== undefined) as MutationId[]
       return (async () => {
         for (const id of ids) {
           if (outbox.find(id)?.state === 'accepted') await outbox.noteApplied(id)

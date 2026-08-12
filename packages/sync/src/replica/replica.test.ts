@@ -12,6 +12,7 @@
  * ADR without a test that reaches it is a failing build.
  */
 
+import { asMutationId, type MutationId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type InMemoryOutbox, InMemoryReplicaStore } from './memory-store'
 import type { OptimisticOverlayPort, RetirementIntent } from './overlay'
@@ -592,13 +593,13 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
       const h = harness()
       await bootstrapped(h, 10, [session(1, 'cached', 'old')])
       h.store.outbox.enqueue({
-        mutationId: 'm1',
+        mutationId: asMutationId('m1'),
         entity: 'session',
         entityId: 's1',
         command: { rename: 'a' },
       })
       h.store.outbox.enqueue({
-        mutationId: 'm2',
+        mutationId: asMutationId('m2'),
         entity: 'issue',
         entityId: 'i1',
         command: { close: true },
@@ -622,7 +623,12 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
   it('rescope is legal while offline, and still keeps the outbox', async () => {
     const h = harness()
     await bootstrapped(h, 10, [session(1, 'cached', 'old')])
-    h.store.outbox.enqueue({ mutationId: 'm1', entity: 'session', entityId: 's1', command: {} })
+    h.store.outbox.enqueue({
+      mutationId: asMutationId('m1'),
+      entity: 'session',
+      entityId: 's1',
+      command: {},
+    })
     h.replica.disconnect()
     h.authority.slice = { snapshotSeq: 88, rows: [] }
 
@@ -656,7 +662,12 @@ describe('D7 rungs 2-6 — one terminal path, and THE OUTBOX SURVIVES EVERY RUNG
   it('a queued command is a request against an ENTITY, never against a feed position', async () => {
     const h = harness()
     await bootstrapped(h, 10, [])
-    h.store.outbox.enqueue({ mutationId: 'm1', entity: 'session', entityId: 's1', command: {} })
+    h.store.outbox.enqueue({
+      mutationId: asMutationId('m1'),
+      entity: 'session',
+      entityId: 's1',
+      command: {},
+    })
     h.authority.slice = { snapshotSeq: 99, rows: [] }
 
     h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
@@ -978,7 +989,11 @@ describe('the replica never arbitrates', () => {
 
     h.replica.receive(
       deltaFrame(0, 4, [
-        session(4, 's1', 'v', { originId: 'peer-7', causationId: 'cmd-1', mutationId: 'm-1' }),
+        session(4, 's1', 'v', {
+          originId: 'peer-7',
+          causationId: 'cmd-1',
+          mutationId: asMutationId('m-1'),
+        }),
       ]),
     )
 
@@ -987,7 +1002,7 @@ describe('the replica never arbitrates', () => {
       seq: 4,
       originId: 'peer-7',
       causationId: 'cmd-1',
-      mutationId: 'm-1',
+      mutationId: asMutationId('m-1'),
     })
     // The payload is untouched: provenance churn must never look like a content change.
     expect(record?.value).toEqual({ name: 'v' })
@@ -1052,14 +1067,14 @@ describe('the optimistic-overlay reducer seam', () => {
     return { ...h, overlay: captured as ReturnType<typeof overlayOver>, outbox: h.store.outbox }
   }
 
-  const queued = (h: { outbox: InMemoryOutbox }, mutationId: string, entityId: string) =>
+  const queued = (h: { outbox: InMemoryOutbox }, mutationId: MutationId, entityId: string) =>
     h.outbox.enqueue({ mutationId, entity: 'session', entityId, command: { name: mutationId } })
 
   it('projects pending commands over authoritative truth without storing the result', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 's1', 'server name')])
     h.outbox.enqueue({
-      mutationId: 'm1',
+      mutationId: asMutationId('m1'),
       entity: 'session',
       entityId: 's1',
       command: { name: 'typed name' },
@@ -1074,7 +1089,7 @@ describe('the optimistic-overlay reducer seam', () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 's1', 'server name')])
     h.outbox.enqueue({
-      mutationId: 'm1',
+      mutationId: asMutationId('m1'),
       entity: 'session',
       entityId: 's1',
       command: { name: 'typed name' },
@@ -1082,7 +1097,7 @@ describe('the optimistic-overlay reducer seam', () => {
 
     h.replica.receive(
       deltaFrame(0, 4, [
-        session(4, 's1', 'typed name', { causationId: 'cmd-1', mutationId: 'm1' }),
+        session(4, 's1', 'typed name', { causationId: 'cmd-1', mutationId: asMutationId('m1') }),
       ]),
     )
 
@@ -1091,7 +1106,7 @@ describe('the optimistic-overlay reducer seam', () => {
     await h.replica.settled()
 
     expect(h.overlay.handed).toEqual([
-      [{ entity: 'session', entityId: 's1', causationId: 'cmd-1', mutationId: 'm1' }],
+      [{ entity: 'session', entityId: 's1', causationId: 'cmd-1', mutationId: asMutationId('m1') }],
     ])
     expect(h.outbox.list()).toHaveLength(0)
     expect(h.replica.view('session', 's1')).toEqual({ name: 'typed name' })
@@ -1103,12 +1118,17 @@ describe('the optimistic-overlay reducer seam', () => {
 
     h.replica.receive(
       deltaFrame(0, 3, [
-        removeChange(1, 'session', 'gone', { causationId: 'cmd-del', mutationId: 'm-del' }),
-        evictChange(2, 'session', 'unshared', { causationId: 'cmd-ev', mutationId: 'm-ev' }),
-        session(3, 'kept', 'c', { causationId: 'cmd-up', mutationId: 'm-up' }),
+        removeChange(1, 'session', 'gone', {
+          causationId: 'cmd-del',
+          mutationId: asMutationId('m-del'),
+        }),
+        evictChange(2, 'session', 'unshared', {
+          causationId: 'cmd-ev',
+          mutationId: asMutationId('m-ev'),
+        }),
+        session(3, 'kept', 'c', { causationId: 'cmd-up', mutationId: asMutationId('m-up') }),
       ]),
     )
-
 
     // POD-1158 — a multi-region commit is now enrolled in a unit of work the Replica
     // does NOT own, so it resolves on `settled()` rather than inside `receive`.
@@ -1123,7 +1143,7 @@ describe('the optimistic-overlay reducer seam', () => {
   it('hands every intent the SAME KEY SET, even when provenance is partial', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [])
-    queued(h, 'm-both', 'both')
+    queued(h, asMutationId('m-both'), 'both')
 
     // Partial provenance: D8 retirement is by envelope provenance, and a change may
     // carry a causationId with no mutationId. No other fixture in this suite has a
@@ -1132,7 +1152,7 @@ describe('the optimistic-overlay reducer seam', () => {
     // indistinguishable from one that sets them to undefined.
     h.replica.receive(
       deltaFrame(0, 2, [
-        session(1, 'both', 'x', { causationId: 'cmd-both', mutationId: 'm-both' }),
+        session(1, 'both', 'x', { causationId: 'cmd-both', mutationId: asMutationId('m-both') }),
         session(2, 'partial', 'y', { causationId: 'cmd-partial' }),
       ]),
     )
@@ -1172,14 +1192,14 @@ describe('the optimistic-overlay reducer seam', () => {
   it('submits TWO retirements as ONE ordered batch in ONE transaction', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [])
-    queued(h, 'm-a', 'a')
-    queued(h, 'm-b', 'b')
+    queued(h, asMutationId('m-a'), 'a')
+    queued(h, asMutationId('m-b'), 'b')
     const before = h.store.transactions
 
     h.replica.receive(
       deltaFrame(0, 2, [
-        session(1, 'a', 'a', { causationId: 'cmd-a', mutationId: 'm-a' }),
-        session(2, 'b', 'b', { causationId: 'cmd-b', mutationId: 'm-b' }),
+        session(1, 'a', 'a', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
+        session(2, 'b', 'b', { causationId: 'cmd-b', mutationId: asMutationId('m-b') }),
       ]),
     )
 
@@ -1202,15 +1222,15 @@ describe('the optimistic-overlay reducer seam', () => {
   it('deduplicates two changes that carry the SAME provenance', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [])
-    queued(h, 'm-a', 'a')
+    queued(h, asMutationId('m-a'), 'a')
 
     // One command, two rows: legal, and anchored per-principal rows may even share
     // a seq (D14.3). Retiring twice is at best noise and at worst a second
     // retirement of an entry the first already removed.
     h.replica.receive(
       deltaFrame(0, 2, [
-        session(1, 'a', 'first', { causationId: 'cmd-a', mutationId: 'm-a' }),
-        session(2, 'a', 'second', { causationId: 'cmd-a', mutationId: 'm-a' }),
+        session(1, 'a', 'first', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
+        session(2, 'a', 'second', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
       ]),
     )
 
@@ -1225,8 +1245,8 @@ describe('the optimistic-overlay reducer seam', () => {
   it('ABORT retires nothing, applies nothing, and emits nothing', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 'a', 'server a')])
-    queued(h, 'm-a', 'a')
-    queued(h, 'm-b', 'b')
+    queued(h, asMutationId('m-a'), 'a')
+    queued(h, asMutationId('m-b'), 'b')
     const before = h.store.transactions
     h.events.length = 0
     // Refuse at the serialized commit point, with both drafts still private.
@@ -1234,8 +1254,8 @@ describe('the optimistic-overlay reducer seam', () => {
 
     h.replica.receive(
       deltaFrame(0, 2, [
-        session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: 'm-a' }),
-        session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: 'm-b' }),
+        session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
+        session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: asMutationId('m-b') }),
       ]),
     )
     // POD-1158 — the veto now surfaces through the unit of work the Replica joined,
@@ -1258,13 +1278,13 @@ describe('the optimistic-overlay reducer seam', () => {
   it('REHYDRATES after an abort to the pre-frame state, with both commands queued', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 'a', 'server a')])
-    queued(h, 'm-a', 'a')
-    queued(h, 'm-b', 'b')
+    queued(h, asMutationId('m-a'), 'a')
+    queued(h, asMutationId('m-b'), 'b')
     h.store.cache.failNextPrepare = 'durable write denied'
     h.replica.receive(
       deltaFrame(0, 2, [
-        session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: 'm-a' }),
-        session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: 'm-b' }),
+        session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: asMutationId('m-a') }),
+        session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: asMutationId('m-b') }),
       ]),
     )
     await expect(h.replica.settled()).rejects.toThrow()
@@ -1289,7 +1309,7 @@ describe('the optimistic-overlay reducer seam', () => {
   it('retires through the BOOTSTRAP path too, not only live and heal', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 5, [])
-    queued(h, 'm-buffered', 's1')
+    queued(h, asMutationId('m-buffered'), 's1')
     const channel = h.authority.driveManually()
 
     h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
@@ -1297,7 +1317,7 @@ describe('the optimistic-overlay reducer seam', () => {
     await Promise.resolve()
     h.replica.receive(
       deltaFrame(10, 11, [
-        session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: 'm-buffered' }),
+        session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: asMutationId('m-buffered') }),
       ]),
     )
     channel.push(bootstrapChunk(10, [], true))
@@ -1312,7 +1332,7 @@ describe('the optimistic-overlay reducer seam', () => {
     const h = overlayHarness()
     // A row the pre-rescope slice could see.
     await bootstrapped(h, 5, [session(1, 'revoked', 'no longer mine')])
-    queued(h, 'm-1', 's1')
+    queued(h, asMutationId('m-1'), 's1')
     const channel = h.authority.driveManually()
 
     h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
@@ -1324,7 +1344,9 @@ describe('the optimistic-overlay reducer seam', () => {
     // from the autocommit one. Without a queued command the install autocommits and
     // the replacement is never exercised inside a span.
     h.replica.receive(
-      deltaFrame(10, 11, [session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: 'm-1' })]),
+      deltaFrame(10, 11, [
+        session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: asMutationId('m-1') }),
+      ]),
     )
     channel.push(bootstrapChunk(10, [], true))
     await h.replica.settled()
@@ -1347,8 +1369,8 @@ describe('the optimistic-overlay reducer seam', () => {
   it('AGGREGATES retirements across every buffered frame ONE install includes', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 5, [])
-    queued(h, 'm-one', 's1')
-    queued(h, 'm-two', 's2')
+    queued(h, asMutationId('m-one'), 's1')
+    queued(h, asMutationId('m-two'), 's2')
     const channel = h.authority.driveManually()
     const before = h.store.transactions
 
@@ -1358,10 +1380,14 @@ describe('the optimistic-overlay reducer seam', () => {
     // TWO buffered frames, each confirming one of my commands. The install commits
     // both onto the snapshot in one transaction, so it owes ONE batch of two.
     h.replica.receive(
-      deltaFrame(10, 11, [session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: 'm-one' })]),
+      deltaFrame(10, 11, [
+        session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: asMutationId('m-one') }),
+      ]),
     )
     h.replica.receive(
-      deltaFrame(11, 12, [session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: 'm-two' })]),
+      deltaFrame(11, 12, [
+        session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: asMutationId('m-two') }),
+      ]),
     )
     channel.push(bootstrapChunk(10, [], true))
     await h.replica.settled()
@@ -1376,9 +1402,9 @@ describe('the optimistic-overlay reducer seam', () => {
   it('an install retires ONLY the frames it included, not every frame it buffered', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 5, [])
-    queued(h, 'm-covered', 's-covered')
-    queued(h, 'm-included', 's-included')
-    queued(h, 'm-beyond', 's-beyond')
+    queued(h, asMutationId('m-covered'), 's-covered')
+    queued(h, asMutationId('m-included'), 's-included')
+    queued(h, asMutationId('m-beyond'), 's-beyond')
     const channel = h.authority.driveManually()
 
     h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
@@ -1392,19 +1418,28 @@ describe('the optimistic-overlay reducer seam', () => {
     // 1. wholly covered by the snapshot — dropped (D6-BUFFER-COVERED).
     h.replica.receive(
       deltaFrame(3, 4, [
-        session(4, 's-covered', 'old', { causationId: 'cmd-c', mutationId: 'm-covered' }),
+        session(4, 's-covered', 'old', {
+          causationId: 'cmd-c',
+          mutationId: asMutationId('m-covered'),
+        }),
       ]),
     )
     // 2. chains exactly from the snapshot point — INCLUDED.
     h.replica.receive(
       deltaFrame(10, 11, [
-        session(11, 's-included', 'mine', { causationId: 'cmd-i', mutationId: 'm-included' }),
+        session(11, 's-included', 'mine', {
+          causationId: 'cmd-i',
+          mutationId: asMutationId('m-included'),
+        }),
       ]),
     )
     // 3. beyond the install gap — left behind, so it retires nothing.
     h.replica.receive(
       deltaFrame(20, 21, [
-        session(21, 's-beyond', 'later', { causationId: 'cmd-b', mutationId: 'm-beyond' }),
+        session(21, 's-beyond', 'later', {
+          causationId: 'cmd-b',
+          mutationId: asMutationId('m-beyond'),
+        }),
       ]),
     )
     // The gap at frame 3 makes the install heal; let that heal finish rather than
@@ -1425,18 +1460,22 @@ describe('the optimistic-overlay reducer seam', () => {
   it('a bootstrap install that ABORTS retires neither buffered frame', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 5, [])
-    queued(h, 'm-one', 's1')
-    queued(h, 'm-two', 's2')
+    queued(h, asMutationId('m-one'), 's1')
+    queued(h, asMutationId('m-two'), 's2')
     const channel = h.authority.driveManually()
 
     h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [session(3, 'fresh', 'new')], false))
     await Promise.resolve()
     h.replica.receive(
-      deltaFrame(10, 11, [session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: 'm-one' })]),
+      deltaFrame(10, 11, [
+        session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: asMutationId('m-one') }),
+      ]),
     )
     h.replica.receive(
-      deltaFrame(11, 12, [session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: 'm-two' })]),
+      deltaFrame(11, 12, [
+        session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: asMutationId('m-two') }),
+      ]),
     )
     h.store.cache.failNextPrepare = 'durable write denied'
     channel.push(bootstrapChunk(10, [], true))
@@ -1479,7 +1518,7 @@ describe('the optimistic-overlay reducer seam', () => {
     const h = overlayHarness()
     await bootstrapped(h, 10, [session(1, 's1', 'server name')])
     h.outbox.enqueue({
-      mutationId: 'm1',
+      mutationId: asMutationId('m1'),
       entity: 'session',
       entityId: 's1',
       command: { name: 'typed name' },
@@ -1509,7 +1548,7 @@ describe('the optimistic-overlay reducer seam', () => {
   it('drops the overlay when a revoked share EVICTS the row mid-flight', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 's1', 'shared with me')])
-    queued(h, 'm1', 's1')
+    queued(h, asMutationId('m1'), 's1')
     // The optimistic value is on screen before the revocation, so the assertion
     // below is a change and not a fixture that never rendered anything.
     expect(h.replica.view('session', 's1')).toEqual({ name: 'm1' })
@@ -1538,7 +1577,7 @@ describe('the optimistic-overlay reducer seam', () => {
     const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 's1', 'server name')])
     h.outbox.enqueue({
-      mutationId: 'm-share',
+      mutationId: asMutationId('m-share'),
       entity: 'session',
       entityId: 's1',
       command: { kind: 'unreducible' },
@@ -1576,8 +1615,18 @@ describe('the optimistic-overlay reducer seam', () => {
     const store = new InMemoryReplicaStore()
     const mine = store.viewFor('me')
     const theirs = store.viewFor('them')
-    mine.outbox.enqueue({ mutationId: 'm-mine', entity: 'session', entityId: 'a', command: {} })
-    theirs.outbox.enqueue({ mutationId: 'm-theirs', entity: 'session', entityId: 'b', command: {} })
+    mine.outbox.enqueue({
+      mutationId: asMutationId('m-mine'),
+      entity: 'session',
+      entityId: 'a',
+      command: {},
+    })
+    theirs.outbox.enqueue({
+      mutationId: asMutationId('m-theirs'),
+      entity: 'session',
+      entityId: 'b',
+      command: {},
+    })
     const before = store.transactions
 
     // ONE logical commit across four regions: two principals' caches and two
@@ -1586,8 +1635,14 @@ describe('the optimistic-overlay reducer seam', () => {
     const span = store.beginSpan()
     mine.cache.applyAtomic({ operations: [upsertOp('a')], cursor: cursorAt(1) }, span)
     theirs.cache.applyAtomic({ operations: [upsertOp('b')], cursor: cursorAt(1) }, span)
-    mine.outbox.retireBatch([{ entity: 'session', entityId: 'a', mutationId: 'm-mine' }], span)
-    theirs.outbox.retireBatch([{ entity: 'session', entityId: 'b', mutationId: 'm-theirs' }], span)
+    mine.outbox.retireBatch(
+      [{ entity: 'session', entityId: 'a', mutationId: asMutationId('m-mine') }],
+      span,
+    )
+    theirs.outbox.retireBatch(
+      [{ entity: 'session', entityId: 'b', mutationId: asMutationId('m-theirs') }],
+      span,
+    )
 
     // Nothing is visible before the commit: a reader looking mid-span sees the
     // pre-span state, never another principal's half-applied slice.
@@ -1608,15 +1663,31 @@ describe('the optimistic-overlay reducer seam', () => {
     const store = new InMemoryReplicaStore()
     const mine = store.viewFor('me')
     const theirs = store.viewFor('them')
-    mine.outbox.enqueue({ mutationId: 'm-mine', entity: 'session', entityId: 'a', command: {} })
-    theirs.outbox.enqueue({ mutationId: 'm-theirs', entity: 'session', entityId: 'b', command: {} })
+    mine.outbox.enqueue({
+      mutationId: asMutationId('m-mine'),
+      entity: 'session',
+      entityId: 'a',
+      command: {},
+    })
+    theirs.outbox.enqueue({
+      mutationId: asMutationId('m-theirs'),
+      entity: 'session',
+      entityId: 'b',
+      command: {},
+    })
     const before = store.transactions
 
     const span = store.beginSpan()
     mine.cache.applyAtomic({ operations: [upsertOp('a')], cursor: cursorAt(1) }, span)
     theirs.cache.applyAtomic({ operations: [upsertOp('b')], cursor: cursorAt(1) }, span)
-    mine.outbox.retireBatch([{ entity: 'session', entityId: 'a', mutationId: 'm-mine' }], span)
-    theirs.outbox.retireBatch([{ entity: 'session', entityId: 'b', mutationId: 'm-theirs' }], span)
+    mine.outbox.retireBatch(
+      [{ entity: 'session', entityId: 'a', mutationId: asMutationId('m-mine') }],
+      span,
+    )
+    theirs.outbox.retireBatch(
+      [{ entity: 'session', entityId: 'b', mutationId: asMutationId('m-theirs') }],
+      span,
+    )
     span.abort()
 
     expect(mine.cache.readEntities()).toHaveLength(0)
@@ -1629,13 +1700,34 @@ describe('the optimistic-overlay reducer seam', () => {
   it('REPEATED batches in one span EXTEND the draft rather than replacing it', () => {
     const store = new InMemoryReplicaStore()
     const view = store.viewFor('me')
-    view.outbox.enqueue({ mutationId: 'm1', entity: 'session', entityId: 'a', command: {} })
-    view.outbox.enqueue({ mutationId: 'm2', entity: 'session', entityId: 'b', command: {} })
-    view.outbox.enqueue({ mutationId: 'm3', entity: 'session', entityId: 'c', command: {} })
+    view.outbox.enqueue({
+      mutationId: asMutationId('m1'),
+      entity: 'session',
+      entityId: 'a',
+      command: {},
+    })
+    view.outbox.enqueue({
+      mutationId: asMutationId('m2'),
+      entity: 'session',
+      entityId: 'b',
+      command: {},
+    })
+    view.outbox.enqueue({
+      mutationId: asMutationId('m3'),
+      entity: 'session',
+      entityId: 'c',
+      command: {},
+    })
 
     const span = store.beginSpan()
-    view.outbox.retireBatch([{ entity: 'session', entityId: 'a', mutationId: 'm1' }], span)
-    view.outbox.retireBatch([{ entity: 'session', entityId: 'b', mutationId: 'm2' }], span)
+    view.outbox.retireBatch(
+      [{ entity: 'session', entityId: 'a', mutationId: asMutationId('m1') }],
+      span,
+    )
+    view.outbox.retireBatch(
+      [{ entity: 'session', entityId: 'b', mutationId: asMutationId('m2') }],
+      span,
+    )
     span.commit()
 
     // A second batch that restaged from the pre-commit entries would resurrect m1.
