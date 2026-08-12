@@ -11,6 +11,15 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import {
+  SERVER_TRANSFER_CONFIRMATION,
+  type ServerTransferDisplayState,
+} from './server-transfer'
+
+export {
+  SERVER_TRANSFER_CONFIRMATION,
+  type ServerTransferDisplayState,
+} from './server-transfer'
 
 export const SERVER_TRANSFER_PHASES = [
   { key: 'preparing', label: 'Preparing' },
@@ -21,9 +30,6 @@ export const SERVER_TRANSFER_PHASES = [
 ] as const
 
 export type ServerTransferPhase = (typeof SERVER_TRANSFER_PHASES)[number]['key']
-export type ServerTransferDisplayState = ServerTransferPhase | 'aborted' | 'commit-uncertain'
-
-export const SERVER_TRANSFER_CONFIRMATION = 'TRANSFER SERVER'
 
 function transferPhaseIndex(state: ServerTransferDisplayState): number {
   return SERVER_TRANSFER_PHASES.findIndex((phase) => phase.key === state)
