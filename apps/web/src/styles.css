@@ -4848,13 +4848,16 @@ html[data-density="compact"] .chat-md {
   cursor: pointer;
 }
 /* Human-facing ref links (#474): PREFIX-N tokens linkified in markdown.
-   An accent-tinted inline chip with a small kind icon — deliberately NOT a
+   An info-tinted inline chip with a small kind icon — deliberately NOT a
    text-decoration style: dotted underlines render very differently across
    Chromium and WebKit (the Tauri shell), a chip renders identically in both.
+   The chip chrome stays independent of the ambient `--issue` scope: that scope
+   names the issue whose chat is open, not the issue named by this link. The
+   leading glyph below carries the referenced issue's own live stage colour.
    `a.ref-link` outranks `.chat-md a`, which would otherwise force its solid
    underline back on. */
 a.ref-link {
-  --ref-accent: var(--issue, var(--info));
+  --ref-accent: var(--info);
   color: var(--ref-accent);
   text-decoration: none;
   cursor: pointer;

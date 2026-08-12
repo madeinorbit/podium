@@ -1,5 +1,12 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { linkifyCodePaths, linkifyRefs, renderMarkdown, setKnownRefPrefixes } from './markdown'
+
+const stylesPath = ['src/styles.css', 'apps/web/src/styles.css']
+  .map((path) => resolve(process.cwd(), path))
+  .find(existsSync)
+const styles = readFileSync(stylesPath ?? 'src/styles.css', 'utf8')
 
 describe('renderMarkdown', () => {
   it('colourizes add/del/hunk lines in a diff code block', () => {
@@ -79,6 +86,17 @@ describe('linkifyCodePaths', () => {
 
 describe('linkifyRefs (#474)', () => {
   afterEach(() => setKnownRefPrefixes([]))
+
+  it('keeps reference chrome independent of the open issue colour', () => {
+    const selector = 'a.ref-link {'
+    const start = styles.indexOf(selector)
+    const end = styles.indexOf('\n}', start)
+    const rule = styles.slice(start, end)
+
+    expect(start, `${selector} not found in styles.css`).toBeGreaterThan(-1)
+    expect(rule).toContain('--ref-accent: var(--info)')
+    expect(rule).not.toContain('var(--issue')
+  })
 
   it('is a no-op with no registered prefixes', () => {
     setKnownRefPrefixes([])
