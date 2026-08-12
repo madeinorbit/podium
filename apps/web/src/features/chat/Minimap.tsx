@@ -131,6 +131,14 @@ export function Minimap({
     }
   }, [scrollerRef, rows])
 
+  // Ticks are STATE measured from the DOM a frame behind the rows they describe,
+  // so a commit that SHORTENS `rows` renders the new list against the old, longer
+  // tick set. That happens in ordinary use — summary verbosity filters rows out,
+  // and a second batchable tool call folds two rows into one — and every tick
+  // past the end then indexes nothing. Drop them here, once, rather than at each
+  // consumer: the next measure pass replaces the whole set anyway.
+  const liveTicks = ticks.filter((t) => t.index < rows.length)
+
   /** Pointer Y → ratio of the track, which IS the ratio of scrollHeight. */
   const ratioAt = (clientY: number): number | null => {
     const track = trackRef.current
@@ -156,11 +164,11 @@ export function Minimap({
     const f = ratioAt(clientY)
     if (f === null) return
     let found: MinimapTick | undefined
-    for (const tick of ticks) {
+    for (const tick of liveTicks) {
       if (tick.top > f) break
       found = tick
     }
-    const hit = ticks.find((t) => f >= t.top && f <= t.top + t.height) ?? found
+    const hit = liveTicks.find((t) => f >= t.top && f <= t.top + t.height) ?? found
     setHover(hit ? { row: hit.index, at: f } : null)
   }
 
@@ -208,8 +216,10 @@ export function Minimap({
           setHover(null)
         }}
       >
-        {ticks.map((tick) => {
-          const kind = rowBand(rows[tick.index] as ChatRow).kind
+        {liveTicks.map((tick) => {
+          const row = rows[tick.index]
+          if (!row) return null
+          const kind = rowBand(row).kind
           return (
             <div
               key={tick.index}
@@ -232,7 +242,7 @@ export function Minimap({
         {/* Search marks are an OVERLAY on the right edge, not a recolouring: a
             hit is orthogonal to what the band is, and a reader mid-search should
             still be able to see that the thing they found is an answer. */}
-        {ticks.map((tick) => {
+        {liveTicks.map((tick) => {
           const mark = rowMatch(tick.index)
           if (!mark) return null
           return (
