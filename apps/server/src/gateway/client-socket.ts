@@ -24,6 +24,7 @@
 import { createLogger } from '@podium/logger'
 import type { UserId, UserRole } from '@podium/model'
 import { parseClientMessage } from '@podium/protocol'
+import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionRegistry } from '../relay'
 import { CLIENT_PLANE_LIVENESS } from './plane-liveness'
 import { type GatewaySocket, warnDroppedFrame } from './ws-send'
@@ -75,7 +76,16 @@ export function wireClientSocket(
       // The frame is parsed here and CLASSIFIED in the mux. The connection id
       // passed is this socket's own — a `clientId` in the payload (`hello` has
       // one, for the reconnect reclaim) can never become the routing identity.
-      registry.clientGateway.routeClientFrame(id, parseClientMessage(raw.toString()))
+      //
+      // ATTRIBUTED BY FRAME TYPE [POD-1931]. `ws.message.client` measured ~400ms
+      // of blocked event loop PER MESSAGE over a handful of messages — a unit
+      // cost, not a frequency problem, so the useful next number is which frame
+      // costs it. Parse is timed apart from routing because the two fail
+      // differently: a slow parse is frame SIZE, a slow route is the handler.
+      const parsed = measureTask('ws.client.parse', () => parseClientMessage(raw.toString()))
+      measureTask(`ws.client.${parsed.type}`, () =>
+        registry.clientGateway.routeClientFrame(id, parsed),
+      )
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.
