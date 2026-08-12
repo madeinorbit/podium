@@ -58,6 +58,10 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
   issueUpdate: { id: 'POD-1', patch: { title: 'renamed' } } as OutboxKinds['issueUpdate'],
   issueArchive: { id: 'POD-1' } as OutboxKinds['issueArchive'],
   issueDelete: { id: 'POD-1' } as OutboxKinds['issueDelete'],
+  issueClose: { id: 'POD-1', reason: 'done' } as OutboxKinds['issueClose'],
+  issueDefer: { id: 'POD-1', until: null } as OutboxKinds['issueDefer'],
+  issueUndefer: { id: 'POD-1' } as OutboxKinds['issueUndefer'],
+  issueSetLabels: { id: 'POD-1', labels: ['bug'] } as OutboxKinds['issueSetLabels'],
 }
 
 const kinds = Object.keys(OUTBOX_COMMANDS) as (keyof OutboxKinds)[]
@@ -161,6 +165,10 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
       route('issueDelete', { id }).partitionKey,
       route('issueMarkRead', { id }).partitionKey,
       route('issueSetTucked', { id, tucked: true }).partitionKey,
+      route('issueClose', { id, reason: 'done' }).partitionKey,
+      route('issueDefer', { id, until: null }).partitionKey,
+      route('issueUndefer', { id }).partitionKey,
+      route('issueSetLabels', { id, labels: ['bug'] }).partitionKey,
     ])
     expect([...partitions]).toEqual([`issue:${id}`])
     // ...and two DIFFERENT issues still never serialise against each other.
@@ -178,6 +186,30 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('snoozeSet', { sessionId: asSessionId('s-1'), until: null }).collapseKey).toBe(
       route('snoozeClear', { sessionId: asSessionId('s-1') }).collapseKey,
     )
+    // POD-781: defer and undefer are the issue twins of that pair — two commands
+    // writing `deferUntil`, so "snooze until Friday, no — unsnooze" sends the
+    // last word rather than both in order.
+    expect(route('issueDefer', { id, until: '2099-01-01' }).collapseKey).toBe(
+      route('issueUndefer', { id }).collapseKey,
+    )
+  })
+
+  it('collapses close and setLabels — each sends a whole cell a repeat cannot add to', () => {
+    // POD-781. `close` names the closed cell and `setLabels` sends the WHOLE set
+    // rather than a delta, so in both cases the later entry already contains
+    // everything the earlier one said. Neither shares with `issueUpdate`, which
+    // collapses with nothing — a reopen queued behind a close cannot be dropped.
+    const id = 'POD-1'
+    expect(route('issueClose', { id, reason: 'done' }).collapseKey).toBe(
+      route('issueClose', { id, reason: 'wontfix' }).collapseKey,
+    )
+    expect(route('issueSetLabels', { id, labels: ['a'] }).collapseKey).toBe(
+      route('issueSetLabels', { id, labels: ['b'] }).collapseKey,
+    )
+    expect(route('issueClose', { id, reason: 'done' }).collapseKey).not.toBe(
+      route('issueSetLabels', { id, labels: ['a'] }).collapseKey,
+    )
+    expect(route('issueUpdate', { id, patch: { stage: 'backlog' } }).collapseKey).toBeUndefined()
   })
 
   it('never shares a collapse key across different targets or different cells', () => {

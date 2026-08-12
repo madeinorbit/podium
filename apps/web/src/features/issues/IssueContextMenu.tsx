@@ -103,6 +103,10 @@ export function IssueContextMenu({
     markIssueUnread,
     updateIssue,
     deleteIssue,
+    closeIssue,
+    deferIssue,
+    undeferIssue,
+    setIssueLabels,
     sessions,
     repos,
     machines,
@@ -113,6 +117,10 @@ export function IssueContextMenu({
       markIssueUnread: s.markIssueUnread,
       updateIssue: s.updateIssue,
       deleteIssue: s.deleteIssue,
+      closeIssue: s.closeIssue,
+      deferIssue: s.deferIssue,
+      undeferIssue: s.undeferIssue,
+      setIssueLabels: s.setIssueLabels,
       sessions: s.sessions,
       repos: s.repos,
       machines: s.machines,
@@ -190,16 +198,19 @@ export function IssueContextMenu({
     )
   }
 
+  // Every one of these is optimistic + outboxed (POD-781). The menu serves the
+  // sidebar AND the issue board, so a stage move, a colour or a label repaints
+  // the row on the press on both surfaces — the same store action, one queue.
   const setStage = (stage: IssueStage): void =>
-    run(() => Promise.all(ids.map((id) => trpc.issues.update.mutate({ id, patch: { stage } }))))
+    run(() => Promise.all(ids.map((id) => updateIssue(id, { stage }))))
   const setPriority = (priority: number): void =>
-    run(() => Promise.all(ids.map((id) => trpc.issues.update.mutate({ id, patch: { priority } }))))
+    run(() => Promise.all(ids.map((id) => updateIssue(id, { priority }))))
   // Same patch the IdSquare picker sends; `null` clears back to the slate flow.
   const setColor = (color: IssueColorSlot | null): void =>
-    run(() => Promise.all(ids.map((id) => trpc.issues.update.mutate({ id, patch: { color } }))))
+    run(() => Promise.all(ids.map((id) => updateIssue(id, { color }))))
   const toggleLabel = (label: string): void =>
     run(() =>
-      Promise.all(toggleLabelAcross(issues, label).map((p) => trpc.issues.setLabels.mutate(p))),
+      Promise.all(toggleLabelAcross(issues, label).map((p) => setIssueLabels(p.id, p.labels))),
     )
   const assignAgent = (agentKind: string): void =>
     run(() =>
@@ -213,11 +224,10 @@ export function IssueContextMenu({
       onRequestClose(reason)
       return
     }
-    run(() => trpc.issues.close.mutate({ id: first.id, reason }))
+    run(() => closeIssue(first.id, reason))
   }
-  const defer = (until: string | null): void =>
-    run(() => trpc.issues.defer.mutate({ id: first.id, until }))
-  const undefer = (): void => run(() => trpc.issues.undefer.mutate({ id: first.id }))
+  const defer = (until: string | null): void => run(() => deferIssue(first.id, until))
+  const undefer = (): void => run(() => undeferIssue(first.id))
   const rename = (): void => {
     onRename?.(first.id)
     onClose()
@@ -313,7 +323,7 @@ export function IssueContextMenu({
         close('wontfix')
         return
       case 'pin':
-        run(() => trpc.issues.update.mutate({ id: first.id, patch: { pinned: !first.pinned } }))
+        run(() => updateIssue(first.id, { pinned: !first.pinned }))
         return
       case 'archive':
         // The archive/unarchive TOGGLE — `issues.update`, not the one-way

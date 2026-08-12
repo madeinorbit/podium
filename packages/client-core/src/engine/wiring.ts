@@ -74,6 +74,24 @@ export type OutboxKinds = {
   issueUpdate: Omit<Parameters<PodiumClientApi['issues']['update']['mutate']>[0], 'mutationId'>
   issueArchive: { id: string }
   issueDelete: { id: string }
+  /**
+   * THE FOUR THAT ARE NOT `issues.update` (POD-781 group 2), and the rule that
+   * decided them: A KIND NAMES A CONTRACT. `issues.close` reaches `update`
+   * INTERNALLY — `IssueCrud.close` is `update(id, {stage:'done', closedReason})`
+   * — and that is precisely the trap. The command is not its implementation: the
+   * close route also emits `issue.closed` with the acting session so the steward
+   * can skip nudging it, and refuses a proposed issue for an agent. Queuing a
+   * close as `issueUpdate` would drop both, silently, on the offline path only.
+   *
+   * `issueUndefer` is separate from `issueDefer` for the same reason `snoozeClear`
+   * is separate from `snoozeSet`: it is another command, and not the same act —
+   * `defer(null)` clears quietly, `undefer` BACKDATES so the row floats back to
+   * the top of WORK wearing the "Unsnoozed" tag (issue #133).
+   */
+  issueClose: { id: string; reason?: string }
+  issueDefer: { id: string; until: string | null }
+  issueUndefer: { id: string }
+  issueSetLabels: { id: string; labels: string[] }
 }
 
 /** The engine-facing queue contract. Kernel-backed web clients inject this
@@ -191,6 +209,13 @@ export const OUTBOX_COMMANDS: Record<
   issueUpdate: { name: 'issues.update', version: 1, delivery, confirmation: 'confirm' },
   issueArchive: { name: 'issues.archive', version: 1, delivery, confirmation: 'confirm' },
   issueDelete: { name: 'issues.delete', version: 1, delivery, confirmation: 'confirm' },
+  issueClose: { name: 'issues.close', version: 1, delivery, confirmation: 'confirm' },
+  issueDefer: { name: 'issues.defer', version: 1, delivery, confirmation: 'confirm' },
+  issueUndefer: { name: 'issues.undefer', version: 1, delivery, confirmation: 'confirm' },
+  // `manage`, not `write` — the same `confirm` rule, reached from MANAGE_POLICY
+  // rather than WRITE_POLICY. Copied from the contract either way, and
+  // `outbox-contract-table.test.ts` pins it there.
+  issueSetLabels: { name: 'issues.setLabels', version: 1, delivery, confirmation: 'confirm' },
 }
 
 /**
@@ -336,6 +361,37 @@ export const OUTBOX_ROUTING: {
     partitionKey: `issue:${i.id}`,
     collapseKey: `issue-deleted:${i.id}`,
   }),
+
+  // POD-781 group 2. Each of these names ONE cell, absolutely — the second write
+  // says everything the first did — so each collapses, and the pairs that write
+  // the SAME cell share a key, exactly as `snoozeSet`/`snoozeClear` do.
+  //
+  // `issueClose` keys on the closed cell. A close and a re-close differ only in
+  // reason and the newest reason is the one the operator meant. It does NOT share
+  // with `issueUpdate{stage}`: the patch kind collapses with nothing, so a reopen
+  // queued behind a close can never be dropped.
+  issueClose: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-closed:${i.id}`,
+  }),
+  // Defer and undefer BOTH write `deferUntil`, so they share its key — snooze-set
+  // and snooze-clear's arrangement, for the same reason: "snooze until Friday,
+  // no — unsnooze" must send the last word, not both words in order.
+  issueDefer: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-defer:${i.id}`,
+  }),
+  issueUndefer: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-defer:${i.id}`,
+  }),
+  // `setLabels` sends the WHOLE set, not a delta — that is what makes it
+  // collapsible where a partial patch is not. Two queued sets for one issue: the
+  // later one already contains everything the earlier one added.
+  issueSetLabels: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-labels:${i.id}`,
+  }),
 }
 
 /** Route one queued write. Falls back to the entry's own private partition — D12's
@@ -451,6 +507,10 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
       issueUpdate: (i) => api.issues.update.mutate(i),
       issueArchive: (i) => api.issues.archive.mutate(i),
       issueDelete: (i) => api.issues.delete.mutate(i),
+      issueClose: (i) => api.issues.close.mutate(i),
+      issueDefer: (i) => api.issues.defer.mutate(i),
+      issueUndefer: (i) => api.issues.undefer.mutate(i),
+      issueSetLabels: (i) => api.issues.setLabels.mutate(i),
     },
     onApplied: args.onApplied,
     // A definitively-refused entry can never sync AS IT IS — but it is no longer

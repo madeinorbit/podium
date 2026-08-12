@@ -1,4 +1,4 @@
-import type { IssueId, IssueStage } from '@podium/model'
+import { asUserId, type IssueId, type IssueStage } from '@podium/model'
 import { ListTree, Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -44,6 +44,12 @@ export function IssuesView(): JSX.Element {
   const openIssueId = useStoreSelector((store) => store.openIssueId)
   const setOpenIssueId = useStoreSelector((store) => store.setOpenIssueId)
   const trpc = useStoreSelector((store) => store.trpc)
+  // The board's own writes ride the outbox-as-overlay too (POD-781) — the same
+  // store actions the right-click menu uses, so a stage move made from a card
+  // and one made from the menu paint identically.
+  const updateIssue = useStoreSelector((store) => store.updateIssue)
+  const setIssueLabels = useStoreSelector((store) => store.setIssueLabels)
+  const deleteIssue = useStoreSelector((store) => store.deleteIssue)
   const isMobile = useIsMobile()
   // Display options are per-user REPLICATED, so they are subscribed rather than
   // seeded — a `useState` initializer reads the key before the replica has the
@@ -85,22 +91,25 @@ export function IssuesView(): JSX.Element {
     setError('')
     promise.catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
   }
-  const moveIssue = (id: string, stage: IssueStage): void =>
-    runMut(trpc.issues.update.mutate({ id, patch: { stage } }))
+  const moveIssue = (id: string, stage: IssueStage): void => runMut(updateIssue(id, { stage }))
   const approveIssue = (id: string): void => runMut(trpc.issues.promote.mutate({ id }))
   // `approve & start` and `archive` left this file with the card's three-button
   // bar (POD-591). They are not lost: both are on the right-click menu, which
   // acts on a selection rather than on one card, and that is where a decision
   // taken over 140 proposals belongs. The card keeps Approve alone.
+
+  // The picker hands back a bare string (and `''` to unassign) while the
+  // contract's patch is branded — the brand is a compile-time claim about which
+  // string this is, and the dropdown's options come from the issues' own
+  // assignees, so it is the same string either way.
   const setAssignee = (id: string, assignee: string): void =>
-    runMut(trpc.issues.update.mutate({ id, patch: { assignee } }))
-  const setPriority = (id: string, priority: number): void =>
-    runMut(trpc.issues.update.mutate({ id, patch: { priority } }))
+    runMut(updateIssue(id, { assignee: asUserId(assignee) }))
+  const setPriority = (id: string, priority: number): void => runMut(updateIssue(id, { priority }))
   const toggleLabel = (issue: IssueViewModel, label: string): void => {
     const labels = issue.labels.includes(label)
       ? issue.labels.filter((candidate) => candidate !== label)
       : [...issue.labels, label]
-    runMut(trpc.issues.setLabels.mutate({ id: issue.id, labels }))
+    runMut(setIssueLabels(issue.id, labels))
   }
 
   const selectedIds = keyState.selected.filter((id) => view.presentIds.has(id))
@@ -185,13 +194,9 @@ export function IssuesView(): JSX.Element {
     setCtxMenu({ ids: next.targetIds, anchor: { x: event.clientX, y: event.clientY } })
   }
   const bulkStage = (stage: IssueStage): void =>
-    runMut(
-      Promise.all(selectedIds.map((id) => trpc.issues.update.mutate({ id, patch: { stage } }))),
-    )
+    runMut(Promise.all(selectedIds.map((id) => updateIssue(id, { stage }))))
   const bulkPriority = (priority: number): void =>
-    runMut(
-      Promise.all(selectedIds.map((id) => trpc.issues.update.mutate({ id, patch: { priority } }))),
-    )
+    runMut(Promise.all(selectedIds.map((id) => updateIssue(id, { priority }))))
   const bulkDelete = (): void => {
     if (selectedIds.length === 0) return
     const targets = issues.filter((issue) => selectedIds.includes(issue.id))
@@ -202,7 +207,7 @@ export function IssuesView(): JSX.Element {
       )
     )
       return
-    runMut(Promise.all(selectedIds.map((id) => trpc.issues.delete.mutate({ id }))))
+    runMut(Promise.all(selectedIds.map((id) => deleteIssue(id))))
     setKeyState((state) => ({ ...state, selected: [] }))
   }
 

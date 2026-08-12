@@ -424,6 +424,26 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * Soft: `issues.restore` brings both back.
    */
   deleteIssue: (id: string) => Promise<void>
+  /**
+   * CLOSE an issue — `issues.close`, the menu's Done / Won't fix pair.
+   *
+   * Not `updateIssue(id, {stage:'done', closedReason})` even though that is what
+   * the server's close does internally: the close command also carries the acting
+   * session into `issue.closed` (so the steward does not nudge the session that
+   * asked for the close) and refuses a proposed issue for an agent caller.
+   * Optimistic + outboxed — the row reaches the Closed fold on the press.
+   */
+  closeIssue: (id: string, reason?: string) => Promise<void>
+  /** SNOOZE an issue until an instant, a bare date, or `next-message` — `null`
+   *  clears quietly. Optimistic + outboxed. */
+  deferIssue: (id: string, until: string | null) => Promise<void>
+  /** END a snooze the loud way (issue #133): backdates `deferUntil` so the row
+   *  floats to the top of WORK wearing "Unsnoozed", rather than clearing it the
+   *  way `deferIssue(id, null)` does. Optimistic + outboxed. */
+  undeferIssue: (id: string) => Promise<void>
+  /** REWRITE an issue's whole label set — `issues.setLabels`, `manage` authority.
+   *  The caller sends the set it wants, not a delta. Optimistic + outboxed. */
+  setIssueLabels: (id: string, labels: string[]) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the

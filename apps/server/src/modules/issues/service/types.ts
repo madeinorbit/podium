@@ -77,14 +77,11 @@ export interface IssuePublishSpecs {
  *  this long after it was read. Reading starts the clock; unread issues wait. */
 export const AUTO_ARCHIVE_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
-/** Manual unsnooze backdate (issue #133): `undefer` sets deferUntil this far in the
- *  past rather than to exactly "now". The sidebar reads snooze state off a coarse
- *  on-screen clock (useNow, minute granularity) that can lag real time by up to a
- *  minute, so a deferUntil of exactly-now would read as still-snoozed for up to that
- *  long. Backdating well past that window flips the issue to returned-from-defer
- *  (top-of-WORK + "Unsnoozed" tag) immediately. deferUntil is only compared, never
- *  displayed, so the backdate is invisible. */
-export const UNSNOOZE_BACKDATE_MS = 5 * 60 * 1000
+/** Manual unsnooze backdate (issue #133) — see `@podium/model`'s issue-stage
+ *  predicates, which now hold the constant because the CLIENT paints the same
+ *  backdated instant optimistically (POD-781). Re-exported here so the server's
+ *  own callers keep their import path. */
+export { UNSNOOZE_BACKDATE_MS } from '@podium/model'
 
 /** One mutation on the agent-published human panel — see IssueService.panelApply. */
 export type IssuePanelOp =

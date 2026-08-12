@@ -322,14 +322,18 @@ export const attachSessionInput = z.object({
 })
 
 /**
- * ARCHIVE AND DELETE CARRY A `mutationId`, and `restore` does not — POD-781.
+ * ARCHIVE, DELETE, DEFER, UNDEFER AND SET-LABELS CARRY A `mutationId`, and
+ * `restore` does not — POD-781.
  *
  * The field is the caller's replay identity: `MutationLedgerPort.once` keys the
  * receipt on it, which is the ONE property that makes a queued write safe to
  * replay after a reload or a reconnect (ADR 3 D4's `offline-eligible` class is a
- * statement about shape; this is what cashes it). Both commands are now served
- * by the client outbox, so both need one; without it every drain re-runs the
+ * statement about shape; this is what cashes it). Every one of them is now served
+ * by the client outbox, so every one needs it; without it a drain re-runs the
  * mutation unguarded and `withMutation` receives `undefined`.
+ *
+ * `close` needed nothing here — it has carried a `mutationId` since it was first
+ * written, which is why the outbox could take it as it stood.
  *
  * `restore` is deliberately left bare: nothing queues it yet (POD-781 group 3),
  * and an input field that no caller sends and no handler reads is exactly the
@@ -371,7 +375,13 @@ export const dismissSuggestionInput = byIssueId
 
 export const refreshAssistantInput = byIssueId
 
-export const setLabelsInput = z.object({ id: IssueIdField, labels: z.array(z.string()) })
+export const setLabelsInput = z.object({
+  id: IssueIdField,
+  labels: z.array(z.string()),
+  // Outboxed (POD-781) — see the archive/delete note below for why the replay
+  // identity is the field that makes a queued write re-sendable.
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
 
 export const shareInput = z.object({
   id: IssueIdField,
@@ -400,9 +410,15 @@ export const depRemoveInput = z.object({
   type: z.string().optional(),
 })
 
-export const deferInput = z.object({ id: IssueIdField, until: z.string().nullable() })
+export const deferInput = z.object({
+  id: IssueIdField,
+  until: z.string().nullable(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
 
-export const undeferInput = byIssueId
+export const undeferInput = byIssueId.extend({
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
 
 export const markReadInput = z.object({
   id: IssueIdField,

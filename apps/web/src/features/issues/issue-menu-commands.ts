@@ -15,12 +15,17 @@ export interface IssueMenuCommandDeps {
    *
    *  Typed against the CONTRACT's whole patch rather than the one key the archive
    *  toggle sends: the stage, priority and colour entries below are the same
-   *  command and move onto this action next (POD-781 group 2), and a signature
-   *  narrowed to today's caller would have to be widened first — which reads as
-   *  a decision being taken when it is only being caught up with. */
+   *  command and now ride this action too. */
   updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
   /** Optimistic + outboxed (POD-781): tombstones the issue AND its sessions. */
   deleteIssue: (id: string) => Promise<unknown>
+  /** The four curation commands that are NOT `issues.update`, each optimistic +
+   *  outboxed (POD-781): the row reaches the Closed fold, the snooze, the
+   *  unsnooze and the label change all paint on the press. */
+  closeIssue: (id: string, reason?: string) => Promise<unknown>
+  deferIssue: (id: string, until: string | null) => Promise<unknown>
+  undeferIssue: (id: string) => Promise<unknown>
+  setIssueLabels: (id: string, labels: string[]) => Promise<unknown>
   setOpenIssueId: (id: string) => void
   setView: (view: 'issues') => void
   handoff?: (machineId: string) => void
@@ -48,11 +53,11 @@ export function runIssueMenuCommand(
       case 'markRead':
         return deps.markIssueRead(id)
       case 'closeDone':
-        return deps.trpc.issues.close.mutate({ id, reason: 'done' })
+        return deps.closeIssue(id, 'done')
       case 'closeWontfix':
-        return deps.trpc.issues.close.mutate({ id, reason: 'wontfix' })
+        return deps.closeIssue(id, 'wontfix')
       case 'pin':
-        return deps.trpc.issues.update.mutate({ id, patch: { pinned: !data.first.pinned } })
+        return deps.updateIssue(id, { pinned: !data.first.pinned })
       case 'archive':
         // THE TOGGLE, not the dismiss (POD-781). `issues.archive` is one-way, so
         // the menu's archive/unarchive pair has always gone through the patch —
@@ -76,31 +81,19 @@ export function runIssueMenuCommand(
     case 'stage': {
       const stage = stageValue(value)
       if (stage) {
-        return Promise.all(
-          data.issues.map((issue) =>
-            deps.trpc.issues.update.mutate({ id: issue.id, patch: { stage } }),
-          ),
-        )
+        return Promise.all(data.issues.map((issue) => deps.updateIssue(issue.id, { stage })))
       }
       return
     }
     case 'priority': {
       const priority = Number(value)
       if (!Number.isInteger(priority) || priority < 0 || priority > 4) return
-      return Promise.all(
-        data.issues.map((issue) =>
-          deps.trpc.issues.update.mutate({ id: issue.id, patch: { priority } }),
-        ),
-      )
+      return Promise.all(data.issues.map((issue) => deps.updateIssue(issue.id, { priority })))
     }
     case 'color': {
       if (value !== ISSUE_MENU_COLOR_NONE && !isIssueColorSlot(value)) return
       const color = value === ISSUE_MENU_COLOR_NONE ? null : value
-      return Promise.all(
-        data.issues.map((issue) =>
-          deps.trpc.issues.update.mutate({ id: issue.id, patch: { color } }),
-        ),
-      )
+      return Promise.all(data.issues.map((issue) => deps.updateIssue(issue.id, { color })))
     }
     case 'agent':
       return data.first.worktreePath
@@ -109,25 +102,18 @@ export function runIssueMenuCommand(
     case 'labels':
       return Promise.all(
         toggleLabelAcross(data.issues, value).map((patch) =>
-          deps.trpc.issues.setLabels.mutate(patch),
+          deps.setIssueLabels(patch.id, patch.labels),
         ),
       )
     case 'handoff':
       deps.handoff?.(value)
       return
     case 'defer':
-      if (value === 'hour')
-        return deps.trpc.issues.defer.mutate({ id, until: snoozeUntil1h(Date.now()) })
-      if (value === 'tomorrow') {
-        return deps.trpc.issues.defer.mutate({ id, until: deferDateFromNow(Date.now(), 1) })
-      }
-      if (value === 'week') {
-        return deps.trpc.issues.defer.mutate({ id, until: deferDateFromNow(Date.now(), 7) })
-      }
-      if (value === 'next-message') {
-        return deps.trpc.issues.defer.mutate({ id, until: DEFER_NEXT_MESSAGE })
-      }
-      if (value === 'undefer') return deps.trpc.issues.undefer.mutate({ id })
+      if (value === 'hour') return deps.deferIssue(id, snoozeUntil1h(Date.now()))
+      if (value === 'tomorrow') return deps.deferIssue(id, deferDateFromNow(Date.now(), 1))
+      if (value === 'week') return deps.deferIssue(id, deferDateFromNow(Date.now(), 7))
+      if (value === 'next-message') return deps.deferIssue(id, DEFER_NEXT_MESSAGE)
+      if (value === 'undefer') return deps.undeferIssue(id)
       return
     case 'duplicate':
       return deps.trpc.issues.duplicate.mutate({ id, canonicalId: value })

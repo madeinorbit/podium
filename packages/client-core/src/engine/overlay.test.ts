@@ -22,6 +22,7 @@ import {
   overlayForOutboxEntry,
   type PendingOverlay,
   PRESENCE_REDUCER_KINDS,
+  projectionCurationOverlay,
   pruneAwaiting,
   rowFingerprint,
 } from './overlay'
@@ -201,6 +202,169 @@ describe('overlayForOutboxEntry projection', () => {
     // …and a heal snapshot taken before the delete reached the server does not,
     // so the row cannot flicker back into the list mid-flight.
     expect(o.coveredBy({} as IssueWire)).toBe(false)
+  })
+
+  it('issueClose settles the stage and stamps the reason, and is covered by the DERIVED closed fact', () => {
+    const o = overlayForOutboxEntry(entry('issueClose', { id: 'i1', reason: 'wontfix' }))
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(o.entity).toBe('issues')
+    expect(o.patch).toEqual({ stage: 'done', closedReason: 'wontfix' })
+    // Covered on stage + a reason being PRESENT, not on the reason matching: the
+    // server supplies its own default when the caller omits one.
+    expect(o.coveredBy({ stage: 'done', closedReason: 'wontfix' } as IssueWire)).toBe(true)
+    expect(o.coveredBy({ stage: 'done', closedReason: 'done' } as IssueWire)).toBe(true)
+    // Half-landed truth is not coverage in either direction.
+    expect(o.coveredBy({ stage: 'done' } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ stage: 'review', closedReason: 'wontfix' } as IssueWire)).toBe(false)
+  })
+
+  it('issueClose with no reason paints only what the caller said — the stage', () => {
+    const o = overlayForOutboxEntry(entry('issueClose', { id: 'i1' }))
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(o.patch).toEqual({ stage: 'done' })
+  })
+
+  it('issueDefer is an exact cell write, and clearing is covered by an absent field', () => {
+    const until = overlayForOutboxEntry(entry('issueDefer', { id: 'i1', until: 'next-message' }))
+    if (until?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(until.patch).toEqual({ deferUntil: 'next-message' })
+    expect(until.coveredBy({ deferUntil: 'next-message' } as IssueWire)).toBe(true)
+    expect(until.coveredBy({ deferUntil: '2099-01-01' } as IssueWire)).toBe(false)
+
+    const cleared = overlayForOutboxEntry(entry('issueDefer', { id: 'i1', until: null }))
+    if (cleared?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(cleared.coveredBy({} as IssueWire)).toBe(true)
+    expect(cleared.coveredBy({ deferUntil: '2099-01-01' } as IssueWire)).toBe(false)
+  })
+
+  it('issueUndefer BACKDATES rather than clearing, and is covered by the row no longer being deferred', () => {
+    const queuedAt = 1751500800000
+    const o = overlayForOutboxEntry(entry('issueUndefer', { id: 'i1' }, queuedAt))
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    // Not `null`: `deferUntil: null` is the QUIET clear that `defer(null)` is.
+    // The unsnooze lands the row in returned-from-defer — top of WORK, wearing
+    // the "Unsnoozed" tag — which is a past instant, not an absent one.
+    const painted = (o.patch as { deferUntil: string }).deferUntil
+    expect(Date.parse(painted)).toBeLessThan(queuedAt)
+    // Coverage is the predicate, not the instant: the server backdates from its
+    // OWN clock at apply time, so a queued undefer that drains late lands a
+    // different timestamp than the one painted here.
+    expect(o.coveredBy({ deferUntil: '2020-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
+    // A row with no defer at all covers it too: undefer on a non-deferred issue
+    // is a server-side no-op, so there is nothing for truth to catch up to.
+    expect(o.coveredBy({} as IssueWire)).toBe(true)
+    expect(o.coveredBy({ deferUntil: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(false)
+    // The sentinel never lapses by time, so an un-drained `next-message` snooze
+    // must not read as covered.
+    expect(o.coveredBy({ deferUntil: 'next-message' } as IssueWire)).toBe(false)
+  })
+
+  it('issueSetLabels paints the set the server will store, and is covered as a SET', () => {
+    const o = overlayForOutboxEntry(
+      entry('issueSetLabels', { id: 'i1', labels: ['ui', ' bug ', 'bug', ''] }),
+    )
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    // Trimmed, de-duplicated, blank-free and sorted — what `setIssueLabels`
+    // stores and what the read side returns, so the chip row does not repaint
+    // when truth lands.
+    expect(o.patch).toEqual({ labels: ['bug', 'ui'] })
+    expect(o.coveredBy({ labels: ['bug', 'ui'] } as IssueWire)).toBe(true)
+    // Membership, not order: SQLite orders TEXT by byte and JS by UTF-16 code
+    // unit, and a difference nobody can see must not hang the overlay to its TTL.
+    expect(o.coveredBy({ labels: ['ui', 'bug'] } as IssueWire)).toBe(true)
+    expect(o.coveredBy({ labels: ['bug'] } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ labels: ['bug', 'ui', 'perf'] } as IssueWire)).toBe(false)
+  })
+
+  it('issueSetLabels clears to the empty set — covered by a row with no labels at all', () => {
+    const o = overlayForOutboxEntry(entry('issueSetLabels', { id: 'i1', labels: [] }))
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(o.patch).toEqual({ labels: [] })
+    expect(o.coveredBy({ labels: [] as string[] } as IssueWire)).toBe(true)
+    expect(o.coveredBy({} as IssueWire)).toBe(true)
+    expect(o.coveredBy({ labels: ['bug'] } as IssueWire)).toBe(false)
+  })
+
+  // ---------------------------------------------------------------------------
+  // POD-781 — the curation mirror onto the normalized projection, which is what
+  // the issue BOARD and the issue page read (the sidebar reads the legacy wire).
+  // ---------------------------------------------------------------------------
+
+  it('mirrors a curation patch onto the projection, or the board keeps painting the old value', () => {
+    const source = overlayForOutboxEntry(
+      entry('issueUpdate', { id: 'i1', patch: { title: 'Renamed', stage: 'review' } }),
+    )
+    if (source?.op !== 'patch') throw new Error('expected patch overlay')
+    const mirror = projectionCurationOverlay(source)
+    if (mirror?.op !== 'patch') throw new Error('expected a mirrored overlay')
+    expect(mirror.entity).toBe('issueProjections')
+    expect(mirror.id).toBe('i1')
+    // `IssueProjection` carries the whole durable row, so it OVERRIDES the
+    // overlaid wire in `useIssueViewModels`' merge. Both keys must travel.
+    expect(mirror.patch).toEqual({ title: 'Renamed', stage: 'review' })
+  })
+
+  it('mirrors close, defer and labels too — the whole family, not just the patch kind', () => {
+    const mirrored = (kind: string, input: unknown) => {
+      const source = overlayForOutboxEntry(entry(kind, input))
+      if (source?.op !== 'patch') throw new Error(`expected a patch overlay for ${kind}`)
+      const mirror = projectionCurationOverlay(source)
+      if (mirror?.op !== 'patch') throw new Error(`expected a mirror for ${kind}`)
+      return mirror.patch
+    }
+    expect(mirrored('issueClose', { id: 'i1', reason: 'done' })).toEqual({
+      stage: 'done',
+      closedReason: 'done',
+    })
+    expect(mirrored('issueDefer', { id: 'i1', until: '2099-01-01' })).toEqual({
+      deferUntil: '2099-01-01',
+    })
+    expect(mirrored('issueSetLabels', { id: 'i1', labels: ['bug'] })).toEqual({ labels: ['bug'] })
+    expect(mirrored('issueArchive', { id: 'i1' })).toEqual({ archived: true })
+    expect(mirrored('issueDelete', { id: 'i1' })).toEqual({
+      deletedAt: new Date(1751500800000).toISOString(),
+    })
+  })
+
+  it('mirrors NOTHING for a patch the projection has no home for', () => {
+    // `pinned` and `tuckedAt` are per-user state and are not projection fields —
+    // the board reads them off the overlaid wire, where they already paint.
+    const pinned = overlayForOutboxEntry(
+      entry('issueUpdate', { id: 'i1', patch: { pinned: true } }),
+    )
+    if (pinned?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(projectionCurationOverlay(pinned)).toBeNull()
+
+    const tucked = overlayForOutboxEntry(entry('issueSetTucked', { id: 'i1', tucked: true }))
+    if (tucked?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(projectionCurationOverlay(tucked)).toBeNull()
+
+    // The op-stream DOCUMENTS are excluded by name: `description` is `{ value }`
+    // on the projection and a plain string in the patch, so copying it across
+    // would put a string where a document lives.
+    const described = overlayForOutboxEntry(
+      entry('issueUpdate', { id: 'i1', patch: { description: 'new prose' } }),
+    )
+    if (described?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(projectionCurationOverlay(described)).toBeNull()
+
+    // A MIXED patch mirrors the half that has a home rather than nothing.
+    const mixed = overlayForOutboxEntry(
+      entry('issueUpdate', { id: 'i1', patch: { description: 'new prose', priority: 1 } }),
+    )
+    if (mixed?.op !== 'patch') throw new Error('expected patch overlay')
+    const mirror = projectionCurationOverlay(mixed)
+    if (mirror?.op !== 'patch') throw new Error('expected a mirrored overlay')
+    expect(mirror.patch).toEqual({ priority: 1 })
+  })
+
+  it('never mirrors in the other direction — a projection overlay is not re-mirrored back', () => {
+    // `legacyIssueReadOverlay` owns projection→wire. If this returned something
+    // the two would feed each other on every fold.
+    const read = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' }))
+    if (read?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(read.entity).toBe('issueProjections')
+    expect(projectionCurationOverlay(read)).toBeNull()
   })
 
   // POD-762: a wake is row-visible. The queue depth is the fact — the operator's

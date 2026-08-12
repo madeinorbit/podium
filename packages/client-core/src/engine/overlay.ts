@@ -53,6 +53,7 @@
 
 import { createLogger } from '@podium/logger'
 import type { IssueWire, SessionMeta, WorkState } from '@podium/model'
+import { IssueProjection, isIssueDeferred, UNSNOOZE_BACKDATE_MS } from '@podium/model'
 import type { OutboxEntry } from '../outbox'
 import type { IssueProjectionRow } from '../replica/contract'
 import type { OutboxKinds } from './wiring'
@@ -370,6 +371,88 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
         (r) => (r as IssueWire).deletedAt != null,
       )
     }
+    case 'issueClose': {
+      // COVERAGE IS DERIVED HERE, and this is the one case in the POD-781 family
+      // where exact-match would have been wrong.
+      //
+      // `reason` is OPTIONAL on the contract and the server supplies its own
+      // default (`IssueCrud.close`'s `reason = 'done'`) when the caller omits it.
+      // A client that compared `closedReason` to the string it sent would be
+      // comparing against a value it never sent — so what is judged is the
+      // DERIVED fact the close produces: the stage settled to 'done' AND a reason
+      // is on the row, whatever it says. That is the same shape of judgement
+      // `sessionMarkRead` makes about a server-stamped `readAt`.
+      //
+      // What is PAINTED is only what the caller actually said. `stage: 'done'` is
+      // not a guess — `normalizeClosedPatch` makes it structural: setting a
+      // non-null closedReason moves the stage there, and the two menu entries
+      // (Done / Won't fix) both send a reason.
+      const i = entry.input as OutboxKinds['issueClose']
+      return patchOverlay(
+        'issues',
+        i.id,
+        entry.mutationId,
+        { stage: 'done', ...(i.reason == null ? {} : { closedReason: i.reason }) },
+        (r) => (r as IssueWire).stage === 'done' && (r as IssueWire).closedReason != null,
+      )
+    }
+    case 'issueDefer': {
+      // The plainest cell in the family: `issues.defer` is `update{deferUntil}`
+      // and the server stores the string as given — a full ISO instant, the
+      // board's bare `YYYY-MM-DD` preset, or the `next-message` sentinel. So this
+      // is an exact match, through `sameCell` because clearing a defer sends
+      // `null` while a never-deferred row may simply not carry the field.
+      const i = entry.input as OutboxKinds['issueDefer']
+      return patchOverlay('issues', i.id, entry.mutationId, { deferUntil: i.until }, (r) =>
+        sameCell((r as IssueWire).deferUntil, i.until),
+      )
+    }
+    case 'issueUndefer': {
+      // UNSNOOZE IS NOT "CLEAR" (issue #133). The server backdates `deferUntil`
+      // past the sidebar's coarse minute-granularity clock rather than nulling it,
+      // which lands the row in the returned-from-defer state: top of WORK, wearing
+      // the "Unsnoozed" tag, until the operator next opens it. Painting `null`
+      // here would paint a DIFFERENT act — the quiet clear that `defer(null)` is —
+      // and the tag would appear only once the round trip finished, which is the
+      // exact lag this issue exists to delete. `UNSNOOZE_BACKDATE_MS` is shared
+      // with the server for that reason (it moved into `@podium/model`).
+      //
+      // COVERAGE IS DERIVED, on the predicate rather than the instant: the server
+      // backdates from ITS clock at apply time, and a queued undefer that drains
+      // an hour later lands a different timestamp than the one painted here. What
+      // both agree on is that the issue is no longer deferred. A no-op undefer
+      // (the row was not deferred at all) is covered from the start, which is
+      // right — there is nothing for truth to catch up to.
+      const i = entry.input as OutboxKinds['issueUndefer']
+      return patchOverlay(
+        'issues',
+        i.id,
+        entry.mutationId,
+        { deferUntil: new Date(entry.queuedAt - UNSNOOZE_BACKDATE_MS).toISOString() },
+        (r) => !isIssueDeferred(r as IssueWire, Date.now()),
+      )
+    }
+    case 'issueSetLabels': {
+      // THE SERVER NORMALIZES THIS ONE, so the overlay normalizes it the same way
+      // — the precedent is `rename` above, which trims because the server trims.
+      // `setIssueLabels` drops blanks and duplicates, and the read side returns
+      // the set `ORDER BY label ASC`. Painting the raw array would repaint the
+      // chip row the moment truth landed, which is a flicker the overlay exists
+      // to prevent.
+      //
+      // COVERAGE IS DERIVED — as a SET, not as an array. The sorted order is the
+      // one thing here the client cannot honestly claim to reproduce: SQLite
+      // orders TEXT by byte and JavaScript by UTF-16 code unit, and those part
+      // company outside ASCII. Judging membership keeps a label with an accent or
+      // an emoji in it from hanging its overlay to the TTL for a difference
+      // nobody can see.
+      const i = entry.input as OutboxKinds['issueSetLabels']
+      const labels = [...new Set(i.labels.map((l) => l.trim()).filter(Boolean))].sort()
+      return patchOverlay('issues', i.id, entry.mutationId, { labels }, (r) => {
+        const current = (r as IssueWire).labels ?? []
+        return current.length === labels.length && labels.every((l) => current.includes(l))
+      })
+    }
     case 'resumeAndSend': {
       // A WAKE *IS* ROW-VISIBLE (POD-762). This used to project null on the
       // grounds that it is delivery rather than curation, and the row said
@@ -421,7 +504,9 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
  *
  * THE ISSUE KINDS ARE DELIBERATELY ABSENT, and always have been: `issueMarkRead`,
  * `issueMarkUnread` and `issueSetTucked` have reducer cases above without an entry
- * here, and POD-781's `issueUpdate` / `issueArchive` / `issueDelete` follow them.
+ * here, and POD-781's seven curation kinds (`issueUpdate`, `issueArchive`,
+ * `issueDelete`, `issueClose`, `issueDefer`, `issueUndefer`, `issueSetLabels`)
+ * follow them.
  * This map's totality test is stated against `sessionStateCommandNames()` — the
  * PRESENCE family — so it asserts equality, not containment, and an `issues.*`
  * name in it would red the suite by being a key with no eligible contract to
@@ -455,6 +540,62 @@ export function legacyIssueReadOverlay(overlay: PendingOverlay): PendingOverlay 
     const issue = row as IssueWire & { unread?: boolean }
     return unread ? issue.unread === true : issue.unread === false && issue.readAt != null
   })
+}
+
+/**
+ * THE CURATION MIRROR (POD-781 group 2) — why the issue BOARD paints on the
+ * press and not only the sidebar, and the symmetric twin of
+ * `legacyIssueReadOverlay` above.
+ *
+ * THE PROBLEM IT SOLVES, measured rather than assumed. The two surfaces read
+ * two different rows. The sidebar's worklist slice derives from the LEGACY issue
+ * wire (`IssueNavigationModel` is `IssueWire`), which is the entity every
+ * curation kind overlays — so a rename or a colour paints there immediately. The
+ * board and the issue page read `useIssueViewModels`, which merges
+ * `{...legacyWire, ...projection, ...derived}` — and `IssueProjection` is the
+ * issue's whole DURABLE row (`wireShape(IssueAggregate.shape)`), so it carries
+ * `title`, `stage`, `priority`, `labels`, `color`, `deferUntil`, `closedReason`,
+ * `archived`, `deletedAt` and `sortKey` and OVERRIDES the overlaid wire for every
+ * one of them. Un-mirrored, the board would keep painting server truth until the
+ * round trip landed while the sidebar had already moved — the same lag this issue
+ * exists to delete, hidden on the surface nobody thought to check.
+ *
+ * WHY A FOLD-TIME MIRROR rather than a second overlay per kind. An overlay is a
+ * pure function of ONE outbox entry, and the entry names one command against one
+ * issue — not two entities. Emitting two overlays per kind would double every
+ * kind's bookkeeping (awaiting-truth, retirement, baselines) to express one fact
+ * twice. Mirroring at the fold keeps ONE overlay of record, retired by its own
+ * `coveredBy` against the wire row, and derives the projection's copy from it —
+ * exactly the arrangement `legacyIssueReadOverlay` already uses for `readAt` in
+ * the other direction.
+ *
+ * WHAT IS NOT MIRRORED, and why the key set is DERIVED. The mirrorable keys are
+ * `IssueProjection`'s own, read off the schema, so a field added to the durable
+ * row is mirrored the day it arrives instead of the day someone remembers a list.
+ * Two are excluded by name: `description` and `notes` are op-stream DOCUMENTS on
+ * the projection (`{ value }`) and plain strings in the patch, so copying one
+ * across would put a string where a document lives and the board would render
+ * nothing. They are the two `projectionOnLegacySpelling` already re-spells, and a
+ * patch of only those mirrors nothing at all rather than half-landing. `pinned`
+ * and `tuckedAt` are not excluded — they simply are not projection fields (they
+ * are per-user state), so the filter drops them and the board keeps reading them
+ * off the overlaid wire, where they already paint.
+ */
+const PROJECTION_MIRROR_KEYS: ReadonlySet<string> = new Set(
+  Object.keys(IssueProjection.shape).filter((key) => key !== 'description' && key !== 'notes'),
+)
+
+export function projectionCurationOverlay(overlay: PendingOverlay): PendingOverlay | null {
+  if (overlay.op !== 'patch' || overlay.entity !== 'issues') return null
+  const mirrored: OverlayPatch = {}
+  for (const [key, value] of Object.entries(overlay.patch)) {
+    if (PROJECTION_MIRROR_KEYS.has(key)) mirrored[key] = value
+  }
+  if (Object.keys(mirrored).length === 0) return null
+  // The SOURCE overlay stays the one of record: it is what `mutationApplied`
+  // holds and what `pruneAwaiting` retires, judged against the wire row. This
+  // copy is derived fresh on every fold, so it appears and disappears with it.
+  return patchOverlay('issueProjections', overlay.id, overlay.key, mirrored, overlay.coveredBy)
 }
 
 export interface FoldResult<T> {

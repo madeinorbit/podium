@@ -132,6 +132,10 @@ export const COMMAND_ACTIONS = [
   'updateIssue',
   'archiveIssue',
   'deleteIssue',
+  'closeIssue',
+  'deferIssue',
+  'undeferIssue',
+  'setIssueLabels',
   'setSessionDraft',
   'setSidebarSettings',
 ] as const
@@ -734,6 +738,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     updateIssue: async (id, patch) => rt.enqueueOverlayed('issueUpdate', { id, patch }),
     archiveIssue: async (id) => rt.enqueueOverlayed('issueArchive', { id }),
     deleteIssue: async (id) => rt.enqueueOverlayed('issueDelete', { id }),
+    closeIssue: async (id, reason) => rt.enqueueOverlayed('issueClose', { id, reason }),
+    deferIssue: async (id, until) => rt.enqueueOverlayed('issueDefer', { id, until }),
+    undeferIssue: async (id) => rt.enqueueOverlayed('issueUndefer', { id }),
+    setIssueLabels: async (id, labels) => rt.enqueueOverlayed('issueSetLabels', { id, labels }),
     setSessionDraft: (sessionId, text) => rt.setSessionDraft(sessionId, text),
     setSidebarSettings: async (next) => {
       const previous = rt.state().sidebarSettings

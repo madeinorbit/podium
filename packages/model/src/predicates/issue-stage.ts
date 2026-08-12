@@ -45,6 +45,23 @@ export function isIssueDeferred(row: IssueDeferFields, now: Instant): boolean {
   return until !== null && until > now
 }
 
+/**
+ * Manual unsnooze backdate (issue #133): `issues.undefer` sets `deferUntil` this
+ * far in the past rather than to exactly "now". The sidebar reads snooze state
+ * off a coarse on-screen clock (useNow, minute granularity) that can lag real
+ * time by up to a minute, so a `deferUntil` of exactly-now would read as still
+ * snoozed for up to that long. Backdating well past that window flips the issue
+ * to returned-from-defer (top-of-WORK + "Unsnoozed" tag) immediately.
+ * `deferUntil` is only compared, never displayed, so the backdate is invisible.
+ *
+ * IT LIVES HERE, beside the predicate that reads it, because it now has TWO
+ * appliers (POD-781): the server's `IssueCrud.undefer` and the client overlay
+ * that paints the same instant while the queued undefer is in flight. A magic
+ * `5 * 60 * 1000` copied into the client would be a second definition of a
+ * threshold whose whole job is to clear one shared predicate.
+ */
+export const UNSNOOZE_BACKDATE_MS = 5 * 60 * 1000
+
 /** Did a *timed* defer just lapse — its deadline has passed but it hasn't been
  *  cleared yet? The mirror of {@link isIssueDeferred} going false: the sidebar
  *  marks such an issue "Unsnoozed" and floats it back to the top, and selecting

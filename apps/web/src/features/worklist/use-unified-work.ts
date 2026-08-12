@@ -85,6 +85,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     updateIssue,
     archiveIssueAction,
     deleteIssueAction,
+    deferIssue,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -109,6 +110,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       // them is how a "fixed" call site quietly keeps calling trpc.
       archiveIssueAction: s.archiveIssue,
       deleteIssueAction: s.deleteIssue,
+      deferIssue: s.deferIssue,
     }),
     shallowEqual,
   )
@@ -196,9 +198,10 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     // `issueReturnedFromDefer` goes false. (It's distinct from the menu's "Unsnooze",
     // issues.undefer, which BACKDATES deferUntil to float the row to the top of WORK
     // WITH the tag — #133.) A still-snoozed issue is left alone.
-    if (issueReturnedFromDefer(issue, now)) {
-      void trpc.issues.defer.mutate({ id: issue.id, until: null }).catch(() => {})
-    }
+    // Outboxed too (POD-781): the "Unsnoozed" tag leaves with the click that
+    // opened the row rather than a round trip later, and the swallowed rejection
+    // goes with it — the queue keeps the clear and replays it.
+    if (issueReturnedFromDefer(issue, now)) void deferIssue(issue.id, null)
     if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
     // Open a pane too (#108): keep the current one if it already belongs to this
     // issue (session or file tab), else the issue's most recently active session.
@@ -266,9 +269,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   // Concrete mutation callbacks rather than the raw trpc client, so the hook's
   // inferred return type stays portable across packages.
   //
-  // OPTIMISTIC (POD-781): rename, archive and delete go through the engine's
-  // outbox-as-overlay rather than straight to tRPC, so the row repaints on the
-  // press. There is no `.catch(() => {})` any more and that is the point — a
+  // OPTIMISTIC (POD-781): rename, colour, archive and delete go through the
+  // engine's outbox-as-overlay rather than straight to tRPC, so the row repaints
+  // on the press. There is no `.catch(() => {})` any more and that is the point — a
   // swallowed rejection was the old way of saying "the click may have done
   // nothing and we will not mention it". The queue keeps the write, replays it
   // on reconnect, and parks it in the recovery surface with a toast if the
@@ -277,7 +280,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     void updateIssue(id, { title })
   }
   const setIssueColor = (id: string, color: IssueColorSlot | null): Promise<unknown> =>
-    trpc.issues.update.mutate({ id, patch: { color } })
+    updateIssue(id, { color })
   const archiveIssue = (id: string): Promise<unknown> => archiveIssueAction(id)
   const deleteIssue = (id: string): Promise<unknown> => deleteIssueAction(id)
   // Manual-sort persistence (POD-168): one patch per row whose key changes

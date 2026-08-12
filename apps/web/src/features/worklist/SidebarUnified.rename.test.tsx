@@ -66,10 +66,10 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
   }
 }
 
+/** `trpc.issues.update` — kept ONLY so the assertions below can prove nothing
+ *  reaches it any more. The rename and the ID-square colour are both outboxed
+ *  (POD-781): they call `store.updateIssue`. */
 const updateMutate = vi.fn(async () => ({}))
-/** The OUTBOXED rename (POD-781): `store.updateIssue`, not `trpc.issues.update`.
- *  The colour picker below still goes direct — that call site is POD-781 group 2,
- *  and the two live side by side until it moves. */
 const updateIssue = vi.fn(async () => {})
 
 vi.mock('@/app/store', () => {
@@ -183,16 +183,14 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
     expect(updateMutate).not.toHaveBeenCalled()
   })
 
-  it('writes a picked ID-square colour through the existing issues.update path', async () => {
+  it('writes a picked ID-square colour through the outboxed updateIssue action', async () => {
     render(<SidebarUnified />)
     fireEvent.click(screen.getByRole('button', { name: 'Set colour for task #1' }))
     fireEvent.click(screen.getByRole('button', { name: 'Violet' }))
 
-    await waitFor(() =>
-      expect(updateMutate).toHaveBeenCalledWith({
-        id: 'a',
-        patch: { color: 'violet' },
-      }),
-    )
+    // The square repaints on the press now (POD-781 group 2): the colour is one
+    // more `issues.update` patch, so it rides the queue the rename already does.
+    await waitFor(() => expect(updateIssue).toHaveBeenCalledWith('a', { color: 'violet' }))
+    expect(updateMutate).not.toHaveBeenCalled()
   })
 })

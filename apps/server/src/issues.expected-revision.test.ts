@@ -1,7 +1,7 @@
-import { TRPCError } from '@trpc/server'
-import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import { ROW } from '@podium/model'
 import type { Ledger } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
+import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { resolvePrincipal } from './command-principal'
@@ -307,13 +307,25 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       .filter(([, def]) => def.kind === 'mutation' && fieldsOf(def.input).includes('mutationId'))
       .map(([name]) => name)
       .sort()
+    // THE LIST GREW WITH THE CLIENT OUTBOX (POD-781), which is the enumeration
+    // doing its job rather than a re-baseline: `archive`, `delete`, `defer`,
+    // `undefer` and `setLabels` are now queued by the client, and a queued write
+    // is replayed on reconnect — so each gained a `mutationId` and a
+    // `ctx.withMutation` in the same change. The point the test makes is
+    // unchanged: dedupe is still per-handler and reaches only the contracts that
+    // carry the field, which is why `claim` is asserted below to be outside it.
     expect(carriers).toEqual([
       'addComment',
+      'archive',
       'close',
       'create',
+      'defer',
+      'delete',
       'markRead',
       'markUnread',
+      'setLabels',
       'setTucked',
+      'undefer',
       'update',
     ])
     expect(fieldsOf(issueRegistry.defs.claim.input)).not.toContain('mutationId')
@@ -402,7 +414,14 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
   it('covers every mutating command in the registry', () => {
     // A canary on the enumeration itself: if this count moves, a command was
     // added or removed and the rows below must be re-read, not re-baselined.
-    expect(mutations).toHaveLength(45)
+    //
+    // 45 → 46 is `issues.setPlacement` (POD-679), which landed after this count
+    // was written and left the canary red. Re-read rather than re-baselined, as
+    // the line above asks: the per-command rows below run over this same list,
+    // so `setPlacement` is already being asserted to declare a conflict class,
+    // and it does. POD-781 added no command — its queued kinds all name
+    // contracts that were already here.
+    expect(mutations).toHaveLength(46)
   })
 
   it.each(mutations)('%s declares a conflict class', (_name, def) => {

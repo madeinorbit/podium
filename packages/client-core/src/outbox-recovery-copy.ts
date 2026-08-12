@@ -132,6 +132,12 @@ export function kindLabel(kind: string): string {
     issueUpdate: 'Issue change',
     issueArchive: 'Issue archived',
     issueDelete: 'Issue deleted',
+    // Named per COMMAND, unlike `issueUpdate` above: each of these carries one
+    // act, so the label can say which one without guessing.
+    issueClose: 'Issue closed',
+    issueDefer: 'Issue snoozed',
+    issueUndefer: 'Issue unsnoozed',
+    issueSetLabels: 'Issue labels',
     resumeAndSend: 'Message',
   }
   return labels[kind] ?? kind

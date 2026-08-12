@@ -9,7 +9,7 @@
  *
  * Recorded here because the issue brief says "offline queueing is issue-writes
  * only today", and that is not what the code does: the covered set spans eight
- * SESSION writes plus SIX issue writes and five replicated per-user writes.
+ * SESSION writes plus TEN issue writes and five replicated per-user writes.
  * Only live interaction (`sendText`, `ask`, and `uploadImage`) remains a
  * deliberate direct-only exclusion: replaying chat, a seance, or an image
  * upload hours later is worse than an immediate failure.
@@ -24,17 +24,28 @@
  * ---------------------------------------------------------------------------
  *
  * The issue half of this set was THREE per-user markers (`markRead`,
- * `markUnread`, `setTucked`) and is now six: `issues.update`, `issues.archive`
- * and `issues.delete` joined them. Every case here is tagged must-not-change ON
- * PURPOSE, so growing the set is a product decision and this paragraph is where
- * it is taken.
+ * `markUnread`, `setTucked`) and is now TEN: `issues.update`, `issues.archive`
+ * and `issues.delete` joined them, then `issues.close`, `issues.defer`,
+ * `issues.undefer` and `issues.setLabels`. Every case here is tagged
+ * must-not-change ON PURPOSE, so growing the set is a product decision and this
+ * paragraph is where it is taken.
  *
  * WHY. The sidebar's delete, dismiss and inline rename went straight to the
  * server and painted NOTHING until it answered — on a slow link the click read
  * as not having registered, which is the failure the outbox-as-overlay (#263)
- * exists to delete. The commands were already `offline-eligible` on ADR 1's
- * `issueCore` row, and idempotency was already framework-owned
- * (`MutationLedgerPort.once`); what was missing was the client half.
+ * exists to delete. The same was true of every other row edit the context menu
+ * offers: the colour, the pin, close, snooze, unsnooze, stage, priority and
+ * labels. The commands were already `offline-eligible` on ADR 1's `issueCore`
+ * row, and idempotency was already framework-owned (`MutationLedgerPort.once`);
+ * what was missing was the client half — and, for `defer`/`undefer`/`setLabels`,
+ * a `mutationId` on the input to key the receipt on.
+ *
+ * WHY NOT THE WHOLE ISSUE SURFACE. What joined are the CURATION writes: edits to
+ * a row the operator is looking at, whose effect is that row looking different.
+ * `start`, `addSession`, `promote`, `duplicate` and the git-workflow commands did
+ * not, and not for want of an overlay — they do work (spawn a process, move a
+ * branch) whose result is not a field this client could paint, so queueing them
+ * would promise an outcome the queue cannot deliver.
  *
  * WHAT DID NOT CHANGE, and must not: `sendText`, `ask` and `uploadImage` stay
  * OUT. Those exclusions are about REPLAY being wrong — a chat message sent
@@ -100,6 +111,10 @@ function recordingApi() {
       update: proc('issues.update'),
       archive: proc('issues.archive'),
       delete: proc('issues.delete'),
+      close: proc('issues.close'),
+      defer: proc('issues.defer'),
+      undefer: proc('issues.undefer'),
+      setLabels: proc('issues.setLabels'),
     },
   } as unknown as PodiumClientApi
   return { api, calls }
@@ -171,7 +186,7 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
   { kind: 'issueMarkRead', input: { id: 'i1' }, path: 'issues.markRead' },
   { kind: 'issueMarkUnread', input: { id: 'i1' }, path: 'issues.markUnread' },
   { kind: 'issueSetTucked', input: { id: 'i1', tucked: true }, path: 'issues.setTucked' },
-  // POD-781 — the curation writes. One generic patch kind plus the two commands
+  // POD-781 — the curation writes. One generic patch kind plus the five commands
   // that are not `issues.update`; see the header for why the set grew.
   {
     kind: 'issueUpdate',
@@ -180,10 +195,14 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
   },
   { kind: 'issueArchive', input: { id: 'i1' }, path: 'issues.archive' },
   { kind: 'issueDelete', input: { id: 'i1' }, path: 'issues.delete' },
+  { kind: 'issueClose', input: { id: 'i1', reason: 'done' }, path: 'issues.close' },
+  { kind: 'issueDefer', input: { id: 'i1', until: null }, path: 'issues.defer' },
+  { kind: 'issueUndefer', input: { id: 'i1' }, path: 'issues.undefer' },
+  { kind: 'issueSetLabels', input: { id: 'i1', labels: ['bug'] }, path: 'issues.setLabels' },
 ]
 
 describe('oracle: the offline-queued write set', () => {
-  it(`${MUST_NOT_CHANGE}: eight session writes, six issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
+  it(`${MUST_NOT_CHANGE}: eight session writes, ten issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
     const { outbox, calls } = makeOutbox()
 
     for (const covered of COVERED) {
@@ -195,10 +214,10 @@ describe('oracle: the offline-queued write set', () => {
     expect(
       calls.filter((c) => c.path.startsWith('sessions.') || c.path.startsWith('snooze')),
     ).toHaveLength(8)
-    // Counted, not implied by the list above: POD-781 doubled the issue half,
-    // and a future edit that drops one of the curation kinds while leaving its
-    // row in COVERED would still pass the ordering assertion.
-    expect(calls.filter((c) => c.path.startsWith('issues.'))).toHaveLength(6)
+    // Counted, not implied by the list above: POD-781 took the issue half from
+    // three to ten, and a future edit that drops one of the curation kinds while
+    // leaving its row in COVERED would still pass the ordering assertion.
+    expect(calls.filter((c) => c.path.startsWith('issues.'))).toHaveLength(10)
     outbox.dispose()
   })
 
@@ -214,6 +233,31 @@ describe('oracle: the offline-queued write set', () => {
 
     expect(calls).toEqual([
       { path: 'issues.delete', input: { id: 'i1', mutationId: entry.mutationId } },
+    ])
+    outbox.dispose()
+  })
+
+  it(`${MUST_NOT_CHANGE}: defer, undefer and setLabels replay with a mutationId too — the input field they had to GAIN to be queueable`, async () => {
+    const { outbox, calls } = makeOutbox()
+
+    // None of the three carried one before POD-781, and `undefer` is the sharp
+    // case: it backdates `deferUntil` against the clock at APPLY time, so a
+    // second unguarded pass moves the "Unsnoozed" marker and re-emits the event.
+    const defer = outbox.enqueue('issueDefer', { id: 'i1', until: '2099-01-01' })
+    const undefer = outbox.enqueue('issueUndefer', { id: 'i1' })
+    const labels = outbox.enqueue('issueSetLabels', { id: 'i1', labels: ['bug'] })
+    await drainFully(outbox)
+
+    expect(calls).toEqual([
+      {
+        path: 'issues.defer',
+        input: { id: 'i1', until: '2099-01-01', mutationId: defer.mutationId },
+      },
+      { path: 'issues.undefer', input: { id: 'i1', mutationId: undefer.mutationId } },
+      {
+        path: 'issues.setLabels',
+        input: { id: 'i1', labels: ['bug'], mutationId: labels.mutationId },
+      },
     ])
     outbox.dispose()
   })

@@ -154,6 +154,20 @@ export interface PodiumClientApi {
     update: ApiMutation<WithMutationId<{ id: string; patch: IssueUpdatePatch }>>
     archive: ApiMutation<WithMutationId<{ id: string }>>
     delete: ApiMutation<WithMutationId<{ id: string }>>
+    /**
+     * THE FOUR CURATION COMMANDS THAT ARE NOT `issues.update` (POD-781 group 2).
+     *
+     * Each is here because it is its own contract, not because it writes its own
+     * field: `close` stamps a reason AND settles the stage (and emits
+     * `issue.closed` with the acting session), `undefer` backdates rather than
+     * clearing, and `setLabels` rewrites a whole set under `manage` authority.
+     * Routing any of them through `update` would re-author the write under a
+     * contract the server gates differently.
+     */
+    close: ApiMutation<WithMutationId<{ id: string; reason?: string }>>
+    defer: ApiMutation<WithMutationId<{ id: string; until: string | null }>>
+    undefer: ApiMutation<WithMutationId<{ id: string }>>
+    setLabels: ApiMutation<WithMutationId<{ id: string; labels: string[] }>>
   }
   pins: {
     list: ApiQuery<void, PinState>

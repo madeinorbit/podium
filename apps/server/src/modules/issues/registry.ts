@@ -739,7 +739,11 @@ const defs = {
   setLabels: def('setLabels', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.crud.setLabels(input.id, input.labels),
+    // POD-781: outboxed. The receipt matters even for a whole-set write, because
+    // the SET is computed on the client from the labels it could see — a replay
+    // that re-ran it would push a stale set over one edited in between.
+    handler: (ctx, input) =>
+      ctx.withMutation(input.mutationId, () => ctx.crud.setLabels(input.id, input.labels)),
   }),
   share: def('share', {
     kind: 'mutation',
@@ -778,7 +782,11 @@ const defs = {
   defer: def('defer', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.attention.defer(input.id, input.until),
+    // POD-781: outboxed, so a replayed drain must not re-defer. Absolute-set, so
+    // a second identical apply is harmless — but a LATE one is not: the ledger is
+    // what stops a drain landing a snooze the operator has since ended.
+    handler: (ctx, input) =>
+      ctx.withMutation(input.mutationId, () => ctx.attention.defer(input.id, input.until)),
   }),
   // Manual unsnooze (issue #133): ends a snooze and floats the issue back to the
   // top of WORK with the "Unsnoozed" tag (returned-from-defer), unlike defer(null)
@@ -786,7 +794,11 @@ const defs = {
   undefer: def('undefer', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.attention.undefer(input.id),
+    // POD-781: outboxed, and this one is NOT idempotent on its own — it backdates
+    // `deferUntil` against the clock at apply time, so a re-sent drain would move
+    // the "Unsnoozed" marker forward and re-emit `issue.unsnoozed`.
+    handler: (ctx, input) =>
+      ctx.withMutation(input.mutationId, () => ctx.attention.undefer(input.id)),
   }),
   // Mark an issue read (issue #124): stamp read_at = now, flipping derived `unread`.
   // Read-tracking carries 'read' authority only (reading marks read), despite being

@@ -17,6 +17,18 @@ function menuData() {
 
 function commandDeps() {
   const mutate = vi.fn(async (value: unknown) => value)
+  // The OUTBOXED half (POD-781): these are store actions, not tRPC procedures,
+  // so a menu entry that has been made optimistic is asserted on the action and
+  // a mutant that reroutes it back through `trpc` shows up as a missing call
+  // rather than as a passing test on the other object.
+  const actions = {
+    updateIssue: vi.fn(async () => {}),
+    deleteIssue: vi.fn(async () => {}),
+    closeIssue: vi.fn(async () => {}),
+    deferIssue: vi.fn(async () => {}),
+    undeferIssue: vi.fn(async () => {}),
+    setIssueLabels: vi.fn(async () => {}),
+  }
   return {
     deps: {
       trpc: {
@@ -35,17 +47,19 @@ function commandDeps() {
       },
       markIssueRead: vi.fn(async () => {}),
       markIssueUnread: vi.fn(async () => {}),
+      ...actions,
       setOpenIssueId: vi.fn(),
       setView: vi.fn(),
     } as unknown as IssueMenuCommandDeps,
     mutate,
+    actions,
   }
 }
 
 describe('shared issue menu command execution', () => {
   it('keeps stage, label, and start mutations identical to the context menu', async () => {
     const data = menuData()
-    const { deps, mutate } = commandDeps()
+    const { deps, mutate, actions } = commandDeps()
     const entries = issueMenuEntries(data)
     const stage = entries.find((entry) => entry.id === 'stage')
     const labels = entries.find((entry) => entry.id === 'labels')
@@ -65,14 +79,47 @@ describe('shared issue menu command execution', () => {
     await runIssueMenuCommand(data, labels, 'bug', deps)
     await runIssueMenuCommand(data, agent, '', deps)
 
-    expect(mutate).toHaveBeenCalledWith({ id: 'i', patch: { stage: 'review' } })
-    expect(mutate).toHaveBeenCalledWith({ id: 'i', labels: [] })
+    expect(actions.updateIssue).toHaveBeenCalledWith('i', { stage: 'review' })
+    expect(actions.setIssueLabels).toHaveBeenCalledWith('i', [])
+    // `agent` stays a direct call — starting a session is not an issue-row edit
+    // and has nothing to paint.
     expect(mutate).toHaveBeenCalledWith({ id: 'i' })
+  })
+
+  it('sends close, defer and unsnooze through the outbox actions, not tRPC', async () => {
+    const data = menuData()
+    const { deps, mutate, actions } = commandDeps()
+    const entries = issueMenuEntries(data)
+    const closeDone = entries.find((entry) => entry.id === 'closeDone')
+    const defer = entries.find((entry) => entry.id === 'defer')
+    if (!closeDone || closeDone.kind !== 'action' || !defer || defer.kind !== 'submenu') {
+      throw new Error('expected close and defer fixtures')
+    }
+
+    await runIssueMenuCommand(data, closeDone, undefined, deps)
+    await runIssueMenuCommand(data, defer, 'next-message', deps)
+    await runIssueMenuCommand(data, defer, 'undefer', deps)
+
+    expect(actions.closeIssue).toHaveBeenCalledWith('i', 'done')
+    expect(actions.deferIssue).toHaveBeenCalledWith('i', 'next-message')
+    expect(actions.undeferIssue).toHaveBeenCalledWith('i')
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('toggles the pin through the patch action — one command, one queue', async () => {
+    const data = menuData()
+    const { deps, actions } = commandDeps()
+    const pin = issueMenuEntries(data).find((entry) => entry.id === 'pin')
+    if (!pin || pin.kind !== 'action') throw new Error('expected a pin fixture')
+
+    await runIssueMenuCommand(data, pin, undefined, deps)
+
+    expect(actions.updateIssue).toHaveBeenCalledWith('i', { pinned: true })
   })
 
   it('routes open and property actions through the same data entry IDs', async () => {
     const data = menuData()
-    const { deps, mutate } = commandDeps()
+    const { deps, actions } = commandDeps()
     const open = issueMenuEntries(data).find((entry) => entry.id === 'open')
     const priority = issueMenuEntries(data).find((entry) => entry.id === 'priority')
     if (!open || !priority || open.kind !== 'action' || priority.kind !== 'submenu') {
@@ -84,6 +131,6 @@ describe('shared issue menu command execution', () => {
 
     expect(deps.setOpenIssueId).toHaveBeenCalledWith('i')
     expect(deps.setView).toHaveBeenCalledWith('issues')
-    expect(mutate).toHaveBeenCalledWith({ id: 'i', patch: { priority: 2 } })
+    expect(actions.updateIssue).toHaveBeenCalledWith('i', { priority: 2 })
   })
 })

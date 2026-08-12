@@ -29,13 +29,15 @@ const ui = vi.hoisted(() => {
 
 // Read/mark spies shared between the mocked store and the assertions. vi.hoisted
 // makes them available inside the hoisted vi.mock factory below.
-const { markIssueRead, markIssueUnread, markSessionRead, markSessionUnread, deferMutate } =
+const { markIssueRead, markIssueUnread, markSessionRead, markSessionUnread, deferIssue } =
   vi.hoisted(() => ({
     markIssueRead: vi.fn(async () => {}),
     markIssueUnread: vi.fn(async () => {}),
     markSessionRead: vi.fn(async () => {}),
     markSessionUnread: vi.fn(async () => {}),
-    deferMutate: vi.fn(async () => ({})),
+    // The store ACTION, not `trpc.issues.defer` — the clear is outboxed
+    // (POD-781), so the tag leaves with the click rather than the round trip.
+    deferIssue: vi.fn(async () => {}),
   }))
 
 // An idle (finished) session keeps its issue in WORK (not lifted to WORKING).
@@ -133,7 +135,6 @@ vi.mock('@/app/store', () => {
       settings: {
         get: { query: vi.fn(async () => ({ sessionDefaults: { agent: 'claude-code' } })) },
       },
-      issues: { defer: { mutate: deferMutate } },
     },
     selectedWorktree: null,
     setSelectedWorktree: vi.fn(),
@@ -152,6 +153,7 @@ vi.mock('@/app/store', () => {
     markIssueUnread,
     markSessionRead,
     markSessionUnread,
+    deferIssue,
   })
   // The selector-store hook (refactor) reads slices off the same store shape.
   return {
@@ -181,7 +183,7 @@ afterEach(() => {
   markIssueUnread.mockClear()
   markSessionRead.mockClear()
   markSessionUnread.mockClear()
-  deferMutate.mockClear()
+  deferIssue.mockClear()
 })
 
 describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
@@ -217,7 +219,7 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
     expect(screen.getByText('Unsnoozed')).toBeTruthy()
     fireEvent.click(screen.getByText('Unsnoozed issue'))
     // …and opening the issue nulls deferUntil so the tag source is gone.
-    expect(deferMutate).toHaveBeenCalledWith({ id: 'd1', until: null })
+    expect(deferIssue).toHaveBeenCalledWith('d1', null)
   })
 
   it('shows a suspended row as one dim line with its snooze marker (#133, POD-293)', () => {

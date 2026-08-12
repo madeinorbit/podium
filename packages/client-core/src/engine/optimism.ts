@@ -51,6 +51,7 @@ import {
   type OverlayEntity,
   overlayForOutboxEntry,
   type PendingOverlay,
+  projectionCurationOverlay,
   pruneAwaiting,
   rowFingerprint,
 } from './overlay'
@@ -203,6 +204,13 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         const compatibility = legacyIssueReadOverlay(overlay)
         if (compatibility) out.push(compatibility)
       }
+      // The mirror in the other direction (POD-781): the curation writes overlay
+      // the legacy wire, and the BOARD reads the normalized projection over it.
+      // Without this the sidebar moved on the press and the board did not.
+      if (entity === 'issueProjections') {
+        const curation = projectionCurationOverlay(overlay)
+        if (curation) out.push(curation)
+      }
     }
     for (const overlay of this.spawnOverlays) include(overlay)
     for (const awaiting of this.awaitingTruth) include(awaiting.overlay)
@@ -314,8 +322,16 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
 
   recomputeFor(entity: OverlayEntity | undefined): void {
     if (entity === 'sessions') this.recomputeSessions()
-    else if (entity === 'issues') this.recomputeIssues()
-    else if (entity === 'issueProjections') {
+    // BOTH ways round since POD-781: the two issue lists mirror each other's
+    // overlays (read markers projection→wire, curation writes wire→projection),
+    // so recomputing one alone publishes half a change and the surface reading
+    // the other list keeps painting the value the operator just replaced.
+    else if (entity === 'issues') {
+      this.batched(() => {
+        this.recomputeIssues()
+        this.recomputeIssueProjections()
+      })
+    } else if (entity === 'issueProjections') {
       this.batched(() => {
         this.recomputeIssueProjections()
         this.recomputeIssues()

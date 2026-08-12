@@ -16,6 +16,10 @@ const deps = {
   markIssueUnread: vi.fn(async () => {}),
   updateIssue: vi.fn(async () => {}),
   deleteIssue: vi.fn(async () => {}),
+  closeIssue: vi.fn(async () => {}),
+  deferIssue: vi.fn(async () => {}),
+  undeferIssue: vi.fn(async () => {}),
+  setIssueLabels: vi.fn(async () => {}),
   setOpenIssueId: vi.fn(),
   setView: vi.fn(),
 }
