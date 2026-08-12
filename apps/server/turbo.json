@@ -1365,6 +1365,7 @@
         "src/static-web.ts",
         "src/steward.ts",
         "src/store-database.ts",
+        "src/store-issues-row-cache-writers.test.ts",
         "src/store.conversation-registry.test.ts",
         "src/store.ts",
         "src/store/accounts.ts",
