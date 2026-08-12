@@ -1,5 +1,6 @@
 import {
   asIssueId,
+  asSessionId,
   type AgentKind,
   type SessionMeta,
   spawnedByParentSessionId,

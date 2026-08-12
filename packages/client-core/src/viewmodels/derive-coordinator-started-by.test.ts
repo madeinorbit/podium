@@ -80,14 +80,14 @@ describe('elevateCoordinatorSession / isCoordinatorSession', () => {
     const a = sess('a')
     const b = sess('b')
     const c = sess('c')
-    expect(elevateCoordinatorSession([a, b, c], 'b').map((s) => s.sessionId)).toEqual([
+    expect(elevateCoordinatorSession([a, b, c], asSessionId('b')).map((s) => s.sessionId)).toEqual([
       'b',
       'a',
       'c',
     ])
     expect(elevateCoordinatorSession([a, b, c], undefined)).toEqual([a, b, c])
-    expect(elevateCoordinatorSession([a, b, c], 'gone')).toEqual([a, b, c])
-    expect(elevateCoordinatorSession([a, b, c], 'a').map((s) => s.sessionId)).toEqual([
+    expect(elevateCoordinatorSession([a, b, c], asSessionId('gone'))).toEqual([a, b, c])
+    expect(elevateCoordinatorSession([a, b, c], asSessionId('a')).map((s) => s.sessionId)).toEqual([
       'a',
       'b',
       'c',
