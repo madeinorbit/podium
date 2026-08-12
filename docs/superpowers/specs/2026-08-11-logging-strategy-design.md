@@ -95,14 +95,12 @@ Control: `PODIUM_LOG_LEVEL` (global default) plus per-namespace overrides via
 `PODIUM_LOG` (e.g. `PODIUM_LOG="daemon:*=debug"`). Defaults: `info` on
 server/daemon/janitor, `warn` for browser console.
 
-**Runtime level adjustment on clients is DEFERRED** (POD-1919). The
-mechanism exists — the forwarding sink pins no `minLevel`, so `setLogLevel`
-raises console and forwarding together as one knob — but nothing outside
-boot calls it, so there is no operator surface for "raise this one user's
-client to `debug`". That scenario is why the forwarding design exists, so
-the gap is worth closing; it is deferred rather than dropped, and this epic
-ships without it deliberately rather than leaving the promise silently
-unmet.
+**Runtime level adjustment on clients is in scope** (POD-1919). The
+mechanism already exists — the forwarding sink pins no `minLevel`, so
+`setLogLevel` raises console and forwarding together as one knob — but
+nothing outside boot calls it. What is missing is the operator surface for
+"raise this one user's client to `debug`", which is the scenario the whole
+forwarding design exists to serve. The epic is not complete without it.
 
 ### Sinks and per-sink thresholds
 
