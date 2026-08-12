@@ -11,9 +11,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import type { SuperagentUserFocus   MachineId,
-  IssueId,
-} from '@podium/commands'
+import type { SuperagentUserFocus, MachineId, IssueId } from '@podium/commands'
 import {
   asThreadId,
   FIRST_ADMIN_USER_ID,

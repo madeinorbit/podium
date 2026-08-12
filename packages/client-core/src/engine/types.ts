@@ -6,9 +6,7 @@
  * client).
  */
 
-import type { IssueUpdatePatch   MachineId,
-  MutationId,
-} from '@podium/commands'
+import type { IssueUpdatePatch, MachineId, MutationId } from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,

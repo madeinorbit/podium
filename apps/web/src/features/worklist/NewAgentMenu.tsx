@@ -33,8 +33,7 @@
  * Gating here is UX only — the Authority re-authorizes at apply (ADR 3 D8).
  * Nothing in this file DECIDES anything; it only declines to offer.
  */
-import type { MachineView, RepoNavView   MachineId,
-} from '@podium/client-core/viewmodels'
+import type { MachineView, RepoNavView, MachineId } from '@podium/client-core/viewmodels'
 import type { AgentKind, MachineWire } from '@podium/model'
 import { Circle, Lock, Plus } from 'lucide-react'
 import type { JSX, RefObject } from 'react'

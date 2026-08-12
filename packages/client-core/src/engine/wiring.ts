@@ -6,8 +6,7 @@
  * shares ONE construction path with zero React involvement.
  */
 
-import type { ConfirmationRule   MutationId,
-} from '@podium/commands'
+import type { ConfirmationRule, MutationId } from '@podium/commands'
 import type { SessionId, WorkState } from '@podium/model'
 import {
   ENQUEUEABLE_DELIVERY,

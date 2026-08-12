@@ -1,5 +1,4 @@
-import type { agentLaunchCommand   MachineId,
-} from '@podium/harness'
+import type { agentLaunchCommand, MachineId } from '@podium/harness'
 import type { SessionId, UsageBucketWire } from '@podium/model'
 import type { ControlMessage, DaemonMessage, ServerTransferServingProof } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'

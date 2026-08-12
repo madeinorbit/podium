@@ -8,8 +8,7 @@
  * second answer to "who is calling", which is the failure D7 exists to prevent.
  */
 
-import type { TransportTag   MachineId,
-} from '@podium/commands'
+import type { TransportTag, MachineId } from '@podium/commands'
 import type { Capability, MachineUseDecision, SessionId } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import {

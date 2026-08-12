@@ -16,9 +16,7 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type { IssueUpdatePatch   MutationId,
-  MachineId,
-} from '@podium/commands'
+import type { IssueUpdatePatch, MutationId, MachineId } from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,

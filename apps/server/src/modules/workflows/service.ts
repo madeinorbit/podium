@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { AdvanceIdempotencyPort   IssueId,
-  MachineId,
-} from '@podium/commands'
+import type { AdvanceIdempotencyPort, IssueId, MachineId } from '@podium/commands'
 import { AgentKind, type SessionId } from '@podium/model'
 import type {
   ExecutionProfileWire,
