@@ -28,6 +28,10 @@ const METER_FILL: Record<MeterTone, string> = {
  * The marker is the whole reason the rail is readable: filled against a
  * notional 100% it only says "some", while against the auto-park threshold or
  * the elapsed share of the window it predicts what is about to happen.
+ *
+ * It stands PROUD of the rail at both ends, as the desktop's tick does, because
+ * the reading that matters most is fill past the mark — and a tick flush with
+ * the rail disappears into the fill exactly when it is telling you something.
  */
 export function Meter({
   pct,
@@ -43,8 +47,13 @@ export function Meter({
 }) {
   const width = Math.min(100, Math.max(0, pct))
   return (
-    <View style={styles.rail}>
-      <View style={[styles.railFill, { width: `${width}%`, backgroundColor: METER_FILL[tone] }]} />
+    // The tick sits OUTSIDE the clipped rail so its overhang survives.
+    <View style={styles.railWrap}>
+      <View style={styles.rail}>
+        <View
+          style={[styles.railFill, { width: `${width}%`, backgroundColor: METER_FILL[tone] }]}
+        />
+      </View>
       {marker != null ? (
         <View
           accessibilityElementsHidden
@@ -137,10 +146,12 @@ export function BarTrace({
 }
 
 const styles = StyleSheet.create({
-  rail: {
+  railWrap: {
     position: 'relative',
-    height: 4,
     marginTop: 9,
+  },
+  rail: {
+    height: 4,
     borderRadius: 3,
     backgroundColor: color.surfaceHigh,
     overflow: 'hidden',
@@ -151,8 +162,8 @@ const styles = StyleSheet.create({
   },
   railMark: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
+    top: -2.5,
+    bottom: -2.5,
     width: 1,
     backgroundColor: color.textFaint,
   },

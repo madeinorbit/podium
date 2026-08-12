@@ -192,12 +192,15 @@ function NowPanel({
               above answers for and the one work would start on. Every other
               pool, spent ones included, has its own row further down. */}
           <Readout
-            label="Quota runway"
-            value={quota ? `${Math.round(quota.leftPercent)}% left` : '—'}
+            label="Agent quota"
+            value={quota ? `${Math.round(quota.usedPercent)}% used` : '—'}
           />
+          {/* Percent USED, filling as the pool is spent — the desk's direction
+              [POD-774]. It also puts this rail and the host rail beside it on
+              one reading: both fill toward the thing that stops you. */}
           <Meter
-            pct={quota ? quota.leftPercent : 0}
-            tone={quota ? meterToneForLeft(quota.usedPercent) : 'ok'}
+            pct={quota ? quota.usedPercent : 0}
+            tone={quota ? percentTone(quota.usedPercent) : 'ok'}
           />
           <SubReadout
             left={quota ? `${quota.agentName} · ${quota.windowLabel}` : 'no readable pool'}
@@ -325,7 +328,7 @@ function gatingRows(groups: AccountQuotaGroup[]): GatingRow[] {
 function QuotaRow({ row, nowMs, first }: { row: GatingRow; nowMs: number; first: boolean }) {
   const { window: w } = row
   const readable = w.key !== 'status'
-  const left = Math.max(0, Math.min(100, 100 - w.usedPercent))
+  const used = Math.max(0, Math.min(100, w.usedPercent))
   const elapsed = readable ? windowElapsedPercent(w.resetsAt, w.windowMinutes, nowMs) : null
   return (
     <View style={[styles.quotaRow, !first && styles.rowDivided]}>
@@ -345,21 +348,21 @@ function QuotaRow({ row, nowMs, first }: { row: GatingRow; nowMs: number; first:
         </Text>
         {readable ? (
           <Meter
-            pct={left}
-            tone={meterToneForLeft(w.usedPercent)}
-            // The elapsed tick is a pace read: fill behind the mark means the
-            // window is outrunning the clock. It reads from the LEFT-hand end
-            // because the rail shows what is left, not what is gone.
-            marker={elapsed === null ? null : 100 - elapsed}
-            markerLabel="share of the window still to run"
+            pct={used}
+            tone={percentTone(w.usedPercent)}
+            // The elapsed tick is a pace read: fill PAST the mark means the
+            // window is being spent faster than it is running out — the same
+            // tick, in the same place, as the desktop's quota rows.
+            marker={elapsed}
+            markerLabel="share of the window elapsed"
           />
         ) : null}
         {row.modelNote ? <Text style={styles.quotaNote}>{row.modelNote}</Text> : null}
       </View>
       {readable ? (
         <View style={styles.quotaFigure}>
-          <Text style={styles.quotaPct}>{Math.round(left)}%</Text>
-          <Text style={styles.quotaPctLabel}>left</Text>
+          <Text style={styles.quotaPct}>{Math.round(used)}%</Text>
+          <Text style={styles.quotaPctLabel}>used</Text>
         </View>
       ) : null}
     </View>
@@ -640,12 +643,6 @@ const SEVERITY_TONE: Record<'ok' | 'warn' | 'critical', MeterTone> = {
   ok: 'ok',
   warn: 'warn',
   critical: 'crit',
-}
-
-/** A rail showing what is LEFT still takes its tone from what is SPENT — the
- *  thresholds are the same ones the desktop meters use. */
-function meterToneForLeft(usedPercent: number): MeterTone {
-  return percentTone(usedPercent)
 }
 
 /** Claude's terracotta is a BRAND mark, not a status colour — it never competes

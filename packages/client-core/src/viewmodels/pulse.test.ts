@@ -69,7 +69,7 @@ const host = (one: number, cpuCount = 8): HostMetricsWire => ({
 })
 
 describe('tightestQuota', () => {
-  it('reports the least-headroom gating window in remaining terms', () => {
+  it('reports the least-headroom gating window', () => {
     const groups = groupQuotaByAccount([
       machine([
         window({ usedPercent: 20 }),
@@ -78,7 +78,7 @@ describe('tightestQuota', () => {
     ])
     const tight = tightestQuota(groups)
     expect(tight?.windowLabel).toBe('Weekly')
-    expect(tight?.leftPercent).toBe(62)
+    expect(tight?.usedPercent).toBe(38)
   })
 
   it('never lets a spent model-scoped window speak for the pool', () => {
@@ -91,7 +91,7 @@ describe('tightestQuota', () => {
         window({ key: 'wk:model:fable', label: 'Fable', usedPercent: 99, scopeModel: 'Fable' }),
       ]),
     ])
-    expect(tightestQuota(groups)?.leftPercent).toBe(88)
+    expect(tightestQuota(groups)?.usedPercent).toBe(12)
   })
 
   it('is null when no pool can be read', () => {
@@ -111,10 +111,10 @@ describe('quotaRunways', () => {
         ['grok', [window({ key: 'wk', label: 'Weekly', usedPercent: 100 })]],
       ]),
     ])
-    expect(quotaRunways(groups).map((r) => [r.agentName, r.leftPercent])).toEqual([
-      ['Codex', 100],
-      ['Claude Code', 77],
-      ['Grok', 0],
+    expect(quotaRunways(groups).map((r) => [r.agentName, r.usedPercent])).toEqual([
+      ['Codex', 0],
+      ['Claude Code', 23],
+      ['Grok', 100],
     ])
     expect(roomiestQuota(groups)?.agentName).toBe('Codex')
     expect(tightestQuota(groups)?.agentName).toBe('Grok')
@@ -151,7 +151,7 @@ describe('capacityView', () => {
     // Neither reading is near its intervention point, so nothing is "the
     // tighter limit" — the sentence reports the runway instead.
     expect(view.lead).toBe('Nothing you can start on is near a limit.')
-    expect(view.detail).toContain('62% left')
+    expect(view.detail).toContain('has used 38%')
     expect(view.detail).toContain('five-hour')
   })
 
@@ -218,7 +218,7 @@ describe('capacityView', () => {
     expect(view.tone).toBe('ok')
     expect(view.headline).toBe('Room to run')
     expect(view.quota?.agentName).toBe('Codex')
-    expect(view.detail).toContain('Codex has the most room, 100% left')
+    expect(view.detail).toContain('Codex, with the most room, has used 0%')
     // The spent pool is not silenced — it just does not get to be the answer.
     expect(view.spentPools.map((p) => p.agentName)).toEqual(['Grok'])
     expect(view.caveat).toContain('Grok is out')
@@ -258,7 +258,7 @@ describe('capacityView', () => {
       loadPerCore: 1.5,
       nowMs: NOW,
     })
-    expect(view.detail).toContain('weekly window resets in 6d 3h')
+    expect(view.detail).toContain('weekly window, which resets in 6d 3h')
   })
 
   it('answers from the freest host and leaves the parked one as a caveat', () => {

@@ -18,10 +18,14 @@
  * for the option you could actually start on, and what IS out is named beside
  * it as a caveat rather than being allowed to speak for everything else.
  *
- * The verdict is stated in REMAINING terms ("62% left"), against the web's
- * used-percent instrument well. A desk instrument reports consumption; a pocket
- * one is asked for runway, and inverting the number at the last moment in each
- * view is how the two drift.
+ * QUOTA READS AS CONSUMPTION, THE SAME DIRECTION THE DESK READS IT [POD-774].
+ * This view once inverted it — "62% left" against the web's used-percent
+ * instrument well — on the theory that a pocket instrument is asked for runway
+ * rather than spend. One product with two directions is one direction too many:
+ * the same fleet read 62 on the phone and 38 on the desk, and the number that
+ * means "fine" on one screen means "nearly out" on the other. So every quota
+ * figure is percent USED, and how much room that leaves is carried by the words
+ * around it — which is what a sentence is for and a rail is not.
  *
  * Platform-neutral: no DOM, no storage.
  */
@@ -36,7 +40,7 @@ import {
 } from './quota'
 import { type HostLoadView, hostLoadView } from './slices/machines/facts'
 
-/** One pool's runway: its own tightest gating window, in remaining terms. */
+/** One pool's runway: its own tightest gating window, reported as spend. */
 export interface QuotaRunway {
   /** The `AccountQuotaGroup` key this came from — stable per (agent, account). */
   key: string
@@ -45,9 +49,8 @@ export interface QuotaRunway {
   agentName: string
   /** The provider's own window name, e.g. "5-hour" / "Weekly". */
   windowLabel: string
+  /** 0–100, the one direction quota is ever reported in — see the file head. */
   usedPercent: number
-  /** `100 - usedPercent`, clamped — what the hero sentence reports. */
-  leftPercent: number
   resetsAt: string
   windowMinutes: number
 }
@@ -105,14 +108,13 @@ export function quotaRunways(groups: AccountQuotaGroup[]): QuotaRunway[] {
         agentName: agentLabel(group.agent),
         windowLabel: w.label,
         usedPercent: w.usedPercent,
-        leftPercent: Math.max(0, Math.min(100, 100 - w.usedPercent)),
         resetsAt: w.resetsAt,
         windowMinutes: w.windowMinutes,
       }
     }
     if (worst) runways.push(worst)
   }
-  return runways.sort((a, b) => b.leftPercent - a.leftPercent)
+  return runways.sort((a, b) => a.usedPercent - b.usedPercent)
 }
 
 /**
@@ -296,8 +298,8 @@ export function capacityView(args: {
  * reading it as the whole fleet's state — the spent ones are in the caveat.
  */
 function quotaDetail(quota: QuotaRunway, poolCount: number, nowMs: number): string {
-  const most = poolCount > 1 ? ' the most room,' : ''
-  return `${quota.agentName} has${most} ${Math.round(quota.leftPercent)}% left${resetPhrase(quota, nowMs)}.`
+  const most = poolCount > 1 ? ', with the most room,' : ''
+  return `${quota.agentName}${most} has used ${Math.round(quota.usedPercent)}% of${resetPhrase(quota, nowMs)}.`
 }
 
 /**
@@ -336,16 +338,16 @@ function capacityCaveat(args: {
   return parts.length > 0 ? parts.join(' ') : null
 }
 
-/** " until its five-hour window resets at 23:50" — relative once a day is too far off. */
+/** " its five-hour window, which resets at 23:50" — relative once a day is too far off. */
 function resetPhrase(runway: QuotaRunway, nowMs: number): string {
   const window = ` its ${lowerWindow(runway.windowLabel)} window`
   const resetMs = Date.parse(runway.resetsAt)
-  if (!Number.isFinite(resetMs)) return ` on${window}`
+  if (!Number.isFinite(resetMs)) return window
   // A wall clock answers "when does this come back" only while it is today; a
   // weekly window reading "resets at 21:37" invites the wrong day entirely.
   return resetMs - nowMs > 24 * 3_600_000
-    ? ` until${window} resets ${formatReset(runway.resetsAt, nowMs).replace(/^resets /, '')}`
-    : ` until${window} resets at ${formatWallClock(resetMs)}`
+    ? `${window}, which ${formatReset(runway.resetsAt, nowMs)}`
+    : `${window}, which resets at ${formatWallClock(resetMs)}`
 }
 
 /** "5-hour" → "five-hour" reads as prose; "Weekly" → "weekly". */
