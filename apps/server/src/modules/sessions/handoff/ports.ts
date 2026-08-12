@@ -44,6 +44,7 @@ import type {
 } from '@podium/protocol'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { Capability } from '../../../issue-authz'
+import type { HandoffStageToken } from '../handoff-transfer'
 import type { Session } from '../session'
 
 /**
@@ -116,12 +117,16 @@ export interface HandoffRpcPort {
     length: number,
     machineId: string,
   ): Promise<{ ok: boolean; data?: string; error?: string }>
-  handoffWriteChunk(
-    sessionId: SessionId,
+  /** A STAGE TOKEN, not a session id (POD-1171) — this port is what `workspace.ts`
+   *  hands to `transferHandoffPackage`, so it must admit the `ws-`/`ref-` tokens
+   *  that path sends. Property syntax so a narrowing implementation is refused
+   *  contravariantly rather than accepted bivariantly. */
+  handoffWriteChunk: (
+    stageToken: HandoffStageToken,
     offset: number,
     data: Buffer,
     machineId: string,
-  ): Promise<{ ok: boolean; sizeBytes?: number; error?: string }>
+  ) => Promise<{ ok: boolean; sizeBytes?: number; error?: string }>
   handoffImport(
     sessionId: SessionId,
     repoPath: string,

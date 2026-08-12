@@ -520,17 +520,24 @@ export function bundleStagePath(home: string, token: string): string {
   return join(stageDirFor(home), `${basename(token)}.tgz`)
 }
 
-function stagePathFor(home: string, sessionId: SessionId): string {
-  return bundleStagePath(home, sessionId)
-}
-
+/**
+ * POD-1171 deleted `stagePathFor(home, sessionId)`, the thin alias that took
+ * `bundleStagePath`'s honest `token` and re-labelled it a session id. Two of the
+ * three transfer paths through this file never carry a session — a `ws-` fetch or
+ * a `ref-` base-ref transfer stages here too — so the alias was the daemon end of
+ * the same mislabelling the server end had. Both callers now say what they mean:
+ * the chunk append takes a token, the import takes the session it is importing.
+ */
 export async function appendImportChunk(input: {
   homeDir?: string
-  sessionId: SessionId
+  /** The server's stage token. On the handoff path it happens to BE the session
+   *  id; on the workspace-fetch and base-ref paths it is not, and the wire field
+   *  that carries it is called `sessionId` only for compatibility. */
+  stageToken: string
   offset: number
   data: Buffer
 }): Promise<number> {
-  const path = stagePathFor(input.homeDir ?? homedir(), input.sessionId)
+  const path = bundleStagePath(input.homeDir ?? homedir(), input.stageToken)
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const handle = await open(path, input.offset === 0 ? 'w' : 'r+')
   try {
@@ -581,7 +588,7 @@ export async function importHandoffPackage(input: {
   nativeArtifactPath: string
 }> {
   const home = input.homeDir ?? homedir()
-  const archive = stagePathFor(home, input.sessionId)
+  const archive = bundleStagePath(home, input.sessionId)
   const unpacked = await mkdtemp(join(tmpdir(), 'podium-handoff-import-'))
   let worktreeRoot = join(input.repoPath, '.worktrees', basename(input.worktreeName))
   let createdWorktree = false

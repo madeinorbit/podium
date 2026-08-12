@@ -163,7 +163,7 @@ export class HandoffTransfer {
       }
       await transferHandoffPackage({
         rpc: this.ports.rpc,
-        sessionId: session.sessionId,
+        stageToken: session.sessionId,
         sourceMachineId: source.machineId,
         targetMachineId,
         sourceStagePath: exported.stagePath,

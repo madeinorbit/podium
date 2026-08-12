@@ -57,6 +57,7 @@ import type { LakeReadSession, MemoryService } from '../memory/service'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
+import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
@@ -542,8 +543,19 @@ export class DaemonRpcService {
     )
   }
 
+  /**
+   * A STAGE TOKEN, and the boundary where saying otherwise used to be free
+   * (POD-1171). This leg names the target daemon's stage `.tgz`; on two of the
+   * three transfer paths the value has never been a session id. Declaring it
+   * `SessionId` here still satisfied `HandoffTransferRpc` because method
+   * parameters are bivariant, so nothing caught the mismatch — the union is now
+   * stated where the value actually enters the wire.
+   *
+   * The wire field STAYS `sessionId`: the bytes are a compatibility surface with
+   * every deployed daemon, and this issue renames in-repo only.
+   */
   handoffWriteChunk(
-    sessionId: SessionId,
+    stageToken: HandoffStageToken,
     offset: number,
     data: Buffer,
     machineId: string,
@@ -555,7 +567,7 @@ export class DaemonRpcService {
       (requestId) => ({
         type: 'handoffImportChunk',
         requestId,
-        sessionId,
+        sessionId: stageTokenAsFrozenWireField(stageToken),
         offset,
         data: data.toString('base64'),
       }),

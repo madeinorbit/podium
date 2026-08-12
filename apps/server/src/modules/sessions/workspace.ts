@@ -253,7 +253,7 @@ export class SessionWorkspace {
 
     await transferHandoffPackage({
       rpc,
-      sessionId: token,
+      stageToken: token,
       sourceMachineId,
       targetMachineId: input.targetMachineId,
       sourceStagePath,
@@ -442,7 +442,11 @@ export class SessionWorkspace {
       throw new Error('no verified common bundle base with the source repository')
     }
 
-    const fetchId = `ws-${randomUUID().slice(0, 13)}`
+    // `as const` so the MINT SITE declares the token's shape, the way the
+    // base-ref token above already does (POD-1171). Without it this infers plain
+    // `string` and the transfer call has to cast — which is the cast reappearing
+    // one line further out, not a cast avoided.
+    const fetchId = `ws-${randomUUID().slice(0, 13)}` as const
     const exported = await this.ports.rpc.workspaceExport(
       {
         fetchId,
@@ -463,7 +467,7 @@ export class SessionWorkspace {
     }
     await transferHandoffPackage({
       rpc: this.ports.rpc,
-      sessionId: fetchId as `ws-${string}`,
+      stageToken: fetchId,
       sourceMachineId: source.machineId,
       targetMachineId: caller.machineId,
       sourceStagePath: exported.stagePath,

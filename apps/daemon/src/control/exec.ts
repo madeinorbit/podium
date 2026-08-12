@@ -24,7 +24,7 @@ async function runRepoOp(
    * THE BUNDLE OPS NAME A TRANSFER, NOT A PATH (POD-1405).
    *
    * The server supplies an opaque `token`; the location is derived HERE, inside
-   * the daemon's own stage directory, by the same `stagePathFor` the chunk-write
+   * the daemon's own stage directory, by the same `bundleStagePath` the chunk-write
    * side uses — so both ends agree by construction rather than by convention, and
    * a caller can never point either op at an arbitrary file. This mirrors the
    * containment the chunk-READ side already enforces.

@@ -173,7 +173,11 @@ async function writeChunk(
   try {
     const sizeBytes = await appendImportChunk({
       homeDir: ctx.homeDir,
-      sessionId: msg.sessionId,
+      // The wire field is named `sessionId` and branded `SessionId`, but a
+      // workspace fetch and a base-ref transfer both send a `ws-`/`ref-` stage
+      // token through it (POD-1171). The name is frozen for compatibility; the
+      // parameter it feeds is not, so the honest name is used from here in.
+      stageToken: msg.sessionId,
       offset: msg.offset,
       data: Buffer.from(msg.data, 'base64'),
     })
