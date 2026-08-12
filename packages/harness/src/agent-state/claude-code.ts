@@ -339,6 +339,13 @@ export interface ClaudePromptHookIdentity {
  * Membership here is necessary but not sufficient: the caller additionally
  * requires prompt-id proof that the hook belongs to some turn other than the one
  * terminal already closed, so this never weakens the absorbing terminal.
+ *
+ * That proof is also this path's limit, and the reason it is not the whole story.
+ * When the epoch that was lost is the one STILL RUNNING, its hooks carry the very
+ * prompt id the checkpoint holds, so none of them can clear the bar — the case
+ * {@link ClaudeCausalObserver.inheritedTurnUnproven} settles at the constructor
+ * instead, before the epoch is ever closed. Revival remains for the genuinely
+ * unwitnessed NEXT turn. [POD-765]
  */
 const EPOCH_REVIVING_HOOKS = new Set([
   'PreToolUse',
@@ -432,11 +439,45 @@ export class ClaudeCausalObserver {
       this.turnEpoch > 0 &&
       (this.state.phase === 'working' ||
         this.state.phase === 'compacting' ||
-        this.state.phase === 'needs_user')
+        this.state.phase === 'needs_user' ||
+        this.inheritedTurnUnproven(checkpoint))
     ) {
       this.epochOpen = true
     }
   }
+
+  /**
+   * Whether the epoch we just inherited was left open — nothing ever proved it
+   * ended — while the state we booted with claims idle anyway.
+   *
+   * Boot classification reads the transcript TAIL, and the tail lags a turn in
+   * flight: mid-tool-loop the newest flushed record routinely looks like a
+   * finished assistant message, so {@link bootEventsForClaudeRecords} resolves no
+   * idle verdict and the state defaults to a bare `idle`. Reconciling that over
+   * the checkpoint (see `reconciledState` above) used to close the epoch, and a
+   * closed epoch is absorbing: every hook from the turn STILL RUNNING carries the
+   * prompt id the checkpoint already names, so the revival below — which demands
+   * a DIFFERENT prompt id — could not let any of them back in. The row then read
+   * idle for the rest of the turn, and only the human's next prompt freed it.
+   * One session reported idle for 65 minutes while it was committing (POD-765).
+   *
+   * Two facts have to agree before we override the boot guess. The terminal fence
+   * is the server's own record of a turn ending, so no fence for the epoch we
+   * inherited means that epoch was never proven closed; a fence for a LATER epoch
+   * cannot speak for this one, hence the epoch equality. And a verdict-bearing
+   * idle is a conclusion someone actually reached, whereas a bare idle is the
+   * absence of evidence — only the latter yields.
+   *
+   * This deliberately does NOT relax the revival gate. A legitimate Stop leaves
+   * both a fence and a verdict, so a replayed terminal still cannot manufacture a
+   * turn that never existed. [POD-765]
+   */
+  private inheritedTurnUnproven(checkpoint: SessionObservationCheckpointV1): boolean {
+    if (this.state.phase !== 'idle' || this.state.idle !== undefined) return false
+    const fence = checkpoint.terminalFence
+    return fence === null || fence.turnEpoch !== this.turnEpoch
+  }
+
   get pendingInputOriginCount(): number {
     return this.pendingOrigins.length
   }

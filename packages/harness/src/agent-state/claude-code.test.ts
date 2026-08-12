@@ -2,6 +2,7 @@ import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
+import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { agentStateProviderFor } from '../registry.js'
 import { acceptAgentObservation } from './causal'
@@ -606,6 +607,128 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     // A genuinely different turn → revived.
     expect(
       await causal.observeHook(hook('PostToolUse', { prompt_id: 'p2', tool_use_id: 't2' }), 160),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2, providerPromptId: 'p2' })
+  })
+
+  // POD-593's revival keys on the hook naming a DIFFERENT prompt than the one the
+  // checkpoint holds, which is exactly what the commonest freeze cannot supply: a
+  // server restart mid-turn leaves the still-running turn's own prompt id in the
+  // checkpoint, so every hook it emits matches and none of them revive anything.
+  // The row then reads idle for the rest of that turn — 65 minutes, in the report.
+  // Fixed upstream of revival: an epoch nothing ever fenced is still open, so the
+  // hooks are never gated out in the first place and the epoch is not inflated.
+  const restartMidTurn = (
+    checkpoint: SessionObservationCheckpointV1,
+    state: Parameters<typeof reduceAgentState>[0] = idle,
+  ) =>
+    new ClaudeCausalObserver({
+      podiumSessionId: asSessionId('podium-1'),
+      observerGeneration: 8,
+      bindingVersion: 3,
+      providerSessionId: 'claude-1',
+      transcriptPath: '/exact/claude-1.jsonl',
+      bootstrapState: state,
+      bootstrapOffset: 900,
+      acceptedCheckpoint: checkpoint,
+      bootstrapAdvanced: true,
+      now: () => at,
+    })
+
+  it('keeps a turn nothing ever fenced open when the boot tail guesses idle [POD-765]', async () => {
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observationGeneration: 7,
+    }
+    const causal = observer()
+    const boot = causal.bootstrap()
+    if (!boot) throw new Error('expected bootstrap snapshot')
+    const booted = acceptAgentObservation(null, lease, boot, at)
+    if (booted.kind === 'rejected') throw new Error(booted.rejectionReason)
+    const opened = await causal.observeHook(
+      hook('UserPromptSubmit', { prompt_id: 'live-turn' }),
+      110,
+    )
+    if (!opened) throw new Error('expected an opening observation')
+    const working = acceptAgentObservation(booted.checkpoint, lease, opened, at)
+    if (working.kind === 'rejected') throw new Error(working.rejectionReason)
+    // The state the restart inherits: mid-turn, and no terminal ever accepted.
+    expect(working.checkpoint).toMatchObject({
+      turnEpoch: 1,
+      terminalFence: null,
+      providerPromptId: 'live-turn',
+      turnState: { phase: 'working' },
+    })
+
+    // The transcript tail lags the live turn, so boot classification resolves no
+    // verdict and hands back a bare idle. That guess used to close the epoch.
+    const restarted = restartMidTurn(working.checkpoint)
+    const restartLease = { ...lease, observationGeneration: 8 }
+    const snapshot = restarted.bootstrap()
+    if (!snapshot) throw new Error('expected a restart snapshot')
+    const guessed = acceptAgentObservation(working.checkpoint, restartLease, snapshot, at)
+    if (guessed.kind === 'rejected') throw new Error(guessed.rejectionReason)
+    expect(guessed.checkpoint.turnState.phase).toBe('idle')
+    expect(guessed.checkpoint.turnState.idle).toBeUndefined()
+    expect(guessed.checkpoint.terminalFence).toBeNull()
+
+    // The turn is still running and says so with the prompt id the checkpoint
+    // already names — the case revival is structurally unable to admit.
+    const live = await restarted.observeHook(
+      hook('PostToolUse', { prompt_id: 'live-turn', tool_use_id: 'tool-1' }),
+      950,
+    )
+    expect(live).toMatchObject({
+      transitionKind: 'activity',
+      turnEpoch: 1,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+    })
+    if (!live) throw new Error('expected a live observation')
+    const recovered = acceptAgentObservation(guessed.checkpoint, restartLease, live, at)
+    expect(recovered.kind).toBe('live_transition_accepted')
+    if (recovered.kind === 'rejected') throw new Error(recovered.rejectionReason)
+    expect(recovered.checkpoint.turnState.phase).toBe('working')
+    // The whole symptom was this staying frozen at the restart's guess.
+    expect(recovered.checkpoint.lastLiveReceiptAt).not.toBeNull()
+  })
+
+  // The other half: a turn that genuinely ended leaves BOTH a fence and an idle
+  // verdict, so the same restart must keep absorbing its stragglers. Without this
+  // the fix would be a back door around the terminal for every replayed hook.
+  it('still absorbs stragglers when the inherited turn was properly fenced [POD-765]', async () => {
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observationGeneration: 7,
+    }
+    const causal = observer()
+    const boot = causal.bootstrap()
+    if (!boot) throw new Error('expected bootstrap snapshot')
+    const booted = acceptAgentObservation(null, lease, boot, at)
+    if (booted.kind === 'rejected') throw new Error(booted.rejectionReason)
+    const opened = await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    if (!opened) throw new Error('expected an opening observation')
+    const working = acceptAgentObservation(booted.checkpoint, lease, opened, at)
+    if (working.kind === 'rejected') throw new Error(working.rejectionReason)
+    const stopped = await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 120)
+    if (!stopped) throw new Error('expected a terminal observation')
+    const closed = acceptAgentObservation(working.checkpoint, lease, stopped, at)
+    if (closed.kind === 'rejected') throw new Error(closed.rejectionReason)
+    expect(closed.checkpoint.terminalFence).toMatchObject({ turnEpoch: 1 })
+    expect(closed.checkpoint.turnState.idle).toBeDefined()
+
+    const restarted = restartMidTurn(closed.checkpoint, stopped.state)
+    expect(restarted.bootstrap()).not.toBeNull()
+    expect(
+      await restarted.observeHook(hook('PostToolUse', { prompt_id: 'p1', tool_use_id: 't' }), 950),
+    ).toBeNull()
+    expect(await restarted.observeHook(hook('Stop', { prompt_id: 'p1' }), 960)).toBeNull()
+    // A genuinely different turn still revives, exactly as POD-593 left it.
+    expect(
+      await restarted.observeHook(hook('PostToolUse', { prompt_id: 'p2', tool_use_id: 't2' }), 970),
     ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2, providerPromptId: 'p2' })
   })
 
