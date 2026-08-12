@@ -172,11 +172,60 @@ describe('describeUpdate', () => {
     expect(v.state).toBe('required')
   })
 
+  it('names this app when it is too old even if the target flags no touched place', () => {
+    const v = describeUpdate({
+      ...base,
+      touched: { app: false, server: false, machines: false },
+      skew: 'client-too-old',
+    } as never)
+    expect((v as { places: { kind: string }[] }).places.map((place) => place.kind)).toEqual([
+      'this-app',
+    ])
+  })
+
   it('tells the user to move the SERVER when this client is ahead of it', () => {
-    const v = describeUpdate({ ...base, skew: 'client-too-new' } as never)
+    const v = describeUpdate({
+      ...base,
+      touched: { app: false, server: false, machines: false },
+      skew: 'client-too-new',
+    } as never)
     expect(v.state).toBe('required')
     expect((v as { reason?: string }).reason).toMatch(/server/i)
     expect((v as { reason?: string }).reason).not.toMatch(/rebuild|reload/i)
+    expect((v as { places: { kind: string }[] }).places.map((place) => place.kind)).toEqual([
+      'server',
+    ])
+  })
+
+  it('gives same-label schema skew an affected place and a complete source recovery path', () => {
+    const v = describeUpdate({
+      ...base,
+      localVersion: 'dev+4915207',
+      server: {
+        appVersion: 'dev+4915207',
+        wireSchemaDigest: '3ca64e6f388dbcf5',
+        target: { version: 'dev+4915207', critical: false, artifacts: {} },
+      },
+      fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
+      touched: { app: false, server: false, machines: false },
+      skew: 'schema-skew',
+    } as never)
+
+    expect(v).toMatchObject({
+      state: 'required',
+      version: 'dev+4915207',
+      places: [
+        {
+          kind: 'server',
+          label: 'This app and your server (ludovico)',
+          effect: 'need matching builds and a restart',
+        },
+      ],
+    })
+    const note = (v as { restartNote: string }).restartNote
+    expect(note).toContain('bun run build')
+    expect(note).toContain('restart Podium on ludovico')
+    expect(note).not.toMatch(/no restart needed/i)
   })
 
   it('folds the whole desktop all-in-one stack into one place', () => {

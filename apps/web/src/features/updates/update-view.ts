@@ -83,8 +83,43 @@ function targetNotes(
   }
 }
 
+/**
+ * `touched` describes what the advertised target would move. A wire-skew
+ * verdict describes something stronger: which running half must move before
+ * this client/server pair is safe to use. Keep that recovery fact in the view
+ * model so a same-label skew cannot produce an empty affected-place list.
+ */
+function affectedPlaces(input: UpdateInput): UpdateInput['touched'] {
+  return {
+    app: input.touched.app || input.skew === 'client-too-old' || input.skew === 'schema-skew',
+    server: input.touched.server || input.skew === 'client-too-new' || input.skew === 'schema-skew',
+    machines: input.touched.machines,
+  }
+}
+
 function restartNote(input: UpdateInput): string {
-  const noRestartNeeded = !input.touched.app && !input.touched.server
+  if (input.skew === 'schema-skew') {
+    if (input.surface === 'web') {
+      const server = input.serverName ? `Podium on ${input.serverName}` : 'Podium on the server'
+      return (
+        'Rebuild the web app with `bun run build`, then restart ' +
+        `${server} so the app and server load the same schema. Your sessions keep running.`
+      )
+    }
+
+    if (input.surface === 'desktop-all-in-one') {
+      return 'Install or rebuild Podium, then restart it so its app and server load the same schema. Your sessions keep running.'
+    }
+
+    const server = input.serverName ? `Podium on ${input.serverName}` : 'Podium on the server'
+    return (
+      'Update or rebuild this app, then restart ' +
+      `${server} so the app and server load the same schema. Your sessions keep running.`
+    )
+  }
+
+  const affected = affectedPlaces(input)
+  const noRestartNeeded = !affected.app && !affected.server
   if (noRestartNeeded) return 'No restart needed. Your sessions keep running.'
   return 'Your sessions keep running.'
 }
@@ -97,10 +132,11 @@ function appPlace(input: UpdateInput): Place {
 
 function placesFor(input: UpdateInput): Place[] {
   const places: Place[] = []
+  const affected = affectedPlaces(input)
 
   const sourceAppAndServer =
-    input.touched.app &&
-    input.touched.server &&
+    affected.app &&
+    affected.server &&
     (input.surface === 'web' || input.surface === 'mobile') &&
     (input.server.target?.version ?? '').startsWith('dev+')
 
@@ -109,19 +145,28 @@ function placesFor(input: UpdateInput): Place[] {
     places.push({
       kind: 'server',
       label: `This app and ${server}`,
-      effect: 'will rebuild; this page will need to reload',
+      effect:
+        input.skew === 'schema-skew'
+          ? 'need matching builds and a restart'
+          : 'will rebuild; this page will need to reload',
     })
   }
 
   // The all-in-one desktop shell is one place to the operator. Its embedded
   // server must not become a second row in the dialog.
-  const appTouched =
-    input.touched.app || (input.surface === 'desktop-all-in-one' && input.touched.server)
+  const appTouched = affected.app || (input.surface === 'desktop-all-in-one' && affected.server)
   if (appTouched && !sourceAppAndServer) places.push(appPlace(input))
 
-  if (input.touched.server && input.surface !== 'desktop-all-in-one' && !sourceAppAndServer) {
+  if (affected.server && input.surface !== 'desktop-all-in-one' && !sourceAppAndServer) {
     const label = input.serverName ? `Your server (${input.serverName})` : 'Your server'
-    places.push({ kind: 'server', label, effect: 'will briefly reconnect' })
+    places.push({
+      kind: 'server',
+      label,
+      effect:
+        input.skew === 'schema-skew'
+          ? 'needs a matching build and restart'
+          : 'will briefly reconnect',
+    })
   }
 
   // Only the dev wave belongs here: this dialog's ONE action grants that
