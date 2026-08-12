@@ -18,7 +18,11 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    include: ['src/perf/large-state.frontend-perf.tsx', 'src/perf/scoped-session-render.test.tsx'],
+    include: [
+      'src/perf/large-state.frontend-perf.tsx',
+      'src/perf/scoped-session-render.test.tsx',
+      'src/features/issues/IssuesKanban.test.tsx',
+    ],
     reporters: ['verbose'],
     passWithNoTests: false,
     retry: 0,

@@ -33,8 +33,9 @@ import type {
   JSX,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
+  RefObject,
 } from 'react'
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CardBoundary } from '@/app/CardBoundary'
 import type { IssueViewModel } from '@/app/store'
@@ -78,9 +79,16 @@ interface DragState {
    *  under the finger rather than jumping its corner to it. */
   grab: { x: number; y: number }
   width: number
-  at: { x: number; y: number }
   over: { stage: IssueStage; index: number } | null
 }
+
+type DragPoint = { x: number; y: number }
+
+function sameDropTarget(a: DragState['over'], b: DragState['over']): boolean {
+  return a === b || (a?.stage === b?.stage && a?.index === b?.index)
+}
+
+const NOOP = (): void => {}
 
 export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
   const sessions = useStoreSelector((store) => store.sessions)
@@ -97,85 +105,205 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
         .filter((s): s is SessionMeta => s !== undefined),
     [sessionById],
   )
+  // A card's session array must be referentially stable while the board handles
+  // sparse drag-state updates. Rebuilding it inside each column would defeat
+  // the memoized card leaf even when no session membership changed.
+  const sessionsByIssueId = useMemo(
+    () => new Map(props.allIssues.map((issue) => [issue.id, sessionsFor(issue)])),
+    [props.allIssues, sessionsFor],
+  )
   // Card ages tick at minute granularity — the board is a scan surface, and a
   // per-second clock would repaint every card in every column.
   const now = useNow(60_000)
 
   const [drag, setDrag] = useState<DragState | null>(null)
-  const dragRef = useRef<DragState | null>(null)
-  dragRef.current = drag
+  const proxyRef = useRef<HTMLDivElement | null>(null)
+  const proxyPointRef = useRef<DragPoint>({ x: 0, y: 0 })
+  const mountedRef = useRef(true)
+  const activeCleanupRef = useRef<(() => void) | null>(null)
+  const suppressClickRef = useRef(false)
+  const suppressClickTimerRef = useRef<number | null>(null)
   const columnsRef = useRef(props.columns)
   columnsRef.current = props.columns
   const orderingRef = useRef(props.ordering)
   orderingRef.current = props.ordering
+  const onMoveIssueRef = useRef(props.onMoveIssue)
+  onMoveIssueRef.current = props.onMoveIssue
+
+  useEffect(() => {
+    // StrictMode rehearses setup → cleanup → setup. Restore the live marker on
+    // every setup so the rehearsed cleanup cannot make a real drag's finish()
+    // skip its lifecycle state update and strand the portalled proxy.
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      activeCleanupRef.current?.()
+      if (suppressClickTimerRef.current !== null) {
+        window.clearTimeout(suppressClickTimerRef.current)
+      }
+    }
+  }, [])
 
   /** Begin a press. It only becomes a drag once the pointer passes the
    *  threshold, so a plain click still opens the issue. */
-  const onDragStart = useCallback(
-    (event: ReactPointerEvent, issue: IssueViewModel): void => {
-      // Primary button only, and never from a nested control (those stop
-      // propagation themselves).
-      if (event.button !== 0) return
-      const card = (event.currentTarget as HTMLElement).getBoundingClientRect()
-      const origin = { x: event.clientX, y: event.clientY }
-      const grab = { x: event.clientX - card.left, y: event.clientY - card.top }
-      let armed = false
+  const onDragStart = useCallback((event: ReactPointerEvent, issue: IssueViewModel): void => {
+    // Primary button only, and never from a nested control (those stop
+    // propagation themselves).
+    if (event.button !== 0) return
+    activeCleanupRef.current?.()
+    const handle = event.currentTarget as HTMLElement
+    const pointerId = event.pointerId
+    const card = handle.getBoundingClientRect()
+    const origin = { x: event.clientX, y: event.clientY }
+    const grab = { x: event.clientX - card.left, y: event.clientY - card.top }
+    let armed = false
+    let finished = false
+    let frame: number | null = null
+    let latest = origin
+    let currentOver: DragState['over'] = null
 
-      const resolveOver = (x: number, y: number): DragState['over'] => {
-        const under = document.elementFromPoint(x, y)
-        const column = under?.closest('[data-kanban-column]')
-        const stage = dropTargetStage(column?.getAttribute('data-kanban-column') ?? '')
-        if (!stage) return null
-        const target = columnsRef.current.find((c) => c.stage === stage)
-        return {
-          stage,
-          index: plannedDropIndex(target?.issues ?? [], issue, stage, orderingRef.current),
-        }
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch {
+      // A disappearing handle can race pointer capture. Window listeners are
+      // still the lifecycle backstop, including in DOM test environments.
+    }
+
+    const resolveOver = (x: number, y: number): DragState['over'] => {
+      const under = document.elementFromPoint(x, y)
+      const column = under?.closest('[data-kanban-column]')
+      const stage = dropTargetStage(column?.getAttribute('data-kanban-column') ?? '')
+      if (!stage) return null
+      const target = columnsRef.current.find((c) => c.stage === stage)
+      return {
+        stage,
+        index: plannedDropIndex(target?.issues ?? [], issue, stage, orderingRef.current),
       }
+    }
 
-      const onMove = (move: PointerEvent): void => {
-        if (!armed) {
-          if (!passedDragThreshold(move.clientX - origin.x, move.clientY - origin.y)) return
-          armed = true
-          document.body.style.cursor = 'grabbing'
-        }
-        setDrag({
-          issue,
-          grab,
-          width: card.width,
-          at: { x: move.clientX, y: move.clientY },
-          over: resolveOver(move.clientX, move.clientY),
-        })
+    const moveProxy = (point: DragPoint): void => {
+      proxyPointRef.current = point
+      if (proxyRef.current) {
+        proxyRef.current.style.transform = `translate3d(${point.x - grab.x}px, ${point.y - grab.y}px, 0) rotate(-1.2deg) scale(1.02)`
       }
+    }
 
-      const onUp = (): void => {
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', onUp)
-        window.removeEventListener('pointercancel', onUp)
-        document.body.style.cursor = ''
-        const state = dragRef.current
-        setDrag(null)
-        if (!armed || !state?.over) return
-        if (state.over.stage !== issue.stage) props.onMoveIssue(issue.id, state.over.stage)
+    const publishOver = (over: DragState['over']): void => {
+      if (sameDropTarget(currentOver, over)) return
+      currentOver = over
+      setDrag((value) => {
+        if (!value || value.issue.id !== issue.id) return value
+        return { ...value, over }
+      })
+    }
+
+    const hitTest = (): void => {
+      frame = null
+      publishOver(resolveOver(latest.x, latest.y))
+    }
+
+    const requestHitTest = (): void => {
+      if (frame === null) frame = window.requestAnimationFrame(hitTest)
+    }
+
+    const stopSelection = (selectionEvent: Event): void => selectionEvent.preventDefault()
+
+    function cleanup(): void {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+      handle.removeEventListener('lostpointercapture', onLostCapture)
+      window.removeEventListener('selectstart', stopSelection)
+      if (frame !== null) window.cancelAnimationFrame(frame)
+      frame = null
+      document.body.style.cursor = ''
+      try {
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch {
+        // Capture may already have been released by the browser on pointerup.
       }
+      if (activeCleanupRef.current === cancelActive) activeCleanupRef.current = null
+    }
 
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
-      window.addEventListener('pointercancel', onUp)
-    },
-    [props.onMoveIssue],
-  )
+    function finish(cancelled: boolean, point?: DragPoint): void {
+      if (finished) return
+      finished = true
+      if (armed && point && !cancelled) {
+        latest = point
+        currentOver = resolveOver(point.x, point.y)
+      }
+      cleanup()
+      if (mountedRef.current) setDrag(null)
+      if (!armed || cancelled) return
 
-  // A drag must not also select text across the board.
-  useEffect(() => {
-    if (!drag) return
-    const stop = (e: Event): void => e.preventDefault()
-    window.addEventListener('selectstart', stop)
-    return () => window.removeEventListener('selectstart', stop)
-  }, [drag])
+      // The pointerup-generated click follows this handler. Consume only
+      // that click so a successful drag does not also open its card.
+      suppressClickRef.current = true
+      if (suppressClickTimerRef.current !== null) {
+        window.clearTimeout(suppressClickTimerRef.current)
+      }
+      suppressClickTimerRef.current = window.setTimeout(() => {
+        suppressClickRef.current = false
+        suppressClickTimerRef.current = null
+      }, 0)
+
+      if (currentOver && currentOver.stage !== issue.stage) {
+        onMoveIssueRef.current(issue.id, currentOver.stage)
+      }
+    }
+
+    function onMove(move: PointerEvent): void {
+      if (move.pointerId !== pointerId) return
+      if (!armed) {
+        if (!passedDragThreshold(move.clientX - origin.x, move.clientY - origin.y)) return
+        armed = true
+        document.body.style.cursor = 'grabbing'
+        window.addEventListener('selectstart', stopSelection)
+        setDrag({ issue, grab, width: card.width, over: null })
+      }
+      move.preventDefault()
+      latest = { x: move.clientX, y: move.clientY }
+      moveProxy(latest)
+      requestHitTest()
+    }
+
+    function onUp(up: PointerEvent): void {
+      if (up.pointerId !== pointerId) return
+      finish(false, { x: up.clientX, y: up.clientY })
+    }
+
+    function onCancel(cancel: PointerEvent): void {
+      if (cancel.pointerId === pointerId) finish(true)
+    }
+
+    function onLostCapture(lost: PointerEvent): void {
+      if (lost.pointerId === pointerId) finish(true)
+    }
+
+    function cancelActive(): void {
+      finish(true)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    handle.addEventListener('lostpointercapture', onLostCapture)
+    activeCleanupRef.current = cancelActive
+  }, [])
+
+  const selectedIds = useMemo(() => new Set(props.selected), [props.selected])
+  const dragHex = drag ? issueColorHex(drag.issue.color) : undefined
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-x-auto" data-testid="issues-board">
+    <div
+      className="flex min-h-0 flex-1 overflow-x-auto"
+      data-testid="issues-board"
+      onClickCapture={(event) => {
+        if (!suppressClickRef.current) return
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+    >
       {props.columns.map(({ stage, issues }) => (
         <IssueColumn
           key={stage}
@@ -184,21 +312,30 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
           badges={props.badges}
           stageCounts={props.stageCounts}
           epicProgress={props.epicProgress}
-          sessionsFor={sessionsFor}
+          sessionsByIssueId={sessionsByIssueId}
           now={now}
-          drag={drag}
+          drop={drag?.over?.stage === stage ? drag.over : null}
+          draggedIssueId={drag?.issue.id ?? null}
+          dragHex={dragHex}
           onOpen={props.onOpen}
           onApprove={props.onApprove}
           onCreateIn={props.onCreateIn}
           focusId={props.focusId}
-          selected={props.selected}
+          selectedIds={selectedIds}
           onToggleSelect={props.onToggleSelect}
           onContextMenu={props.onContextMenu}
           onDragStart={onDragStart}
         />
       ))}
       {drag && (
-        <DragProxy drag={drag} sessions={sessionsFor(drag.issue)} badges={props.badges} now={now} />
+        <DragProxy
+          drag={drag}
+          point={proxyPointRef.current}
+          proxyRef={proxyRef}
+          sessions={sessionsByIssueId.get(drag.issue.id) ?? []}
+          badges={props.badges}
+          now={now}
+        />
       )}
     </div>
   )
@@ -215,23 +352,27 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
  */
 function DragProxy({
   drag,
+  point,
+  proxyRef,
   sessions,
   badges,
   now,
 }: {
   drag: DragState
+  point: DragPoint
+  proxyRef: RefObject<HTMLDivElement | null>
   sessions: SessionMeta[]
   badges: IssuesDisplay['badges']
   now: number
 }): JSX.Element {
   return createPortal(
     <div
-      className="pointer-events-none fixed z-[90] rotate-[-1.2deg] scale-[1.02] opacity-95"
+      ref={proxyRef}
+      className="pointer-events-none fixed top-0 left-0 z-[90] opacity-95 will-change-transform"
       style={{
-        left: drag.at.x - drag.grab.x,
-        top: drag.at.y - drag.grab.y,
         width: drag.width,
         boxShadow: 'var(--shadow-popover)',
+        transform: `translate3d(${point.x - drag.grab.x}px, ${point.y - drag.grab.y}px, 0) rotate(-1.2deg) scale(1.02)`,
       }}
       aria-hidden="true"
     >
@@ -243,10 +384,10 @@ function DragProxy({
         selected={false}
         dragging={false}
         now={now}
-        onOpen={() => {}}
-        onToggleSelect={() => {}}
-        onContextMenu={() => {}}
-        onDragStart={() => {}}
+        onOpen={NOOP}
+        onToggleSelect={NOOP}
+        onContextMenu={NOOP}
+        onDragStart={NOOP}
       />
     </div>,
     document.body,
@@ -265,20 +406,22 @@ function DropLine(): JSX.Element {
   )
 }
 
-function IssueColumn({
+const IssueColumn = memo(function IssueColumn({
   stage,
   issues,
   badges,
   stageCounts,
   epicProgress,
-  sessionsFor,
+  sessionsByIssueId,
   now,
-  drag,
+  drop,
+  draggedIssueId,
+  dragHex,
   onOpen,
   onApprove,
   onCreateIn,
   focusId,
-  selected,
+  selectedIds,
   onToggleSelect,
   onContextMenu,
   onDragStart,
@@ -288,14 +431,16 @@ function IssueColumn({
   badges: IssuesDisplay['badges']
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
   epicProgress: Map<string, EpicProgress | null>
-  sessionsFor: (issue: IssueViewModel) => SessionMeta[]
+  sessionsByIssueId: Map<IssueId, SessionMeta[]>
   now: number
-  drag: DragState | null
+  drop: DragState['over']
+  draggedIssueId: IssueId | null
+  dragHex: string | undefined
   onOpen: (id: IssueId) => void
   onApprove: (id: IssueId) => void
   onCreateIn: (stage: IssueStage) => void
   focusId: string | null
-  selected: string[]
+  selectedIds: Set<string>
   onToggleSelect: (id: IssueId) => void
   onContextMenu: (id: IssueId, event: ReactMouseEvent) => void
   onDragStart: (event: ReactPointerEvent, issue: IssueViewModel) => void
@@ -308,7 +453,7 @@ function IssueColumn({
   const scopeVersion = scopeRef.current.version
   const [reveal, setReveal] = useState({ scopeVersion, count: ISSUE_RENDER_CHUNK })
   const revealed = reveal.scopeVersion === scopeVersion ? reveal.count : ISSUE_RENDER_CHUNK
-  const requiredIds = new Set(selected)
+  const requiredIds = new Set(selectedIds)
   if (focusId) requiredIds.add(focusId)
   const limit = progressiveRenderLimit(
     issues.map((issue) => issue.id),
@@ -341,8 +486,8 @@ function IssueColumn({
   }, [remaining, scopeVersion, issues.length])
 
   const label = STAGE_LABELS[stage]
-  const over = drag?.over?.stage === stage ? drag.over : null
-  const dragHex = drag ? issueColorHex(drag.issue.color) : undefined
+  const over = drop
+  const createInStage = useCallback(() => onCreateIn(stage), [onCreateIn, stage])
 
   return (
     <div
@@ -376,7 +521,7 @@ function IssueColumn({
           className="ml-auto grid size-[24px] place-items-center rounded-[6px] text-text-faint opacity-55 transition-[opacity,background-color,color] hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover/col:opacity-100"
           title={`New task in ${label}`}
           aria-label={`New task in ${label}`}
-          onClick={() => onCreateIn(stage)}
+          onClick={createInStage}
         >
           <Plus size={13} aria-hidden="true" />
         </button>
@@ -391,7 +536,7 @@ function IssueColumn({
           cards, which is why titles now fit on one line more often. */}
       <div className="scroll-none flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 pt-3 pb-6">
         {issues.length === 0 && !over ? (
-          <EmptyColumn label={label} onCreate={() => onCreateIn(stage)} />
+          <EmptyColumn label={label} onCreate={createInStage} />
         ) : (
           visibleIssues.map((issue, index) => (
             <Fragment key={issue.id}>
@@ -399,13 +544,13 @@ function IssueColumn({
               <CardBoundary resetKey={issue.id} label="issue card">
                 <IssueCard
                   issue={issue}
-                  sessions={sessionsFor(issue)}
+                  sessions={sessionsByIssueId.get(issue.id) ?? []}
                   badges={badges}
                   stageCounts={stageCounts.get(issue.id)}
                   progress={epicProgress.get(issue.id) ?? null}
                   focused={focusId === issue.id}
-                  selected={selected.includes(issue.id)}
-                  dragging={drag?.issue.id === issue.id}
+                  selected={selectedIds.has(issue.id)}
+                  dragging={draggedIssueId === issue.id}
                   now={now}
                   onOpen={onOpen}
                   {...(stage === 'proposed' ? { onApprove } : {})}
@@ -430,7 +575,7 @@ function IssueColumn({
       </div>
     </div>
   )
-}
+})
 
 /** An empty column teaches instead of reporting. */
 function EmptyColumn({ label, onCreate }: { label: string; onCreate: () => void }): JSX.Element {

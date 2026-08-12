@@ -354,6 +354,7 @@ describe('test lane configuration', () => {
     expect(config(frontendPerfConfig).test?.include).toEqual([
       'src/perf/large-state.frontend-perf.tsx',
       'src/perf/scoped-session-render.test.tsx',
+      'src/features/issues/IssuesKanban.test.tsx',
     ])
     expect(config(frontendPerfConfig).test?.retry).toBe(0)
     expect(config(frontendPerfConfig).test?.maxWorkers).toBe(1)

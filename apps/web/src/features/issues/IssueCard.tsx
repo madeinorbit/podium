@@ -33,6 +33,7 @@
 import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
 import { Flag, ShieldAlert } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
+import { memo } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { UnreadDot } from '@/components/UnreadMark'
@@ -182,7 +183,7 @@ function labelDotColor(label: string): string {
   return LABEL_DOT_HUES[hash % LABEL_DOT_HUES.length] as string
 }
 
-export function IssueCard({
+function IssueCardLeaf({
   issue,
   sessions,
   badges,
@@ -411,3 +412,5 @@ export function IssueCard({
     </div>
   )
 }
+
+export const IssueCard = memo(IssueCardLeaf)

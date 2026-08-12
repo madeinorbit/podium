@@ -87,12 +87,19 @@ export function IssuesView(): JSX.Element {
     [issues, display, filter, expanded, isMobile, openIssueId],
   )
 
-  const runMut = (promise: Promise<unknown>): void => {
+  const runMut = useCallback((promise: Promise<unknown>): void => {
     setError('')
     promise.catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
-  }
-  const moveIssue = (id: IssueId, stage: IssueStage): void => runMut(updateIssue(id, { stage }))
-  const approveIssue = (id: IssueId): void => runMut(trpc.issues.promote.mutate({ id }))
+  }, [])
+  const moveIssue = useCallback(
+    (id: IssueId, stage: IssueStage): void => runMut(updateIssue(id, { stage })),
+    [runMut, updateIssue],
+  )
+  const approveIssue = useCallback(
+    (id: IssueId): void => runMut(trpc.issues.promote.mutate({ id })),
+    [runMut, trpc.issues.promote],
+  )
+  const createInStage = useCallback((stage: IssueStage): void => setCreating({ stage }), [])
   // `approve & start` and `archive` left this file with the card's three-button
   // bar (POD-591). They are not lost: both are on the right-click menu, which
   // acts on a selection rather than on one card, and that is where a decision
@@ -112,7 +119,10 @@ export function IssuesView(): JSX.Element {
     runMut(setIssueLabels(issue.id, labels))
   }
 
-  const selectedIds = keyState.selected.filter((id) => view.presentIds.has(id))
+  const selectedIds = useMemo(
+    () => keyState.selected.filter((id) => view.presentIds.has(id)),
+    [keyState.selected, view.presentIds],
+  )
   const focusId = keyState.focusId
   const navRef = useRef(view.nav)
   navRef.current = view.nav
@@ -183,16 +193,23 @@ export function IssuesView(): JSX.Element {
     return () => cancelAnimationFrame(frame)
   }, [focusId])
 
-  const toggleSelectId = (id: IssueId): void =>
+  const toggleSelectId = useCallback((id: IssueId): void => {
     setKeyState((state) =>
       issuesKeyReduce({ ...state, focusId: id }, { kind: 'toggleSelect' }, navRef.current),
     )
-  const onIssueContextMenu = (id: IssueId, event: ReactMouseEvent): void => {
+  }, [])
+  const contextStateRef = useRef({ keyState, selectedIds })
+  contextStateRef.current = { keyState, selectedIds }
+  const onIssueContextMenu = useCallback((id: IssueId, event: ReactMouseEvent): void => {
     event.preventDefault()
-    const next = contextMenuTargets({ focusId: keyState.focusId, selected: selectedIds }, id)
+    const current = contextStateRef.current
+    const next = contextMenuTargets(
+      { focusId: current.keyState.focusId, selected: current.selectedIds },
+      id,
+    )
     setKeyState(next.keyState)
     setCtxMenu({ ids: next.targetIds, anchor: { x: event.clientX, y: event.clientY } })
-  }
+  }, [])
   const bulkStage = (stage: IssueStage): void =>
     runMut(Promise.all(selectedIds.map((id) => updateIssue(id, { stage }))))
   const bulkPriority = (priority: number): void =>
@@ -299,7 +316,7 @@ export function IssuesView(): JSX.Element {
           groups={view.rowGroups}
           display={display}
           onOpen={setOpenIssueId}
-          onCreateIn={(stage) => setCreating({ stage })}
+          onCreateIn={createInStage}
           focusId={focusId}
           selected={selectedIds}
           onToggleSelect={toggleSelectId}
@@ -317,7 +334,7 @@ export function IssuesView(): JSX.Element {
           onOpen={setOpenIssueId}
           onMoveIssue={moveIssue}
           onApprove={approveIssue}
-          onCreateIn={(stage) => setCreating({ stage })}
+          onCreateIn={createInStage}
           focusId={focusId}
           selected={selectedIds}
           onToggleSelect={toggleSelectId}
