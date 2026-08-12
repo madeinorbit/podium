@@ -113,14 +113,18 @@ describe('elevateCoordinatorSession / isCoordinatorSession', () => {
 describe('issueIdOwningSession', () => {
   it('prefers explicit issueId when the issue is in the set', () => {
     const s = sess('s1', { issueId: 'parent' })
-    expect(issueIdOwningSession(asSessionId('s1'), [s], [issue({ id: 'parent' })], [])).toBe('parent')
+    expect(issueIdOwningSession(asSessionId('s1'), [s], [issue({ id: 'parent' })], [])).toBe(
+      'parent',
+    )
     expect(issueIdOwningSession(asSessionId('s1'), [s], [issue({ id: 'other' })], [])).toBeNull()
   })
 
   it('falls back to worktree containment for unattached sessions', () => {
     const s = sess('s1', { cwd: '/r/a/wt' })
     const iss = issue({ id: 'wt-issue', worktreePath: '/r/a/wt' })
-    expect(issueIdOwningSession(asSessionId('s1'), [s], [iss], ['/r/a', '/r/a/wt'])).toBe('wt-issue')
+    expect(issueIdOwningSession(asSessionId('s1'), [s], [iss], ['/r/a', '/r/a/wt'])).toBe(
+      'wt-issue',
+    )
   })
 })
 

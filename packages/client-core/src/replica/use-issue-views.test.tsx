@@ -12,6 +12,7 @@
  * So these tests drive REAL React renders and count them.
  */
 
+import { asIssueId } from '@podium/model'
 import { act, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
@@ -41,7 +42,7 @@ describe('useIssueView — a SESSION change must reach an ISSUE view', () => {
     replica.applySnapshot('issueProjections', [issueRow({ readAt: '2026-07-17T10:00:00.000Z' })])
 
     function Probe() {
-      const { rollups } = useIssueView(replica, 'i1')
+      const { rollups } = useIssueView(replica, asIssueId('i1'))
       return <span data-testid="unread">{String(rollups.unread)}</span>
     }
     render(<Probe />)
@@ -63,7 +64,7 @@ describe('useIssueView — a SESSION change must reach an ISSUE view', () => {
     // change that must move TWO issues' views. Nothing about the issue rows moved.
     const replica = makeReplica()
     function Probe() {
-      const { view } = useIssueView(replica, 'i1')
+      const { view } = useIssueView(replica, asIssueId('i1'))
       return <span data-testid="members">{(view?.memberSessionIds ?? []).join(',')}</span>
     }
     render(<Probe />)
@@ -78,7 +79,7 @@ describe('useIssueView — a SESSION change must reach an ISSUE view', () => {
   it('re-renders on an ISSUE change too', () => {
     const replica = makeReplica()
     function Probe() {
-      const { view } = useIssueView(replica, 'i1')
+      const { view } = useIssueView(replica, asIssueId('i1'))
       return <span data-testid="ref">{view?.displayRef ?? '-'}</span>
     }
     render(<Probe />)

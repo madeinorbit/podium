@@ -188,5 +188,7 @@ export function resolveSpawnTargetMachine<S extends RecentSession, M extends Sel
   if (online.length === 0) return { refusal: 'unreachable' }
 
   const machineId = resolveTargetMachine(repo, [...sessions], online)
-  return machineId === undefined ? { refusal: 'unreachable' } : { machineId }
+  return machineId === undefined
+    ? { refusal: 'unreachable' }
+    : { machineId: asMachineId(machineId) }
 }

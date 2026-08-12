@@ -10,6 +10,7 @@
  * satisfied. The cursor assertion below is the one that catches it.
  */
 
+import { asMutationId } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
@@ -20,7 +21,7 @@ const issue = (id: string): IssueWire => ({ id, title: id }) as unknown as Issue
 const session = (id: string): SessionMeta => ({ sessionId: id }) as unknown as SessionMeta
 
 const userWrite: OutboxEntry = {
-  mutationId: 'mut_1',
+  mutationId: asMutationId('mut_1'),
   kind: 'issue.create',
   input: { title: 'user work' },
   queuedAt: 1,

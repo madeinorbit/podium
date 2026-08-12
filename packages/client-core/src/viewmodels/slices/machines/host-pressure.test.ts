@@ -98,8 +98,8 @@ describe('residency', () => {
       session({ sessionId: 'd', status: 'live', machineId: asMachineId('other') }),
       session({ sessionId: 'e', status: 'reconnecting' }),
     ]
-    expect(residentSessionsOnMachine(sessions, 'm1')).toHaveLength(3)
-    const agents = hostAgentsView(sessions, 'm1', 8, 'podium-vps')
+    expect(residentSessionsOnMachine(sessions, asMachineId('m1'))).toHaveLength(3)
+    const agents = hostAgentsView(sessions, asMachineId('m1'), 8, 'podium-vps')
     expect(agents.count).toBe(3)
     expect(agents.observedIdleCount).toBe(1)
     expect(agents.idleTarget).toBe(8)
@@ -121,7 +121,7 @@ describe('residency', () => {
 
   it('omits the meter when maxIdleSessions is unlimited', () => {
     const sessions = [session({ sessionId: 'a' })]
-    expect(hostAgentsView(sessions, 'm1', null, 'h')).toMatchObject({
+    expect(hostAgentsView(sessions, asMachineId('m1'), null, 'h')).toMatchObject({
       count: 1,
       idleTarget: null,
       meterPct: null,
@@ -140,7 +140,7 @@ describe('residency', () => {
       session({ sessionId: 'i', agentState: phase('idle') }),
       session({ sessionId: 'n', agentState: phase('needs_user') }),
     ]
-    expect(residencyBreakdown(sessions, 'm1')).toEqual({
+    expect(residencyBreakdown(sessions, asMachineId('m1'))).toEqual({
       working: 1,
       idle: 1,
       waiting: 1,
@@ -162,7 +162,11 @@ describe('idleSessionSplit', () => {
       session({ sessionId: 'r', resumable: false, agentState: phase('ended') }),
       session({ sessionId: 'busy', agentState: phase('working') }),
     ]
-    expect(idleSessionSplit(sessions, 'm1')).toEqual({ parkable: 1, protected: 2, idle: 3 })
+    expect(idleSessionSplit(sessions, asMachineId('m1'))).toEqual({
+      parkable: 1,
+      protected: 2,
+      idle: 3,
+    })
   })
 })
 
@@ -227,11 +231,11 @@ describe('listReclaimableWorktreesClient', () => {
  */
 describe('placeReclaimable', () => {
   const candidate = (issueId: string, machineId: string | null) => ({
-    issueId,
+    issueId: asIssueId(issueId),
     title: issueId,
     worktreePath: `/r/.worktrees/${issueId}`,
     closedAt: '2026-07-01T00:00:00.000Z',
-    machineId,
+    machineId: machineId === null ? null : asMachineId(machineId),
   })
 
   it('claims unattributed checkouts for the only machine', () => {

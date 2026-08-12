@@ -83,7 +83,7 @@ describe('a chat renders a partial world', () => {
     ({ state, id: 's1' }) as ReturnType<typeof chatSessionReference>
 
   it('an evicted session is neither loading nor deleted — the view just leaves', () => {
-    const evicted = chatSessionReference('s1', [], () => 'evicted')
+    const evicted = chatSessionReference(asSessionId('s1'), [], () => 'evicted')
     expect(evicted.state).toBe('not-visible')
     expect(evicted.value).toBeUndefined()
     expect(
@@ -97,8 +97,8 @@ describe('a chat renders a partial world', () => {
   })
 
   it('gives an evicted and a deleted session the SAME phase — no existence oracle', () => {
-    const evicted = chatSessionReference('s1', [], () => 'evicted')
-    const removed = chatSessionReference('s1', [], () => 'removed')
+    const evicted = chatSessionReference(asSessionId('s1'), [], () => 'evicted')
+    const removed = chatSessionReference(asSessionId('s1'), [], () => 'removed')
     expect(
       transcriptPhase({ reference: evicted, blockCount: 0, pendingCount: 0, initialLoaded: true }),
     ).toBe(
@@ -118,7 +118,7 @@ describe('a chat renders a partial world', () => {
   })
 
   it('a re-granted session is present again despite its stale exit record', () => {
-    const back = chatSessionReference('s1', [session()], () => 'evicted')
+    const back = chatSessionReference(asSessionId('s1'), [session()], () => 'evicted')
     expect(back.state).toBe('present')
   })
 })

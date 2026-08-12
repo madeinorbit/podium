@@ -74,7 +74,7 @@ export interface IssueView {
    *  server-side this meant a repo's prefix change recomputed every issue in it. */
   displayRef: string
   /** Direct children (`parentId === this.id`). */
-  childIds: string[]
+  childIds: IssueId[]
   childCount: number
   childDoneCount: number
   /** An open issue that something unfinished `blocks`. Reads OTHER issues'
@@ -194,7 +194,7 @@ export function deriveIssueViews(
   const now = opts.now ?? Date.now
   const sessionsByIssue = indexSessionsByIssue(sessions)
   const stageById = new Map(issues.map((i) => [i.id, i.stage]))
-  const childrenByParent = new Map<IssueId, SessionId[]>()
+  const childrenByParent = new Map<IssueId, IssueId[]>()
   // Reverse of every issue's `deps`: an edge A→B (A's dep on B) contributes B a
   // dependent { id: A, type }. Built once here in O(deps) so `dependents` is a
   // local derivation, never a wire field — the same reason `blocked` is (both

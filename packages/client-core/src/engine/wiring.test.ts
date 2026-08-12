@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -75,7 +75,7 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
 const kinds = Object.keys(OUTBOX_COMMANDS) as (keyof OutboxKinds)[]
 
 const route = <K extends keyof OutboxKinds>(kind: K, input: OutboxKinds[K]) =>
-  outboxRoutingFor(kind, input, 'mid-1')
+  outboxRoutingFor(kind, input, asMutationId('mid-1'))
 
 describe('automatic bookkeeping recovery policy', () => {
   it('discards only automatic issue-read receipts and fails closed for unknown work', () => {
@@ -91,7 +91,7 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
   it('routes every queued kind, with no kind left on a shared global partition', () => {
     expect(kinds.length).toBeGreaterThan(0)
     for (const kind of kinds) {
-      const routed = outboxRoutingFor(kind, SAMPLE[kind], 'mid-1')
+      const routed = outboxRoutingFor(kind, SAMPLE[kind], asMutationId('mid-1'))
       expect(routed.partitionKey).toBeTruthy()
       // The constant that caused the incident must not come back.
       expect(routed.partitionKey).not.toBe('client-outbox')
@@ -258,9 +258,9 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     // written. Same origin still collapses: that IS the operator changing their
     // mind about one question.
     const id = 'POD-1'
-    expect(route('issueSetPlacement', { id, placement: 'own', originId: 'POD-2' }).collapseKey).toBe(
-      route('issueSetPlacement', { id, placement: 'mission', originId: 'POD-2' }).collapseKey,
-    )
+    expect(
+      route('issueSetPlacement', { id, placement: 'own', originId: 'POD-2' }).collapseKey,
+    ).toBe(route('issueSetPlacement', { id, placement: 'mission', originId: 'POD-2' }).collapseKey)
     expect(
       route('issueSetPlacement', { id, placement: 'own', originId: 'POD-2' }).collapseKey,
     ).not.toBe(route('issueSetPlacement', { id, placement: 'own', originId: 'POD-3' }).collapseKey)
@@ -283,9 +283,9 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     // A collapse key that outran its partition would let the kernel drop an
     // entry whose order against the survivor is undefined.
     for (const kind of kinds) {
-      const routed = outboxRoutingFor(kind, SAMPLE[kind], 'mid-1')
+      const routed = outboxRoutingFor(kind, SAMPLE[kind], asMutationId('mid-1'))
       if (routed.collapseKey === undefined) continue
-      const other = outboxRoutingFor(kind, SAMPLE[kind], 'mid-2')
+      const other = outboxRoutingFor(kind, SAMPLE[kind], asMutationId('mid-2'))
       expect(other.partitionKey).toBe(routed.partitionKey)
     }
   })
