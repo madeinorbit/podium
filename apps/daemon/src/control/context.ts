@@ -48,6 +48,14 @@ export interface DaemonContext {
   // -- per-session runtime state ---------------------------------------------
   /** Live PTY bridges by Podium session id. */
   bridges: Map<SessionId, AgentSession>
+  /**
+   * Geometry a client asked for while this session had no bridge to apply it to.
+   * Spawn is async (fork+exec, abduco socket handshake) and the server publishes
+   * the session row the moment it dispatches `spawn`, so a browser that fits its
+   * pane in that window sends a resize the daemon cannot deliver yet. Held here
+   * and applied by wireBridge instead of being dropped (POD-628).
+   */
+  pendingResizes: Map<SessionId, { cols: number; rows: number }>
   /** Draft Sync v2 (POD-859): read-only/inject composer engine for flagged sessions. */
   composerEngine: ComposerSyncEngine
   /** Coalesced, prioritized PTY frame relay. */

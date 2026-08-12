@@ -8,7 +8,7 @@ import {
   type LaunchFile,
   manifestFor,
 } from '@podium/harness'
-import { type AgentKind, asMachineId, type SessionId } from '@podium/model'
+import { type AgentKind, asMachineId, type Geometry, type SessionId } from '@podium/model'
 import {
   type AgentSession,
   abducoHasSession,
@@ -34,8 +34,29 @@ import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:session')
 
-const DRAFT_SYNC_HARNESS_ENV: Partial<Record<AgentKind, Record<string, string>>> = {
+/**
+ * Per-harness env every session of that kind needs to be driven through Podium's
+ * terminal path — a compatibility floor, not a feature.
+ *
+ * codex: on startup codex pushes the kitty keyboard protocol (`CSI > u`) at the
+ * terminal. Our browser terminal (xterm.js) does not implement it and never
+ * answers, so codex runs its modified-key handling against a protocol nobody on
+ * this side speaks — the arrangement openai/codex#8324 reports Enter/Backspace
+ * doubling under. Draft Sync turned it off for exactly this reason and gated
+ * that on its own flag (POD-859), which left two otherwise identical codex
+ * sessions on different keyboard paths depending on an experiment. The mismatch
+ * was never about the engine, so every codex spawn gets it now (POD-628).
+ * Spawn-time only — a session already running with enhancement on keeps it until
+ * it is relaunched.
+ */
+const HARNESS_COMPAT_ENV: Partial<Record<AgentKind, Record<string, string>>> = {
   codex: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
+}
+
+/** The compatibility env for a harness ({} for kinds that need none). Pure so the
+ *  floor is asserted without standing up a spawn. */
+export function harnessCompatEnv(agentKind: AgentKind): Record<string, string> {
+  return HARNESS_COMPAT_ENV[agentKind] ?? {}
 }
 
 /**
@@ -133,15 +154,26 @@ function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): vo
   })
 }
 
+/**
+ * Attach a freshly spawned/reattached PTY to the daemon's plumbing. `geometry` is
+ * the size the PTY was created at; the RETURN value is the size it is actually
+ * running at once any resize that arrived before this bridge existed has been
+ * applied — that is what `bind` must report, so the server is not told the PTY is
+ * 80x24 when we just sized it to the client's fitted grid (POD-628).
+ */
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
   session: AgentSession,
   agentKind: AgentKind,
   durableLabel: string,
-): void {
+  geometry: Geometry,
+): Geometry {
   ctx.bridges.set(sessionId, session)
   ctx.durableLabels.set(sessionId, durableLabel)
+  const pending = ctx.pendingResizes.get(sessionId)
+  ctx.pendingResizes.delete(sessionId)
+  if (pending) session.resize(pending.cols, pending.rows)
   session.onFrame((frame) => {
     countFrame(frame.data.length)
     ctx.outputScheduler.enqueue(sessionId, frame.data)
@@ -161,6 +193,7 @@ export function wireBridge(
   }
   session.onExit((code) => {
     ctx.bridges.delete(sessionId)
+    ctx.pendingResizes.delete(sessionId)
     ctx.composerEngine.detach(sessionId)
     ctx.durableLabels.delete(sessionId)
     ctx.outputScheduler.remove(sessionId)
@@ -192,6 +225,7 @@ export function wireBridge(
       ctx.send({ type: 'agentExit', sessionId, code })
     })()
   })
+  return pending ? { cols: pending.cols, rows: pending.rows } : geometry
 }
 
 async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
@@ -286,11 +320,8 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
           // Globally-installed hooks are env-gated per session by their adapter.
           // Commands exit immediately when absent, so non-Podium runs are untouched.
           ...instrumentationEnv,
-          // Draft Sync v2 (POD-859): kitty keyboard enhancement doubles
-          // Enter/Backspace (openai/codex#8324), which would corrupt the engine's
-          // synthetic keystrokes. Disable it for flagged codex sessions only, so
-          // flag-off codex behavior is byte-for-byte unchanged.
-          ...(msg.draftSync ? (DRAFT_SYNC_HARNESS_ENV[msg.agentKind] ?? {}) : {}),
+          // Terminal-protocol compatibility for this harness (see above).
+          ...harnessCompatEnv(msg.agentKind),
         },
       }),
     }
@@ -300,7 +331,7 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
         : ctx.backend === 'tmux'
           ? await spawnTmuxAgent(spawnOpts)
           : spawnAgent(spawnOpts)
-    wireBridge(ctx, msg.sessionId, session, msg.agentKind, label)
+    const geometry = wireBridge(ctx, msg.sessionId, session, msg.agentKind, label, msg.geometry)
     // Stand up the agent-state tracker, harness observer, resume transcript tail
     // and seeded phase. A fresh spawn's CLI isn't up yet, so seed on the first
     // frame. Same call on reattach keeps the two paths from drifting.
@@ -312,7 +343,7 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
     // session. attach() is a no-op for harnesses without a driver.
     if (msg.draftSync) {
-      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, msg.geometry.cols, msg.geometry.rows)
+      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, geometry.cols, geometry.rows)
     }
     // An adopted spawn started nothing: the durable master for this label was still
     // running and we reattached to it (POD-1945 — a Resume used to die on abduco's
@@ -330,11 +361,14 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
       cmd: session.adopted ? `abduco -a ${label}` : cmd.cmd,
       cwd: cmd.cwd,
       agentKind: msg.agentKind,
-      geometry: msg.geometry,
+      geometry,
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
     })
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)
+    // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
+    // must not be applied to whatever is spawned for this id next.
+    ctx.pendingResizes.delete(msg.sessionId)
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -584,7 +618,14 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       })
       return
     }
-    wireBridge(ctx, msg.sessionId, found.session, msg.agentKind, msg.durableLabel)
+    const geometry = wireBridge(
+      ctx,
+      msg.sessionId,
+      found.session,
+      msg.agentKind,
+      msg.durableLabel,
+      msg.geometry,
+    )
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
     // all in-memory per-session state — rebuild it via the same path spawn uses.
@@ -596,7 +637,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       seedOnFrame: false,
     })
     if (msg.draftSync) {
-      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, msg.geometry.cols, msg.geometry.rows)
+      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, geometry.cols, geometry.rows)
     }
     ctx.send({
       type: 'bind',
@@ -604,7 +645,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       cmd: found.cmd,
       cwd: msg.cwd,
       agentKind: msg.agentKind,
-      geometry: msg.geometry,
+      geometry,
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
     })
     // attachAbducoAgent nudges the PTY before the bridge is wired, so that
@@ -620,6 +661,7 @@ function stopSessionProcess(
 ): void {
   const session = ctx.bridges.get(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
+  ctx.pendingResizes.delete(msg.sessionId)
   if (session) {
     session.dispose()
     ctx.bridges.delete(msg.sessionId)
@@ -709,7 +751,14 @@ export const sessionHandlers: Pick<
     ctx.composerEngine.onInputByte(msg.sessionId)
   },
   resize: (ctx, msg) => {
-    ctx.bridges.get(msg.sessionId)?.resize(msg.cols, msg.rows)
+    const bridge = ctx.bridges.get(msg.sessionId)
+    // No bridge yet = the spawn this resize belongs to is still in flight. Hold the
+    // request for wireBridge instead of dropping it: the server has already moved
+    // its own geometry (and told the browser), so a drop here is what leaves the
+    // PTY at 80x24 under a client rendering a fitted grid (POD-628). Last one wins
+    // — an in-flight session has no screen to reflow, only a size to be born at.
+    if (bridge) bridge.resize(msg.cols, msg.rows)
+    else ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
     ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
   },
   draftTarget: (ctx, msg) => {

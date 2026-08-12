@@ -683,6 +683,47 @@ describe('Session', () => {
     expect(s.toMeta(NO_SESSION_USER_STATE).status).toBe('live')
   })
 
+  it('markLive re-asserts the controller’s geometry onto a PTY that bound at another (POD-628)', () => {
+    // The reflow bug, end to end at this seam. The row is published as soon as the
+    // server dispatches `spawn`, so the browser attaches, takes control and fits its
+    // pane to 38x35 — all while the daemon is still forking the agent. The resize
+    // reaches a daemon with no bridge for it; the PTY is born 80x24 and binds saying
+    // so. adoptGeometryIfUncontrolled declines to take that number (a controller owns
+    // the grid), which used to leave browser + server on 38x35 and the real Codex on
+    // 80x24: correct output, wrapped against the wrong width.
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.terminal.attachClient(a) // controller
+    a.viewVisible = new Set([asSessionId('s1')])
+    s.terminal.handleResize('a', 38, 35)
+    toDaemon.mockClear()
+
+    s.markLive('codex', geo) // the daemon binds at the 80x24 it spawned with
+
+    expect(s.terminal.geometry).toEqual({ cols: 38, rows: 35 }) // ours stays authoritative
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 38,
+      rows: 35,
+    })
+  })
+
+  it('markLive does not resize a PTY that already bound at our geometry', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.terminal.attachClient(a)
+    a.viewVisible = new Set([asSessionId('s1')])
+    s.terminal.handleResize('a', 38, 35)
+    toDaemon.mockClear()
+
+    s.markLive('codex', { cols: 38, rows: 35 })
+
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
+  })
+
   it('serializes to a persistable row, defaulting durableLabel/lastActiveAt', () => {
     const s = makeSession()
     expect(s.toRow()).toMatchObject({

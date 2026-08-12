@@ -490,6 +490,33 @@ export class SessionTerminal {
     if (this.controllerId === null) this.setGeometry(geometry.cols, geometry.rows)
   }
 
+  /**
+   * Re-assert our geometry onto a PTY that just bound at a different one.
+   * `reported` is the size the daemon actually gave the child.
+   *
+   * The two diverge when the server applies a resize while the daemon holds no
+   * bridge to hand it to — spawn is async but the session row is published the
+   * moment `spawn` is dispatched, so a browser fitting its pane in that window
+   * moves server + client geometry while the PTY stays at the spawn default. Once
+   * a controller exists, adoptGeometryIfUncontrolled declines to take the daemon's
+   * number (correctly — ours is authoritative), and nothing pushed ours back down:
+   * the session sat rendering a fitted grid against an 80x24 child, which is the
+   * misaligned Codex screen of POD-628.
+   *
+   * Only the PTY is touched. Clients already hold this geometry — whoever set it
+   * broadcast it then — so there is nothing to re-announce. Returns whether a
+   * resize was actually needed. */
+  resyncGeometry(reported: Geometry): boolean {
+    if (reported.cols === this.geometry.cols && reported.rows === this.geometry.rows) return false
+    this.init.toDaemon({
+      type: 'resize',
+      sessionId: this.init.sessionId,
+      cols: this.geometry.cols,
+      rows: this.geometry.rows,
+    })
+    return true
+  }
+
   broadcast(message: ServerMessage): void {
     for (const client of this.clients.values()) client.send(message)
   }

@@ -404,6 +404,7 @@ export async function createDaemonHostRuntime(args: {
     settingsDir: instance.settingsDir,
     homeDir,
     bridges,
+    pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     composerEngine,
     outputScheduler,
     observers,

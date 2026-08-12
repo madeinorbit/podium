@@ -481,6 +481,10 @@ export class Session {
     }
     // Adopt the daemon's geometry only if no controller has resized us yet.
     this.terminal.adoptGeometryIfUncontrolled(geometry)
+    // …and when a controller HAS, ours is the authoritative grid: push it back
+    // down, because a resize applied while the daemon had no bridge to receive it
+    // never reached the PTY (POD-628). A no-op when the two already agree.
+    this.terminal.resyncGeometry(geometry)
   }
 
   /**
