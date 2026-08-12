@@ -61,7 +61,7 @@ export interface IssuesKanbanProps {
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
   epicProgress: Map<string, EpicProgress | null>
   onOpen: (id: IssueId) => void
-  onMoveIssue: (id: string, stage: IssueStage) => void
+  onMoveIssue: (id: IssueId, stage: IssueStage) => void
   onApprove: (id: IssueId) => void
   onCreateIn: (stage: IssueStage) => void
   focusId: string | null

@@ -7,7 +7,7 @@
  * "nobody is here".
  */
 
-import { asSessionId } from '@podium/model'
+import { asUserId, asSessionId } from '@podium/model'
 import type { PresenceMember } from '@podium/protocol'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -105,12 +105,12 @@ describe('SessionWatchers', () => {
 
 describe('watchersOf / watchersSummary', () => {
   it('reports what a watcher is looking at from the room payload', () => {
-    const [w] = watchersOf([user('user:alice', { view: 'native' })], 'user:me')
+    const [w] = watchersOf([user('user:alice', { view: 'native' })], asUserId('user:me'))
     expect(w?.label).toBe('user:alice is here — watching the terminal')
   })
 
   it('says nothing about focus for an unrecognised payload rather than guessing', () => {
-    const [w] = watchersOf([user('user:alice', { view: 'something-else' })], 'user:me')
+    const [w] = watchersOf([user('user:alice', { view: 'something-else' })], asUserId('user:me'))
     expect(w?.label).toBe('user:alice is here')
   })
 

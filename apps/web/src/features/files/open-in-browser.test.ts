@@ -1,5 +1,5 @@
 import type { FileScope } from '@podium/client-core/viewmodels'
-import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
+import { asMachineId, asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { rawFileUrl } from './open-in-browser'
 
@@ -14,7 +14,7 @@ describe('rawFileUrl', () => {
   })
 
   it('carries the machine for a remote worktree', () => {
-    const scope: FileScope = { kind: 'worktree', root: '/repo', machineId: 'm1' }
+    const scope: FileScope = { kind: 'worktree', root: '/repo', machineId: asMachineId('m1') }
     expect(rawFileUrl({ httpOrigin, scope, path: '/repo/a.html' })).toContain('machineId=m1')
   })
 

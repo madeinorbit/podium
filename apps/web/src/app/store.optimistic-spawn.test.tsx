@@ -1,4 +1,4 @@
-import { asClientPrincipal } from '@podium/client-core/principal'
+import { asUserId, asClientPrincipal } from '@podium/client-core/principal'
 import { optimisticDraftIssue } from '@podium/client-core/viewmodels'
 import {
   asIssueId,
@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /** These suites predate multi-user; they exercise ONE signed-in operator, which
  *  is what the shipped single-admin install is. */
-const TEST_PRINCIPAL = asClientPrincipal('operator')
+const TEST_PRINCIPAL = asClientPrincipal(asUserId('operator'))
 
 // ---------------------------------------------------------------------------
 // Optimistic new-session spawn (#119): clicking "New <Agent>" must paint a

@@ -1,10 +1,11 @@
+import { asIssueId, asRepoId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { MergeQueuePanelView } from './MergeQueuePanel'
 import type { QueueLock, QueuePanelState } from './merge-queue-model'
 
-const scope = { repoId: 'repo-main', repoPath: '/repo' }
+const scope = { repoId: asRepoId('repo-main'), repoPath: '/repo' }
 const idle: QueuePanelState = { status: 'ready', locks: [] }
 const ready = (over: Parameters<typeof makeIssue>[0]) =>
   makeIssue({
@@ -26,8 +27,8 @@ const ready = (over: Parameters<typeof makeIssue>[0]) =>
 const mergeLock: QueueLock = {
   name: 'merge:main',
   holder: {
-    sessionId: 'session-holder',
-    issueId: 'holder',
+    sessionId: asSessionId('session-holder'),
+    issueId: asIssueId('holder'),
     label: 'Merge driver',
     acquiredAt: '2026-08-06T12:00:00.000Z',
     expiresAt: '2026-08-06T12:04:05.000Z',
@@ -36,14 +37,14 @@ const mergeLock: QueueLock = {
   },
   queue: [
     {
-      sessionId: 'session-next',
-      issueId: 'next',
+      sessionId: asSessionId('session-next'),
+      issueId: asIssueId('next'),
       label: 'Queued agent',
       position: 1,
       enqueuedAt: '2026-08-06T12:01:00.000Z',
     },
     {
-      sessionId: 'session-unattached',
+      sessionId: asSessionId('session-unattached'),
       issueId: null,
       label: 'Release shell',
       position: 2,
@@ -148,7 +149,7 @@ describe('MergeQueuePanelView', () => {
             {
               name: 'test:heavy',
               holder: {
-                sessionId: 'test-holder',
+                sessionId: asSessionId('test-holder'),
                 issueId: null,
                 label: 'Browser test lane',
                 acquiredAt: '2026-08-06T12:00:00.000Z',
@@ -158,7 +159,7 @@ describe('MergeQueuePanelView', () => {
               },
               queue: [
                 {
-                  sessionId: 'test-next',
+                  sessionId: asSessionId('test-next'),
                   issueId: null,
                   label: 'Integration lane',
                   position: 1,
@@ -201,8 +202,8 @@ describe('MergeQueuePanelView', () => {
             {
               name: 'validation:admission',
               holder: {
-                sessionId: 'admission-holder',
-                issueId: 'admit',
+                sessionId: asSessionId('admission-holder'),
+                issueId: asIssueId('admit'),
                 label: 'issue:#34',
                 acquiredAt: '2026-08-06T12:00:00.000Z',
                 expiresAt: '2026-08-06T12:05:00.000Z',
@@ -211,7 +212,7 @@ describe('MergeQueuePanelView', () => {
               },
               queue: [
                 {
-                  sessionId: 'admission-next',
+                  sessionId: asSessionId('admission-next'),
                   issueId: null,
                   label: 'issue:#78',
                   position: 1,
@@ -222,7 +223,7 @@ describe('MergeQueuePanelView', () => {
             {
               name: 'podium:dev-bundle',
               holder: {
-                sessionId: 'bundle-holder',
+                sessionId: asSessionId('bundle-holder'),
                 issueId: null,
                 label: 'operator',
                 acquiredAt: '2026-08-06T12:00:00.000Z',

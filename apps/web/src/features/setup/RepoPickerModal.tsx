@@ -1,4 +1,4 @@
-import { type MachineWire, repoNameFromOrigin, type MachineId } from '@podium/model'
+import { asMachineId, type MachineWire, repoNameFromOrigin, type MachineId } from '@podium/model'
 import {
   Check,
   ChevronUp,
@@ -248,7 +248,9 @@ export function RepoPickerModal({
                 disabled={busy}
                 onChange={(e) => {
                   setError(null)
-                  onMachineChange(e.currentTarget.value || undefined)
+                  onMachineChange(
+                    e.currentTarget.value ? asMachineId(e.currentTarget.value) : undefined,
+                  )
                 }}
               >
                 {machines.map((machine) => (

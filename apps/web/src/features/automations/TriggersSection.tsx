@@ -1,3 +1,4 @@
+import { asAutomationId } from '@podium/model'
 import type { AutomationId } from '@podium/model'
 import { Bell, CircleCheck, LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -162,8 +163,8 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
               key={s.id}
               sub={s}
               busy={busyId === s.id}
-              onToggle={(v) => setEnabled(s.id, v)}
-              onRemove={() => remove(s.id)}
+              onToggle={(v) => setEnabled(asAutomationId(s.id), v)}
+              onRemove={() => remove(asAutomationId(s.id))}
             />
           ))}
         </div>

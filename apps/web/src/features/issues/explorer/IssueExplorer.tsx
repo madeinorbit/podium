@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronRight, ListTree } from 'lucide-react'
@@ -49,13 +50,15 @@ export function IssueExplorer({
   machineId?: MachineId
 }): JSX.Element {
   const { current, seq, motion, push } = useIssueExplorer()
-  const [frames, setFrames] = useState<Frame[]>([{ key: seq, id: current, move: null }])
+  const [frames, setFrames] = useState<Frame[]>([
+    { key: seq, id: current === null ? null : asIssueId(current), move: null },
+  ])
   const lastSeq = useRef(seq)
 
   useEffect(() => {
     if (seq === lastSeq.current) return
     lastSeq.current = seq
-    const next: Frame = { key: seq, id: current, move: motion }
+    const next: Frame = { key: seq, id: current === null ? null : asIssueId(current), move: motion }
     // A silent retarget has no gesture behind it and gets no transition: a
     // panel that slides every time another column is clicked is a panel that
     // is always moving.

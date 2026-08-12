@@ -1,5 +1,11 @@
 import type { IssueUpdatePatch } from '@podium/commands'
-import { DEFER_NEXT_MESSAGE, type MachineId, isIssueColorSlot, snoozeUntil1h } from '@podium/model'
+import {
+  asMachineId,
+  DEFER_NEXT_MESSAGE,
+  type MachineId,
+  isIssueColorSlot,
+  snoozeUntil1h,
+} from '@podium/model'
 import type { Trpc } from '@/app/trpc'
 import { deferDateFromNow, toggleLabelAcross } from './issue-context-menu'
 import type { IssueMenuConfig, IssueMenuData } from './issue-menu-config'
@@ -111,7 +117,7 @@ export function runIssueMenuCommand(
         ),
       )
     case 'handoff':
-      deps.handoff?.(value)
+      deps.handoff?.(asMachineId(value))
       return
     case 'defer':
       if (value === 'hour') return deps.deferIssue(id, snoozeUntil1h(Date.now()))

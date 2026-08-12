@@ -129,7 +129,7 @@ const refused = {
 
 /** Open the Reclaim tab and wait for the settings-driven candidate list. */
 const openReclaim = async (): Promise<void> => {
-  render(<HostInfoView initialTab="reclaim" machineId="m1" onClose={vi.fn()} />)
+  render(<HostInfoView initialTab="reclaim" machineId={asMachineId('m1')} onClose={vi.fn()} />)
   await screen.findByText(/2 candidates/)
 }
 

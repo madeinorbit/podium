@@ -1,4 +1,4 @@
-import { relativeTime } from '@podium/client-core/focus'
+import { asIssueId, relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
@@ -1991,7 +1991,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       trail.length = row.depth
       trail[row.depth] = row.issue.id
       const tones: RailTone[] = []
-      for (let level = 1; level <= row.depth; level += 1) tones.push(leadTone(trail[level - 1]))
+      for (let level = 1; level <= row.depth; level += 1)
+        tones.push(
+          leadTone(
+            trail[level - 1] === undefined ? undefined : asIssueId(trail[level - 1] as string),
+          ),
+        )
       return tones
     })
   }, [visibleRows, root, leadTone])

@@ -14,6 +14,7 @@
  */
 
 import { IDBFactory } from 'fake-indexeddb'
+import { asMutationId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openKernelAssembly } from './kernelReplica'
 
@@ -21,7 +22,7 @@ const trpc = {
   sync: { feedChangesSince: { query: async () => ({ changes: [] }) } },
 } as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
 
-const entry = { mutationId: 'm1', kind: 'rename', input: {}, queuedAt: 1 }
+const entry = { mutationId: asMutationId('m1'), kind: 'rename', input: {}, queuedAt: 1 }
 
 let restore: (() => void) | undefined
 
@@ -114,8 +115,8 @@ describe('web reports an outbox write it could not persist', () => {
     const { assembly, degraded } = await open('outbox-degraded-2')
     const replica = assembly.createReplicaFn(assembly.principal)
     expect(() => replica.outboxStorage().save([entry])).not.toThrow()
-    expect(degraded.filter((d) => (d as { kind?: unknown })?.kind === 'outbox-not-durable')).toEqual(
-      [],
-    )
+    expect(
+      degraded.filter((d) => (d as { kind?: unknown })?.kind === 'outbox-not-durable'),
+    ).toEqual([])
   })
 })

@@ -1,12 +1,12 @@
-import type { IssueId, RepoId, SessionId } from '@podium/model'
+import type { IssueId, RepoId } from '@podium/model'
 import { HEAVY_TEST_LOCK_NAME, MERGE_LOCK_NAME } from '@podium/client-core/react'
 import { issuePendingDecision } from '@podium/client-core/viewmodels'
-import { isMergeLockName, MERGE_LOCK_PREFIX } from '@podium/protocol'
+import { type LockSessionIdWire, isMergeLockName, MERGE_LOCK_PREFIX } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 
 /** Identity carried by an advisory lock projection. */
 export interface QueuePrincipal {
-  sessionId: SessionId | null
+  sessionId: LockSessionIdWire | null
   issueId: IssueId | null
   label: string
 }
@@ -72,7 +72,7 @@ export function readyMergeCandidates(
 ): IssueViewModel[] {
   const occupied = new Set(
     [lock?.holder.issueId, ...(lock?.queue.map((waiter) => waiter.issueId) ?? [])].filter(
-      (id): id is string => Boolean(id),
+      (id): id is IssueId => Boolean(id),
     ),
   )
 

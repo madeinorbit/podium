@@ -1,4 +1,4 @@
-import { relativeTime } from '@podium/client-core/focus'
+import { asMachineId, relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
 import { reposToViews } from '@podium/client-core/viewmodels'
@@ -302,7 +302,9 @@ export function NewPanelMenu({
                   ? undefined
                   : `No online machine with this repository can run ${agentLabel(label)}.`
               }
-              onSelect={() => void create(kind, target)}
+              onSelect={() =>
+                void create(kind, target === undefined ? undefined : asMachineId(target))
+              }
             />
           )
         })}

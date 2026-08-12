@@ -1,3 +1,4 @@
+import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { IDBFactory } from 'fake-indexeddb'
@@ -94,7 +95,7 @@ describe('kernel replica cross-tab convergence', () => {
     first.feed.connected()
     second.feed.connected()
 
-    const observer = second.createReplicaFn(asClientPrincipal('alice'))
+    const observer = second.createReplicaFn(asClientPrincipal(asUserId('alice')))
     const changed = vi.fn()
     const unsubscribe = observer.subscribeRows('issues', changed)
 
@@ -200,8 +201,8 @@ describe('kernel replica cross-tab convergence', () => {
     pushWorld(first, 1, initiallyVisible)
     pushWorld(second, 1, initiallyVisible)
 
-    const firstObserver = first.createReplicaFn(asClientPrincipal('alice'))
-    const secondObserver = second.createReplicaFn(asClientPrincipal('alice'))
+    const firstObserver = first.createReplicaFn(asClientPrincipal(asUserId('alice')))
+    const secondObserver = second.createReplicaFn(asClientPrincipal(asUserId('alice')))
     await vi.waitFor(() => {
       expect(firstObserver.rows('issues')).toHaveLength(1)
       expect(secondObserver.rows('issues')).toHaveLength(1)

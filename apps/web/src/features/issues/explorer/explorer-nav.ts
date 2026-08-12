@@ -1,4 +1,4 @@
-import type { IssueId } from '@podium/model'
+import { asIssueId, type IssueId } from '@podium/model'
 /**
  * The issue explorer's navigation stack, as pure functions.
  *
@@ -54,7 +54,7 @@ export type Crumb =
 export function crumbTrail(stack: ExplorerStack, max = 3): Crumb[] {
   const full: Crumb[] = [
     { kind: 'root', depth: 0 },
-    ...stack.map((id, i) => ({ kind: 'issue' as const, id, depth: i + 1 })),
+    ...stack.map((id, i) => ({ kind: 'issue' as const, id: asIssueId(id), depth: i + 1 })),
   ]
   if (full.length <= max) return full
   const tail = full.slice(full.length - (max - 1))

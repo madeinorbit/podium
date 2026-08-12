@@ -1,4 +1,11 @@
-import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asRepoId,
+  asSessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import {
@@ -13,16 +20,16 @@ import {
 
 const handoffRepos = [
   {
-    repoId: 'r1',
+    repoId: asRepoId('r1'),
     machines: [
-      { machineId: 'source', path: '/a' },
-      { machineId: 'target', path: '/b' },
+      { machineId: asMachineId('source'), path: '/a' },
+      { machineId: asMachineId('target'), path: '/b' },
     ],
     // reposToViews always emits the repo root as a main worktree alongside the
     // linked ones — the drift cases depend on it being here.
     worktrees: [
-      { path: '/a', isMain: true, machineId: 'source' },
-      { path: '/a/.worktrees/x', isMain: false, machineId: 'source' },
+      { path: '/a', isMain: true, machineId: asMachineId('source') },
+      { path: '/a/.worktrees/x', isMain: false, machineId: asMachineId('source') },
     ],
   },
 ]
@@ -32,8 +39,8 @@ const handoffAgent = (state: 'in' | 'out' | 'unknown' = 'in', installed = true) 
   login: { state },
 })
 const handoffMachines = [
-  { id: asIssueId('source'), online: true, inventory: { agents: [handoffAgent()] } },
-  { id: asIssueId('target'), online: true, inventory: { agents: [handoffAgent('unknown')] } },
+  { id: asMachineId('source'), online: true, inventory: { agents: [handoffAgent()] } },
+  { id: asMachineId('target'), online: true, inventory: { agents: [handoffAgent('unknown')] } },
 ]
 const makeSession = (
   over: Partial<SessionMetaInput> & Pick<SessionMetaInput, 'sessionId'>,
@@ -42,7 +49,7 @@ const makeSession = (
     status: 'live',
     agentKind: 'codex',
     cwd: '/a/.worktrees/x',
-    machineId: 'source',
+    machineId: asMachineId('source'),
     harnessHandoff:
       over.harnessHandoff ?? ['claude-code', 'codex'].includes(over.agentKind ?? 'codex'),
     createdAt: 't',
@@ -87,17 +94,13 @@ describe('issueMenuEligibility', () => {
   // sub-issue in a selection takes it away for the whole set.
   it('offers colour on top-level tasks only', () => {
     expect(issueMenuEligibility([makeIssue()]).canSetColor).toBe(true)
-    expect(issueMenuEligibility([makeIssue({ parentId: 'iss_epic' })]).canSetColor).toBe(
-      false,
-    )
+    expect(issueMenuEligibility([makeIssue({ parentId: 'iss_epic' })]).canSetColor).toBe(false)
     expect(
-      issueMenuEligibility([makeIssue(), makeIssue({ parentId: 'iss_epic' })])
-        .canSetColor,
+      issueMenuEligibility([makeIssue(), makeIssue({ parentId: 'iss_epic' })]).canSetColor,
     ).toBe(false)
     // Every other bulk item on that mixed selection is untouched.
     expect(
-      issueMenuEligibility([makeIssue(), makeIssue({ parentId: 'iss_epic' })])
-        .canSetStage,
+      issueMenuEligibility([makeIssue(), makeIssue({ parentId: 'iss_epic' })]).canSetStage,
     ).toBe(true)
   })
 

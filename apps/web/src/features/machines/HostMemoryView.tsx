@@ -1,4 +1,4 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { asIssueId, shallowEqual } from '@podium/client-core/store'
 import {
   formatMemBytes,
   hostMemoryView,
@@ -8,7 +8,14 @@ import {
   placeReclaimable,
   residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
-import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId, MachineId, IssueId } from '@podium/model'
+import type {
+  AgentMemoryWire,
+  HostMemoryWire,
+  ProjectMemoryWire,
+  SessionId,
+  MachineId,
+  IssueId,
+} from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -511,12 +518,12 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
   const candidates = placed.here
   // Nothing is ticked until the operator ticks it. This set IS the proposal's
   // answer, so it is never seeded from the candidate list.
-  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
+  const [selected, setSelected] = useState<ReadonlySet<IssueId>>(() => new Set())
   /** Issue ids the confirm dialog is currently asking about; null = closed. */
-  const [confirming, setConfirming] = useState<string[] | null>(null)
+  const [confirming, setConfirming] = useState<IssueId[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [held, setHeld] = useState<Array<{ issueId: IssueId; reason: string }>>([])
-  const [freed, setFreed] = useState<string[]>([])
+  const [freed, setFreed] = useState<IssueId[]>([])
 
   const remaining = candidates.filter((c) => !freed.includes(c.issueId))
   const titleOf = (issueId: IssueId): string =>
@@ -557,7 +564,7 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
   const onConfirmed = async (): Promise<void> => {
     const ids = confirming ?? []
     setBusy(true)
-    for (const id of ids) await freeOne(id)
+    for (const id of ids) await freeOne(asIssueId(id))
     setBusy(false)
     setConfirming(null)
     setSelected((prev) => {

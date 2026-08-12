@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { HTML_MODE_MAP_KEY } from '@podium/client-core/ui-state'
+import { asMachineId, HTML_MODE_MAP_KEY } from '@podium/client-core/ui-state'
 import { tabIdFor } from '@podium/client-core/viewmodels'
 import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { act } from 'react'
@@ -163,7 +163,7 @@ describe('HtmlFilePanel', () => {
     act(() => {
       root.render(
         <HtmlFilePanel
-          scope={{ kind: 'worktree', root: '/repo', machineId: 'm1' }}
+          scope={{ kind: 'worktree', root: '/repo', machineId: asMachineId('m1') }}
           path="/repo/.superpowers/run/ready.html"
           onClose={vi.fn()}
         />,

@@ -28,6 +28,7 @@
  *    So the buttons are derived from `recoveryPlanFor(code)` and the words from
  *    `recoveryCopyFor(code)` — both functions of the code alone.
  */
+import { asMutationId } from '@podium/model'
 
 import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
@@ -148,7 +149,7 @@ function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Eleme
         case 'new-mutation-id':
           // D11.4: the original id may still hold a receipt, so a re-issue must
           // mint a fresh one or the receipt would suppress it.
-          recover.retry(parked.entry.mutationId, { mutationId: crypto.randomUUID() })
+          recover.retry(parked.entry.mutationId, { mutationId: asMutationId(crypto.randomUUID()) })
           break
         case 'never':
           break

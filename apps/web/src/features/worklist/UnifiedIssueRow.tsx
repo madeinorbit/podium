@@ -15,7 +15,13 @@ import {
   rowWaitingCount,
   type UnifiedIssueRow as UnifiedIssueRowView,
 } from '@podium/client-core/viewmodels'
-import type { IssueColorSlot, IssueId, SessionId, SessionMeta } from '@podium/model'
+import {
+  asSessionId,
+  type IssueColorSlot,
+  type IssueId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { AlarmClock, Pin } from 'lucide-react'
@@ -187,8 +193,11 @@ export function UnifiedIssueRow({
   // cursor-anchored portal, acts on this one issue, rendered alongside the row.
   const menu = menuAnchor ? (
     <IssueContextMenu
-      issues={[issue]}
-      allIssues={issues}
+      issues={[{ ...issue, memberSessionIds: issue.memberSessionIds?.map(asSessionId) }]}
+      allIssues={issues.map((candidate) => ({
+        ...candidate,
+        memberSessionIds: candidate.memberSessionIds?.map(asSessionId),
+      }))}
       surface="sidebar"
       anchor={menuAnchor}
       onClose={() => setMenuAnchor(null)}

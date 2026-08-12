@@ -1,9 +1,10 @@
+import { asThreadId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { clampSummary, deliveryLine, type LedgerMessage, ledgerStatusTone } from './message-ledger'
 
 const base: LedgerMessage = {
   id: 'msg_1',
-  threadId: 'msg_1',
+  threadId: asThreadId('msg_1'),
   inReplyTo: null,
   from: 'issue:#212',
   to: 'issue:#228',

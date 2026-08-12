@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asThreadId, asSessionId } from '@podium/model'
 import { Buffer } from 'node:buffer'
 import type { GitRepositoryWire, SessionId, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -34,9 +34,9 @@ describe('conciergeThreadId', () => {
   })
 
   it('conciergeRepoPath rejects non-concierge and malformed ids', () => {
-    expect(conciergeRepoPath('global')).toBeUndefined()
-    expect(conciergeRepoPath('btw_abc')).toBeUndefined()
-    expect(conciergeRepoPath('concierge_!!!not-base64!!!')).toBeUndefined()
+    expect(conciergeRepoPath(asThreadId('global'))).toBeUndefined()
+    expect(conciergeRepoPath(asThreadId('btw_abc'))).toBeUndefined()
+    expect(conciergeRepoPath(asThreadId('concierge_!!!not-base64!!!'))).toBeUndefined()
   })
 })
 

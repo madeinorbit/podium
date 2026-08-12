@@ -1,4 +1,4 @@
-import { relativeTime } from '@podium/client-core/focus'
+import { asMachineId, relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire, UpdateChannel } from '@podium/model'
 import type { JSX } from 'react'
@@ -305,7 +305,8 @@ export function MachinesPanel({
   const serverAppVersion = useServerAppVersion(trpc)
   const transferStatus = useServerTransferStatus(trpc)
   const transferTargetEligibility = new Map(
-    transferStatus.snapshot?.targetEligibility.map((target) => [target.targetMachineId, target]) ?? [],
+    transferStatus.snapshot?.targetEligibility.map((target) => [target.targetMachineId, target]) ??
+      [],
   )
   const eligibleTransferTargets = new Set(
     [...transferTargetEligibility.values()]
@@ -516,7 +517,7 @@ export function MachinesPanel({
 
       {findReposFor && (
         <RepoScanFlow
-          initialMachineId={findReposFor}
+          initialMachineId={asMachineId(findReposFor)}
           onClose={() => setFindReposFor(null)}
           onDone={() => setFindReposFor(null)}
         />

@@ -1,3 +1,4 @@
+import { asThreadId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { superagentSlice } from '@podium/client-core/viewmodels'
 import { Eraser, SquareTerminal } from 'lucide-react'
@@ -252,7 +253,7 @@ export function SuperagentView(): JSX.Element {
           <ChatView
             sessionId={podiumSessionId}
             active
-            superThread={{ threadId: THREAD_ID, kind: 'global' }}
+            superThread={{ threadId: asThreadId(THREAD_ID), kind: 'global' }}
             compact
             initialTurnRunning={thread?.turnRunning === true}
           />
