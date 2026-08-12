@@ -113,6 +113,12 @@ describe('FEATURES registry', () => {
           visibility: 'edge',
         },
         {
+          id: 'shell-density',
+          name: 'Shell density',
+          description: 'Choose between balanced and compact shell styling in Appearance.',
+          visibility: 'edge',
+        },
+        {
           id: 'command-palette',
           name: 'Cmd+K search',
           description: 'Search and navigate Podium from the Cmd+K command palette.',

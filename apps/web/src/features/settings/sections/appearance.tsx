@@ -13,6 +13,7 @@ import {
 } from '@/features/terminal/appearance'
 import { useTerminalAppearance } from '@/features/terminal/use-terminal-appearance'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
+import { useFeature } from '@/lib/use-feature'
 import { Row, Section, Subsection } from './shared'
 
 /** Theme + light/dark switcher. Theme state is UI-local (not part of the settings
@@ -20,6 +21,7 @@ import { Row, Section, Subsection } from './shared'
 export function AppearanceSection(): JSX.Element {
   const { preset, mode, setPreset, setMode } = useTheme()
   const { density, setDensity } = useDensity()
+  const densityEnabled = useFeature('shell-density')
   const stickyPrompts = useStickyPromptsPreference()
   // 'superade' is the canonical Podium look (DESIGN.md), so it carries the
   // product name; the older 'podium' preset stays available as "Classic".
@@ -74,25 +76,27 @@ export function AppearanceSection(): JSX.Element {
           ))}
         </div>
       </Row>
-      <Row
-        label="Density"
-        description="Balanced prioritizes readable shell typography and a calm scan. Compact fits more work on screen. This device only."
-      >
-        <div className="flex gap-1">
-          {densities.map((option) => (
-            <Button
-              key={option.value}
-              type="button"
-              size="sm"
-              variant={density === option.value ? 'default' : 'outline'}
-              aria-pressed={density === option.value}
-              onClick={() => setDensity(option.value)}
-            >
-              {option.label}
-            </Button>
-          ))}
-        </div>
-      </Row>
+      {densityEnabled && (
+        <Row
+          label="Density"
+          description="Balanced prioritizes readable shell typography and a calm scan. Compact fits more work on screen. This device only."
+        >
+          <div className="flex gap-1">
+            {densities.map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                size="sm"
+                variant={density === option.value ? 'default' : 'outline'}
+                aria-pressed={density === option.value}
+                onClick={() => setDensity(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+        </Row>
+      )}
       <Row
         label="Sticky prompts"
         description="Keep the current operator prompt visible while its response scrolls. This device only."

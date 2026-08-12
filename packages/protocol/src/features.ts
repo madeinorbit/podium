@@ -116,6 +116,12 @@ export const FEATURES = [
     description: 'Enable web and external notifications and their settings.',
     visibility: 'edge',
   },
+  {
+    id: 'shell-density',
+    name: 'Shell density',
+    description: 'Choose between balanced and compact shell styling in Appearance.',
+    visibility: 'edge',
+  },
 ] as const satisfies readonly FeatureDefinition[]
 
 export type FeatureId = (typeof FEATURES)[number]['id']

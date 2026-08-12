@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { applyDensity, readStoredDensity, SHELL_DENSITY_KEY } from './density'
+import { applyDensity, readStoredDensity, resolveDensity, SHELL_DENSITY_KEY } from './density'
 
 function uiState(value: string | null) {
   return { get: vi.fn(() => value) }
@@ -23,5 +23,11 @@ describe('shell density', () => {
     expect(root.dataset.density).toBe('balanced')
     applyDensity('compact', root)
     expect(root.dataset.density).toBe('compact')
+  })
+
+  it('uses balanced until the experimental density flag is enabled', () => {
+    expect(resolveDensity('compact', false)).toBe('balanced')
+    expect(resolveDensity('compact', true)).toBe('compact')
+    expect(resolveDensity('balanced', true)).toBe('balanced')
   })
 })
