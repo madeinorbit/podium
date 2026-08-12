@@ -1,37 +1,46 @@
-# Ship Stack v2 — a dependable delivery service
+# Podium Shipping v3 — make it happen
 
-> Architecture and product proposal, 2026-08-12. This is the reviewed successor
-> to the first Ship Stack concept. It keeps the original idea—durable shipping,
-> deterministic work first, agent help only for exceptions—and corrects the
-> execution, data, validation, branch-safety, preview, and UX contracts.
+> Architecture and product proposal, 2026-08-12. “Ship Stack” remains the
+> internal project name; the user-facing concept is simply **Shipping**. This
+> revision starts after review and treats “I like it, make it happen” as the
+> complete user job.
 
 ## The plan in simple words
 
-Today, finishing work and shipping it are accidentally the same conversation.
-That is why a completed agent has to remain alive, wait for locks, remember a
-long merge procedure, and warm a huge context again just to move a branch.
+This proposal deliberately begins **after** the user has reviewed the work and
+said it is good. Review, previews, evidence presentation, and the wording or
+placement of the normal approval action belong to Podium's ordinary issue UX.
 
-The Ship Stack makes shipping a hand-off:
+From that point, Shipping is one deterministic hand-off:
 
-1. At review, Podium shows the proof and a **Ship** button.
-2. Pressing it creates a durable order. The issue leaves the human's decision
-   queue; Podium now owns the follow-through.
-3. The server remembers the plan and coordinates it. The daemon on the machine
-   that owns the repository performs git and test work.
-4. Podium first tests a temporary, exact preview of the future target branch.
-   It does not hold the merge lock while tests run.
-5. If the tested commit is still current, Podium briefly takes the merge lock,
-   lands and publishes it, verifies the destination, and closes the issue when
-   the chosen policy says it should.
-6. Ordinary problems are solved by code. A small, task-shaped agent is invited
-   only for a conflict or test failure. A human sees one clear decision card
-   only when judgment is actually needed.
+1. The normal UX or the finishing coordinator invokes `podium issue ship` for
+   the top-level delivery root.
+2. Podium atomically creates a durable order and moves the issue from `review`
+   to the special system-owned `shipping` stage.
+3. The command returns one calm receipt: **Shipping · Podium owns it now.** The
+   user can leave immediately; no new view opens and no agent keeps polling.
+4. The server remembers and coordinates the order. The repository-owning daemon
+   performs git, validation, preview teardown, publication, and verification.
+5. Deterministic code handles the normal path. A bounded repair agent is started
+   only for an actual conflict or gate failure, then its patch is revalidated.
+6. If Podium still cannot finish, the issue stays `shipping`, raises the existing
+   durable human-attention alert, and turns the Shipping rail icon red. Otherwise
+   it eventually verifies the destination and closes the issue.
+
+The existing right-side Queues dock becomes the optional **Shipping** peek. It
+offers confidence and recovery controls, but it is not part of the happy path
+and never becomes another list of work for the user to manage.
+
+Sub-issues never become separate parcels. They integrate into the top-level
+delivery root; a child agent that wants to hand off the whole approved result
+names that root explicitly with `podium issue ship <root-id> --outside-scope`.
 
 The result should feel like handing a parcel to a very good courier: the user
 can watch it move, but does not have to carry it.
 
-An interactive visual prototype accompanies this proposal:
-[Ship Stack UX prototype](../design/POD-775-ship-stack-prototype.html).
+A deliberately schematic prototype accompanies this proposal. It uses Podium's
+actual shell regions without inventing a competing visual design:
+[Shipping interaction schematics](../design/POD-775-ship-stack-prototype.html).
 
 ## Review verdict on the first proposal
 
@@ -40,13 +49,13 @@ It should be implemented after the following corrections.
 
 | Keep | Correct or extend |
 |---|---|
-| A ship request is separate from issue stage. | Shipping is a normalized aggregate, not an attempts array embedded in the issue row. |
-| Deterministic work handles most traffic. | The server is the control plane; daemon workers execute filesystem, git, tests, and previews. |
+| A durable ship request is separate from issue details. | Add one lifecycle stage, `shipping`, as the issue-level custody projection; keep attempts and machine state in a normalized aggregate. |
+| Deterministic work handles most traffic. | The server is the control plane; daemon workers execute filesystem, git, tests, and accepted-preview teardown. |
 | A bounded headless agent handles exceptions. | Route by live model traits, quota, risk, and task; never grant the model merge or push authority. |
-| A visible stack replaces invisible polling. | Show durable orders and attempts, not advisory lock waiters dressed up as orders. |
+| An optional status peek replaces invisible polling. | Project durable orders into a simple Shipping dock; keep advisory lock waiters as diagnostic resource lanes. |
 | Batching can remove repeated validation. | Validate immutable merge-group refs first; mutate real issue refs only after a green result and compare-and-swap checks. |
 | A dedicated landing checkout removes hazards. | It requires an explicit one-time adoption because a target branch cannot safely be checked out in two worktrees. |
-| Review proof should be typed. | A live preview is a supervised lease, not an immutable file artifact. Offers and issues reference the proof. |
+| Accepted review input should be typed. | Shipping freezes its base/head and evidence reference; normal review and live-preview UX stay outside this service. |
 | Landing and closing are related. | They are not the same fact: destination reached, issue closed, branch cleaned, and preview stopped are explicit outcomes. |
 
 Two claims from the first proposal should be dropped:
@@ -71,7 +80,8 @@ and [GitLab merge trains](https://docs.gitlab.com/ci/pipelines/merge_trains/).
 
 After a ship order is accepted:
 
-- the issue no longer asks the human for a merge decision;
+- the issue is in the system-owned `shipping` stage and cannot be claimed,
+  started, or moved by an ordinary stage edit;
 - no heavyweight agent waits or polls;
 - server and daemon restarts do not lose the order;
 - Podium either reaches the configured destination or presents one actionable
@@ -83,15 +93,18 @@ After a ship order is accepted:
 
 “Configured destination” is important. A repository policy defines whether
 shipping ends at a local target ref, an ordinary remote push, or an external
-provider's protected merge queue. The button must not say **Shipped** when only
-a local branch moved but policy requires `origin/main`.
+provider's protected merge queue. No surface may say **Shipped** when only a
+local branch moved but policy requires `origin/main`.
 
 ### Admission
 
 An order can be queued only when:
 
-- the issue is in review or otherwise has an unmerged deliverable;
-- it is not blocked and its required sub-issues are complete;
+- the issue is in `review` with an unmerged deliverable;
+- it is a top-level delivery root (`parentId == null`); a top-level issue does
+  not need to have children;
+- it is not blocked, every required descendant is complete, and the approved
+  root tip contains a current integration receipt for those descendants;
 - the branch and target are known;
 - the requester is currently allowed to ship to that repository and target;
 - a typed evidence manifest exists or the repository policy explicitly allows
@@ -99,9 +112,101 @@ An order can be queued only when:
 - the requested policy does not widen the repository's merge, publish, cleanup,
   or validation policy.
 
-Admission is not branch custody. An agent can still improve a queued issue until
-preflight begins. Every attempt records the expected branch tip, so a later
-commit invalidates the attempt instead of racing it.
+The accepted source base/head pair is frozen at admission. The finishing session
+may exit normally after invoking the command, but must not make another change.
+Preflight waits for write-capable sessions to settle and then takes branch
+custody. If the source changed after approval, Podium does not silently ship the
+new content; it returns the issue to human attention with the mismatch.
+
+### One command, one transition
+
+The agent-facing extension belongs in the existing shared issue-command seam,
+not in a standalone shell script:
+
+```text
+$ podium issue ship
+shipping POD-775 → origin/main
+Podium owns it now.
+```
+
+The complete CLI shape is:
+
+```text
+podium issue ship [<issue-id>] [--outside-scope]
+```
+
+With no id, an attached agent nominates its own issue. An operator or an agent
+may name a different issue; an agent crossing its attached issue subtree must
+say `--outside-scope`, matching the existing issue-command convention. That
+flag is an explicit acknowledgement, not an authority grant: the normal role,
+ownership, repository, target, review, and admission checks still run on the
+named issue. The event records both the attributed requester and the scope
+override. An operator does not need the flag. An unattached agent must provide
+an id; omission is never resolved from the current directory or branch name.
+
+The CLI table in `@podium/issue-client` and an `issues.ship` contract in
+`@podium/commands` expose the same server operation to CLI and MCP, so agents,
+web, and mobile cannot acquire subtly different semantics.
+
+### Sub-issues compose; delivery roots ship
+
+Only a top-level issue can own a `ShipOrder`. A nested sub-issue is a unit of
+decomposition, not an independently publishable promise: its branch is first
+integrated through the existing parent integration flow, and the root order
+freezes the resulting approved root tip and descendant manifest.
+
+“Top-level” means the highest issue ancestor, resolved by the server from stored
+hierarchy rather than trusted from CLI input. For a nested hierarchy, each
+intermediate parent integrates its children before it completes; the root then
+integrates that parent. Admission walks the whole descendant closure even
+though each existing integration step remains local to one parent.
+
+This is intentionally a guard, not an automatic redirect. If an agent attached
+to `POD-912` runs `podium issue ship` and that issue belongs under `POD-900`, the
+server refuses with the resolved top-level root and the safe next command:
+
+```text
+POD-912 is a sub-issue of delivery root POD-900 and cannot ship separately.
+To nominate the approved root: podium issue ship POD-900 --outside-scope
+```
+
+The explicit second command matters because shipping the root may include
+sibling work. It gives another agent a deterministic way to flag the approved
+delivery without silently broadening the first command. Admission then verifies
+that all required descendants are complete and that the root's integration
+receipt still describes their current tips. A top-level leaf issue is already a
+delivery root and remains directly shippable.
+
+Issue hierarchy and delivery order are separate concepts. Parent/child edges
+say which work composes into one user promise; `deliveryDependsOn` says which
+immutable branch or provider-PR delta must land before another. A delivery root
+may participate in a Git stack, but none of its nested sub-issues gets a
+standalone remote landing.
+
+The command takes no merge method, test command, model name, destination, or
+batch controls. Trusted repository policy resolves all of those. It is:
+
+- **atomic:** order creation and `review → shipping` either both commit or
+  neither does;
+- **idempotent:** repeating it for the same approved base/head returns the same
+  active order and receipt;
+- **fenced:** a different source after acceptance is a new review, not an update
+  to the old order;
+- **exclusive:** direct `podium issue update --stage shipping` is rejected, as
+  are ordinary stage changes while Shipping owns the issue;
+- **settled by the service:** verified destination moves `shipping → done`; a
+  safe cancel before any destination effect returns `shipping → review`; a hold
+  remains `shipping` and sets `needsHuman`.
+
+The detailed state—waiting for capacity, composing, validating, repairing,
+publishing—is intentionally **not** a set of issue stages. It is operational
+state on the order. Users need one lifecycle fact: Podium owns it.
+
+Existing classifiers treat `shipping` as quiet system-owned work: it is absent
+from `ready`, review backstops, working-session counts, and ordinary “needs you”
+buckets unless `needsHuman` is also true. It remains searchable and visible in
+the issue explorer, activity, and dependencies, so background does not mean
+hidden or unauditable.
 
 ## Fit with Podium's architecture
 
@@ -120,15 +225,16 @@ The existing architecture already gives the feature its boundaries:
           │ machine RPC             ├── HeadlessService (exception only)
           ▼                         │
  apps/daemon/shipping             EXECUTION PLANE
-  git refs · worktrees · jobs · validation · preview supervisor
+  git refs · worktrees · jobs · validation
           │
           ▼
- repository / processes / preview HTTP
+ repository / validation processes
 ```
 
 The layer ownership follows [ARCHITECTURE.md](../../ARCHITECTURE.md):
 
-- `@podium/model` owns portable domain vocabulary and pure transitions.
+- `@podium/model` owns portable domain vocabulary, including the single
+  `shipping` issue stage, and pure transitions.
 - `@podium/protocol` owns server↔daemon job and event frames.
 - `@podium/commands` owns versioned user/system command contracts.
 - `apps/server/src/modules/shipping/` owns authorization, durable state,
@@ -138,8 +244,9 @@ The layer ownership follows [ARCHITECTURE.md](../../ARCHITECTURE.md):
   the issue repository's actual machine.
 - `apps/daemon/src/shipping/` owns host capabilities. It uses argv arrays and
   purpose-built operations, never a server-supplied shell string.
-- `apps/web/src/features/shipping/` and the equivalent mobile surfaces consume
-  a shared client-core view model.
+- `apps/web/src/features/merge-queue/` evolves in place into the **Shipping**
+  right dock; issue and mobile surfaces consume the same client-core view
+  model. There is no new top-level Ship Stack tool.
 
 This should be a shipping module, not another large branch inside
 `steward.ts`. The steward is an event-to-nudge coordinator. Shipping is a
@@ -158,7 +265,8 @@ The server is authoritative for:
 - machine placement from issue ownership and live daemon availability;
 - lease renewal, retry/backoff, cancellation, and restart reconciliation;
 - model routing and budgets for exception handling;
-- issue/offer/tray projections, audit events, and notifications.
+- issue/Tray/Shipping-dock projections, audit events, and notifications;
+- settlement calls into the separate preview service to stop accepted leases.
 
 ### Daemon responsibilities
 
@@ -169,9 +277,7 @@ The daemon is authoritative for observations and host effects:
 - git composition, ancestry, ref compare-and-swap, fetch, push, and verification;
 - process execution with timeout, cancellation, output caps, and resource
   admission;
-- machine pressure and job heartbeat reporting;
-- preview process supervision and the local side of authenticated preview
-  routing.
+- machine pressure and job heartbeat reporting.
 
 The existing single-operation `repoOp` route is useful substrate, but the
 shipping path should expose higher-level purpose-built RPC operations such as
@@ -188,11 +294,15 @@ only a compact derived summary on the issue projection.
 ```ts
 type ShipOrder = {
   id: ShipOrderId
-  issueId: IssueId
+  issueId: IssueId                     // always a top-level delivery root
+  descendantManifest: DescendantTip[]  // frozen integrated sub-issue inputs
   repoId: RepoId
   targetBranch: string
+  sourceBaseSha: string               // reviewed layer base, not just trunk
   expectedSourceTip: string
-  requestedBy: Attribution          // identity, never a permission snapshot
+  deliveryDependsOn: ShipOrderId[]    // branch/PR chain, not issue parentage
+  providerRef?: ProviderPullRequestRef
+  requestedBy: Attribution            // identity, never a permission snapshot
   requestedAt: string
   policyId: string                  // resolved from trusted repo policy
   closeMode: 'after-destination' | 'leave-open'
@@ -219,6 +329,7 @@ type ShipAttempt = {
   id: ShipAttemptId
   orderId: ShipOrderId
   batchId?: ShipBatchId
+  expectedSourceBase: string
   expectedSourceTip: string
   expectedTargetTip: string
   machineId: MachineId
@@ -226,14 +337,39 @@ type ShipAttempt = {
   startedAt: string
   finishedAt?: string
   outcome?: string
+  submittedHeadSha: string
+  testedIntegrationSha?: string
+  landedRefSha?: string
+  destinationSha?: string
+}
+
+type ShipHold = {
+  id: ShipHoldId
+  orderId: ShipOrderId
+  generation: number                 // compare-and-swap resolution fence
+  reasonCode: ShipHoldCode
+  headline: string
+  detail: string
+  evidenceRefs: string[]
+  actions: Array<'retry' | 'return-to-issue' | 'open-repair' | ShipPolicyAction>
+  raisedAt: string
+  resolvedAt?: string
 }
 ```
 
 Step runs are append-only rows keyed by an idempotency key. Large stdout/stderr
 is redacted, size-capped, and stored as a durable log artifact; rows carry the
 summary and artifact reference. `IssueWire` gets a derived `shipSummary` with
-state, queue position, current step, hold summary, and destination—not a nested
-copy of all shipping entities.
+order id, the four human states, destination, last meaningful progress, and an
+optional compact hold—not a nested copy of all shipping entities. Detailed
+phase and queue position are Shipping-dock diagnostics, not issue lifecycle.
+
+The issue row carries only `stage='shipping'` plus that compact projection. The
+server enforces a one-to-one invariant between a shipping-stage issue and its
+one active order. `shipping` is inserted between `review` and `done` in
+`IssueStage`, but ordinary issue update/claim/start commands cannot enter or
+leave it. This is the same kind of deliberate lifecycle boundary as `proposed`:
+it looks simple everywhere because one purpose-built command owns its rules.
 
 Permissions are resolved live for the requester's principal whenever an outward
 mutation occurs. The order stores attribution and delegation bounds, never a
@@ -247,7 +383,7 @@ principal and no-capability-snapshot rules.
 Exactly-once process execution is not a useful promise across crashes. The
 workflow is at-least-once and every effect is safe to replay:
 
-- each step has an idempotency key and expected input SHAs;
+- each step has an idempotency key and expected base/head input SHAs;
 - the daemon journals start, heartbeat, terminal result, and result ack;
 - ref moves use compare-and-swap (`oldSha → testedSha`), never an unconditional
   update;
@@ -269,7 +405,8 @@ Before composition, preflight requires:
 
 - no live write-capable session on the issue;
 - a clean issue worktree;
-- the branch tip still equals the order's expected source tip;
+- the branch base and tip still equal the reviewed layer's expected source
+  pair;
 - no active preview that depends on mutating that worktree.
 
 Podium then uses the existing safe “free worktree, keep branch” behavior without
@@ -336,7 +473,73 @@ merge trains. On a memory-constrained host, one full group followed by adaptive
 isolation is cheaper. The scheduler chooses from measured queue depth, cache
 reuse, and machine pressure rather than hard-coding one strategy.
 
-## Validation and proof
+## Git stacks: support them, do not become them
+
+“Stack” is overloaded here. A **Git/PR stack** is a development and review
+structure: an ordered chain of small branches where each layer is based on the
+one below it. A **Ship batch** is a temporary execution plan for reviewed work
+that can safely share composition and validation. A **merge queue** serializes
+ready changes into a protected destination. They complement one another, but
+they are not the same object.
+
+GitHub released native Stacked PRs into public preview on July 30, 2026. Its
+very new `gh stack` CLI can create, rebase, submit, navigate, and merge a branch
+chain; the async merge API merges or enqueues the whole contiguous prefix
+through a selected PR. Availability and merge-queue support are still rolling
+out, and the CLI repository's older private-preview note currently lags the
+product docs, so Podium must feature-detect it and treat it as an optional
+provider capability rather than a foundation. See GitHub's
+[public-preview announcement](https://github.blog/changelog/2026-07-30-stacked-pull-requests-are-now-in-public-preview/),
+[stack concepts](https://docs.github.com/en/pull-requests/get-started/about-stacked-prs),
+[`github/gh-stack` CLI](https://github.com/github/gh-stack), and
+[asynchronous merge API](https://github.github.com/gh-stack/reference/merge-api/).
+
+Podium should handle stacks as follows:
+
+- derive a delivery chain from Podium branch ancestry today; when a repository
+  uses GitHub Stacked PRs, ingest its stack id, position, ultimate base, and
+  pull-request webhook data through a provider adapter, then reconcile the REST
+  object because there is no separately documented stack event;
+- store delivery-order edges on `ShipOrder`/`ShipBatch`; do not turn branch
+  ancestry into issue parentage or product `blocks` dependencies;
+- identify every reviewed layer by its source base **and** head. A head alone
+  describes the accumulated stack, not the discrete diff the reviewer judged;
+- compose each layer's delta after its declared dependencies, never every
+  stacked branch as a trunk-relative patch that repeats lower-layer changes;
+- never reorder or split a declared chain across a lower unlanded layer. A ship
+  batch may contain a contiguous stack prefix plus independent work, but stack
+  order wins. After a partial landing, invalidate and recompose every remaining
+  descendant against its automatically changed base;
+- interpret one `issues.ship` invocation as authority for that issue only. If lower
+  layers lack ship authorization, the order waits behind them; Podium must not
+  silently use GitHub's “merge through this PR” operation to land work the user
+  did not authorize;
+- when all prerequisite layers already have authorized orders, the scheduler
+  may compose the complete eligible prefix and the right dock can summarize it
+  as one chain;
+- preserve exact-SHA fencing across restacks. A changed descendant SHA
+  invalidates its attempt and required evidence; patch-equivalence may reuse
+  deterministic caches only under repository policy, never human approval by
+  assumption;
+- initially consume native GitHub stacks as read-only delivery dependencies.
+  Put mutation and merge support behind capability detection, delegate landing
+  to the provider's async stack/merge-queue API, and reconcile its terminal
+  result. `enqueued` means accepted by GitHub's queue, not shipped;
+- preserve separate submitted-head, tested-integration, landed-ref, and
+  destination SHAs. Local ff-only repositories can prove exact current-ref
+  ancestry; squash/rebase provider modes rewrite identity and require the
+  provider receipt plus destination verification instead;
+- never run a competing Podium merge train on top of GitHub's merge queue. Once
+  provider policy owns landing, Podium hands off, monitors, and reconciles.
+
+This gives Podium compatibility with GitHub, Graphite, git-spice, ghstack,
+Jujutsu, and plain chained branches without making any one stack tool the
+product model. The Ship service begins after review; stack tooling improves how
+the work reached review. Creating, navigating, reordering, and restacking those
+review branches stays in GitHub or a specialist developer tool; the quiet
+Shipping dock does not grow those authoring controls.
+
+## Validation after handoff
 
 ### Named profiles, never arbitrary commands
 
@@ -364,54 +567,27 @@ ordinary gate, store shard, integration lane, and multi-instance lane exist for
 different behavior. The planner deduplicates the required profile union and
 honors the repository's cache rather than rerunning work for confidence.
 
-### Review evidence is a typed manifest
+### Boundary with review: accepted input, not owned UX
 
-An issue at review can present:
-
-- `validation` — command/profile, source SHA, result, duration, and log;
-- `artifact` — immutable screenshot, video, HTML, Markdown, or report;
-- `preview` — a supervised live URL with status and expiry;
-- `diff` — the exact branch comparison the reviewer is accepting.
-
-Path/diff rules suggest the minimum class, while the agent chooses the most
-useful evidence. A docs-only change can legitimately need only a rendered file;
-an interaction-boundary change can require a live preview or targeted runtime
-proof. Start with a review warning, collect false-positive data, and only make
-well-understood evidence policies blocking.
-
-### Preview is a lease, not an artifact
-
-`IssuePanelArtifact` is an immutable snapshot in permanent storage. A preview is
-machine-owned, mutable, expires, has a process, and can be offline. Mixing those
-lifecycles into one union makes every artifact consumer understand liveness.
-
-Use a normalized `PreviewLease` instead:
+Shipping neither creates nor presents review proof. The normal review system
+hands it one typed, accepted input:
 
 ```ts
-type PreviewLease = {
-  id: PreviewLeaseId
+type ApprovedDeliveryInput = {
   issueId: IssueId
-  machineId: MachineId
-  sourceSha: string
-  recipeId: string
-  status: 'starting' | 'live' | 'stopped' | 'failed' | 'expired'
-  route: string                 // stable authenticated Podium route
-  expiresAt: string
-  lastHeartbeatAt?: string
+  sourceBaseSha: string
+  sourceHeadSha: string
+  policyId: string
+  evidenceManifestRef?: string
+  previewLeaseIds: PreviewLeaseId[]
 }
 ```
 
-The daemon supervises the declared preview recipe. For Podium itself, the
-existing independent-instance contract supplies isolated state and port
-namespaces; for other repos, settings declare a recipe and health probe. The
-browser should not receive a raw daemon port. An authenticated server route
-proxies HTTP/WebSocket traffic over the existing machine connection, so the same
-link works from the desktop, another machine, or a phone. TTL, manual stop,
-source-SHA mismatch, issue shipment, and daemon loss all have explicit states.
-
-Offers and issue projections reference evidence IDs. A review offer can display
-the preview beside immutable artifacts without pretending they are the same
-thing.
+The ship command freezes this input; it does not reinterpret whether the proof
+was good. Existing preview work remains an independent normal-UX project.
+Shipping only needs a lifecycle hook to stop accepted preview leases after
+verified delivery or explicit cancellation. Review changes can therefore ship
+independently and are not a prerequisite for the background service.
 
 ## Model strategy: several models, very little model work
 
@@ -457,43 +633,72 @@ Every model invocation receives only:
 If a repair changes observable behavior or acceptance criteria, the order is
 held for review even when tests pass.
 
-## UX: a shipping deck, not a log viewer
+## UX: confidence without supervision
 
-The existing Merge Queue panel shows advisory leases and candidates. Evolve it
-into a Ship Stack surface backed by orders, batches, and attempts; keep a small
-“resource lanes” section for raw merge/test locks.
+Shipping is a service, not a destination. It gets no primary navigation item,
+full-width workspace, task board, or second working-task metaphor. The existing
+right-rail **Queues** cell and `MergeQueuePanel` evolve in place into
+**Shipping**, the one optional operational surface. Its current developer-
+oriented merge/test lease lanes remain available under a collapsed **Resource
+lanes** disclosure.
 
-### Entry: review handoff
+### The handoff receipt
 
-The review card puts the thing to judge first:
+The review interaction is out of scope here. Whatever normal Podium surface
+caused `issues.ship`, it receives the same result:
 
-- best evidence preview/artifact;
-- exact destination and close behavior;
-- validation summary tied to the source SHA;
-- primary **Ship** action;
-- **Send back** with required text and a secondary policy disclosure.
+- issue stage changes to `shipping`;
+- a transient confirmation says **Shipping · Podium owns it now**;
+- `podium issue show` exposes the destination and compact shipping summary;
+- focus, open panel, workspace, and navigation do not change.
 
-Pressing Ship gives immediate custody feedback: “Queued—Podium owns the next
-step.” It should not open a modal unless policy is unusual or authority expands.
+There is no modal, policy form, progress ceremony, or second confirmation on the
+normal path. If admission fails, the command refuses before changing stage and
+states the one condition that must be fixed.
 
-### Stack: calm progress
+### Right dock: calm progress on demand
 
-Group by repository and target. Each order shows one of a small number of human
-states: Queued, Preparing, Testing, Landing, Publishing, Shipped, Held. Expand
-for exact steps, SHAs, logs, model use, and retries. The batch header shows the
-future target commit and the validation profiles running against it.
+The Shipping dock remains collapsed after handoff. When opened, it starts with
+one confidence sentence—**Everything is handled** or **One shipment needs
+you**—then groups compact rows by repository and destination. The default row
+uses only four human states: **Waiting**, **On its way**, **Shipped**, and
+**Needs you**. It answers: what is Podium carrying, where is it going, and is
+there anything for me to do?
 
-The most important quiet-state copy is: **No agents are waiting.** A daemon job
-or durable queue may be waiting, but no paid context is burning.
+Exact phases, SHAs, logs, model attempts, batching, and resource lanes are one
+**Details** disclosure deeper. They exist for diagnosis, not reassurance. The
+only everyday controls are **Cancel shipping** while still safe and **Return to
+issue** after a hold; administrators configure budgets and pause policy in
+settings rather than managing the live list.
 
-Do not promise a fake ETA. Show current step, elapsed duration, queue position,
-lease cause, and confidence based on historical profile durations. A human can
-pause a repository, cancel an untouched order, reprioritize before composition,
-or open the exact failed evidence.
+The normal rail glyph is neutral: no count, spinner, progress ring, or completion
+badge. Slow is not failure. The dock may say what Podium is currently trying and
+that it will keep retrying, but it does not promise a fake ETA.
 
-### Holds: one decision, one card
+### Alerts: existing Podium machinery
 
-A hold is deduplicated by order plus reason code. The card contains:
+Only a terminal-for-now hold changes the rail glyph to destructive red. This is
+a binary fact about the Shipping panel—not an ambiguous portfolio count—and it
+stays red until the hold is resolved. Its accessible label becomes **Shipping ·
+action required**.
+
+The shipping service does not invent another alert center. It sets the issue's
+existing `needsHuman` state, emits the normal `issue.needs_human` event, and uses
+Podium's notification-fact arbitration. That already gives the hold configured
+web/external notification delivery. A transient alert popup may announce it,
+but the durable issue, Tray, and ship order remain the source of truth.
+
+Do not fake a waiting asker. Today's generic `needsHuman` question sends an
+answer back to `humanQuestionAskedBy`; Shipping intentionally has no live
+session. The normalized `ShipHold` therefore owns its typed actions and expected
+generation. `shipSummary.hold` lets the Task surface and Tray render a
+`ship-hold` item instead of the generic question, and
+`issues.resolveShipHold(orderId, action, expectedGeneration)` dispatches to the
+shipping service. Only a successful resolution clears `needsHuman`. This reuses
+Podium's attention transport while keeping the reply path deterministic and
+race-safe.
+
+The alert is deduplicated by order plus reason code and contains:
 
 - the outcome headline;
 - cause in one sentence;
@@ -501,19 +706,20 @@ A hold is deduplicated by order plus reason code. The card contains:
 - the smallest evidence link;
 - 2–4 mutually exclusive safe actions.
 
-Examples: **Return for changes**, **Retry unchanged**, **Drop from batch**, or
-**Open repair session**. “Take mine/theirs” is not offered for semantic conflicts
-without showing what those sides mean.
+Examples: **Let Podium retry**, **Return to issue**, or **Open repair**. The
+service may include a choice specific to the failure, but it never offers raw
+“take mine/theirs” for a semantic conflict. Independent shipments keep moving.
 
 ### Mobile
 
-The Tray shows only holds and completed destination receipts. Routine progress
-stays in the stack and notifications are milestone-based. A phone user can view
-the authenticated preview and answer a hold without opening a terminal.
+The mobile Tray shows holds, not routine progress. A final destination receipt
+may appear in activity/history without becoming attention. The same Shipping
+summary is optional on mobile, and a phone user can answer a hold without
+opening a terminal.
 
 ## Observability and controls
 
-Operational surfaces should answer:
+Internal diagnostics and settings should answer:
 
 - queue age and depth per repo/target;
 - current and historical step durations;
@@ -525,26 +731,25 @@ Operational surfaces should answer:
 - orders held by reason and time-to-human-answer;
 - destination verification and cleanup outcomes.
 
-Global pause, per-repo pause, cancellation, concurrency, resource budgets,
-model-token budgets, retry ceilings, and preview TTLs are policy—not hidden
-constants. Watchdogs care about monotonic workflow progress, not whether a timer
-thread is alive.
+Global pause, per-repo pause, concurrency, resource budgets, model-token budgets,
+and retry ceilings are policy—not hidden constants. They live in settings and
+diagnostics, not in the everyday Shipping peek. Watchdogs care about monotonic
+workflow progress, not whether a timer thread is alive.
 
 ## Failure policy
 
 | Failure | Automatic response | Human sees |
 |---|---|---|
 | Server/daemon restarts | reconcile durable attempt and host/git truth | nothing unless recovery stalls |
-| Daemon offline | keep order queued; retry placement on owning machine | machine unavailable after threshold |
-| Source tip changed | invalidate attempt; requeue latest tip after evidence check | “updated while queued” in history |
+| Daemon offline | keep order waiting; retry placement on owning machine | existing alert after recovery threshold |
+| Source tip changed after approval | stop; never substitute the new source | existing `needsHuman` alert + **Return to issue** |
 | Target tip changed | discard merge group and recompose | no hold unless retry ceiling reached |
-| Dirty issue worktree | do not take custody | files and **Return to issue** |
-| Composition conflict | L1 then L2 repair within budget | one hold if unresolved/semantic |
-| Validation failure | classify, isolate, land independent green work | smallest failing or interacting set |
+| Dirty issue worktree | wait for finishing session, then hold | existing alert with files + **Return to issue** |
+| Composition conflict | deterministic repair, then bounded shipwright | existing alert only if unresolved/semantic |
+| Validation failure | classify, repair/isolate, land independent green work | existing alert for smallest failing/interaction set |
 | Host pressure | admission delay; no agent waiter | “waiting for capacity,” not “stuck” |
 | Advisory lease expires | stop new effects; reconcile/CAS before retry | only if progress ceiling exceeded |
-| Publish rejected | refresh/recompose or use configured provider adapter | exact destination error |
-| Preview dies | daemon restarts within lease budget | preview state + restart/stop |
+| Publish rejected | refresh/recompose or use configured provider adapter | existing alert with exact destination error after retry ceiling |
 
 ## Build plan
 
@@ -552,14 +757,19 @@ Each slice is independently reviewable and keeps authority narrow.
 
 ### Slice 1 — durable single-order shipping
 
-- Shipping model/command/protocol/module skeleton and replica projection.
+- Add the guarded `shipping` issue stage and its lifecycle transition tests.
+- Add the shared `issues.ship` contract plus `podium issue ship` CLI/MCP entry,
+  optional issue id, existing `--outside-scope` confirmation, and delivery-root
+  admission guard.
+- Shipping model/protocol/module skeleton and compact replica projection.
 - Queue/cancel/retry, explicit policy resolution, audit events.
 - Daemon preflight and job journal with source/target SHA fences.
 - One issue through existing guarded ff-only landing and destination proof.
-- Review **Ship** action, issue custody card, and basic Stack row.
+- Deterministic receipt, basic Shipping-dock row, and `needsHuman` alert bridge.
 
 Success: an accepted single order survives server and daemon restart and either
-ships or produces one actionable hold; no agent polls.
+ships or produces one existing Podium alert; `review → shipping → done` is
+atomic and no agent polls.
 
 ### Slice 2 — landing checkout and exact commit protocol
 
@@ -568,15 +778,17 @@ ships or produces one actionable hold; no agent polls.
 - Named validation profiles, receipts, resource admission, publish adapters.
 - Recovery fault matrix across every step boundary.
 
-Success: the tested SHA is the shipped SHA, issue tips are ancestors of the
-configured destination, and the merge lock excludes validation time.
+Success: local ff-only landing publishes the exact tested SHA and proves current
+issue tips are ancestors of the destination; provider landing records its
+provider-specific rewrite receipt and destination proof. In both modes, the
+merge lock excludes validation time.
 
 ### Slice 3 — adaptive train
 
 - Dependency/FIFO grouping and compatibility planner.
 - Full-group validation, cached prefix groups, adaptive failure isolation.
 - Interaction-set handling and safe recomposition of independent work.
-- Queue controls, history, metrics, and pressure-aware scheduling.
+- Shipping-dock summaries, history, metrics, and pressure-aware scheduling.
 
 Success: a dozen compatible green issues need one composition/validation group,
 while one bad or interacting subset does not block independent work.
@@ -591,41 +803,44 @@ while one bad or interacting subset does not block independent work.
 Success: common conflicts recover without reopening the original session; models
 cannot land or publish and their output is always deterministically revalidated.
 
-### Slice 5 — review evidence and previews
-
-- ReviewEvidence and PreviewLease aggregates/projections.
-- Daemon preview supervisor, recipe policy, health/TTL lifecycle.
-- Authenticated server↔daemon HTTP/WebSocket route.
-- Evidence strip in issue/offer, responsive preview viewer, mobile parity.
-
-Success: a reviewer opens the working feature from the offer on desktop or phone
-without discovering a port or asking the agent for a URL.
-
 The independently shippable implementation work is tracked as proposals:
 
 - POD-830 (Durable ship orders) — slice 1 and the common foundation;
 - POD-831 (Exact landing executor) — slice 2, blocked by POD-830;
 - POD-832 (Adaptive merge trains) — slice 3, blocked by POD-831;
 - POD-833 (Bounded shipwright repairs) — slice 4, blocked by POD-831;
-- POD-834 (Supervised preview proofs) — slice 5, independently useful;
-- POD-835 (Ship Stack delivery deck) — the production UI/UX, blocked by POD-830.
+- POD-834 (Supervised preview proofs) — related normal review UX, explicitly
+  outside the Shipping critical path;
+- POD-835 (Quiet ship sidebar) — the production UI/UX, blocked by POD-830.
 
 ## Acceptance story
 
-A convincing end-to-end demonstration is:
+A convincing end-to-end demonstration begins only after review:
 
-1. Queue twelve reviewed issues while another process briefly owns
-   `merge:main` and the host is near its memory threshold.
-2. Stop and restart the server and daemon mid-queue.
-3. Observe zero waiting agent sessions and all orders still present.
-4. Let the daemon compose one immutable group and validate it without holding
-   the merge mutex.
-5. Inject one deterministic failure and one semantic conflict.
-6. Observe the safe subset ship, the deterministic failure isolate, and exactly
-   one decision card for the semantic conflict.
-7. Accept the repair, verify each exact issue tip is an ancestor of the required
-   destination, and confirm cleanup never used a forcing operation.
-8. From a phone, open the review preview for a later issue and press Ship.
+1. A finishing coordinator runs `podium issue ship` on an approved top-level
+   issue and receives **Shipping · Podium owns it now**. The issue atomically
+   enters `shipping`; the current workspace and right dock do not change.
+2. From a nested sub-issue, prove that the same no-id command refuses and names
+   the delivery root. Then prove that another authorized agent can deliberately
+   nominate that approved root with `podium issue ship POD-900 --outside-scope`;
+   the flag is recorded and does not bypass admission.
+3. The agent exits. The human continues elsewhere and the Shipping rail glyph
+   remains neutral—no count, spinner, or routine notification.
+4. Much later, the human optionally opens Shipping and sees **Everything is
+   handled**, the destination, and a few simple **On its way** rows.
+5. Stop and restart the server and daemon mid-delivery. Orders recover without
+   reviving the original sessions or changing the user-facing contract.
+6. Inject a mechanical conflict. A bounded shipwright repairs it, deterministic
+   validation passes, and no alert is produced.
+7. Inject a semantic conflict that exhausts the repair budget. The issue remains
+   `shipping`, `needsHuman` creates the existing Tray/notification alert, and
+   only the Shipping rail glyph turns red.
+8. Resolve that one alert. Independent shipments have continued; the held order
+   recomposes, publishes, verifies the configured destination, and moves to
+   `done`.
+9. Confirm every transition is attributable and replay-safe, the exact local
+   destination proof or provider receipt is recorded, and no forcing operation
+   was used.
 
 That story proves the initial problem is solved: shipping continues in the
 background, failures are recoverable, tokens are spent only on judgment, and the
