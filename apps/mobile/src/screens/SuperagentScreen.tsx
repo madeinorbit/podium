@@ -402,11 +402,12 @@ export function SuperagentScreen() {
                   ) : undefined
                 }
                 onAnswer={async (answer) => {
-                  if (podiumSid)
-                    await trpc.sessions.answerAskUserQuestion.mutate({
-                      sessionId: podiumSid,
-                      ...answer,
-                    })
+                  if (!podiumSid) return
+                  const sent = await trpc.sessions.answerAskUserQuestion.mutate({
+                    sessionId: podiumSid,
+                    ...answer,
+                  })
+                  if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
                 }}
               />
             </PullToRefreshBoundary>

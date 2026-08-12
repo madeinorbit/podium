@@ -46,11 +46,16 @@ interface MobileTrpcExtras {
       TranscriptPage
     >
     sendText: MutationProcedure<{ sessionId: SessionId; text: string; mutationId?: string }>
-    answerAskUserQuestion: MutationProcedure<{
-      sessionId: SessionId
-      skip?: true
-      choices?: AskAnswerChoice[]
-    }>
+    answerAskUserQuestion: MutationProcedure<
+      {
+        sessionId: SessionId
+        skip?: true
+        choices?: AskAnswerChoice[]
+      },
+      /** `ok:false` means NOTHING was typed — the menu is still on screen and
+       *  the card must say so rather than settle into "sent" (POD-770). */
+      { ok: boolean; reason?: string }
+    >
   }
   superagent: {
     // THE SHADOW TYPES ARE GONE (POD-332, audit item `superagent-shadow-types`).

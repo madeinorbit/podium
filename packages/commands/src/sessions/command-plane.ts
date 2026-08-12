@@ -274,15 +274,19 @@ const resumeAndSend: CommandDef = {
  * optionCount+1) to focus the free-text field, then the text, then Enter.
  * `optionIndices` is the existing digit path for listed options.
  *
- * `multiSelect` is the QUESTION's shape rather than the answer's, and it rides
- * along because the menu cannot be driven without it: a multi-select's digits
- * only toggle, so it takes a Tab to move on where a single-select advances
- * itself, and the server cannot tell the two apart from one pick (POD-609).
+ * `multiSelect` and `previewLayout` are the QUESTION's shape rather than the
+ * answer's, and they ride along because the menu cannot be driven without them:
+ * a multi-select's digits only toggle, so it takes a Tab to move on where a
+ * single-select advances itself, and the server cannot tell the two apart from
+ * one pick (POD-609). `previewLayout` says the question drew the side-by-side
+ * preview dialog, which has no Other row and whose digits only move a cursor —
+ * driving it with the list script silently answers option 1 (POD-770).
  */
 const answerChoice = z.union([
   z.object({
     optionIndices: z.array(z.number().int().min(1).max(9)).min(1),
     multiSelect: z.boolean().optional(),
+    previewLayout: z.boolean().optional(),
   }),
   z.object({
     freeText: z
@@ -291,9 +295,11 @@ const answerChoice = z.union([
       .trim()
       .min(1)
       .max(4_000),
-    /** 1-based index of the native Other entry (= agent option count + 1). */
+    /** 1-based index of the native Other entry (= agent option count + 1).
+     *  Unused under `previewLayout`, which reaches free text with `n`. */
     otherIndex: z.number().int().min(1).max(9),
     multiSelect: z.boolean().optional(),
+    previewLayout: z.boolean().optional(),
   }),
 ])
 

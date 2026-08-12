@@ -214,6 +214,81 @@ describe('AskUserQuestionCard', () => {
     })
   })
 
+  // POD-770. Per-option `preview` text swaps the NATIVE dialog for a side-by-side
+  // layout with no Other row, where the server's Other script silently commits
+  // option 1 and drops the typed answer. The card cannot see that dialog, so it
+  // ships the fact that produces it — as it already does for multiSelect.
+  const PREVIEWED = [
+    {
+      question: 'Pick an approach',
+      options: [
+        { label: 'Alpha', preview: 'the alpha design' },
+        { label: 'Beta', preview: 'the beta design' },
+      ],
+    },
+  ]
+
+  it('marks a previewed question previewLayout when free text is typed', async () => {
+    const onAnswer = vi.fn(async () => {})
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask(PREVIEWED)}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={onAnswer}
+        />,
+      ),
+    )
+    const input = container.querySelector<HTMLInputElement>('[data-testid="ask-free-text"]')
+    await act(async () => {
+      if (!input) return
+      fireEvent.change(input, { target: { value: 'neither — do gamma' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(onAnswer).toHaveBeenCalledWith({
+      choices: [{ freeText: 'neither — do gamma', otherIndex: 3, previewLayout: true }],
+    })
+  })
+
+  it('marks a previewed question previewLayout when an option is clicked', async () => {
+    const onAnswer = vi.fn(async () => {})
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask(PREVIEWED)}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={onAnswer}
+        />,
+      ),
+    )
+    await act(async () => options()[1]?.click())
+    expect(onAnswer).toHaveBeenCalledWith({
+      choices: [{ optionIndices: [2], previewLayout: true }],
+    })
+  })
+
+  it('leaves previewLayout off a multi-select, which the native dialog never previews', async () => {
+    const onAnswer = vi.fn(async () => {})
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask([{ ...PREVIEWED[0], multiSelect: true }])}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={onAnswer}
+        />,
+      ),
+    )
+    await act(async () => options()[0]?.click())
+    await act(async () => sendButton()?.click())
+    expect(onAnswer).toHaveBeenCalledWith({ choices: [{ optionIndices: [1], multiSelect: true }] })
+  })
+
   it('Skip submits { skip: true }', async () => {
     const onAnswer = vi.fn(async () => {})
     act(() =>

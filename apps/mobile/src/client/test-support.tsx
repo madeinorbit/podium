@@ -83,7 +83,7 @@ function stubApi(fixture: MobileStoreFixture): MobileTrpc {
     superagent: { listThreads: { query: async () => [] } },
     sessions: {
       transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
-      answerAskUserQuestion: { mutate: noop },
+      answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
       create: { mutate: async () => ({ sessionId: 'created' }) },
     },
     issues: {

@@ -197,11 +197,11 @@ export interface SessionInboxDeps {
  * One question's answer, as the client picked it: listed options, or the free
  * text the native menu's Other entry takes (POD-599).
  *
- * `multiSelect` is the QUESTION's shape, not the answer's, and it travels
- * because the menu cannot be driven without it — see
+ * `multiSelect` and `previewLayout` are the QUESTION's shape, not the answer's,
+ * and they travel because the menu cannot be driven without them — see
  * {@link SessionInbox.answerAskUserQuestion}.
  */
-export type AnswerChoice = { multiSelect?: boolean } & (
+export type AnswerChoice = { multiSelect?: boolean; previewLayout?: boolean } & (
   | { optionIndices: number[] }
   | { freeText: string; otherIndex: number }
 )
@@ -211,12 +211,60 @@ export type AnswerChoice = { multiSelect?: boolean } & (
 const isMultiSelect = (choice: AnswerChoice): boolean =>
   choice.multiSelect ?? ('optionIndices' in choice && choice.optionIndices.length > 1)
 
+/** The side-by-side preview dialog. It is single-select BY CONSTRUCTION (the CLI
+ *  only reaches for it when `!multiSelect`), so a choice claiming both is a
+ *  client bug and must not be typed at all. */
+const isPreviewLayout = (choice: AnswerChoice): boolean =>
+  choice.previewLayout === true && !isMultiSelect(choice)
+
 /** The ONE shape the native menu commits by itself, so the ONE shape that must
  *  not be given a closing CR. Kept next to the choice type because both sides
- *  of the asymmetry have to read the same way. */
+ *  of the asymmetry have to read the same way. Holds in the preview layout too:
+ *  a lone question auto-submits the moment the CR selects a row. */
 const isLoneSingleSelect = (choices: AnswerChoice[]): boolean => {
   const only = choices.length === 1 ? choices[0] : undefined
   return only !== undefined && !isMultiSelect(only)
+}
+
+/** One typed digit. Anything else cannot be a menu keystroke. */
+const isMenuDigit = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 9
+
+/**
+ * Why this answer cannot be typed into the native menu, or null when it can.
+ *
+ * Checked for EVERY choice before a single byte moves. The old code skipped an
+ * undeliverable choice and kept going, which is how POD-770 stayed silent: the
+ * skipped question was left highlighted on its first row and the closing CR
+ * committed that row as though the operator had chosen it.
+ */
+const undeliverable = (choice: AnswerChoice, at: number): string | null => {
+  const where = `question ${at + 1}`
+  const digits = 'optionIndices' in choice ? choice.optionIndices.filter(isMenuDigit) : []
+  // The preview dialog is single-select by construction and its Enter selects
+  // exactly the one highlighted row, so both ways of asking it for several
+  // answers are contradictions rather than something to type half of. Checked
+  // before `isMultiSelect`, whose several-picks inference would misdescribe the
+  // second one as a multi-select question.
+  if (choice.previewLayout === true) {
+    if (choice.multiSelect === true) return `${where}: a preview question cannot be multi-select`
+    if (digits.length > 1) {
+      return `${where}: a preview question takes one option, got ${digits.join(',')}`
+    }
+  }
+  if ('freeText' in choice) {
+    if (choice.freeText.trim() === '') return `${where}: empty free text`
+    // The Other row only exists in the classic list layout; the preview layout
+    // reaches its Notes field with `n` and needs no index.
+    if (!isPreviewLayout(choice) && !isMenuDigit(choice.otherIndex)) {
+      return `${where}: Other is at ${choice.otherIndex}, outside the menu's 1-9 digits`
+    }
+    return null
+  }
+  if (digits.length === 0) {
+    const got = choice.optionIndices.join(',') || 'nothing'
+    return `${where}: no option in the menu's 1-9 digits (got ${got})`
+  }
+  return null
 }
 
 export interface InboxSendInput {
@@ -398,9 +446,10 @@ export class SessionInbox {
    * Type an answer into the live native AskUserQuestion menu.
    *
    * The script below is not a guess: it was read out of the shipped Claude Code
-   * bundle (2.1.226) and then verified by driving a real session in a PTY —
-   * docs/agent-harness-reference/claude.md §6 carries the contract and
-   * docs/agents/evidence/pod-609-ask-menu-drive.md the screens. Three facts
+   * bundle (2.1.226, then 2.1.228) and verified by driving a real session in a
+   * PTY — docs/agent-harness-reference/claude.md §6 carries the contract, and
+   * the screens are in docs/agents/evidence/pod-609-ask-menu-drive.md and
+   * docs/agents/evidence/pod-770-preview-layout.md. Three facts
    * shape it, and each one is a way a payload can silently do NOTHING:
    *
    *  - ONE KEYSTROKE PER WRITE. The CLI's key parser folds a multi-character
@@ -418,27 +467,56 @@ export class SessionInbox {
    * That last asymmetry is why the CR is conditional: on the lone single-select
    * path the dialog is already gone, and a blind CR would land in the composer.
    *
-   * The three answer routes ride the SAME script (POD-599 brought the last two):
-   *  - Options: the digit(s), one keystroke each.
-   *  - Free text: the native menu always has an Other entry after the agent
+   * THE DIALOG HAS TWO LAYOUTS, and the script differs in both routes (POD-770).
+   * A single-select question whose options carry `preview` text is not a list at
+   * all: options in a narrow left column, the focused option's preview on the
+   * right, a "Notes" field under it, and NO Other row. There, a digit only MOVES
+   * the highlight, a digit past the last option is dropped on the floor, Enter
+   * selects the highlighted row, and `n` opens the Notes field. Driving it with
+   * the classic script is how a typed answer became option 1 with the text lost:
+   * `3` fell off the end, the text was one dead key event, and the CR committed
+   * whatever was highlighted. `previewLayout` therefore rides with the answer,
+   * exactly as `multiSelect` does.
+   *
+   * The answer routes, per layout:
+   *  - Options, classic: the digit(s), one keystroke each — a single-select
+   *    commits and advances on the digit.
+   *  - Options, preview: the digit MOVES, so a CR must follow to select.
+   *  - Free text, classic: the menu appends an Other entry after the agent
    *    options. Digit `otherIndex` focuses its field, the text follows, and a CR
    *    commits it as the custom answer — free text must never land as a raw chat
    *    send on top of an open menu.
+   *  - Free text, preview: `n` focuses Notes, the text follows, and a CR commits
+   *    it with no option selected.
    *  - Skip: Esc cancels the whole dialog ("User declined to answer questions"),
    *    so it takes no confirm.
+   *
+   * NOTHING IS TYPED UNTIL EVERY CHOICE IS DELIVERABLE. A choice this method
+   * cannot express is a refusal, never a partial script: the questions it could
+   * not answer stay on their first row, and the closing CR would commit those
+   * rows as if the operator had picked them. The caller surfaces the reason.
    */
   answerAskUserQuestion(input: {
     sessionId: SessionId
     choices?: AnswerChoice[]
     skip?: boolean
     principal: InboxPrincipalReference
-  }): { ok: boolean } {
+  }): { ok: boolean; reason?: string } {
     const session = this.deps.getSession(input.sessionId)
     const ownerUserId = this.deps.ownerOf(input.sessionId)
     // Attention is per-owner. An unresolved owner is not an invitation to send
     // to an ambient operator; fail closed before bytes or notifications move.
+    // Bare `{ok:false}` here is pinned by the command oracle — the NEW refusal
+    // class below is the one that carries a reason.
     if (!session || !ownerUserId || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
+    }
+    const choices = input.skip ? [] : (input.choices ?? [])
+    if (!input.skip && choices.length === 0) return { ok: false, reason: 'no choices to type' }
+    for (let i = 0; i < choices.length; i++) {
+      const choice = choices[i]
+      const why = choice ? undeliverable(choice, i) : `question ${i + 1}: missing`
+      if (why) return { ok: false, reason: why }
     }
     const attribution = input.principal.attribution
     let delayMs = 0
@@ -451,20 +529,23 @@ export class SessionInbox {
     if (input.skip) {
       key('\x1b')
     } else {
-      const choices = input.choices ?? []
       for (const choice of choices) {
+        const preview = isPreviewLayout(choice)
         if ('freeText' in choice) {
-          const otherIndex = choice.otherIndex
-          if (!Number.isInteger(otherIndex) || otherIndex < 1 || otherIndex > 9) continue
           // Ink needs a frame to move focus into the field before characters
-          // land as the custom answer rather than as menu digits.
-          key(String(otherIndex))
+          // land as the custom answer rather than as menu keys.
+          key(preview ? 'n' : String(choice.otherIndex))
           key(choice.freeText)
           key('\r')
         } else {
-          const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
-          if (digits.length === 0) continue
-          for (const digit of digits) key(String(digit))
+          const digits = choice.optionIndices.filter(isMenuDigit)
+          if (preview) {
+            // The digit only moves the cursor here; the CR is what selects.
+            key(String(digits[0]))
+            key('\r')
+          } else {
+            for (const digit of digits) key(String(digit))
+          }
         }
         if (isMultiSelect(choice)) key('\t')
       }

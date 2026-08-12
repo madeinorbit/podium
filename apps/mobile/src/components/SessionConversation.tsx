@@ -266,7 +266,13 @@ export function SessionConversation({
                 ) : undefined
               }
               onAnswer={async (answer) => {
-                await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, ...answer })
+                // A refusal must reach the card: the server types nothing when it
+                // cannot express a choice as keystrokes (POD-770).
+                const sent = await trpc.sessions.answerAskUserQuestion.mutate({
+                  sessionId,
+                  ...answer,
+                })
+                if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
               }}
               onLoadOlder={loadOlder}
               onRefPress={(ref) => {

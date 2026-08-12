@@ -416,16 +416,14 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // (doc §3.1.3 A3); the payload carries only the answer shape.
   const answerAsk = useMemo(
     () => async (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => {
-      if ('skip' in answer && answer.skip) {
-        await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, skip: true })
-        return
-      }
-      if ('choices' in answer) {
-        await trpc.sessions.answerAskUserQuestion.mutate({
-          sessionId,
-          choices: answer.choices,
-        })
-      }
+      // A refused answer must reach the card. The server types nothing when it
+      // cannot express a choice as keystrokes, and a resolved promise there
+      // would show the operator "sent" over a question still on screen — the
+      // silent substitution POD-770 was about, one layer up.
+      const sent = (await trpc.sessions.answerAskUserQuestion.mutate(
+        'skip' in answer ? { sessionId, skip: true } : { sessionId, choices: answer.choices },
+      )) as { ok?: boolean; reason?: string } | undefined
+      if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
     },
     [trpc, sessionId],
   )

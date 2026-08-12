@@ -560,6 +560,92 @@ describe('oracle: answerAskUserQuestion', () => {
     }
   })
 
+  // POD-770. A single-select question whose options carry `preview` text draws a
+  // DIFFERENT native dialog: options in a left column, the preview on the right,
+  // a Notes field, and NO Other row. There a digit only MOVES the highlight, a
+  // digit past the last option is dropped, Enter selects the highlighted row and
+  // `n` opens Notes. Reproduced against claude 2.1.228 in a PTY — the classic
+  // script (`3`, text, CR) committed option 1 and threw the text away, and a bare
+  // digit left the dialog open forever. These two pin the scripts that work.
+  it(`${MUST_NOT_CHANGE}: an option on a PREVIEW question types the digit then a CR — the digit alone only moves the cursor`, async () => {
+    vi.useFakeTimers()
+    try {
+      const o = makeOracle()
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      goLive(o, sessionId)
+      o.daemon.length = 0
+
+      expect(
+        await o.call.sessions.answerAskUserQuestion({
+          sessionId,
+          choices: [{ optionIndices: [2], previewLayout: true }],
+        }),
+      ).toEqual({ ok: true })
+
+      const typed = () => inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())
+      expect(typed()).toEqual(['2'])
+      // The CR is the SELECT here, not a closing confirm — a lone question
+      // auto-submits on it, so the script stops.
+      await vi.advanceTimersByTimeAsync(120)
+      expect(typed()).toEqual(['2', '\r'])
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(typed()).toEqual(['2', '\r'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`${MUST_NOT_CHANGE}: free text on a PREVIEW question types 'n', then the text, then CR — never the Other digit`, async () => {
+    vi.useFakeTimers()
+    try {
+      const o = makeOracle()
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      goLive(o, sessionId)
+      o.daemon.length = 0
+
+      expect(
+        await o.call.sessions.answerAskUserQuestion({
+          sessionId,
+          // otherIndex still rides along from the card; the preview layout has no
+          // Other row, so it must NOT be typed — 3 would fall off the end of a
+          // two-option list and the text would be swallowed as menu keys.
+          choices: [{ freeText: 'ship the long path', otherIndex: 3, previewLayout: true }],
+        }),
+      ).toEqual({ ok: true })
+
+      const typed = () => inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())
+      expect(typed()).toEqual(['n'])
+      await vi.advanceTimersByTimeAsync(120)
+      expect(typed()).toEqual(['n', 'ship the long path'])
+      await vi.advanceTimersByTimeAsync(120)
+      expect(typed()).toEqual(['n', 'ship the long path', '\r'])
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(typed()).toEqual(['n', 'ship the long path', '\r'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`${MUST_NOT_CHANGE}: an undeliverable choice refuses with a reason and types NOTHING — not even the choices it could have typed`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    o.daemon.length = 0
+
+    // Q1 is answerable, Q2 is not. Typing Q1's digit and stopping would leave Q2
+    // on its first row for the closing CR to commit — the POD-770 substitution.
+    expect(
+      await o.call.sessions.answerAskUserQuestion({
+        sessionId,
+        choices: [
+          { optionIndices: [1] },
+          { freeText: 'a custom answer', otherIndex: 3, previewLayout: true, multiSelect: true },
+        ],
+      }),
+    ).toEqual({ ok: false, reason: 'question 2: a preview question cannot be multi-select' })
+    expect(inputs(o.daemon)).toEqual([])
+  })
+
   it(`${MUST_NOT_CHANGE}: skip types a bare Esc and nothing else`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })

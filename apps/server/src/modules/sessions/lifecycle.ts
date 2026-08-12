@@ -213,7 +213,7 @@ export class SessionLifecycle {
     choices?: AnswerChoice[]
     skip?: boolean
     principal?: InboxPrincipalReference
-  }) => { ok: boolean }
+  }) => { ok: boolean; reason?: string }
   readonly setSessionDraft!: (
     input: { sessionId: SessionId; text: string },
     fromClientId?: string,

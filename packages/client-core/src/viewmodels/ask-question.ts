@@ -4,6 +4,9 @@ import type { TranscriptItem } from '@podium/model'
 export interface AskOption {
   label: string
   description?: string
+  /** Long-form text the agent attaches to this option. Its mere PRESENCE
+   *  changes the native dialog — see {@link isPreviewLayout}. */
+  preview?: string
 }
 
 /** One question of an AskUserQuestion tool call, parsed from toolInputJson. */
@@ -15,6 +18,22 @@ export interface AskQuestion {
 }
 
 /**
+ * Does this question render the native dialog's SIDE-BY-SIDE preview layout?
+ *
+ * A single-select question whose options carry `preview` text is not drawn as a
+ * list at all: the options go in a narrow left column, the focused option's
+ * preview fills the right, and the free-text escape is a "Notes" field reached
+ * with `n`. There is NO Other row, so `optionIndices`/`otherIndex` alone cannot
+ * be typed into it — hence {@link AskAnswerChoice.previewLayout} (POD-770).
+ *
+ * Mirrors the CLI's own predicate (`!multiSelect && options.some(o => o.preview)`,
+ * read out of the 2.1.228 bundle and confirmed on screen).
+ */
+export function isPreviewLayout(q: Pick<AskQuestion, 'multiSelect' | 'options'>): boolean {
+  return !q.multiSelect && q.options.some((o) => (o.preview ?? '') !== '')
+}
+
+/**
  * One question's answer on its way to the server: the listed options it picked
  * (1-based), or free text through the native Other entry — plus the SHAPE of the
  * question that produced it.
@@ -23,10 +42,16 @@ export interface AskQuestion {
  * differently: a single-select commits on the digit, a multi-select only toggles
  * and needs a Tab to move on, and one pick looks identical from the server side
  * (POD-609). A card that answers without it leaves the agent on a dialog.
+ *
+ * `previewLayout` is the second such fact and the more dangerous one: in that
+ * layout a digit only MOVES the cursor, a digit past the last option is dropped,
+ * and the closing CR commits whatever is highlighted — so the Other script
+ * silently answers option 1 with the typed text thrown away (POD-770).
  */
-export type AskAnswerChoice = { multiSelect?: boolean } & (
+export type AskAnswerChoice = { multiSelect?: boolean; previewLayout?: boolean } & (
   | { optionIndices: number[] }
-  /** The native menu's Other entry: `otherIndex` is 1-based (= option count + 1). */
+  /** The native menu's Other entry: `otherIndex` is 1-based (= option count + 1).
+   *  Ignored under `previewLayout`, which has no Other row. */
   | { freeText: string; otherIndex: number }
 )
 

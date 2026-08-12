@@ -1,6 +1,7 @@
 import {
   type AskAnswerChoice,
   isChosenOption,
+  isPreviewLayout,
   parseAskQuestions,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
@@ -55,26 +56,26 @@ export function AskQuestionCard({
   ): AskAnswerChoice[] | null => {
     // The question's SHAPE travels with its answer: the native menu leaves a
     // multi-select only on Tab, and the server cannot infer that from one pick
-    // (POD-609).
+    // (POD-609). A question with per-option previews draws a different dialog
+    // again — no Other row, digits that only move a cursor — and answering it
+    // with the list script silently commits option 1 (POD-770).
     const choices: AskAnswerChoice[] = []
     for (let qi = 0; qi < questions.length; qi++) {
+      const q = questions[qi]
+      const shape = {
+        ...(q?.multiSelect ? { multiSelect: true as const } : {}),
+        ...(q && isPreviewLayout(q) ? { previewLayout: true as const } : {}),
+      }
       const text = typed(nextCustom, qi)
       if (text !== '') {
-        choices.push({
-          freeText: text,
-          otherIndex: (questions[qi]?.options.length ?? 0) + 1,
-          ...(questions[qi]?.multiSelect ? { multiSelect: true } : {}),
-        })
+        choices.push({ freeText: text, otherIndex: (q?.options.length ?? 0) + 1, ...shape })
         continue
       }
       const indices = [...(nextPicks[qi] ?? new Set<number>())]
         .sort((a, b) => a - b)
         .map((oi) => oi + 1)
       if (indices.length === 0) return null
-      choices.push({
-        optionIndices: indices,
-        ...(questions[qi]?.multiSelect ? { multiSelect: true } : {}),
-      })
+      choices.push({ optionIndices: indices, ...shape })
     }
     return choices
   }
