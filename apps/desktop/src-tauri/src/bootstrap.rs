@@ -390,7 +390,7 @@ pub fn injection_script(port: u16) -> String {
     // origin. Apply the loopback endpoint only on Tauri's bundled origin so it cannot override
     // the remote page's same-origin server discovery after navigation.
     format!(
-        "if (window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') {{ {} }}",
+        "if (window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') {{ {}\nwindow.__PODIUM_LOCAL_SETUP__ = true; }}",
         server_injection_script(&format!("ws://127.0.0.1:{port}"))
     )
 }
@@ -673,6 +673,7 @@ mod tests {
         assert!(s.contains("ws://127.0.0.1:18799"));
         assert!(s.contains("__PODIUM_SERVER__"));
         assert!(s.contains("window.location.protocol === 'tauri:'"));
+        assert!(s.contains("__PODIUM_LOCAL_SETUP__ = true"));
     }
 
     #[test]

@@ -196,6 +196,20 @@ export type LaunchPlan =
 const AUTOMATION_SCHEDULE_USAGE =
   'usage: podium automation schedule --at <ISO timestamp> --message <text> [--name <name>] [--session <id> | --fresh --repo <path> [--agent <kind>] [--model <id>] [--effort <level>]]'
 
+/** Trusted ordinary local launchers may infer all-in-one only while the bind stays loopback. */
+export function shouldInferLocalSetupDefault(
+  runtime: { localSetupDefault?: boolean },
+  env: EnvSnapshot,
+  argv: string[] = [],
+): boolean {
+  const launcherTrusted =
+    runtime.localSetupDefault === true || env.PODIUM_DESKTOP_SUPERVISED === '1'
+  const host = env.PODIUM_HOST ?? '127.0.0.1'
+  const loopback = host === '127.0.0.1' || host === '::1' || host === 'localhost'
+  const ordinaryLaunch = argv.every((token) => token === '--takeover')
+  return launcherTrusted && loopback && ordinaryLaunch
+}
+
 function automationSchedulePlan(argv: string[]): LaunchPlan {
   if (argv[1] !== 'schedule') {
     return { kind: 'usage-error', message: AUTOMATION_SCHEDULE_USAGE }
@@ -549,9 +563,6 @@ export function resolvePlan(
   // file, so absent persistence means exactly one thing — this box is not
   // headless-managed. Every branch below is a real launch mode.
 
-  // Interactive setup gate (same predicate as cli-setup's shouldRunCliSetup): it's THE
-  // interactive command, so the only gate is a TTY — headless/systemd/piped runs must
-  // never block on a prompt, and fall through to serving the web UI instead.
   if ((forceSetup || modePlan.showSetupHint) && tty) {
     return { kind: 'interactive-setup', port, reason: forceSetup ? 'explicit' : 'first-run' }
   }
@@ -1022,7 +1033,10 @@ async function runInProcess(
   await new Promise(() => {})
 }
 
-export async function main(loadHost: () => Promise<HostModules>): Promise<void> {
+export async function main(
+  loadHost: () => Promise<HostModules>,
+  runtime: { localSetupDefault?: boolean } = {},
+): Promise<void> {
   let selection: ReturnType<typeof selectInstance>
   try {
     selection = selectInstance(process.argv.slice(2), process.env)
@@ -1052,6 +1066,10 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     console.error(`[podium] config upgraded: ${migrations.join('; ')}`)
   }
 
+  if (shouldInferLocalSetupDefault(runtime, process.env, argv)) {
+    const { applyLocalSetupDefault } = await import('@podium/runtime/setup')
+    applyLocalSetupDefault()
+  }
   const config = loadConfig()
 
   // Logging sinks, then the crash net BEFORE anything else (mirror

@@ -11,6 +11,10 @@
 import type { HostModules } from '../apps/cli/src/cli'
 import { main as cliMain } from '../apps/cli/src/cli'
 
+// This literal env read is replaced by build-bun in the packaged binary. It is therefore the
+// composition root's proof that this process is executing directly from a source checkout.
+const SOURCE_CHECKOUT = process.env.PODIUM_APP_VERSION === undefined
+
 export {
   alreadyRunningMessage,
   type DaemonStartOptions,
@@ -40,7 +44,7 @@ async function loadHost(): Promise<HostModules> {
 }
 
 export async function main(): Promise<void> {
-  return cliMain(loadHost)
+  return cliMain(loadHost, { localSetupDefault: SOURCE_CHECKOUT })
 }
 
 if (import.meta.main) void main()

@@ -244,6 +244,25 @@ export function applyMode(input: {
   return cfg
 }
 
+/**
+ * Persist the ordinary local all-in-one default before a trusted launcher boots the server.
+ * Existing choices always win, and an invalid config is left untouched for `setup --repair`.
+ */
+export function applyLocalSetupDefault(): 'applied' | 'configured' | 'blocked' {
+  const inspection = inspectConfig()
+  if (inspection.state === 'corrupt') return 'blocked'
+  const config = inspection.config
+  if (config.mode) return 'configured'
+  try {
+    saveConfig({ ...config, mode: 'all-in-one' })
+    return 'applied'
+  } catch {
+    // A read-only or otherwise unwritable state dir must fall back to explicit setup rather
+    // than making a launcher crash or claiming the default was durable when it was not.
+    return 'blocked'
+  }
+}
+
 /** Current fleet default update channel; defaults to 'stable' when unset. */
 export function getUpdateChannel(): FleetUpdateChannel {
   return loadConfig().updateChannel ?? 'stable'

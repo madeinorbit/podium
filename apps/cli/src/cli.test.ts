@@ -10,6 +10,7 @@ import {
   resolveCliFeatures,
   resolveModePlan,
   resolvePlan,
+  shouldInferLocalSetupDefault,
   unknownLaunchToken,
 } from './cli'
 
@@ -90,6 +91,19 @@ function plan(
 ): LaunchPlan {
   return resolvePlan(config, argv, env, tty)
 }
+
+describe('ordinary local setup inference', () => {
+  it('accepts source and desktop launchers only on a loopback bind', () => {
+    expect(shouldInferLocalSetupDefault({ localSetupDefault: true }, {})).toBe(true)
+    expect(shouldInferLocalSetupDefault({}, { PODIUM_DESKTOP_SUPERVISED: '1' })).toBe(true)
+    expect(
+      shouldInferLocalSetupDefault({ localSetupDefault: true }, { PODIUM_HOST: '0.0.0.0' }),
+    ).toBe(false)
+    expect(shouldInferLocalSetupDefault({}, {})).toBe(false)
+    expect(shouldInferLocalSetupDefault({ localSetupDefault: true }, {}, ['setup'])).toBe(false)
+    expect(shouldInferLocalSetupDefault({ localSetupDefault: true }, {}, ['--takeover'])).toBe(true)
+  })
+})
 
 describe('resolvePlan — launch matrix', () => {
   it('systemd-recorded box, bare invocation → start both units (all-in-one)', () => {
@@ -202,15 +216,23 @@ describe('resolvePlan — launch matrix', () => {
       claimRole: 'server',
     })
   })
-  it('fresh box on a TTY → first-run interactive setup', () => {
+  it('a pre-applied source/desktop default enters the ordinary local launch on a TTY', () => {
+    expect(plan({ mode: 'all-in-one' }, [], {}, true)).toMatchObject({
+      kind: 'in-process',
+      roles: { server: true, daemon: true },
+      showSetupHint: false,
+    })
+  })
+  it('fresh packaged/headless box on a TTY retains interactive setup', () => {
     expect(plan({}, [], {}, true)).toEqual({
       kind: 'interactive-setup',
       port: 18787,
       reason: 'first-run',
     })
   })
-  it('fresh box without a TTY → in-process all-in-one serving the setup hint', () => {
-    expect(plan({})).toMatchObject({
+  it('fresh packaged box without a TTY serves advanced setup', () => {
+    const packaged = plan({})
+    expect(packaged).toMatchObject({
       kind: 'in-process',
       roles: { server: true, daemon: true },
       claimRole: 'all-in-one',
@@ -225,7 +247,8 @@ describe('resolvePlan — launch matrix', () => {
     })
   })
   it('`podium setup` without a TTY → serve the web setup UI: server only, NO registry claim', () => {
-    expect(plan({ mode: 'all-in-one', persistence: 'systemd' }, ['setup'])).toMatchObject({
+    const setupPlan = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['setup'])
+    expect(setupPlan).toMatchObject({
       kind: 'in-process',
       roles: { server: true, daemon: false },
       claimRole: undefined,

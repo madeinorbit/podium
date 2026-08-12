@@ -24,9 +24,7 @@ describe('shouldRunCliSetup (when `podium setup` launches the terminal flow)', (
       true,
     )
   })
-  it('launches setup automatically for a bare `podium` on a fresh/unconfigured box (TTY)', () => {
-    // The headline fix: an unconfigured install run interactively walks straight into setup
-    // instead of silently starting all-in-one.
+  it('launches setup for a still-unconfigured packaged/headless TTY launch', () => {
     expect(shouldRunCliSetup({ forceSetup: false, firstRunNeedsSetup: true, isTTY: true })).toBe(
       true,
     )

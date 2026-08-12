@@ -20,6 +20,7 @@
  */
 import { bootProcess } from '@podium/runtime/boot'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { applyLocalSetupDefault } from '@podium/runtime/setup'
 import { startDaemon } from '../apps/daemon/src/daemon'
 import { startServer } from '../apps/server/src/server'
 
@@ -31,8 +32,14 @@ await bootProcess({
     // alone — honoring config.json here would bind the backend on a port the
     // proxy never learns about (#251 review). Production never runs host.ts.
     const envPort = Number(process.env.PODIUM_PORT)
+    const bindHost = process.env.PODIUM_HOST ?? '127.0.0.1'
+    const localOnly = bindHost === '127.0.0.1' || bindHost === '::1' || bindHost === 'localhost'
+    const localDefault = localOnly && applyLocalSetupDefault() !== 'blocked'
     const server = await startServer({
       port: Number.isFinite(envPort) && envPort > 0 ? envPort : 18787,
+      // `bun run host` is explicitly the repository's local all-in-one composition.
+      // SetupGate still requires the browser itself to be on loopback before applying it.
+      localSetupDefault: localDefault,
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${server.port}`,

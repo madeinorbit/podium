@@ -1,6 +1,22 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SetupGate } from './SetupGate'
+
+const connect = vi.hoisted(() => vi.fn().mockResolvedValue({ mode: 'all-in-one' }))
+
+vi.mock('@/app/trpc', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/app/trpc')>()
+  return {
+    ...actual,
+    makeTrpc: () => ({ setup: { connect: { mutate: connect } } }),
+  }
+})
+
+import {
+  classifySetupStatus,
+  isTrustedLocalSetupOrigin,
+  SetupGate,
+  shouldApplyLocalSetupDefault,
+} from './SetupGate'
 
 afterEach(() => {
   cleanup()
@@ -8,11 +24,33 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
   ;(globalThis as { __PODIUM_SKIP_SETUP__?: boolean }).__PODIUM_SKIP_SETUP__ = undefined
+  ;(globalThis as { __PODIUM_LOCAL_SETUP__?: boolean }).__PODIUM_LOCAL_SETUP__ = undefined
+  connect.mockClear()
 })
 
 const child = <div>APP-READY</div>
 
 describe('SetupGate', () => {
+  it('trusts only loopback and bundled desktop origins for automatic local setup', () => {
+    expect(isTrustedLocalSetupOrigin({ protocol: 'http:', hostname: 'localhost' })).toBe(true)
+    expect(isTrustedLocalSetupOrigin({ protocol: 'http:', hostname: '127.0.0.1' })).toBe(true)
+    expect(isTrustedLocalSetupOrigin({ protocol: 'http:', hostname: '[::1]' })).toBe(true)
+    expect(isTrustedLocalSetupOrigin({ protocol: 'tauri:', hostname: 'tauri.localhost' })).toBe(
+      true,
+    )
+    expect(isTrustedLocalSetupOrigin({ protocol: 'https:', hostname: 'podium.example' })).toBe(
+      false,
+    )
+    expect(
+      shouldApplyLocalSetupDefault(
+        { needsSetup: true },
+        { protocol: 'https:', hostname: 'podium.example' },
+        false,
+        true,
+      ),
+    ).toBe(false)
+  })
+
   it('skips the probe and renders the app when __PODIUM_SKIP_SETUP__ is set (client/daemon)', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
@@ -32,6 +70,75 @@ describe('SetupGate', () => {
     render(<SetupGate>{child}</SetupGate>)
     expect(await screen.findByText(/welcome to podium/i)).toBeTruthy()
     expect(screen.queryByText('APP-READY')).toBeNull()
+  })
+
+  it('sends an unconfigured remote browser to the host without exposing mutations', () => {
+    expect(
+      classifySetupStatus(
+        {
+          needsSetup: true,
+          state: 'unconfigured',
+          reason: 'setup_required',
+          dataPlane: 'blocked',
+        },
+        { protocol: 'https:', hostname: 'podium.example' },
+      ),
+    ).toBe('remote-setup')
+  })
+
+  it('renders activation pending as restart-only and never reconnects setup', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        headers: new Headers(),
+        json: async () => ({
+          needsSetup: true,
+          state: 'activation_pending',
+          reason: 'restart_required',
+          dataPlane: 'blocked',
+        }),
+      }),
+    )
+    render(<SetupGate>{child}</SetupGate>)
+    expect(await screen.findByText(/setup is saved; podium needs to restart/i)).toBeTruthy()
+    expect(connect).not.toHaveBeenCalled()
+  })
+
+  it('renders the app for degraded readiness because the data plane is available', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        headers: new Headers(),
+        json: async () => ({
+          needsSetup: false,
+          state: 'degraded',
+          reason: 'agent_unavailable',
+          dataPlane: 'available',
+        }),
+      }),
+    )
+    render(<SetupGate>{child}</SetupGate>)
+    expect(await screen.findByText('APP-READY')).toBeTruthy()
+  })
+
+  it('applies a source launcher local default before entering the app', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        headers: new Headers({ 'X-Podium-Local-Setup': 'all-in-one' }),
+        json: async () => ({ needsSetup: true }),
+      }),
+    )
+    render(<SetupGate>{child}</SetupGate>)
+    expect(await screen.findByText(/starting podium on this machine/i)).toBeTruthy()
+    expect(screen.queryByText(/how should this install run/i)).toBeNull()
+    expect(connect).toHaveBeenCalledWith({ mode: 'all-in-one' })
   })
 
   it('renders the app when setup is already done', async () => {

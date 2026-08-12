@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isLoopbackHost, resolveBindHost } from './server'
+import { isLoopbackHost, resolveBindHost, shouldAdvertiseLocalSetupDefault } from './server'
 
 describe('resolveBindHost', () => {
   test('defaults to loopback (127.0.0.1) when nothing is configured', () => {
@@ -27,5 +27,18 @@ describe('isLoopbackHost', () => {
     expect(isLoopbackHost('::')).toBe(false)
     expect(isLoopbackHost('10.0.0.5')).toBe(false)
     expect(isLoopbackHost('podium.example.com')).toBe(false)
+  })
+})
+
+describe('shouldAdvertiseLocalSetupDefault', () => {
+  test('requires an opted-in launcher on a loopback bind', () => {
+    expect(shouldAdvertiseLocalSetupDefault({ localSetupDefault: true }, {})).toBe(true)
+    expect(shouldAdvertiseLocalSetupDefault({}, {})).toBe(false)
+  })
+
+  test('retains advanced authenticated setup when the server is reachable off-box', () => {
+    expect(
+      shouldAdvertiseLocalSetupDefault({ localSetupDefault: true }, { PODIUM_HOST: '0.0.0.0' }),
+    ).toBe(false)
   })
 })

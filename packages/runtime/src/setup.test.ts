@@ -6,6 +6,7 @@ import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from './config'
 import { encodeJoin } from './join'
 import {
   applyJoin,
+  applyLocalSetupDefault,
   applyMode,
   applyServerUrl,
   applySetup,
@@ -144,6 +145,16 @@ describe('setup core', () => {
     expect(() => applyMode({ mode: 'client' })).toThrow()
     expect(loadConfig().mode).toBeUndefined()
   })
+  it('applyLocalSetupDefault persists all-in-one on a fresh box and preserves config', () => {
+    saveConfig({ updateChannel: 'edge' })
+    expect(applyLocalSetupDefault()).toBe('applied')
+    expect(loadConfig()).toMatchObject({ mode: 'all-in-one', updateChannel: 'edge' })
+  })
+  it('applyLocalSetupDefault never replaces an explicit advanced choice', () => {
+    saveConfig({ mode: 'server', publicUrl: 'https://relay.example' })
+    expect(applyLocalSetupDefault()).toBe('configured')
+    expect(loadConfig()).toMatchObject({ mode: 'server', publicUrl: 'https://relay.example' })
+  })
   describe('applyServerUrl — URL rotation without re-setup (#19)', () => {
     it('patches ONLY serverUrl on a daemon box, preserving every other field', () => {
       saveConfig({
@@ -243,6 +254,7 @@ describe('setup core', () => {
         applyJoin(encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1' })),
       ).toThrow(/--repair/)
       expect(() => applyMode({ mode: 'server' })).toThrow(/--repair/)
+      expect(applyLocalSetupDefault()).toBe('blocked')
       expect(() => applyServerUrl('wss://new.example')).toThrow(/--repair/)
       // The broken file is untouched — the operator's data is recoverable.
       expect(readFileSync(configFile, 'utf8')).toBe('{not json')

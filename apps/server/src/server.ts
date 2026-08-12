@@ -203,6 +203,14 @@ function phoneWebDir(env: NodeJS.ProcessEnv = process.env): string {
   return distDir(env.PODIUM_MOBILE_WEB_DIR, '../../mobile/dist')
 }
 
+/** Local-first setup is valid only when both the launcher asks and the server stays off-network. */
+export function shouldAdvertiseLocalSetupDefault(
+  opts: { host?: string; localSetupDefault?: boolean },
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return opts.localSetupDefault === true && isLoopbackHost(resolveBindHost(opts, env))
+}
+
 /** Machine-readable version probe — distinct from /health (which stays plaintext "ok"). */
 export function registerVersionRoute(
   app: Hono,
@@ -310,6 +318,8 @@ export async function startServer(
     trustedProxyHops?: number
     /** Direct TLS material. Env alternatives are PODIUM_TLS_KEY_FILE/PODIUM_TLS_CERT_FILE. */
     tls?: { key: string; cert: string }
+    /** Advertise the safe local all-in-one first-run default to loopback web clients. */
+    localSetupDefault?: boolean
   } = {},
 ): Promise<ServerHandle> {
   const configuredProxyHops = opts.trustedProxyHops ?? proxyHopsFromEnv(process.env)
@@ -328,6 +338,7 @@ export async function startServer(
   // Role composition (roles.ts): which optional module groups this process
   // activates. Explicit opts win; else the H1 shape, core + hub.
   const config = loadConfig()
+  const host = resolveBindHost(opts)
   const role = resolveServerRole(opts.role)
   // WHO THIS HOST IS, read (or minted) once, before anything can write a row. Every
   // other consumer in the process takes it from here — the store carries it to the
@@ -611,7 +622,12 @@ export async function startServer(
   app.use('/setup/*', cors())
   app.use('/readiness', cors())
   registerReadinessRoute(app, readiness)
-  registerSetupRoute(app)
+  registerSetupRoute(app, {
+    readiness,
+    // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
+    // reachability choice, so that server must retain password/reachability setup.
+    localSetupDefault: shouldAdvertiseLocalSetupDefault(opts),
+  })
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
@@ -789,7 +805,6 @@ export async function startServer(
     if (bundle) log.warn(bundle, { webDir })
   }
 
-  const host = resolveBindHost(opts)
   // If we're reachable off-box but no login password is set, the data plane is wide open
   // to anyone who can route to this host. Surface that loudly rather than failing silently.
   if (!isLoopbackHost(host) && !credentialsRequired()) {

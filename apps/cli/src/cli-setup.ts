@@ -92,10 +92,8 @@ export function shouldRunCliSetup(opts: {
   isTTY: boolean
 }): boolean {
   // Interactive only (a TTY): headless/systemd/piped runs must never block on a prompt —
-  // they fall through to serving the web setup URL. On a TTY we enter the terminal flow both
-  // when explicitly asked (`podium setup` / --reconfigure) AND on a bare `podium` against an
-  // unconfigured box (firstRunNeedsSetup), so a fresh install walks straight into setup rather
-  // than silently starting all-in-one.
+  // they fall through to serving the web setup URL. Trusted local launchers apply their default
+  // before this decision, so firstRunNeedsSetup is already false for that path.
   return (opts.forceSetup || opts.firstRunNeedsSetup) && opts.isTTY
 }
 

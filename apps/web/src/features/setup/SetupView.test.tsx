@@ -86,6 +86,7 @@ beforeEach(() => {
     hint: 'Then paste the https URL it prints.',
   })
   trpcMock.complete.mockResolvedValue({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
+  trpcMock.connect.mockResolvedValue({ mode: 'all-in-one' })
   // POD-1554 made "a password is already set" PER-ACCOUNT: SetupView reads
   // `hasOwnCredential` (SetupView.tsx:462), not the retired instance-wide
   // `enabled`. Mocking the old key left hasPassword false and the "keep" radio
@@ -122,6 +123,67 @@ describe('reachablePort (POD-1583)', () => {
 })
 
 describe('SetupView', () => {
+  it('shows only the safe host handoff to an unconfigured remote browser', () => {
+    render(
+      <SetupView
+        httpOrigin="https://podium.example"
+        onSaved={() => {}}
+        blockedState="remote-setup"
+      />,
+    )
+    expect(screen.getByText(/finish setup on the server/i)).toBeTruthy()
+    expect(screen.getByText('podium setup')).toBeTruthy()
+    expect(screen.queryByText(/how should this install run/i)).toBeNull()
+    expect(trpcMock.connect).not.toHaveBeenCalled()
+  })
+
+  it('renders activation pending as restart-only copy', () => {
+    render(
+      <SetupView
+        httpOrigin="http://localhost:18787"
+        onSaved={() => {}}
+        blockedState="restart-required"
+      />,
+    )
+    expect(screen.getByText(/setup is saved; podium needs to restart/i)).toBeTruthy()
+    expect(screen.queryByText(/how should this install run/i)).toBeNull()
+    expect(screen.getByRole('button', { name: /retry after restart/i })).toBeTruthy()
+  })
+
+  it('offers the native restart hook for activation pending in desktop', () => {
+    const restart = vi.fn()
+    vi.stubGlobal('__PODIUM_RESTART__', restart)
+    render(
+      <SetupView
+        httpOrigin="http://localhost:18787"
+        onSaved={() => {}}
+        blockedState="restart-required"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^restart podium$/i }))
+    expect(restart).toHaveBeenCalled()
+  })
+
+  it('applies the trusted local all-in-one default and continues without topology questions', async () => {
+    const onSaved = vi.fn()
+    render(<SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} localDefault />)
+    expect(screen.getByText(/starting podium on this machine/i)).toBeTruthy()
+    expect(screen.queryByText(/how should this install run/i)).toBeNull()
+    await act(async () => {
+      await flush()
+    })
+    expect(trpcMock.connect).toHaveBeenCalledWith({ mode: 'all-in-one' })
+    expect(onSaved).toHaveBeenCalled()
+  })
+
+  it('offers the advanced path when applying the local default fails', async () => {
+    trpcMock.connect.mockRejectedValueOnce(new Error('config is read-only'))
+    render(<SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} localDefault />)
+    expect((await screen.findByRole('alert')).textContent).toContain('config is read-only')
+    fireEvent.click(screen.getByRole('button', { name: /open advanced setup/i }))
+    expect(screen.getByText(/how should this install run/i)).toBeTruthy()
+  })
+
   it('renders the four deployment modes', () => {
     render(<SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />)
     const radios = screen.getAllByRole('radio')

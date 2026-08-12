@@ -190,15 +190,23 @@ export function TelemetryStep({
 export function SetupView({
   httpOrigin,
   onSaved,
+  localDefault = false,
+  blockedState,
 }: {
   httpOrigin: string
   onSaved: () => void
+  /** Trusted desktop/source launch: persist local all-in-one and continue to activation. */
+  localDefault?: boolean
+  /** Server-enforced blocked states that permit no setup mutation from this browser. */
+  blockedState?: 'remote-setup' | 'restart-required'
 }): ReactNode {
   const trpc = useMemo(() => makeTrpc(httpOrigin), [httpOrigin])
   // 'telemetry' is host-modes-only and sits BEFORE setup.complete (which triggers
   // a reload) [spec:SP-f933]. It deliberately does not live in OnboardingWizard,
   // whose dismissal is in-memory only and therefore not a reliable one-time surface.
-  const [step, setStep] = useState<'mode' | 'network' | 'telemetry'>('mode')
+  const [step, setStep] = useState<'local' | 'mode' | 'network' | 'telemetry'>(
+    localDefault ? 'local' : 'mode',
+  )
   /** What the network step collected, held until the telemetry step commits it. */
   const [pendingSetup, setPendingSetup] = useState<SetupCompleteInput | null>(null)
   const [mode, setMode] = useState<PodiumMode>('all-in-one')
@@ -212,6 +220,23 @@ export function SetupView({
   // daemon joins with a one-paste code; client just needs the remote URL.
   const needsJoinCode = mode === 'daemon'
   const needsServerUrl = mode === 'client'
+  const desktopRestart = (globalThis as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__
+
+  useEffect(() => {
+    if (step !== 'local') return
+    let cancelled = false
+    trpc.setup.connect
+      .mutate({ mode: 'all-in-one' })
+      .then(() => {
+        if (!cancelled) onSaved()
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [step, trpc, onSaved])
 
   const save = async (m: PodiumMode = mode): Promise<void> => {
     setBusy(true)
@@ -236,6 +261,72 @@ export function SetupView({
     } finally {
       setBusy(false)
     }
+  }
+
+  if (blockedState === 'restart-required') {
+    return (
+      <div className="setup-view mx-auto flex max-w-lg flex-col gap-4 p-6">
+        <div>
+          <h1 className="font-semibold text-foreground text-lg">
+            Setup is saved; Podium needs to restart
+          </h1>
+          <p className="text-[13px] text-muted-foreground">
+            Restart Podium on the server so it can activate the new setup, then retry. No setup
+            choices need to be entered again.
+          </p>
+        </div>
+        {desktopRestart ? (
+          <Button type="button" onClick={desktopRestart}>
+            Restart Podium
+          </Button>
+        ) : (
+          <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+            Retry after restart
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  if (blockedState === 'remote-setup') {
+    return (
+      <div className="setup-view mx-auto flex max-w-lg flex-col gap-4 p-6">
+        <div>
+          <h1 className="font-semibold text-foreground text-lg">Finish setup on the server</h1>
+          <p className="text-[13px] text-muted-foreground">
+            This Podium is online, but setup must be completed from the machine that runs it. On
+            that machine, run <code>podium setup</code>, finish access and login choices, then retry
+            here.
+          </p>
+        </div>
+        <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
+  if (step === 'local') {
+    return (
+      <div className="setup-view mx-auto flex max-w-lg flex-col gap-4 p-6">
+        <div>
+          <h1 className="font-semibold text-foreground text-lg">Starting Podium on this machine</h1>
+          <p className="text-[13px] text-muted-foreground">
+            Setting up the local app and agent runtime…
+          </p>
+        </div>
+        {error && (
+          <>
+            <p role="alert" className="text-[12px] text-destructive">
+              {error}
+            </p>
+            <Button type="button" variant="outline" onClick={() => setStep('mode')}>
+              Open advanced setup
+            </Button>
+          </>
+        )}
+      </div>
+    )
   }
 
   if (step === 'telemetry' && pendingSetup) {
