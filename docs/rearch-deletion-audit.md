@@ -292,14 +292,15 @@ The planted fixture proves both halves of the mechanism:
 `id: text().$type<SessionId>().primaryKey()` leaves it. A detector that matched
 both as one form would make the key reportable but impossible to discharge—the
 exact defect POD-1199 found in the original drizzle-column classifier.
+
 ### 2026-08-12 — POD-1937 discharges `unbranded-ts-id-members`: 1,229 → 0
 
-The final four id spaces split into **181 Podium-owned members** (Session 129,
-Thread 42, Account 10) and **83 foreign-id carriers** (Session 60, Thread 9,
+The final four id spaces split into **178 Podium-owned members** (Session 126,
+Thread 42, Account 10) and **86 foreign-id carriers** (Session 63, Thread 9,
 Account 7, Conversation 7). The former now carry their model brands. The latter
 carry an attached `UNBRANDED BY DECISION` comment naming the provider, harness,
-or native id space they actually belong to. Together with the 24 pre-existing
-decisions, the installed-tree audit reports `ts=0 excused=107`: no raw,
+or native id space they actually belong to. Together with the 25 pre-existing
+decisions, the installed-tree audit reports `ts=0 excused=111`: no raw,
 unexplained TypeScript entity-id member remains.
 
 One apparent harness exception was deliberately not excused:

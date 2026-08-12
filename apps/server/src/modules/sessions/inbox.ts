@@ -132,7 +132,9 @@ export interface InboxQueuePort {
     sourceMessageId: string | null
   }): boolean
   list(sessionId: SessionId): QueuedInboxMessage[]
+  /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   bumpAttempts(id: string): void
+  /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   delete(id: string): void
 }
 
