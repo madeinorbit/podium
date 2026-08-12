@@ -458,6 +458,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Appends NDJSON log records to `<stateDir>/logs/<role>.ndjson` and rotates them 10 MB x 5 (POD-1901). Logs are a DESCRIPTION of what a process did, not a store of anything the product owns: nothing reads them back to reconstruct state, every record is derived from something already durable elsewhere, and the rotation policy exists precisely because the oldest ones are meant to be destroyed on a schedule. The sink names no entity and has no schema — it is handed a path by packages/runtime/src/logging.ts and writes whatever record it is given.',
     },
     {
+      file: 'packages/runtime/src/crash-store.ts',
+      reason:
+        'Crash events under `<stateDir>/logs/crashes` (POD-1902) — one JSON file per client crash, holding the error and the ring-buffer snapshot that preceded it. Same family as the log sink above, and excused for the same reasons made concrete: a crash event DESCRIBES a failure that already happened, nothing reads one back to reconstruct state, and the store enforces its own destruction (last 50 events or 30 days, whichever bites first), so the oldest are meant to disappear on a schedule. It names no entity, has no schema anything joins against, and an empty crash dir is indistinguishable from a fresh install.',
+    },
+    {
       file: 'packages/runtime/src/transfer-lifecycle.ts',
       reason:
         'Atomically rewrites the already-classified host config and daemon identity during a server-role transfer, plus a transfer-scoped rollback copy that is deleted after the operation. It introduces no independently owned durable entity.',
@@ -506,6 +511,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
       file: 'apps/cli/src/cli-systemd.ts',
       reason:
         'Renders systemd unit files into the user unit directory. Deployment configuration OUTSIDE the state dir, owned by the host’s init system and reproducible from `scripts/render-systemd.ts`.',
+    },
+    {
+      file: 'apps/cli/src/cli-lifecycle.ts',
+      reason:
+        'Writes ONE file, and only when a human asks for it: the `podium logs export-crash --out FILE` support bundle (POD-1902). The bytes are a read-only copy of crash events already excused above, rendered to a path the operator chose — normally outside the state dir entirely — so the bundle is an OUTPUT of the CLI rather than a store the instance keeps. Nothing reads it back; deleting it loses nothing that is not still in the crash dir.',
     },
     {
       file: 'apps/cli/src/podium-update.ts',

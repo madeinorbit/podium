@@ -538,6 +538,12 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['spec', 'show'])).toEqual({ kind: 'spec', args: ['show'] })
     expect(plan({}, ['worktree', '/x'])).toEqual({ kind: 'worktree', args: ['/x'] })
     expect(plan({}, ['logs', '-f'])).toEqual({ kind: 'logs', args: ['-f'] })
+    // The crash export is a `logs` SUBCOMMAND, so the planner must hand the word
+    // through rather than resolving it — `logsCommand` is what routes it.
+    expect(plan({}, ['logs', 'export-crash', '--limit', '5'])).toEqual({
+      kind: 'logs',
+      args: ['export-crash', '--limit', '5'],
+    })
   })
   it('status/stop', () => {
     expect(plan({}, ['status'])).toEqual({ kind: 'status' })

@@ -3,7 +3,7 @@
 // command wrappers so it can be unit-tested. Design:
 // docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   loadConfig,
@@ -13,6 +13,7 @@ import {
   resolvePort,
 } from '@podium/runtime/config'
 import { type ConnectivityStatus, readConnectivity } from '@podium/runtime/connectivity'
+import { CRASH_MAX_EVENTS, type CrashEvent, createCrashStore } from '@podium/runtime/crash-store'
 import { instanceServiceName } from '@podium/runtime/instance'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
@@ -291,7 +292,104 @@ export function renderLogLine(line: string): string {
  * `podium logs [component…] [-f] [--pretty]` — tails the component logs;
  * systemd mode points at journalctl, which owns the records there.
  */
+export interface ExportCrashOptions {
+  /** How many of the most recent events to bundle. */
+  limit: number
+  /** Where to write the bundle; stdout when absent. */
+  out?: string
+}
+
+/** PURE: `podium logs export-crash [--limit N] [--out FILE]`. */
+export function parseExportCrashArgs(argv: string[]): ExportCrashOptions {
+  const value = (flag: string): string | undefined => {
+    const inline = argv.find((a) => a.startsWith(`${flag}=`))
+    if (inline) return inline.slice(flag.length + 1)
+    const at = argv.indexOf(flag)
+    return at >= 0 ? argv[at + 1] : undefined
+  }
+  const rawLimit = Number(value('--limit'))
+  const out = value('--out')
+  return {
+    limit: Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : CRASH_MAX_EVENTS,
+    ...(out !== undefined && !out.startsWith('-') ? { out } : {}),
+  }
+}
+
+/**
+ * PURE: the support bundle, as a JSON string.
+ *
+ * ONE OBJECT, NOT A DIRECTORY OF FILES, and the envelope is not decoration:
+ * whoever opens this needs to know which install and which build produced the
+ * events, and a bare array of crash events answers neither. `exportedAt` is
+ * here for the same reason — a bundle read three weeks later should not have to
+ * be dated from the newest event it happens to contain.
+ *
+ * WHAT IS DELIBERATELY NOT IN IT: nothing is scrubbed, and that is the point of
+ * the command. This is the CONSCIOUS-ACT path from the design spec — the user
+ * runs it and hands the file to support — so it carries the full messages and
+ * stacks the automatic telemetry hop may never send. The scrubbed, consent-gated
+ * path is `telemetry.recordCrash`; conflating the two would either cripple the
+ * export or turn a support request into an unconsented disclosure.
+ */
+export function renderCrashBundle(
+  events: CrashEvent[],
+  meta: { exportedAt: string; instanceId?: string; version?: string },
+): string {
+  return `${JSON.stringify(
+    {
+      kind: 'podium-crash-bundle',
+      version: 1,
+      exportedAt: meta.exportedAt,
+      ...(meta.instanceId ? { instanceId: meta.instanceId } : {}),
+      ...(meta.version ? { podiumVersion: meta.version } : {}),
+      count: events.length,
+      events,
+    },
+    null,
+    2,
+  )}\n`
+}
+
+/**
+ * `podium logs export-crash [--limit N] [--out FILE]` — bundle recent crash
+ * events for a deliberate support hand-off.
+ *
+ * Reads the crash dir DIRECTLY rather than over RPC. The events are files on
+ * this host, and the moment support most wants them is the moment the server is
+ * not running.
+ */
+export function exportCrashCommand(argv: string[]): void {
+  const { limit, out } = parseExportCrashArgs(argv)
+  const store = createCrashStore()
+  const events = store.list(limit)
+  if (events.length === 0) {
+    console.log(`No crash events in ${store.dir}.`)
+    return
+  }
+  const bundle = renderCrashBundle(events, {
+    exportedAt: new Date().toISOString(),
+    instanceId: resolveInstanceId(),
+    version: process.env.PODIUM_APP_VERSION,
+  })
+  if (out === undefined) {
+    process.stdout.write(bundle)
+    return
+  }
+  writeFileSync(out, bundle, 'utf8')
+  // The count and the path go to stderr-free stdout because this is CLI OUTPUT,
+  // not logging: a human asked for a file and wants to be told where it is.
+  console.log(`Wrote ${events.length} crash event(s) to ${out}`)
+}
+
 export function logsCommand(argv: string[]): void {
+  // `export-crash` is a subcommand of `logs` rather than a sibling verb: it is
+  // the same data under the same directory, and a support instruction that says
+  // "run podium logs export-crash" is easier to give than one more top-level
+  // verb to remember.
+  if (argv[0] === 'export-crash') {
+    exportCrashCommand(argv.slice(1))
+    return
+  }
   const config = loadConfig()
   const { follow, pretty, components } = parseLogsArgs(argv)
   if (config.persistence === 'systemd') {

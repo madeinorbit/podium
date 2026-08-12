@@ -21,6 +21,7 @@
       "approvals",
       "conversations",
       "perf",
+      "logs",
       "models",
       "hosts",
       "files",

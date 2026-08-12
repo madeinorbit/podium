@@ -650,6 +650,8 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  stop                  Stop managed podium processes',
     '  logs [component] [-f] [--pretty]',
     '                        Show logs for managed processes (NDJSON; --pretty renders them)',
+    '  logs export-crash [--limit N] [--out FILE]',
+    '                        Bundle recent crash events for a support hand-off',
     '',
     'Access:',
     '  auth mint-session     Mint this host’s operator session (password-protected instances)',

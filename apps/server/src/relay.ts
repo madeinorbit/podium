@@ -65,6 +65,7 @@ import { IssueService } from './modules/issues/service'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
+import { LogIngestService } from './modules/logs/service'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { LoginPropagationService } from './modules/machines/login-propagation'
 import { DaemonRpcService } from './modules/machines/rpc'
@@ -205,6 +206,9 @@ export interface RegistryModules {
   /** Switch-latency perf registry [POD-701] — the process-level singleton,
    *  exposed here so router procs reach it through the module seam. */
   perf: PerfRegistry
+  /** Client log + crash ingestion (chunk 3 of the logging strategy) — the
+   *  service behind `logs.forward` / `logs.crash`. */
+  logs: LogIngestService
   /** Framework idempotency (POD-382) — the ONE mutationId dedup, exposed on the
    *  module seam so a transport wires the framework's implementation rather than
    *  reaching into a service for it. */
@@ -342,6 +346,10 @@ export class SessionRegistry {
      * one durable table is how a replay applies twice.
      */
     const mutations = new MutationLedger(this.store.sync, this.now)
+    // Client log + crash ingestion (chunk 3 of the logging strategy). Built at
+    // the composition root like every other service; its file sinks open lazily
+    // on the first forwarded batch, so a server nobody forwards to opens none.
+    const logs = new LogIngestService()
     const sessionInstructions = new SessionInstructionRegistry()
     const liveSessions = new Map<SessionId, Session>()
     // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
@@ -1617,6 +1625,7 @@ export class SessionRegistry {
       issueArtifacts,
       automations,
       perf,
+      logs,
       mutations,
     }
     const agentRelayGate = new AgentRelayGate({

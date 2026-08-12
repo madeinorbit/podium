@@ -822,6 +822,10 @@ export async function startServer(
             // (POD-611 made it deterministic and fast), and a report is worth
             // less than a fast stop. The queue is durable — it goes next boot.
             ['telemetry.stop', () => telemetry.stop()],
+            // Release the per-origin client log descriptors. The sink writes
+            // synchronously, so nothing is buffered and this loses no records —
+            // it closes fds a long-lived process would otherwise hold.
+            ['logs.close', () => registry.modules.logs.close()],
             ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
             ['registry.dispose', () => registry.dispose()],
             ['store.close', () => store.close()],

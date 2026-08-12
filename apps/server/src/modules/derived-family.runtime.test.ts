@@ -44,6 +44,7 @@ import {
   SETUP_COMMANDS_TRPC,
   TELEMETRY_COMMANDS_TRPC,
 } from './instance/registry'
+import { LOGS_COMMANDS_TRPC } from './logs/registry'
 import { MODEL_COMMANDS_TRPC } from './models/registry'
 import { PERF_COMMANDS_TRPC } from './perf/commands'
 
@@ -67,6 +68,9 @@ const FAMILIES = [
   { router: 'setup', table: SETUP_COMMANDS_TRPC },
   { router: 'auth', table: AUTH_COMMANDS_TRPC },
   { router: 'telemetry', table: TELEMETRY_COMMANDS_TRPC },
+  // Client log ingestion (chunk 3 of the logging strategy) — derived on the
+  // same builder, so it is pinned by the same non-vacuity floor below.
+  { router: 'logs', table: LOGS_COMMANDS_TRPC },
 ] as const
 
 const routerRecord = (name: string): Record<string, unknown> =>
@@ -76,15 +80,15 @@ const routerRecord = (name: string): Record<string, unknown> =>
 describe('the derived families, against the RUNNING appRouter', () => {
   /**
    * THE NON-VACUITY PIN. Every assertion below is `it.each`-driven, and a table
-   * that quietly shrank would report green by running fewer cases. Twenty-four
+   * that quietly shrank would report green by running fewer cases. Twenty-six
    * is the current contract-table count, so a
    * family dropping out of the derivation fails HERE rather than silently
    * reducing the coverage of everything after it.
    */
-  it('governs eleven families and twenty-four derived writes', () => {
-    expect(FAMILIES).toHaveLength(11)
+  it('governs twelve families and twenty-six derived writes', () => {
+    expect(FAMILIES).toHaveLength(12)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(24)
+    expect(total).toBe(26)
   })
 
   it.each(

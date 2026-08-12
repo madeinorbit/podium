@@ -1,12 +1,15 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CRASH_MAX_EVENTS, type CrashEvent } from '@podium/runtime/crash-store'
 import type { RunRecord } from '@podium/runtime/run-registry'
 import { describe, expect, it } from 'vitest'
 import {
   humanUptime,
   logFilesFor,
+  parseExportCrashArgs,
   parseLogsArgs,
+  renderCrashBundle,
   renderLogLine,
   renderStatus,
   selectedUnits,
@@ -232,7 +235,10 @@ describe('podium logs', () => {
 
     it('puts a serialized error stack on its own line', () => {
       const out = renderLogLine(
-        JSON.stringify({ ...record, err: { name: 'TypeError', message: 'x', stack: 'TypeError: x\n  at f' } }),
+        JSON.stringify({
+          ...record,
+          err: { name: 'TypeError', message: 'x', stack: 'TypeError: x\n  at f' },
+        }),
       )
       expect(out).toContain('\nTypeError: x\n  at f')
     })
@@ -245,6 +251,69 @@ describe('podium logs', () => {
       expect(renderLogLine('{not json')).toBe('{not json')
       // JSON, but not a log record — no ts/level/ns to render.
       expect(renderLogLine('{"hello":"world"}')).toBe('{"hello":"world"}')
+    })
+  })
+})
+
+describe('podium logs export-crash', () => {
+  const event = (message: string): CrashEvent => ({
+    id: 'abc123',
+    receivedAt: '2026-08-11T14:03:22.847Z',
+    origin: { role: 'web', v: '0.1.3', machineId: 'm1' },
+    err: { name: 'TypeError', message, stack: 'TypeError: x\n  at f' },
+    snapshot: [{ ts: '2026-08-11T14:03:22.800Z', level: 'debug', ns: 'web:app', msg: 'before' }],
+  })
+
+  describe('parseExportCrashArgs', () => {
+    it('defaults to the retention ceiling and no output file', () => {
+      expect(parseExportCrashArgs([])).toEqual({ limit: CRASH_MAX_EVENTS })
+    })
+
+    it('reads --limit and --out in both spellings', () => {
+      expect(parseExportCrashArgs(['--limit', '3'])).toEqual({ limit: 3 })
+      expect(parseExportCrashArgs(['--limit=3'])).toEqual({ limit: 3 })
+      expect(parseExportCrashArgs(['--out', '/tmp/b.json'])).toMatchObject({ out: '/tmp/b.json' })
+      expect(parseExportCrashArgs(['--out=/tmp/b.json'])).toMatchObject({ out: '/tmp/b.json' })
+    })
+
+    it('ignores a nonsense limit rather than exporting zero events', () => {
+      // `--limit 0` and `--limit banana` both mean the user mistyped; silently
+      // writing an empty bundle would look like "there were no crashes".
+      expect(parseExportCrashArgs(['--limit', '0']).limit).toBe(CRASH_MAX_EVENTS)
+      expect(parseExportCrashArgs(['--limit', 'banana']).limit).toBe(CRASH_MAX_EVENTS)
+      expect(parseExportCrashArgs(['--out', '--limit', '2'])).toEqual({ limit: 2 })
+    })
+  })
+
+  describe('renderCrashBundle', () => {
+    it('carries the events whole, under an envelope that dates and names them', () => {
+      const bundle = JSON.parse(
+        renderCrashBundle([event('boom')], {
+          exportedAt: '2026-08-12T09:00:00.000Z',
+          instanceId: 'inst-1',
+          version: '1.4.2',
+        }),
+      )
+      expect(bundle).toMatchObject({
+        kind: 'podium-crash-bundle',
+        version: 1,
+        exportedAt: '2026-08-12T09:00:00.000Z',
+        instanceId: 'inst-1',
+        podiumVersion: '1.4.2',
+        count: 1,
+      })
+      expect(bundle.events[0].snapshot).toHaveLength(1)
+    })
+
+    it('does NOT scrub — the export is the deliberate full hand-off', () => {
+      // The scrubbed path is telemetry.recordCrash, gated by consent. This one
+      // is a conscious user act, so it keeps the message and the stack that
+      // make a crash diagnosable.
+      const bundle = renderCrashBundle([event('failed to read /home/alice/private.key')], {
+        exportedAt: '2026-08-12T09:00:00.000Z',
+      })
+      expect(bundle).toContain('/home/alice/private.key')
+      expect(bundle).toContain('at f')
     })
   })
 })

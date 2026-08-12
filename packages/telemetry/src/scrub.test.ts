@@ -223,6 +223,51 @@ describe('scrubError', () => {
       frames: [],
     })
   })
+
+  /**
+   * A crash forwarded from a client (`logs.crash`) has crossed JSON and is a
+   * plain object, not an `Error`. Before the chunk-3 widening it fell through
+   * to `Other` with no frames, which `recordCrash` drops — so the crash tier
+   * could not carry a client crash at all.
+   */
+  describe('a serialized crash off the wire', () => {
+    const wire = (name: string) => ({
+      name,
+      message: 'failed to open /home/alice/acme/private.key',
+      stack: [
+        `${name}: failed to open /home/alice/acme/private.key`,
+        `    at boot (${INSTALL}/apps/web/src/main.tsx:12:3)`,
+      ].join('\n'),
+    })
+
+    it('reads its type from `name` and still scrubs its stack', () => {
+      const scrubbed = scrubError(wire('TypeError'), INSTALL)
+      expect(scrubbed.errorType).toBe('TypeError')
+      expect(scrubbed.frames).toEqual([{ file: 'apps/web/src/main.tsx', line: 12, fn: 'boot' }])
+      expect(JSON.stringify(scrubbed)).not.toContain('private.key')
+      expect(JSON.stringify(scrubbed)).not.toContain('alice')
+    })
+
+    it('keeps the enum closed — an unknown name folds to Other, not to Error', () => {
+      // The property the rejected "rebuild an Error at ingestion" design would
+      // have broken: `Error` is a MEMBER of the enum, so an unrecognised client
+      // error type would have been accepted under it and then shared the
+      // `errorType@topFrame` rate-limit key with unrelated families.
+      expect(scrubError(wire('AcmeCorpDbError'), INSTALL).errorType).toBe('Other')
+    })
+
+    it('ignores an object with no name, and a non-string stack', () => {
+      expect(scrubError({ stack: `at x (${INSTALL}/apps/server/src/a.ts:1:1)` }, INSTALL)).toEqual({
+        errorType: 'Other',
+        frames: [],
+      })
+      expect(scrubError({ name: 'TypeError', stack: { toString: () => 'x' } }, INSTALL)).toEqual({
+        errorType: 'TypeError',
+        frames: [],
+      })
+      expect(scrubError([{ name: 'TypeError' }], INSTALL).errorType).toBe('Other')
+    })
+  })
 })
 
 describe('crashSignature', () => {

@@ -61,6 +61,7 @@ import { routerFromCommands } from './modules/issues/trpc'
 import { layoutFamilyProcedures } from './modules/layout/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
+import { logsFamilyProcedures } from './modules/logs/trpc'
 import {
   AUTOMATION_QUERIES,
   FEATURE_QUERIES,
@@ -467,6 +468,14 @@ export const appRouter = t.router({
     spawnAgent: mailMutation('spawnAgent'),
     awaitAgent: mailMutation('awaitAgent'),
   }),
+  /**
+   * CLIENT LOG INGESTION — `logs.forward` · `logs.crash`, DERIVED from
+   * `LOGS_COMMANDS_TRPC` (chunk 3 of the logging strategy). Web, desktop and
+   * mobile clients forward their own records and their crash flight recorder to
+   * their own server; no consent gate applies to this hop, because the client's
+   * server IS the user's server. See `packages/commands/src/logs/contracts.ts`.
+   */
+  logs: t.router(logsFamilyProcedures()),
   git: t.router(queryProcedures('git', GIT_QUERIES)),
   files: t.router(fileFamilyProcedures()),
   // pspec — the living spec tree in <repo>/pspec/ (modules/specs over

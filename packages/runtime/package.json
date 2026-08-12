@@ -14,6 +14,7 @@
     "./instance": "./src/instance.ts",
     "./connectivity": "./src/connectivity.ts",
     "./run-registry": "./src/run-registry.ts",
+    "./crash-store": "./src/crash-store.ts",
     "./join": "./src/join.ts",
     "./setup": "./src/setup.ts",
     "./transfer-lifecycle": "./src/transfer-lifecycle.ts",

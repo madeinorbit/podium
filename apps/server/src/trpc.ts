@@ -52,8 +52,15 @@ export interface Context {
    *  render the REAL pending report instead of a hand-written sample that could
    *  drift from what is actually sent. Optional: contexts without one (tests,
    *  the in-process MCP caller) simply have no preview. Consent state itself is
-   *  read from config.json, never from here — it must work with no server. */
-  telemetry?: { emitter: Pick<TelemetryEmitter, 'buildUsageReport'> }
+   *  read from config.json, never from here — it must work with no server.
+   *
+   *  `recordCrash` joined `buildUsageReport` on this Pick in chunk 3 of the
+   *  logging strategy: `logs.crash` is the call site the crash tier never had
+   *  (it shipped with zero of them). The Pick stays a Pick — the ingestion
+   *  handler may offer a crash to the emitter and may do nothing else with it,
+   *  and in particular cannot read or write consent, which lives in config.json
+   *  so that turning telemetry off works with no server. */
+  telemetry?: { emitter: Pick<TelemetryEmitter, 'buildUsageReport' | 'recordCrash'> }
   /** Accounts and their credentials (POD-1554). `auth.setPassword` writes the CALLER's
    *  credential, so the instance family needs the repository; optional because a context
    *  can be built without one, and the commands refuse rather than invent an account. */

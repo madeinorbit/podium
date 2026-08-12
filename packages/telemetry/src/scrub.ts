@@ -170,17 +170,75 @@ export interface ScrubbedError {
 }
 
 /**
+ * A crash that crossed a JSON boundary: `{name, message, stack}`, no prototype.
+ *
+ * Recognized by a STRING `name`, which is the field the enum is asked about. A
+ * `stack` alone is not enough — a bare `{stack}` could be anything, and reading
+ * a name off an object that does not have one is how `'Other'` would stop being
+ * the answer for genuinely unknown input.
+ */
+interface SerializedErrorShape {
+  name: string
+  stack?: unknown
+}
+
+function asSerializedError(value: unknown): SerializedErrorShape | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const candidate = value as { name?: unknown }
+  return typeof candidate.name === 'string' ? (value as SerializedErrorShape) : undefined
+}
+
+/**
  * Turn a thrown value into the only two things a crash report may carry: a
  * closed-enum error type and Podium-relative frames. The message is not a
  * parameter, not a return value, and not reachable from here.
+ *
+ * ---------------------------------------------------------------------------
+ * SERIALIZED CRASHES (addendum, ratified during chunk-3 planning)
+ * ---------------------------------------------------------------------------
+ *
+ * A crash forwarded from a client arrives over the wire as a plain
+ * `{name, message, stack}` — it has no prototype and is not an `Error`. Before
+ * this widening it fell through to `'Other'` with zero frames, which
+ * `recordCrash` then drops entirely, so the crash tier could never carry a
+ * client crash at all.
+ *
+ * The widening is here rather than at the ingestion endpoint on purpose. The
+ * two rejected alternatives both cost something real:
+ *
+ *  - *Rebuilding a real `Error` at ingestion* covers only an enumerated set of
+ *    constructors, and everything outside it becomes `'Error'` — a MEMBER of
+ *    the closed enum, so it is accepted rather than folded to `'Other'`. Since
+ *    `crashSignature` is `errorType@topFrame` and doubles as the rate-limit
+ *    key, unrelated crash families sharing a top frame would then suppress each
+ *    other through the cooldown.
+ *  - *A pre-scrubbed entry point on the emitter* would create a path by which a
+ *    caller can hand unscrubbed data to the vendor hop. This function is the
+ *    single unavoidable gate and must stay that way.
+ *
+ * Every existing property survives: the enum is still closed, so an unknown
+ * `name` still folds to `'Other'` and no new string reaches a payload; stack
+ * scrubbing is untouched; and there is still exactly one scrubbing path.
  */
 export function scrubError(err: unknown, installRoot: string): ScrubbedError {
-  // Non-Errors (a thrown string/object) have no constructor name worth trusting:
-  // they fold to 'Other'. Only a real Error's constructor name is offered to the
-  // enum, which rejects anything it does not know.
-  const errorType = normalizeErrorType(err instanceof Error ? err.constructor?.name : undefined)
-  const frames = scrubStack(err instanceof Error ? err.stack : undefined, installRoot)
-  return { errorType, frames }
+  // A real Error's constructor name is offered to the enum, which rejects
+  // anything it does not know. A serialized crash offers its `name` field to
+  // the same enum. Anything else — a thrown string, a number, an object with no
+  // name — has nothing worth trusting and folds to 'Other'.
+  if (err instanceof Error) {
+    return {
+      errorType: normalizeErrorType(err.constructor?.name),
+      frames: scrubStack(err.stack, installRoot),
+    }
+  }
+  const serialized = asSerializedError(err)
+  return {
+    errorType: normalizeErrorType(serialized?.name),
+    frames: scrubStack(
+      typeof serialized?.stack === 'string' ? serialized.stack : undefined,
+      installRoot,
+    ),
+  }
 }
 
 /**
