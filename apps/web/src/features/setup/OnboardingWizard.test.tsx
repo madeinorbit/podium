@@ -104,6 +104,8 @@ describe('OnboardingWizard activation routes', () => {
     expect(onRouteChange).toHaveBeenCalledWith('existing-podium')
     fireEvent.click(screen.getByRole('button', { name: /Set up an always-on VPS/ }))
     expect(onEnterVps).toHaveBeenCalledWith('local-project')
+    fireEvent.click(screen.getByRole('button', { name: /Connect to existing Podium/ }))
+    expect(onRouteChange).toHaveBeenCalledWith('existing-podium')
     fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
     expect(onExplore).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: 'Close browser' }))
