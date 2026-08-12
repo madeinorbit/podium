@@ -1644,7 +1644,9 @@ describe('deckIssueState', () => {
 })
 
 // ---------------------------------------------------------------------------
-// portfolioActionableCount — the Superagent rail badge
+// portfolioActionableCount — the portfolio-wide attention total. No chrome
+// renders it since the Superagent rail badge came off; it is the shared
+// definition the explorer's Needs tab count is checked against.
 // ---------------------------------------------------------------------------
 
 describe('portfolioActionableCount', () => {

@@ -37,44 +37,17 @@ describe('RightRail', () => {
     expect(onPanelChange).toHaveBeenLastCalledWith('superagent')
   })
 
-  // Moving the Superagent out of its own column removed the one place the
-  // shell always showed how much was waiting on the human. The rail cell
-  // carries that count instead — and it must be the app's own corner badge, so
-  // it matches the ID square's badge 50px above it rather than inventing a
-  // second numbered-badge language on the same 44px rail.
-  //
-  // POD-516 removed the web Tray, which used to be where the number came from.
-  // The count is the PORTFOLIO attention count now — every task anywhere that
-  // needs a decision — which is what the copilot's own copy claims it is.
-  it('carries the portfolio attention count on the Superagent cell', () => {
+  // The Superagent cell carried the portfolio attention count for as long as
+  // the Superagent was in the rail. Pinned to that glyph the number claimed to
+  // be about the superagent, which it never was — it counted tasks anywhere
+  // waiting on a decision. It is gone from the rail; the Flight Deck's "Needs
+  // you" filter and the explorer's Needs tab still report the same figure where
+  // it is attached to the work it describes.
+  it('reports on nothing — no cell wears a count, waiting work or not', () => {
     portfolioIssues.value = [
       makeIssue({ id: 'a', needsHuman: true }),
-      // Review-ready work needs a decision too — the same predicate the Flight
-      // Deck's "Needs you" filter uses.
       makeIssue({ id: 'b', stage: 'review' }),
-      makeIssue({ id: 'quiet' }),
     ]
-    render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
-    expect(screen.getByRole('img', { name: '2 waiting on you' })).toBeTruthy()
-  })
-
-  it('never counts finished or dead work — a closed task keeps no claim on you', () => {
-    portfolioIssues.value = [
-      makeIssue({ id: 'done', stage: 'done', needsHuman: true }),
-      makeIssue({ id: 'closed', closedReason: 'superseded', needsHuman: true }),
-      makeIssue({ id: 'archived', archived: true, needsHuman: true }),
-      makeIssue({ id: 'gone', deletedAt: 't', needsHuman: true }),
-    ]
-    render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
-    expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
-  })
-
-  // The first cut of this badge resolved an issue's sessions through
-  // `memberSessionIds` only. `session.issueId` is the common attachment, so an
-  // agent that stopped on a question was counted by the Flight Deck's "Needs
-  // you" filter and NOT by the badge that summarizes it. Same selector now.
-  it('counts an agent attached by session.issueId, not just by memberSessionIds', () => {
-    portfolioIssues.value = [makeIssue({ id: 'a', memberSessionIds: [] })]
     portfolioSessions.value = [
       {
         sessionId: 's1',
@@ -87,11 +60,6 @@ describe('RightRail', () => {
         agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
       },
     ]
-    render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
-    expect(screen.getByRole('img', { name: '1 waiting on you' })).toBeTruthy()
-  })
-
-  it('shows no badge when nothing is waiting', () => {
     render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
     expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
   })
