@@ -1,5 +1,4 @@
-import type { PodiumClientApi   MutationId,
-} from '@podium/client-core/api'
+import type { PodiumClientApi, MutationId } from '@podium/client-core/api'
 import {
   parseServerOrigin,
   resolveServerConfig,

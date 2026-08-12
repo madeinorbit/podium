@@ -1,5 +1,4 @@
-import type { IssueUpdatePatch   MachineId,
-} from '@podium/commands'
+import type { IssueUpdatePatch, MachineId } from '@podium/commands'
 import { DEFER_NEXT_MESSAGE, isIssueColorSlot, snoozeUntil1h } from '@podium/model'
 import type { Trpc } from '@/app/trpc'
 import { deferDateFromNow, toggleLabelAcross } from './issue-context-menu'
