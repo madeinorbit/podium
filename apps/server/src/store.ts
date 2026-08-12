@@ -233,8 +233,8 @@ export class SessionStore {
     this.automations = new AutomationsRepository(this.db)
     this.messagingTopics = new MessagingTopicsRepository(this.db)
 
-    // Per-boot, idempotent runtime steps (environment-conditional FTS objects
-    // and data heals) — never schema DDL.
+    // Per-boot runtime steps (environment-conditional FTS objects, one-time
+    // upgrades and the two remaining data heals) — never schema DDL.
     //
     // THE MACHINE-IDENTITY UPGRADE RUNS FIRST, ahead of every reader in the process
     // (POD-318). It is not just that nothing may WRITE a pre-upgrade row: nothing may
@@ -248,10 +248,9 @@ export class SessionStore {
     this.conversations.ensureFts()
     this.superagent.seedGlobalThread()
     this.repos.importReposJson(this.path, this.hostMachineId)
-    this.backfillRepoIds()
-    // #474: assign human-facing prefixes to any repos still missing one (heals
-    // rows inserted by importReposJson or before the prefix migration).
-    this.repos.backfillPrefixes()
+    // Runs immediately after the legacy repos.json import, which is the only writer
+    // left that can give it work. At most once per database (POD-1360).
+    this.upgradeLegacyRepoIdentityOnce()
     // #140 defense in depth (ported from main's boot migrate): renumber any
     // (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
     // no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.
@@ -279,12 +278,89 @@ export class SessionStore {
     }
   }
 
-  /** Per-boot heal (idempotent): fill NULL repo_ids on repos and issues, then
-   *  self-heal origins for locally readable repos (v8 backfill, #74). */
-  private backfillRepoIds(): void {
-    this.repos.backfillRepoIds()
-    this.issues.backfillNullRepoIds()
-    this.repos.healLocalOrigins()
+  /** `meta` key marking the repo-identity upgrade as spent for this database. */
+  private static readonly REPO_IDENTITY_UPGRADE_KEY = 'repo-identity-upgrade'
+
+  /**
+   * Spend {@link migrateLegacyRepoIdentity} at most ONCE per database.
+   *
+   * THE BOUND IS A PERSISTED MARKER RATHER THAN IDEMPOTENCE-BY-CONSTRUCTION, and the
+   * difference from the machine-identity upgrade above is worth stating. That one can
+   * prove its own completion: after it runs, `WHERE machine_id IN ('local','__local__')`
+   * matches nothing and no writer can produce either value again. One third of THIS
+   * upgrade cannot make the same claim — a repo with no git remote, or one belonging to
+   * another machine, is legitimately `origin_url IS NULL` forever, so the predicate that
+   * selected its work never empties. That is precisely how it survived as a standing
+   * heal: a step whose search never finishes looks, from the inside, exactly like a step
+   * that still has work to do. The marker says what the row shape cannot — this database
+   * has been past this code — and the fact that the marker is written in the SAME
+   * transaction as the rewrite is what keeps a crash mid-upgrade from spending it.
+   */
+  private upgradeLegacyRepoIdentityOnce(): void {
+    const marker = this.db
+      .prepare('SELECT value FROM meta WHERE key = ?')
+      .get(SessionStore.REPO_IDENTITY_UPGRADE_KEY) as { value?: unknown } | undefined
+    if (typeof marker?.value === 'string' && marker.value.length > 0) return
+    this.transact(() => {
+      this.migrateLegacyRepoIdentity()
+      this.db
+        .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+        .run(SessionStore.REPO_IDENTITY_UPGRADE_KEY, new Date().toISOString())
+    })
+  }
+
+  /**
+   * ONE-TIME REPO-IDENTITY UPGRADE (POD-1360) — pre-v8 repo and issue rows brought up
+   * to the identity every reader in this process assumes: a repo_id on every repo and
+   * every issue, an origin recorded for repos this host can actually read, and a
+   * human-facing prefix per logical repo (#474, #74).
+   *
+   * IT REPLACES FOUR STANDING BOOT HEALS — `repos.backfillRepoIds`,
+   * `issues.backfillNullRepoIds`, `repos.healLocalOrigins`, `repos.backfillPrefixes` —
+   * and the change is the WORD, not just the schedule. "Heal" says the damage recurs;
+   * nothing here recurs. `addRepo` derives an id, reads the origin and ensures a prefix
+   * before it inserts, and `upsertIssue` resolves a repo_id, so the only writer that can
+   * still hand this work is `importReposJson` — the legacy repos.json import that runs
+   * immediately before it, once. An upgrade with a deletion horizon, on the same terms
+   * as {@link migrateLegacyMachineIdentity}: nothing here should still be finding work
+   * a year from now, and `upgradeLegacyRepoIdentityOnce` makes that structural.
+   *
+   * THE RESIDUE CHECK IS A SECOND READ of the database, not a restatement of what was
+   * just written, and the two halves of it are graded differently ON PURPOSE:
+   *
+   *   - A MISSING repo_id FAILS THE BOOT. It is not a cosmetic gap — `repo_id` is what
+   *     issues are bucketed and numbered by, so serving a NULL one means serving rows
+   *     that belong to no repo, and the derivation cannot fail, so a survivor means the
+   *     rewrite did not run at all. Loud here beats silent for a week.
+   *   - A MISSING PREFIX ONLY WARNS. It costs a repo its human-facing refs until the
+   *     next `addRepo`, which repairs it — real, but not identity corruption, and
+   *     refusing to boot over it would trade a cosmetic defect for an outage.
+   *
+   * ORIGINS ARE DELIBERATELY UNCHECKED: originless is a legitimate resting state (see
+   * `migrateLegacyRepoRows`), so an origin residue check could never reach zero.
+   *
+   * Public rather than private because it is the unit the tests drive directly — the
+   * once-gate is a separate decision and is tested as one.
+   */
+  migrateLegacyRepoIdentity(): void {
+    this.transact(() => {
+      this.repos.migrateLegacyRepoRows()
+      this.issues.migrateLegacyIssueRepoIds()
+      const { repoIdsMissing, prefixesMissing } = this.repos.legacyRepoResidue()
+      const issuesMissing = this.issues.issuesMissingRepoId()
+      if (repoIdsMissing > 0 || issuesMissing > 0) {
+        throw new Error(
+          `legacy repo identity survived the boot upgrade (repos: ${repoIdsMissing}, ` +
+            `issues: ${issuesMissing}) — refusing to serve rows that belong to no repo`,
+        )
+      }
+      if (prefixesMissing > 0) {
+        console.warn(
+          `[podium:store] repo-identity upgrade left ${prefixesMissing} repo(s) without a ` +
+            'human-facing prefix; refs for them resolve once the repo is re-registered',
+        )
+      }
+    })
   }
 
   /** The exact newest migration identity the transfer target will verify. */

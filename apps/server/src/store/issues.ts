@@ -720,14 +720,32 @@ export class IssuesRepository {
     })
   }
 
-  /** Per-boot heal: fill NULL repo_id via the injected resolver (idempotent). */
-  backfillNullRepoIds(): void {
+  /**
+   * THE ISSUES HALF OF THE ONE-TIME REPO-IDENTITY UPGRADE (POD-1360): stamp the
+   * resolved repo_id on pre-v8 rows that never carried one.
+   *
+   * The facade sequences this AFTER the repos half, so the resolver answers with each
+   * repo's settled (origin-derived) id rather than a path fallback about to move. No
+   * live writer produces a NULL repo_id — `upsertIssue` resolves one — so this is a
+   * spent-once upgrade, not the standing heal it used to be.
+   */
+  migrateLegacyIssueRepoIds(): void {
     const issues = this.db
       .prepare('SELECT id, repo_path FROM issues WHERE repo_id IS NULL')
       .all() as { id: string; repo_path: string }[]
     this.invalidateRowCache()
     const setIssue = this.db.prepare('UPDATE issues SET repo_id = ? WHERE id = ?')
     for (const i of issues) setIssue.run(this.resolveRepoIdForPath(i.repo_path), i.id)
+  }
+
+  /** Issues still carrying no repo_id — read by the facade's residue check as a
+   *  SECOND read of the database, after the upgrade claims to have filled them. */
+  issuesMissingRepoId(): number {
+    return (
+      this.db.prepare('SELECT COUNT(*) AS c FROM issues WHERE repo_id IS NULL').get() as {
+        c: number
+      }
+    ).c
   }
 
   // ---- labels ----

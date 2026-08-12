@@ -284,19 +284,6 @@ export class ReposRepository {
     })
   }
 
-  /** Per-boot heal: derive+assign a prefix for every logical repo still missing
-   *  one (idempotent). Keyed by resolved repo_id, so runs AFTER backfillRepoIds. */
-  backfillPrefixes(): void {
-    const rows = this.db
-      .prepare('SELECT path, repo_name, repo_id FROM repos ORDER BY rowid ASC')
-      // SERIALIZATION EDGE: untyped columns; repo_id re-enters its id space.
-      .all() as { path: string; repo_name: string | null; repo_id: RepoId | null }[]
-    for (const r of rows) {
-      const repoId = r.repo_id ?? this.resolveRepoIdForPath(r.path)
-      this.ensurePrefixForRepoId(repoId, r.repo_name ?? r.path.split('/').pop() ?? 'REPO')
-    }
-  }
-
   // No path validation here by design — RepoRegistry (the caller) rejects empty/non-absolute paths.
   // readLocalOriginUrl is a no-op (null) for paths that don't exist on this host, so remote-machine
   // repos simply get the path-fallback id until a scan reports their origin (updateRepoOrigin then
@@ -424,38 +411,89 @@ export class ReposRepository {
     }
   }
 
-  // ---- per-boot data heals (idempotent; invoked by the SessionStore facade) ----
+  // ---- the repos half of the one-time repo-identity upgrade (POD-1360) ----
 
-  /** v8 backfill (idempotent — only touches NULL repo_id rows, so it is safe to run
-   *  every boot and also covers rows inserted by importReposJson). The issues-side
-   *  backfill lives in the issues repository; the facade sequences both. */
-  backfillRepoIds(): void {
-    const repos = this.db
+  /**
+   * THE REPOS HALF OF THE ONE-TIME REPO-IDENTITY UPGRADE — three rewrites that used
+   * to be three standing per-boot heals (`backfillRepoIds`, `healLocalOrigins`,
+   * `backfillPrefixes`), sequenced with the issues half by the SessionStore facade.
+   *
+   * NONE OF THEM WAS EVER A HEAL. Each repairs a row shape NO CURRENT WRITER CAN
+   * PRODUCE: `addRepo` reads the local origin, derives the repo_id and ensures the
+   * prefix, all before it inserts. The one producer left is `importReposJson`, itself
+   * a one-shot legacy import that runs immediately before this — so the work is
+   * finite, and the facade spends it once per database instead of every boot.
+   *
+   * THE ORDER IS LOAD-BEARING, and it is not quite the order the heals ran in.
+   * Origins are recorded BEFORE prefixes because `updateRepoOrigin` upgrades a
+   * path-fallback id to the origin-derived one and re-keys the prefix onto it;
+   * deriving a prefix first would mint one against an id about to be replaced. They
+   * are recorded before the ISSUES half too (the facade's ordering), so a legacy
+   * issue lands on the final id in one write instead of being dual-written twice.
+   */
+  migrateLegacyRepoRows(): void {
+    const withoutRepoId = this.db
       .prepare('SELECT machine_id, path, origin_url FROM repos WHERE repo_id IS NULL')
       .all() as { machine_id: string; path: string; origin_url: string | null }[]
     const setRepo = this.db.prepare(
       'UPDATE repos SET repo_id = ? WHERE machine_id = ? AND path = ?',
     )
-    for (const r of repos) {
+    for (const r of withoutRepoId) {
       setRepo.run(
         deriveRepoId({ originUrl: r.origin_url, machineId: r.machine_id, path: r.path }),
         r.machine_id,
         r.path,
       )
     }
-  }
 
-  /** Self-heal origins for repos whose path exists on this host: pre-v8 rows never
-   *  recorded origin_url, so without this they'd sit on path-fallback ids until a
-   *  daemon scan happens to run. updateRepoOrigin upgrades fallback ids only (and
-   *  dual-writes issues), so this is idempotent — once recorded, the read is skipped. */
-  healLocalOrigins(): void {
+    // Pre-v8 rows never recorded origin_url, so without this they sit on path-fallback
+    // ids until a daemon scan happens to run. `updateRepoOrigin` upgrades fallback ids
+    // only (and dual-writes issues), so recording an origin twice is a no-op.
+    //
+    // THIS IS THE STEP THAT COULD NOT BOUND ITSELF, and the reason the facade needs a
+    // marker rather than idempotence-by-construction: a repo on another machine, or one
+    // with no remote at all, is legitimately `origin_url IS NULL` FOREVER. "No originless
+    // rows left" is never true, so as a heal this re-read those git configs off disk on
+    // every boot, for the life of the install, to find what it found last time.
     const originless = this.db
       .prepare('SELECT machine_id, path FROM repos WHERE origin_url IS NULL')
       .all() as { machine_id: string; path: string }[]
     for (const r of originless) {
       const origin = readLocalOriginUrl(r.path)
       if (origin) this.updateRepoOrigin(r.machine_id, r.path, origin)
+    }
+
+    // #474: a human-facing prefix for every logical repo still missing one. Keyed by
+    // resolved repo_id, so it reads the ids the two steps above just settled.
+    const rows = this.db
+      .prepare('SELECT path, repo_name, repo_id FROM repos ORDER BY rowid ASC')
+      // SERIALIZATION EDGE: untyped columns; repo_id re-enters its id space.
+      .all() as { path: string; repo_name: string | null; repo_id: RepoId | null }[]
+    for (const r of rows) {
+      const repoId = r.repo_id ?? this.resolveRepoIdForPath(r.path)
+      this.ensurePrefixForRepoId(repoId, r.repo_name ?? r.path.split('/').pop() ?? 'REPO')
+    }
+  }
+
+  /**
+   * What the repos half left behind: rows still carrying no repo_id, and logical repos
+   * still carrying no prefix.
+   *
+   * A SECOND READ of the database rather than a restatement of what was just written —
+   * the same discipline as `migrateLegacyMachineIdentity`'s residue check. The facade
+   * decides what each number means; note that ORIGINS ARE ABSENT ON PURPOSE, because
+   * originless is a legitimate resting state and a check that can never reach zero
+   * would only reintroduce the heal it replaced.
+   */
+  legacyRepoResidue(): { repoIdsMissing: number; prefixesMissing: number } {
+    const count = (sql: string): number =>
+      (this.db.prepare(sql).get() as { c: number }).c
+    return {
+      repoIdsMissing: count('SELECT COUNT(*) AS c FROM repos WHERE repo_id IS NULL'),
+      prefixesMissing: count(
+        `SELECT COUNT(DISTINCT repo_id) AS c FROM repos
+          WHERE repo_id IS NOT NULL AND repo_id NOT IN (SELECT repo_id FROM repo_prefixes)`,
+      ),
     }
   }
 
