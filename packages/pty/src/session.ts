@@ -39,6 +39,13 @@ export interface AgentSession {
   redraw(opts?: { hard?: boolean }): void
   geometry(): Geometry
   dispose(): void
+  /**
+   * Set when a spawn ADOPTED a durable master that already owned the label instead
+   * of creating one (see {@link spawnAbducoAgent}). The caller started nothing: it
+   * is attached to the agent that was already running, and should say so rather
+   * than report a fresh launch.
+   */
+  readonly adopted?: boolean
 }
 
 /**

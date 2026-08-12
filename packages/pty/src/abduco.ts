@@ -141,6 +141,67 @@ export async function reclaimStaleScope(
 }
 
 /**
+ * Free a durable label still owned by a TERMINATED master, so a respawn under that
+ * label can create instead of dying on abduco's "create-session: Address already in
+ * use". Guarded on there being no LIVE master (that one is adopted, never reaped).
+ *
+ * The reclaim is an attach: abduco's server loop runs `while (clients ||
+ * !exit_packet_delivered)`, so the master exits — and unlinks its socket — as soon as
+ * one client has taken delivery of the exit status. That client needs a real PTY (a
+ * pipe-stdin attach returns without collecting it), which is why this drains through
+ * the pty backend rather than a plain child process. Bounded and best-effort: a
+ * client that does not finish is killed and the create is attempted anyway.
+ */
+export async function reclaimTerminatedSession(
+  label: string,
+  env: NodeJS.ProcessEnv = liveEnv(),
+  options: { timeoutMs?: number; backend?: PtyBackend } = {},
+): Promise<void> {
+  if (abducoSocketHasSession(label, env)) return
+  for (const socketPath of abducoTerminatedSocketPaths(label, env)) {
+    await drainTerminatedMaster(socketPath, env, options)
+  }
+}
+
+const TERMINATED_DRAIN_TIMEOUT_MS = 5000
+
+async function drainTerminatedMaster(
+  socketPath: string,
+  env: NodeJS.ProcessEnv,
+  options: { timeoutMs?: number; backend?: PtyBackend },
+): Promise<void> {
+  const [file, ...args] = abducoAttachArgv(socketPath, resolveAbducoBin() ?? 'abduco')
+  if (!file) return
+  let proc: PtyProcess
+  try {
+    proc = (options.backend ?? defaultPtyBackend()).spawn({
+      file,
+      args,
+      cols: 80,
+      rows: 24,
+      env: { ...env, TERM: 'xterm-256color' } as Record<string, string>,
+    })
+  } catch (err) {
+    log.warn('could not drain a terminated abduco master', { socketPath, err })
+    return
+  }
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL')
+      } catch {
+        // already gone
+      }
+      resolve()
+    }, options.timeoutMs ?? TERMINATED_DRAIN_TIMEOUT_MS)
+    proc.onExit(() => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
+}
+
+/**
  * The user manager's runtime dir. `XDG_RUNTIME_DIR` is only in the environment of
  * logind sessions and `--user` units — a SYSTEM service with `User=` (the all-in-one
  * `podium.service`) never gets it, which silently disabled scoping and put every
@@ -277,9 +338,24 @@ export function abducoSocketPath(
   env: NodeJS.ProcessEnv = process.env,
   username?: string,
 ): string | undefined {
-  const dirs = abducoSocketDirs(env, username)
+  for (const path of abducoSocketCandidates(label, env, username)) {
+    try {
+      if ((statSync(path).mode & 0o010) === 0) return path
+    } catch {
+      // The master exited between readdir and stat; keep looking.
+    }
+  }
+  return undefined
+}
 
-  for (const dir of dirs) {
+/** Every socket file that could belong to this label, in abduco's own preference order. */
+function abducoSocketCandidates(
+  label: string,
+  env: NodeJS.ProcessEnv,
+  username?: string,
+): string[] {
+  const paths: string[] = []
+  for (const dir of abducoSocketDirs(env, username)) {
     let names: string[]
     try {
       names = readdirSync(dir)
@@ -295,16 +371,32 @@ export function abducoSocketPath(
         if (b === label) return 1
         return a.localeCompare(b)
       })
-    for (const name of candidates) {
-      const path = join(dir, name)
-      try {
-        if ((statSync(path).mode & 0o010) === 0) return path
-      } catch {
-        // The master exited between readdir and stat; keep looking.
-      }
+    for (const name of candidates) paths.push(join(dir, name))
+  }
+  return paths
+}
+
+/**
+ * Sockets held by a TERMINATED master for this label: the app exited and the master
+ * lingers only to hand its exit status to the next client (abduco marks that with
+ * S_IXGRP; see {@link parseAbducoList}). {@link abducoSocketPath} skips them — they
+ * are not a live session — but abduco's own `create-session` still refuses the name,
+ * so the spawn path has to clear them explicitly.
+ */
+export function abducoTerminatedSocketPaths(
+  label: string,
+  env: NodeJS.ProcessEnv = process.env,
+  username?: string,
+): string[] {
+  const paths: string[] = []
+  for (const path of abducoSocketCandidates(label, env, username)) {
+    try {
+      if ((statSync(path).mode & 0o010) !== 0) paths.push(path)
+    } catch {
+      // vanished between readdir and stat — nothing left to reclaim
     }
   }
-  return undefined
+  return paths
 }
 
 /**
@@ -593,9 +685,8 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     cwd: opts.cwd ?? process.cwd(),
     env: childEnv,
   } as const
-  const attachCreated = async (): Promise<AgentSession> => {
-    const socketPath = await waitForAbducoSocket(opts.label, childEnv)
-    return attachAbducoAgent({
+  const attachTo = (socketPath: string): AgentSession =>
+    attachAbducoAgent({
       label: opts.label,
       socketPath,
       cols: opts.cols,
@@ -603,6 +694,32 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       ...(opts.env ? { env: opts.env } : {}),
       ...(opts.backend ? { backend: opts.backend } : {}),
     })
+  const attachCreated = async (): Promise<AgentSession> =>
+    attachTo(await waitForAbducoSocket(opts.label, childEnv))
+  /**
+   * A durable label is a constant of its session, so a respawn (every Resume) can
+   * find the previous master still holding the name. abduco answers that with
+   * "create-session: Address already in use", which used to end the session for good:
+   * the daemon persists the raw failure as a spawn error and the row can never be
+   * resumed again — while its agent is still running in its own scope (POD-1945).
+   * A live master IS the session, so adopt it; the caller reports a reattach.
+   */
+  const adopt = (socketPath: string): AgentSession => {
+    log.info('durable label already owned by a live master — adopting it', {
+      label: opts.label,
+      socketPath,
+    })
+    return { ...attachTo(socketPath), adopted: true }
+  }
+  const live = abducoSocketPath(opts.label, childEnv)
+  if (live) return adopt(live)
+  // No live master, but a TERMINATED one can still hold the name (podium's liveness
+  // index skips those; abduco's create does not). Clear it, or the create below dies.
+  await reclaimTerminatedSession(opts.label, childEnv)
+  /** Adopt when a create lost a race to a concurrent spawn of the same label. */
+  const adoptRaceWinner = (): AgentSession | undefined => {
+    const raced = abducoSocketPath(opts.label, childEnv)
+    return raced ? adopt(raced) : undefined
   }
   // Create the master in its own systemd scope so it outlives a redeploy. `--scope`
   // runs in the foreground but returns the instant the create process exits — abduco
@@ -623,6 +740,10 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       )
       createdInScope = true
     } catch (err) {
+      // A concurrent spawn of the same label may have won: that master is the
+      // session, and creating a second one is impossible anyway.
+      const raced = adoptRaceWinner()
+      if (raced) return raced
       // A direct master would be reaped on the next redeploy, so make the
       // degradation loud rather than silently reintroducing the original bug.
       log.warn('systemd scope unavailable; session will NOT survive a podium restart', {
@@ -643,7 +764,13 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
         'will NOT survive a podium restart — run `loginctl enable-linger <user>`',
     )
   }
-  await execCreate(bin, createArgs, execOpts)
+  try {
+    await execCreate(bin, createArgs, execOpts)
+  } catch (err) {
+    const raced = adoptRaceWinner()
+    if (!raced) throw err
+    return raced
+  }
   return attachCreated()
 }
 

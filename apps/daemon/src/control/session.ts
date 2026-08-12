@@ -314,10 +314,20 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     if (msg.draftSync) {
       ctx.composerEngine.attach(msg.sessionId, msg.agentKind, msg.geometry.cols, msg.geometry.rows)
     }
+    // An adopted spawn started nothing: the durable master for this label was still
+    // running and we reattached to it (POD-1945 — a Resume used to die on abduco's
+    // "address already in use" instead). Report it as the attach it is, so the row
+    // does not claim a fresh launch that never happened.
+    if (session.adopted) {
+      log.info('spawn adopted the live durable session for this label', {
+        sessionId: msg.sessionId,
+        label,
+      })
+    }
     ctx.send({
       type: 'bind',
       sessionId: msg.sessionId,
-      cmd: cmd.cmd,
+      cmd: session.adopted ? `abduco -a ${label}` : cmd.cmd,
       cwd: cmd.cwd,
       agentKind: msg.agentKind,
       geometry: msg.geometry,
