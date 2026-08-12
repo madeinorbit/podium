@@ -90,8 +90,16 @@ export class MirrorService {
   private readonly queues = new Map<string, { nativeId: string; path: string }[]>()
   /** Machines with a drain loop running (single-flight per machine). */
   private readonly active = new Set<string>()
-  /** Segment keys queued or in flight — an enqueue for one is a no-op. */
+  /** Segment keys queued or in flight — direct duplicates are no-ops; a fresh
+   *  sweep observation may additionally arm one trailing pass. */
   private readonly queued = new Set<string>()
+  /** Segment keys currently inside {@link mirrorOne}. A dirty sweep that sees
+   *  one has observed new source state after this pass was selected. */
+  private readonly inFlight = new Set<string>()
+  /** In-flight segments that owe one coalesced trailing pass. Keep the latest
+   *  path with the signal and queue it directly: reported-size state records
+   *  dirtiness, but is not itself a work queue. */
+  private readonly retriggered = new Map<string, { nativeId: string; path: string }>()
   /** Segment keys in error backoff until the mapped epoch-ms. */
   private readonly backoffUntil = new Map<string, number>()
   /**
@@ -162,7 +170,7 @@ export class MirrorService {
    *  dirty set eliminates. */
   enqueueMachine(machineId: string): void {
     for (const seg of this.store.segmentsToMirror(machineId)) {
-      this.enqueue(machineId, seg.nativeId, seg.path)
+      this.enqueueForSweep(machineId, seg.nativeId, seg.path)
     }
   }
 
@@ -172,13 +180,34 @@ export class MirrorService {
    *  caught-up machine enqueues NOTHING and issues ZERO mirror reads). */
   enqueueDirty(machineId: string): void {
     for (const seg of this.store.segmentsToMirrorDirty(machineId)) {
-      this.enqueue(machineId, seg.nativeId, seg.path)
+      this.enqueueForSweep(machineId, seg.nativeId, seg.path)
     }
   }
 
   enqueue(machineId: string, nativeId: string, path: string): void {
+    this.enqueueSegment(machineId, nativeId, path, false)
+  }
+
+  /** Sweep triggers carry a fresh source observation. If its segment is already
+   *  being read, preserve that observation as one trailing pass; plain direct
+   *  enqueues retain their strict duplicate-suppression contract. */
+  private enqueueForSweep(machineId: string, nativeId: string, path: string): void {
+    this.enqueueSegment(machineId, nativeId, path, true)
+  }
+
+  private enqueueSegment(
+    machineId: string,
+    nativeId: string,
+    path: string,
+    retriggerInFlight: boolean,
+  ): void {
     const key = machineScopedKey(machineId, nativeId)
-    if (this.queued.has(key)) return
+    if (this.queued.has(key)) {
+      if (retriggerInFlight && this.inFlight.has(key)) {
+        this.retriggered.set(key, { nativeId, path })
+      }
+      return
+    }
     const backoff = this.backoffUntil.get(key)
     if (backoff !== undefined) {
       if (backoff > this.now()) return
@@ -256,15 +285,23 @@ export class MirrorService {
         if (!item) return
         const key = machineScopedKey(machineId, item.nativeId)
         let preserveQueued = false
+        let completed = false
+        this.inFlight.add(key)
         try {
-          const completed = await this.mirrorOne(machineId, item.nativeId, item.path, pass)
-          if (!completed) {
+          const mirrorCompleted = await this.mirrorOne(
+            machineId,
+            item.nativeId,
+            item.path,
+            pass,
+          )
+          if (!mirrorCompleted) {
             // Pause won while this item was in flight. It stays deduplicated and
             // returns to the FRONT so resume retries it before later segments.
             preserveQueued = true
             this.queues.get(machineId)?.unshift(item)
             return
           }
+          completed = true
         } catch (err) {
           // Disposed while this pull was outstanding: the store is closing or
           // closed, so neither branch below may run. The failure is an artifact
@@ -298,15 +335,33 @@ export class MirrorService {
             })
           }
         } finally {
+          this.inFlight.delete(key)
+          const retriggered = this.retriggered.get(key)
+          this.retriggered.delete(key)
+          if (!preserveQueued && completed && retriggered && !this.stopped) {
+            // A scan observed this segment dirty while the current pass still
+            // owned its queue marker. Do not query dirtiness again: run once more
+            // from the persisted cursor and let file identity arbitrate the
+            // source using the latest observed path.
+            preserveQueued = true
+            this.queues.get(machineId)?.push(retriggered)
+          }
           if (!preserveQueued) this.queued.delete(key)
         }
+        // A retrigger is a new sweep pass. If the old pass spent its budget,
+        // leave the coalesced item queued and restart it with a fresh budget
+        // after this drain releases the per-machine single-flight marker.
+        if (preserveQueued && completed && pass.remainingBytes <= 0) return
       }
     } finally {
+      const restart =
+        !this.stopped && !this.paused && (this.queues.get(machineId)?.length ?? 0) > 0
       this.active.delete(machineId)
       if (this.active.size === 0) {
         for (const resolve of this.pauseWaiters) resolve()
         this.pauseWaiters.clear()
       }
+      if (restart) void this.drain(machineId)
     }
   }
 
@@ -430,7 +485,12 @@ export class MirrorService {
         // it is FRESHER than the scan's stat (a grow that raced the scan report is
         // covered: we mirrored to the real eof). A later grow re-dirties via the
         // next scan's sizeBytes.
-        this.store.setReportedBytes(machineId, nativeId, cursor)
+        // A dirty sweep may have persisted a newer source size while this older
+        // read was still in flight. Its trailing pass owns convergence; do not
+        // erase that observation with this response's stale EOF size.
+        if (!this.retriggered.has(machineScopedKey(machineId, nativeId))) {
+          this.store.setReportedBytes(machineId, nativeId, cursor)
+        }
         return true
       }
       // Budget hit mid-file: cursor persisted, next pass resumes. This is normal

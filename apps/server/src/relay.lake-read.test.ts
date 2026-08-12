@@ -273,10 +273,6 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     await vi.waitFor(
       () => {
-        // The first sweep may still be dropping its single-flight queue marker
-        // when the replacement is installed; retriggering is how the next daemon
-        // scan reports the dirty smaller file in production.
-        registry.modules.memory.triggerLakeSweep('m1')
         expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(source.length)
         expect(store.conversations.mirror.incarnations('m1', nativeId)).toHaveLength(2)
       },
