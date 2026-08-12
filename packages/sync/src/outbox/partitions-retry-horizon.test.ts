@@ -15,7 +15,7 @@
  * matters, and a receipt horizon on the other side of the wire.
  */
 
-import { actorUser, asSessionId, asUserId, type MutationId } from '@podium/model'
+import { actorUser, asMutationId, asSessionId, asUserId, type MutationId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { InMemoryReplicaStore } from '../replica/memory-store'
 import type { OptimisticOverlayPort } from '../replica/overlay'
@@ -507,7 +507,7 @@ describe('D11.5 — the client that comes back after forty days', () => {
     await expect(outbox.retry(first.mutationId, { rightsFixed: true })).rejects.toThrow(
       /requires new-mutation-id/,
     )
-    const reissued = await outbox.retry(first.mutationId, { mutationId: 'fresh-1' })
+    const reissued = await outbox.retry(first.mutationId, { mutationId: asMutationId('fresh-1') })
     expect(reissued.mutationId).toBe('fresh-1')
     expect(reissued.queuedAt).toBe(clock.now())
     expect(reissued.input).toEqual({ issueId: 'POD-1', comment: 'closing POD-1' })
@@ -548,9 +548,15 @@ describe('D11.5 — the client that comes back after forty days', () => {
     expect(authority.envelopes).toEqual([])
 
     // Fact two — the user re-authors, and only NOW does the revocation surface.
-    const freshShared = await outbox.retry(shared.mutationId, { mutationId: 'fresh-shared' })
-    const freshMine = await outbox.retry(mine.mutationId, { mutationId: 'fresh-mine' })
-    const freshGhost = await outbox.retry(ghost.mutationId, { mutationId: 'fresh-ghost' })
+    const freshShared = await outbox.retry(shared.mutationId, {
+      mutationId: asMutationId('fresh-shared'),
+    })
+    const freshMine = await outbox.retry(mine.mutationId, {
+      mutationId: asMutationId('fresh-mine'),
+    })
+    const freshGhost = await outbox.retry(ghost.mutationId, {
+      mutationId: asMutationId('fresh-ghost'),
+    })
     await outbox.drain()
 
     expect(stateOf(outbox, freshMine.mutationId)).toBe('applied')
@@ -703,7 +709,7 @@ describe('D11 — the dedupe horizon holds over a feed range that was watermark-
         // retirement lands in the same transaction as the cache write and the cursor.
         const ids = matches
           .map((m) => m.mutationId)
-          .filter((id): id is string => id !== undefined) as MutationId[]
+          .filter((id): id is MutationId => id !== undefined) as MutationId[]
         return (async () => {
           for (const id of ids) {
             if (h.outbox.find(id)?.state === 'accepted') await h.outbox.noteApplied(id)

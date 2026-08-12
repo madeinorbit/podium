@@ -7,7 +7,7 @@
  * `listParkedUpstreamMutations`).
  */
 
-import type { SessionId, MutationId } from '@podium/model'
+import { asMutationId, type MutationId, type SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import { type SqlDatabase, type SqlParam, transaction } from '@podium/runtime/sqlite'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
@@ -241,7 +241,12 @@ export class SyncRepository {
     return row?.result
   }
 
-  recordAppliedMutation(mutationId: MutationId, proc: string, result: string, appliedAt: number): void {
+  recordAppliedMutation(
+    mutationId: MutationId,
+    proc: string,
+    result: string,
+    appliedAt: number,
+  ): void {
     this.db
       .prepare(
         'INSERT OR IGNORE INTO applied_mutations (mutation_id, proc, result, applied_at) VALUES (?, ?, ?, ?)',
@@ -375,7 +380,7 @@ export class SyncRepository {
       )
       .all() as Record<string, unknown>[]
     return rows.map((r) => ({
-      mutationId: r.mutation_id as string,
+      mutationId: asMutationId(r.mutation_id as string),
       proc: r.proc as string,
       queuedAt: Number(r.queued_at),
     }))

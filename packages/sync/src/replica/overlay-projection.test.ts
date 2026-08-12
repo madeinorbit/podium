@@ -8,7 +8,7 @@
  * `replica.test.ts`, where a real store and a real outbox exist.
  */
 
-import { actorAgent, actorUser, asAgentIdentityId, asUserId } from '@podium/model'
+import { actorAgent, actorUser, asAgentIdentityId, asMutationId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -38,7 +38,7 @@ const cmd = (
   command: unknown,
   attribution?: PendingMutation['attribution'],
 ): PendingMutation => ({
-  mutationId,
+  mutationId: asMutationId(mutationId),
   entity: 'session',
   entityId: 's1',
   command,

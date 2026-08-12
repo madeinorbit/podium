@@ -469,7 +469,9 @@ describe('findLiveCodexRollout', () => {
           payload: {
             type: 'message',
             role: 'developer',
-            content: [{ type: 'input_text', text: codexPodiumSessionMarker(owningPane) }],
+            content: [
+              { type: 'input_text', text: codexPodiumSessionMarker(asSessionId(owningPane)) },
+            ],
           },
         }),
       ].join('\n'),
@@ -556,7 +558,7 @@ describe('findLiveCodexRollout', () => {
           payload: {
             type: 'message',
             role: 'developer',
-            content: [{ type: 'input_text', text: codexPodiumSessionMarker(pane) }],
+            content: [{ type: 'input_text', text: codexPodiumSessionMarker(asSessionId(pane)) }],
           },
         }),
       ].join('\n'),

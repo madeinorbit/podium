@@ -9,6 +9,7 @@
  * while recording `'{}'` for an async body — the one bug in this file's history.
  */
 
+import { asMutationId, type MutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { type AppliedMutationStore, MutationLedger } from './mutation-ledger'
 
@@ -36,11 +37,11 @@ describe('MutationLedger', () => {
     const { led, store } = ledger()
     let runs = 0
 
-    const first = led.apply('m-1', 'sessions.rename', () => {
+    const first = led.apply(asMutationId('m-1'), 'sessions.rename', () => {
       runs += 1
       return { ok: true, ids: ['a', 'b'] }
     })
-    const replay = led.apply('m-1', 'sessions.rename', () => {
+    const replay = led.apply(asMutationId('m-1'), 'sessions.rename', () => {
       runs += 1
       return { ok: true, ids: ['DIFFERENT'] }
     })
@@ -50,7 +51,7 @@ describe('MutationLedger', () => {
     expect(replay.outcome).toBe('replayed')
     // Deep-equal, not identical: the replay comes back through JSON.
     expect(replay.value).toEqual(first.value)
-    expect(store.rows.get('m-1')?.proc).toBe('sessions.rename')
+    expect(store.rows.get(asMutationId('m-1'))?.proc).toBe('sessions.rename')
   })
 
   it('is keyed on the mutationId ALONE — the same id under a different proc still dedupes', () => {
@@ -59,11 +60,11 @@ describe('MutationLedger', () => {
     // TWICE. The second call names a different proc and must still be refused.
     const { led } = ledger()
     let runs = 0
-    led.once('m-same', 'sessions.sendText', () => {
+    led.once(asMutationId('m-same'), 'sessions.sendText', () => {
       runs += 1
       return 'first'
     })
-    const second = led.once('m-same', 'sessions.resumeAndSend', () => {
+    const second = led.once(asMutationId('m-same'), 'sessions.resumeAndSend', () => {
       runs += 1
       return 'second'
     })
@@ -74,13 +75,13 @@ describe('MutationLedger', () => {
   it('a DIFFERENT id re-applies the same input', () => {
     const { led } = ledger()
     let runs = 0
-    const run = (id: string) =>
+    const run = (id: MutationId) =>
       led.once(id, 'sessions.rename', () => {
         runs += 1
         return id
       })
-    expect(run('m-a')).toBe('m-a')
-    expect(run('m-b')).toBe('m-b')
+    expect(run(asMutationId('m-a'))).toBe(asMutationId('m-a'))
+    expect(run(asMutationId('m-b'))).toBe(asMutationId('m-b'))
     expect(runs).toBe(2)
   })
 
@@ -109,13 +110,13 @@ describe('MutationLedger', () => {
       return { id: 'issue-1', title: 'once' }
     }
 
-    const first = await led.once('m-async', 'issues.create', body)
-    const replay = await led.once('m-async', 'issues.create', body)
+    const first = await led.once(asMutationId('m-async'), 'issues.create', body)
+    const replay = await led.once(asMutationId('m-async'), 'issues.create', body)
 
     expect(runs).toBe(1)
     expect(first).toEqual({ id: 'issue-1', title: 'once' })
     expect(replay).toEqual(first)
-    expect(store.rows.get('m-async')?.result).toBe('{"id":"issue-1","title":"once"}')
+    expect(store.rows.get(asMutationId('m-async'))?.result).toBe('{"id":"issue-1","title":"once"}')
   })
 
   it('a replay arriving BEFORE the original resolves joins the same promise', async () => {
@@ -131,8 +132,8 @@ describe('MutationLedger', () => {
       })
     }
 
-    const a = led.apply('m-batch', 'issues.create', body)
-    const b = led.apply('m-batch', 'issues.create', body)
+    const a = led.apply(asMutationId('m-batch'), 'issues.create', body)
+    const b = led.apply(asMutationId('m-batch'), 'issues.create', body)
     expect(runs).toBe(1)
     expect(b.outcome).toBe('replayed')
 
@@ -150,11 +151,15 @@ describe('MutationLedger', () => {
       return 'second attempt'
     }
 
-    await expect(led.once('m-retry', 'sessions.create', body)).rejects.toThrow('daemon offline')
+    await expect(led.once(asMutationId('m-retry'), 'sessions.create', body)).rejects.toThrow(
+      'daemon offline',
+    )
     expect(store.rows.size).toBe(0)
 
     // The retry is a fresh apply, not a replay of the failure.
-    await expect(led.once('m-retry', 'sessions.create', body)).resolves.toBe('second attempt')
+    await expect(led.once(asMutationId('m-retry'), 'sessions.create', body)).resolves.toBe(
+      'second attempt',
+    )
     expect(runs).toBe(2)
   })
 
@@ -162,8 +167,8 @@ describe('MutationLedger', () => {
     const now = vi.fn(() => 4_242)
     const store = fakeStore()
     const record = vi.spyOn(store, 'recordAppliedMutation')
-    new MutationLedger(store, now).once('m-clock', 'sessions.rename', () => 'x')
-    expect(record).toHaveBeenCalledWith('m-clock', 'sessions.rename', '"x"', 4_242)
+    new MutationLedger(store, now).once(asMutationId('m-clock'), 'sessions.rename', () => 'x')
+    expect(record).toHaveBeenCalledWith(asMutationId('m-clock'), 'sessions.rename', '"x"', 4_242)
   })
 
   it('a body returning undefined records null, and its replay does not re-run', () => {
@@ -175,9 +180,9 @@ describe('MutationLedger', () => {
     const body = () => {
       runs += 1
     }
-    expect(led.apply('m-void', 'sessions.setArchived', body).outcome).toBe('applied')
-    expect(led.apply('m-void', 'sessions.setArchived', body).outcome).toBe('replayed')
+    expect(led.apply(asMutationId('m-void'), 'sessions.setArchived', body).outcome).toBe('applied')
+    expect(led.apply(asMutationId('m-void'), 'sessions.setArchived', body).outcome).toBe('replayed')
     expect(runs).toBe(1)
-    expect(store.rows.get('m-void')?.result).toBe('null')
+    expect(store.rows.get(asMutationId('m-void'))?.result).toBe('null')
   })
 })

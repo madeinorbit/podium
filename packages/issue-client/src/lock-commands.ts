@@ -1,4 +1,3 @@
-import type { SessionId } from '@podium/model'
 import {
   type LockAcquireResultWire,
   type LockHolderWire,
@@ -56,12 +55,9 @@ const fmtSeconds = (s: number): string => (s >= 60 ? `${Math.floor(s / 60)}m${s 
  * always printed so dead waiters are not mistaken for live ones (status does
  * not prune; advanceQueue does).
  */
-function principalLine(p: {
-  sessionId: SessionId | null
-  label: string
-  alive: boolean
-  workspace?: string | null
-}): string {
+function principalLine(
+  p: Pick<LockHolderWire, 'sessionId' | 'label' | 'alive' | 'workspace'>,
+): string {
   const who = p.sessionId != null && p.sessionId !== '' ? `${p.sessionId} on ${p.label}` : p.label
   const ws = p.workspace != null && p.workspace !== '' ? ` workspace ${p.workspace}` : ''
   return `${who}${ws} [${p.alive ? 'alive' : 'dead'}]`
