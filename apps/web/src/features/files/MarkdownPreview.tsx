@@ -7,6 +7,7 @@ import { useStoreSelector } from '@/app/store'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
+import { cn } from '@/lib/utils'
 import { renderMarkdownBlocks } from './markdown-blocks'
 
 /** Rendered markdown preview. Relative images resolve through /files/asset; clicking
@@ -17,11 +18,13 @@ export function MarkdownPreview({
   path,
   content,
   scrollRef,
+  className,
 }: {
   sessionId: SessionId
   path: string
   content: string
   scrollRef?: React.MutableRefObject<HTMLDivElement | null>
+  className?: string
 }): JSX.Element {
   const { httpOrigin, openFile } = useStoreSelector(
     (s) => ({ httpOrigin: s.httpOrigin, openFile: s.openFile }),
@@ -53,7 +56,7 @@ export function MarkdownPreview({
       }}
       // Reading typography (measure, leading, padding) lives entirely in
       // `.markdown-preview` in styles.css — no utility sizing here to fight it.
-      className="markdown-preview min-h-0 flex-1 overflow-auto"
+      className={cn('markdown-preview min-h-0 flex-1 overflow-auto', className)}
       onClick={onClick}
       // eslint-disable-next-line react/no-danger -- sanitized by renderMarkdownBlocks (DOMPurify)
       dangerouslySetInnerHTML={{ __html: html }}

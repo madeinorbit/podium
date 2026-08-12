@@ -8,14 +8,16 @@ import {
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
 import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
-import { asSessionId } from '@podium/model'
-import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
-import { type JSX, useCallback, useEffect, useId, useRef } from 'react'
+import { asSessionId, type SessionId } from '@podium/model'
+import { Columns2, Eye, Flower2, Pencil, Save, X } from 'lucide-react'
+import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { canSave } from './editor-save'
+import { isMarkdownPath } from './file-kind'
 import { MarkdownPreview } from './MarkdownPreview'
 import { OpenInBrowserButton } from './OpenInBrowserButton'
 import { SourceEditor } from './SourceEditor'
@@ -23,11 +25,6 @@ import { type BlockPos, lineForTop, topForLine } from './scroll-sync'
 import { useFileDocument } from './useFileDocument'
 
 type Mode = 'preview' | 'source' | 'split'
-
-function isMarkdown(path: string): boolean {
-  const ext = path.split('.').pop()?.toLowerCase()
-  return ext === 'md' || ext === 'markdown'
-}
 
 /** One open file rendered as a workspace panel. Markdown files default to a rendered
  *  preview with Preview/Source/Split modes; other files render the source editor as
@@ -44,8 +41,10 @@ export function MarkdownFilePanel({
   const doc = useFileDocument(scope, path)
   const saveFeedbackId = useId()
   const uiState = useStoreSelector((s) => s.uiState)
-  const md = isMarkdown(path)
+  const md = isMarkdownPath(path)
   const mobile = useIsMobile()
+  const [calmReading, setCalmReading] = useState(false)
+  const closeCalmReading = useCallback(() => setCalmReading(false), [])
   const tabId = `file:${scopeKey(scope)}:${path}`
   // Per-tab mode is per-user REPLICATED: SUBSCRIBE, never seed. A `useState`
   // initializer read the map before the replica had the row, and the mount
@@ -161,6 +160,19 @@ export function MarkdownFilePanel({
             )}
           </div>
         )}
+        {md && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => setCalmReading(true)}
+            disabled={doc.status !== 'ready'}
+            aria-label="Enter calm reading mode"
+            title="Calm reading mode"
+          >
+            <Flower2 size={14} aria-hidden="true" />
+          </Button>
+        )}
         <span
           id={saveFeedbackId}
           role={doc.saveFeedback?.kind === 'error' ? 'alert' : 'status'}
@@ -229,7 +241,89 @@ export function MarkdownFilePanel({
           )}
         </div>
       )}
+      {calmReading && doc.status === 'ready' && (
+        <CalmMarkdownReader
+          sessionId={scope.kind === 'session' ? scope.sessionId : asSessionId('')}
+          path={path}
+          content={doc.content}
+          onClose={closeCalmReading}
+        />
+      )}
     </div>
+  )
+}
+
+/** A temporary reading surface above the live workspace. The shell remains visible
+ *  through the subdued backdrop, preserving place while attention moves to the text. */
+function CalmMarkdownReader({
+  sessionId,
+  path,
+  content,
+  onClose,
+}: {
+  sessionId: SessionId
+  path: string
+  content: string
+  onClose: () => void
+}): JSX.Element {
+  const readerRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null
+    readerRef.current?.focus({ preventScroll: true })
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      event.stopPropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      previousFocus?.focus({ preventScroll: true })
+    }
+  }, [onClose])
+
+  return createPortal(
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a pointer convenience; Escape and the explicit button are keyboard routes
+    <div className="calm-reader-layer" role="presentation" onClick={onClose}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: keeps document interaction from reaching the backdrop */}
+      <section
+        ref={readerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Calm reading: ${path}`}
+        tabIndex={-1}
+        className="calm-reader-sheet"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="calm-reader-header">
+          <div className="calm-reader-heading">
+            <Flower2 size={15} aria-hidden="true" />
+            <span>Calm reading</span>
+          </div>
+          <span className="calm-reader-path" title={path}>
+            {path}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label="Leave calm reading mode"
+            title="Leave calm reading mode — Esc"
+          >
+            <Flower2 size={15} aria-hidden="true" />
+          </Button>
+        </header>
+        <MarkdownPreview
+          sessionId={sessionId}
+          path={path}
+          content={content}
+          className="calm-reader-document"
+        />
+      </section>
+    </div>,
+    document.body,
   )
 }
 
