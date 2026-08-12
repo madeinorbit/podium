@@ -93,8 +93,16 @@ we need identical behavior in Bun, browser, and React Native.
 
 Control: `PODIUM_LOG_LEVEL` (global default) plus per-namespace overrides via
 `PODIUM_LOG` (e.g. `PODIUM_LOG="daemon:*=debug"`). Defaults: `info` on
-server/daemon/janitor, `warn` for browser console. Runtime adjustment on
-clients via config/settings (needed to live-diagnose one user's client).
+server/daemon/janitor, `warn` for browser console.
+
+**Runtime level adjustment on clients is DEFERRED** (POD-1919). The
+mechanism exists — the forwarding sink pins no `minLevel`, so `setLogLevel`
+raises console and forwarding together as one knob — but nothing outside
+boot calls it, so there is no operator surface for "raise this one user's
+client to `debug`". That scenario is why the forwarding design exists, so
+the gap is worth closing; it is deferred rather than dropped, and this epic
+ships without it deliberately rather than leaving the promise silently
+unmet.
 
 ### Sinks and per-sink thresholds
 
