@@ -2,6 +2,7 @@ import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
 import { isServerReadiness, type ServerReadiness } from '@podium/model'
 import { serverConfig } from '@/app/trpc'
 import { SetupUnreachable } from './SetupUnreachable'
+import { restartPodiumShell } from './restart-shell'
 import { checkServerVersion } from './version-guard'
 
 const SetupView = lazy(() => import('./SetupView').then((module) => ({ default: module.SetupView })))
@@ -27,9 +28,7 @@ const MAX_DELAY_MS = 4000
 /** Desktop shell exposes a restart hook so a mode change re-runs the shell (re-reads config);
  *  a web reload alone would keep the same shell process. Browser → plain reload. */
 function onSetupSaved(): void {
-  const restart = (window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__
-  if (restart) restart()
-  else window.location.reload()
+  void restartPodiumShell()
 }
 
 /**

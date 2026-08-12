@@ -1,8 +1,15 @@
 import { ArrowRight } from 'lucide-react'
 import type { JSX } from 'react'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
-import { ActivationShell, AlwaysOnVpsChoice, LocalProjectChoice } from './ActivationShell'
+import {
+  ActivationShell,
+  AlwaysOnVpsChoice,
+  ExistingPodiumChoice,
+  LocalProjectChoice,
+} from './ActivationShell'
 import type { ActivationRoute } from './activation-route'
+import { ExistingPodiumActivation, isExistingPodiumRoute } from './ExistingPodiumActivation'
 import { GuidedVpsActivation } from './GuidedVpsActivation'
 import { RepoScanFlow } from './RepoScanFlow'
 import type { ConfirmedVpsActivation } from './use-vps-activation'
@@ -19,16 +26,32 @@ export function OnboardingWizard({
   onRouteChange,
   onExplore,
   onComplete,
+  onConnectionConfigured,
   onEnterVps,
+  trpc,
   vps,
 }: {
   route: ActivationRoute
   onRouteChange: (route: ActivationRoute) => void
   onExplore: () => void
   onComplete: () => void
+  onConnectionConfigured: () => Promise<void>
   onEnterVps: (returnRoute: VpsReturnRoute) => Promise<void>
+  trpc: Trpc
   vps: ConfirmedVpsActivation
 }): JSX.Element {
+  if (isExistingPodiumRoute(route)) {
+    return (
+      <ExistingPodiumActivation
+        route={route}
+        trpc={trpc}
+        onRouteChange={onRouteChange}
+        onExplore={onExplore}
+        onConfigured={onConnectionConfigured}
+      />
+    )
+  }
+
   if (isVpsActivationRoute(route)) {
     return (
       <GuidedVpsActivation
@@ -63,6 +86,14 @@ export function OnboardingWizard({
                   type="button"
                   variant="outline"
                   size="sm"
+                  onClick={() => onRouteChange('existing-podium')}
+                >
+                  Connect to existing Podium
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => void onEnterVps('local-project').catch(() => {})}
                 >
                   Set up an always-on VPS
@@ -82,12 +113,13 @@ export function OnboardingWizard({
   return (
     <ActivationShell
       eyebrow="Activate Podium"
-      title="Start with a project, or look around first."
-      description="Podium is ready to explore. Add a project when you want to start real work; activation will keep your place until then."
+      title="Start locally, or connect to a Podium you already run."
+      description="Add a project, connect this device to an existing installation, or look around first. Activation will keep your place until you choose."
       onExplore={onExplore}
     >
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-3">
         <LocalProjectChoice onSelect={() => onRouteChange('local-project')} />
+        <ExistingPodiumChoice onSelect={() => onRouteChange('existing-podium')} />
         <AlwaysOnVpsChoice onSelect={() => void onEnterVps('welcome').catch(() => {})} />
       </div>
       {vps.error && (

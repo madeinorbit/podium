@@ -1,4 +1,4 @@
-import { ArrowRight, FolderGit2, Server, Sparkles } from 'lucide-react'
+import { ArrowRight, FolderGit2, Link2, Server, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 
@@ -93,6 +93,29 @@ export function AlwaysOnVpsChoice({ onSelect }: { onSelect: () => void }): JSX.E
           </p>
           <Button type="button" className="mt-4" onClick={onSelect}>
             Set up a VPS
+            <ArrowRight data-icon="inline-end" aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+export function ExistingPodiumChoice({ onSelect }: { onSelect: () => void }): JSX.Element {
+  return (
+    <article className="max-w-[560px] rounded-xl border border-border bg-background/55 p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-secondary text-foreground">
+          <Link2 size={17} aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[14px] font-semibold text-foreground">Connect to existing Podium</h2>
+          <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
+            Open a Podium you already run, or join this machine so it can run projects and agents
+            there.
+          </p>
+          <Button type="button" variant="outline" className="mt-4" onClick={onSelect}>
+            Connect
             <ArrowRight data-icon="inline-end" aria-hidden="true" />
           </Button>
         </div>

@@ -10,6 +10,9 @@ export const ACTIVATION_MODE_PARAM = 'activationMode'
 export type ActivationRoute =
   | 'welcome'
   | 'local-project'
+  | 'existing-podium'
+  | 'existing-client'
+  | 'existing-machine'
   | 'vps-intro'
   | 'vps-pairing'
   | 'vps-transfer'
@@ -28,6 +31,9 @@ function isActivationRoute(value: string | null): value is ActivationRoute {
   return (
     value === 'welcome' ||
     value === 'local-project' ||
+    value === 'existing-podium' ||
+    value === 'existing-client' ||
+    value === 'existing-machine' ||
     value === 'vps-intro' ||
     value === 'vps-pairing' ||
     value === 'vps-transfer'

@@ -32,6 +32,16 @@ describe('activation route persistence', () => {
     }
   })
 
+  it('restores every existing-install route exactly, including while exploring', () => {
+    for (const route of ['existing-podium', 'existing-client', 'existing-machine'] as const) {
+      expect(readActivationState(`?activation=${route}`)).toEqual({ route, mode: 'active' })
+    }
+    expect(readActivationState('?activation=existing-machine&activationMode=exploring')).toEqual({
+      route: 'existing-machine',
+      mode: 'exploring',
+    })
+  })
+
   it('preserves shell/router query state while writing activation', () => {
     const url = activationUrl(
       {

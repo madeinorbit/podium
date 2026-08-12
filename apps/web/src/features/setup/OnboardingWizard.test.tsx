@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Trpc } from '@/app/trpc'
 import { ActivationResumeBar } from './ActivationShell'
 import { OnboardingWizard } from './OnboardingWizard'
 import type { ConfirmedVpsActivation } from './use-vps-activation'
@@ -42,6 +43,15 @@ function vpsController(overrides: Partial<ConfirmedVpsActivation> = {}): Confirm
   }
 }
 
+function trpc(): Trpc {
+  return {
+    setup: {
+      connect: { mutate: vi.fn() },
+      join: { mutate: vi.fn() },
+    },
+  } as unknown as Trpc
+}
+
 describe('OnboardingWizard activation routes', () => {
   it('starts on a shell-native welcome surface with a prominent exploration exit', () => {
     const onRouteChange = vi.fn()
@@ -53,7 +63,9 @@ describe('OnboardingWizard activation routes', () => {
         onRouteChange={onRouteChange}
         onExplore={onExplore}
         onComplete={() => {}}
+        onConnectionConfigured={vi.fn()}
         onEnterVps={onEnterVps}
+        trpc={trpc()}
         vps={vpsController()}
       />,
     )
@@ -63,6 +75,8 @@ describe('OnboardingWizard activation routes', () => {
     expect(onEnterVps).toHaveBeenCalledWith('welcome')
     fireEvent.click(screen.getByRole('button', { name: 'Find local projects' }))
     expect(onRouteChange).toHaveBeenCalledWith('local-project')
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    expect(onRouteChange).toHaveBeenCalledWith('existing-podium')
     fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
     expect(onExplore).toHaveBeenCalledOnce()
   })
@@ -78,12 +92,16 @@ describe('OnboardingWizard activation routes', () => {
         onRouteChange={onRouteChange}
         onExplore={onExplore}
         onComplete={onComplete}
+        onConnectionConfigured={vi.fn()}
         onEnterVps={onEnterVps}
+        trpc={trpc()}
         vps={vpsController()}
       />,
     )
 
     expect(screen.getByTestId('repo-scan-flow')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Connect to existing Podium/ }))
+    expect(onRouteChange).toHaveBeenCalledWith('existing-podium')
     fireEvent.click(screen.getByRole('button', { name: /Set up an always-on VPS/ }))
     expect(onEnterVps).toHaveBeenCalledWith('local-project')
     fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))

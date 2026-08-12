@@ -41,6 +41,12 @@ export function activationRouteLabel(route: ActivationRoute): string {
       return 'welcome'
     case 'local-project':
       return 'local projects'
+    case 'existing-podium':
+      return 'existing Podium setup'
+    case 'existing-client':
+      return 'remote client connection'
+    case 'existing-machine':
+      return 'machine connection'
     case 'vps-intro':
       return 'always-on VPS setup'
     case 'vps-pairing':

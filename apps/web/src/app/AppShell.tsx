@@ -12,6 +12,7 @@ import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-conte
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { ActivationResumeBar } from '@/features/setup/ActivationShell'
 import { hasActivationState, isActivationEligible } from '@/features/setup/activation-route'
+import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
 import { activationRouteLabel, vpsIntroState } from '@/features/setup/vps-activation'
@@ -649,7 +650,9 @@ function AppBody(): JSX.Element {
                     onRouteChange={navigateActivation}
                     onExplore={explorePodium}
                     onComplete={completeActivation}
+                    onConnectionConfigured={restartPodiumShell}
                     onEnterVps={enterVpsActivation}
+                    trpc={trpc}
                     vps={vpsActivation}
                   />
                 ) : (
