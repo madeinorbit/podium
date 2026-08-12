@@ -32,7 +32,7 @@
  */
 
 import type { Geometry, SessionId } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import type { ClientLogOrigin, ServerMessage } from '@podium/protocol'
 import type { Send } from '../modules/sessions/session'
 import type { ClientPrincipal } from './client-principal'
 
@@ -93,6 +93,21 @@ export interface ClientConn {
   viewVisible: Set<SessionId>
   /** The one session that has input focus on this client, or null. */
   focused: SessionId | null
+  /**
+   * How this client described ITSELF in `hello` — role, app version, machine
+   * (POD-1920). The same tuple the server files this client's forwarded log
+   * records under, which is what lets an operator name one client the same way
+   * whether they are reading its log file or raising its level.
+   *
+   * Absent until hello, and absent forever from a build too old to send it. That
+   * connection is simply not individually addressable; a raise aimed at
+   * everything still reaches it.
+   *
+   * A LABEL, NEVER AN AUTHORIZATION INPUT. It comes from the payload, so it may
+   * not speak for the caller — `principal` above is the only identity on this
+   * record that decides anything.
+   */
+  origin?: ClientLogOrigin
   /** Per-session rendered mode (native terminal vs chat) this client reports for the
    *  sessions it renders (from viewState `modes`). AVAILABLE for inspection but
    *  deliberately UNUSED by output scheduling — computePriorities never reads it, so

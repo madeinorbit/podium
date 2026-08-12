@@ -102,6 +102,10 @@ export class SessionClientControl {
     switch (message.type) {
       case 'hello':
         if (message.caps) client.caps = new Set(message.caps)
+        // The client's self-description, kept so an operator can address this
+        // connection by the same role/machine it files its log records under
+        // (POD-1920). Stored, never consulted for authorization.
+        if (message.origin) client.origin = message.origin
         break
       case 'attach': {
         const startedAt = performance.now()

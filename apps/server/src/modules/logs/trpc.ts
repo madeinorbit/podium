@@ -24,6 +24,7 @@ export const logsFamilyProcedures = (): LogsProcedures =>
     // the widening a reviewer sees here is exactly what the handler can do.
     service: (state) => ({
       ingest: state.modules.logs,
+      levels: state.modules.clientLogLevels,
       telemetry: state.telemetry?.emitter,
     }),
     commands: LOGS_COMMANDS_TRPC,

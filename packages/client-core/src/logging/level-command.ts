@@ -132,7 +132,10 @@ export function createLevelController(deps: ControllerDeps): LevelController {
       // THE ONE CALL. Console and forwarding move together because this is the
       // only threshold either of them consults.
       setLogLevel(command.level)
-      log.warn('client log level raised', { level: command.level, ttlMs })
+      // `to`, NOT `level`: the record shape OWNS `level`, and a caller field
+      // under a reserved name is DROPPED rather than merged — this line would
+      // have reported the raise without saying what it raised to.
+      log.warn('client log level raised', { to: command.level, ttlMs })
       timer = setTimeout(() => toBoot('expired'), ttlMs)
       // A pending expiry must not hold a Node-like runtime open; browsers have
       // no `unref` and need none.

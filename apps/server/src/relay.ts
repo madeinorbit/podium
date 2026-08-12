@@ -65,6 +65,7 @@ import { IssueService } from './modules/issues/service'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
+import { ClientLogLevelDirector } from './modules/logs/level-director'
 import { LogIngestService } from './modules/logs/service'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { LoginPropagationService } from './modules/machines/login-propagation'
@@ -209,6 +210,10 @@ export interface RegistryModules {
   /** Client log + crash ingestion (chunk 3 of the logging strategy) — the
    *  service behind `logs.forward` / `logs.crash`. */
   logs: LogIngestService
+  /** The operator's runtime log-level control over connected clients — the
+   *  service behind `logs.setLevel` (POD-1920). Holds no state: it selects
+   *  connections and pushes a frame. */
+  clientLogLevels: ClientLogLevelDirector
   /** Framework idempotency (POD-382) — the ONE mutationId dedup, exposed on the
    *  module seam so a transport wires the framework's implementation rather than
    *  reaching into a service for it. */
@@ -355,6 +360,10 @@ export class SessionRegistry {
     // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
     // the gateway owns it (POD-390), and the mux below is what mutates it.
     const clientRegistry = new ClientRegistry()
+    // The operator's log-level valve over that same connection set (POD-1920).
+    // Stateless: it selects connections and delivers a frame, so a client that
+    // reconnects is back at its own default with nothing to clean up.
+    const clientLogLevels = new ClientLogLevelDirector(clientRegistry)
 
     const issueAccess = new DurableIssueAccessIndex(
       this.store.issues,
@@ -1626,6 +1635,7 @@ export class SessionRegistry {
       automations,
       perf,
       logs,
+      clientLogLevels,
       mutations,
     }
     const agentRelayGate = new AgentRelayGate({

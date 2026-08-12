@@ -28,7 +28,7 @@ import {
  */
 function captureRecords(): { records: LogRecord[]; sink: Sink } {
   const records: LogRecord[] = []
-  return { records, sink: { write: (record) => void records.push(record) } }
+  return { records, sink: { name: 'capture', write: (record) => void records.push(record) } }
 }
 
 describe('client log level control', () => {
@@ -130,6 +130,10 @@ describe('client log level control', () => {
       ['warn', 'client log level raised'],
       ['warn', 'client log level restored'],
     ])
+    // `to` rather than `level`: the record shape owns `level` and drops a
+    // caller field of that name, so a raise reported under it would say
+    // nothing about what it raised to.
+    expect(own[0]).toMatchObject({ to: 'debug', ttlMs: 1000 })
     expect(own[1]).toMatchObject({ reason: 'expired', to: 'warn' })
   })
 

@@ -1,6 +1,12 @@
 /**
- * THE TWO CLIENT-LOG INGESTION WRITES — `logs.forward · logs.crash`
- * (chunk 3 of [spec:2026-08-11-logging-strategy-design]).
+ * THE CLIENT-LOG FAMILY — `logs.forward · logs.crash · logs.setLevel`
+ * ([spec:2026-08-11-logging-strategy-design]).
+ *
+ * Two ingestion writes and one operator command. The first two are a client
+ * reporting itself; the third is the valve the whole design exists to open —
+ * raising one running client so a problem on a user's machine can be diagnosed
+ * without shipping them a new build. That asymmetry is why they sit at different
+ * role floors, and each contract says so where it is declared.
  *
  * A client (web, desktop webview, mobile) keeps its own ring buffer and forwards
  * what matters to ITS OWN SERVER: `forward` is the routine batch, `crash` is the
@@ -306,15 +312,138 @@ export const logsCrashContract = {
   conflict: 'append',
 } as const satisfies CommandContract<typeof logsCrashInput>
 
+// ---------------------------------------------------------------------------
+// logs.setLevel
+// ---------------------------------------------------------------------------
+
+/**
+ * WHICH CONNECTED CLIENTS A RAISE IS FOR.
+ *
+ * Every field is optional and they AND together, so the empty selector means
+ * "every client connected right now". That is the honest default for a
+ * self-hosted install where the operator and the user are the same person and
+ * there are two clients, and it is what makes the command usable before anybody
+ * has looked up an id.
+ *
+ * `role` and `machineId` are the client's own self-description as it arrived in
+ * `hello`, and are exactly what the server files that client's forwarded records
+ * under — so the operator reading `clients/mobile-m1.ndjson` types what they are
+ * already looking at. `clientId` is the server-minted connection id, which is
+ * the only way to name ONE of two browser tabs.
+ */
+export const logLevelTarget = z.object({
+  /** The server-minted connection id (`c3`), as reported by a previous call. */
+  clientId: z.string().max(64).optional(),
+  role: z.string().max(64).optional(),
+  machineId: z.string().max(128).optional(),
+})
+
+/** 24 hours, the same cap the wire frame carries. Restated rather than imported
+ *  for the reason the level enum is: `@podium/protocol` is a dependency of this
+ *  package and the value cannot travel the other way. */
+export const MAX_SET_LEVEL_TTL_MS = 24 * 60 * 60 * 1000
+
+export const logsSetLevelInput = z.object({
+  /** `null` puts the matched clients back to their boot default. */
+  level: forwardedLogLevel.nullable(),
+  /** How long the raise lasts. Absent leaves the duration to the client's own
+   *  default, which is the thing holding the timer. */
+  ttlMs: z.number().int().positive().max(MAX_SET_LEVEL_TTL_MS).optional(),
+  /** Absent means every connected client — see {@link logLevelTarget}. */
+  target: logLevelTarget.optional(),
+})
+
+/**
+ * THE OPERATOR SURFACE the whole forwarding design exists to serve
+ * (POD-1920): raise one user's client to `debug` while it is running, so a
+ * problem on their machine can be diagnosed without shipping them a new build.
+ *
+ * ONE KNOB. `level` is the client's whole verbosity — it lands in `setLogLevel`
+ * there, and the forwarding sink pins no threshold of its own, so console and
+ * forwarded stream move together. There is deliberately no second field for the
+ * forwarding side; two controls that can disagree about what a client is
+ * reporting is the failure this design refuses.
+ *
+ * ADMIN, unlike the two ingestion commands above, and the asymmetry is the
+ * point. `forward` and `crash` are a client reporting ITSELF and are ordinary
+ * member traffic. This one reaches ACROSS to somebody else's running client and
+ * changes what it does — an administrative act on the deployment, and the only
+ * command in this family a member has no business attempting.
+ */
+export const logsSetLevelContract = {
+  name: 'logs.setLevel',
+  version: 1,
+  visibility: LOGS_VISIBILITY,
+  input: logsSetLevelInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'admin',
+    resource: 'global',
+    confirmation: 'none',
+    rationale:
+      'ADMIN, where the rest of this family is member: forwarding your own diagnostics is ' +
+      'ordinary client traffic, while reaching into another user’s running client and changing ' +
+      'what it emits is an administrative act on the deployment. `manage` rather than `write` ' +
+      'because it mutates no state at all — it pushes a frame at live connections, and a client ' +
+      'that has gone offline in the meantime simply is not among them. `resource: global` for ' +
+      'the same reason as its siblings: the target is the deployment’s set of connected ' +
+      'clients, not a row and not a machine. No confirmation — the act is bounded by a TTL and ' +
+      'reversible by re-issuing it with a null level.',
+  },
+  exposure: SERVED_ON,
+  delivery: {
+    class: 'online-only',
+    outboxReconciliation:
+      'NEVER queued, and this is the strongest case in the family. The command addresses ' +
+      'CONNECTIONS that exist right now; a raise held through an offline period and delivered ' +
+      'later would arrive at whichever clients happen to be connected then, after the incident ' +
+      'it was issued for, turning up a client nobody is investigating. Re-issuing is one ' +
+      'keystroke and is always the right answer.',
+    applyTimeReauthorization:
+      'Not reachable in practice, since the class forbids queuing; stated for totality (ADR 3 ' +
+      'D8). A held command would be re-authorized live at apply and dropped on refusal.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note:
+      'Carries no user data in either direction. The input is a level, a duration and a ' +
+      'selector over self-descriptions clients already sent in `hello`; the output is the list ' +
+      'of connections it reached, which is the same self-description echoed back so the ' +
+      'operator can see WHO they just turned up. Nothing here is content.',
+  },
+  ownership: CREATES_NOTHING,
+  attribution: LOGS_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    // Nothing to distinguish: the command reports what it reached and never
+    // refuses one connection out of a selection. `resource` is `global`, so
+    // readiness §3.1.4 M5's machine carve-out does not apply here.
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'A `clientId` naming no connection is not an error: the reply reports the connections it ' +
+      'reached, and an unmatched selector reaches none. So an unknown id and a client that just ' +
+      'disconnected are INDISTINGUISHABLE, deliberately — the alternative is an endpoint that ' +
+      'answers "no such client", which is a liveness oracle over other people’s sessions ' +
+      '(D20.3). The operator’s remedy is the same in both cases: look at what came back.',
+  },
+  conflict: 'n/a',
+} as const satisfies CommandContract<typeof logsSetLevelInput>
+
 export const LOGS_CONTRACTS = {
   forward: logsForwardContract,
   crash: logsCrashContract,
+  setLevel: logsSetLevelContract,
 } as const
 
 export type LogsContractName = keyof typeof LOGS_CONTRACTS
 
 export const LOGS_CONTRACT_NAMES = Object.keys(LOGS_CONTRACTS) as LogsContractName[]
 
+export type LogLevelTarget = z.infer<typeof logLevelTarget>
+export type LogsSetLevelInput = z.infer<typeof logsSetLevelInput>
 export type ForwardedLogRecord = z.infer<typeof forwardedLogRecord>
 export type LogOrigin = z.infer<typeof logOrigin>
 export type LogsForwardInput = z.infer<typeof logsForwardInput>

@@ -18,11 +18,19 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import type { z } from 'zod'
+import type { ClientLogLevelDirector } from './level-director'
 import type { CrashTelemetry, LogIngestService } from './service'
 
 /** Exactly what the logs family reaches. */
 export interface LogsState {
   readonly ingest: LogIngestService
+  /**
+   * The operator's reach into running clients (POD-1920). A second member on
+   * this bundle for the same reason the telemetry emitter is one: exactly one
+   * handler needs it, the widening is VISIBLE on the family, and the handler
+   * still never sees a `ctx`.
+   */
+  readonly levels: ClientLogLevelDirector
   /** Absent on a server assembled without telemetry — the crash still stores. */
   readonly telemetry?: CrashTelemetry | undefined
 }
@@ -41,6 +49,13 @@ export const LOGS_COMMANDS_TRPC = {
     contract: LOGS_CONTRACTS.forward,
     handler: ((state, input) => state.ingest.forward(input)) satisfies LogsHandler<
       z.infer<(typeof LOGS_CONTRACTS)['forward']['input']>,
+      unknown
+    >,
+  },
+  setLevel: {
+    contract: LOGS_CONTRACTS.setLevel,
+    handler: ((state, input) => state.levels.setLevel(input)) satisfies LogsHandler<
+      z.infer<(typeof LOGS_CONTRACTS)['setLevel']['input']>,
       unknown
     >,
   },
