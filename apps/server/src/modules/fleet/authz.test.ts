@@ -69,7 +69,7 @@ function deps(
     effectiveOwner?: UserId | null
   } = {},
 ): FleetAuthzDeps {
-  const ids = opts.machines ?? ['laptop']
+  const ids = (opts.machines ?? ['laptop']).map(asMachineId)
   const ownership: MachineOwnershipIndex = {
     rowFor: (machineId): MachineOwnershipRow | undefined =>
       ids.includes(machineId)
@@ -85,7 +85,7 @@ function deps(
     principal,
     ownership,
     role: opts.role ?? 'admin',
-    defaultMachine: () => ids[0] ?? 'laptop',
+    defaultMachine: () => ids[0] ?? asMachineId('laptop'),
     allMachineIds: () => ids,
     machineName: (id) => id,
     effectiveOwner: (machineId) =>

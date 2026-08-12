@@ -11,7 +11,7 @@ import {
 // [spec:SP-3701] POD-787 — tiered per-machine repo discovery.
 
 const row = (machineId: string, path: string, originUrl: string | null = null) => ({
-  machineId,
+  machineId: asMachineId(machineId),
   path,
   originUrl,
 })

@@ -9,6 +9,7 @@
 
 import { createLogger } from '@podium/logger'
 import {
+  asIssueId,
   type IssueId,
   IssueStage,
   isIssueClosed,
@@ -913,7 +914,7 @@ export class IssuesRepository {
         : this.db.prepare(`${base} LIMIT ?`).all(escaped, Math.min(200, Math.max(1, limit)))
     ) as Record<string, unknown>[]
     return rows.map((r) => ({
-      issueId: r.issue_id as string,
+      issueId: asIssueId(r.issue_id as string),
       body: r.body as string,
       createdAt: r.created_at as string,
     }))

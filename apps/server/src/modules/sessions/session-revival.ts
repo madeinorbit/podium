@@ -38,10 +38,7 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, ResumeRef, SessionId, SessionMeta, UserId, MachineId } from '@podium/model'
 import { type AgentKind, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
-import type {
-  ControlMessage,
-  SessionBindingAdoptLaunchInstruction,
-} from '@podium/protocol'
+import type { ControlMessage, SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
 import type { AutoContinueController } from '../../auto-continue'
 import type { SessionStore } from '../../store'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
@@ -168,7 +165,6 @@ export class SessionRevival {
     return spawned
   }
 
-
   /**
    * The existing session for a resume ref, if any — the canonical row for that
    * conversation. Prefers a still-running row (live/starting/reconnecting) over a
@@ -225,12 +221,18 @@ export class SessionRevival {
       rpc: this.ports.rpc,
       getSession: (sessionId) => this.ports.sessions.get(sessionId),
       listSessions: () =>
-        this.ports.listSessions().map((meta) => ({
-          sessionId: meta.sessionId,
-          machineId: meta.machineId ?? '',
-          cwd: meta.cwd,
-          status: meta.status,
-        })),
+        this.ports.listSessions().flatMap((meta) =>
+          meta.machineId
+            ? [
+                {
+                  sessionId: meta.sessionId,
+                  machineId: meta.machineId,
+                  cwd: meta.cwd,
+                  status: meta.status,
+                },
+              ]
+            : [],
+        ),
       listRepos: () => this.ports.store.repos.listRepos(),
       listMachines: () => this.ports.machines.listMachines(),
       issueMeta: (issueId) => this.ports.issueAccess.getMeta(issueId) ?? undefined,
@@ -256,7 +258,6 @@ export class SessionRevival {
     this.handoffCoordinator = new HandoffCoordinator(ports)
     return this.handoffCoordinator
   }
-
 
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
@@ -311,7 +312,6 @@ export class SessionRevival {
     }
     return Promise.resolve(this.finishResurrect(session, ensured, adoptedBinding))
   }
-
 
   finishResurrect(
     session: Session,
@@ -385,5 +385,4 @@ export class SessionRevival {
     this.ports.broadcastSessions()
     return { ok: true }
   }
-
 }

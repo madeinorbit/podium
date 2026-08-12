@@ -156,7 +156,7 @@ function topicKey(chatId: string, id: string): string {
 }
 
 function turnKey(ownerUserId: UserId, threadId: ThreadId): string {
-  return `${ownerUserId}\0${threadId}`
+  return `${ownerUserId}\0${turnKeyValue}`
 }
 
 function conversationKey(ref: ConversationRef): string {
@@ -199,7 +199,7 @@ export class MessagingService implements TelegramNoticePort {
    *  while the first promise is pending must not re-send queue[0]. */
   private readonly dispatching = new Set<string>()
   /** Forum-topic threadRef → superagent thread id. */
-  private readonly topicThreadByRef = new Map<string, string>()
+  private readonly topicThreadByRef = new Map<string, ThreadId>()
   /** Issue id → forum-topic threadRef for reopen. */
   private readonly topicRefByIssue = new Map<string, string>()
   /** Shared typing intervals, keyed by conversation (chatId + threadRef). */
@@ -796,7 +796,7 @@ function isNotAForumError(err: unknown): boolean {
   return err instanceof Error && /not a forum/i.test(err.message)
 }
 
-function turnTypingOwner(threadId: ThreadId): string {
+function turnTypingOwner(turnKeyValue: string): string {
   return `turn:${threadId}`
 }
 

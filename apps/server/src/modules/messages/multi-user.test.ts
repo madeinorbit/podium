@@ -509,7 +509,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
         sessionId: asSessionId('sOnBob'),
         issueId: issue.id,
         status: 'hibernated',
-        machineId: 'mac_bobs_workstation',
+        machineId: asMachineId('mac_bobs_workstation'),
       },
     )
     const cap = h.agentCap(issue.id, asSessionId('sMe'))

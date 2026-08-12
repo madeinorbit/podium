@@ -1,4 +1,4 @@
-import type { MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import type { ConversationIndexRow } from '../types'
 
@@ -9,7 +9,7 @@ export class ConversationIndexRepository {
     private readonly db: SqlDatabase,
     /** This host's minted machine id — the machine a row this repository has to
      *  CONJURE belongs to. See {@link setMeta}. */
-    private readonly hostMachineId: string,
+    private readonly hostMachineId: MachineId,
   ) {}
 
   ensureFts(): void {
@@ -181,7 +181,7 @@ export class ConversationIndexRepository {
       createdAt: (row.created_at as string | null) ?? undefined,
       updatedAt: (row.updated_at as string | null) ?? undefined,
       messageCount: (row.message_count as number | null) ?? undefined,
-      machineId: (row.machine_id as string | null) ?? undefined,
+      machineId: row.machine_id ? asMachineId(row.machine_id as string) : undefined,
     }))
   }
 

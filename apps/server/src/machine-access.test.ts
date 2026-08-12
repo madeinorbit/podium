@@ -263,7 +263,7 @@ describe('agent delegation resolves LIVE, with no reaper', () => {
     expect(checkMachineUse(worker, asMachineId('laptop'), ownership)).toBeUndefined()
 
     // Revoke the HUMAN's grant. Nothing notifies the agent; nothing kills it.
-    rows.set('laptop', { owner: COLLEAGUE, grants: [] })
+    rows.set(asMachineId('laptop'), { owner: COLLEAGUE, grants: [] })
 
     expect(checkMachineUse(worker, asMachineId('laptop'), ownership)).toBe('absent')
   })
@@ -400,14 +400,14 @@ describe('the principal itself', () => {
 describe('ownership and grants come from the source, live', () => {
   /** A source whose rows and edges can be edited BETWEEN two decisions. */
   function liveSource() {
-    const rows = new Map<string, string | null>([['laptop', OWNER]])
-    const edges = new Map<string, { grantee: string; verb: string }[]>()
+    const rows = new Map<MachineId, UserId | null>([[asMachineId('laptop'), OWNER]])
+    const edges = new Map<MachineId, { grantee: string; verb: string }[]>()
     return {
       rows,
       edges,
       source: {
         ownershipRows: () => [...rows].map(([id, ownerUserId]) => ({ id, ownerUserId })),
-        grantsForMachine: (machineId: string) => edges.get(machineId) ?? [],
+        grantsForMachine: (machineId: MachineId) => edges.get(machineId) ?? [],
       },
     }
   }
@@ -419,7 +419,7 @@ describe('ownership and grants come from the source, live', () => {
     // The instrument can say NO first — this is the state before the share.
     expect(checkMachineUse(user(COLLEAGUE), asMachineId('laptop'), ownership)).toBe('absent')
 
-    edges.set('laptop', [{ grantee: COLLEAGUE, verb: 'use' }])
+    edges.set(asMachineId('laptop'), [{ grantee: COLLEAGUE, verb: 'use' }])
 
     expect(checkMachineUse(user(COLLEAGUE), asMachineId('laptop'), ownership)).toBeUndefined()
     // …and the owner is unaffected, so the fixture is not simply permissive now.
@@ -429,10 +429,10 @@ describe('ownership and grants come from the source, live', () => {
   it('REVOCATION takes effect at the next decision, with nothing to invalidate', () => {
     const { edges, source } = liveSource()
     const ownership = ownershipFromMachines(source)
-    edges.set('laptop', [{ grantee: COLLEAGUE, verb: 'use' }])
+    edges.set(asMachineId('laptop'), [{ grantee: COLLEAGUE, verb: 'use' }])
     expect(checkMachineUse(user(COLLEAGUE), asMachineId('laptop'), ownership)).toBeUndefined()
 
-    edges.set('laptop', [])
+    edges.set(asMachineId('laptop'), [])
 
     expect(checkMachineUse(user(COLLEAGUE), asMachineId('laptop'), ownership)).toBe('absent')
   })
@@ -440,7 +440,7 @@ describe('ownership and grants come from the source, live', () => {
   it('`see` alone discloses existence and REFUSES execution — the M2 line', () => {
     const { edges, source } = liveSource()
     const ownership = ownershipFromMachines(source)
-    edges.set('laptop', [{ grantee: COLLEAGUE, verb: 'see' }])
+    edges.set(asMachineId('laptop'), [{ grantee: COLLEAGUE, verb: 'see' }])
 
     expect(canSeeMachine(user(COLLEAGUE), asMachineId('laptop'), ownership)).toBe(true)
     expect(checkMachineUse(user(COLLEAGUE), asMachineId('laptop'), ownership)).toBe('unauthorized')
@@ -462,7 +462,7 @@ describe('ownership and grants come from the source, live', () => {
   it('a stored verb this build does not know is DROPPED rather than admitted', () => {
     const { edges, source } = liveSource()
     const ownership = ownershipFromMachines(source)
-    edges.set('laptop', [
+    edges.set(asMachineId('laptop'), [
       { grantee: COLLEAGUE, verb: 'teleport' },
       // `read` and `write` are real GRANT_VERBS — for other classes. Neither is a
       // machine verb, and neither may leak in as one.
@@ -473,7 +473,7 @@ describe('ownership and grants come from the source, live', () => {
 
     // The same source, one line different, says YES — so the refusal above is
     // about the VERB and not about the fixture being unable to grant anything.
-    edges.set('laptop', [{ grantee: COLLEAGUE, verb: 'use' }])
+    edges.set(asMachineId('laptop'), [{ grantee: COLLEAGUE, verb: 'use' }])
     expect(checkMachineUse(user(COLLEAGUE), asMachineId('laptop'), ownership)).toBeUndefined()
   })
 

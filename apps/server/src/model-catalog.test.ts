@@ -10,7 +10,11 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     const probe = vi.fn(async () => ({ grok: [{ value: 'g', label: 'g' }] }))
     const cat = new ModelCatalog(probe)
     // First read: stale/empty → returns empty NOW and kicks a bg refresh.
-    expect(cat.get(asMachineId(M))).toEqual({ machineId: M, byAgent: {}, fetchedAt: 0 })
+    expect(cat.get(asMachineId(M))).toEqual({
+      machineId: asMachineId(M),
+      byAgent: {},
+      fetchedAt: 0,
+    })
     await cat.refresh(asMachineId(M)) // await the in-flight probe
     expect(cat.get(asMachineId(M)).byAgent.grok?.[0]?.value).toBe('g')
     expect(cat.get(asMachineId(M)).machineId).toBe(M)
@@ -114,7 +118,7 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
 
   it('seeds from a current-version persisted snapshot for that machine', () => {
     const persisted = {
-      machineId: M,
+      machineId: asMachineId(M),
       byAgent: { grok: [{ value: 'grok-build', label: 'grok-build' }] },
       fetchedAt: 123,
       version: MODEL_CATALOG_VERSION,
@@ -150,7 +154,7 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     const probe = vi.fn(async () => ({}))
     const cat = new ModelCatalog(probe, {
       load: () => ({
-        machineId: M,
+        machineId: asMachineId(M),
         byAgent: { grok: [{ value: 'pre-split', label: 'pre-split' }] },
         fetchedAt: 123,
         version: MODEL_CATALOG_VERSION - 1,
@@ -167,7 +171,7 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     const probe = vi.fn(async () => ({}))
     const cat = new ModelCatalog(probe, {
       load: () => ({
-        machineId: M2,
+        machineId: asMachineId(M2),
         byAgent: { grok: [{ value: 'other', label: 'other' }] },
         fetchedAt: 123,
         version: MODEL_CATALOG_VERSION,
@@ -185,7 +189,7 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     )
     await cat.refresh(asMachineId(M))
     expect(save).toHaveBeenCalledWith({
-      machineId: M,
+      machineId: asMachineId(M),
       byAgent: { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] },
       fetchedAt: 42,
       version: MODEL_CATALOG_VERSION,

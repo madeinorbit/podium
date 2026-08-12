@@ -37,8 +37,16 @@ import {
   sessionCommandPlane,
   type sessionCommandPlaneInputs,
 } from '@podium/commands'
-import type { AgentKind, Attribution, IssueId, SessionId, UserId, MachineId, MutationId } from '@podium/model'
-import { actorAgent, actorSystem, actorUser, asAgentIdentityId } from '@podium/model'
+import type {
+  AgentKind,
+  Attribution,
+  IssueId,
+  SessionId,
+  UserId,
+  MachineId,
+  MutationId,
+} from '@podium/model'
+import { actorAgent, actorSystem, actorUser, asAgentIdentityId, asMutationId } from '@podium/model'
 import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
 
 import type { MutationLedgerPort } from '@podium/sync'
@@ -351,7 +359,7 @@ export interface CreatedOwnership {
 
 export function createdOwnership(
   principal: CommandPrincipal,
-  parentIssue: { id: SessionId; owner?: string | null } | undefined,
+  parentIssue: { id: IssueId; owner?: UserId | null } | undefined,
 ): CreatedOwnership {
   const attribution = attributionOf(principal)
   if (parentIssue) {
@@ -726,7 +734,7 @@ export function dispatchSessionCommand<K extends SessionCommandKey>(
   // six lifecycle commands and identical-by-construction for the three that do.
   const mutationId = (input as { mutationId?: unknown }).mutationId
   return ctx.deps.mutations.once(
-    typeof mutationId === 'string' ? mutationId : undefined,
+    typeof mutationId === 'string' ? asMutationId(mutationId) : undefined,
     name,
     () => handler(ctx, input),
   ) as SessionCommandResult<K>

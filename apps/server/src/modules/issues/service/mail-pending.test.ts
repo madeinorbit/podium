@@ -103,11 +103,11 @@ describe('countContextAwarePendingMail', () => {
 
       const baselineSenders = messages.listPendingSendersForSession(
         asIssueId('iss_target'),
-        'reader-session',
+        asSessionId('reader-session'),
       )
       const baselineCount = messages.countPendingForSession(
         asIssueId('iss_target'),
-        'reader-session',
+        asSessionId('reader-session'),
       )
       expect(baselineCount).toBe(3)
       expect(baselineSenders).toHaveLength(2)
@@ -118,7 +118,7 @@ describe('countContextAwarePendingMail', () => {
         { messages, issues: store.issues },
         asIssueId('iss_target'),
         (fromIssue) => `issue:${fromIssue}`,
-        'reader-session',
+        asSessionId('reader-session'),
       )
 
       expect(result).toEqual({

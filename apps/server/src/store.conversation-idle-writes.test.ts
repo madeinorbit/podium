@@ -37,7 +37,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   id: 'native-a',
   agentKind: 'claude-code',
   providerId: 'claude-code-jsonl',
-  machineId: 'm1',
+  machineId: asMachineId('m1'),
   title: 'A conversation',
   projectPath: '/repo',
   messageCount: 12,

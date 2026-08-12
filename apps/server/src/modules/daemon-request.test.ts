@@ -27,7 +27,7 @@ function harness(defaultMachine = 'm1') {
   const sent: { machineId: string; msg: ControlMessage }[] = []
   const broker = new DaemonRequestBroker({
     toMachine: (machineId, msg) => sent.push({ machineId, msg }),
-    defaultMachine: () => defaultMachine,
+    defaultMachine: () => asMachineId(defaultMachine),
   })
   const ask = (machineId?: string) =>
     broker.request({
@@ -35,7 +35,7 @@ function harness(defaultMachine = 'm1') {
       timeoutMs: 1_000,
       onTimeout: () => ({ answer: 'timeout' }),
       build: (requestId) => ({ type: 'scanRequest', requestId }) as ControlMessage,
-      machineId,
+      machineId: machineId ? asMachineId(machineId) : undefined,
     })
   /** The id the broker minted for the Nth send. */
   const idOf = (index: number): string =>
@@ -71,7 +71,7 @@ describe('correlation', () => {
     const sent: { machineId: string; msg: ControlMessage }[] = []
     const broker = new DaemonRequestBroker({
       toMachine: (machineId, msg) => sent.push({ machineId, msg }),
-      defaultMachine: () => current,
+      defaultMachine: () => asMachineId(current),
     })
     const p = broker.request({
       kind: PROBE,

@@ -638,7 +638,7 @@ export class StewardService {
       // Session events carry a sessionId subject; resolve its bound issue so an
       // issue/relationship source can match on the work, not the raw session id.
       const srcSession = isSession ? sessions.find((s) => s.sessionId === e.subject) : undefined
-      const srcIssueId = isSession ? (srcSession?.issueId ?? null) : e.subject
+      const srcIssueId = isSession ? (srcSession?.issueId ?? null) : asIssueId(e.subject)
       for (const sub of subs) {
         if (!kinds.includes(sub.event)) continue
         try {
@@ -686,8 +686,8 @@ export class StewardService {
 
   /** The issue a subscription's relationship source is anchored on: the subscriber
    *  issue itself, or (for a session subscriber) that session's bound issue. */
-  private subscriberIssueId(sub: Subscription, sessions: SessionMeta[]): string | undefined {
-    if (sub.subscriberKind === 'issue') return sub.subscriberId
+  private subscriberIssueId(sub: Subscription, sessions: SessionMeta[]): IssueId | undefined {
+    if (sub.subscriberKind === 'issue') return asIssueId(sub.subscriberId)
     return sessions.find((s) => s.sessionId === sub.subscriberId)?.issueId ?? undefined
   }
 
@@ -707,7 +707,7 @@ export class StewardService {
     // raw event subject for an issue.* kind, or the source session's bound
     // issue for a session.* kind.
     const eventIssueId = e.kind.startsWith('issue.')
-      ? e.subject
+      ? asIssueId(e.subject)
       : (sessions.find((s) => s.sessionId === e.subject)?.issueId ?? undefined)
     let subscriberClaimed = false
     if (sub.deliverNudge) {

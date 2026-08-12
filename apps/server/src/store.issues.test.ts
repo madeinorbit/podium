@@ -217,43 +217,49 @@ describe('per-user issue state (POD-1076)', () => {
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
     store.issues.upsertIssue(baseRow({ id: asIssueId('iss_untouched'), seq: 2 }))
 
-    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), 'iss_read', {
+    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
       readAt: '2026-07-07T00:00:00.000Z',
       pinnedAt: '2026-07-08T00:00:00.000Z',
     })
-    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), 'iss_read')).toEqual({
+    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'))).toEqual({
       readAt: '2026-07-07T00:00:00.000Z',
       tuckedAt: null,
       pinnedAt: '2026-07-08T00:00:00.000Z',
     })
     // An issue nobody touched has NO row — absence is the single spelling.
-    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), 'iss_untouched')).toBeUndefined()
+    expect(
+      store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_untouched')),
+    ).toBeUndefined()
 
     // The PARTIAL patch: writing readAt must not disturb pinnedAt. This is the
     // whole reason the method takes a patch rather than a row — a whole-row
     // upsert makes "marking it read un-pinned it" a one-line mistake.
-    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), 'iss_read', {
+    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
       readAt: '2026-07-09T00:00:00.000Z',
     })
-    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), 'iss_read')?.pinnedAt).toBe(
-      '2026-07-08T00:00:00.000Z',
-    )
+    expect(
+      store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'))?.pinnedAt,
+    ).toBe('2026-07-08T00:00:00.000Z')
 
     // ANOTHER user's slice is empty for the SAME issue.
-    expect(store.issues.getIssueUserState(asUserId('user:other'), 'iss_read')).toBeUndefined()
+    expect(
+      store.issues.getIssueUserState(asUserId('user:other'), asIssueId('iss_read')),
+    ).toBeUndefined()
     expect(store.issues.listIssueUserState(asUserId('user:other')).size).toBe(0)
 
     // Clearing every marker DELETES the row rather than leaving three nulls.
-    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), 'iss_read', {
+    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
       readAt: null,
       pinnedAt: null,
     })
-    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), 'iss_read')).toBeUndefined()
+    expect(
+      store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read')),
+    ).toBeUndefined()
 
     // A write with no identity fails CLOSED; it never falls back to an operator.
-    expect(() => store.issues.setIssueUserState(asUserId(''), 'iss_read', { readAt: 't' })).toThrow(
-      /no user id/,
-    )
+    expect(() =>
+      store.issues.setIssueUserState(asUserId(''), asIssueId('iss_read'), { readAt: 't' }),
+    ).toThrow(/no user id/)
     store.close()
   })
 })
@@ -396,7 +402,7 @@ describe('issue mail store (agent mail #103)', () => {
     expect(list.map((m) => m.id)).toEqual(['msg_a', 'msg_b'])
     expect(list[0]).toMatchObject({ issueId: 'iss_a', fromAuthor: 'issue:#2', status: 'unread' })
     expect(store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(2)
-    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), 'iss_a', ['msg_a'], 'tr')
+    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), asIssueId('iss_a'), ['msg_a'], 'tr')
     expect(store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(1)
     expect(
       store.issues.listIssueMessages(asIssueId('iss_a'), { status: 'unread' }).map((m) => m.id),
@@ -419,8 +425,8 @@ describe('issue mail store (agent mail #103)', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a')
     store.issues.addIssueMessage(msg('msg_a'))
-    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), 'iss_a', ['msg_a'], 't1')
-    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), 'iss_a', ['msg_a'], 't2')
+    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), asIssueId('iss_a'), ['msg_a'], 't1')
+    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), asIssueId('iss_a'), ['msg_a'], 't2')
     // TWO CLASSES, TWO BEHAVIOURS (POD-1076). `status` is the mail's SHARED
     // delivery state and is idempotent — the second call is a no-op on it. The
     // per-user `read_at` is a fact about THIS reader and DOES advance, because
@@ -431,7 +437,7 @@ describe('issue mail store (agent mail #103)', () => {
     expect(store.issues.listIssueMessageReadAt(asUserId('user:other'))).toEqual({})
 
     store.issues.claimIssueMessage('msg_a', 'x', 'tc')
-    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), 'iss_a', ['msg_a'], 't3')
+    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), asIssueId('iss_a'), ['msg_a'], 't3')
     // Never regresses a claimed message back to 'read'…
     expect(store.issues.getIssueMessage('msg_a')!.status).toBe('claimed')
     // …but MY having read it after the claim is still true and is recorded.

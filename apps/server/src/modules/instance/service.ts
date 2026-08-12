@@ -196,7 +196,7 @@ export class InstanceService {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
         message:
-          'PODIUM_UPDATE_CHANNEL is set in this deployment\'s environment and overrides the ' +
+          "PODIUM_UPDATE_CHANNEL is set in this deployment's environment and overrides the " +
           'configured channel. Unset it to choose the fleet default from Settings.',
       })
     }
@@ -221,7 +221,8 @@ export class InstanceService {
    * unauthenticated caller cannot reach these methods at all.
    */
   private get callerCredential() {
-    return this.deps.users?.credentialFor(this.deps.callerUserId ?? '')
+    const userId = this.deps.callerUserId
+    return userId ? this.deps.users?.credentialFor(userId) : undefined
   }
 
   /** `{ loginRequired }` is instance policy; the other two are about the CALLER.
@@ -230,7 +231,9 @@ export class InstanceService {
     return {
       loginRequired: this.deps.loginRequired?.() ?? false,
       hasOwnCredential: Boolean(this.callerCredential?.passwordHash),
-      canManageInstance: this.deps.users?.get(this.deps.callerUserId ?? '')?.role === 'admin',
+      canManageInstance:
+        this.deps.callerUserId !== undefined &&
+        this.deps.users?.get(this.deps.callerUserId)?.role === 'admin',
     }
   }
 

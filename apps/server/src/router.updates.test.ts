@@ -73,7 +73,7 @@ describe('fleet default update channel', () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
     const { registry } = harness()
     addMachine(registry, 'pinned')
-    registry.modules.machines.setUpdateChannel('pinned', 'stable')
+    registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
 
     expect(registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
 
@@ -92,7 +92,7 @@ describe('fleet default update channel', () => {
     const { registry } = harness()
     addMachine(registry, 'follower')
     addMachine(registry, 'pinned')
-    registry.modules.machines.setUpdateChannel('pinned', 'stable')
+    registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
     registry.modules.updates.setTarget(target())
 
     const before = registry.modules.machines.listMachines()
@@ -121,10 +121,10 @@ describe('fleet default update channel', () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
     const { registry } = harness()
     addMachine(registry, 'released')
-    registry.modules.machines.setUpdateChannel('released', 'dev')
+    registry.modules.machines.setUpdateChannel(asMachineId('released'), 'dev')
     expect(registry.modules.machines.updateChannel(asMachineId('released'))).toBe('dev')
 
-    registry.modules.machines.setUpdateChannel('released', null)
+    registry.modules.machines.setUpdateChannel(asMachineId('released'), null)
 
     expect(registry.modules.machines.updateChannel(asMachineId('released'))).toBe('edge')
     const released = registry.modules.machines
@@ -207,7 +207,7 @@ describe('updates tRPC', () => {
       tokenHash: 'flatblock-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel('flatblock', 'dev')
+    registry.modules.machines.setUpdateChannel(asMachineId('flatblock'), 'dev')
     registry.modules.machines.setMachineBuild(
       asMachineId('flatblock'),
       { appVersion: '0.4.1' },
@@ -263,7 +263,7 @@ describe('updates tRPC', () => {
       tokenHash: 'stable-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    registry.modules.machines.setUpdateChannel('stable-machine', 'stable')
+    registry.modules.machines.setUpdateChannel(asMachineId('stable-machine'), 'stable')
     registry.modules.machines.setMachineBuild(
       asMachineId('stable-machine'),
       { appVersion: '0.4.1' },

@@ -3,9 +3,11 @@ import {
   asIssueId,
   asMachineId,
   asSessionId,
+  asThreadId,
   asUserId,
   FIRST_ADMIN_USER_ID,
   type IssueId,
+  type UserId,
   type SessionMeta,
   type SessionMetaInput,
 } from '@podium/model'
@@ -747,7 +749,7 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     h.svc.markIssueRead(w.id)
     return { ...h, id: w.id }
   }
-  const observation = (id: IssueId, readerUserId: string) => ({
+  const observation = (id: IssueId, readerUserId: UserId) => ({
     issueId: id,
     stage: 'done',
     closedReason: 'done',
@@ -783,7 +785,9 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // operator by default (readiness §3.1.6 S4 — an unidentified principal fails
     // CLOSED).
     const { svc, id } = doneAndRead()
-    expect(svc.tryAutoArchiveObserved(observation(id, ''), DUE)).toBe('precondition')
+    expect(svc.tryAutoArchiveObserved(observation(id, '' as unknown as UserId), DUE)).toBe(
+      'precondition',
+    )
     expect(svc.get(id)!.archived).toBe(false)
   })
 
@@ -4277,7 +4281,7 @@ describe('IssueService agent mail (#103)', () => {
   function substrateRow(issueId: IssueId, id: string, status: 'queued' | 'delivered' | 'read') {
     return {
       id,
-      threadId: id,
+      threadId: asThreadId(id),
       inReplyTo: null,
       fromKind: 'agent' as const,
       fromSession: asSessionId('sX'),

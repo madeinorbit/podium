@@ -1,4 +1,4 @@
-import type { MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import type { ConvergenceState } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { serverBuildVersion } from '../../build-version'
@@ -54,7 +54,9 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
   // Edge/stable machines have their own explicit per-row targets and actions;
   // comparing them with the dev target invents behind places this mutation
   // cannot and must not grant.
-  const allMachines = updates.fleet().map((machine) => ({ ...machine }))
+  const allMachines = updates
+    .fleet()
+    .map((machine) => ({ ...machine, id: asMachineId(machine.id) }))
   const machines = allMachines.filter((machine) => isDevelopmentMachine(machine))
   const behind = targetVersion
     ? machines.filter((machine) => machine.version !== targetVersion).length

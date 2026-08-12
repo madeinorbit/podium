@@ -200,7 +200,7 @@ describe('D19.4 regression sequences', () => {
     const tokenHash = sha256(token)
 
     // Intentional revoke — ledger append is the commit point.
-    w.machines.revokeMachine(machineId, { by: OWNER })
+    w.machines.revokeMachine(asMachineId(machineId), { by: OWNER })
     expect(w.store.machines.getMachine(machineId)).toBeUndefined()
     expect(hello(w.machines, machineId, token).ok).toBe(false)
 
@@ -263,7 +263,7 @@ describe('D19.4 regression sequences', () => {
     // mutant that sequence 3 must catch. Revoke-reason bytes come from a sibling.
     const { machineId, token } = pairRemote(w.machines, { machineId: 'remote-box' })
     const sibling = pairRemote(w.machines, { machineId: 'sibling-box' })
-    w.machines.revokeMachine(sibling.machineId)
+    w.machines.revokeMachine(asMachineId(sibling.machineId))
     const revokeReason = hello(w.machines, sibling.machineId, sibling.token)
     expect(revokeReason.ok).toBe(false)
 

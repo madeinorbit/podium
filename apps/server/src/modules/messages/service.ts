@@ -421,7 +421,7 @@ export class MessageDeliveryService {
 
   /** Last resolved issue per session. This is the before-state needed for detach,
    * reassignment, inferred-cwd movement, and remove events. */
-  private readonly sessionIssueTargets = new Map<string, string>()
+  private readonly sessionIssueTargets = new Map<SessionId, IssueId>()
 
   /** Queue the session principal plus both sides of its issue-resolution change. */
   onSessionEligibilityChanged(
@@ -995,7 +995,7 @@ export class MessageDeliveryService {
             opts?.viaSweep === true,
           )
           if (denied) return denied
-          return this.trySpawn(message, message.toId)
+          return this.trySpawn(message, message.toId ? asIssueId(message.toId) : null)
         }
         // Issue is live but has NO session — HOLD for its next session. Delivered
         // at that session's next turn boundary (onSessionIdle) / the sweep. The
@@ -1069,7 +1069,8 @@ export class MessageDeliveryService {
       // Unresumable → spawn-on-wake. The resume attempt was already gated on
       // the parked session's machine; the spawn may land on the ISSUE's machine
       // instead (issue.machineId), so re-check against that placement target.
-      const issueId = this.issueForSession(target) ?? message.toId
+      const issueId =
+        this.issueForSession(target) ?? (message.toId ? asIssueId(message.toId) : null)
       const issueMachine = issueId ? this.deps.issues.get(issueId)?.machineId : undefined
       if (issueMachine && issueMachine !== target.machineId) {
         const denied = this.refuseWakeUnlessUsable(message, issueMachine, opts?.viaSweep === true)
@@ -1589,11 +1590,12 @@ export class MessageDeliveryService {
     return 'running'
   }
 
-  private issueForSession(s: SessionMeta | undefined): string | null {
+  private issueForSession(s: SessionMeta | undefined): IssueId | null {
     if (!s) return null
     if (s.issueId) return s.issueId
     try {
-      return this.deps.issues.issueForCwd(s.cwd) ?? null
+      const issueId = this.deps.issues.issueForCwd(s.cwd)
+      return issueId ? asIssueId(issueId) : null
     } catch {
       return null
     }
