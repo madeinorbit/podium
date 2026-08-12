@@ -117,6 +117,36 @@ export class HandoffPreflight {
         ),
       )
       baseShas = verifiedCommonBundleBases(sourceVerified, targetVerified)
+      /**
+       * A shared NAME need not point at the same commit on both machines.
+       *
+       * The first pass asks whether the target already has one of the SOURCE's
+       * candidate tips. That is enough when the target is current or ahead, but
+       * not when an incident sends work to a healthy checkout whose `main` is
+       * behind: the old target tip is in the source's history and is therefore a
+       * valid bundle base, yet the target cannot resolve the newer source tip.
+       *
+       * Only pay the second round trip on an otherwise-empty intersection. The
+       * target proposes its own tips and the source independently proves which
+       * objects it has. This is still an intersection of verified object IDs —
+       * origin identity selects the checkout, while shared history authorizes the
+       * bundle base. An unrelated repository still produces an empty set and is
+       * refused before the live process is stopped.
+       */
+      if (baseShas.length === 0) {
+        const targetCandidates = await Promise.all(
+          candidates.map((ref) =>
+            this.ports.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
+          ),
+        )
+        const targetBaseShas = verifiedBundleBases(targetCandidates)
+        const sourceVerifiedTargetBases = await Promise.all(
+          targetBaseShas.map((ref) =>
+            this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
+          ),
+        )
+        baseShas = verifiedCommonBundleBases(targetCandidates, sourceVerifiedTargetBases)
+      }
       if (baseShas.length === 0)
         throw new Error('target repository has no verified common bundle base')
       // OBLIGATION 2, first checkpoint: the clone and the base handshake above

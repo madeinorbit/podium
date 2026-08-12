@@ -415,6 +415,8 @@
         "src/modules/sessions/handoff/placement.ts",
         "src/modules/sessions/handoff/ports.ts",
         "src/modules/sessions/handoff/ports.types.test.ts",
+        "src/modules/sessions/handoff/preflight.test.ts",
+        "src/modules/sessions/handoff/preflight.ts",
         "src/modules/sessions/handoff/refusal.test.ts",
         "src/modules/sessions/handoff/refusal.ts",
         "src/modules/sessions/inbox.test.ts",
