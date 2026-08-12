@@ -62,18 +62,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
  */
 export function RefMiniviewHost(): JSX.Element | null {
   const issues = useReplicaIssues()
-  const { trpc, sessions, setOpenIssueId, setView, setSelectedIssueId, navigateToSession } =
-    useStoreSelector(
-      (s) => ({
-        trpc: s.trpc,
-        sessions: s.sessions,
-        setOpenIssueId: s.setOpenIssueId,
-        setView: s.setView,
-        setSelectedIssueId: s.setSelectedIssueId,
-        navigateToSession: s.navigateToSession,
-      }),
-      shallowEqual,
-    )
+  const {
+    trpc,
+    sessions,
+    setOpenIssueId,
+    setView,
+    setSelectedIssueId,
+    navigateToSession,
+    updateIssue,
+  } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      sessions: s.sessions,
+      setOpenIssueId: s.setOpenIssueId,
+      setView: s.setView,
+      setSelectedIssueId: s.setSelectedIssueId,
+      navigateToSession: s.navigateToSession,
+      updateIssue: s.updateIssue,
+    }),
+    shallowEqual,
+  )
   const { setFocusedIssueId } = useOperatorFocus()
 
   const openIssueFull = (issueId: IssueId): void => {
@@ -148,9 +156,7 @@ export function RefMiniviewHost(): JSX.Element | null {
       }}
       onStart={(issueId) => trpc.issues.start.mutate({ id: issueId })}
       onPromote={(issueId) => trpc.issues.promote.mutate({ id: issueId })}
-      onAgentChange={(issueId, defaultAgent) =>
-        trpc.issues.update.mutate({ id: issueId, patch: { defaultAgent } })
-      }
+      onAgentChange={(issueId, defaultAgent) => updateIssue(issueId, { defaultAgent })}
     />,
     document.body,
   )

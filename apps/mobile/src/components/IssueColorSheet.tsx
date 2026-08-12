@@ -23,9 +23,9 @@ import { PressableScale } from './PressableScale'
  * identity through every row, header and pane on both platforms — a desktop
  * feature the phone merely rendered.
  *
- * The write is `issues.update { color }`, the same mutation the desktop menu
- * sends, so a colour chosen here is on the sidebar row before the thumb leaves
- * the glass.
+ * The write uses the same optimistic `updateIssue` action as the desktop menu,
+ * so a colour chosen here is on the sidebar row before the thumb leaves the
+ * glass and survives offline in the mobile queue.
  */
 export function IssueColorSheet({
   issue,
@@ -40,7 +40,7 @@ export function IssueColorSheet({
   const pick = (slot: IssueColorSlot | null) => {
     if (!issue) return
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-    void store.trpc.issues.update.mutate({ id: issue.id, patch: { color: slot } }).catch(() => {})
+    void store.updateIssue(issue.id, { color: slot }).catch(() => {})
     onClose()
   }
 

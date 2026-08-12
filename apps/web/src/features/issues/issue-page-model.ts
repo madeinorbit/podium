@@ -17,6 +17,7 @@ import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import type { Store } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import { issueNeighbors } from './issue-page'
@@ -37,6 +38,16 @@ const EVENTS_PAGE = 200
 
 export interface IssuePageModel {
   trpc: Trpc
+  issueWrites: Pick<
+    Store,
+    | 'updateIssue'
+    | 'deleteIssue'
+    | 'closeIssue'
+    | 'deferIssue'
+    | 'undeferIssue'
+    | 'setIssueLabels'
+    | 'restoreIssue'
+  >
   issues: IssueViewModel[]
   busy: boolean
   toast: string
@@ -66,12 +77,31 @@ export interface IssuePageModel {
 }
 
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
-  const { trpc, hub, sessions, navigateToSession } = useStoreSelector(
+  const {
+    trpc,
+    hub,
+    sessions,
+    navigateToSession,
+    updateIssue,
+    deleteIssue,
+    closeIssue,
+    deferIssue,
+    undeferIssue,
+    setIssueLabels,
+    restoreIssue,
+  } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
       hub: s.hub,
       sessions: s.sessions,
       navigateToSession: s.navigateToSession,
+      updateIssue: s.updateIssue,
+      deleteIssue: s.deleteIssue,
+      closeIssue: s.closeIssue,
+      deferIssue: s.deferIssue,
+      undeferIssue: s.undeferIssue,
+      setIssueLabels: s.setIssueLabels,
+      restoreIssue: s.restoreIssue,
     }),
     shallowEqual,
   )
@@ -202,6 +232,15 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
 
   return {
     trpc,
+    issueWrites: {
+      updateIssue,
+      deleteIssue,
+      closeIssue,
+      deferIssue,
+      undeferIssue,
+      setIssueLabels,
+      restoreIssue,
+    },
     issues,
     busy,
     toast,

@@ -243,7 +243,7 @@ function SheetHead({
           selected: stage === issue.stage,
           disabled: stage === issue.stage,
           onPress: () => {
-            void store.trpc.issues.update.mutate({ id: issue.id, patch: { stage } }).catch(() => {})
+            void store.updateIssue(issue.id, { stage }).catch(() => {})
           },
         }))}
       />

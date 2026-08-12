@@ -71,7 +71,7 @@ export function IssuePage({
   const model = useIssuePageModel(issue, orderedIds)
   const { busy, toast, run, prev, next, repoName, feed, mail, children, issues } = model
   const { memberSessions, openSession } = model
-  const commands = issuePageCommands({ trpc: model.trpc, issue, run })
+  const commands = issuePageCommands({ trpc: model.trpc, issue, run, ...model.issueWrites })
 
   // If this issue is unshared while open (POD-1077 evict), leave — once, and
   // with no deletion affordance of any kind. See ./issue-page/use-eviction-guard.ts.

@@ -18,15 +18,12 @@ export type ScreeningOutcome = 'accepted' | 'declined' | 'skipped'
  *  "Close (wontfix)" so both surfaces write the same closure vocabulary. */
 export const DECLINE_REASON = 'wontfix'
 
-/** The narrow issue-mutation seam the flow needs (the mobile tRPC client
- *  satisfies it structurally); kept explicit so the outcomes are testable
- *  without a transport. */
-export interface ScreeningApi {
-  issues: {
-    promote: { mutate(input: { id: string }): Promise<unknown> }
-    start: { mutate(input: { id: string }): Promise<unknown> }
-    close: { mutate(input: { id: string; reason?: string }): Promise<unknown> }
-  }
+/** The narrow command seam the flow needs, kept explicit so the ordered
+ *  promote/start sequence and the optimistic close are testable without a UI. */
+export interface ScreeningCommands {
+  promoteIssue: (id: string) => Promise<unknown>
+  startIssue: (id: string) => Promise<unknown>
+  closeIssue: (id: string, reason?: string) => Promise<unknown>
 }
 
 /** Is this issue a proposal the operator can still screen? */
@@ -108,17 +105,17 @@ export function reconcileScreeningOrder(
  * proposal another client promoted a moment earlier.
  */
 export async function applyScreeningDecision(
-  api: ScreeningApi,
+  commands: ScreeningCommands,
   issue: { id: string; stage: string },
   outcome: ScreeningOutcome,
 ): Promise<void> {
   if (outcome === 'skipped') return
   if (outcome === 'declined') {
-    await api.issues.close.mutate({ id: issue.id, reason: DECLINE_REASON })
+    await commands.closeIssue(issue.id, DECLINE_REASON)
     return
   }
-  if (issue.stage === 'proposed') await api.issues.promote.mutate({ id: issue.id })
-  await api.issues.start.mutate({ id: issue.id })
+  if (issue.stage === 'proposed') await commands.promoteIssue(issue.id)
+  await commands.startIssue(issue.id)
 }
 
 /** Tally for the deck's closing summary. */

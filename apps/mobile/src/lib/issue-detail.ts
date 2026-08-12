@@ -1,4 +1,5 @@
 import type { ActivityComment, IssueEvent } from '@podium/client-core/viewmodels'
+import type { IssueUpdatePatch } from '@podium/commands'
 import type { IssueWire } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 
@@ -7,7 +8,8 @@ import type { MobileTrpc } from '../client/trpc'
  * `issue-page-commands.ts`.
  *
  * Every mutation the task page fires is a named verb here, so the screen and its
- * sections stay composition. Same split, same reason: an inline
+ * sections stay composition. Curation writes use the store's optimistic engine
+ * actions; server-only commands retain the narrow tRPC seam. Same split, same reason: an inline
  * `trpc.issues.something.mutate` in a component is a call site nobody can audit
  * for what identity it carries, and the desktop's payload-identity test exists
  * precisely because of that. Nothing below sends an actor, an owner or an origin;
@@ -64,18 +66,11 @@ interface IssueDetailProcs {
       { repoPath: string; title: string; parentId?: string; startNow: boolean },
       IssueWire
     >
-    update: Mutate<{ id: string; patch: Record<string, unknown> }>
-    close: Mutate<{ id: string; reason?: string }>
-    delete: Mutate<{ id: string }>
-    restore: Mutate<{ id: string }>
     supersede: Mutate<{ oldId: string; newId: string }>
     duplicate: Mutate<{ id: string; canonicalId: string }>
-    setLabels: Mutate<{ id: string; labels: string[] }>
     reparent: Mutate<{ id: string; parentId: string | null }>
     depAdd: Mutate<{ fromId: string; toId: string; type: string }>
     depRemove: Mutate<{ fromId: string; toId: string; type: string }>
-    defer: Mutate<{ id: string; until: string }>
-    undefer: Mutate<{ id: string }>
     setNeedsHuman: Mutate<{ id: string; question?: string }>
     applySuggestion: Mutate<{ id: string }>
     dismissSuggestion: Mutate<{ id: string }>
@@ -96,23 +91,36 @@ export type RunMutation = (fn: () => Promise<unknown>) => Promise<void>
 
 export type IssueCommands = ReturnType<typeof issueCommands>
 
+export interface IssueWriteActions {
+  updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
+  deleteIssue: (id: string) => Promise<unknown>
+  closeIssue: (id: string, reason?: string) => Promise<unknown>
+  deferIssue: (id: string, until: string | null) => Promise<unknown>
+  undeferIssue: (id: string) => Promise<unknown>
+  setIssueLabels: (id: string, labels: string[]) => Promise<unknown>
+  restoreIssue: (id: string) => Promise<unknown>
+}
+
 /** Build the page's command set for the currently open task. Rebuilt per render
  *  (like the closures it replaces) so every command sees the live row. */
 export function issueCommands({
   trpc,
   issue,
   run,
+  actions,
 }: {
   trpc: MobileTrpc
   issue: IssueWire
   run: RunMutation
+  actions: IssueWriteActions
 }) {
   const id = issue.id
   const api = issueProcs(trpc).issues
 
-  /** Generic field patch — the single `issues.update` call site. */
+  /** Generic field patch — the single `issues.update` call site. Keep the
+   *  page's existing clear-value surface intact at this transport seam. */
   const update = (patch: Record<string, unknown>): void => {
-    void run(() => api.update.mutate({ id, patch }))
+    void run(() => actions.updateIssue(id, patch as IssueUpdatePatch))
   }
 
   return {
@@ -130,7 +138,7 @@ export function issueCommands({
     },
     restoreIssue: (onRestored: () => void): void => {
       void run(async () => {
-        await api.restore.mutate({ id })
+        await actions.restoreIssue(id)
         onRestored()
       })
     },
@@ -186,26 +194,30 @@ export function issueCommands({
      *  offered from the close arm. */
     selectStatus: (value: string): void => {
       if (value.startsWith('stage:')) update({ stage: value.slice('stage:'.length) })
-      else if (value === 'close:done') void run(() => api.close.mutate({ id, reason: 'done' }))
-      else if (value === 'close:wontfix')
-        void run(() => api.close.mutate({ id, reason: 'wontfix' }))
+      else if (value === 'close:done') void run(() => actions.closeIssue(id, 'done'))
+      else if (value === 'close:wontfix') void run(() => actions.closeIssue(id, 'wontfix'))
     },
     addLabel: (label: string): void => {
       const next = label.trim()
       if (!next || issue.labels.includes(next)) return
-      void run(() => api.setLabels.mutate({ id, labels: [...issue.labels, next] }))
+      void run(() => actions.setIssueLabels(id, [...issue.labels, next]))
     },
     removeLabel: (label: string): void => {
-      void run(() => api.setLabels.mutate({ id, labels: issue.labels.filter((l) => l !== label) }))
+      void run(() =>
+        actions.setIssueLabels(
+          id,
+          issue.labels.filter((l) => l !== label),
+        ),
+      )
     },
     setParent: (parentId: string | null): void => {
       void run(() => api.reparent.mutate({ id, parentId }))
     },
     defer: (until: string): void => {
-      void run(() => api.defer.mutate({ id, until }))
+      void run(() => actions.deferIssue(id, until))
     },
     undefer: (): void => {
-      void run(() => api.undefer.mutate({ id }))
+      void run(() => actions.undeferIssue(id))
     },
 
     // ---- relations ----
@@ -234,7 +246,7 @@ export function issueCommands({
     },
     deleteIssue: (onDeleted: () => void): void => {
       void run(async () => {
-        await api.delete.mutate({ id })
+        await actions.deleteIssue(id)
         onDeleted()
       })
     },

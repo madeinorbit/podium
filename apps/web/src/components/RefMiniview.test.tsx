@@ -9,6 +9,7 @@ import { RefCard, RefMiniviewHost, seedCardPosition } from './RefMiniview'
 const hostStore = vi.hoisted(() => ({
   replicaIssues: [] as RefIssueLike[],
   legacyIssues: [] as RefIssueLike[],
+  updateIssue: vi.fn(async () => {}),
 }))
 
 vi.mock('@/app/store', () => ({
@@ -28,6 +29,7 @@ vi.mock('@/app/store', () => ({
       setView: vi.fn(),
       setSelectedIssueId: vi.fn(),
       navigateToSession: vi.fn(),
+      updateIssue: hostStore.updateIssue,
     }),
 }))
 

@@ -1,17 +1,19 @@
 /**
  * Named commands for the issue page (P5d, issue #264): every tRPC call site the
- * page fires lives here as a verb over the store surface — `trpc` plus the
- * page's toast-wrapping mutation runner — so `IssuePage.tsx` and
- * `issue-page-properties.tsx` stay composition + JSX. No behavior change vs the
- * inline closures these replace: each command wraps the exact same mutation,
- * and callbacks (`onPosted`, `onDeleted`, `onDeferred`) run inside the runner
- * right where the old inline `await` continuations did.
+ * page fires lives here as a verb over the store surface — server-only `trpc`,
+ * optimistic issue-write actions, plus the page's toast-wrapping mutation
+ * runner — so `IssuePage.tsx` and
+ * `issue-page-properties.tsx` stay composition + JSX. Curation callbacks
+ * (`onDeleted`, `onDeferred`) now follow overlay publication rather than the
+ * server round trip; server-only callbacks such as `onPosted` keep their direct
+ * mutation ordering.
  *
  * Read-side loaders (`loadIssueComments`, `loadIssueEventsPage`,
  * `loadMergeStyle`) live here too so the model hook has no raw call sites.
  */
 
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/viewmodels'
+import type { IssueUpdatePatch } from '@podium/commands'
 import type { IssueStage } from '@podium/model'
 import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
@@ -28,18 +30,38 @@ export interface IssuePageDeps {
   trpc: Trpc
   issue: IssueViewModel
   run: RunMutation
+  updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
+  deleteIssue: (id: string) => Promise<unknown>
+  closeIssue: (id: string, reason?: string) => Promise<unknown>
+  deferIssue: (id: string, until: string | null) => Promise<unknown>
+  undeferIssue: (id: string) => Promise<unknown>
+  setIssueLabels: (id: string, labels: string[]) => Promise<unknown>
+  restoreIssue: (id: string) => Promise<unknown>
 }
 
 export type IssuePageCommands = ReturnType<typeof issuePageCommands>
 
 /** Build the page's command set for the currently open issue. Rebuilt per
  *  render (like the closures it replaces) so every command sees the live row. */
-export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
+export function issuePageCommands({
+  trpc,
+  issue,
+  run,
+  updateIssue,
+  deleteIssue,
+  closeIssue,
+  deferIssue,
+  undeferIssue,
+  setIssueLabels,
+  restoreIssue,
+}: IssuePageDeps) {
   const id = issue.id
 
-  /** Generic field patch — the single `issues.update` call site. */
+  /** Generic field patch — the single `issues.update` call site. This page's
+   *  established clear-value surface is intentionally broader than the
+   *  generated patch type; this transport-only swap preserves it at the seam. */
   const update = (patch: Record<string, unknown>): void => {
-    void run(() => trpc.issues.update.mutate({ id, patch }))
+    void run(() => updateIssue(id, patch as IssueUpdatePatch))
   }
 
   return {
@@ -121,13 +143,13 @@ export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
     },
     deleteIssue: (onDeleted: () => void): void => {
       void run(async () => {
-        await trpc.issues.delete.mutate({ id })
+        await deleteIssue(id)
         onDeleted()
       })
     },
     restoreIssue: (onRestored: () => void): void => {
       void run(async () => {
-        await trpc.issues.restore.mutate({ id })
+        await restoreIssue(id)
         onRestored()
       })
     },
@@ -143,19 +165,20 @@ export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
      *  closes. (Reopen is intentionally not offered — see the status options.) */
     selectStatus: (value: string): void => {
       if (value.startsWith('stage:')) update({ stage: value.slice('stage:'.length) as IssueStage })
-      else if (value === 'close:done')
-        void run(() => trpc.issues.close.mutate({ id, reason: 'done' }))
-      else if (value === 'close:wontfix')
-        void run(() => trpc.issues.close.mutate({ id, reason: 'wontfix' }))
+      else if (value === 'close:done') void run(() => closeIssue(id, 'done'))
+      else if (value === 'close:wontfix') void run(() => closeIssue(id, 'wontfix'))
     },
     addLabel: (label: string): void => {
       const next = label.trim()
       if (!next || issue.labels.includes(next)) return
-      void run(() => trpc.issues.setLabels.mutate({ id, labels: [...issue.labels, next] }))
+      void run(() => setIssueLabels(id, [...issue.labels, next]))
     },
     removeLabel: (label: string): void => {
       void run(() =>
-        trpc.issues.setLabels.mutate({ id, labels: issue.labels.filter((l) => l !== label) }),
+        setIssueLabels(
+          id,
+          issue.labels.filter((l) => l !== label),
+        ),
       )
     },
     /** Date-input value (yyyy-mm-dd) → local-midnight ISO; '' clears. */
@@ -164,12 +187,12 @@ export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
     },
     defer: (until: string, onDeferred: () => void): void => {
       void run(async () => {
-        await trpc.issues.defer.mutate({ id, until })
+        await deferIssue(id, until)
         onDeferred()
       })
     },
     undefer: (): void => {
-      void run(() => trpc.issues.undefer.mutate({ id }))
+      void run(() => undeferIssue(id))
     },
     setParent: (parentId: string | null): void => {
       void run(() => trpc.issues.reparent.mutate({ id, parentId }))

@@ -18,6 +18,8 @@ const setView = vi.fn()
 const navigateToSession = vi.fn()
 const start = vi.fn(async () => ({}))
 const setPlacement = vi.fn(async () => ({}))
+const updateIssue = vi.fn(async () => {})
+const closeIssue = vi.fn(async () => {})
 
 /** Ids are branded on `SessionMeta`; fixtures are built from string literals,
  *  so the override side is the unbranded spelling. */
@@ -61,6 +63,8 @@ vi.mock('@/app/store', () => {
     renameSession: vi.fn(async () => {}),
     markIssueRead: vi.fn(),
     markIssueUnread: vi.fn(),
+    updateIssue,
+    closeIssue,
     sessions: mockSessions,
     repos: [],
     machines: [],
@@ -241,6 +245,16 @@ describe('IssueCompactControls', () => {
     fireEvent.click(await screen.findByText('Close: done'))
 
     expect(await screen.findByText('Close this issue?')).toBeTruthy()
+  })
+
+  it('confirms the close through the optimistic store action', async () => {
+    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+
+    fireEvent.click(screen.getByLabelText('Stage'))
+    fireEvent.click(await screen.findByText('Close: done'))
+    fireEvent.click(await screen.findByText('Close issue'))
+
+    expect(closeIssue).toHaveBeenCalledWith('i', 'done')
   })
 })
 

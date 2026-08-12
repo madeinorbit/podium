@@ -4,7 +4,7 @@ import { Check, Inbox, Play, RotateCcw, SkipForward, X } from 'lucide-react-nati
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useBooting, useIssues, useTrpc } from '../client/hooks'
+import { useBooting, useIssues, useMobileStore } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
@@ -55,7 +55,7 @@ const sameDeck = (a: Deck, b: Deck) =>
 export function ProposalScreeningScreen() {
   const router = useRouter()
   const issues = useIssues()
-  const trpc = useTrpc()
+  const { trpc, closeIssue } = useMobileStore()
   const booting = useBooting()
   const issueById = useCallback((id: string) => issues.find((issue) => issue.id === id), [issues])
   const insets = useSafeAreaInsets()
@@ -82,7 +82,15 @@ export function ProposalScreeningScreen() {
       inFlight.current.add(issue.id)
       setPending((p) => [...p, issue.id])
       try {
-        await applyScreeningDecision(trpc, issue, outcome)
+        await applyScreeningDecision(
+          {
+            promoteIssue: (id) => trpc.issues.promote.mutate({ id }),
+            startIssue: (id) => trpc.issues.start.mutate({ id }),
+            closeIssue,
+          },
+          issue,
+          outcome,
+        )
         setFailures((f) => f.filter((entry) => entry.id !== issue.id))
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
@@ -100,7 +108,7 @@ export function ProposalScreeningScreen() {
         setPending((p) => p.filter((id) => id !== issue.id))
       }
     },
-    [trpc],
+    [trpc, closeIssue],
   )
 
   const decide = useCallback(

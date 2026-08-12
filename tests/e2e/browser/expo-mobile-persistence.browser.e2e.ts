@@ -7,14 +7,19 @@ test.skip(
 )
 test.setTimeout(180_000)
 
-test('Expo mobile replica survives reload or surfaces degraded storage', async ({ page }) => {
+test('Expo mobile replica survives reload or surfaces degraded storage', async ({
+  page,
+  context,
+}) => {
   let blockFeed = false
   let blockedHttpRequests = 0
+  let issueUpdateRequests = 0
 
   // Keep the initial create and feed replication real. Once the task is visible,
   // cut both catch-up HTTP and the live socket so the reload can only succeed from
   // the OPFS-backed replica.
   await page.route(/\/trpc(?:\/|$)/, async (route) => {
+    if (route.request().url().includes('issues.update')) issueUpdateRequests += 1
     if (!blockFeed) {
       await route.continue()
       return
@@ -62,12 +67,23 @@ test('Expo mobile replica survives reload or surfaces degraded storage', async (
   await page.getByRole('button', { name: 'Agent will start now' }).click()
   await page.getByRole('button', { name: 'Create task' }).click()
 
-  await expect(page.getByText(title, { exact: true })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: 'Stage backlog — change' }).click()
-  await page.getByRole('button', { name: 'planning', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Stage planning — change' })).toBeVisible({
+  await expect(page.getByRole('button', { name: 'Task title — edit' })).toContainText(title, {
     timeout: 30_000,
   })
+  // A phone uses the durable compatibility queue rather than web's kernel
+  // outbox. Cut the network before the write: the stage can repaint only if the
+  // mobile store really surfaced updateIssue and its overlay, then reconnect
+  // and observe the shared executor deliver the queued command.
+  issueUpdateRequests = 0
+  await context.setOffline(true)
+  await page.getByRole('button', { name: 'Stage backlog — change' }).click()
+  await page.getByRole('button', { name: 'Planning', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Stage Planning — change' })).toBeVisible({
+    timeout: 2_000,
+  })
+  expect(issueUpdateRequests).toBe(0)
+  await context.setOffline(false)
+  await expect.poll(() => issueUpdateRequests, { timeout: 30_000 }).toBeGreaterThan(0)
   await page.getByRole('button', { name: 'Back', exact: true }).click()
   await page.getByRole('button', { name: 'Work', exact: true }).click()
   const taskRow = page.getByRole('button', { name: new RegExp(title) })

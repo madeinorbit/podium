@@ -20,23 +20,21 @@ const issue = (partial: Partial<IssueWireInput> & Pick<IssueWire, 'id'>) =>
     ...partial,
   }) as IssueWire
 
-/** A recording stand-in for the mobile tRPC client's issue procedures. */
-function fakeApi() {
+/** Recording stand-ins for the mix of ordered server calls and store action. */
+function fakeCommands() {
   const calls: string[] = []
   const rec =
     (name: string) =>
-    async (input: Record<string, unknown>): Promise<unknown> => {
-      calls.push(`${name}:${JSON.stringify(input)}`)
+    async (id: string, reason?: string): Promise<unknown> => {
+      calls.push(`${name}:${JSON.stringify(reason === undefined ? { id } : { id, reason })}`)
       return {}
     }
   return {
     calls,
-    api: {
-      issues: {
-        promote: { mutate: vi.fn(rec('promote')) },
-        start: { mutate: vi.fn(rec('start')) },
-        close: { mutate: vi.fn(rec('close')) },
-      },
+    commands: {
+      promoteIssue: vi.fn(rec('promote')),
+      startIssue: vi.fn(rec('start')),
+      closeIssue: vi.fn(rec('close')),
     },
   }
 }
@@ -103,44 +101,44 @@ describe('applyScreeningDecision', () => {
   const proposal = { id: asIssueId('iss_1'), stage: 'proposed' }
 
   it('accept promotes the proposal and then starts it', async () => {
-    const { api, calls } = fakeApi()
+    const { commands, calls } = fakeCommands()
 
-    await applyScreeningDecision(api, proposal, 'accepted')
+    await applyScreeningDecision(commands, proposal, 'accepted')
 
     expect(calls).toEqual(['promote:{"id":"iss_1"}', 'start:{"id":"iss_1"}'])
-    expect(api.issues.close.mutate).not.toHaveBeenCalled()
+    expect(commands.closeIssue).not.toHaveBeenCalled()
   })
 
   it('decline closes the proposal as wontfix', async () => {
-    const { api, calls } = fakeApi()
+    const { commands, calls } = fakeCommands()
 
-    await applyScreeningDecision(api, proposal, 'declined')
+    await applyScreeningDecision(commands, proposal, 'declined')
 
     expect(calls).toEqual(['close:{"id":"iss_1","reason":"wontfix"}'])
-    expect(api.issues.promote.mutate).not.toHaveBeenCalled()
-    expect(api.issues.start.mutate).not.toHaveBeenCalled()
+    expect(commands.promoteIssue).not.toHaveBeenCalled()
+    expect(commands.startIssue).not.toHaveBeenCalled()
   })
 
   it('skip mutates nothing — the proposal stays proposed', async () => {
-    const { api, calls } = fakeApi()
+    const { commands, calls } = fakeCommands()
 
-    await applyScreeningDecision(api, proposal, 'skipped')
+    await applyScreeningDecision(commands, proposal, 'skipped')
 
     expect(calls).toEqual([])
   })
 
   it('does not start a proposal whose promote failed', async () => {
-    const { api } = fakeApi()
-    api.issues.promote.mutate.mockRejectedValueOnce(new Error('offline'))
+    const { commands } = fakeCommands()
+    commands.promoteIssue.mockRejectedValueOnce(new Error('offline'))
 
-    await expect(applyScreeningDecision(api, proposal, 'accepted')).rejects.toThrow('offline')
-    expect(api.issues.start.mutate).not.toHaveBeenCalled()
+    await expect(applyScreeningDecision(commands, proposal, 'accepted')).rejects.toThrow('offline')
+    expect(commands.startIssue).not.toHaveBeenCalled()
   })
 
   it('resumes a half-applied accept without re-promoting', async () => {
-    const { api, calls } = fakeApi()
+    const { commands, calls } = fakeCommands()
 
-    await applyScreeningDecision(api, { id: asIssueId('iss_1'), stage: 'backlog' }, 'accepted')
+    await applyScreeningDecision(commands, { id: asIssueId('iss_1'), stage: 'backlog' }, 'accepted')
 
     expect(calls).toEqual(['start:{"id":"iss_1"}'])
   })

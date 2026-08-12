@@ -172,7 +172,7 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
       setBusy(false)
     }
   }
-  const commands = issueCommands({ trpc: store.trpc, issue, run })
+  const commands = issueCommands({ trpc: store.trpc, issue, run, actions: store })
   const { feed, mail, appendLocalComment } = useIssueActivity(issue)
 
   const sessions = useMemo(

@@ -530,16 +530,19 @@ function PlacementMenu({
  * lifecycle affordance lives in that menu rather than competing for the row.
  */
 export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.Element {
-  const { trpc, sessions, setOpenIssueId, setView, navigateToSession } = useStoreSelector(
-    (s) => ({
-      trpc: s.trpc,
-      sessions: s.sessions,
-      setOpenIssueId: s.setOpenIssueId,
-      setView: s.setView,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  const { trpc, sessions, setOpenIssueId, setView, navigateToSession, updateIssue, closeIssue } =
+    useStoreSelector(
+      (s) => ({
+        trpc: s.trpc,
+        sessions: s.sessions,
+        setOpenIssueId: s.setOpenIssueId,
+        setView: s.setView,
+        navigateToSession: s.navigateToSession,
+        updateIssue: s.updateIssue,
+        closeIssue: s.closeIssue,
+      }),
+      shallowEqual,
+    )
   const issues = useReplicaIssues()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
@@ -569,8 +572,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
 
   const confirmClose = (reason: IssueCloseReason): void => {
     setClosing(true)
-    trpc.issues.close
-      .mutate({ id: issue.id, reason })
+    closeIssue(issue.id, reason)
       .then(() => setCloseReason(null))
       .catch((error: unknown) =>
         toast.error(error instanceof Error ? error.message : String(error)),
@@ -663,11 +665,9 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
             <DropdownMenuItem
               key={stage}
               onClick={() =>
-                trpc.issues.update
-                  .mutate({ id: issue.id, patch: { stage } })
-                  .catch((error: unknown) =>
-                    toast.error(error instanceof Error ? error.message : String(error)),
-                  )
+                updateIssue(issue.id, { stage }).catch((error: unknown) =>
+                  toast.error(error instanceof Error ? error.message : String(error)),
+                )
               }
             >
               <StageGlyph stage={stage} size={12} />
@@ -702,11 +702,9 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           size="sm"
           className="h-7 gap-1.5 px-3 text-[11.5px]"
           onClick={() =>
-            trpc.issues.update
-              .mutate({ id: issue.id, patch: { stage: 'backlog' } })
-              .catch((error: unknown) =>
-                toast.error(error instanceof Error ? error.message : String(error)),
-              )
+            updateIssue(issue.id, { stage: 'backlog' }).catch((error: unknown) =>
+              toast.error(error instanceof Error ? error.message : String(error)),
+            )
           }
         >
           <RotateCcw size={12} aria-hidden="true" /> Reopen issue
