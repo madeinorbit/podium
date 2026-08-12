@@ -266,6 +266,10 @@ describe('toolInputPreview', () => {
       'bun run test:web',
     )
     expect(toolInputPreview({ file_path: '/a/b.ts' })).toBe('/a/b.ts')
+    expect(toolInputPreview({ target_file: '/repo/chat.ts', offset: 10 })).toBe('/repo/chat.ts')
+    expect(toolInputPreview({ target_directory: '/repo/packages/transcript' })).toBe(
+      '/repo/packages/transcript',
+    )
   })
   it('falls back to compact JSON', () => {
     expect(toolInputPreview({ x: 1 })).toBe('{"x":1}')

@@ -69,6 +69,32 @@ function messageItems(
     })
   }
   items.push(...parts.extraItems)
+  // Grok's live format puts calls on `assistant.tool_calls`, not in content
+  // blocks. Older fixtures (and a few Claude-shaped records) still use
+  // `tool_use` parts, which contentParts already emitted above — skip dupes.
+  if (role === 'assistant') {
+    const seen = new Set(
+      items.flatMap((item) => (item.toolUseId ? [item.toolUseId] : [])),
+    )
+    for (const item of assistantToolCallItems(record, ts)) {
+      if (item.toolUseId && seen.has(item.toolUseId)) continue
+      items.push(item)
+    }
+  }
+  return items
+}
+
+function assistantToolCallItems(
+  record: Record<string, unknown>,
+  ts: string | undefined,
+): TranscriptItem[] {
+  if (!Array.isArray(record.tool_calls)) return []
+  const items: TranscriptItem[] = []
+  for (const call of record.tool_calls) {
+    if (!isRecord(call)) continue
+    const item = toolCallItem(call, ts, 'tool_call')
+    if (item) items.push(item)
+  }
   return items
 }
 
@@ -145,25 +171,192 @@ function toolCallItem(
   ts: string | undefined,
   fallbackKind: string,
 ): TranscriptItem | undefined {
-  const toolName =
+  const wireName =
     stringField(record, 'name') ??
     stringField(record, 'tool_name') ??
     stringField(record, 'toolName')
-  if (!toolName) return undefined
+  if (!wireName) return undefined
+  const rawInput = record.input ?? record.arguments ?? record.args
+  const display = grokToolDisplay(wireName, parseGrokArgs(rawInput))
   const toolUseId =
     stringField(record, 'id') ??
     stringField(record, 'tool_use_id') ??
     stringField(record, 'tool_call_id') ??
     stringField(record, 'call_id')
   return {
-    id: toolUseId ?? stableId('grok-tool', `${fallbackKind}:${toolName}:${safeJson(record.input)}`),
+    id:
+      toolUseId ??
+      stableId('grok-tool', `${fallbackKind}:${display.toolName}:${safeJson(rawInput)}`),
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
-    toolName,
-    toolInput: toolInputPreview(record.input ?? record.arguments ?? record.args),
+    toolName: display.toolName,
+    ...(display.toolInput ? { toolInput: display.toolInput } : {}),
+    ...(display.toolTitle ? { toolTitle: display.toolTitle } : {}),
+    ...(display.toolPaths?.length ? { toolPaths: display.toolPaths } : {}),
+    ...(display.toolInputJson ? { toolInputJson: display.toolInputJson } : {}),
     ...(toolUseId ? { toolUseId } : {}),
   }
+}
+
+interface GrokToolDisplay {
+  toolName: string
+  toolInput?: string
+  toolTitle?: string
+  toolPaths?: string[]
+  toolInputJson?: string
+}
+
+/**
+ * Grok's wire names (`run_terminal_command`, `read_file`, …) are not the
+ * shared chat vocabulary. Without this map every call falls through to
+ * "Ran a tool" / "result", even after the call itself is recovered from
+ * `assistant.tool_calls`. Same idea as Codex's exec unwrap (POD-895).
+ */
+function grokToolDisplay(wireName: string, input: unknown): GrokToolDisplay {
+  const path = firstString(input, ['target_file', 'file_path', 'path', 'target_directory'])
+  const command = firstString(input, ['command', 'cmd'])
+  const description = firstString(input, ['description', 'caption'])
+  const preview = toolInputPreview(input) || undefined
+
+  switch (wireName) {
+    case 'run_terminal_command':
+    case 'shell_command':
+    case 'exec_command':
+      return {
+        toolName: 'Bash',
+        ...(command || preview ? { toolInput: command ?? preview } : {}),
+        ...(description ? { toolTitle: description } : {}),
+      }
+    case 'read_file':
+    case 'Read':
+    case 'NotebookRead':
+      return {
+        toolName: wireName === 'NotebookRead' ? 'NotebookRead' : 'Read',
+        ...(path ? { toolInput: path, toolPaths: [path] } : preview ? { toolInput: preview } : {}),
+      }
+    case 'write':
+    case 'Write':
+      return {
+        toolName: 'Write',
+        ...(path ? { toolInput: path, toolPaths: [path] } : preview ? { toolInput: preview } : {}),
+      }
+    case 'search_replace':
+    case 'Edit':
+    case 'MultiEdit':
+    case 'NotebookEdit':
+      return {
+        toolName: wireName === 'MultiEdit' || wireName === 'NotebookEdit' ? wireName : 'Edit',
+        ...(path ? { toolInput: path, toolPaths: [path] } : preview ? { toolInput: preview } : {}),
+      }
+    case 'grep':
+    case 'Grep':
+    case 'Glob':
+      return {
+        toolName: wireName === 'Glob' ? 'Glob' : 'Grep',
+        ...(firstString(input, ['pattern', 'glob', 'query']) || preview
+          ? { toolInput: firstString(input, ['pattern', 'glob', 'query']) ?? preview }
+          : {}),
+        ...(path ? { toolPaths: [path] } : {}),
+      }
+    case 'list_dir':
+    case 'list_directory':
+      return {
+        toolName: 'list_dir',
+        ...(path ? { toolInput: path, toolPaths: [path] } : preview ? { toolInput: preview } : {}),
+      }
+    case 'web_fetch':
+    case 'WebFetch':
+      return {
+        toolName: 'WebFetch',
+        ...(firstString(input, ['url']) || preview
+          ? { toolInput: firstString(input, ['url']) ?? preview }
+          : {}),
+      }
+    case 'web_search':
+    case 'WebSearch':
+      return {
+        toolName: 'WebSearch',
+        ...(firstString(input, ['query', 'pattern']) || preview
+          ? { toolInput: firstString(input, ['query', 'pattern']) ?? preview }
+          : {}),
+      }
+    case 'todo_write':
+    case 'TodoWrite':
+      return { toolName: 'TodoWrite', toolTitle: description ?? 'todo list' }
+    case 'spawn_subagent':
+    case 'Task':
+    case 'Agent':
+      return {
+        toolName: 'Task',
+        ...(description || firstString(input, ['subagent_type']) || preview
+          ? { toolTitle: description ?? firstString(input, ['subagent_type']) ?? preview }
+          : {}),
+      }
+    case 'ask_user_question':
+    case 'AskUserQuestion': {
+      const json = objectJson(input)
+      return {
+        toolName: 'AskUserQuestion',
+        toolInput: askQuestionPreview(input),
+        ...(json ? { toolInputJson: json } : {}),
+      }
+    }
+    case 'exit_plan_mode':
+    case 'ExitPlanMode':
+      return {
+        toolName: 'ExitPlanMode',
+        ...(description || preview ? { toolTitle: description ?? preview } : {}),
+      }
+    default:
+      return {
+        toolName: wireName,
+        ...(preview ? { toolInput: preview } : {}),
+        ...(description ? { toolTitle: description } : {}),
+        ...(path ? { toolPaths: [path] } : {}),
+      }
+  }
+}
+
+function parseGrokArgs(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw
+  const trimmed = raw.trim()
+  if (!trimmed) return undefined
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      return JSON.parse(trimmed) as unknown
+    } catch {
+      return raw
+    }
+  }
+  return raw
+}
+
+function firstString(input: unknown, keys: string[]): string | undefined {
+  if (!isRecord(input)) return undefined
+  for (const key of keys) {
+    const value = stringField(input, key)
+    if (value) return value
+  }
+  return undefined
+}
+
+function objectJson(input: unknown): string | undefined {
+  if (!isRecord(input) && !Array.isArray(input)) return undefined
+  try {
+    const json = JSON.stringify(input)
+    return json && json !== '{}' ? json : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function askQuestionPreview(input: unknown): string {
+  if (!isRecord(input)) return 'AskUserQuestion'
+  const questions = input.questions
+  const first = Array.isArray(questions) && isRecord(questions[0]) ? questions[0] : undefined
+  const question = first ? stringField(first, 'question') : undefined
+  return question ? truncate(question, 160) : 'AskUserQuestion'
 }
 
 function toolResultItem(

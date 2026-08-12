@@ -118,6 +118,7 @@ describe('grokRecordToItems', () => {
         text: '',
         toolName: 'Read',
         toolInput: 'src/app.ts',
+        toolPaths: ['src/app.ts'],
         toolUseId: 'tool-1',
       },
     ])
@@ -137,5 +138,164 @@ describe('grokRecordToItems', () => {
         toolUseId: 'tool-1',
       },
     ])
+  })
+
+  it('recovers Grok assistant.tool_calls and names the command or file', () => {
+    const items = grokRecordToItems({
+      type: 'assistant',
+      content: "I'll check what's already on the board.",
+      tool_calls: [
+        {
+          id: 'call-1d7d7f3e-a2af-456b-abac-f2dc5d8f6e79-0',
+          name: 'run_terminal_command',
+          arguments:
+            '{"command":"podium issue prime","description":"Prime current issue and ready work"}',
+        },
+      ],
+    })
+    expect(items).toEqual([
+      {
+        id: expect.stringMatching(/^grok-assistant-/),
+        role: 'assistant',
+        text: "I'll check what's already on the board.",
+      },
+      {
+        id: 'call-1d7d7f3e-a2af-456b-abac-f2dc5d8f6e79-0',
+        role: 'tool',
+        text: '',
+        toolName: 'Bash',
+        toolInput: 'podium issue prime',
+        toolTitle: 'Prime current issue and ready work',
+        toolUseId: 'call-1d7d7f3e-a2af-456b-abac-f2dc5d8f6e79-0',
+      },
+    ])
+  })
+
+  it('maps Grok file, search, and edit calls onto the shared display names', () => {
+    const items = grokRecordToItems({
+      type: 'assistant',
+      content: '',
+      tool_calls: [
+        {
+          id: 'call-read',
+          name: 'read_file',
+          arguments: '{"target_file":"/repo/apps/web/src/ChatView.tsx","limit":80}',
+        },
+        {
+          id: 'call-grep',
+          name: 'grep',
+          arguments: '{"pattern":"Ran a tool","glob":"*.{ts,tsx}"}',
+        },
+        {
+          id: 'call-edit',
+          name: 'search_replace',
+          arguments: '{"file_path":"/repo/packages/transcript/src/grok.ts","old_string":"a","new_string":"b"}',
+        },
+      ],
+    })
+    expect(items).toEqual([
+      {
+        id: 'call-read',
+        role: 'tool',
+        text: '',
+        toolName: 'Read',
+        toolInput: '/repo/apps/web/src/ChatView.tsx',
+        toolPaths: ['/repo/apps/web/src/ChatView.tsx'],
+        toolUseId: 'call-read',
+      },
+      {
+        id: 'call-grep',
+        role: 'tool',
+        text: '',
+        toolName: 'Grep',
+        toolInput: 'Ran a tool',
+        toolUseId: 'call-grep',
+      },
+      {
+        id: 'call-edit',
+        role: 'tool',
+        text: '',
+        toolName: 'Edit',
+        toolInput: '/repo/packages/transcript/src/grok.ts',
+        toolPaths: ['/repo/packages/transcript/src/grok.ts'],
+        toolUseId: 'call-edit',
+      },
+    ])
+  })
+
+  it('pairs a later tool_result to the recovered call by tool_call_id', () => {
+    const call = grokRecordToItems({
+      type: 'assistant',
+      content: '',
+      tool_calls: [
+        {
+          id: 'call-shell',
+          name: 'run_terminal_command',
+          arguments: '{"command":"podium issue dep-add --help","description":"Show dep-add help"}',
+        },
+      ],
+    })
+    const result = grokRecordToItems({
+      type: 'tool_result',
+      tool_call_id: 'call-shell',
+      content: 'exit: 0\nUsage: podium issue dep-add\n'.repeat(12),
+    })
+    expect(call[0]).toMatchObject({
+      toolName: 'Bash',
+      toolInput: 'podium issue dep-add --help',
+      toolUseId: 'call-shell',
+    })
+    expect(result[0]).toMatchObject({
+      role: 'tool',
+      toolUseId: 'call-shell',
+      toolResult: expect.stringMatching(/^exit: 0\n/),
+    })
+    expect(result[0]?.toolName).toBeUndefined()
+  })
+
+  it('carries AskUserQuestion structure so the chat can render the card', () => {
+    const items = grokRecordToItems({
+      type: 'assistant',
+      content: '',
+      tool_calls: [
+        {
+          id: 'call-ask',
+          name: 'ask_user_question',
+          arguments: JSON.stringify({
+            questions: [
+              {
+                question: 'Reload the running server?',
+                options: [
+                  { label: 'Reload', description: 'Pick up the parser fix' },
+                  { label: 'Wait', description: 'Leave it until later' },
+                ],
+              },
+            ],
+          }),
+        },
+      ],
+    })
+    expect(items[0]).toMatchObject({
+      toolName: 'AskUserQuestion',
+      toolInput: 'Reload the running server?',
+      toolUseId: 'call-ask',
+    })
+    expect(JSON.parse(items[0]?.toolInputJson ?? '{}').questions[0].options).toHaveLength(2)
+  })
+
+  it('does not double-emit a call that already arrived as a content block', () => {
+    const items = grokRecordToItems({
+      type: 'assistant',
+      content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'src/app.ts' } }],
+      tool_calls: [
+        {
+          id: 'tool-1',
+          name: 'read_file',
+          arguments: '{"target_file":"src/app.ts"}',
+        },
+      ],
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ toolName: 'Read', toolUseId: 'tool-1' })
   })
 })

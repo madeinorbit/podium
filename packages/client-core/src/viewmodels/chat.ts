@@ -250,6 +250,9 @@ function toolCategory(item: TranscriptItem): { verb: string; noun: string } {
     case 'Grep':
     case 'Glob':
       return { verb: 'Searched', noun: 'search' }
+    case 'list_dir':
+    case 'list_directory':
+      return { verb: 'Listed', noun: 'directory' }
     case 'WebSearch':
       return { verb: 'Searched the web', noun: 'search' }
     case 'WebFetch':
@@ -436,6 +439,9 @@ function toolGerund(toolName: string | undefined): string {
     case 'Grep':
     case 'Glob':
       return 'Searching'
+    case 'list_dir':
+    case 'list_directory':
+      return 'Listing'
     case 'WebFetch':
       return 'Fetching'
     case 'WebSearch':

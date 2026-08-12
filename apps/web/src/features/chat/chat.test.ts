@@ -83,6 +83,12 @@ describe('toolBatchTitle — the work line names its objects (POD-376)', () => {
     )
   })
 
+  it('names a listed directory instead of "Ran a tool"', () => {
+    expect(toolBatchTitle([withPath('list_dir', 'd', '/repo/packages/transcript')])).toBe(
+      'Listed transcript',
+    )
+  })
+
   it('falls back to counting when a clause has no nameable subject', () => {
     expect(toolBatchTitle([{ item: tool('Bash', 'b') }, { item: tool('Bash', 'c') }])).toBe(
       'Ran 2 commands',

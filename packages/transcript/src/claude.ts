@@ -361,7 +361,13 @@ function assistantItems(
   return items
 }
 
-const FILE_PATH_KEYS = ['file_path', 'path', 'notebook_path'] as const
+const FILE_PATH_KEYS = [
+  'file_path',
+  'target_file',
+  'path',
+  'target_directory',
+  'notebook_path',
+] as const
 
 function toolPathsFromInput(input: unknown): string[] {
   if (!input || typeof input !== 'object') return []
@@ -392,7 +398,9 @@ export function toolInputPreview(input: unknown): string {
     'command',
     'cmd',
     'file_path',
+    'target_file',
     'path',
+    'target_directory',
     'pattern',
     'query',
     'url',

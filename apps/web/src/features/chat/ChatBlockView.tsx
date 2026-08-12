@@ -543,8 +543,8 @@ export const ChatBlockView = memo(function ChatBlockView({
       </div>
     )
   // A call that ADDRESSED THE HUMAN but carries no structured input to build a
-  // card from (POD-376). Only the Claude parser fills `toolInputJson`, so on a
-  // Codex / Grok / MCP session this is every interview the agent ever ran — and
+  // card from (POD-376). Claude and Grok fill `toolInputJson` when they can;
+  // on a Codex / MCP session this is every interview the agent ever ran — and
   // it used to render as a muted one-line tool row indistinguishable from a
   // file read, which is why the chat looked like it showed nothing at all while
   // the native view showed a prompt. It gets a named block of its own.
