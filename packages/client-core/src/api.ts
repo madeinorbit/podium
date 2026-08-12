@@ -18,8 +18,10 @@
 
 import type {
   AgentKind,
+  ArtifactId,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
+  IssueId,
   LayoutSnapshot,
   MachineQuotaWire,
   ReadPositionSnapshot,
@@ -44,26 +46,27 @@ export interface ApiMutation<I, O = unknown> {
 type WithMutationId<T> = T & { mutationId?: string }
 
 /**
- * WHY THE ID MEMBERS BELOW ARE STILL PLAIN `string` (POD-363 → POD-1192).
+ * THE ID MEMBERS BELOW ARE BRANDED, AND THE PAIR MOVED TOGETHER (POD-1192).
  *
  * This interface is a hand-written MIRROR of the real tRPC router, and
  * `apps/web/src/app/store.tsx` constrains the LIVE `TRPCClient` to it — so the
- * real router must structurally satisfy it. The server's command inputs are
- * still bare `z.string()`, which makes branding this side ALONE a compile break,
- * not an improvement.
+ * real router must structurally satisfy it. That is why branding either half
+ * alone is a compile break rather than an improvement: POD-363 measured exactly
+ * that, branding this side while the server's inputs were bare `z.string()` and
+ * getting TS2344/TS2322 at four `store.tsx` sites.
  *
- * Measured rather than assumed: POD-363 branded the id members of
- * `sessions.create`, `files.read`, `files.write` and `tabs.setOrder`. It
- * typechecks inside this package and then fails `store.tsx` at four sites with
- * TS2344/TS2322. The change was reverted deliberately.
+ * The server half is branded with the shared brand-only `…Field` schemas —
+ * `SessionIdField`/`IssueIdField`/`ArtifactIdField`, never the `.min(1)`
+ * boundary schemas, because at least one producer sends an empty string
+ * (POD-361's rule, pinned in `packages/model/src/ids/brands.test.ts`). The
+ * schemas live in `packages/commands` (`sessions/command-plane.ts`,
+ * `sessions/session-state-commands.ts`, `files/contracts.ts`) and
+ * `apps/server/src/modules/files/queries.ts`; branding this mirror to match is
+ * what makes the drift visible to web's tsc again.
  *
- * These are NOT unmarked POD-361 edge casts — that inventory is at zero. They
- * are one half of a restated pair, and the pair moves together or not at all:
- * brand the server's input schemas with the shared brand-only `…Field` schemas
- * (never the `.min(1)` boundary schemas — at least one producer sends an empty
- * string) in the SAME commit as this side. POD-1192 owns that, and weighs the
- * stronger option of deriving this interface from the router's inferred types
- * instead of keeping two hand-written copies in sync.
+ * The mirror stays hand-written rather than derived from the router's inferred
+ * types: boundary rule 4 forbids a package importing an app, so client-core
+ * cannot see `AppRouter` even type-only (see the header comment).
  *
  * `machineId` stays unbranded regardless: carved out until POD-318 (ADR 1
  * Amendment 2 D16.2), with a ratchet test that fails if you brand one.
@@ -88,12 +91,12 @@ export interface PodiumClientApi {
   sessions: {
     create: ApiMutation<
       {
-        sessionId?: string
+        sessionId?: SessionId
         agentKind?: AgentKind
         cwd: string
         title?: string
-        issueId?: string
-        draftIssue?: { repoPath: string; issueId?: string }
+        issueId?: IssueId
+        draftIssue?: { repoPath: string; issueId?: IssueId }
         machineId?: string
         /** First prompt; argv harnesses get it on launch (POD-549). */
         initialPrompt?: string
@@ -129,7 +132,7 @@ export interface PodiumClientApi {
   tabs: {
     listOrders: ApiQuery<void, Record<string, string[]>>
     setOrder: ApiMutation<
-      WithMutationId<{ worktree: string; sessionIds: string[] }>,
+      WithMutationId<{ worktree: string; sessionIds: SessionId[] }>,
       Record<string, string[]>
     >
   }
@@ -148,27 +151,33 @@ export interface PodiumClientApi {
     set: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, LayoutSnapshot>
     clear: ApiMutation<WithMutationId<{ keys: string[] }>, LayoutSnapshot>
   }
+  /**
+   * `read` and `write` mirror the server's inputs as UNIONS, not as one flat
+   * object with everything optional, because that is what the router declares
+   * (`FILE_QUERIES.read`, `filesWriteInput`) — and it is the shape `FileScope`
+   * already branches on. A flat optional object only ever passed by accident:
+   * `query`/`mutate` are METHODS, so their parameters check bivariantly, and the
+   * flat form satisfied that check in the router→mirror direction only while the
+   * ids were plain `string`. Branding removes that escape hatch (`string` is not
+   * assignable to `SessionId`) and the mirror→router direction then fails on
+   * `root: string | undefined`. Mirroring the union makes the shapes align in
+   * both directions, so the seam no longer depends on bivariance to hold.
+   *
+   * `machineId` stays plain `string` here (POD-318 carve-out) even though the
+   * server binds `MachineIdField` — the router→mirror direction still holds.
+   */
   files: {
     read: ApiQuery<
-      {
-        sessionId?: string
-        machineId?: string
-        root?: string
-        // Artifact-snapshot reads ([spec:SP-0fc9] #441).
-        issueId?: string
-        artifactId?: string
-        path: string
-      },
+      | { sessionId: SessionId; path: string }
+      // Artifact-snapshot reads ([spec:SP-0fc9] #441).
+      | { issueId: IssueId; artifactId: ArtifactId; path: string }
+      | { machineId?: string; root: string; path: string },
       unknown
     >
-    write: ApiMutation<{
-      sessionId?: string
-      machineId?: string
-      root?: string
-      path: string
-      content: string
-      baseHash?: string
-    }>
+    write: ApiMutation<
+      | { sessionId: SessionId; path: string; content: string; baseHash?: string }
+      | { machineId?: string; root: string; path: string; content: string; baseHash?: string }
+    >
     list: ApiQuery<{ machineId?: string; root: string; path?: string }, unknown>
   }
   /** Git dock panel [POD-114] — raw output of fixed read-only repo ops. */

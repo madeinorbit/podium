@@ -8,7 +8,7 @@ import {
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind } from '@podium/model'
-import { machinesWithRepo } from '@podium/model'
+import { asIssueId, machinesWithRepo } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -44,7 +44,10 @@ export function NewSessionScreen() {
     backTo?: string | string[]
   }>()
   const presetCwd = param(params.cwd)
-  const issueId = param(params.issueId)
+  // A route param is an untyped edge, so this is where the brand is applied —
+  // `sessions.create` takes an `IssueId` (POD-1192).
+  const rawIssueId = param(params.issueId)
+  const issueId = rawIssueId === undefined ? undefined : asIssueId(rawIssueId)
   const backTarget = sessionBackTarget(params.backTo)
 
   // Placement reads the principal's machine VIEWS, never the raw wire list, so
