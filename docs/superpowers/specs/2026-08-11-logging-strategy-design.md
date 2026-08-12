@@ -95,12 +95,25 @@ Control: `PODIUM_LOG_LEVEL` (global default) plus per-namespace overrides via
 `PODIUM_LOG` (e.g. `PODIUM_LOG="daemon:*=debug"`). Defaults: `info` on
 server/daemon/janitor, `warn` for browser console.
 
-**Runtime level adjustment on clients is in scope** (POD-1919). The
-mechanism already exists — the forwarding sink pins no `minLevel`, so
-`setLogLevel` raises console and forwarding together as one knob — but
-nothing outside boot calls it. What is missing is the operator surface for
-"raise this one user's client to `debug`", which is the scenario the whole
-forwarding design exists to serve. The epic is not complete without it.
+**Runtime level adjustment on clients is in scope**, and shipped in POD-1920.
+The mechanism already existed — the forwarding sink pins no `minLevel`, so
+`setLogLevel` raises console and forwarding together as one knob — and what
+was missing was the operator surface for "raise this one user's client to
+`debug`", the scenario the whole forwarding design exists to serve.
+
+As built: `logs.setLevel` (tRPC, admin) pushes a `setLogLevel` frame down the
+`/client` socket to the connections matching a selector over the same
+role/machine tuple the per-origin log files are named after, and its reply
+lists what it reached — which is also how an operator discovers what is
+connected. Every raise expires (30 minutes by default, 24 hours maximum) and
+`level: null` restores the client's *boot* default. Nothing is persisted on
+either side: no server-side "should be at debug" table, and a client that
+reloads is at its default again. That was the judgement call — a raise that
+survives a reload buys convenience and costs the one failure this feature is
+written to avoid, a client left verbose because the row outlived everybody's
+memory of why it was written. The same knob is exposed to the person sitting
+at the client (Settings → Privacy → Diagnostic detail) for installs where
+nobody has a shell.
 
 ### Sinks and per-sink thresholds
 

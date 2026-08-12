@@ -84,13 +84,55 @@ sites.
 |---|---|
 | Server / daemon / janitor / CLI | `PODIUM_LOG_LEVEL=debug` for everything |
 | One namespace | `PODIUM_LOG='daemon:*=debug'` — comma/space separated, most specific pattern wins |
-| Clients (no env: browser, webview, phone) | `setLogLevel('debug')` from `@podium/logger` |
+| Clients (no env: browser, webview, phone) | `setLogLevel('debug')` from `@podium/logger`, or `logs.setLevel` from the server — see below |
 | Desktop Rust side | `PODIUM_LOG_LEVEL` only; the per-namespace syntax is not implemented in the crate |
 
 Raising a client's level raises the console **and** the forwarding stream
 together — one knob, so a client's reported level and its visible level can
 never disagree. On the server family, `PODIUM_LOG_LEVEL`/`PODIUM_LOG` always
 beat the process's own default; nothing pins its own threshold.
+
+### Raising a client you are not sitting at
+
+A browser, webview or phone has no env to set, and the whole point of forwarding
+is diagnosing a problem on someone else's machine. `logs.setLevel` (tRPC, admin)
+pushes a level down the client socket to the connections that are open right
+now:
+
+```jsonc
+// every connected client, for half an hour
+{ "level": "debug", "ttlMs": 1800000 }
+// one of them, named the way its log file is
+{ "level": "debug", "target": { "role": "mobile", "machineId": "m2" } }
+// and back
+{ "level": null }
+```
+
+The reply lists every connection it reached, with the role/version/machine that
+connection reported — which is the same tuple `clients/<origin>.ndjson` is named
+after, and is how you find out what is connected in the first place. An unknown
+`clientId` is not an error; it simply reaches nobody.
+
+Three things about it are load-bearing:
+
+- **`level` is the whole knob.** It lands in `setLogLevel` on the client, and the
+  forwarding sink pins no threshold, so console and forwarded stream move
+  together. There is no separate forwarding threshold and adding one would break
+  that silently.
+- **Every raise expires.** `ttlMs` defaults to 30 minutes on the client and is
+  capped at 24 hours; `level: null` restores the client's *boot* default rather
+  than a named level, so a change to that default cannot strand a stale one in a
+  support instruction.
+- **Nothing is persisted, on either side.** The server keeps no "should be at
+  debug" table, so a client that reloads or reconnects is back at its default
+  with nobody having to remember to undo anything. That is also why the raise
+  and its expiry are logged at `warn` on the client: in the forwarded file they
+  are what separates "this client had nothing to say" from "this client was
+  never turned up".
+
+The user at the client can do the same thing from **Settings → Privacy →
+Diagnostic detail** ("turn up for 30 minutes"), which drives the identical knob —
+for hosted installs, phones, and anyone you cannot give a shell command to.
 
 ## Where the logs are
 
