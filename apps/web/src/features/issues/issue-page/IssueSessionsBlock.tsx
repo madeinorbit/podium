@@ -18,8 +18,8 @@
  *     other one, instead of the `byId.get()` that rendered invisible and deleted
  *     alike as "another issue".
  */
-import { asMachineId, motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
+import { asMachineId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
 import type { JSX } from 'react'

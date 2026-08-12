@@ -1,5 +1,5 @@
+import { asMachineId } from '@podium/model'
 import {
-  asMachineId,
   artifactKind,
   artifactUrl,
   basename,

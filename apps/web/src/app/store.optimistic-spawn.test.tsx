@@ -1,4 +1,5 @@
-import { asUserId, asClientPrincipal } from '@podium/client-core/principal'
+import { asUserId } from '@podium/model'
+import { asClientPrincipal } from '@podium/client-core/principal'
 import { optimisticDraftIssue } from '@podium/client-core/viewmodels'
 import {
   asIssueId,

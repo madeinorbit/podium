@@ -1,4 +1,5 @@
-import { asUserId, asClientPrincipal } from '@podium/client-core/principal'
+import { asUserId } from '@podium/model'
+import { asClientPrincipal } from '@podium/client-core/principal'
 import { asSessionId, type SessionId } from '@podium/model'
 import { createReplica } from '@podium/client-core/replica'
 import { act } from 'react'

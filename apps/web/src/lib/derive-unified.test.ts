@@ -1,6 +1,5 @@
+import { asIssueId, asMachineId } from '@podium/model'
 import {
-  asIssueId,
-  asMachineId,
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
   branchRollup,

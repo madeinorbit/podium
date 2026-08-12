@@ -1,4 +1,5 @@
-import { asMachineId, relativeTime } from '@podium/client-core/focus'
+import { asMachineId } from '@podium/model'
+import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire, UpdateChannel } from '@podium/model'
 import type { JSX } from 'react'

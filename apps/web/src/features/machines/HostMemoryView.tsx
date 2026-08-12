@@ -1,4 +1,5 @@
-import { asIssueId, shallowEqual } from '@podium/client-core/store'
+import { asIssueId } from '@podium/model'
+import { shallowEqual } from '@podium/client-core/store'
 import {
   formatMemBytes,
   hostMemoryView,

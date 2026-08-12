@@ -1,5 +1,5 @@
+import { asMutationId } from '@podium/model'
 import {
-  asMutationId,
   COLD_CURSOR,
   createReplica,
   REPLICA_TRANSCRIPT_CONVERSATION_CAP,

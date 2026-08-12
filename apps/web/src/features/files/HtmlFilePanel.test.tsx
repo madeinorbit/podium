@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { asMachineId, HTML_MODE_MAP_KEY } from '@podium/client-core/ui-state'
+import { HTML_MODE_MAP_KEY } from '@podium/client-core/ui-state'
 import { tabIdFor } from '@podium/client-core/viewmodels'
-import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
+import { asArtifactId, asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
