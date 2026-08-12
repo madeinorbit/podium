@@ -79,6 +79,8 @@ export const LAYOUT_EXACT_KEYS = [
   'htmlmode',
   /** Markdown file tab presentation modes, map of tabId → mode. */
   'mdmode',
+  /** Durable first-run VPS lane, including its paired transfer target. */
+  'onboarding.vps',
 ] as const
 export type LayoutExactKey = (typeof LAYOUT_EXACT_KEYS)[number]
 
@@ -135,6 +137,7 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
   'podium.issues.display': 'issues.display',
   'podium.htmlmode': 'htmlmode',
   'podium.mdmode': 'mdmode',
+  'podium.onboarding.vps': 'onboarding.vps',
 }
 
 /**

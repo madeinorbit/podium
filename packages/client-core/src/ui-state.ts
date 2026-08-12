@@ -66,6 +66,8 @@ export const UI_STATE_KEYS = {
   mdmode: 'podium.mdmode',
   /** Issues list layout/ordering preferences. */
   issuesDisplay: 'podium.issues.display',
+  /** Guided VPS onboarding lane; replicated so it survives the server-origin transfer. */
+  onboardingVps: 'podium.onboarding.vps',
 } as const
 
 export const VIEW_KEY = UI_STATE_KEYS.view
@@ -85,6 +87,7 @@ export const RIGHT_PANEL_KEY = UI_STATE_KEYS.rightPanel
 export const HTML_MODE_MAP_KEY = UI_STATE_KEYS.htmlmode
 export const MD_MODE_MAP_KEY = UI_STATE_KEYS.mdmode
 export const ISSUES_DISPLAY_KEY = UI_STATE_KEYS.issuesDisplay
+export const ONBOARDING_VPS_KEY = UI_STATE_KEYS.onboardingVps
 
 export type WorkspaceUiStateKey = (typeof UI_STATE_KEYS)[keyof typeof UI_STATE_KEYS]
 
@@ -176,6 +179,10 @@ export const UI_STATE_ROUTES = {
   [UI_STATE_KEYS.issuesDisplay]: {
     home: 'per-user-replicated',
     reason: 'Issues list display options are a personal preference.',
+  },
+  [UI_STATE_KEYS.onboardingVps]: {
+    home: 'per-user-replicated',
+    reason: 'First-run VPS progress must survive restart and the server-origin transfer.',
   },
 } as const satisfies Record<WorkspaceUiStateKey, UiStateRoute>
 
