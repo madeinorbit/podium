@@ -1,5 +1,5 @@
 // apps/server/src/file-artifact-route.ts
-import type { IssueId, ArtifactId } from '@podium/model'
+import { asArtifactId, asIssueId, type ArtifactId, type IssueId } from '@podium/model'
 import type { Hono } from 'hono'
 import { rawFileHeaders } from './raw-file-headers'
 
@@ -28,7 +28,7 @@ export function registerArtifactRoute(app: Hono, store: ArtifactBundleReader): v
     // ['files','artifact',issueId,artifactId, ...relpath segments]
     const rel = c.req.path.split('/').filter(Boolean).slice(4).map(decodeURIComponent).join('/')
     if (!rel) return c.text('bad request', 400)
-    const r = await store.read(issueId, artifactId, rel)
+    const r = await store.read(asIssueId(issueId), asArtifactId(artifactId), rel)
     if (!r) return c.text('not found', 404)
     return c.body(
       new Uint8Array(r.bytes),

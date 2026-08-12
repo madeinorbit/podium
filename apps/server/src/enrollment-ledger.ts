@@ -20,7 +20,7 @@
  * reasons never carry the verdict; server logs do.
  */
 
-import type { MachineId, UserId } from '@podium/model'
+import { asMachineId, type MachineId, type UserId } from '@podium/model'
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   appendFileSync,
@@ -80,7 +80,7 @@ export function verifyPairingToken(pairingRoot: Buffer, token: string): PairingT
   const machineId = parts[1]
   const serial = Number(parts[2])
   if (!machineId || !Number.isInteger(serial) || serial < 1) return null
-  return { machineId, serial }
+  return { machineId: asMachineId(machineId), serial }
 }
 
 // ---------------------------------------------------------------------------
@@ -152,9 +152,9 @@ export interface EnrollmentLedger {
    */
   revokeSerial(machineId: MachineId): number | undefined
   /** Latest recorded owner from enroll/owner events, or `undefined` if none. */
-  recordedOwner(machineId: MachineId): string | null | undefined
+  recordedOwner(machineId: MachineId): UserId | null | undefined
   /** Every machine id that has ever been enrolled (for boot reconcile). */
-  enrolledMachineIds(): string[]
+  enrolledMachineIds(): MachineId[]
   /**
    * Append an enroll event. Idempotent under `id`. Returns false when a prior
    * event with the same id already exists (retry no-op).
@@ -297,11 +297,11 @@ export function openEnrollmentLedger(
     revokeSerial(machineId: MachineId): number | undefined {
       return revokes.get(machineId)
     },
-    recordedOwner(machineId: MachineId): string | null | undefined {
+    recordedOwner(machineId: MachineId): UserId | null | undefined {
       if (!owners.has(machineId)) return undefined
       return owners.get(machineId) ?? null
     },
-    enrolledMachineIds(): string[] {
+    enrolledMachineIds(): MachineId[] {
       return [...owners.keys()]
     },
     appendEnroll(event): boolean {

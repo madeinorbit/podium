@@ -180,7 +180,7 @@ const asLegacyFrame = (raw: string): DaemonHandshake | null => {
  */
 export function recordHelloBuild(
   store: {
-    setMachineBuild: (id: string, build: PeerBuild, caps: string[], at: string) => void
+    setMachineBuild: (id: MachineId, build: PeerBuild, caps: string[], at: string) => void
   },
   machineId: MachineId,
   hello: { build: PeerBuild | undefined; caps: string[]; at: string },

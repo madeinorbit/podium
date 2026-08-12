@@ -6,7 +6,7 @@
 // server-only accounts table and only their masked identities are projected.
 
 import { harnessDetectLogin } from '@podium/harness/metadata'
-import type { HarnessAgent, MachineId } from '@podium/model'
+import { asAccountId, type HarnessAgent, type MachineId } from '@podium/model'
 import { buildLoginCatalog, catalogEntriesForHarness, type LoginCatalog } from './login-catalog'
 import type { AccountsRepository } from './store/accounts'
 import type { MachineRecord } from './store/types'
@@ -161,7 +161,7 @@ export function accountViews(
   const stored = new Map(accounts.list().map((a) => [a.id, a]))
   const managed: AccountView[] = MANAGED_KEY_PROVIDERS.map((provider) => {
     const id = `managed:${provider}`
-    const row = stored.get(id)
+    const row = stored.get(asAccountId(id))
     const legacyKey = legacyApiKey(provider) ?? ''
     if (row) {
       return {
@@ -194,7 +194,7 @@ export function accountViews(
     }
   })
 
-  const oauthRow = stored.get('managed:claude-oauth')
+  const oauthRow = stored.get(asAccountId('managed:claude-oauth'))
   const claudeOauth: AccountView = {
     id: 'managed:claude-oauth',
     provider: 'anthropic',

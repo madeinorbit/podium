@@ -19,7 +19,7 @@
  * POD-1079 fills them in without touching the handshake.
  */
 
-import type { MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import type {
   MachineDirectory,
   PairedMachine,
@@ -109,7 +109,7 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
     if (machineHint === undefined) return null
     const auth = machines.authenticateDaemon({
       type: 'hello',
-      machineId: machineHint,
+      machineId: asMachineId(machineHint),
       token,
       hostname: observed?.hostname ?? machineHint,
     })
