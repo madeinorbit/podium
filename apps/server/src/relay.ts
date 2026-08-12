@@ -16,6 +16,7 @@ import type {
   VisibilityResolver,
 } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, wireSchemaDigest } from '@podium/protocol'
+import { resolveSpawnDefaults } from '@podium/runtime'
 import { resolveUpdateChannel } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
@@ -1536,6 +1537,19 @@ export class SessionRegistry {
               spawnedByParentSessionId(sessionsSvc.sessionSpawnedBy(candidate)),
             onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
           })
+          // ONE ANSWER to "which agent, model and effort?" (POD-1107). This site
+          // used to hardcode 'codex' and 'auto', so a one-off scheduled with no
+          // explicit agent ignored the operator's configured default harness
+          // while issue-create honoured it. Continuing an existing session still
+          // wins outright — that session's harness is already running.
+          const spawnDefaults = resolveSpawnDefaults(
+            this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
+            {
+              agentKind: existing?.agentKind ?? fresh?.agentKind,
+              model: fresh?.model,
+              effort: fresh?.effort,
+            },
+          )
           const scheduled = automations.create(
             {
               name: op.name,
@@ -1544,9 +1558,9 @@ export class SessionRegistry {
               runAt: op.runAt,
               targetSessionId: existingSessionId,
               repoPath: existing?.cwd ?? fresh?.repoPath ?? null,
-              agentKind: existing?.agentKind ?? fresh?.agentKind ?? 'codex',
-              model: fresh?.model ?? 'auto',
-              effort: fresh?.effort ?? 'auto',
+              agentKind: spawnDefaults.agentKind,
+              model: spawnDefaults.model,
+              effort: spawnDefaults.effort,
               prompt: op.prompt,
               enabled: true,
               sessionMode: existingSessionId === null ? 'fresh' : 'resume',

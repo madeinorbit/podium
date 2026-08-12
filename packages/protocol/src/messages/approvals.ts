@@ -43,7 +43,13 @@ export const ApprovalOp = z.discriminatedUnion('kind', [
       z.object({
         kind: z.literal('fresh'),
         repoPath: z.string().min(1),
-        agentKind: AgentKind,
+        /** OPTIONAL, and validated when present (POD-1107). Absent means "the
+         *  operator's configured default", which the server answers with
+         *  `resolveSpawnDefaults` — the same answer issue-create gets. It was
+         *  required here while the automations wire left the kind unvalidated,
+         *  which is the pair of divergences POD-1107 closes: the enum is kept
+         *  because a REQUESTER naming a harness is naming one this build ships. */
+        agentKind: AgentKind.optional(),
         model: z.string().optional(),
         effort: z.string().optional(),
       }),

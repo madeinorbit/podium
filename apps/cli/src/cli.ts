@@ -194,7 +194,7 @@ export type LaunchPlan =
     }
 
 const AUTOMATION_SCHEDULE_USAGE =
-  'usage: podium automation schedule --at <ISO timestamp> --message <text> [--name <name>] [--session <id> | --fresh --repo <path> --agent <kind> [--model <id>] [--effort <level>]]'
+  'usage: podium automation schedule --at <ISO timestamp> --message <text> [--name <name>] [--session <id> | --fresh --repo <path> [--agent <kind>] [--model <id>] [--effort <level>]]'
 
 function automationSchedulePlan(argv: string[]): LaunchPlan {
   if (argv[1] !== 'schedule') {
@@ -253,16 +253,20 @@ function automationSchedulePlan(argv: string[]): LaunchPlan {
     const agentKind = values.get('--agent')
     const model = values.get('--model')
     const effort = values.get('--effort')
-    if (!repoPath || !agentKind || !isAgentKind(agentKind)) {
+    // --agent IS OPTIONAL (POD-1107): omitting it means "the configured default
+    // harness", which the server resolves with the same function issue-create
+    // uses. A kind that IS named still has to be one this build ships — the
+    // check that stood here was the only reason the whole tuple was mandatory.
+    if (!repoPath || (agentKind !== undefined && !isAgentKind(agentKind))) {
       return {
         kind: 'usage-error',
-        message: 'podium automation: --fresh requires --repo and a valid --agent kind',
+        message: 'podium automation: --fresh requires --repo and, if given, a valid --agent kind',
       }
     }
     target = {
       kind: 'fresh',
       repoPath,
-      agentKind,
+      ...(agentKind ? { agentKind } : {}),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
     }

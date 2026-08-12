@@ -22,6 +22,7 @@ import {
   type AutomationSessionMode,
   asAutomationId,
   asSessionId,
+  isAgentKind,
   spawnedByTag,
   type UserId,
 } from '@podium/model'
@@ -156,6 +157,16 @@ export class AutomationsService {
     return nextRunAfter(cron, this.now())?.toISOString() ?? null
   }
 
+  /** The WRITE seam's half of POD-1107. The column and the wire stay open (a
+   *  newer peer may name a harness this build never heard of), but nothing THIS
+   *  build accepts from a form, a CLI or the approvals broker may name a harness
+   *  it cannot run — that automation could only ever fail at its first fire, and
+   *  failing at write time tells whoever typed it, while failing at fire time
+   *  tells nobody. Rows that predate this check are caught at the spawn seam. */
+  private validateAgentKind(kind: string): void {
+    if (!isAgentKind(kind)) throw new Error(`unknown agent kind: ${kind}`)
+  }
+
   private validateSchedule(
     scheduleKind: AutomationScheduleKind,
     cron: string | null,
@@ -221,6 +232,7 @@ export class AutomationsService {
     const cron = input.cron?.trim() || null
     const runAt = input.runAt ? new Date(input.runAt).toISOString() : null
     this.validateSchedule(scheduleKind, cron, runAt, scheduleKind === 'once')
+    this.validateAgentKind(input.agentKind)
     const enabled = input.enabled ?? false
     const row: AutomationRow = {
       // MINT SITE: the AutomationId is generated here, so this is where the brand
@@ -278,6 +290,7 @@ export class AutomationsService {
     const scheduleChanged =
       scheduleKind !== current.scheduleKind || cron !== current.cron || runAt !== current.runAt
     this.validateSchedule(scheduleKind, cron, runAt, scheduleKind === 'once' && scheduleChanged)
+    if (patch.agentKind !== undefined) this.validateAgentKind(patch.agentKind)
     const next: AutomationRow = {
       ...current,
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
@@ -614,6 +627,22 @@ export class AutomationsService {
       }
     }
 
+    // THE NARROWING GATE (POD-1107), where the open wire kind becomes a process.
+    // `AutomationWire.agentKind` is a plain string on purpose — a newer peer may
+    // name a harness this build has never heard of, and the frame must still
+    // decode. What is NOT allowed is carrying that string all the way to a spawn
+    // on a bare `as AgentKind`, which is what stood here: the enum was decorative
+    // on this path and an unrunnable kind reached the launch command. Refusing
+    // records an honest error run against the occurrence; the alternative,
+    // substituting some default harness, would run the operator's prompt through
+    // a CLI they never chose.
+    const agentKind = automation.agentKind
+    if (!isAgentKind(agentKind)) {
+      throw new AutomationSpawnError(
+        `automation names an agent kind this build cannot run: ${agentKind}`,
+        null,
+      )
+    }
     const cwd = automation.repoPath ?? this.homeDir()
     const issue = this.deps.createIssue({
       repoPath: cwd,
@@ -629,7 +658,7 @@ export class AutomationsService {
     })
     const { sessionId } = this.deps.createSession({
       cwd,
-      agentKind: automation.agentKind as AgentKind,
+      agentKind,
       model: automation.model,
       effort: automation.effort,
       spawnedBy: spawnedByTag({ kind: 'automation', id: automation.id }),

@@ -547,6 +547,53 @@ export function resolveRole(settings: PodiumSettings, role: RoleName): ResolvedR
   return { accountId, ...decodeAccount(accountId, role), model: rb.model, effort: rb.effort }
 }
 
+/** What starting an agent session needs to be told: which harness, and the model
+ *  and effort that ride with it. */
+export interface ResolvedSpawnDefaults {
+  /** NOT NARROWED HERE. A caller that hands in an unvalidated string gets it
+   *  back unvalidated — the narrowing gate is `isAgentKind` at the seam where the
+   *  value becomes a process, not this resolver. With no override the answer is
+   *  the coding role's harness, which is always a real one. */
+  agentKind: string
+  model: string
+  effort: string
+}
+
+/**
+ * THE ONE ANSWER to "which agent, model and effort does a spawn get when the
+ * caller did not say?" (POD-1107).
+ *
+ * There were two answers before this function. Issue-create resolved the coding
+ * role; the approvals broker's `automation-schedule` op hardcoded the literal
+ * `'codex'` and `'auto'`, so a one-off automation scheduled with no explicit
+ * agent quietly ignored the operator's configured default harness. Both paths
+ * call this now, so there is one place to read and one place to change.
+ *
+ * THE ROLE-DEFAULTS RULE is the same one `SessionLaunchConfig` states at spawn
+ * time and is the part most likely to be "simplified" away: the coding role's
+ * model and effort apply ONLY when the chosen harness IS the coding harness.
+ * Picking another harness must not inherit them [spec:SP-7ff1].
+ *
+ * `||` RATHER THAN `??`, deliberately: an empty string is "unset" at every
+ * caller (argv, form fields, storage columns), and the string `'auto'` is passed
+ * THROUGH rather than resolved — it means "no opinion" to the launch path
+ * downstream, which is where an issue's stored `'auto'` is turned into a real
+ * model. Resolving it here would rewrite what issue-create persists.
+ */
+export function resolveSpawnDefaults(
+  settings: PodiumSettings,
+  override?: { agentKind?: string | null; model?: string | null; effort?: string | null },
+): ResolvedSpawnDefaults {
+  const coding = resolveRole(settings, 'coding')
+  const agentKind = override?.agentKind || coding.harness
+  const useCodingDefaults = agentKind === coding.harness // [spec:SP-7ff1]
+  return {
+    agentKind,
+    model: override?.model || (useCodingDefaults ? coding.model : 'auto'),
+    effort: override?.effort || (useCodingDefaults ? coding.effort : 'auto'),
+  }
+}
+
 /** Bridge for the llmClient path (one-shot / superagent api loop): reconstruct an
  *  api-shaped LlmBackend from a resolved role. A harness-execution role yields
  *  kind:'harness', which llmClient rejects — harness-print one-shot is still
