@@ -256,6 +256,62 @@ describe('the repo-identity upgrade is spent once per database (POD-1360)', () =
     }
   })
 
+  it('the upgrade drops the frame row cache, so a same-frame read sees the new repo_id', async () => {
+    // THE COUPLING TO POD-1931, ASSERTED RATHER THAN REMEMBERED. `IssuesRepository`
+    // caches mapped issue rows for the duration of one synchronous frame, and every
+    // writer owes `invalidateRowCache()`. This upgrade is a writer, and it is an easy
+    // one to miss: it arrived as a RENAME of `backfillNullRepoIds`, and a rename that
+    // drops a line merges perfectly cleanly. The failure it would cause does not look
+    // like this issue's — it looks like the cache serving stale rows — so the guard
+    // belongs here, next to the rename, not in a comment on the cache.
+    //
+    // THE AWAIT BELOW IS LOAD-BEARING, and its absence is what made the first version
+    // of this test vacuous. Constructing a SessionStore RUNS the upgrade, which writes,
+    // which disarms caching for the remainder of that frame — so a test that builds a
+    // store and reads in the same frame never caches anything, and would have passed
+    // with the invalidate deleted while asserting nothing at all. One microtask ends
+    // the constructor's frame and re-arms the cache; everything after it is one frame.
+    const s = new SessionStore(':memory:')
+    // THE REPO IS FULLY REGISTERED ON PURPOSE — id, origin and prefix all present — so
+    // the repos half of the upgrade has nothing to write. That isolation is the point:
+    // `assignRepoIdToIssuesUnder` on the repos path invalidates too, so a fixture where
+    // BOTH halves write would still go green with this method's own invalidate deleted,
+    // and would be testing POD-1931's line instead of the one this issue owns.
+    s.repos.addRepo('/framed', 'm1', 'git@github.com:o/r.git')
+    db(s)
+      .prepare(
+        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
+           created_at, updated_at)
+         VALUES ('iss_framed', '/framed', 1, 'A', 'backlog', 'main', 'claude-code', 't', 't')`,
+      )
+      .run()
+
+    // End the constructor's frame; caching is armed again from here.
+    await Promise.resolve()
+
+    // Read FIRST, so the frame cache is holding the pre-upgrade row (repoId null)…
+    expect(s.issues.getIssue('iss_framed')?.repoId).toBeNull()
+
+    // …and PROVE the cache is actually armed in this frame, rather than assuming it.
+    // Without this the test below would pass just as well against a store that has no
+    // cache at all, or one whose frame had already been disarmed by something else —
+    // it would asserts nothing about the invalidate. So: write the row behind the
+    // repository's back, on the raw handle, which performs no invalidation. A live
+    // cache MUST still serve the stale answer here.
+    db(s).prepare("UPDATE issues SET title = 'behind-the-cache' WHERE id = 'iss_framed'").run()
+    expect(s.issues.getIssue('iss_framed')?.title).toBe('A')
+
+    // Now the upgrade — a repository write, which owes an invalidate — and a read in
+    // that same frame. This is the assertion that fails if the rename ever drops it.
+    s.migrateLegacyRepoIdentity()
+    expect(s.issues.getIssue('iss_framed')?.title).toBe('behind-the-cache')
+
+    expect(s.issues.getIssue('iss_framed')?.repoId).toBe(
+      deriveRepoId({ originUrl: 'git@github.com:o/r.git', machineId: 'm1', path: '/framed' }),
+    )
+    s.close()
+  })
+
   it('fails the boot loudly when a repo_id survives the rewrite', () => {
     // THE RESIDUE CHECK MUST BE ABLE TO FIRE, or it is decoration. Stubbing the repos
     // half out is the only way to produce the state it guards — the derivation cannot
