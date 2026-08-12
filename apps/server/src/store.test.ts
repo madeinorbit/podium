@@ -1,4 +1,6 @@
 import {
+  asUserId,
+  asThreadId,
   FIRST_ADMIN_USER_ID,
   SOLE_USER_ID,
   asAccountId,
@@ -139,15 +141,15 @@ describe('SessionStore repos', () => {
     const path = '/home/till/src/podium'
     const originUrl = 'https://github.com/madeinorbit/podium.git'
 
-    store.repos.addRepo(`${path}/`, machineId)
-    store.repos.updateRepoOrigin(machineId, path, originUrl)
+    store.repos.addRepo(`${path}/`, asMachineId(machineId))
+    store.repos.updateRepoOrigin(asMachineId(machineId), path, originUrl)
 
-    expect(store.repos.listRepos(machineId)).toEqual([
+    expect(store.repos.listRepos(asMachineId(machineId))).toEqual([
       {
         machineId,
         path,
         originUrl,
-        repoId: deriveRepoId({ originUrl, machineId, path }),
+        repoId: deriveRepoId({ originUrl, machineId: asMachineId(machineId), path }),
         prefix: expect.any(String),
       },
     ])
@@ -329,9 +331,9 @@ describe('SessionStore sessions', () => {
     const deletedAt = '2026-07-13T10:00:00.000Z'
     store.sessions.upsertSession(row({ issueId: asIssueId('iss_1'), status: 'live' }))
 
-    store.sessions.softDeleteForIssue(['id-1'], 'iss_1', deletedAt)
+    store.sessions.softDeleteForIssue(['id-1'], asIssueId('iss_1'), deletedAt)
     expect(store.sessions.loadSessions()).toEqual([])
-    expect(store.sessions.loadDeletedSessionsForIssue('iss_1')).toEqual([
+    expect(store.sessions.loadDeletedSessionsForIssue(asIssueId('iss_1'))).toEqual([
       row({
         issueId: asIssueId('iss_1'),
         status: 'live',
@@ -341,8 +343,8 @@ describe('SessionStore sessions', () => {
       }),
     ])
 
-    store.sessions.restoreDeletedForIssue('iss_1')
-    expect(store.sessions.loadDeletedSessionsForIssue('iss_1')).toEqual([])
+    store.sessions.restoreDeletedForIssue(asIssueId('iss_1'))
+    expect(store.sessions.loadDeletedSessionsForIssue(asIssueId('iss_1'))).toEqual([])
     expect(store.sessions.loadSessions()).toEqual([
       row({ issueId: asIssueId('iss_1'), status: 'exited' }),
     ])
@@ -353,10 +355,10 @@ describe('SessionStore sessions', () => {
     const store = new SessionStore(':memory:')
     const deletedAt = '2026-07-13T11:00:00.000Z'
     store.sessions.upsertSession(row({ issueId: asIssueId('iss_1'), status: 'live' }))
-    store.sessions.setPin(SOLE_USER_ID, 'panel', 'id-1', true)
+    store.sessions.setPin(asUserId(SOLE_USER_ID), 'panel', 'id-1', true)
     store.sessions.setDraft(asSessionId('id-1'), 'recoverable input')
-    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('id-1'), null)
-    store.sessions.setTabOrder(SOLE_USER_ID, '/proj', ['id-1'])
+    store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('id-1'), null)
+    store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/proj', ['id-1'])
 
     store.sessions.softDeleteSessions(['id-1'], deletedAt, 'standalone')
 
@@ -369,13 +371,13 @@ describe('SessionStore sessions', () => {
         deletionSource: 'standalone',
       }),
     ])
-    expect(store.sessions.loadDeletedSessionsForIssue('iss_1')).toEqual([])
-    expect(store.sessions.listPins(SOLE_USER_ID).panels).toEqual(['id-1'])
+    expect(store.sessions.loadDeletedSessionsForIssue(asIssueId('iss_1'))).toEqual([])
+    expect(store.sessions.listPins(asUserId(SOLE_USER_ID)).panels).toEqual(['id-1'])
     expect(store.sessions.loadDrafts()).toEqual({ 'id-1': 'recoverable input' })
-    expect(store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ 'id-1': null })
-    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/proj': ['id-1'] })
+    expect(store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({ 'id-1': null })
+    expect(store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({ '/proj': ['id-1'] })
 
-    store.sessions.restoreDeletedForIssue('iss_1')
+    store.sessions.restoreDeletedForIssue(asIssueId('iss_1'))
     expect(store.sessions.loadSessions()).toEqual([])
     expect(store.sessions.loadDeletedSessions()).toHaveLength(1)
     store.close()
@@ -469,28 +471,32 @@ describe('SessionStore sessions', () => {
     store.sessions.upsertSession(
       row({ id: asSessionId('s_unread'), durableLabel: 'podium-s_unread' }),
     )
-    store.sessions.markSessionRead(SOLE_USER_ID, asSessionId('s_read'), '2026-07-07T00:00:00.000Z')
-
-    expect(store.sessions.getReadAt(SOLE_USER_ID, asSessionId('s_read'))).toBe(
+    store.sessions.markSessionRead(
+      asUserId(SOLE_USER_ID),
+      asSessionId('s_read'),
       '2026-07-07T00:00:00.000Z',
     )
-    expect(store.sessions.getReadAt(SOLE_USER_ID, asSessionId('s_unread'))).toBeNull()
-    expect(store.sessions.listReadAt(SOLE_USER_ID)).toEqual({
+
+    expect(store.sessions.getReadAt(asUserId(SOLE_USER_ID), asSessionId('s_read'))).toBe(
+      '2026-07-07T00:00:00.000Z',
+    )
+    expect(store.sessions.getReadAt(asUserId(SOLE_USER_ID), asSessionId('s_unread'))).toBeNull()
+    expect(store.sessions.listReadAt(asUserId(SOLE_USER_ID))).toEqual({
       s_read: '2026-07-07T00:00:00.000Z',
     })
 
     // ANOTHER user's slice is empty for the SAME session — the property the
     // re-key exists for. Two users, one session, two answers.
-    expect(store.sessions.getReadAt('user:other', asSessionId('s_read'))).toBeNull()
-    expect(store.sessions.listReadAt('user:other')).toEqual({})
+    expect(store.sessions.getReadAt(asUserId('user:other'), asSessionId('s_read'))).toBeNull()
+    expect(store.sessions.listReadAt(asUserId('user:other'))).toEqual({})
 
     // markUnread DELETES rather than nulling, so absence keeps its one meaning.
-    store.sessions.markSessionUnread(SOLE_USER_ID, asSessionId('s_read'))
-    expect(store.sessions.listReadAt(SOLE_USER_ID)).toEqual({})
+    store.sessions.markSessionUnread(asUserId(SOLE_USER_ID), asSessionId('s_read'))
+    expect(store.sessions.listReadAt(asUserId(SOLE_USER_ID))).toEqual({})
 
     // A per-user WRITE with no identity fails CLOSED — it never falls back to an
     // operator. Reads tolerate an unknown user (an empty slice is the truth).
-    expect(() => store.sessions.markSessionRead('', asSessionId('s_read'), 't')).toThrow(
+    expect(() => store.sessions.markSessionRead(asUserId(''), asSessionId('s_read'), 't')).toThrow(
       /no user id/,
     )
     store.close()
@@ -570,22 +576,26 @@ describe('SessionStore repos.json import', () => {
 describe('SessionStore pins', () => {
   it('starts empty, adds, dedupes, lists by kind in insertion order, and removes', () => {
     const store = new SessionStore(':memory:')
-    expect(store.sessions.listPins(SOLE_USER_ID)).toEqual({ panels: [], worktrees: [], repos: [] })
+    expect(store.sessions.listPins(asUserId(SOLE_USER_ID))).toEqual({
+      panels: [],
+      worktrees: [],
+      repos: [],
+    })
 
-    store.sessions.setPin(SOLE_USER_ID, 'repo', '/repo/b', true)
-    store.sessions.setPin(SOLE_USER_ID, 'worktree', '/repo/b-feature', true)
-    store.sessions.setPin(SOLE_USER_ID, 'panel', 'session-2', true)
-    store.sessions.setPin(SOLE_USER_ID, 'repo', '/repo/a', true)
-    store.sessions.setPin(SOLE_USER_ID, 'repo', '/repo/b', true)
+    store.sessions.setPin(asUserId(SOLE_USER_ID), 'repo', '/repo/b', true)
+    store.sessions.setPin(asUserId(SOLE_USER_ID), 'worktree', '/repo/b-feature', true)
+    store.sessions.setPin(asUserId(SOLE_USER_ID), 'panel', 'session-2', true)
+    store.sessions.setPin(asUserId(SOLE_USER_ID), 'repo', '/repo/a', true)
+    store.sessions.setPin(asUserId(SOLE_USER_ID), 'repo', '/repo/b', true)
 
-    expect(store.sessions.listPins(SOLE_USER_ID)).toEqual({
+    expect(store.sessions.listPins(asUserId(SOLE_USER_ID))).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
       repos: ['/repo/b', '/repo/a'],
     })
 
-    store.sessions.setPin(SOLE_USER_ID, 'repo', '/repo/b', false)
-    expect(store.sessions.listPins(SOLE_USER_ID)).toEqual({
+    store.sessions.setPin(asUserId(SOLE_USER_ID), 'repo', '/repo/b', false)
+    expect(store.sessions.listPins(asUserId(SOLE_USER_ID))).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
       repos: ['/repo/a'],
@@ -596,11 +606,15 @@ describe('SessionStore pins', () => {
   it('removes a panel pin when the session is deleted', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(row({ id: asSessionId('session-1') }))
-    store.sessions.setPin(SOLE_USER_ID, 'panel', 'session-1', true)
+    store.sessions.setPin(asUserId(SOLE_USER_ID), 'panel', 'session-1', true)
 
     store.sessions.purgeSession(asSessionId('session-1'))
 
-    expect(store.sessions.listPins(SOLE_USER_ID)).toEqual({ panels: [], worktrees: [], repos: [] })
+    expect(store.sessions.listPins(asUserId(SOLE_USER_ID))).toEqual({
+      panels: [],
+      worktrees: [],
+      repos: [],
+    })
     store.close()
   })
 })
@@ -608,41 +622,49 @@ describe('SessionStore pins', () => {
 describe('SessionStore snoozes', () => {
   it('starts empty, sets until-next-message (null) and timed, overwrites, and clears', () => {
     const store = new SessionStore(':memory:')
-    expect(store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
+    expect(store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
 
-    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s1'), null)
-    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s2'), '2999-01-01T05:00:00.000Z')
-    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({
+    store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'), null)
+    store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s2'), '2999-01-01T05:00:00.000Z')
+    expect(store.sessions.listSnoozes(asUserId(SOLE_USER_ID), 0)).toEqual({
       s1: null,
       s2: '2999-01-01T05:00:00.000Z',
     })
 
     // overwrite s1 with a timed value
-    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s1'), '2999-01-01T05:00:00.000Z')
-    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0).s1).toBe('2999-01-01T05:00:00.000Z')
+    store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'), '2999-01-01T05:00:00.000Z')
+    expect(store.sessions.listSnoozes(asUserId(SOLE_USER_ID), 0).s1).toBe(
+      '2999-01-01T05:00:00.000Z',
+    )
 
-    store.sessions.clearSnooze(SOLE_USER_ID, asSessionId('s1'))
-    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({ s2: '2999-01-01T05:00:00.000Z' })
+    store.sessions.clearSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'))
+    expect(store.sessions.listSnoozes(asUserId(SOLE_USER_ID), 0)).toEqual({
+      s2: '2999-01-01T05:00:00.000Z',
+    })
     store.close()
   })
 
   it('lazily drops a timed snooze whose deadline has passed; keeps null forever', () => {
     const store = new SessionStore(':memory:')
-    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('past'), '2000-01-01T00:00:00.000Z')
-    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('forever'), null)
+    store.sessions.setSnooze(
+      asUserId(SOLE_USER_ID),
+      asSessionId('past'),
+      '2000-01-01T00:00:00.000Z',
+    )
+    store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('forever'), null)
     const now = Date.parse('2026-06-19T00:00:00.000Z')
-    expect(store.sessions.listSnoozes(SOLE_USER_ID, now)).toEqual({ forever: null })
+    expect(store.sessions.listSnoozes(asUserId(SOLE_USER_ID), now)).toEqual({ forever: null })
     // the expired row was deleted, not just filtered
-    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({ forever: null })
+    expect(store.sessions.listSnoozes(asUserId(SOLE_USER_ID), 0)).toEqual({ forever: null })
     store.close()
   })
 
   it('removes a snooze when the session is deleted', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(row({ id: asSessionId('s1') }))
-    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s1'), null)
+    store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'), null)
     store.sessions.purgeSession(asSessionId('s1'))
-    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({})
+    expect(store.sessions.listSnoozes(asUserId(SOLE_USER_ID), 0)).toEqual({})
     store.close()
   })
 })
@@ -696,24 +718,26 @@ describe('SessionStore offers', () => {
 describe('SessionStore tab order', () => {
   it('starts empty, upserts per worktree, and clears on an empty list', () => {
     const store = new SessionStore(':memory:')
-    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({})
+    expect(store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({})
 
-    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s1', 's2'])
-    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/b', ['s9'])
-    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s2', 's1'])
-    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({
+    store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/a', ['s1', 's2'])
+    store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/b', ['s9'])
+    store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/a', ['s2', 's1'])
+    expect(store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({
       '/repo/a': ['s2', 's1'],
       '/repo/b': ['s9'],
     })
 
-    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/b', [])
-    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/repo/a': ['s2', 's1'] })
+    store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/b', [])
+    expect(store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({
+      '/repo/a': ['s2', 's1'],
+    })
     store.close()
   })
 
   it('rejects an empty worktree path', () => {
     const store = new SessionStore(':memory:')
-    expect(() => store.sessions.setTabOrder(SOLE_USER_ID, '  ', ['s1'])).toThrow(
+    expect(() => store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '  ', ['s1'])).toThrow(
       'worktree path is empty',
     )
     store.close()
@@ -722,22 +746,22 @@ describe('SessionStore tab order', () => {
   it('persists across instances on the same file', async () => {
     const file = await tmpDbPath()
     const a = new SessionStore(file)
-    a.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s2', 's1'])
+    a.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/a', ['s2', 's1'])
     a.close()
     const b = new SessionStore(file)
-    expect(b.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/repo/a': ['s2', 's1'] })
+    expect(b.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({ '/repo/a': ['s2', 's1'] })
     b.close()
   })
 
   it('scrubs a session from every order when it is deleted', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(row({ id: asSessionId('s1') }))
-    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s2', 's1'])
-    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/b', ['s1'])
+    store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/a', ['s2', 's1'])
+    store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/b', ['s1'])
 
     store.sessions.purgeSession(asSessionId('s1'))
 
-    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/repo/a': ['s2'] })
+    expect(store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({ '/repo/a': ['s2'] })
     store.close()
   })
 })
@@ -932,21 +956,21 @@ describe('SessionStore superagent threads', () => {
     expect(
       s.superagent.listSuperagentThreads(FIRST_ADMIN_USER_ID).some((t) => t.id === 'global'),
     ).toBe(true)
-    s.superagent.appendSuperagentMessage('global', { role: 'user', content: 'hi' })
+    s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'user', content: 'hi' })
     s.superagent.upsertSuperagentThread({
       ownerUserId: FIRST_ADMIN_USER_ID,
       id: 'btw_x',
       kind: 'btw',
       originSessionId: asSessionId('x'),
     })
-    s.superagent.appendSuperagentMessage('btw_x', { role: 'user', content: 'ctx' })
+    s.superagent.appendSuperagentMessage(asThreadId('btw_x'), { role: 'user', content: 'ctx' })
     expect(s.superagent.loadSuperagentMessages('global').map((m) => m.content)).toEqual(['hi'])
     expect(s.superagent.loadSuperagentMessages('btw_x').map((m) => m.content)).toEqual(['ctx'])
     s.close()
   })
   it('defaults message ops to the global thread', () => {
     const s = new SessionStore(':memory:')
-    s.superagent.appendSuperagentMessage('global', { role: 'user', content: 'legacy' })
+    s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'user', content: 'legacy' })
     expect(s.superagent.loadSuperagentMessages().map((m) => m.content)).toEqual(['legacy'])
     s.close()
   })
@@ -966,14 +990,14 @@ describe('SessionStore superagent threads', () => {
   })
   it('clears only the targeted thread', () => {
     const s = new SessionStore(':memory:')
-    s.superagent.appendSuperagentMessage('global', { role: 'user', content: 'g' })
+    s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'user', content: 'g' })
     s.superagent.upsertSuperagentThread({
       ownerUserId: FIRST_ADMIN_USER_ID,
       id: 'btw_z',
       kind: 'btw',
       originSessionId: asSessionId('z'),
     })
-    s.superagent.appendSuperagentMessage('btw_z', { role: 'user', content: 'z' })
+    s.superagent.appendSuperagentMessage(asThreadId('btw_z'), { role: 'user', content: 'z' })
     s.superagent.clearSuperagentMessages('btw_z')
     expect(s.superagent.loadSuperagentMessages('global').length).toBe(1)
     expect(s.superagent.loadSuperagentMessages('btw_z').length).toBe(0)
@@ -985,8 +1009,8 @@ describe('SessionStore superagent threads', () => {
     // blank the entire thread's history — quarantine that field to undefined, keep
     // the message and the rest of the thread.
     const s = new SessionStore(':memory:')
-    s.superagent.appendSuperagentMessage('global', { role: 'assistant', content: 'a' })
-    s.superagent.appendSuperagentMessage('global', { role: 'assistant', content: 'b' })
+    s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'assistant', content: 'a' })
+    s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'assistant', content: 'b' })
     ;(s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
       .prepare("UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'")
       .run()

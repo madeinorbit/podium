@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { MODEL_CATALOG_VERSION, ModelCatalog } from './model-catalog'
 
@@ -9,10 +10,10 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     const probe = vi.fn(async () => ({ grok: [{ value: 'g', label: 'g' }] }))
     const cat = new ModelCatalog(probe)
     // First read: stale/empty → returns empty NOW and kicks a bg refresh.
-    expect(cat.get(M)).toEqual({ machineId: M, byAgent: {}, fetchedAt: 0 })
-    await cat.refresh(M) // await the in-flight probe
-    expect(cat.get(M).byAgent.grok?.[0]?.value).toBe('g')
-    expect(cat.get(M).machineId).toBe(M)
+    expect(cat.get(asMachineId(M))).toEqual({ machineId: M, byAgent: {}, fetchedAt: 0 })
+    await cat.refresh(asMachineId(M)) // await the in-flight probe
+    expect(cat.get(asMachineId(M)).byAgent.grok?.[0]?.value).toBe('g')
+    expect(cat.get(asMachineId(M)).machineId).toBe(M)
     expect(probe).toHaveBeenCalledWith(M)
   })
 
@@ -30,10 +31,10 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
         : { grok: [{ value: 'desktop-only', label: 'desktop-only' }] },
     )
     const cat = new ModelCatalog(probe, { now: () => 1 })
-    await cat.refresh(M)
-    await cat.refresh(M2)
-    const a = cat.get(M)
-    const b = cat.get(M2)
+    await cat.refresh(asMachineId(M))
+    await cat.refresh(asMachineId(M2))
+    const a = cat.get(asMachineId(M))
+    const b = cat.get(asMachineId(M2))
     // Each snapshot names its own machine.
     expect(a.machineId, `machine-a snapshot.machineId=${a.machineId}`).toBe(M)
     expect(b.machineId, `machine-b snapshot.machineId=${b.machineId}`).toBe(M2)
@@ -57,13 +58,13 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
     let t = 1000
     const probe = vi.fn(async () => ({ grok: [] }))
     const cat = new ModelCatalog(probe, { ttlMs: 5000, now: () => t })
-    await cat.refresh(M)
-    cat.get(M)
-    cat.get(M)
+    await cat.refresh(asMachineId(M))
+    cat.get(asMachineId(M))
+    cat.get(asMachineId(M))
     expect(probe).toHaveBeenCalledTimes(1) // still fresh
     t += 6000 // past TTL
-    cat.get(M) // kicks a bg refresh
-    await cat.refresh(M)
+    cat.get(asMachineId(M)) // kicks a bg refresh
+    await cat.refresh(asMachineId(M))
     expect(probe).toHaveBeenCalledTimes(2)
   })
 
@@ -74,16 +75,20 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
       return { grok: [{ value: 'g', label: 'g' }] }
     })
     const cat = new ModelCatalog(probe, { now: () => 1 })
-    await cat.refresh(M)
+    await cat.refresh(asMachineId(M))
     ok = false
-    await cat.refresh(M)
-    expect(cat.get(M).byAgent.grok?.[0]?.value).toBe('g')
+    await cat.refresh(asMachineId(M))
+    expect(cat.get(asMachineId(M)).byAgent.grok?.[0]?.value).toBe('g')
   })
 
   it('dedups concurrent refreshes for the same machine into a single probe', async () => {
     const probe = vi.fn(async () => ({}))
     const cat = new ModelCatalog(probe)
-    await Promise.all([cat.refresh(M), cat.refresh(M), cat.refresh(M)])
+    await Promise.all([
+      cat.refresh(asMachineId(M)),
+      cat.refresh(asMachineId(M)),
+      cat.refresh(asMachineId(M)),
+    ])
     expect(probe).toHaveBeenCalledTimes(1)
   })
 
@@ -97,13 +102,13 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
       return { grok: [{ value: machineId, label: machineId }] }
     })
     const cat = new ModelCatalog(probe, { now: () => 1 })
-    const a = cat.refresh(M)
-    const b = cat.refresh(M2)
+    const a = cat.refresh(asMachineId(M))
+    const b = cat.refresh(asMachineId(M2))
     await b
-    expect(cat.get(M2).byAgent.grok?.[0]?.value).toBe(M2)
+    expect(cat.get(asMachineId(M2)).byAgent.grok?.[0]?.value).toBe(M2)
     release()
     await a
-    expect(cat.get(M).byAgent.grok?.[0]?.value).toBe(M)
+    expect(cat.get(asMachineId(M)).byAgent.grok?.[0]?.value).toBe(M)
     expect(probe).toHaveBeenCalledTimes(2)
   })
 
@@ -114,11 +119,14 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
       fetchedAt: 123,
       version: MODEL_CATALOG_VERSION,
     }
-    const cat = new ModelCatalog(vi.fn(async () => ({})), {
-      load: (id) => (id === M ? persisted : null),
-    })
+    const cat = new ModelCatalog(
+      vi.fn(async () => ({})),
+      {
+        load: (id) => (id === M ? persisted : null),
+      },
+    )
     // Served immediately — no probe needed for the first open after a restart.
-    expect(cat.get(M).byAgent.grok?.[0]?.value).toBe('grok-build')
+    expect(cat.get(asMachineId(M)).byAgent.grok?.[0]?.value).toBe('grok-build')
   })
 
   it('discards a stale-shape or unkeyed persisted snapshot and re-probes', () => {
@@ -131,7 +139,7 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
           fetchedAt: 123,
         }) as never,
     })
-    expect(cat.get(M).byAgent).toEqual({}) // not seeded from the stale snapshot
+    expect(cat.get(asMachineId(M)).byAgent).toEqual({}) // not seeded from the stale snapshot
     expect(probe).toHaveBeenCalledWith(M) // get() kicked a re-probe
   })
 
@@ -149,8 +157,8 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
       }),
     })
     expect(
-      cat.get(M).byAgent,
-      `seeded pre-split models=${JSON.stringify(cat.get(M).byAgent)} (must be empty)`,
+      cat.get(asMachineId(M)).byAgent,
+      `seeded pre-split models=${JSON.stringify(cat.get(asMachineId(M)).byAgent)} (must be empty)`,
     ).toEqual({})
     expect(probe).toHaveBeenCalledWith(M)
   })
@@ -165,7 +173,7 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
         version: MODEL_CATALOG_VERSION,
       }),
     })
-    expect(cat.get(M).byAgent).toEqual({})
+    expect(cat.get(asMachineId(M)).byAgent).toEqual({})
     expect(probe).toHaveBeenCalledWith(M)
   })
 
@@ -175,7 +183,7 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
       async () => ({ codex: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] }),
       { now: () => 42, save },
     )
-    await cat.refresh(M)
+    await cat.refresh(asMachineId(M))
     expect(save).toHaveBeenCalledWith({
       machineId: M,
       byAgent: { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] },

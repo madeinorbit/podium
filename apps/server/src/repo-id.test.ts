@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -22,7 +23,9 @@ describe('canonicalizeRepoOrigin', () => {
   it('lowercases host, keeps only non-default ports', () => {
     expect(canonicalizeRepoOrigin('https://GitHub.COM/Owner/Repo')).toBe('github.com/Owner/Repo')
     expect(canonicalizeRepoOrigin('https://git.example.com:443/o/r')).toBe('git.example.com/o/r')
-    expect(canonicalizeRepoOrigin('ssh://git@git.example.com:22/o/r.git')).toBe('git.example.com/o/r')
+    expect(canonicalizeRepoOrigin('ssh://git@git.example.com:22/o/r.git')).toBe(
+      'git.example.com/o/r',
+    )
     expect(canonicalizeRepoOrigin('ssh://git@git.example.com:2222/o/r.git')).toBe(
       'git.example.com:2222/o/r',
     )
@@ -43,12 +46,12 @@ describe('deriveRepoId', () => {
   it('same origin in different spellings and paths → same id', () => {
     const a = deriveRepoId({
       originUrl: 'git@github.com:o/r.git',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       path: '/home/a/r',
     })
     const b = deriveRepoId({
       originUrl: 'https://github.com/o/r',
-      machineId: 'm2',
+      machineId: asMachineId('m2'),
       path: '/srv/checkouts/r',
     })
     expect(a).toBe(b)
@@ -56,19 +59,25 @@ describe('deriveRepoId', () => {
   })
 
   it('falls back to deterministic (machineId, path) hash without an origin', () => {
-    const a = deriveRepoId({ machineId: 'm1', path: '/x' })
-    expect(a).toBe(deriveRepoId({ originUrl: 'not a url at all ???', machineId: 'm1', path: '/x' }))
+    const a = deriveRepoId({ machineId: asMachineId('m1'), path: '/x' })
+    expect(a).toBe(
+      deriveRepoId({ originUrl: 'not a url at all ???', machineId: asMachineId('m1'), path: '/x' }),
+    )
     expect(a).toMatch(/^repo_[0-9a-f]{16}$/)
-    expect(a).not.toBe(deriveRepoId({ machineId: 'm2', path: '/x' }))
-    expect(a).not.toBe(deriveRepoId({ machineId: 'm1', path: '/y' }))
+    expect(a).not.toBe(deriveRepoId({ machineId: asMachineId('m2'), path: '/x' }))
+    expect(a).not.toBe(deriveRepoId({ machineId: asMachineId('m1'), path: '/y' }))
   })
 
   it('isPathFallbackRepoId distinguishes fallback from origin-derived ids', () => {
-    const fallback = deriveRepoId({ machineId: 'm1', path: '/x' })
-    const originId = deriveRepoId({ originUrl: 'git@h.com:o/r', machineId: 'm1', path: '/x' })
-    expect(isPathFallbackRepoId(fallback, 'm1', '/x')).toBe(true)
-    expect(isPathFallbackRepoId(null, 'm1', '/x')).toBe(true)
-    expect(isPathFallbackRepoId(originId, 'm1', '/x')).toBe(false)
+    const fallback = deriveRepoId({ machineId: asMachineId('m1'), path: '/x' })
+    const originId = deriveRepoId({
+      originUrl: 'git@h.com:o/r',
+      machineId: asMachineId('m1'),
+      path: '/x',
+    })
+    expect(isPathFallbackRepoId(fallback, asMachineId('m1'), '/x')).toBe(true)
+    expect(isPathFallbackRepoId(null, asMachineId('m1'), '/x')).toBe(true)
+    expect(isPathFallbackRepoId(originId, asMachineId('m1'), '/x')).toBe(false)
   })
 })
 

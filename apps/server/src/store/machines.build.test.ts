@@ -1,3 +1,4 @@
+import { asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from '../store'
 
@@ -9,7 +10,7 @@ function seedMachine(store: SessionStore): void {
     name: 'box',
     hostname: 'box.local',
     tokenHash: 'token-hash',
-    ownerUserId: 'user:sole',
+    ownerUserId: asUserId('user:sole'),
   })
 }
 

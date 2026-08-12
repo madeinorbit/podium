@@ -73,8 +73,8 @@ beforeEach(() => {
   const raw = openMigratedTestDatabase()
   counts = new Map()
   repos = new ReposRepository(counting(raw, counts), () => {}, asMachineId(HOST))
-  repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')
-  repos.addRepo('/home/u/beta', HOST, undefined, 'BE')
+  repos.addRepo('/home/u/alpha', asMachineId(HOST), undefined, 'AL')
+  repos.addRepo('/home/u/beta', asMachineId(HOST), undefined, 'BE')
   counts.clear()
 })
 
@@ -104,7 +104,7 @@ describe('repo reads under a projection pass', () => {
   it('sees a repo registered after the first read', () => {
     expect(repos.prefixForPath('/home/u/gamma/src')).toBeNull()
 
-    repos.addRepo('/home/u/gamma', HOST, undefined, 'GA')
+    repos.addRepo('/home/u/gamma', asMachineId(HOST), undefined, 'GA')
 
     // The paired admission: a cache that never invalidates would still say null.
     expect(repos.prefixForPath('/home/u/gamma/src')).toBe('GA')
@@ -117,7 +117,7 @@ describe('repo reads under a projection pass', () => {
     )
     const before = repos.resolveRepoIdForPath('/home/u/alpha/x')
 
-    repos.removeRepo('/home/u/alpha', HOST)
+    repos.removeRepo('/home/u/alpha', asMachineId(HOST))
 
     // With alpha gone the path no repo row claims falls back to a derived id,
     // which is a DIFFERENT value — a stale cache would still return `before`.
@@ -128,7 +128,7 @@ describe('repo reads under a projection pass', () => {
   it('sees a prefix changed after the first read', () => {
     expect(repos.prefixForPath('/home/u/alpha/x')).toBe('AL')
 
-    repos.setRepoPrefix(HOST, '/home/u/alpha', 'AZ')
+    repos.setRepoPrefix(asMachineId(HOST), '/home/u/alpha', 'AZ')
 
     expect(repos.prefixForPath('/home/u/alpha/x')).toBe('AZ')
   })
@@ -152,7 +152,7 @@ describe('repo reads under a projection pass', () => {
 describe('registry cache vs writers that bypass the repository', () => {
   it('serves the upgraded machine id after the raw-handle identity migration', () => {
     const store = new SessionStore(':memory:')
-    store.repos.addRepo('/legacy', '__local__')
+    store.repos.addRepo('/legacy', asMachineId('__local__'))
 
     // Warm the cache BEFORE the migration — without this read the test passes
     // against a stale cache too, because there would be nothing cached to go
@@ -165,7 +165,7 @@ describe('registry cache vs writers that bypass the repository', () => {
     expect(store.repos.listRepoPaths()).toEqual(['/legacy'])
     // The machine moved; the opaque stored id did NOT (POD-318).
     expect(store.repos.listRepos()[0]?.repoId).toBe(
-      deriveRepoId({ machineId: '__local__', path: '/legacy' }),
+      deriveRepoId({ machineId: asMachineId('__local__'), path: '/legacy' }),
     )
     store.close()
   })

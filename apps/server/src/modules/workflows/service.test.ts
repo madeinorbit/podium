@@ -107,8 +107,11 @@ describe('WorkflowService', () => {
     )
 
     expect(
-      service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo/wt', issueId: 'issue-1' })
-        ?.id,
+      service.resolveRevision({
+        sessionId: asSessionId('s1'),
+        cwd: '/repo/wt',
+        issueId: asIssueId('issue-1'),
+      })?.id,
     ).toBe(task.revision.id)
 
     const revised = service.revise(
@@ -119,8 +122,11 @@ describe('WorkflowService', () => {
     expect(store.workflows.getRevision(task.revision.id)?.instructions).toBe('task rules')
     // The binding points at an exact revision; editing never changes unstarted tasks silently.
     expect(
-      service.resolveRevision({ sessionId: asSessionId('s1'), cwd: '/repo/wt', issueId: 'issue-1' })
-        ?.id,
+      service.resolveRevision({
+        sessionId: asSessionId('s1'),
+        cwd: '/repo/wt',
+        issueId: asIssueId('issue-1'),
+      })?.id,
     ).toBe(task.revision.id)
   })
 
@@ -225,7 +231,7 @@ describe('WorkflowService', () => {
     const run = service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
     })
     expect(service.prime(agent('s1'))).toContain('Execution profile unavailable: profile-missing')
@@ -283,7 +289,7 @@ describe('WorkflowService', () => {
     const run = service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
     })
     expect(
@@ -388,7 +394,7 @@ describe('WorkflowService', () => {
     const run = service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
     })
     const revised = service.revise(
@@ -403,13 +409,13 @@ describe('WorkflowService', () => {
     const prepared = service.prepareStart({
       sessionId: asSessionId('s2'),
       cwd: '/repo/wt',
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
     })
     expect(prepared?.revision.id).toBe(created.revision.id)
     expect(prepared?.prompt).toContain('version one')
     const rehydrated = service.prepareExistingSession({
       sessionId: asSessionId('s1'),
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
     })
     expect(rehydrated?.revision.id).toBe(created.revision.id)
     expect(rehydrated?.prompt).toContain('version one')
@@ -432,7 +438,7 @@ describe('WorkflowService', () => {
       service.prepareStart({
         sessionId: asSessionId('s2'),
         cwd: '/repo/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         explicitRevisionId: revised.id,
       }),
     ).toThrow('adopt a new revision explicitly')
@@ -453,7 +459,7 @@ describe('WorkflowService', () => {
     const run = service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
     })
     expect(() => service.adopt({ revisionId: 'missing' }, agent('s1'))).toThrow(
@@ -512,7 +518,7 @@ describe('WorkflowService', () => {
     const first = service.startRun({
       sessionId: asSessionId('s1'),
       cwd: '/repo/wt',
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
     })
     const secondRevision = service.revise(

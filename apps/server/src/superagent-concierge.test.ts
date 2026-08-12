@@ -96,7 +96,7 @@ describe('conciergeThreadId', () => {
     expect(conciergeRepoPath(id)).toBe('/home/u/src/repo')
   })
   it('returns undefined for non-concierge ids', () => {
-    expect(conciergeRepoPath('btw_s1')).toBeUndefined()
+    expect(conciergeRepoPath(asThreadId('btw_s1'))).toBeUndefined()
   })
 })
 

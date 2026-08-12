@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, type SessionId } from '@podium/model'
+import { asThreadId, asIssueId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import type { TelegramChatBinding } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionMeta, TranscriptItem } from '@podium/model'
@@ -375,8 +375,8 @@ describe('MessagingService', () => {
     expect(h.sendTurn.mock.calls[0]![0]!.threadId).toBe('global')
     expect(h.sendTurn.mock.calls[0]![0]!.text).toContain('status?')
     h.bus.emit('superagent.turnEnded', {
-      threadId: 'global',
-      podiumSessionId: 'ps1',
+      threadId: asThreadId('global'),
+      podiumSessionId: asSessionId('ps1'),
       ok: true,
       output: 'all good',
     })
@@ -401,8 +401,8 @@ describe('MessagingService', () => {
     await flush()
     expect(h.sendTurn).toHaveBeenCalledTimes(1)
     h.bus.emit('superagent.turnEnded', {
-      threadId: 'global',
-      podiumSessionId: 'ps1',
+      threadId: asThreadId('global'),
+      podiumSessionId: asSessionId('ps1'),
       ok: true,
       output: 'reply one',
     })
@@ -425,8 +425,8 @@ describe('MessagingService', () => {
     busy = false
     // A web-dispatched turn (not awaited by the bridge) finishes:
     h.bus.emit('superagent.turnEnded', {
-      threadId: 'global',
-      podiumSessionId: 'ps1',
+      threadId: asThreadId('global'),
+      podiumSessionId: asSessionId('ps1'),
       ok: true,
       output: 'web reply',
     })
@@ -475,8 +475,8 @@ describe('MessagingService', () => {
       h.inbound('hello')
       await flushMicro()
       h.bus.emit('superagent.turnEnded', {
-        threadId: 'global',
-        podiumSessionId: 'ps1',
+        threadId: asThreadId('global'),
+        podiumSessionId: asSessionId('ps1'),
         ok: true,
         output: 'done',
       })
@@ -492,8 +492,8 @@ describe('MessagingService', () => {
       h.inbound('hello')
       await flushMicro()
       h.bus.emit('superagent.turnEnded', {
-        threadId: 'global',
-        podiumSessionId: 'ps1',
+        threadId: asThreadId('global'),
+        podiumSessionId: asSessionId('ps1'),
         ok: false,
         error: 'boom',
       })
@@ -533,10 +533,10 @@ describe('MessagingService', () => {
     it('threads typing into the inbound forum topic', async () => {
       const h = makeHarness()
       h.topics.upsert({
-        issueId: 'iss_i1',
+        issueId: asIssueId('iss_i1'),
         chatId: '42',
         threadRef: '9001',
-        superagentThreadId: 'btw_sess_1',
+        superagentThreadId: asThreadId('btw_sess_1'),
         updatedAt: '2026-07-16T00:00:00.000Z',
       })
       h.service.configure()
@@ -573,10 +573,10 @@ describe('MessagingService', () => {
       const issueId = opts.issueId ?? 'iss_bound'
       const threadRef = opts.threadRef ?? '555'
       h.topics.upsert({
-        issueId,
+        issueId: asIssueId(issueId),
         chatId: '42',
         threadRef,
-        superagentThreadId: `btw_${sessionId}`,
+        superagentThreadId: asThreadId(`btw_${sessionId}`),
         updatedAt: '2026-07-16T00:00:00.000Z',
       })
       return { sessionId: asSessionId(sessionId), issueId, threadRef }
@@ -698,10 +698,10 @@ describe('MessagingService', () => {
       })
       const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
       h.topics.upsert({
-        issueId: 'iss_bound',
+        issueId: asIssueId('iss_bound'),
         chatId: '42',
         threadRef,
-        superagentThreadId: `btw_${sessionId}`,
+        superagentThreadId: asThreadId(`btw_${sessionId}`),
         updatedAt: '2026-07-16T00:00:00.000Z',
       })
       // Superagent turn typing first (inbound into the bound topic).
@@ -720,8 +720,8 @@ describe('MessagingService', () => {
       expect(h.typingCalls).toHaveLength(2)
       // Turn ends — ambient still owns the lease, so typing continues.
       h.bus.emit('superagent.turnEnded', {
-        threadId: `btw_${sessionId}`,
-        podiumSessionId: 'ps1',
+        threadId: asThreadId(`btw_${sessionId}`),
+        podiumSessionId: asSessionId('ps1'),
         ok: true,
         output: 'done',
       })
@@ -768,8 +768,8 @@ describe('MessagingService', () => {
     h.inbound('hi')
     await flush()
     h.bus.emit('superagent.turnEnded', {
-      threadId: 'global',
-      podiumSessionId: 'ps1',
+      threadId: asThreadId('global'),
+      podiumSessionId: asSessionId('ps1'),
       ok: false,
       error: 'harness died',
     })
@@ -808,8 +808,8 @@ describe('MessagingService', () => {
     expect(h.restartThread).toHaveBeenCalledWith({ ownerUserId: BOUND_USER, threadId: 'global' })
     expect(h.sent.at(-1)!.text).toContain('restarted')
     h.bus.emit('superagent.turnEnded', {
-      threadId: 'global',
-      podiumSessionId: 'ps1',
+      threadId: asThreadId('global'),
+      podiumSessionId: asSessionId('ps1'),
       ok: true,
       output: 'stale',
     })
@@ -916,10 +916,10 @@ describe('MessagingService', () => {
       issues: { list: () => [liveIssue()] as never },
     })
     h.topics.upsert({
-      issueId: 'iss_i1',
+      issueId: asIssueId('iss_i1'),
       chatId: '42',
       threadRef: '9001',
-      superagentThreadId: 'btw_sess_1',
+      superagentThreadId: asThreadId('btw_sess_1'),
       updatedAt: '2026-07-16T00:00:00.000Z',
     })
     h.inbound('', { callback: { id: 'cb-re', data: 'i:iss_i1' } })
@@ -951,8 +951,8 @@ describe('MessagingService', () => {
 
     // After the inactivity gap, recap lands before the turn is dispatched.
     h.bus.emit('superagent.turnEnded', {
-      threadId: 'btw_sess_1',
-      podiumSessionId: 'ps1',
+      threadId: asThreadId('btw_sess_1'),
+      podiumSessionId: asSessionId('ps1'),
       ok: true,
       output: 'ack',
     })
@@ -1099,10 +1099,10 @@ describe('MessagingService', () => {
         sessionId === asSessionId('s_pod') ? asIssueId('iss_pod') : null,
     })
     h.topics.upsert({
-      issueId: 'iss_pod',
+      issueId: asIssueId('iss_pod'),
       chatId: '42',
       threadRef: '555',
-      superagentThreadId: 'btw_s_pod',
+      superagentThreadId: asThreadId('btw_s_pod'),
       updatedAt: '2026-07-16T00:00:00.000Z',
     })
     h.inbound('in another topic', { threadRef: '77' })

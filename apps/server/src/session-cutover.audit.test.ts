@@ -41,7 +41,14 @@ import {
   sessionStateCommand,
 } from '@podium/commands'
 import type { MachineId } from '@podium/model'
-import { asSessionId, asUserId, SOLE_USER_ID, type UserId } from '@podium/model'
+import {
+  asMutationId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  SOLE_USER_ID,
+  type UserId,
+} from '@podium/model'
 import type { MachineGrant } from '@podium/protocol'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -301,8 +308,8 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     expect(o.reg.modules.sessions.listSessions().length).toBe(before + 1)
 
     // The receipt is durable, under the command's dotted name, for both.
-    expect(o.store.sync.getAppliedMutation('dup-1')).toBeDefined()
-    expect(o.store.sync.getAppliedMutation('dup-2')).toBeDefined()
+    expect(o.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
+    expect(o.store.sync.getAppliedMutation(asMutationId('dup-2'))).toBeDefined()
   })
 
   it('the dedup is the FRAMEWORK ledger: a receipt written directly is honoured by the router', async () => {
@@ -313,7 +320,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.rename({ sessionId, name: 'original' })
 
-    o.reg.modules.mutations.once('planted', 'sessions.rename', () => null)
+    o.reg.modules.mutations.once(asMutationId('planted'), 'sessions.rename', () => null)
     await o.call.sessions.rename({ sessionId, name: 'should not apply', mutationId: 'planted' })
 
     expect(o.meta(sessionId).name).toBe('original')
@@ -493,18 +500,18 @@ describe('AC4 · the per-user split actually happened', () => {
     // `userId` parameter that the store ignored would pass any signature test.
     const o = makeOracle()
     const store = o.store.sessions
-    store.setPin('user:alice', 'panel', 's-1', true)
-    store.setSnooze('user:alice', asSessionId('s-1'), null)
-    store.setTabOrder('user:alice', '/w', ['s-1'])
+    store.setPin(asUserId('user:alice'), 'panel', 's-1', true)
+    store.setSnooze(asUserId('user:alice'), asSessionId('s-1'), null)
+    store.setTabOrder(asUserId('user:alice'), '/w', ['s-1'])
 
     // Alice's rows exist; Bob's are EMPTY — asserted on the values, because a
     // `userId` parameter the store ignored would satisfy any signature check.
-    expect(store.listPins('user:alice').panels).toEqual(['s-1'])
-    expect(store.listPins('user:bob').panels).toEqual([])
-    expect(store.listSnoozes('user:alice')).not.toEqual({})
-    expect(store.listSnoozes('user:bob')).toEqual({})
-    expect(store.listTabOrders('user:alice')).toEqual({ '/w': ['s-1'] })
-    expect(store.listTabOrders('user:bob')).toEqual({})
+    expect(store.listPins(asUserId('user:alice')).panels).toEqual(['s-1'])
+    expect(store.listPins(asUserId('user:bob')).panels).toEqual([])
+    expect(store.listSnoozes(asUserId('user:alice'))).not.toEqual({})
+    expect(store.listSnoozes(asUserId('user:bob'))).toEqual({})
+    expect(store.listTabOrders(asUserId('user:alice'))).toEqual({ '/w': ['s-1'] })
+    expect(store.listTabOrders(asUserId('user:bob'))).toEqual({})
   })
 
   it('every per-user COMMAND is self-scoped, so another user’s row is not addressable', () => {
@@ -551,9 +558,9 @@ describe('AC4 · the per-user split actually happened', () => {
     // honestly. The column is gone; the marker is one user's `(userId, sessionId)`
     // row. Measured the same way — against STORAGE, not the wire — so this stays
     // a statement about the shape rather than about the projection.
-    expect(o.store.sessions.getReadAt(SOLE_USER_ID, sessionId)).not.toBeNull()
+    expect(o.store.sessions.getReadAt(asUserId(SOLE_USER_ID), sessionId)).not.toBeNull()
     // The property a column could not express: a different principal has no marker.
-    expect(o.store.sessions.getReadAt('user:somebody-else', sessionId)).toBeNull()
+    expect(o.store.sessions.getReadAt(asUserId('user:somebody-else'), sessionId)).toBeNull()
 
     // And the part POD-382 closed, unchanged: the COMMAND was already self-scoped
     // and per-user-classified, which is why POD-1076's move needed no contract
@@ -651,7 +658,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     // The pair, on the one command whose contract declares
     // `wirePlacement: 'not-on-the-wire'` — so the assertion has to be against the
     // durable event, which is where it decided to put it.
-    const o = makeOracle({ machineId: 'local' })
+    const o = makeOracle({ machineId: asMachineId('local') })
     const issue = o.reg.issues.create({ repoPath: '/r', title: 'handoff', startNow: false })
     o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/h' })
     const { sessionId } = await o.call.sessions.create({
@@ -719,11 +726,14 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
   it.each(
     GATED.map((g) => [g.key, g] as const),
   )('%s refuses a principal who may see the machine but not use it', async (_key, gated) => {
-    const o = makeOracle({ machineId: 'box', offlineMachines: [{ id: 'box', name: 'The Box' }] })
+    const o = makeOracle({
+      machineId: asMachineId('box'),
+      offlineMachines: [{ id: asSessionId('box'), name: 'The Box' }],
+    })
     const target = o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/p',
-      machineId: 'box',
+      machineId: asMachineId('box'),
     })
     // A machine owned by a COLLEAGUE, with a `see` grant to our principal and no
     // `use` — the case that must fail, and the only one that distinguishes a real
@@ -874,7 +884,10 @@ describe('AC7 · the command surface is not an existence oracle', () => {
   })
 
   it('an INVISIBLE machine answers exactly as a never-paired one', async () => {
-    const o = makeOracle({ machineId: 'box', offlineMachines: [{ id: 'box', name: 'The Box' }] })
+    const o = makeOracle({
+      machineId: asMachineId('box'),
+      offlineMachines: [{ id: asSessionId('box'), name: 'The Box' }],
+    })
     // A machine owned by a colleague with NO grant at all: invisible.
     const invisible = ownershipTable(
       new Map([['box', { owner: COLLEAGUE, grants: [], name: 'The Box' }]]),

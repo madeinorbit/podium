@@ -4,7 +4,7 @@
  * names the mux and not a feature.
  */
 
-import { asSessionId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import {
   AGENT_RELAY_FRAMES,
   attributionOf,
@@ -88,7 +88,7 @@ const sampleFrame = (type: DaemonMessage['type']): DaemonMessage =>
     removed: [],
   }) as unknown as DaemonMessage
 
-const PRINCIPAL: MachinePrincipal = inProcessMachinePrincipal('m1')
+const PRINCIPAL: MachinePrincipal = inProcessMachinePrincipal(asMachineId('m1'))
 
 describe('the routing table', () => {
   it('names an owning port for EVERY frame in the ADR 7 daemon inventory', () => {
@@ -260,8 +260,8 @@ describe('machine scope and the writer class', () => {
     // ever produced a user/agent/system kind, the daemon path would gain an
     // ambient identity — the multi-user hole this extraction had to avoid.
     for (const id of ['local', 'm1', 'operator', 'system']) {
-      expect(inProcessMachinePrincipal(id).kind).toBe('machine')
-      expect(attributionOf(inProcessMachinePrincipal(id)).onBehalfOf).toBeNull()
+      expect(inProcessMachinePrincipal(asMachineId(id)).kind).toBe('machine')
+      expect(attributionOf(inProcessMachinePrincipal(asMachineId(id))).onBehalfOf).toBeNull()
     }
   })
 

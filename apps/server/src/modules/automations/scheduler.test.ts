@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
+import { asAutomationId, FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
@@ -33,7 +33,7 @@ const minutesAgo = (n: number): Date => new Date(NOW.getTime() - n * 60_000)
 const minutesAhead = (n: number): Date => new Date(NOW.getTime() + n * 60_000)
 
 const schedulable = (over: Partial<Schedulable> = {}): Schedulable => ({
-  id: 'aut_1',
+  id: asAutomationId('aut_1'),
   enabled: true,
   scheduleKind: 'cron',
   cron: '0 * * * *', // hourly, on the hour
@@ -88,13 +88,13 @@ describe('decideTick', () => {
     },
     {
       name: 'previous run still live → skipped_overlap',
-      automation: { lastSessionId: 'sess_prev' },
+      automation: { lastSessionId: asSessionId('sess_prev') },
       live: ['sess_prev'],
       expect: 'skipped_overlap',
     },
     {
       name: 'previous run finished → spawn',
-      automation: { lastSessionId: 'sess_prev' },
+      automation: { lastSessionId: asSessionId('sess_prev') },
       live: ['sess_other'],
       expect: 'spawn',
     },
@@ -124,9 +124,12 @@ describe('decideTick', () => {
 
   it('re-arms strictly past now in every branch — no tight-loop re-fire', () => {
     const branches: Schedulable[] = [
-      schedulable({ id: 'spawn' }),
-      schedulable({ id: 'missed', nextRunAt: iso(new Date(NOW.getTime() - 5 * GRACE_MS)) }),
-      schedulable({ id: 'overlap', lastSessionId: 'sess_live' }),
+      schedulable({ id: asAutomationId('spawn') }),
+      schedulable({
+        id: asAutomationId('missed'),
+        nextRunAt: iso(new Date(NOW.getTime() - 5 * GRACE_MS)),
+      }),
+      schedulable({ id: asAutomationId('overlap'), lastSessionId: asSessionId('sess_live') }),
     ]
     for (const d of decide(branches, ['sess_live'])) {
       expect(new Date(d.nextRunAt!).getTime()).toBeGreaterThan(NOW.getTime())
@@ -140,7 +143,7 @@ describe('decideTick', () => {
   })
 
   it('an overlap-skipped occurrence still advances — it is dropped, not deferred', () => {
-    const [d] = decide([schedulable({ lastSessionId: 'sess_live' })], ['sess_live'])
+    const [d] = decide([schedulable({ lastSessionId: asSessionId('sess_live') })], ['sess_live'])
     expect(d!.kind).toBe('skipped_overlap')
     expect(d!.nextRunAt).toBe(iso(new Date(2026, 6, 14, 10, 0)))
   })
@@ -161,9 +164,9 @@ describe('decideTick', () => {
 
   it('decides only the automations that are due, leaving the rest alone', () => {
     const decisions = decide([
-      schedulable({ id: 'due' }),
-      schedulable({ id: 'later', nextRunAt: iso(minutesAhead(30)) }),
-      schedulable({ id: 'off', enabled: false }),
+      schedulable({ id: asAutomationId('due') }),
+      schedulable({ id: asAutomationId('later'), nextRunAt: iso(minutesAhead(30)) }),
+      schedulable({ id: asAutomationId('off'), enabled: false }),
     ])
     expect(decisions.map((d) => d.automationId)).toEqual(['due'])
   })
@@ -273,7 +276,7 @@ describe('AutomationsService.create', () => {
       prompt: 'Continue overnight.',
       enabled: true,
       sessionMode: 'resume',
-      targetSessionId: 'sess_sleeping',
+      targetSessionId: asSessionId('sess_sleeping'),
     })
     expect(created).toMatchObject({
       scheduleKind: 'once',
@@ -353,7 +356,7 @@ describe('AutomationsService.tick — spawn', () => {
       name: 'Overnight continuation',
       scheduleKind: 'once',
       runAt: iso(runAt),
-      targetSessionId: 'sess_sleeping',
+      targetSessionId: asSessionId('sess_sleeping'),
       agentKind: 'codex',
       prompt: 'Continue the queued work.',
       enabled: true,
@@ -449,7 +452,7 @@ describe('AutomationsService.tick — spawn', () => {
       name: 'Strict targeted wake',
       scheduleKind: 'once',
       runAt: iso(runAt),
-      targetSessionId: 'sess_deleted',
+      targetSessionId: asSessionId('sess_deleted'),
       agentKind: 'codex',
       prompt: 'Continue.',
       enabled: true,

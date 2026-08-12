@@ -6,6 +6,7 @@
  * would turn every tuning pass into a test rewrite.
  */
 
+import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { PathIndex, parseLsFiles, rankPaths, scorePath } from './path-search'
 
@@ -34,9 +35,10 @@ describe('scorePath', () => {
   it('refuses a scattered match that only LOOKS like a subsequence', () => {
     // One letter here and one there inside a long name is how an unrestricted
     // matcher fills the menu with noise for a query nothing really answers.
-    expect(scorePath('docs/plans/2026-06-12-agent-state-instrumentation.md', 'atmention')).toBeNull()
+    expect(
+      scorePath('docs/plans/2026-06-12-agent-state-instrumentation.md', 'atmention'),
+    ).toBeNull()
   })
-
 
   it('prefers the basename over the same characters in a directory', () => {
     const inName = scorePath('apps/web/src/features/chat/composer/notes.md', 'notes') as number
@@ -110,8 +112,8 @@ describe('PathIndex', () => {
       calls++
       return { ok: true, output: 'a.ts\0' }
     }
-    await index.paths({ machineId: 'm1', root: '/w' }, load)
-    await index.paths({ machineId: 'm2', root: '/w' }, load)
+    await index.paths({ machineId: asMachineId('m1'), root: '/w' }, load)
+    await index.paths({ machineId: asMachineId('m2'), root: '/w' }, load)
     expect(calls).toBe(2)
   })
 

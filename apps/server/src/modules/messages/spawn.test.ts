@@ -76,7 +76,7 @@ describe('makeSpawnOnWake', () => {
       },
     })
     const r = seam.spawn({
-      issueId: ISSUE.id,
+      issueId: asIssueId(ISSUE.id),
       message: row({ fromKind: 'agent', fromSession: 'sParent' }),
     })
     expect(r).toEqual({ ok: true, sessionId: asSessionId('child1') })
@@ -98,7 +98,7 @@ describe('makeSpawnOnWake', () => {
         return { sessionId: asSessionId('c') }
       },
     })
-    expect(seam.spawn({ issueId: ISSUE.id, message: row({}) }).ok).toBe(true)
+    expect(seam.spawn({ issueId: asIssueId(ISSUE.id), message: row({}) }).ok).toBe(true)
     expect(calls[0]!.cwd).toBe('/repo')
   })
 
@@ -110,8 +110,8 @@ describe('makeSpawnOnWake', () => {
       },
     })
     expect(seam.spawn({ issueId: null, message: row({}) }).ok).toBe(false)
-    expect(seam.spawn({ issueId: 'iss_nope', message: row({}) }).ok).toBe(false)
-    expect(seam.spawn({ issueId: ISSUE.id, message: row({}) })).toMatchObject({
+    expect(seam.spawn({ issueId: asIssueId('iss_nope'), message: row({}) }).ok).toBe(false)
+    expect(seam.spawn({ issueId: asIssueId(ISSUE.id), message: row({}) })).toMatchObject({
       ok: false,
       reason: 'daemon offline',
     })

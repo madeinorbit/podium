@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AccountConnectInput } from '@podium/commands'
-import { asMachineId, Inventory } from '@podium/model'
+import { asAccountId, asMachineId, Inventory } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { accountViews } from './accounts'
@@ -209,7 +209,7 @@ describe('accountViews', () => {
     expect(legacy.credentialSource).toBe('legacy')
 
     accounts.upsert({
-      id: 'managed:anthropic',
+      id: asAccountId('managed:anthropic'),
       provider: 'anthropic',
       kind: 'api-key',
       credential: 'sk-ant-stored',
@@ -237,7 +237,7 @@ describe('accountViews', () => {
    *  still injects a live key at spawn — status keys off the ROW, not the string. */
   it('reports a stored row with an empty identity as connected, not not-configured', () => {
     accounts.upsert({
-      id: 'managed:openai',
+      id: asAccountId('managed:openai'),
       provider: 'openai',
       kind: 'api-key',
       credential: 'sk-live-key',
@@ -253,7 +253,7 @@ describe('accountViews', () => {
 
   it('shows a connected managed account as connected, masked, and never leaks the secret', () => {
     accounts.upsert({
-      id: 'managed:anthropic',
+      id: asAccountId('managed:anthropic'),
       provider: 'anthropic',
       kind: 'api-key',
       credential: 'sk-ant-supersecret',
@@ -277,7 +277,7 @@ describe('accountViews', () => {
     ).toBe('not-configured')
 
     accounts.upsert({
-      id: 'managed:claude-oauth',
+      id: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',
       kind: 'oauth',
       credential: 'sk-ant-oat01-supersecret',
@@ -296,7 +296,7 @@ describe('accountViews', () => {
 
   it('prefers a stored credential over the legacy settings key', () => {
     accounts.upsert({
-      id: 'managed:openai',
+      id: asAccountId('managed:openai'),
       provider: 'openai',
       kind: 'api-key',
       credential: 'sk-stored-9999',

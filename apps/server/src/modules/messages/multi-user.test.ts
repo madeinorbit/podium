@@ -367,7 +367,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
       sessionId: asSessionId('sParked'),
       issueId: issue.id,
       status: 'hibernated',
-      machineId: 'mac_alices_laptop',
+      machineId: asMachineId('mac_alices_laptop'),
     })
     return issue
   }
@@ -503,7 +503,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
         sessionId: asSessionId('sOnAlice'),
         issueId: issue.id,
         status: 'hibernated',
-        machineId: 'mac_alices_laptop',
+        machineId: asMachineId('mac_alices_laptop'),
       },
       {
         sessionId: asSessionId('sOnBob'),
@@ -548,7 +548,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
       sessionId: asSessionId('sUnresumable'),
       issueId: issue.id,
       status: 'hibernated',
-      machineId: 'mac_alices_laptop',
+      machineId: asMachineId('mac_alices_laptop'),
     })
     h.transport.ok = false
     h.transport.reason = 'no resume ref'

@@ -53,6 +53,7 @@
  * a fixed-deadline wait that always times out can no longer say NO.
  */
 
+import { asMachineId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -102,7 +103,7 @@ describe('the wire window, over real sockets', () => {
     handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/before-the-deploy',
-      machineId,
+      machineId: asMachineId(machineId),
     })
     handle.registry.modules.sessions.flushBroadcasts()
   })
@@ -203,7 +204,7 @@ describe('the wire window, over real sockets', () => {
     handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/after-the-deploy',
-      machineId,
+      machineId: asMachineId(machineId),
     })
     handle.registry.modules.sessions.flushBroadcasts()
 
@@ -234,8 +235,18 @@ describe('the wire window, over real sockets', () => {
     // prepared-publication worker also stops (see client-mux.renegotiate). The
     // browser's own version guard polls `/version` and hard-reloads; that is the
     // working half of the backstop, asserted below.
-    expect(stale.types().slice(staleAfterHello).filter((t) => ENTITY_FRAMES.has(t))).toEqual([])
-    expect(beyond.types().slice(beyondAfterHello).filter((t) => ENTITY_FRAMES.has(t))).toEqual([])
+    expect(
+      stale
+        .types()
+        .slice(staleAfterHello)
+        .filter((t) => ENTITY_FRAMES.has(t)),
+    ).toEqual([])
+    expect(
+      beyond
+        .types()
+        .slice(beyondAfterHello)
+        .filter((t) => ENTITY_FRAMES.has(t)),
+    ).toEqual([])
     // …and the paired half, or "it received nothing" is equally true of a socket
     // that was never connected: the supported peer DID receive entity frames over
     // the same window.

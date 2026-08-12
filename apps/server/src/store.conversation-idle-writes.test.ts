@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -16,14 +17,20 @@ import { SessionStore } from './store'
  * records every UPDATE that actually fires.
  */
 const writeProbe = (store: SessionStore, table: string): (() => number) => {
-  const db = (store as unknown as { db: { exec(sql: string): void; prepare(sql: string): { get(): unknown } } }).db
+  const db = (
+    store as unknown as {
+      db: { exec(sql: string): void; prepare(sql: string): { get(): unknown } }
+    }
+  ).db
   db.exec(`CREATE TABLE IF NOT EXISTS _write_probe (t TEXT);
     CREATE TRIGGER probe_${table} AFTER UPDATE ON ${table}
     BEGIN INSERT INTO _write_probe VALUES('${table}'); END;`)
   return () =>
-    ((db.prepare(`SELECT COUNT(*) AS n FROM _write_probe WHERE t = '${table}'`).get() as {
-      n: number
-    }) ?? { n: 0 }).n
+    (
+      (db.prepare(`SELECT COUNT(*) AS n FROM _write_probe WHERE t = '${table}'`).get() as {
+        n: number
+      }) ?? { n: 0 }
+    ).n
 }
 
 const row = (over: Record<string, unknown> = {}) => ({
@@ -86,6 +93,6 @@ describe('idle re-discovery writes', () => {
     // A grown transcript is a real change and still lands.
     expect(store.conversations.registry.ensure({ ...opts, sizeBytes: 8192 })).toBe(podiumId)
     expect(writes()).toBe(1)
-    expect(store.conversations.registry.segmentPath('m1', 'native-a')).toBe(opts.path)
+    expect(store.conversations.registry.segmentPath(asMachineId('m1'), 'native-a')).toBe(opts.path)
   })
 })

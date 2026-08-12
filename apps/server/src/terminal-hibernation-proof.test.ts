@@ -1,3 +1,4 @@
+import { asThreadId } from '@podium/model'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation, ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -582,7 +583,7 @@ describe('durable terminal hibernation proof', () => {
       const id = `mail-${String(index).padStart(3, '0')}`
       h.store.messages.addMessage({
         id,
-        threadId: id,
+        threadId: asThreadId(id),
         inReplyTo: null,
         fromKind: 'system',
         fromSession: null,
@@ -619,7 +620,7 @@ describe('durable terminal hibernation proof', () => {
     ) =>
       h.store.messages.addMessage({
         id,
-        threadId: id,
+        threadId: asThreadId(id),
         inReplyTo: null,
         fromKind: 'system',
         fromSession: null,
@@ -684,9 +685,9 @@ describe('durable terminal hibernation proof', () => {
     })
 
     const unconfirmed = harness()
-    expect(unconfirmed.registry.modules.sessions.terminalProofStatus(unconfirmed.sessionId)).toEqual(
-      { reason: 'proof_unconfirmed' },
-    )
+    expect(
+      unconfirmed.registry.modules.sessions.terminalProofStatus(unconfirmed.sessionId),
+    ).toEqual({ reason: 'proof_unconfirmed' })
 
     const stale = harness()
     stale.confirm(1)
@@ -714,9 +715,9 @@ describe('durable terminal hibernation proof', () => {
 
     const unresumable = harness({ resumable: false })
     unresumable.confirm(1)
-    expect(unresumable.registry.modules.sessions.terminalProofStatus(unresumable.sessionId)).toEqual(
-      { reason: 'active_work', blocker: 'not_resumable' },
-    )
+    expect(
+      unresumable.registry.modules.sessions.terminalProofStatus(unresumable.sessionId),
+    ).toEqual({ reason: 'active_work', blocker: 'not_resumable' })
   })
 
   it('rehabilitates a consumed proof after revival without a new user turn', async () => {
@@ -728,7 +729,9 @@ describe('durable terminal hibernation proof', () => {
         requireTerminalProof: true,
       }),
     ).toEqual({ ok: true })
-    expect(h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)?.consumedAt).toBeTruthy()
+    expect(
+      h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)?.consumedAt,
+    ).toBeTruthy()
 
     await h.registry.modules.sessions.resurrectSession({ sessionId: h.sessionId }, {
       onSessionResurrected: () => {},

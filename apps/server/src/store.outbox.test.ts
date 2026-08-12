@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -8,31 +8,31 @@ import { SessionStore } from './store'
 describe('SessionStore applied_mutations', () => {
   it('getAppliedMutation returns undefined for an unknown id', () => {
     const store = new SessionStore(':memory:')
-    expect(store.sync.getAppliedMutation('never-seen')).toBeUndefined()
+    expect(store.sync.getAppliedMutation(asMutationId('never-seen'))).toBeUndefined()
   })
 
   it('round-trips a recorded result verbatim', () => {
     const store = new SessionStore(':memory:')
-    store.sync.recordAppliedMutation('m1', 'issues.create', '{"id":"i1"}', 1000)
-    expect(store.sync.getAppliedMutation('m1')).toBe('{"id":"i1"}')
+    store.sync.recordAppliedMutation(asMutationId('m1'), 'issues.create', '{"id":"i1"}', 1000)
+    expect(store.sync.getAppliedMutation(asMutationId('m1'))).toBe('{"id":"i1"}')
   })
 
   it('a duplicate record keeps the FIRST result (INSERT OR IGNORE)', () => {
     // Idempotency invariant 1: a mutationId is applied at most once — a racing
     // second record must never overwrite what the original run returned.
     const store = new SessionStore(':memory:')
-    store.sync.recordAppliedMutation('m1', 'issues.create', '{"v":"first"}', 1000)
-    store.sync.recordAppliedMutation('m1', 'issues.create', '{"v":"second"}', 2000)
-    expect(store.sync.getAppliedMutation('m1')).toBe('{"v":"first"}')
+    store.sync.recordAppliedMutation(asMutationId('m1'), 'issues.create', '{"v":"first"}', 1000)
+    store.sync.recordAppliedMutation(asMutationId('m1'), 'issues.create', '{"v":"second"}', 2000)
+    expect(store.sync.getAppliedMutation(asMutationId('m1'))).toBe('{"v":"first"}')
   })
 
   it('prunes only mutations older than the age window', () => {
     const store = new SessionStore(':memory:')
-    store.sync.recordAppliedMutation('old', 'p', '"a"', 1_000)
-    store.sync.recordAppliedMutation('young', 'p', '"b"', 9_000)
+    store.sync.recordAppliedMutation(asMutationId('old'), 'p', '"a"', 1_000)
+    store.sync.recordAppliedMutation(asMutationId('young'), 'p', '"b"', 9_000)
     store.sync.pruneAppliedMutations({ maxAgeMs: 5_000, now: 10_000 })
-    expect(store.sync.getAppliedMutation('old')).toBeUndefined()
-    expect(store.sync.getAppliedMutation('young')).toBe('"b"')
+    expect(store.sync.getAppliedMutation(asMutationId('old'))).toBeUndefined()
+    expect(store.sync.getAppliedMutation(asMutationId('young'))).toBe('"b"')
   })
 })
 
@@ -41,37 +41,81 @@ describe('SessionStore queued_messages', () => {
     const store = new SessionStore(':memory:')
     // Inserted out of time order + a same-timestamp pair to prove BOTH sort keys
     // (queued_at first, rowid as the tiebreaker).
-    expect(store.sync.enqueueMessage({ id: 'q-b', sessionId: asSessionId('s1'), text: 'b', queuedAt: 2000 })).toBe(
-      true,
-    )
-    expect(store.sync.enqueueMessage({ id: 'q-c', sessionId: asSessionId('s1'), text: 'c', queuedAt: 2000 })).toBe(
-      true,
-    )
-    expect(store.sync.enqueueMessage({ id: 'q-a', sessionId: asSessionId('s1'), text: 'a', queuedAt: 1000 })).toBe(
-      true,
-    )
-    expect(store.sync.listQueuedMessages('s1').map((m) => m.text)).toEqual(['a', 'b', 'c'])
+    expect(
+      store.sync.enqueueMessage({
+        id: 'q-b',
+        sessionId: asSessionId('s1'),
+        text: 'b',
+        queuedAt: 2000,
+      }),
+    ).toBe(true)
+    expect(
+      store.sync.enqueueMessage({
+        id: 'q-c',
+        sessionId: asSessionId('s1'),
+        text: 'c',
+        queuedAt: 2000,
+      }),
+    ).toBe(true)
+    expect(
+      store.sync.enqueueMessage({
+        id: 'q-a',
+        sessionId: asSessionId('s1'),
+        text: 'a',
+        queuedAt: 1000,
+      }),
+    ).toBe(true)
+    expect(store.sync.listQueuedMessages(asSessionId('s1')).map((m) => m.text)).toEqual([
+      'a',
+      'b',
+      'c',
+    ])
   })
 
   it('enqueue with a duplicate id returns false and does not duplicate the row', () => {
     // The row id IS the mutationId, so a replayed enqueue must be a storage no-op.
     const store = new SessionStore(':memory:')
     expect(
-      store.sync.enqueueMessage({ id: 'mut-1', sessionId: asSessionId('s1'), text: 'once', queuedAt: 1000 }),
+      store.sync.enqueueMessage({
+        id: 'mut-1',
+        sessionId: asSessionId('s1'),
+        text: 'once',
+        queuedAt: 1000,
+      }),
     ).toBe(true)
     expect(
-      store.sync.enqueueMessage({ id: 'mut-1', sessionId: asSessionId('s1'), text: 'again', queuedAt: 2000 }),
+      store.sync.enqueueMessage({
+        id: 'mut-1',
+        sessionId: asSessionId('s1'),
+        text: 'again',
+        queuedAt: 2000,
+      }),
     ).toBe(false)
-    const rows = store.sync.listQueuedMessages('s1')
+    const rows = store.sync.listQueuedMessages(asSessionId('s1'))
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ id: 'mut-1', text: 'once', attempts: 0 })
   })
 
   it('queuedMessageCounts groups per session', () => {
     const store = new SessionStore(':memory:')
-    store.sync.enqueueMessage({ id: 'a1', sessionId: asSessionId('s-a'), text: 'x', queuedAt: 1000 })
-    store.sync.enqueueMessage({ id: 'a2', sessionId: asSessionId('s-a'), text: 'y', queuedAt: 2000 })
-    store.sync.enqueueMessage({ id: 'b1', sessionId: asSessionId('s-b'), text: 'z', queuedAt: 3000 })
+    store.sync.enqueueMessage({
+      id: 'a1',
+      sessionId: asSessionId('s-a'),
+      text: 'x',
+      queuedAt: 1000,
+    })
+    store.sync.enqueueMessage({
+      id: 'a2',
+      sessionId: asSessionId('s-a'),
+      text: 'y',
+      queuedAt: 2000,
+    })
+    store.sync.enqueueMessage({
+      id: 'b1',
+      sessionId: asSessionId('s-b'),
+      text: 'z',
+      queuedAt: 3000,
+    })
     expect(store.sync.queuedMessageCounts()).toEqual(
       new Map([
         ['s-a', 2],
@@ -82,10 +126,20 @@ describe('SessionStore queued_messages', () => {
 
   it('deleteQueuedMessage removes exactly that row', () => {
     const store = new SessionStore(':memory:')
-    store.sync.enqueueMessage({ id: 'keep', sessionId: asSessionId('s1'), text: 'keep', queuedAt: 1000 })
-    store.sync.enqueueMessage({ id: 'drop', sessionId: asSessionId('s1'), text: 'drop', queuedAt: 2000 })
+    store.sync.enqueueMessage({
+      id: 'keep',
+      sessionId: asSessionId('s1'),
+      text: 'keep',
+      queuedAt: 1000,
+    })
+    store.sync.enqueueMessage({
+      id: 'drop',
+      sessionId: asSessionId('s1'),
+      text: 'drop',
+      queuedAt: 2000,
+    })
     store.sync.deleteQueuedMessage('drop')
-    expect(store.sync.listQueuedMessages('s1').map((m) => m.id)).toEqual(['keep'])
+    expect(store.sync.listQueuedMessages(asSessionId('s1')).map((m) => m.id)).toEqual(['keep'])
   })
 
   it('bumpQueuedAttempts increments the attempt counter', () => {
@@ -93,17 +147,32 @@ describe('SessionStore queued_messages', () => {
     store.sync.enqueueMessage({ id: 'q1', sessionId: asSessionId('s1'), text: 't', queuedAt: 1000 })
     store.sync.bumpQueuedAttempts('q1')
     store.sync.bumpQueuedAttempts('q1')
-    expect(store.sync.listQueuedMessages('s1')[0]?.attempts).toBe(2)
+    expect(store.sync.listQueuedMessages(asSessionId('s1'))[0]?.attempts).toBe(2)
   })
 
   it('deleteQueuedMessagesForSession drops only that session queue', () => {
     const store = new SessionStore(':memory:')
-    store.sync.enqueueMessage({ id: 'a1', sessionId: asSessionId('s-a'), text: 'x', queuedAt: 1000 })
-    store.sync.enqueueMessage({ id: 'a2', sessionId: asSessionId('s-a'), text: 'y', queuedAt: 2000 })
-    store.sync.enqueueMessage({ id: 'b1', sessionId: asSessionId('s-b'), text: 'z', queuedAt: 3000 })
-    store.sync.deleteQueuedMessagesForSession('s-a')
-    expect(store.sync.listQueuedMessages('s-a')).toEqual([])
-    expect(store.sync.listQueuedMessages('s-b').map((m) => m.id)).toEqual(['b1'])
+    store.sync.enqueueMessage({
+      id: 'a1',
+      sessionId: asSessionId('s-a'),
+      text: 'x',
+      queuedAt: 1000,
+    })
+    store.sync.enqueueMessage({
+      id: 'a2',
+      sessionId: asSessionId('s-a'),
+      text: 'y',
+      queuedAt: 2000,
+    })
+    store.sync.enqueueMessage({
+      id: 'b1',
+      sessionId: asSessionId('s-b'),
+      text: 'z',
+      queuedAt: 3000,
+    })
+    store.sync.deleteQueuedMessagesForSession(asSessionId('s-a'))
+    expect(store.sync.listQueuedMessages(asSessionId('s-a'))).toEqual([])
+    expect(store.sync.listQueuedMessages(asSessionId('s-b')).map((m) => m.id)).toEqual(['b1'])
   })
   it('persists explicit causal input origins with queued prompts', () => {
     const store = new SessionStore(':memory:')
@@ -121,7 +190,7 @@ describe('SessionStore queued_messages', () => {
       queuedAt: 1000,
       inputOrigin: 'mail',
     })
-    expect(store.sync.listQueuedMessages('parent')[0]?.inputOrigin).toBe('steward')
-    expect(store.sync.listQueuedMessages('worker')[0]?.inputOrigin).toBe('mail')
+    expect(store.sync.listQueuedMessages(asSessionId('parent'))[0]?.inputOrigin).toBe('steward')
+    expect(store.sync.listQueuedMessages(asSessionId('worker'))[0]?.inputOrigin).toBe('mail')
   })
 })

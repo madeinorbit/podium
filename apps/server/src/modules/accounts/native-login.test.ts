@@ -77,11 +77,11 @@ describe('NativeLoginService', () => {
     expect(f.toMachine).toHaveBeenCalledWith('machine-a', { type: 'inventoryRequest' })
     expect(f.service.attempt('codex')?.status).toBe('refreshing')
 
-    f.bus.emit('machine.metadataChanged', { machineId: 'machine-a' })
+    f.bus.emit('machine.metadataChanged', { machineId: asMachineId('machine-a') })
     expect(f.service.attempt('codex')?.status).toBe('refreshing')
 
     f.setLogin('in')
-    f.bus.emit('machine.metadataChanged', { machineId: 'machine-a', inventory: true })
+    f.bus.emit('machine.metadataChanged', { machineId: asMachineId('machine-a'), inventory: true })
     expect(f.service.attempt('codex')?.status).toBe('succeeded')
   })
 })

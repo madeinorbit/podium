@@ -3,7 +3,7 @@
  * resume recreates worktree; unsaved guard + force.
  */
 
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
@@ -292,10 +292,7 @@ describe('stopSession [spec:SP-9904]', () => {
       branch: 'issue/remote',
       machineId: asMachineId('machine-remote'),
     })
-    const freed = await reg.modules.issues.freeWorktreeKeepBranch(
-      issue.id,
-      systemPrincipal('stop'),
-    )
+    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issue.id, systemPrincipal('stop'))
     expect(freed.ok).toBe(true)
     expect(seen.find((s) => s.op === 'status')?.machineId).toBe('machine-remote')
     expect(seen.find((s) => s.op === 'worktreeRemove')?.machineId).toBe('machine-remote')
@@ -491,7 +488,9 @@ describe('stopIssue [spec:SP-9904]', () => {
 
     // The CLI passes the ref verbatim (resolution is server-side); before the fix,
     // stopIssue compared the raw ref against stored internal ids and stopped 0.
-    const r = await reg.modules.issueSessionLifecycle.stopIssue({ issueId: String(issue.seq) })
+    const r = await reg.modules.issueSessionLifecycle.stopIssue({
+      issueId: asIssueId(String(issue.seq)),
+    })
     expect(r.ok).toBe(true)
     expect(r.stopped.sort()).toEqual([a, b].sort())
     expect(r.worktreeFreed).toBe(true)

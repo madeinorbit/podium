@@ -104,8 +104,8 @@ describe('IssueService repo_id scoping (#140)', () => {
   it('unifies one origin checked out at two paths into a single #N sequence', () => {
     const { store, deps } = harness()
     const origin = 'git@github.com:acme/app.git'
-    store.repos.addRepo('/home/alice/app', 'm-alice', origin)
-    store.repos.addRepo('/home/bob/app', 'm-bob', origin) // same origin ⇒ same repo_id
+    store.repos.addRepo('/home/alice/app', asMachineId('m-alice'), origin)
+    store.repos.addRepo('/home/bob/app', asMachineId('m-bob'), origin) // same origin ⇒ same repo_id
     const svc = new IssueService(deps)
     const a = svc.create({ repoPath: '/home/alice/app', title: 'from alice', startNow: false })
     const b = svc.create({ repoPath: '/home/bob/app', title: 'from bob', startNow: false })
@@ -128,8 +128,8 @@ describe('IssueService repo_id scoping (#140)', () => {
 
   it('resolveRef scopes a shared #N to the caller repo; unscoped stays ambiguous', () => {
     const { store, deps } = harness()
-    store.repos.addRepo('/repoA', 'mA', 'git@github.com:o/a.git')
-    store.repos.addRepo('/repoB', 'mB', 'git@github.com:o/b.git') // distinct origins
+    store.repos.addRepo('/repoA', asMachineId('mA'), 'git@github.com:o/a.git')
+    store.repos.addRepo('/repoB', asMachineId('mB'), 'git@github.com:o/b.git') // distinct origins
     const svc = new IssueService(deps)
     const a = svc.create({ repoPath: '/repoA', title: 'A1', startNow: false })
     const b = svc.create({ repoPath: '/repoB', title: 'B1', startNow: false })
@@ -1421,8 +1421,12 @@ describe('IssueService.start', () => {
     // Two checkouts of the SAME repository, one per machine — the shape
     // ensureTargetRepo produces. Identity is origin-derived, so the differing paths
     // resolve to one repoId and the guard lets the move through.
-    store.repos.addRepo('/r', 'mach-a', 'https://example.test/podium.git')
-    store.repos.addRepo('/home/till/src/podium', 'mach-b', 'https://example.test/podium.git')
+    store.repos.addRepo('/r', asMachineId('mach-a'), 'https://example.test/podium.git')
+    store.repos.addRepo(
+      '/home/till/src/podium',
+      asMachineId('mach-b'),
+      'https://example.test/podium.git',
+    )
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async ({ repoPath, machineId, startPoint }) => {
       order.push(`prepare:${repoPath}:${machineId}:${startPoint}`)
@@ -1469,8 +1473,12 @@ describe('IssueService.start', () => {
     // Two checkouts of the SAME repository, one per machine — the shape
     // ensureTargetRepo produces. Identity is origin-derived, so the differing paths
     // resolve to one repoId and the guard lets the move through.
-    store.repos.addRepo('/r', 'mach-a', 'https://example.test/podium.git')
-    store.repos.addRepo('/home/till/src/podium', 'mach-b', 'https://example.test/podium.git')
+    store.repos.addRepo('/r', asMachineId('mach-a'), 'https://example.test/podium.git')
+    store.repos.addRepo(
+      '/home/till/src/podium',
+      asMachineId('mach-b'),
+      'https://example.test/podium.git',
+    )
     deps.requireMachineForRepo = vi.fn()
     deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/home/till/src/podium' }))
     const created = svc.create({
@@ -1494,8 +1502,12 @@ describe('IssueService.start', () => {
     // revision". A branch name is machine-local; a commit id is not. So the worktree add
     // must start from whatever the TARGET can resolve, which prepareMachineStart returns.
     const { svc, deps, store } = harness()
-    store.repos.addRepo('/r', 'mach-a', 'https://example.test/podium.git')
-    store.repos.addRepo('/home/till/src/podium', 'mach-b', 'https://example.test/podium.git')
+    store.repos.addRepo('/r', asMachineId('mach-a'), 'https://example.test/podium.git')
+    store.repos.addRepo(
+      '/home/till/src/podium',
+      asMachineId('mach-b'),
+      'https://example.test/podium.git',
+    )
     deps.requireMachineForRepo = vi.fn()
     const sha = 'e348cfe3b3bc5a1af2712b1614ea25c1b320fe03'
     deps.prepareMachineStart = vi.fn(async () => ({
@@ -1671,7 +1683,7 @@ describe('IssueService.start', () => {
     })
     deps.repoOp = vi.fn(async () => ({ ok: true, output: '' })) as typeof deps.repoOp
 
-    const result = await svc.ensureWorktree(created.id, 'mach-b')
+    const result = await svc.ensureWorktree(created.id, asMachineId('mach-b'))
 
     expect(deps.repoOp).not.toHaveBeenCalledWith(
       'status',
@@ -1720,9 +1732,12 @@ describe('IssueService.start', () => {
       branch: 'issue/1-homed-here',
       worktreePath: '/home/mgw/src/other/podium/.worktrees/issue-1-homed-here',
     })
-    deps.repoOp = vi.fn(async () => ({ ok: true, output: '## issue/1-homed-here' })) as typeof deps.repoOp
+    deps.repoOp = vi.fn(async () => ({
+      ok: true,
+      output: '## issue/1-homed-here',
+    })) as typeof deps.repoOp
 
-    const result = await svc.ensureWorktree(created.id, 'mach-b')
+    const result = await svc.ensureWorktree(created.id, asMachineId('mach-b'))
 
     expect(result).toMatchObject({
       ok: true,
@@ -3311,7 +3326,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
 
   it('resolves a human-facing nice id PREFIX-seq (#474)', () => {
     const { svc, store } = harness()
-    store.repos.addRepo('/home/u/podium', '__local__', 'git@github.com:o/podium.git')
+    store.repos.addRepo('/home/u/podium', asMachineId('__local__'), 'git@github.com:o/podium.git')
     const prefix = store.repos.prefixForPath('/home/u/podium')!
     const w = svc.create({ repoPath: '/home/u/podium', title: 'A', startNow: false })
     expect(w.displayRef).toBe(`${prefix}-${w.seq}`)
@@ -4161,7 +4176,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
   it('falls back to the invoking session cwd when the issue has no worktree', async () => {
     const { svc, snapshot } = artifactHarness()
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    await svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: '/wt' })
+    await svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: asSessionId('/wt') })
     expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({ root: '/wt' }))
   })
 
@@ -4200,7 +4215,7 @@ describe('IssueService agent mail (#103)', () => {
     const { svc, deps } = harness()
     ;(deps as { onMailSent?: unknown }).onMailSent = vi.fn()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const m = svc.sendMail(`#${a.seq}`, 'issue:#9', 'please rebase')
+    const m = svc.sendMail(asIssueId(`#${a.seq}`), 'issue:#9', 'please rebase')
     expect(m).toMatchObject({ issueId: a.id, fromAuthor: 'issue:#9', status: 'unread' })
     expect(m.id).toMatch(/^msg_/)
     expect(deps.onMailSent).toHaveBeenCalledWith(expect.objectContaining({ id: a.id }), m)
@@ -4509,7 +4524,9 @@ describe('IssueService agent mail (#103)', () => {
     })
     // …and the peer's OWN receipt is still recorded, so preserving the push
     // target does not re-nag the session that just read it [POD-1379 interaction].
-    expect(store.messages.readReceipts('sPeer', ['msg_pushed']).has('msg_pushed')).toBe(true)
+    expect(
+      store.messages.readReceipts(asSessionId('sPeer'), ['msg_pushed']).has('msg_pushed'),
+    ).toBe(true)
     expect(svc.mailPending(a.id, { sessionId: asSessionId('sPeer') }).unread).toBe(0)
   })
 

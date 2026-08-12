@@ -1,4 +1,5 @@
 import {
+  asMachineId,
   type Attribution,
   actorUser,
   asUserId,
@@ -23,14 +24,14 @@ function setup() {
     name: 'one',
     hostname: 'one',
     tokenHash: 'x',
-    ownerUserId: 'user:sole',
+    ownerUserId: asUserId('user:sole'),
   })
   store.machines.upsertMachine({
     id: 'm2',
     name: 'two',
     hostname: 'two',
     tokenHash: 'y',
-    ownerUserId: 'user:sole',
+    ownerUserId: asUserId('user:sole'),
   })
   const inventory = JSON.stringify({
     os: 'linux',
@@ -49,7 +50,7 @@ function setup() {
   const sessionId = registry.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: '/repo',
-    machineId: 'm1',
+    machineId: asMachineId('m1'),
   }).sessionId
   m1.length = 0
   m2.length = 0

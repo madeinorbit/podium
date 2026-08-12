@@ -13,7 +13,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import type { SessionId } from '@podium/model'
-import { asSessionId, SOLE_USER_ID } from '@podium/model'
+import { asUserId, asSessionId, SOLE_USER_ID } from '@podium/model'
 import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -110,7 +110,7 @@ describe('oracle: create', () => {
       name: 'other',
       hostname: 'o',
       tokenHash: 'x',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     const other: ControlMessage[] = []
     o.reg.gateway.attachDaemon('other', (m) => other.push(m))
@@ -296,7 +296,7 @@ describe('oracle: kill', () => {
     // "Owning" is only assertable when a NON-owning machine exists to stay
     // silent. On a one-machine fixture the same assertion passes for a kill
     // broadcast to everyone, which is a different behaviour.
-    const o = makeOracle({ offlineMachines: [{ id: 'other', name: 'other' }] })
+    const o = makeOracle({ offlineMachines: [{ id: asSessionId('other'), name: 'other' }] })
     const otherSeen: ControlMessage[] = []
     o.reg.gateway.attachDaemon('other', (m) => otherSeen.push(m))
     const { sessionId } = await o.call.sessions.create({
@@ -723,7 +723,7 @@ describe('oracle: stop (clean end, keep the branch)', () => {
     // resurfaces the session, where archive deliberately does not.
     // Per-user (POD-1076): the terminal transition clears EVERY reader's marker,
     // which is what nulling the one column used to mean.
-    expect(o.store.sessions.listReadAt(SOLE_USER_ID)[sessionId]).toBeUndefined()
+    expect(o.store.sessions.listReadAt(asUserId(SOLE_USER_ID))[sessionId]).toBeUndefined()
     expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
   })
 

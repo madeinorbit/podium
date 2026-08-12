@@ -19,7 +19,7 @@
  * sweep that got fast by no longer reaping anything fails here.
  */
 
-import { asSessionId, type SessionMeta } from '@podium/model'
+import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../../store'
@@ -49,7 +49,7 @@ const sess = (id: string, issueId: string | null, status = 'live'): SessionMeta 
 
 function harness(sessions: SessionMeta[]) {
   const store = new SessionStore(':memory:')
-  store.repos.addRepo(REPO, 'm-host')
+  store.repos.addRepo(REPO, asMachineId('m-host'))
   const listSessions = vi.fn(() => sessions)
   const setSessionIssueId = vi.fn((sessionId: string, issueId: string | null) => {
     const s = sessions.find((x) => x.sessionId === sessionId)

@@ -55,6 +55,7 @@ import {
   UNADDRESSABLE,
 } from '@podium/commands'
 import {
+  asMachineId,
   asIssueId,
   asSessionId,
   asUserId,
@@ -367,8 +368,8 @@ describe('D16 — delegation resolves live over the whole chain', () => {
     const agentBefore = resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index)
     const subBefore = resolvePrincipal(agentCapability(SUBAGENT_OF_OWNER), world.index)
     // YES FIRST: both may use the machine while the delegation stands.
-    expect(machineVerbsFor(agentBefore, 'm1', machines).has('use')).toBe(true)
-    expect(machineVerbsFor(subBefore, 'm1', machines).has('use')).toBe(true)
+    expect(machineVerbsFor(agentBefore, asMachineId('m1'), machines).has('use')).toBe(true)
+    expect(machineVerbsFor(subBefore, asMachineId('m1'), machines).has('use')).toBe(true)
 
     // THE REVOCATION — a mutation of the world, not a flag. Nothing is notified,
     // nothing is swept, and no capability is invalidated, because none was stored.
@@ -377,8 +378,8 @@ describe('D16 — delegation resolves live over the whole chain', () => {
     const agentAfter = resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index)
     const subAfter = resolvePrincipal(agentCapability(SUBAGENT_OF_OWNER), world.index)
     // The immutable attribution still names the owner, but current machine rights no longer do.
-    expect(machineVerbsFor(agentAfter, 'm1', machines).has('use')).toBe(false)
-    expect(machineVerbsFor(subAfter, 'm1', machines).has('use')).toBe(false)
+    expect(machineVerbsFor(agentAfter, asMachineId('m1'), machines).has('use')).toBe(false)
+    expect(machineVerbsFor(subAfter, asMachineId('m1'), machines).has('use')).toBe(false)
   })
 
   it('a sub-agent cannot exceed its parent — the narrowing applies at every link', () => {
@@ -389,19 +390,19 @@ describe('D16 — delegation resolves live over the whole chain', () => {
       delegated: new Map([[AGENT_OF_OWNER, new Set<string>()]]),
     })
     const sub = resolvePrincipal(agentCapability(SUBAGENT_OF_OWNER), world.index)
-    expect(machineVerbsFor(sub, 'm1', machines).has('use')).toBe(false)
+    expect(machineVerbsFor(sub, asMachineId('m1'), machines).has('use')).toBe(false)
     // `see` survives a narrowing — fleet health is not execution (D18.1).
-    expect(machineVerbsFor(sub, 'm1', machines).has('see')).toBe(true)
+    expect(machineVerbsFor(sub, asMachineId('m1'), machines).has('see')).toBe(true)
   })
 
   it('the human is a CEILING: an agent of a non-owner cannot reach the owner’s machine', () => {
     const world = delegationWorld()
     const machines = machineWorld({ owner: OWNER })
     const foreign = resolvePrincipal(agentCapability(AGENT_OF_OTHER), world.index)
-    expect(machineVerbsFor(foreign, 'm1', machines).has('use')).toBe(false)
+    expect(machineVerbsFor(foreign, asMachineId('m1'), machines).has('use')).toBe(false)
     // ...and the counterfactual, so the denial is the ceiling talking.
     const mine = resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index)
-    expect(machineVerbsFor(mine, 'm1', machines).has('use')).toBe(true)
+    expect(machineVerbsFor(mine, asMachineId('m1'), machines).has('use')).toBe(true)
   })
 })
 
@@ -424,7 +425,7 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
       // What the authority does per D8 step 1: resolve the CURRENT principal,
       // then run the policy. Nothing from enqueue time is consulted.
       const principal = resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index)
-      return checkMachineUse(principal, 'm1', machines) === undefined
+      return checkMachineUse(principal, asMachineId('m1'), machines) === undefined
     }
 
     expect(drain()).toBe(true) // enqueued while allowed, and it would apply now
@@ -441,7 +442,7 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
     const machines = machineWorld({ owner: OTHER, grants })
     const drain = (): boolean => {
       const principal = resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index)
-      return checkMachineUse(principal, 'm1', machines) === undefined
+      return checkMachineUse(principal, asMachineId('m1'), machines) === undefined
     }
 
     expect(drain()).toBe(false)
@@ -629,7 +630,7 @@ describe('D18 — machine access is three verbs against an owner plus a grant li
 
   it('the OWNER holds all three verbs', () => {
     const machines = machineWorld({ owner: OWNER })
-    expect([...machineVerbsFor(human(OWNER), 'm1', machines)].sort()).toEqual([
+    expect([...machineVerbsFor(human(OWNER), asMachineId('m1'), machines)].sort()).toEqual([
       'manage',
       'see',
       'use',
@@ -638,38 +639,40 @@ describe('D18 — machine access is three verbs against an owner plus a grant li
 
   it('a SEE-ONLY principal attempting `use` is refused, and can still see', () => {
     const machines = machineWorld({ owner: OWNER, grants: [{ grantee: GRANTEE, verb: 'see' }] })
-    expect(canSeeMachine(human(GRANTEE), 'm1', machines)).toBe(true)
-    expect(checkMachineUse(human(GRANTEE), 'm1', machines)).toBe('unauthorized')
+    expect(canSeeMachine(human(GRANTEE), asMachineId('m1'), machines)).toBe(true)
+    expect(checkMachineUse(human(GRANTEE), asMachineId('m1'), machines)).toBe('unauthorized')
   })
 
   it('a USE-GRANTED principal may spawn, but may not manage', () => {
     const machines = machineWorld({ owner: OWNER, grants: [{ grantee: GRANTEE, verb: 'use' }] })
-    expect(checkMachineUse(human(GRANTEE), 'm1', machines)).toBeUndefined()
-    expect(checkMachineVerb(human(GRANTEE), 'm1', machines, 'manage')).toBe('unauthorized')
+    expect(checkMachineUse(human(GRANTEE), asMachineId('m1'), machines)).toBeUndefined()
+    expect(checkMachineVerb(human(GRANTEE), asMachineId('m1'), machines, 'manage')).toBe(
+      'unauthorized',
+    )
   })
 
   it('UNAUTHORIZED IS DISTINGUISHABLE FROM UNREACHABLE — but only inside the `see` set (D18.5)', () => {
     const machines = machineWorld({ owner: OWNER, grants: [{ grantee: GRANTEE, verb: 'see' }] })
     // Visible: the two failures are different values AND different words.
-    expect(checkMachineUse(human(GRANTEE), 'm1', machines)).toBe('unauthorized')
-    expect(placementDecision('m1', { mayUse: () => true, isReachable: () => false })).toBe(
-      'unreachable',
-    )
-    expect(placementDecision('m1', { mayUse: () => false, isReachable: () => true })).toBe(
-      'unauthorized',
-    )
+    expect(checkMachineUse(human(GRANTEE), asMachineId('m1'), machines)).toBe('unauthorized')
+    expect(
+      placementDecision(asMachineId('m1'), { mayUse: () => true, isReachable: () => false }),
+    ).toBe('unreachable')
+    expect(
+      placementDecision(asMachineId('m1'), { mayUse: () => false, isReachable: () => true }),
+    ).toBe('unauthorized')
     // Invisible: the machine is ABSENT, in the same words a never-paired id gets.
     const invisible = machineWorld({ owner: OWNER })
-    expect(checkMachineUse(human(OTHER), 'm1', invisible)).toBe('absent')
-    expect(machineAccessMessage('absent', 'm1', 'workshop')).toBe(
-      machineAccessMessage('absent', 'm1', undefined),
+    expect(checkMachineUse(human(OTHER), asMachineId('m1'), invisible)).toBe('absent')
+    expect(machineAccessMessage('absent', asMachineId('m1'), 'workshop')).toBe(
+      machineAccessMessage('absent', asMachineId('m1'), undefined),
     )
   })
 
   it('placement never silently retargets — denial is a decision, not an empty list', () => {
-    expect(placementDecision('m1', { mayUse: () => false, isReachable: () => false })).toBe(
-      'unauthorized',
-    )
+    expect(
+      placementDecision(asMachineId('m1'), { mayUse: () => false, isReachable: () => false }),
+    ).toBe('unauthorized')
   })
 
   it('THE ALL-IN-ONE HOST fails closed for a freshly authenticated non-owner (M4)', () => {
@@ -680,9 +683,9 @@ describe('D18 — machine access is three verbs against an owner plus a grant li
     const host = 'b1c2d3e4-5f60-4712-8899-aabbccddeeff'
     const hostRow = machineWorld({ owner: FIRST_ADMIN_USER_ID })
     const world: MachineOwnershipIndex = {
-      rowFor: (id) => (id === host ? hostRow.rowFor('m1') : undefined),
+      rowFor: (id) => (id === host ? hostRow.rowFor(asMachineId('m1')) : undefined),
     }
-    expect(checkMachineUse(human(OTHER), host, world)).toBe('absent')
+    expect(checkMachineUse(human(OTHER), asMachineId(host), world)).toBe('absent')
     // And the counterfactual that keeps it from being "everything is denied": the
     // instance's own account does hold it.
     const instanceOwner: CommandPrincipal = {
@@ -690,32 +693,32 @@ describe('D18 — machine access is three verbs against an owner plus a grant li
       user: FIRST_ADMIN_USER_ID,
       capability: OPERATOR,
     }
-    expect(checkMachineUse(instanceOwner, host, world)).toBeUndefined()
+    expect(checkMachineUse(instanceOwner, asMachineId(host), world)).toBeUndefined()
     // …and a machine with NO row is absent for everyone, the installer included —
     // there is no arm underneath that turns an unknown id into a usable one.
     const noRows: MachineOwnershipIndex = { rowFor: () => undefined }
-    expect(checkMachineUse(instanceOwner, host, noRows)).toBe('absent')
+    expect(checkMachineUse(instanceOwner, asMachineId(host), noRows)).toBe('absent')
   })
 
   it('an OWNERLESS machine grants `use` to nobody (default-closed)', () => {
     const orphan = machineWorld({ owner: null, grants: [{ grantee: GRANTEE, verb: 'use' }] })
-    expect(checkMachineUse(human(GRANTEE), 'm1', orphan)).toBe('absent')
+    expect(checkMachineUse(human(GRANTEE), asMachineId('m1'), orphan)).toBe('absent')
   })
 
   it('a SYSTEM principal may see and use, but never manage (D21)', () => {
     const machines = machineWorld({ owner: OWNER })
-    const verbs = machineVerbsFor(systemPrincipal('boot-reconcile'), 'm1', machines)
+    const verbs = machineVerbsFor(systemPrincipal('boot-reconcile'), asMachineId('m1'), machines)
     expect([...verbs].sort()).toEqual(['see', 'use'])
-    expect(checkMachineVerb(systemPrincipal('boot-reconcile'), 'm1', machines, 'manage')).toBe(
-      'unauthorized',
-    )
+    expect(
+      checkMachineVerb(systemPrincipal('boot-reconcile'), asMachineId('m1'), machines, 'manage'),
+    ).toBe('unauthorized')
   })
 
   it('system reads across owners without acquiring a human (D21.1)', () => {
     // The read-across half, and the attribution half, asserted together — the
     // rule is a conjunction and half of it is the dangerous half.
     const foreign = machineWorld({ owner: OTHER })
-    expect(canSeeMachine(systemPrincipal('steward'), 'm1', foreign)).toBe(true)
+    expect(canSeeMachine(systemPrincipal('steward'), asMachineId('m1'), foreign)).toBe(true)
     expect(attributionOf(systemPrincipal('steward')).onBehalfOf).toBeNull()
   })
 })
@@ -805,7 +808,7 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
     ]
     let holders = 0
     for (const principal of principals) {
-      const verbs = machineVerbsFor(principal, 'm1', withGrants)
+      const verbs = machineVerbsFor(principal, asMachineId('m1'), withGrants)
       if (verbs.size === 0) continue
       holders += 1
       expect([...verbs], JSON.stringify(principal.kind)).toContain('see')
@@ -825,10 +828,12 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
       user: OTHER,
       capability: { role: 'worker', scope: { kind: 'owned', userId: OTHER } },
     }
-    expect(checkMachineVerb(stranger, 'm1', invisible, 'use')).toBe(
-      checkMachineVerb(stranger, 'no-such-machine', nonexistent, 'use'),
+    expect(checkMachineVerb(stranger, asMachineId('m1'), invisible, 'use')).toBe(
+      checkMachineVerb(stranger, asMachineId('no-such-machine'), nonexistent, 'use'),
     )
-    expect(machineAccessMessage('absent', 'm1', 'workshop')).toBe("unknown machine 'm1'")
+    expect(machineAccessMessage('absent', asMachineId('m1'), 'workshop')).toBe(
+      "unknown machine 'm1'",
+    )
   })
 
   it('the ceiling is CONSULTED, not assumed — the single-user maximum is a value, not a bypass', () => {

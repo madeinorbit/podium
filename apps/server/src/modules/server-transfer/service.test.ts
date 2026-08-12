@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -188,7 +189,7 @@ function makeService(
   return new ServerTransferService({
     stateRoot: root,
     sourceInstanceId: 'instance-1',
-    sourceMachineId: 'source-1',
+    sourceMachineId: asMachineId('source-1'),
     sourceFeedIdentity: () => ({ feedId: 'feed-1', feedEpoch: 'epoch-1' }),
     sourceApplicationVersion: 'test',
     sourceSchemaVersion: () => 'schema-1',
@@ -440,7 +441,7 @@ describe('ServerTransferService final-fence flow', () => {
     await mkdir(stageDir, { recursive: true })
     await writeFile(join(stageDir, 'state.json'), JSON.stringify(promoted))
     const service = makeService(fake.rpc, {
-      sourceMachineId: 'target-1',
+      sourceMachineId: asMachineId('target-1'),
       localPromotedTransfer: () => readPromotedTargetMetadata(root),
       targetState: (machineId) => ({
         exists: true,

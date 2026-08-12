@@ -113,7 +113,7 @@ describe('enrollment ledger unit', () => {
   it('mints a token that verifies under the same root and fails under another', () => {
     dir = tempState()
     const a = openEnrollmentLedger(dir)
-    const token = mintPairingToken(a.pairingRoot, { machineId: 'm1', serial: 1 })
+    const token = mintPairingToken(a.pairingRoot, { machineId: asMachineId('m1'), serial: 1 })
     expect(verifyPairingToken(a.pairingRoot, token)).toEqual({ machineId: 'm1', serial: 1 })
     const b = openEnrollmentLedger(tempState())
     expect(verifyPairingToken(b.pairingRoot, token)).toBeNull()
@@ -135,7 +135,7 @@ describe('enrollment ledger unit', () => {
     expect(
       ledger.appendEnroll({
         id,
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
         serial: 1,
         ownerUserId: OWNER,
         at: new Date().toISOString(),
@@ -144,13 +144,13 @@ describe('enrollment ledger unit', () => {
     expect(
       ledger.appendEnroll({
         id,
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
         serial: 1,
         ownerUserId: OWNER,
         at: new Date().toISOString(),
       }),
     ).toBe(false)
-    expect(ledger.nextSerial('m1')).toBe(2)
+    expect(ledger.nextSerial(asMachineId('m1'))).toBe(2)
   })
 })
 
@@ -324,10 +324,10 @@ describe('D19.4 regression sequences', () => {
     const ownership = ownershipFromMachines(restarted.machines)
     const owner = userCommandPrincipal(asUserId(OWNER), 'admin')
     const colleague = userCommandPrincipal(OTHER, 'member')
-    expect(checkMachineUse(owner, machineId, ownership)).toBeUndefined()
+    expect(checkMachineUse(owner, asMachineId(machineId), ownership)).toBeUndefined()
     // Non-owning member cannot use; without see they look "absent".
-    expect(checkMachineUse(colleague, machineId, ownership)).toBe('absent')
-    expect(canSeeMachine(colleague, machineId, ownership)).toBe(false)
+    expect(checkMachineUse(colleague, asMachineId(machineId), ownership)).toBe('absent')
+    expect(canSeeMachine(colleague, asMachineId(machineId), ownership)).toBe(false)
   })
 
   it('4b. owner account deleted → QUARANTINED (admin see, nobody use)', () => {
@@ -359,13 +359,15 @@ describe('D19.4 regression sequences', () => {
     const ownership = ownershipFromMachines(svc)
     const admin = userCommandPrincipal(asUserId(OWNER), 'admin')
     // Admin holds see, nobody holds use.
-    expect(canSeeMachine(admin, machineId, ownership)).toBe(true)
-    expect(checkMachineUse(admin, machineId, ownership)).toBe('unauthorized')
-    expect(machineVerbsFor(admin, machineId, ownership)).toEqual(new Set(['see']))
+    expect(canSeeMachine(admin, asMachineId(machineId), ownership)).toBe(true)
+    expect(checkMachineUse(admin, asMachineId(machineId), ownership)).toBe('unauthorized')
+    expect(machineVerbsFor(admin, asMachineId(machineId), ownership)).toEqual(new Set(['see']))
     // A non-admin principal does not get see via quarantine.
     const plainMember = userCommandPrincipal(asUserId('user:nobody'), 'member')
-    expect(canSeeMachine(plainMember, machineId, ownership)).toBe(false)
-    expect(checkMachineVerb(admin, machineId, ownership, 'manage')).toBe('unauthorized')
+    expect(canSeeMachine(plainMember, asMachineId(machineId), ownership)).toBe(false)
+    expect(checkMachineVerb(admin, asMachineId(machineId), ownership, 'manage')).toBe(
+      'unauthorized',
+    )
   })
 
   // ---------------------------------------------------------------------------
@@ -377,20 +379,22 @@ describe('D19.4 regression sequences', () => {
     expect(w.store.machines.getMachine(machineId)?.ownerUserId).toBe(OWNER)
 
     // Append owner transition, kill before the machines row is updated.
-    w.machines.transferOwnership(machineId, OTHER, { skipRowUpdate: true })
+    w.machines.transferOwnership(asMachineId(machineId), OTHER, { skipRowUpdate: true })
     // Row still shows OLD owner — the crash window.
     expect(w.store.machines.getMachine(machineId)?.ownerUserId).toBe(OWNER)
     // But the ledger already commits the NEW owner; effectiveOwner reflects it.
-    expect(w.machines.effectiveOwner(machineId)).toBe(OTHER)
+    expect(w.machines.effectiveOwner(asMachineId(machineId))).toBe(OTHER)
     const ownershipMidCrash = ownershipFromMachines(w.machines)
     const oldP = userCommandPrincipal(asUserId(OWNER), 'admin')
     const newP = userCommandPrincipal(OTHER, 'member')
     // Authorization must not serve the stale projection (D19.4d rule 2).
-    expect(checkMachineUse(newP, machineId, ownershipMidCrash)).toBeUndefined()
-    expect(checkMachineVerb(newP, machineId, ownershipMidCrash, 'manage')).toBeUndefined()
+    expect(checkMachineUse(newP, asMachineId(machineId), ownershipMidCrash)).toBeUndefined()
+    expect(
+      checkMachineVerb(newP, asMachineId(machineId), ownershipMidCrash, 'manage'),
+    ).toBeUndefined()
     // Old owner no longer holds use/manage via the ledger-wins ownershipRows path.
     // (They may still hold admin-grade fleet powers elsewhere; machine verbs drop.)
-    expect(checkMachineUse(oldP, machineId, ownershipMidCrash)).not.toBeUndefined()
+    expect(checkMachineUse(oldP, asMachineId(machineId), ownershipMidCrash)).not.toBeUndefined()
 
     // Restart: reconcile repairs the row with no manual step.
     const restarted = makeWorld(dir)
@@ -417,13 +421,22 @@ describe('D19.4 regression sequences', () => {
     expect(restarted.store.machines.getMachine(machineId)?.ownerUserId).toBe(OTHER)
     const ownership = ownershipFromMachines(svc)
     expect(
-      checkMachineUse(userCommandPrincipal(OTHER, 'member'), machineId, ownership),
+      checkMachineUse(userCommandPrincipal(OTHER, 'member'), asMachineId(machineId), ownership),
     ).toBeUndefined()
     expect(
-      checkMachineVerb(userCommandPrincipal(OTHER, 'member'), machineId, ownership, 'manage'),
+      checkMachineVerb(
+        userCommandPrincipal(OTHER, 'member'),
+        asMachineId(machineId),
+        ownership,
+        'manage',
+      ),
     ).toBeUndefined()
     expect(
-      checkMachineUse(userCommandPrincipal(asUserId(OWNER), 'admin'), machineId, ownership),
+      checkMachineUse(
+        userCommandPrincipal(asUserId(OWNER), 'admin'),
+        asMachineId(machineId),
+        ownership,
+      ),
     ).toBe('absent')
   })
 })

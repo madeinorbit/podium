@@ -1,4 +1,4 @@
-import { asIssueId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asThreadId, asIssueId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { SearchResultWire } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -84,19 +84,19 @@ describe('MemoryService omni-search', () => {
         providerId: 'claude-code-jsonl',
         title: 'capacitor deep dive',
         updatedAt: '2026-07-01T09:00:00.000Z',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       },
     ])
 
     // Lake-indexed transcript messages (what the mirror-fed indexer writes).
     store.conversations.registry.ensure({
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       nativeId: 'native-tx',
       providerId: 'claude-code-jsonl',
       path: '/home/u/.claude/projects/-w/native-tx.jsonl',
     })
     store.conversations.transcriptIndex.append(
-      'm1',
+      asMachineId('m1'),
       'native-tx',
       [
         {
@@ -284,7 +284,7 @@ describe('MemoryService omni-search', () => {
           agentKind: 'claude-code',
           providerId: 'claude-code-jsonl',
           projectPath: '/repo',
-          machineId: 'm1',
+          machineId: asMachineId('m1'),
         },
       ])
     }
@@ -369,12 +369,12 @@ describe('search.query tRPC', () => {
         id: 'classified-native',
         agentKind: 'claude-code',
         providerId: 'claude-code-jsonl',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
         title: 'classifiedneedle conversation',
       },
     ])
     store.conversations.transcriptIndex.append(
-      'm1',
+      asMachineId('m1'),
       'classified-native',
       [
         {
@@ -405,7 +405,7 @@ describe('search.query tRPC', () => {
       kind: 'btw',
       title: 'classifiedneedle superagent',
     })
-    store.superagent.appendSuperagentMessage('private-thread', {
+    store.superagent.appendSuperagentMessage(asThreadId('private-thread'), {
       role: 'assistant',
       content: 'classifiedneedle private thread body',
     })
@@ -441,7 +441,7 @@ describe('search.query tRPC', () => {
     }
     bind(FIRST_ADMIN_USER_ID, 'visible-rank', '/visible')
     store.conversations.transcriptIndex.append(
-      'm1',
+      asMachineId('m1'),
       'visible-rank',
       [
         {
@@ -456,7 +456,7 @@ describe('search.query tRPC', () => {
       .find((hit) => hit.kind === 'transcript')
     bind(bob, 'hidden-rank', '/hidden')
     store.conversations.transcriptIndex.append(
-      'm1',
+      asMachineId('m1'),
       'hidden-rank',
       [
         {

@@ -97,7 +97,8 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
     notes: null,
     dueAt: null,
     deferUntil: null,
-    closedReason: null, closedAt: null,
+    closedReason: null,
+    closedAt: null,
     supersededBy: null,
     duplicateOf: null,
     estimateMin: null,
@@ -216,36 +217,41 @@ describe('per-user issue state (POD-1076)', () => {
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
     store.issues.upsertIssue(baseRow({ id: asIssueId('iss_untouched'), seq: 2 }))
 
-    store.issues.setIssueUserState(SOLE_USER_ID, 'iss_read', {
+    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), 'iss_read', {
       readAt: '2026-07-07T00:00:00.000Z',
       pinnedAt: '2026-07-08T00:00:00.000Z',
     })
-    expect(store.issues.getIssueUserState(SOLE_USER_ID, 'iss_read')).toEqual({
+    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), 'iss_read')).toEqual({
       readAt: '2026-07-07T00:00:00.000Z',
       tuckedAt: null,
       pinnedAt: '2026-07-08T00:00:00.000Z',
     })
     // An issue nobody touched has NO row — absence is the single spelling.
-    expect(store.issues.getIssueUserState(SOLE_USER_ID, 'iss_untouched')).toBeUndefined()
+    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), 'iss_untouched')).toBeUndefined()
 
     // The PARTIAL patch: writing readAt must not disturb pinnedAt. This is the
     // whole reason the method takes a patch rather than a row — a whole-row
     // upsert makes "marking it read un-pinned it" a one-line mistake.
-    store.issues.setIssueUserState(SOLE_USER_ID, 'iss_read', { readAt: '2026-07-09T00:00:00.000Z' })
-    expect(store.issues.getIssueUserState(SOLE_USER_ID, 'iss_read')?.pinnedAt).toBe(
+    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), 'iss_read', {
+      readAt: '2026-07-09T00:00:00.000Z',
+    })
+    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), 'iss_read')?.pinnedAt).toBe(
       '2026-07-08T00:00:00.000Z',
     )
 
     // ANOTHER user's slice is empty for the SAME issue.
-    expect(store.issues.getIssueUserState('user:other', 'iss_read')).toBeUndefined()
-    expect(store.issues.listIssueUserState('user:other').size).toBe(0)
+    expect(store.issues.getIssueUserState(asUserId('user:other'), 'iss_read')).toBeUndefined()
+    expect(store.issues.listIssueUserState(asUserId('user:other')).size).toBe(0)
 
     // Clearing every marker DELETES the row rather than leaving three nulls.
-    store.issues.setIssueUserState(SOLE_USER_ID, 'iss_read', { readAt: null, pinnedAt: null })
-    expect(store.issues.getIssueUserState(SOLE_USER_ID, 'iss_read')).toBeUndefined()
+    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), 'iss_read', {
+      readAt: null,
+      pinnedAt: null,
+    })
+    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), 'iss_read')).toBeUndefined()
 
     // A write with no identity fails CLOSED; it never falls back to an operator.
-    expect(() => store.issues.setIssueUserState('', 'iss_read', { readAt: 't' })).toThrow(
+    expect(() => store.issues.setIssueUserState(asUserId(''), 'iss_read', { readAt: 't' })).toThrow(
       /no user id/,
     )
     store.close()
@@ -283,7 +289,9 @@ describe('needs_human data layer (P4)', () => {
 
   it('defaults needsHuman=false / humanQuestion=null when unset', () => {
     const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(baseRow({ id: asIssueId('iss_y'), needsHuman: false, humanQuestion: null }))
+    store.issues.upsertIssue(
+      baseRow({ id: asIssueId('iss_y'), needsHuman: false, humanQuestion: null }),
+    )
     const y = store.issues.getIssue('iss_y')!
     expect(y.needsHuman).toBe(false)
     expect(y.humanQuestion).toBeNull()
@@ -294,18 +302,18 @@ describe('issue labels (P1)', () => {
   it('sets, reads (sorted), and lists distinct labels', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b')
-    store.issues.setIssueLabels('iss_a', ['ui', 'backend', 'ui'])
-    store.issues.setIssueLabels('iss_b', ['backend'])
-    expect(store.issues.getIssueLabels('iss_a')).toEqual(['backend', 'ui'])
+    store.issues.setIssueLabels(asIssueId('iss_a'), ['ui', 'backend', 'ui'])
+    store.issues.setIssueLabels(asIssueId('iss_b'), ['backend'])
+    expect(store.issues.getIssueLabels(asIssueId('iss_a'))).toEqual(['backend', 'ui'])
     expect(store.issues.listAllLabels()).toEqual(['backend', 'ui'])
   })
 
   it('setIssueLabels replaces the prior set', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a')
-    store.issues.setIssueLabels('iss_a', ['x', 'y'])
-    store.issues.setIssueLabels('iss_a', ['y', 'z'])
-    expect(store.issues.getIssueLabels('iss_a')).toEqual(['y', 'z'])
+    store.issues.setIssueLabels(asIssueId('iss_a'), ['x', 'y'])
+    store.issues.setIssueLabels(asIssueId('iss_a'), ['y', 'z'])
+    expect(store.issues.getIssueLabels(asIssueId('iss_a'))).toEqual(['y', 'z'])
   })
 })
 
@@ -320,9 +328,13 @@ describe('issue deps (P1)', () => {
       { toId: 'iss_b', type: 'blocks' },
       { toId: 'iss_c', type: 'related' },
     ])
-    expect(store.issues.listDependents(asIssueId('iss_b'))).toEqual([{ fromId: 'iss_a', type: 'blocks' }])
+    expect(store.issues.listDependents(asIssueId('iss_b'))).toEqual([
+      { fromId: 'iss_a', type: 'blocks' },
+    ])
     store.issues.removeIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
-    expect(store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([{ toId: 'iss_c', type: 'related' }])
+    expect(store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([
+      { toId: 'iss_c', type: 'related' },
+    ])
   })
 })
 
@@ -380,15 +392,15 @@ describe('issue mail store (agent mail #103)', () => {
     store.issues.addIssueMessage(msg('msg_b', asIssueId('iss_a'), 't2'))
     store.issues.addIssueMessage(msg('msg_a', asIssueId('iss_a'), 't1'))
     store.issues.addIssueMessage(msg('msg_c', asIssueId('iss_other'), 't1'))
-    const list = store.issues.listIssueMessages('iss_a')
+    const list = store.issues.listIssueMessages(asIssueId('iss_a'))
     expect(list.map((m) => m.id)).toEqual(['msg_a', 'msg_b'])
     expect(list[0]).toMatchObject({ issueId: 'iss_a', fromAuthor: 'issue:#2', status: 'unread' })
-    expect(store.issues.countUnreadIssueMessages('iss_a')).toBe(2)
-    store.issues.markIssueMessagesRead(SOLE_USER_ID, 'iss_a', ['msg_a'], 'tr')
-    expect(store.issues.countUnreadIssueMessages('iss_a')).toBe(1)
-    expect(store.issues.listIssueMessages('iss_a', { status: 'unread' }).map((m) => m.id)).toEqual([
-      'msg_b',
-    ])
+    expect(store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(2)
+    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), 'iss_a', ['msg_a'], 'tr')
+    expect(store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(1)
+    expect(
+      store.issues.listIssueMessages(asIssueId('iss_a'), { status: 'unread' }).map((m) => m.id),
+    ).toEqual(['msg_b'])
   })
 
   it('claim is atomic: second claim returns false and does not overwrite the winner', () => {
@@ -407,23 +419,23 @@ describe('issue mail store (agent mail #103)', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a')
     store.issues.addIssueMessage(msg('msg_a'))
-    store.issues.markIssueMessagesRead(SOLE_USER_ID, 'iss_a', ['msg_a'], 't1')
-    store.issues.markIssueMessagesRead(SOLE_USER_ID, 'iss_a', ['msg_a'], 't2')
+    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), 'iss_a', ['msg_a'], 't1')
+    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), 'iss_a', ['msg_a'], 't2')
     // TWO CLASSES, TWO BEHAVIOURS (POD-1076). `status` is the mail's SHARED
     // delivery state and is idempotent — the second call is a no-op on it. The
     // per-user `read_at` is a fact about THIS reader and DOES advance, because
     // "when did I last look at this" is not a once-only event.
     expect(store.issues.getIssueMessage('msg_a')!.status).toBe('read')
-    expect(store.issues.listIssueMessageReadAt(SOLE_USER_ID).msg_a).toBe('t2')
+    expect(store.issues.listIssueMessageReadAt(asUserId(SOLE_USER_ID)).msg_a).toBe('t2')
     // …and another reader has no marker for the same message.
-    expect(store.issues.listIssueMessageReadAt('user:other')).toEqual({})
+    expect(store.issues.listIssueMessageReadAt(asUserId('user:other'))).toEqual({})
 
     store.issues.claimIssueMessage('msg_a', 'x', 'tc')
-    store.issues.markIssueMessagesRead(SOLE_USER_ID, 'iss_a', ['msg_a'], 't3')
+    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), 'iss_a', ['msg_a'], 't3')
     // Never regresses a claimed message back to 'read'…
     expect(store.issues.getIssueMessage('msg_a')!.status).toBe('claimed')
     // …but MY having read it after the claim is still true and is recorded.
-    expect(store.issues.listIssueMessageReadAt(SOLE_USER_ID).msg_a).toBe('t3')
+    expect(store.issues.listIssueMessageReadAt(asUserId(SOLE_USER_ID)).msg_a).toBe('t3')
   })
 
   it('deleteIssueChildRows removes the issue mailbox', () => {
@@ -431,9 +443,9 @@ describe('issue mail store (agent mail #103)', () => {
     seedIssues(store, 'iss_a', 'iss_other')
     store.issues.addIssueMessage(msg('msg_a'))
     store.issues.addIssueMessage(msg('msg_z', asIssueId('iss_other')))
-    store.issues.deleteIssueChildRows('iss_a')
-    expect(store.issues.listIssueMessages('iss_a')).toEqual([])
-    expect(store.issues.listIssueMessages('iss_other').length).toBe(1)
+    store.issues.deleteIssueChildRows(asIssueId('iss_a'))
+    expect(store.issues.listIssueMessages(asIssueId('iss_a'))).toEqual([])
+    expect(store.issues.listIssueMessages(asIssueId('iss_other')).length).toBe(1)
   })
 })
 

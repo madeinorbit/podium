@@ -12,6 +12,7 @@
  * would pass against a broker that settles nothing.
  */
 
+import { asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -57,7 +58,7 @@ describe('correlation', () => {
     const p = h.ask('m2')
 
     expect(h.sent[0]?.machineId).toBe('m2')
-    expect(h.broker.settle(PROBE, h.idOf(0), 'm2', { answer: 'ok' })).toBe(true)
+    expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'ok' })).toBe(true)
 
     await expect(p).resolves.toEqual({ answer: 'ok' })
   })
@@ -83,8 +84,8 @@ describe('correlation', () => {
 
     current = 'm2'
     captureLogs()
-    expect(broker.settle(PROBE, requestId, 'm2', { answer: 'stolen' })).toBe(false)
-    expect(broker.settle(PROBE, requestId, 'm1', { answer: 'ok' })).toBe(true)
+    expect(broker.settle(PROBE, requestId, asMachineId('m2'), { answer: 'stolen' })).toBe(false)
+    expect(broker.settle(PROBE, requestId, asMachineId('m1'), { answer: 'ok' })).toBe(true)
 
     await expect(p).resolves.toEqual({ answer: 'ok' })
   })
@@ -113,15 +114,15 @@ describe('correlation', () => {
     await expect(p).resolves.toEqual({ answer: 'timeout' })
     expect(h.broker.inFlight).toBe(0)
     // A late answer to a timed-out request is silently ignored, not a crash.
-    expect(h.broker.settle(PROBE, h.idOf(0), 'm1', { answer: 'late' })).toBe(false)
+    expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'late' })).toBe(false)
   })
 
   it('settles once — a duplicate reply is dropped', async () => {
     const h = harness()
     const p = h.ask('m1')
 
-    expect(h.broker.settle(PROBE, h.idOf(0), 'm1', { answer: 'first' })).toBe(true)
-    expect(h.broker.settle(PROBE, h.idOf(0), 'm1', { answer: 'second' })).toBe(false)
+    expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'first' })).toBe(true)
+    expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'second' })).toBe(false)
 
     await expect(p).resolves.toEqual({ answer: 'first' })
   })
@@ -129,7 +130,7 @@ describe('correlation', () => {
   it('clears the timeout when it settles, so the fallback never lands after an answer', async () => {
     const h = harness()
     const p = h.ask('m1')
-    h.broker.settle(PROBE, h.idOf(0), 'm1', { answer: 'ok' })
+    h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'ok' })
 
     await vi.advanceTimersByTimeAsync(5_000)
 
@@ -144,9 +145,11 @@ describe('correlation', () => {
     const logs = captureLogs()
     const p = h.ask('m1')
 
-    expect(h.broker.settle(OTHER, h.idOf(0), 'm1', { answer: 'wrong family' })).toBe(false)
+    expect(h.broker.settle(OTHER, h.idOf(0), asMachineId('m1'), { answer: 'wrong family' })).toBe(
+      false,
+    )
     expect(logs.at('warn')).toContainEqual(expect.objectContaining({ settledAs: 'o', sentAs: 'p' }))
-    expect(h.broker.settle(PROBE, h.idOf(0), 'm1', { answer: 'ok' })).toBe(true)
+    expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'ok' })).toBe(true)
 
     await expect(p).resolves.toEqual({ answer: 'ok' })
   })
@@ -158,9 +161,9 @@ describe('the answering machine is checked (POD-1175)', () => {
     const logs = captureLogs()
     const p = h.ask('m1')
 
-    expect(h.broker.settle(PROBE, h.idOf(0), 'm2', { answer: 'from the wrong machine' })).toBe(
-      false,
-    )
+    expect(
+      h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'from the wrong machine' }),
+    ).toBe(false)
 
     // LOUD: a machine answering for a request it was never sent is either a
     // routing bug or an attempt to serve its own data under this caller's id.
@@ -168,7 +171,7 @@ describe('the answering machine is checked (POD-1175)', () => {
       expect.objectContaining({ answeredBy: 'm2', sentTo: 'm1' }),
     )
     // And the honest machine can still answer — the drop did not consume it.
-    expect(h.broker.settle(PROBE, h.idOf(0), 'm1', { answer: 'ok' })).toBe(true)
+    expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'ok' })).toBe(true)
     await expect(p).resolves.toEqual({ answer: 'ok' })
   })
 
@@ -180,7 +183,7 @@ describe('the answering machine is checked (POD-1175)', () => {
     captureLogs()
     const p = h.ask('m1')
 
-    h.broker.settle(PROBE, h.idOf(0), 'm2', { answer: 'from the wrong machine' })
+    h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'from the wrong machine' })
     expect(h.broker.inFlight).toBe(1)
 
     await vi.advanceTimersByTimeAsync(1_000)
@@ -196,9 +199,11 @@ describe('the answering machine is checked (POD-1175)', () => {
     const toM1 = h.ask('m1')
     const toM2 = h.ask('m2')
 
-    expect(h.broker.settle(PROBE, h.idOf(0), 'm2', { answer: 'crosstalk' })).toBe(false)
-    expect(h.broker.settle(PROBE, h.idOf(1), 'm2', { answer: 'from m2' })).toBe(true)
-    expect(h.broker.settle(PROBE, h.idOf(0), 'm1', { answer: 'from m1' })).toBe(true)
+    expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m2'), { answer: 'crosstalk' })).toBe(
+      false,
+    )
+    expect(h.broker.settle(PROBE, h.idOf(1), asMachineId('m2'), { answer: 'from m2' })).toBe(true)
+    expect(h.broker.settle(PROBE, h.idOf(0), asMachineId('m1'), { answer: 'from m1' })).toBe(true)
 
     await expect(toM1).resolves.toEqual({ answer: 'from m1' })
     await expect(toM2).resolves.toEqual({ answer: 'from m2' })
@@ -220,7 +225,7 @@ describe('server transfer RPC', () => {
                 ? 'acknowledge'
                 : 'status'
         queueMicrotask(() =>
-          rpc.settleDaemonReply(machineId, {
+          rpc.settleDaemonReply(asMachineId(machineId), {
             type: 'serverTransferResult',
             requestId: 'requestId' in msg ? msg.requestId : 'missing',
             transferId: 'transfer-1',
@@ -252,13 +257,13 @@ describe('server transfer RPC', () => {
         },
         manifestDigest: 'a'.repeat(64),
       },
-      'target-machine',
+      asMachineId('target-machine'),
     )
     const data = Buffer.alloc(SERVER_TRANSFER_MAX_CHUNK_BYTES * 2 + 3)
     await expect(
       rpc.serverTransferChunk(
         { transferId: 'transfer-1', path: 'podium.db', offset: 9, data },
-        'target-machine',
+        asMachineId('target-machine'),
       ),
     ).resolves.toMatchObject({ ok: true })
 
@@ -293,7 +298,7 @@ describe('server transfer RPC', () => {
     ])
     expect(chunks.every((chunk) => chunk.manifestDigest === 'a'.repeat(64))).toBe(true)
     await expect(
-      rpc.serverTransferAcknowledge('transfer-1', 'a'.repeat(64), 'target-machine'),
+      rpc.serverTransferAcknowledge('transfer-1', 'a'.repeat(64), asMachineId('target-machine')),
     ).resolves.toMatchObject({ ok: true })
     expect(sent.at(-1)?.msg).toMatchObject({
       type: 'serverTransferAcknowledgeRequest',

@@ -10,7 +10,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  * for the must-not-change / will-change contract.
  */
 
-import { SOLE_USER_ID, type SessionId } from '@podium/model'
+import { asUserId, SOLE_USER_ID, type SessionId } from '@podium/model'
 import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
@@ -227,10 +227,10 @@ describe('oracle: read state', () => {
     // value is one user's row. Reading the STORAGE, not merely the wire, is what
     // makes this a measurement of the re-key rather than of the projection that
     // happens to sit on top of it.
-    expect(o.store.sessions.getReadAt(SOLE_USER_ID, sessionId)).toBe(readAt)
+    expect(o.store.sessions.getReadAt(asUserId(SOLE_USER_ID), sessionId)).toBe(readAt)
     // A DIFFERENT user has no marker for the same session — the property the
     // re-key exists for, and one an instance-wide column could not express.
-    expect(o.store.sessions.getReadAt('user:somebody-else', sessionId)).toBeNull()
+    expect(o.store.sessions.getReadAt(asUserId('user:somebody-else'), sessionId)).toBeNull()
   })
 
   it(`${MUST_NOT_CHANGE}: markRead flips derived unread to false; markUnread clears readAt and flips it back`, async () => {
@@ -313,8 +313,8 @@ describe('oracle: snoozes', () => {
     expect(o.meta(sessionId).snoozedUntil).toBe(until)
     // And the row is KEYED by user: a different principal's slice is empty. This
     // is the assertion the old instance-wide characterization could not make.
-    expect(o.store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [sessionId]: until })
-    expect(o.store.sessions.listSnoozes('user:somebody-else')).toEqual({})
+    expect(o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({ [sessionId]: until })
+    expect(o.store.sessions.listSnoozes(asUserId('user:somebody-else'))).toEqual({})
   })
 
   it(`${MUST_NOT_CHANGE}: until=null means "until next message" and never lapses by time`, async () => {
@@ -326,7 +326,7 @@ describe('oracle: snoozes', () => {
     expect(await o.call.snoozes.list()).toEqual({ [sessionId]: null })
     // Housekeeping only drops TIMED snoozes whose deadline passed.
     expect(
-      o.store.sessions.listSnoozes(SOLE_USER_ID, Date.now() + 10 * 365 * 24 * 3_600_000),
+      o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID), Date.now() + 10 * 365 * 24 * 3_600_000),
     ).toEqual({
       [sessionId]: null,
     })
@@ -338,9 +338,11 @@ describe('oracle: snoozes', () => {
     const until = new Date(Date.now() + 1_000).toISOString()
     await o.call.snoozes.set({ sessionId, until })
 
-    expect(o.store.sessions.listSnoozes(SOLE_USER_ID, Date.parse(until) + 1)).toEqual({})
+    expect(o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID), Date.parse(until) + 1)).toEqual({})
     // The lazy delete is a real write: the row is gone on the next read too.
-    expect(o.store.sessions.listSnoozes(SOLE_USER_ID, Date.parse(until) - 500)).toEqual({})
+    expect(o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID), Date.parse(until) - 500)).toEqual(
+      {},
+    )
   })
 
   it(`${MUST_NOT_CHANGE}: clear removes the row and the wire field`, async () => {
@@ -362,7 +364,7 @@ describe('oracle: pins', () => {
 
     expect(after).toEqual({ panels: ['sess-1'], worktrees: [], repos: [] })
     expect(await o.call.pins.list()).toEqual({ panels: ['sess-1'], worktrees: [], repos: [] })
-    expect(o.store.sessions.listPins('user:somebody-else')).toEqual({
+    expect(o.store.sessions.listPins(asUserId('user:somebody-else'))).toEqual({
       panels: [],
       worktrees: [],
       repos: [],
@@ -394,7 +396,7 @@ describe('oracle: tab order', () => {
 
     expect(after).toEqual({ '/w': [b, a] })
     expect(await o.call.tabs.listOrders()).toEqual({ '/w': [b, a] })
-    expect(o.store.sessions.listTabOrders('user:somebody-else')).toEqual({})
+    expect(o.store.sessions.listTabOrders(asUserId('user:somebody-else'))).toEqual({})
   })
 
   it(`${MUST_NOT_CHANGE}: an empty sessionIds array DELETES the saved order rather than storing an empty one`, async () => {
@@ -553,8 +555,7 @@ describe('oracle: the wake fence (POD-1472)', () => {
         type: 'spawn',
         sessionId,
         resume: RESUME,
-        observationGeneration:
-          o.store.observationCheckpoints.get(sessionId)?.observationGeneration,
+        observationGeneration: o.store.observationCheckpoints.get(sessionId)?.observationGeneration,
       }),
     ])
   })

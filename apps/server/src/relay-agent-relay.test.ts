@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asMachineId, asIssueId, asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { sessionTitleRule } from '@podium/protocol'
@@ -61,8 +61,8 @@ describe('server agent relay handler (P1b)', () => {
       tokenHash: 'hash-2',
       ownerUserId: null,
     })
-    store.repos.addRepo('/home/a/src/podium', machineId)
-    store.repos.addRepo('/home/b/src/podium', 'm2')
+    store.repos.addRepo('/home/a/src/podium', asMachineId(machineId))
+    store.repos.addRepo('/home/b/src/podium', asMachineId('m2'))
     registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     // A is a subtree root with a worktree; a session runs INSIDE it → subtree cap rooted at A.
@@ -670,13 +670,17 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('names the calling session, and may re-title itself as the work clarifies', async () => {
-    const first = await relay(asSessionId(sA), 'sessions', 'title', { name: 'Migration runner backfill' })
+    const first = await relay(asSessionId(sA), 'sessions', 'title', {
+      name: 'Migration runner backfill',
+    })
     expect(first.ok).toBe(true)
     expect(first.result).toMatchObject({ ok: true, name: 'Migration runner backfill' })
     expect(nameOf(asSessionId(sA))).toBe('Migration runner backfill')
 
     // Its OWN earlier name is not sovereign — an agent re-titles itself freely.
-    const second = await relay(asSessionId(sA), 'sessions', 'title', { name: 'Session name source column' })
+    const second = await relay(asSessionId(sA), 'sessions', 'title', {
+      name: 'Session name source column',
+    })
     expect(second.ok).toBe(true)
     expect(nameOf(asSessionId(sA))).toBe('Session name source column')
     // And it never touched its sibling.
@@ -684,9 +688,14 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('REFUSES to overwrite a name the user set — with a reason, not a throw', async () => {
-    registry.modules.sessions.renameSession({ sessionId: asSessionId(sA), name: 'Mike’s pet session' })
+    registry.modules.sessions.renameSession({
+      sessionId: asSessionId(sA),
+      name: 'Mike’s pet session',
+    })
 
-    const r = await relay(asSessionId(sA), 'sessions', 'title', { name: 'Something the agent prefers' })
+    const r = await relay(asSessionId(sA), 'sessions', 'title', {
+      name: 'Something the agent prefers',
+    })
     // The relay call SUCCEEDS (no exception on the wire); the refusal is in the result,
     // so the agent reads it and carries on rather than treating it as a crash.
     expect(r.ok).toBe(true)
@@ -709,7 +718,10 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('primes an UNNAMED session to title itself, listing its siblings', async () => {
-    registry.modules.sessions.renameSession({ sessionId: asSessionId(sB), name: 'Merge lock lease expiry' })
+    registry.modules.sessions.renameSession({
+      sessionId: asSessionId(sB),
+      name: 'Merge lock lease expiry',
+    })
 
     const r = await relay(asSessionId(sA), 'issues', 'prime', { repoPath })
     expect(r.ok).toBe(true)

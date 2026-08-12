@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { UpdatesService } from './service'
 
@@ -40,8 +41,8 @@ describe('UpdatesService', () => {
 
     svc.setTarget('edge', target)
 
-    expect(svc.targetFor('a')).toBe(target)
-    expect(svc.targetUnavailableReasonFor('a')).toBeUndefined()
+    expect(svc.targetFor(asMachineId('a'))).toBe(target)
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
     expect(machines).not.toHaveBeenCalled()
   })
 
@@ -62,7 +63,7 @@ describe('UpdatesService', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     svc.tick()
-    svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.1' })
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.1' })
     svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
@@ -71,7 +72,7 @@ describe('UpdatesService', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     svc.tick()
-    svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
     svc.tick()
     expect(send.mock.calls.length).toBeGreaterThan(1)
   })
@@ -83,7 +84,7 @@ describe('UpdatesService', () => {
     expect(svc.authorize()).toEqual(['a'])
     expect(send).toHaveBeenCalledTimes(1)
 
-    svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
     expect(send).toHaveBeenCalledTimes(3)
   })
 
@@ -91,7 +92,7 @@ describe('UpdatesService', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     svc.tick()
-    svc.onStatus('a', { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
     svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
@@ -100,7 +101,7 @@ describe('UpdatesService', () => {
     const { svc, send } = make([m('a'), m('b')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     expect(svc.authorize()).toEqual(['a'])
-    svc.onStatus('a', { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
     send.mockClear()
 
     expect(svc.authorize()).toEqual(['a'])
@@ -112,7 +113,7 @@ describe('UpdatesService', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     svc.tick()
-    svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
     svc.setTarget({ version: '0.4.3', critical: false, artifacts: {} } as never)
     send.mockClear()
     svc.tick()
@@ -152,15 +153,15 @@ describe('UpdatesService', () => {
     const { svc } = make(machines)
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     svc.authorize()
-    svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
     expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
-    expect(svc.machineBootedAtTarget('a', '0.4.2')).toBe(false)
+    expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
 
     const machine = machines[0]
     if (!machine) throw new Error('test machine missing')
     machine.version = '0.4.2'
-    expect(svc.machineBootedAtTarget('a', '0.4.2')).toBe(true)
+    expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
   })
 
   describe('per-machine apply outcomes', () => {
@@ -174,21 +175,24 @@ describe('UpdatesService', () => {
       ])
       svc.setTarget(target)
 
-      expect(svc.authorizeMachine('current')).toEqual({
+      expect(svc.authorizeMachine(asMachineId('current'))).toEqual({
         result: 'already-current',
         version: '0.4.2',
       })
-      expect(svc.authorizeMachine('offline')).toEqual({ result: 'offline' })
-      expect(svc.authorizeMachine('missing')).toEqual({ result: 'unknown-machine' })
+      expect(svc.authorizeMachine(asMachineId('offline'))).toEqual({ result: 'offline' })
+      expect(svc.authorizeMachine(asMachineId('missing'))).toEqual({ result: 'unknown-machine' })
 
-      expect(svc.authorizeMachine('flying')).toMatchObject({ result: 'granted' })
+      expect(svc.authorizeMachine(asMachineId('flying'))).toMatchObject({ result: 'granted' })
       // A second apply while the first is still converging is not a failure.
-      expect(svc.authorizeMachine('flying')).toEqual({ result: 'in-flight', state: 'granted' })
+      expect(svc.authorizeMachine(asMachineId('flying'))).toEqual({
+        result: 'in-flight',
+        state: 'granted',
+      })
     })
 
     it('explains an unresolved authority rather than reporting a missing grant', () => {
       const { svc } = make([m('a')])
-      expect(svc.authorizeMachine('a')).toMatchObject({ result: 'no-target' })
+      expect(svc.authorizeMachine(asMachineId('a'))).toMatchObject({ result: 'no-target' })
     })
 
     /** The regression behind repro 2: retry was permanently impossible. */
@@ -196,7 +200,7 @@ describe('UpdatesService', () => {
       const { svc, send } = make([m('a')])
       svc.setTarget(target)
       svc.authorize()
-      svc.onStatus('a', {
+      svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         state: 'stuck',
         version: '0.4.1',
@@ -205,7 +209,10 @@ describe('UpdatesService', () => {
       expect(svc.fleet()[0]).toMatchObject({ state: 'stuck' })
       send.mockClear()
 
-      expect(svc.authorizeMachine('a')).toEqual({ result: 'granted', version: '0.4.2' })
+      expect(svc.authorizeMachine(asMachineId('a'))).toEqual({
+        result: 'granted',
+        version: '0.4.2',
+      })
       expect(send).toHaveBeenCalledTimes(1)
     })
   })
@@ -247,7 +254,11 @@ describe('UpdatesService', () => {
 
       for (let i = 0; i < 4; i++) {
         tick(50_000)
-        svc.onStatus('a', { type: 'updateStatus', state: 'downloading', version: '0.4.1' })
+        svc.onStatus(asMachineId('a'), {
+          type: 'updateStatus',
+          state: 'downloading',
+          version: '0.4.1',
+        })
         expect(svc.fleet()[0]).toMatchObject({ state: 'downloading' })
       }
 
@@ -285,7 +296,7 @@ describe('setTargetUnavailable', () => {
     // Nothing may still be handed dev+aaaaaaa once HEAD has moved past it.
     expect(svc.target('dev')).toBeUndefined()
     expect(svc.targetVersion()).toBeUndefined()
-    expect(svc.targetUnavailableReasonFor('a')).toBe(
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBe(
       'The source checkout has 2 uncommitted changes.',
     )
   })
@@ -312,6 +323,6 @@ describe('setTargetUnavailable', () => {
     svc.setTarget('dev', { version: 'dev+bbbbbbb', critical: false, artifacts: {} } as never)
 
     expect(svc.target('dev')?.version).toBe('dev+bbbbbbb')
-    expect(svc.targetUnavailableReasonFor('a')).toBeUndefined()
+    expect(svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
   })
 })

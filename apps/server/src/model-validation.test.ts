@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { ModelCatalogSnapshot } from './model-catalog'
 import {
@@ -8,7 +9,7 @@ import {
 } from './model-validation'
 
 const catalog: ModelCatalogSnapshot = {
-  machineId: 'test-machine',
+  machineId: asMachineId('test-machine'),
   fetchedAt: 1_000_000,
   byAgent: {
     codex: [
@@ -55,7 +56,11 @@ describe('validateModelSelection — models', () => {
   })
 
   it('skips validation when the catalog has no entry for the agent (cold/failed probe)', () => {
-    const empty: ModelCatalogSnapshot = { machineId: 'test-machine', byAgent: {}, fetchedAt: 0 }
+    const empty: ModelCatalogSnapshot = {
+      machineId: asMachineId('test-machine'),
+      byAgent: {},
+      fetchedAt: 0,
+    }
     expect(validateModelSelection(empty, { agentKind: 'codex', model: 'anything' })).toEqual({
       ok: true,
       forced: false,

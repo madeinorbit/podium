@@ -41,7 +41,7 @@
  * and is recorded as an open gap in the ledger.
  */
 
-import { asSessionId, asUserId } from '@podium/model'
+import { asMutationId, asSessionId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, FIRST_ADMIN_USER_ID } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
@@ -281,7 +281,7 @@ describe('a replay whose grant was revoked is refused, not served from the dedup
 
     // The mutation IS in the applied table — so a cache-first envelope would have
     // something to serve. This assertion is what makes the next one meaningful.
-    expect(s.store.sync.getAppliedMutation('dup-1')).toBeDefined()
+    expect(s.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
 
     s.ownership.owner = 'user:someone-else'
 

@@ -672,7 +672,7 @@ describe('the derived fleet router actually calls the gate', () => {
       // The projection moved…
       expect(store.machines.getMachine('m1')?.ownerUserId).toBe(COLLEAGUE)
       // …and the LEDGER — the commit point — is what it moved from.
-      expect(registry.modules.machines.effectiveOwner('m1')).toBe(COLLEAGUE)
+      expect(registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
       expect(after.map((m) => m.id)).toContain('m1')
 
       // ADOPTION IS NOT REPEATABLE, and the shape of the second refusal is the
@@ -731,12 +731,14 @@ describe('the derived fleet router actually calls the gate', () => {
         },
         'hash',
       )
-      registry.modules.machines.transferOwnership('m1', COLLEAGUE, { skipRowUpdate: true })
+      registry.modules.machines.transferOwnership(asMachineId('m1'), COLLEAGUE, {
+        skipRowUpdate: true,
+      })
 
       // The two genuinely disagree. Assert BOTH, or the test proves nothing
       // about which one was read.
       expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
-      expect(registry.modules.machines.effectiveOwner('m1')).toBe(COLLEAGUE)
+      expect(registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
 
       // REFUSED, and the shape says which layer refused. Because ownership is
       // ledger-derived all the way up, the admin does not hold `see` on a
@@ -751,7 +753,7 @@ describe('the derived fleet router actually calls the gate', () => {
       // Nothing was written: not the row, and — the one that counts — not the
       // ledger, which still records the colleague and only the colleague.
       expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
-      expect(registry.modules.machines.effectiveOwner('m1')).toBe(COLLEAGUE)
+      expect(registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

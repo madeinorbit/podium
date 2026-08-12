@@ -320,7 +320,7 @@ describe('oracle: sessions.uploadImage', () => {
     // handler mid-test was a needless moving part — attachDaemon has retarget
     // side effects, and a handler swap is exactly the kind of ordering
     // dependence that makes a test flake instead of characterize.
-    const o = makeOracle({ offlineMachines: [{ id: 'other', name: 'other' }] })
+    const o = makeOracle({ offlineMachines: [{ id: asSessionId('other'), name: 'other' }] })
     const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
@@ -364,7 +364,9 @@ describe('oracle: sessions.uploadImage', () => {
     // this operator has no declared relationship with, because there is no owner
     // column and no per-machine grant to consult (§3.1.4 M1/M2). Under POD-1079
     // an upload onto a machine the principal lacks `use` on must be refused.
-    const o = makeOracle({ offlineMachines: [{ id: 'someones-laptop', name: 'Personal Mac' }] })
+    const o = makeOracle({
+      offlineMachines: [{ id: asSessionId('someones-laptop'), name: 'Personal Mac' }],
+    })
     const seen = answerUploads(
       o,
       () => ({ path: '/Users/someone/.podium/uploads/x.png' }),

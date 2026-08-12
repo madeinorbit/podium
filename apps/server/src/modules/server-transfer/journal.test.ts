@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,9 +25,9 @@ async function fixture() {
     bytesCopied: 0,
     totalBytes: 0,
     transferId: 'transfer-1',
-    targetMachineId: 'target-1',
+    targetMachineId: asMachineId('target-1'),
     publicUrl: 'https://podium.example.com',
-    sourceMachineId: 'source-1',
+    sourceMachineId: asMachineId('source-1'),
     sourceInstanceId: 'instance-1',
     packageDir: join(root, 'package'),
     manifest: null,

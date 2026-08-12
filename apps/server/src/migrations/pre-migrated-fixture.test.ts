@@ -7,6 +7,7 @@
  * that opt-out is real rather than asserted.
  */
 
+import { asMachineId } from '@podium/model'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -132,12 +133,12 @@ describe('migration suites keep the full 54-step path [POD-523]', () => {
 
 describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
   it('reaches identical schema objects and rows', () => {
-    const chain = new SessionStore(':memory:', 'machine-under-test')
+    const chain = new SessionStore(':memory:', asMachineId('machine-under-test'))
     const fromChain = { schema: schemaObjects(raw(chain)), rows: allRows(raw(chain)) }
     chain.close()
 
     installPreMigratedStoreFixture()
-    const cloned = new SessionStore(':memory:', 'machine-under-test')
+    const cloned = new SessionStore(':memory:', asMachineId('machine-under-test'))
     const fromClone = { schema: schemaObjects(raw(cloned)), rows: allRows(raw(cloned)) }
     cloned.close()
 

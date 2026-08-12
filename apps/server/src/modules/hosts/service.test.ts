@@ -12,7 +12,7 @@ const HOUR = 60 * 60_000
 function session(sessionId: SessionId, overrides: Partial<HostSessionView> = {}): HostSessionView {
   return {
     sessionId,
-    machineId: 'local',
+    machineId: asMachineId('local'),
     status: 'live',
     agentKind: 'claude-code',
     resume: { kind: 'claude-session', value: sessionId },
@@ -373,10 +373,10 @@ describe('idle-session cap', () => {
   it('keeps count-pressure burst budgets independent per machine', () => {
     const sessions = [
       ...Array.from({ length: 5 }, (_, index) =>
-        session(asSessionId(`a${index}`), { machineId: 'a' }),
+        session(asSessionId(`a${index}`), { machineId: asMachineId('a') }),
       ),
       ...Array.from({ length: 5 }, (_, index) =>
-        session(asSessionId(`b${index}`), { machineId: 'b' }),
+        session(asSessionId(`b${index}`), { machineId: asMachineId('b') }),
       ),
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })

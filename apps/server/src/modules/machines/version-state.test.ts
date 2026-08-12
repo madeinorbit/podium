@@ -1,4 +1,4 @@
-import { asMachineId } from '@podium/model'
+import { asUserId, asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
@@ -33,7 +33,7 @@ describe('deriveVersionState', () => {
       name: 'box',
       hostname: 'box.local',
       tokenHash: 'token-hash',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     store.machines.setMachineBuild(
       'm1',

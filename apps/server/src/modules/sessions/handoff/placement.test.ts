@@ -13,7 +13,14 @@
  * inside the function under test.
  */
 
-import { asIssueId, asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import {
+  asRepoId,
+  asIssueId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
 import { Session } from '../session'
@@ -51,7 +58,7 @@ const repo = (over: Partial<HandoffRepo> = {}): HandoffRepo => ({
   machineId: SOURCE,
   path: '/repo',
   originUrl: null,
-  repoId: 'repo-1',
+  repoId: asRepoId('repo-1'),
   prefix: null,
   ...over,
 })
@@ -80,7 +87,7 @@ function ports(over: {
 }
 
 const resolve = (p: HandoffPlacementPorts, machineId: string = TARGET) =>
-  resolveHandoffPlacement(p, { sessionId: SESSION, machineId }, caller())
+  resolveHandoffPlacement(p, { sessionId: SESSION, machineId: asMachineId(machineId) }, caller())
 
 describe('handoff placement: what it resolves', () => {
   it('carries the source repo, the machine pair and the target row forward', () => {
@@ -99,8 +106,8 @@ describe('handoff placement: what it resolves', () => {
     const placement = resolve(
       ports({
         repos: [
-          repo({ path: '/repo', repoId: 'outer' }),
-          repo({ path: '/repo/wt', repoId: 'inner' }),
+          repo({ path: '/repo', repoId: asRepoId('outer') }),
+          repo({ path: '/repo/wt', repoId: asRepoId('inner') }),
         ],
       }),
     )

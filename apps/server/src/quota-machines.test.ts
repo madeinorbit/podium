@@ -1,4 +1,4 @@
-import { asMachineId } from '@podium/model'
+import { asUserId, asMachineId } from '@podium/model'
 /**
  * #136: per-machine agent quota + machine-scoped memory breakdown.
  *
@@ -34,8 +34,20 @@ function agent(over: Partial<AgentQuotaWire> = {}): AgentQuotaWire {
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'podium-host', hostname: 'podium-host', tokenHash: 'x', ownerUserId: 'user:sole' })
-  store.machines.upsertMachine({ id: 'm2', name: 'VMI', hostname: 'vmi', tokenHash: 'y', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({
+    id: 'm1',
+    name: 'podium-host',
+    hostname: 'podium-host',
+    tokenHash: 'x',
+    ownerUserId: asUserId('user:sole'),
+  })
+  store.machines.upsertMachine({
+    id: 'm2',
+    name: 'VMI',
+    hostname: 'vmi',
+    tokenHash: 'y',
+    ownerUserId: asUserId('user:sole'),
+  })
   const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
@@ -71,7 +83,10 @@ describe('SessionRegistry.agentQuotaAll()', () => {
     const result = await p
     const byMachine = new Map(result.map((r) => [r.machineId, r]))
     expect(result).toHaveLength(2)
-    expect(byMachine.get(asMachineId('m1'))).toMatchObject({ machineName: 'podium-host', hostname: 'podium-host' })
+    expect(byMachine.get(asMachineId('m1'))).toMatchObject({
+      machineName: 'podium-host',
+      hostname: 'podium-host',
+    })
     expect(byMachine.get(asMachineId('m1'))?.agents[0]?.account?.email).toBe('lud@example.com')
     expect(byMachine.get(asMachineId('m2'))).toMatchObject({ machineName: 'VMI', hostname: 'vmi' })
     expect(byMachine.get(asMachineId('m2'))?.agents[0]?.account?.email).toBe('vmi@example.com')
@@ -79,14 +94,20 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 
   it('agentQuota(refresh, machineId) sends the request to only that machine', async () => {
     const { reg, m1Out, m2Out } = regWithTwoDaemons()
-    void reg.modules.rpc.agentQuota(false, 'm2')
+    void reg.modules.rpc.agentQuota(false, asMachineId('m2'))
     expect(m2Out.some((m) => m.type === 'agentQuotaRequest')).toBe(true)
     expect(m1Out.some((m) => m.type === 'agentQuotaRequest')).toBe(false)
   })
 
   it('single-machine invariant: one online daemon → one entry with that machine agents', async () => {
     const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({ id: 'm1', name: 'Solo', hostname: 'solo', tokenHash: 'x', ownerUserId: 'user:sole' })
+    store.machines.upsertMachine({
+      id: 'm1',
+      name: 'Solo',
+      hostname: 'solo',
+      tokenHash: 'x',
+      ownerUserId: asUserId('user:sole'),
+    })
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => out.push(msg))
@@ -116,7 +137,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 describe('SessionRegistry.memoryBreakdown(roots, machineId)', () => {
   it('routes the breakdown request to the requested machine', async () => {
     const { reg, m1Out, m2Out } = regWithTwoDaemons()
-    void reg.modules.hosts.memoryBreakdown(['/x'], 'm2')
+    void reg.modules.hosts.memoryBreakdown(['/x'], asMachineId('m2'))
     expect(m2Out.some((m) => m.type === 'memoryBreakdownRequest')).toBe(true)
     expect(m1Out.some((m) => m.type === 'memoryBreakdownRequest')).toBe(false)
   })

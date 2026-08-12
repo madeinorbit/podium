@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asMachineId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import { EventBus } from './bus'
@@ -8,8 +8,8 @@ describe('EventBus', () => {
     const bus = new EventBus()
     const seen: string[] = []
     bus.on('machine.connected', ({ machineId }) => seen.push(machineId))
-    bus.emit('machine.connected', { machineId: 'm1' })
-    bus.emit('machine.connected', { machineId: 'm2' })
+    bus.emit('machine.connected', { machineId: asMachineId('m1') })
+    bus.emit('machine.connected', { machineId: asMachineId('m2') })
     expect(seen).toEqual(['m1', 'm2'])
   })
 
@@ -19,7 +19,7 @@ describe('EventBus', () => {
     const disconnected = vi.fn()
     bus.on('machine.connected', connected)
     bus.on('machine.disconnected', disconnected)
-    bus.emit('machine.connected', { machineId: 'm1' })
+    bus.emit('machine.connected', { machineId: asMachineId('m1') })
     expect(connected).toHaveBeenCalledTimes(1)
     expect(disconnected).not.toHaveBeenCalled()
   })
@@ -32,7 +32,7 @@ describe('EventBus', () => {
     bus.on('issue.closed', b)
     disposeA()
     bus.off('issue.closed', b)
-    bus.emit('issue.closed', { issueId: 'iss_1' })
+    bus.emit('issue.closed', { issueId: asIssueId('iss_1') })
     expect(a).not.toHaveBeenCalled()
     expect(b).not.toHaveBeenCalled()
     expect(bus.listenerCount('issue.closed')).toBe(0)
@@ -42,8 +42,8 @@ describe('EventBus', () => {
     const bus = new EventBus()
     const fn = vi.fn()
     bus.once('issue.reopened', fn)
-    bus.emit('issue.reopened', { issueId: 'iss_1' })
-    bus.emit('issue.reopened', { issueId: 'iss_2' })
+    bus.emit('issue.reopened', { issueId: asIssueId('iss_1') })
+    bus.emit('issue.reopened', { issueId: asIssueId('iss_2') })
     expect(fn).toHaveBeenCalledTimes(1)
     expect(fn).toHaveBeenCalledWith({ issueId: 'iss_1' })
   })
@@ -72,8 +72,8 @@ describe('EventBus', () => {
       disposeFirst()
     })
     bus.on('machine.disconnected', () => order.push('second'))
-    bus.emit('machine.disconnected', { machineId: 'm1' })
-    bus.emit('machine.disconnected', { machineId: 'm1' })
+    bus.emit('machine.disconnected', { machineId: asMachineId('m1') })
+    bus.emit('machine.disconnected', { machineId: asMachineId('m1') })
     expect(order).toEqual(['first', 'second', 'second'])
   })
 
@@ -87,7 +87,7 @@ describe('EventBus', () => {
     const fn = vi.fn()
     bus.on('machine.connected', fn)
     bus.removeAll()
-    bus.emit('machine.connected', { machineId: 'm1' })
+    bus.emit('machine.connected', { machineId: asMachineId('m1') })
     expect(fn).not.toHaveBeenCalled()
   })
 })
