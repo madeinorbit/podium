@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { asAgentIdentityId, asDelegationRef, asUserId } from '../planes/principal'
 import {
@@ -15,7 +16,7 @@ const link = (
 ): DelegationLink => ({
   ref: asDelegationRef(ref),
   agentIdentity: asAgentIdentityId(over.agentIdentity ?? `agent-${ref}`),
-  scope: over.scope ?? { kind: 'spawned-for', issueId: 'iss-1' },
+  scope: over.scope ?? { kind: 'spawned-for', issueId: asIssueId('iss-1') },
   delegatedBy: over.delegatedBy ?? null,
   rootUser: over.rootUser === undefined ? asUserId('usr-ada') : over.rootUser,
   revoked: over.revoked ?? false,
@@ -114,7 +115,7 @@ describe('delegation chain resolution', () => {
 
 describe('the broad-scope exception is expressed as an exception', () => {
   it('a task agent default is spawned-for, and it is not broad', () => {
-    expect(isBroadDelegation({ kind: 'spawned-for', issueId: 'iss-1' })).toBe(false)
+    expect(isBroadDelegation({ kind: 'spawned-for', issueId: asIssueId('iss-1') })).toBe(false)
   })
 
   it('broad scope cannot be reached by omission — it needs a justification', () => {

@@ -22,6 +22,7 @@
  * row is resolved — the row comes from redeeming the code.
  */
 
+import { asMachineId } from '@podium/model'
 import type { z } from 'zod'
 import type { PairCodeCredential } from '../envelope'
 import { machinePrincipalOf } from './machine-principal'
@@ -50,7 +51,7 @@ export const createMachinePairCodeStrategy = (
     const paired = deps.machines.redeemPairCode(credential.code, {
       // A brand-new machine has no prior identity to authenticate, so these are
       // its REQUEST. The directory decides what row results (see PairingRequest).
-      ...(hello.claims?.machineId === undefined ? {} : { machineId: hello.claims.machineId }),
+      ...(hello.claims?.machineId === undefined ? {} : { machineId: asMachineId(hello.claims.machineId) }),
       ...(hello.claims?.name === undefined ? {} : { name: hello.claims.name }),
       ...(hello.claims?.hostname === undefined ? {} : { hostname: hello.claims.hostname }),
     })
