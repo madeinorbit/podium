@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { asMachineId } from '../ids/brands'
 import {
   agentCapabilityRejection,
   agentCapabilityRejectionForSelection,
@@ -16,13 +17,13 @@ const repos = [
   {
     repoId: 'r1',
     machines: [
-      { machineId: 'source', path: '/a' },
-      { machineId: 'target', path: '/b' },
+      { machineId: asMachineId('source'), path: '/a' },
+      { machineId: asMachineId('target'), path: '/b' },
     ],
     worktrees: [
-      { path: '/a', isMain: true, machineId: 'source' },
-      { path: '/a/.worktrees/x', isMain: false, machineId: 'source' },
-      { path: '/b', isMain: true, machineId: 'target' },
+      { path: '/a', isMain: true, machineId: asMachineId('source') },
+      { path: '/a/.worktrees/x', isMain: false, machineId: asMachineId('source') },
+      { path: '/b', isMain: true, machineId: asMachineId('target') },
     ],
   },
 ]
@@ -36,11 +37,11 @@ const issue = { branch: 'issue/1-x', worktreePath: '/a/.worktrees/x' }
 describe('agent machine capability', () => {
   const repo = {
     machines: [
-      { machineId: 'a', path: '/a' },
-      { machineId: 'b', path: '/b' },
+      { machineId: asMachineId('a'), path: '/a' },
+      { machineId: asMachineId('b'), path: '/b' },
     ],
   }
-  const sessions = [{ machineId: 'a', createdAt: '2026-01-02' }]
+  const sessions = [{ machineId: asMachineId('a'), createdAt: '2026-01-02' }]
 
   it('separates capability rejection from a logged-out session condition', () => {
     expect(agentCapabilityRejection({ id: 'a', online: false }, 'codex')).toBe('offline')
@@ -158,7 +159,7 @@ describe('agent machine capability', () => {
 
 describe('handoffTargets', () => {
   it('requires another online repo machine with the harness installed', () => {
-    const session = { cwd: '/a/.worktrees/x', machineId: 'source', agentKind: 'codex' }
+    const session = { cwd: '/a/.worktrees/x', machineId: asMachineId('source'), agentKind: 'codex' }
     const machines = [
       { id: 'source', online: true, inventory: { agents: [agent('in')] } },
       { id: 'target', online: true, inventory: { agents: [agent('unknown')] } },
@@ -173,17 +174,17 @@ describe('handoffTargets', () => {
   it('rejects main checkouts, unsupported harnesses, and missing inventory', () => {
     const target = { id: 'target', online: true }
     expect(
-      handoffTargets({ cwd: '/a', machineId: 'source', agentKind: 'codex' }, repos, [target]),
+      handoffTargets({ cwd: '/a', machineId: asMachineId('source'), agentKind: 'codex' }, repos, [target]),
     ).toEqual([])
     expect(
-      handoffTargets({ cwd: '/a/.worktrees/x', machineId: 'source', agentKind: 'shell' }, repos, [
+      handoffTargets({ cwd: '/a/.worktrees/x', machineId: asMachineId('source'), agentKind: 'shell' }, repos, [
         target,
       ]),
     ).toEqual([])
   })
 
   it('offers a drifted session its issue worktree ([spec:SP-3f7a])', () => {
-    const drifted = { cwd: '/a', machineId: 'source', agentKind: 'codex' }
+    const drifted = { cwd: '/a', machineId: asMachineId('source'), agentKind: 'codex' }
     const machines = [{ id: 'target', online: true, inventory: { agents: [agent('in')] } }]
     expect(handoffTargets(drifted, repos, machines)).toEqual([])
     expect(handoffTargets(drifted, repos, machines, issue).map((m) => m.id)).toEqual(['target'])
@@ -191,7 +192,7 @@ describe('handoffTargets', () => {
 })
 
 describe('handoffSource ([spec:SP-3f7a])', () => {
-  const at = (cwd: string, machineId = 'source') => ({ cwd, machineId, agentKind: 'codex' })
+  const at = (cwd: string, machineId = asMachineId('source')) => ({ cwd, machineId, agentKind: 'codex' })
 
   it('resolves the worktree CONTAINING the cwd, carrying the subpath', () => {
     expect(handoffSource(at('/a/.worktrees/x/apps/web'), repos)).toMatchObject({
@@ -226,7 +227,7 @@ describe('handoffSource ([spec:SP-3f7a])', () => {
       handoffSource(at('/a'), repos, { branch: 'issue/1-x', worktreePath: '/a/.worktrees/gone' }),
     ).toBeNull()
     // The issue's worktree lives on another machine.
-    expect(handoffSource(at('/a', 'target'), repos, issue)).toBeNull()
+    expect(handoffSource(at('/a', asMachineId('target')), repos, issue)).toBeNull()
   })
 
   it('anchors on the worktree even when the issue has no branch recorded', () => {
@@ -250,7 +251,7 @@ describe('handoffSource ([spec:SP-3f7a])', () => {
         ...repos[0]!,
         worktrees: [
           ...repos[0]!.worktrees,
-          { path: '/a/.worktrees/y', isMain: false, machineId: 'source' },
+          { path: '/a/.worktrees/y', isMain: false, machineId: asMachineId('source') },
         ],
       },
     ]
@@ -266,7 +267,7 @@ describe('handoffSource ([spec:SP-3f7a])', () => {
 })
 
 describe('handoffAvailability (POD-821)', () => {
-  const session = { cwd: '/a/.worktrees/x', machineId: 'source', agentKind: 'codex' }
+  const session = { cwd: '/a/.worktrees/x', machineId: asMachineId('source'), agentKind: 'codex' }
 
   it('names the blocker that stops a session moving anywhere', () => {
     const machines = [{ id: 'target', online: true, inventory: { agents: [agent('in')] } }]
@@ -326,7 +327,7 @@ describe('handoffAvailability (POD-821)', () => {
       { id: 'other', online: true, inventory: { agents: [agent('in')] } },
     ]
     const withOther = [
-      { ...repos[0]!, machines: [...repos[0]!.machines, { machineId: 'other', path: '/c' }] },
+      { ...repos[0]!, machines: [...repos[0]!.machines, { machineId: asMachineId('other'), path: '/c' }] },
     ]
     expect(handoffAvailability(session, withOther, machines).candidates).toEqual([
       { machine: machines[1], rejection: 'unauthorized' },
@@ -364,7 +365,7 @@ describe('handoffAvailability (POD-821)', () => {
     // so the moved session's cwd is a worktree absent from the client's repo list.
     // Its cwd is then merely CONTAINED by the target's main checkout, and the issue
     // still anchors on the SOURCE machine's worktree — the gate finds no source.
-    const macSession = { cwd: '/b/.worktrees/x', machineId: 'target', agentKind: 'codex' }
+    const macSession = { cwd: '/b/.worktrees/x', machineId: asMachineId('target'), agentKind: 'codex' }
     const staleIssue = { branch: 'issue/1-x', worktreePath: '/a/.worktrees/x' }
     const machines = [{ id: 'source', online: true, inventory: { agents: [agent('in')] } }]
     expect(handoffAvailability(macSession, repos, machines, staleIssue)).toEqual({
@@ -378,7 +379,7 @@ describe('handoffAvailability (POD-821)', () => {
         ...repos[0]!,
         worktrees: [
           ...repos[0]!.worktrees,
-          { path: '/b/.worktrees/x', isMain: false, machineId: 'target' },
+          { path: '/b/.worktrees/x', isMain: false, machineId: asMachineId('target') },
         ],
       },
     ]

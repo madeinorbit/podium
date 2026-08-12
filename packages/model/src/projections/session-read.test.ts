@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { asSessionId } from '../ids/brands'
 import { toIssueTreeSession } from './session-read'
 
 /**
@@ -13,7 +14,7 @@ import { toIssueTreeSession } from './session-read'
  * asserted on `Object.keys` here (POD-366).
  */
 describe('toIssueTreeSession key set', () => {
-  const required = { sessionId: 's1', agentKind: 'claude-code', status: 'live' }
+  const required = { sessionId: asSessionId('s1'), agentKind: 'claude-code', status: 'live' }
 
   it('omits every optional key when the source carries none', () => {
     expect(Object.keys(toIssueTreeSession(required)).sort()).toEqual([

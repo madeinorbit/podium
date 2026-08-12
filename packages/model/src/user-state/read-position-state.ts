@@ -52,9 +52,8 @@
  * user field at all — there is nothing for a client to assert.
  */
 
-import type { UserId } from '@podium/model'
 import { z } from 'zod'
-import { UserIdField } from '../ids'
+import { asUserId, type UserId, UserIdField } from '../ids'
 import { perUserKeyOfString } from './session-state'
 
 // ---------------------------------------------------------------------------
@@ -219,7 +218,7 @@ export function parseReadPositionRowId(id: string): { userId: UserId; streamId: 
   if (parts.length !== 2 || parts[0] === '' || parts[1] === '') {
     throw new Error(`malformed feed cursor row id: ${JSON.stringify(id)}`)
   }
-  return { userId: parts[0]!, streamId: parts[1]! }
+  return { userId: asUserId(parts[0]!), streamId: parts[1]! }
 }
 
 /**

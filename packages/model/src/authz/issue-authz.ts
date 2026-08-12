@@ -42,7 +42,6 @@
  * is POD-1079's call, not this scaffold's.
  */
 
-import type { UserId } from '@podium/model'
 import { assertUnreachable } from '../exhaustive'
 import { FIRST_ADMIN_USER_ID } from '../identity/user'
 import type { IssueId, SessionId, UserId } from '../ids/brands'

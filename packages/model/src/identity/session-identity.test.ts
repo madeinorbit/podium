@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { asSessionId } from '../ids/brands'
 import { dedupeSessionsByResume, type ResumableSession } from './session-identity'
 
 function session(
@@ -8,7 +9,7 @@ function session(
   lastActiveAt: string,
 ): ResumableSession {
   return {
-    sessionId,
+    sessionId: asSessionId(sessionId),
     status,
     lastActiveAt,
     resume: { kind: 'codex-thread', value: resumeValue },

@@ -13,12 +13,18 @@
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { entityIdSites } from './entity-id-audit'
 import { loadContext } from './rearch-audit'
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
+function modelImportFor(file: string): string {
+  if (!file.startsWith('packages/model/src/')) return '@podium/model'
+  const specifier = relative(dirname(file), 'packages/model/src/ids/brands')
+  return specifier.startsWith('.') ? specifier : './' + specifier
+}
 const argv = process.argv.slice(2)
 const write = argv.includes('--write')
 const repairImports = argv.includes('--repair-imports')
@@ -179,13 +185,14 @@ if (repairImports) {
   let repaired = 0
   for (const file of changed.stdout.split('\n').filter(Boolean)) {
     const path = join(REPO_ROOT, file)
+    const modelModule = modelImportFor(file)
     const originalSource = readFileSync(path, 'utf8')
     let source = originalSource
     const names: string[] = []
     source = source.replace(
       /import\s*\{[^}]*\}\s*from\s*(['"])([^'"]+)\1/g,
       (statement, _quote: string, module: string) => {
-        if (module === '@podium/model') return normalizeNamedImport(statement)
+        if (module === modelModule) return normalizeNamedImport(statement)
         let fixed = statement
         for (const name of selectedIdTypes) {
           const inserted = new RegExp(`\\s+type\\s+${name}\\s*,`)
@@ -201,7 +208,13 @@ if (repairImports) {
       /import\s*\{[^},\n]+\n\}\s*from\s*(['"])[^'"]+\1/g,
       normalizeNamedImport,
     )
-    if (names.length > 0) source = addModelImports(source, names)
+    if (names.length > 0) {
+      if (modelModule !== '@podium/model')
+        source = source.replace(`from '${modelModule}'`, "from '@podium/model'")
+      source = addModelImports(source, names)
+      if (modelModule !== '@podium/model')
+        source = source.replace("from '@podium/model'", `from '${modelModule}'`)
+    }
     source = source.replace(
       /import(?:\s+type)?\s*\{[^}]*\}\s*from\s*(['"])@podium\/model\1/g,
       normalizeNamedImport,
@@ -274,7 +287,12 @@ for (const [file, fileSites] of byFile) {
     source = source.slice(0, edit.start) + edit.replacement + source.slice(edit.end)
     changedSites++
   }
+  const modelModule = modelImportFor(file)
+  if (modelModule !== '@podium/model')
+    source = source.replace(`from '${modelModule}'`, "from '@podium/model'")
   source = addModelImports(source, imported)
+  if (modelModule !== '@podium/model')
+    source = source.replace("from '@podium/model'", `from '${modelModule}'`)
   outputs.set(path, source)
 }
 
