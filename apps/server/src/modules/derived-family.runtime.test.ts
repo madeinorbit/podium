@@ -80,15 +80,15 @@ const routerRecord = (name: string): Record<string, unknown> =>
 describe('the derived families, against the RUNNING appRouter', () => {
   /**
    * THE NON-VACUITY PIN. Every assertion below is `it.each`-driven, and a table
-   * that quietly shrank would report green by running fewer cases. Twenty-six
+   * that quietly shrank would report green by running fewer cases. Twenty-seven
    * is the current contract-table count, so a
    * family dropping out of the derivation fails HERE rather than silently
    * reducing the coverage of everything after it.
    */
-  it('governs twelve families and twenty-six derived writes', () => {
+  it('governs twelve families and twenty-seven derived writes', () => {
     expect(FAMILIES).toHaveLength(12)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(26)
+    expect(total).toBe(27)
   })
 
   it.each(
