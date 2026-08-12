@@ -30,6 +30,7 @@ import {
   brandOfKey,
   brandOfPath,
   brandOfSymbol,
+  brandOfTableSymbol,
   classifyRhs,
   detectorAnchorFailures,
   entityIdSites,
@@ -412,6 +413,27 @@ describe('brandOfPath', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Spelling 4 — a TABLE declaration names its bare primary key
+// ---------------------------------------------------------------------------
+
+describe('brandOfTableSymbol', () => {
+  it('singularises simple and multi-word table declarations', () => {
+    expect(brandOfTableSymbol('sessions')).toBe('Session')
+    expect(brandOfTableSymbol('issues')).toBe('Issue')
+    expect(brandOfTableSymbol('automationRuns')).toBe('AutomationRun')
+  })
+
+  it('reads a qualified entity at the tail without listing the qualifier', () => {
+    expect(brandOfTableSymbol('superagentThreads')).toBe('Thread')
+  })
+
+  it('reuses the different-entity veto for sub-entity tables', () => {
+    expect(brandOfTableSymbol('issueComments')).toBeNull()
+    expect(brandOfTableSymbol('sessionObservationCheckpoints')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // The excuse marker, and the two carve-outs
 // ---------------------------------------------------------------------------
 
@@ -469,6 +491,36 @@ describe('the unbranded-db-columns item', () => {
         ctxOf(table(`sessionId: text('session_id').$type<SessionId>().notNull(),`)),
       ),
     ).toHaveLength(0)
+  })
+
+  it('FIRES on a raw table primary key and goes quiet once it is branded', () => {
+    // POD-1938's fourth spelling, proven in BOTH directions. Before it, both
+    // assertions returned zero because `id` and lowercase-plural `sessions`
+    // named no brand the scanner understood.
+    expect(unbrandedDbColumns(ctxOf(table(`id: text().primaryKey(),`)))).toHaveLength(1)
+    expect(
+      unbrandedDbColumns(ctxOf(table(`id: text().$type<SessionId>().primaryKey(),`))),
+    ).toHaveLength(0)
+  })
+
+  it('requires a primary key rather than branding every generic table id', () => {
+    expect(unbrandedDbColumns(ctxOf(table(`id: text().notNull(),`)))).toHaveLength(0)
+  })
+
+  it('moves a native table primary key to the existing excuse ratchet', () => {
+    const native = `${SCAFFOLD}export const conversations = sqliteTable('conversations', {
+  /** UNBRANDED: the harness-native transcript id. */
+  id: text().primaryKey(),
+})`
+    expect(unbrandedDbColumns(ctxOf(native))).toHaveLength(0)
+    expect(unbrandedByDecisionFields(ctxOf(native))).toHaveLength(1)
+  })
+
+  it('does not infer the parent brand for a different-entity table', () => {
+    const comments = `${SCAFFOLD}export const issueComments = sqliteTable('issue_comments', {
+  id: text().primaryKey(),
+})`
+    expect(unbrandedDbColumns(ctxOf(comments))).toHaveLength(0)
   })
 
   it('counts a column in NEITHER zod item', () => {

@@ -44,7 +44,7 @@
  *     boundary parse" reading (POD-423 verified it by hand at
  *     `packages/commands/src/issues/contracts.ts`).
  *
- * All THREE spellings of "an entity id field" are enumerated:
+ * All FOUR spellings of "an entity id field" are enumerated:
  *
  *   1. a `<brand>Id`-suffixed key, at any depth;
  *   2. a bare `id:` key at the top level of a `z.object` whose declaration NAME
@@ -53,7 +53,10 @@
  *      for where that inference stops — `IssueComment.id` is NOT an `IssueId`,
  *      and POD-423 named it as a defect in error; and
  *   3. a bare `id:` (or a self-referential `parentId`) in a file whose TENANT
- *      DIRECTORY names the brand — {@link brandOfPath}, added at POD-1212.
+ *      DIRECTORY names the brand — {@link brandOfPath}, added at POD-1212; and
+ *   4. a bare `id:` primary-key column in a drizzle `sqliteTable` whose table
+ *      declaration names the brand — {@link brandOfTableSymbol}, added at
+ *      POD-1938.
  *
  * Spelling 3 exists because spellings 1 and 2 both read a NAME, and a command
  * contract has neither: `const byId = z.object({ id: z.string() })` in
@@ -62,6 +65,14 @@
  * whole audit stay GREEN. 34 sites were invisible for that reason. A declaration
  * that names a DIFFERENT entity vetoes the directory ({@link declaresOtherEntity}),
  * so spelling 3 cannot outvote the judgement spelling 2 makes.
+ *
+ * Spelling 4 exists because a table's own primary key conventionally has the
+ * least informative field name of all: `id`. Its declaration carries the
+ * evidence instead (`sessions` -> Session, `automationRuns` -> AutomationRun).
+ * Table names are normalised and then passed through the SAME representation
+ * judgement as spelling 2, so `issueComments` is not mistaken for Issue. A
+ * qualifier may precede the entity (`superagentThreads` -> Thread), using the
+ * same suffix rule as qualified field names rather than an entity list.
  *
  * ---------------------------------------------------------------------------
  * THE INSTRUMENT MUST BE ABLE TO SAY NO
@@ -299,6 +310,49 @@ export function brandOfSymbol(
     if (best === null || brand.length > best.length) best = brand
   }
   return best
+}
+
+/** A drizzle table declaration as candidate Pascal-cased representations.
+ * `automationRuns` -> `AutomationRun`, `issue_comments` -> `IssueComment`.
+ * Both plural rules are tried: `issues` must become Issue, not `Issuy`. */
+function tableRepresentationSymbols(symbol: string): readonly string[] {
+  const pascal = symbol
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('')
+  return [...new Set([pascal.replace(/ies$/, 'y'), pascal.replace(/s$/, ''), pascal])]
+}
+
+/**
+ * Which brand a drizzle TABLE declaration denotes, for the fourth spelling.
+ *
+ * The singular representation first goes through {@link brandOfSymbol}, so
+ * the existing representation-suffix judgement stays authoritative. A name
+ * that {@link declaresOtherEntity} identifies as a different entity is a
+ * deliberate no: `issueComments` cannot become Issue merely because it starts
+ * with that word. Only then may the existing qualified-key rule read a brand
+ * at the tail (`superagentThreads` -> `superagentThreadId` -> Thread).
+ */
+export function brandOfTableSymbol(
+  symbol: string,
+  brandNames: readonly string[] = ID_BRANDS,
+): string | null {
+  const representations = tableRepresentationSymbols(symbol)
+  for (const representation of representations) {
+    const direct = brandOfSymbol(representation, brandNames)
+    if (direct !== null) return direct
+  }
+  if (representations.some((representation) => declaresOtherEntity(representation, brandNames))) {
+    return null
+  }
+  for (const representation of representations) {
+    const qualifiedKey = `${representation.charAt(0).toLowerCase()}${representation.slice(1)}Id`
+    const qualified = brandOfKey(qualifiedKey, brandNames)
+    if (qualified !== null) return qualified
+  }
+  return null
 }
 
 /**
@@ -557,44 +611,72 @@ export function entityIdSites(ctx: AuditContext): EntityIdSite[] {
     // which is the fail-CLOSED direction: an unreadable comment cannot excuse.
     const rawLines = (f.raw ?? text).split('\n')
 
-    // The nearest preceding column-0 declaration, for the bare-`id` spelling.
-    let decls: { at: number; symbol: string }[] | null = null
-    const symbolAt = (offset: number): string => {
+    // The nearest preceding column-0 declaration, for bare-`id` spellings.
+    let decls: { at: number; symbol: string; table: boolean }[] | null = null
+    const declarationAt = (
+      offset: number,
+    ): { at: number; symbol: string; table: boolean } | null => {
       if (decls === null) {
         decls = []
         for (const m of text.matchAll(new RegExp(DECL_AT_COL_0.source, 'gm'))) {
-          decls.push({ at: m.index ?? 0, symbol: m[1] as string })
+          const at = m.index ?? 0
+          const after = at + m[0].length
+          decls.push({
+            at,
+            symbol: m[1] as string,
+            table: /^\s*=\s*sqliteTable\s*\(/.test(text.slice(after, after + 120)),
+          })
         }
       }
-      let sym = ''
+      let declaration: { at: number; symbol: string; table: boolean } | null = null
       for (const d of decls) {
         if (d.at > offset) break
-        sym = d.symbol
+        declaration = d
       }
-      return sym
+      return declaration
     }
 
     FIELD_POSITION.lastIndex = 0
     for (const m of text.matchAll(FIELD_POSITION)) {
       const key = (m[2] ?? m[3] ?? m[4]) as string
       const at = (m.index ?? 0) + m[0].length
+      const rhs = rhsText(text, at)
+      const form = classifyRhs(rhs)
       let brand = brandOfKey(key)
       let symbol = ''
       if (brand === null) {
-        // Spellings 2 and 3, both at depth 1 only — a nested object's `id`
-        // belongs to that inner shape, not to the declaration.
+        // Spellings 2–4, all at depth 1 only — a nested object's `id` belongs
+        // to that inner shape, not to the declaration.
         const selfRef = SELF_REFERENTIAL_KEYS.test(key)
         if ((key !== 'id' && !selfRef) || depthAt(at) !== 1) continue
         // Spelling 2: a bare `id` on a declaration whose NAME denotes a brand.
-        symbol = symbolAt(m.index ?? 0)
+        const declaration = declarationAt(m.index ?? 0)
+        symbol = declaration?.symbol ?? ''
         brand = key === 'id' ? brandOfSymbol(symbol) : null
+        // Spelling 4: a bare `id` PRIMARY KEY inside a drizzle table whose
+        // declaration names the entity. Raw and branded forms both enter the
+        // population; classifyRhs keeps them dischargeable under the ratchet.
+        const tableVeto =
+          declaration?.table === true &&
+          tableRepresentationSymbols(symbol).some((representation) =>
+            declaresOtherEntity(representation),
+          )
+        const tablePrimaryKey =
+          key === 'id' &&
+          declaration?.table === true &&
+          (form === 'db-column' || form === 'db-column-branded') &&
+          /\.primaryKey\(/.test(rhs.replace(/\s+/g, ''))
+        if (brand === null && tablePrimaryKey) {
+          brand = brandOfTableSymbol(symbol)
+        }
         // Spelling 3: the file's TENANT names the entity. Second, so a
         // declaration that names its own brand always wins over the directory —
-        // and a declaration that names a DIFFERENT entity vetoes it outright.
-        if (brand === null && !declaresOtherEntity(symbol)) brand = brandOfPath(f.file)
+        // and a declaration/table that names a DIFFERENT entity vetoes it.
+        if (brand === null && !declaresOtherEntity(symbol) && !tableVeto) {
+          brand = brandOfPath(f.file)
+        }
         if (brand === null) continue
       }
-      const form = classifyRhs(rhsText(text, at))
       // The line of the KEY, not of the separator the match opened on: the
       // separator is often the newline ENDING the previous line, and a site
       // reported one line high points a reader at the wrong field.
@@ -602,7 +684,7 @@ export function entityIdSites(ctx: AuditContext): EntityIdSite[] {
       out.push({
         file: f.file,
         line,
-        text: `${key}: ${rhsText(text, at).replace(/\s+/g, ' ').trim().slice(0, 100)}`,
+        text: `${key}: ${rhs.replace(/\s+/g, ' ').trim().slice(0, 100)}`,
         key,
         brand,
         form,
@@ -774,8 +856,9 @@ export function machineIdUnbrandedFields(ctx: AuditContext): AuditSite[] {
 }
 
 /**
- * POD-1199's item: a drizzle column whose key names a branded entity id and
- * which carries no `$type<>()`.
+ * POD-1199's item, extended at POD-1938: a drizzle column whose key OR enclosing
+ * table-primary-key declaration names a branded entity id, and which carries no
+ * `$type<>()`.
  *
  * A SEPARATE ACT from the zod items above, which is why POD-301 measured this
  * class and deliberately left it: a column is not branded by a schema, it is

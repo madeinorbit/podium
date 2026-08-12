@@ -234,6 +234,31 @@ table is the defect.** The rule the rows apply:
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
 
+### 2026-08-12 — POD-1938 extends `unbranded-db-columns` to table PKs: 0 → 9
+
+**A ratchet EXTENSION in a commit with no product change.** The entity-id
+detector's first three spellings read a field, declaration, or tenant name, but
+none could connect `id: text().primaryKey()` to the lowercase-plural drizzle
+declaration `sessions`. The fourth spelling singularises and capitalises the
+`sqliteTable` declaration, then reuses the existing representation judgement:
+`sessions` becomes Session and `automationRuns` becomes AutomationRun, while
+`issueComments` remains a deliberate no rather than being shortened to Issue.
+Qualified table names reuse the existing qualified-key rule, so
+`superagentThreads` resolves to Thread without adding an entity list.
+
+The extension exposes nine raw primary keys: the eight Podium identities owned
+by POD-1938 (`sessions`, `issues`, `machines`, `users`, `accounts`,
+`automations`, `automationRuns`, and `superagentThreads`) plus
+`conversations.id`, the harness-native transcript identity that must remain
+unbranded. The latter will spend the existing `UNBRANDED` ratchet rather than be
+laundered into the distinct Podium-stable `ConversationId` namespace.
+
+The planted fixture proves both halves of the mechanism:
+`id: text().primaryKey()` raises `unbranded-db-columns`, while
+`id: text().$type<SessionId>().primaryKey()` leaves it. A detector that matched
+both as one form would make the key reportable but impossible to discharge—the
+exact defect POD-1199 found in the original drizzle-column classifier.
+
 ### 2026-08-12 — POD-1199 brands the columns: `unbranded-db-columns` 90 → 0, `unbranded-by-decision-ids` 18 → 24
 
 **The product commit that discharges the key added below, and it RAISES a
@@ -281,8 +306,8 @@ spellings read a NAME, and `id: text().primaryKey()` inside
 declaration name the brand vocabulary matches (`sessions`, lowercase and plural,
 is not `Session`). Sweeping nine invisible sites inside a commit whose whole
 argument is measurement would have been the exact move this file exists to stop,
-so the detector needs a fourth spelling first, as its own extension. Filed as
-discovered work with a `discovered-from` edge.
+so the detector needed a fourth spelling first, as its own extension. POD-1938
+adds that spelling above before changing any schema product code.
 
 ### 2026-08-12 — POD-1199 splits the drizzle-column form and adds `unbranded-db-columns` (+1 item, baseline 90)
 

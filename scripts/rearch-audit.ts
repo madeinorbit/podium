@@ -1693,14 +1693,19 @@ export const CHECKS: AuditCheck[] = [
     // nothing a ratchet could have driven. POD-1199 splits the form and holds
     // the unbranded half.
     //
+    // EXTENDED at POD-1938 to the fourth entity-id spelling: a table's bare
+    // `id` primary key whose sqliteTable declaration names the brand. Nine
+    // previously invisible PKs became measurable; the planted fixture proves
+    // that `$type<Brand>()` moves one to the discharged form.
+    //
     // Not folded into `raw-string-entity-ids`: that item's unit is a ZOD field,
     // and a column is discharged by a different act (drizzle's type-only
     // `$type<Brand>()`, which emits no SQL). One key over two mechanisms would
     // let progress on the easy one mask the other.
     id: 'unbranded-db-columns',
     title: 'Drizzle column for an entity id declared without $type<Brand>()',
-    phase: 'POD-1199',
-    unit: 'one drizzle column whose key names a branded entity id and which carries no $type<>()',
+    phase: 'POD-1938',
+    unit: 'one drizzle column whose key or table-PK declaration names a branded entity id and which carries no $type<>()',
     collect: (ctx) => unbrandedDbColumns(ctx),
   },
   {
@@ -1712,7 +1717,7 @@ export const CHECKS: AuditCheck[] = [
     id: 'unbranded-by-decision-ids',
     title: 'Entity id fields excused from branding by an UNBRANDED doc comment',
     phase: 'POD-301',
-    unit: 'one zod id field carrying the UNBRANDED excuse marker',
+    unit: 'one zod or drizzle entity-id field carrying the UNBRANDED excuse marker',
     collect: (ctx) => unbrandedByDecisionFields(ctx),
   },
 ]
