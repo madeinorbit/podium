@@ -171,7 +171,12 @@ export function AppShell(): JSX.Element {
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
   const uiState = useStoreSelector((s) => s.uiState)
-  return <DensityProvider uiState={uiState}>{children}</DensityProvider>
+  const densityEnabled = useFeature('shell-density')
+  return (
+    <DensityProvider uiState={uiState} densityEnabled={densityEnabled}>
+      {children}
+    </DensityProvider>
+  )
 }
 
 /** Module-scope so the setter keeps a stable identity across renders — an inline

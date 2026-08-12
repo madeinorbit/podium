@@ -9361,6 +9361,726 @@
         "source": "config",
         "locked": true
       }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shell-density",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shell-density",
+        "name": "Shell density",
+        "description": "Choose between balanced and compact shell styling in Appearance.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
     }
   ]
 }
