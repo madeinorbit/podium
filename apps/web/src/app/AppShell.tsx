@@ -11,6 +11,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { SettingsView } from '@/features/settings/SettingsView'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
+import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UsageView } from '@/features/usage/UsageView'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
@@ -432,6 +433,7 @@ function AppBody(): JSX.Element {
           nothing — reopen and the same task, trail, tab and query are there.
           It also keeps tracking the shell's target while closed. */}
       <IssueExplorerProvider>
+        <DockShellLifecycle />
         <div
           className="desktop-shell issue-scope"
           data-issue-colored={effectiveHex ? 'true' : 'false'}

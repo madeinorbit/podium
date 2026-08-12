@@ -11,6 +11,7 @@ import { isKnownRefPrefix } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { prettyCwd } from './AgentPanel'
 import { TERMINAL_DEFAULTS } from './appearance'
+import { dockShellIsDead } from './dock-shell-lifecycle'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 /**
@@ -55,9 +56,7 @@ export function DockShellPanel({
   // Dead = unrevivable in place. 'starting' and 'reconnecting' are HEALTHY
   // transients — treating them as dead made this effect archive a spawning
   // shell and replace it, looping until the panel closed.
-  const dead =
-    !!session &&
-    (session.archived || session.status === 'exited' || session.status === 'hibernated')
+  const dead = !!session && dockShellIsDead(session)
   const alive = !!session && !dead
 
   // The id we created and whose broadcast hasn't landed yet. While set, NEVER

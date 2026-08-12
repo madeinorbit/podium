@@ -68,7 +68,7 @@ import type { Replica } from './replica'
  */
 export interface IssueView {
   id: string
-  /** Sessions working this issue, BY ID. Never the sessions themselves. */
+  /** Non-shell sessions working this issue, BY ID. Never the sessions themselves. */
   memberSessionIds: string[]
   /** `POD-13`, or `#13` before a repo has a prefix. Derived from (prefix, seq) —
    *  server-side this meant a repo's prefix change recomputed every issue in it. */
@@ -123,6 +123,7 @@ export interface IssueViewInput {
 export interface SessionViewInput {
   sessionId: string
   issueId?: string | null
+  agentKind?: string | null
   phase?: string | null
   lastActiveAt?: string | null
 }
@@ -154,6 +155,13 @@ export interface SessionViewInput {
 export function indexSessionsByIssue(sessions: readonly SessionViewInput[]): Map<string, string[]> {
   const index = new Map<string, string[]>()
   for (const session of sessions) {
+    // Shells are terminal plumbing, not issue workers. In particular, the
+    // right dock stamps its persistent shell with the active issue id, but the
+    // workspace deliberately refuses to open that dock-owned session as a tab.
+    // Keeping it out at the membership boundary makes every issue roster,
+    // count and rollup share the same policy instead of handing navigation an
+    // id whose only home is the dock.
+    if (session.agentKind === 'shell') continue
     const issueId = session.issueId
     if (issueId === undefined || issueId === null || issueId === '') continue
     const ids = index.get(issueId)

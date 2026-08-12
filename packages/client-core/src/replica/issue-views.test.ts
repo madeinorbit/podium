@@ -56,6 +56,15 @@ describe('membership by local index — the field POD-791 asked us to kill', () 
     ).toBe(0)
   })
 
+  it('keeps terminal shells out of issue membership', () => {
+    const index = indexSessionsByIssue([
+      session({ sessionId: 'agent', issueId: 'i1', agentKind: 'codex' }),
+      session({ sessionId: 'dock-shell', issueId: 'i1', agentKind: 'shell' }),
+    ])
+
+    expect(index.get('i1')).toEqual(['agent'])
+  })
+
   it('a session re-homing to another issue moves it in BOTH issues, with one source of truth', () => {
     // The argument against `memberSessionIds` in one test: derived from the
     // edge as stored, a re-home cannot leave the two issues disagreeing. A
