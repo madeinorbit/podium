@@ -507,8 +507,8 @@ describe('oracle: spawn placement fails closed', () => {
     const o = makeOracle({
       machineId: asMachineId('online'),
       offlineMachines: [
-        { id: asSessionId('online'), name: 'Online' },
-        { id: asSessionId('offline'), name: 'Offline' },
+        { id: asMachineId('online'), name: 'Online' },
+        { id: asMachineId('offline'), name: 'Offline' },
       ],
     })
     const sessions = () => o.reg.modules.sessions.listSessions().length

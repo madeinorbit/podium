@@ -13,7 +13,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import type { SessionId } from '@podium/model'
-import { asUserId, asSessionId, SOLE_USER_ID } from '@podium/model'
+import { asMachineId, asUserId, asSessionId, SOLE_USER_ID } from '@podium/model'
 import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -296,7 +296,7 @@ describe('oracle: kill', () => {
     // "Owning" is only assertable when a NON-owning machine exists to stay
     // silent. On a one-machine fixture the same assertion passes for a kill
     // broadcast to everyone, which is a different behaviour.
-    const o = makeOracle({ offlineMachines: [{ id: asSessionId('other'), name: 'other' }] })
+    const o = makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen: ControlMessage[] = []
     o.reg.gateway.attachDaemon('other', (m) => otherSeen.push(m))
     const { sessionId } = await o.call.sessions.create({

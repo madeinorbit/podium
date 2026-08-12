@@ -3,7 +3,14 @@
 // pass-through metadata, parent provenance, and the never-hangs await contract.
 
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import {
+  asAccountId,
+  asIssueId,
+  asMachineId,
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
+  type SessionId,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'
@@ -199,8 +206,8 @@ describe('agent spawn (gate)', () => {
         })
         return {
           id: 'prof_review',
-          accountId: 'native:codex',
-          machineId: 'machine-review',
+          accountId: asAccountId('native:codex'),
+          machineId: asMachineId('machine-review'),
           harness: 'codex',
           model: 'gpt-5.6',
           effort: 'medium',
@@ -247,8 +254,8 @@ describe('agent spawn (gate)', () => {
       (machineId: string): MessageGateDeps['resolveExecutionProfile'] =>
       () => ({
         id: 'prof_x',
-        accountId: 'native:claude-code',
-        machineId,
+        accountId: asAccountId('native:claude-code'),
+        machineId: asMachineId(machineId),
         harness: 'claude-code',
         model: 'auto',
         effort: 'auto',
@@ -337,8 +344,8 @@ describe('agent spawn (gate)', () => {
         model: 'fallback-model',
         effort: 'medium',
         machine: 'fallback-box',
-        machineId: 'machine-fallback',
-        accountId: 'native:codex',
+        machineId: asMachineId('machine-fallback'),
+        accountId: asAccountId('native:codex'),
       }),
     })
     const result = await gate.dispatch(PARENT, true, 'spawnAgent', {

@@ -75,7 +75,7 @@ function pairRemote(
   const machineId = asMachineId(opts.machineId ?? 'remote-box')
   const code = machines.mintPairingCode({
     ...(opts.ownerUserId !== undefined
-      ? { ownerUserId: opts.ownerUserId }
+      ? { ownerUserId: asUserId(opts.ownerUserId) }
       : { ownerUserId: OWNER }),
   })
   const auth = machines.authenticateDaemon({

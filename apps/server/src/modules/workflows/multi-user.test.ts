@@ -18,7 +18,7 @@
  * succeeding for the principal who should be allowed.
  */
 
-import { asIssueId, asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, type SessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -42,7 +42,7 @@ const SESSIONS = new Map([
       cwd: '/repo-a/wt',
       issueId: asIssueId('issue-a'),
       agentKind: 'claude-code',
-      machineId: 'm-alice',
+      machineId: asMachineId('m-alice'),
     },
   ],
   // Bob's agent, on Bob's machine.
@@ -53,7 +53,7 @@ const SESSIONS = new Map([
       cwd: '/repo-b/wt',
       issueId: asIssueId('issue-b'),
       agentKind: 'claude-code',
-      machineId: 'm-bob',
+      machineId: asMachineId('m-bob'),
     },
   ],
   // Alice's second agent, parked on BOB's machine — the placement case.
@@ -64,7 +64,7 @@ const SESSIONS = new Map([
       cwd: '/repo-a/wt',
       issueId: asIssueId('issue-a'),
       agentKind: 'codex',
-      machineId: 'm-bob',
+      machineId: asMachineId('m-bob'),
     },
   ],
   // A session on a machine that exists and is DOWN, so `unauthorized` and
@@ -76,7 +76,7 @@ const SESSIONS = new Map([
       cwd: '/repo-a/wt',
       issueId: asIssueId('issue-a'),
       agentKind: 'codex',
-      machineId: 'm-offline',
+      machineId: asMachineId('m-offline'),
     },
   ],
 ])
@@ -551,7 +551,7 @@ describe('workflows under two humans', () => {
       {
         name: 'Bob box',
         accountId: 'acct',
-        machineId: 'm-alice',
+        machineId: asMachineId('m-alice'),
         harness: 'codex',
         model: 'auto',
         effort: 'auto',

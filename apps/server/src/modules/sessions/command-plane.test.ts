@@ -13,7 +13,14 @@
  */
 
 import type { MachineId } from '@podium/model'
-import { asMachineId, asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import type { MachineGrant } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -132,7 +139,7 @@ function oracleWithPairedMachine(): {
 } {
   const o = makeOracle({
     machineId: asMachineId('box'),
-    offlineMachines: [{ id: asSessionId('box'), name: 'The Box' }],
+    offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
   })
   const rows = new Map([
     ['box', { owner: FIRST_ADMIN_USER_ID, grants: [] as MachineGrant[], name: 'The Box' }],
@@ -256,9 +263,9 @@ describe('the spawn surface never OFFERS a machine the principal cannot use', ()
     const o = makeOracle({
       machineId: asMachineId('mine'),
       offlineMachines: [
-        { id: asSessionId('mine'), name: 'Mine' },
-        { id: asSessionId('shared'), name: 'Shared' },
-        { id: asSessionId('theirs'), name: 'Theirs' },
+        { id: asMachineId('mine'), name: 'Mine' },
+        { id: asMachineId('shared'), name: 'Shared' },
+        { id: asMachineId('theirs'), name: 'Theirs' },
       ],
     })
     const ownership = ownershipTable(
@@ -319,9 +326,9 @@ describe('the spawn surface never OFFERS a machine the principal cannot use', ()
      * makes this able to fail.
      */
     const repos = usableRepos(offered, [
-      { machineId: 'mine', path: '/home/me/src/podium' },
-      { machineId: 'shared', path: '/home/colleague/src/podium' },
-      { machineId: 'theirs', path: '/home/colleague/src/secret' },
+      { machineId: asMachineId('mine'), path: '/home/me/src/podium' },
+      { machineId: asMachineId('shared'), path: '/home/colleague/src/podium' },
+      { machineId: asMachineId('theirs'), path: '/home/colleague/src/secret' },
     ])
     expect(repos).toEqual([{ machineId: 'mine', path: '/home/me/src/podium' }])
   })
@@ -363,8 +370,8 @@ describe('delegation, resolved live at every apply', () => {
     const o = makeOracle({
       machineId: asMachineId('a'),
       offlineMachines: [
-        { id: asSessionId('a'), name: 'A' },
-        { id: asSessionId('b'), name: 'B' },
+        { id: asMachineId('a'), name: 'A' },
+        { id: asMachineId('b'), name: 'B' },
       ],
     })
     // 'b' needs a live daemon, or every spawn on it refuses as OFFLINE and the
@@ -559,7 +566,7 @@ describe('attribution and ownership come from the principal', () => {
 
   it("a session spawned under an issue inherits THAT issue's owner, not the actor's", () => {
     const underIssue = createdOwnership(agentFor('agent-1', COLLEAGUE), {
-      id: asSessionId('podium-7'),
+      id: asIssueId('podium-7'),
       owner: FIRST_ADMIN_USER_ID,
     })
 
@@ -573,7 +580,7 @@ describe('attribution and ownership come from the principal', () => {
     // An issue with no owner recorded yet falls back to the delegating human,
     // never to nobody: the draft vessel is OWNED.
     expect(
-      createdOwnership(agentFor('agent-1', COLLEAGUE), { id: asSessionId('draft-1') }).owner,
+      createdOwnership(agentFor('agent-1', COLLEAGUE), { id: asIssueId('draft-1') }).owner,
     ).toBe(COLLEAGUE)
   })
 })

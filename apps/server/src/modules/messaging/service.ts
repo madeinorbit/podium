@@ -156,7 +156,7 @@ function topicKey(chatId: string, id: string): string {
 }
 
 function turnKey(ownerUserId: UserId, threadId: ThreadId): string {
-  return `${ownerUserId}\0${turnKeyValue}`
+  return `${ownerUserId}\0${threadId}`
 }
 
 function conversationKey(ref: ConversationRef): string {
@@ -797,7 +797,7 @@ function isNotAForumError(err: unknown): boolean {
 }
 
 function turnTypingOwner(turnKeyValue: string): string {
-  return `turn:${threadId}`
+  return `turn:${turnKeyValue}`
 }
 
 function ambientTypingOwner(sessionId: SessionId): string {

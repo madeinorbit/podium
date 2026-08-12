@@ -18,7 +18,7 @@
  * Messages are pinned with EXACT equality, never a substring (POD-743).
  */
 
-import { asUserId, SOLE_USER_ID } from '@podium/model'
+import { asMachineId, asUserId, SOLE_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -193,7 +193,7 @@ describe('oracle: not-found shape, per write', () => {
 
 describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguishable from "unauthorized")', () => {
   /** A paired machine that reported an inventory and then went away. */
-  const OFFLINE = [{ id: 'gone', name: 'Gone' }]
+  const OFFLINE = [{ id: asMachineId('gone'), name: 'Gone' }]
 
   it(`${MUST_NOT_CHANGE}: create against an OFFLINE machine throws, naming the machine and the reachability fault`, async () => {
     const o = makeOracle({ offlineMachines: OFFLINE })

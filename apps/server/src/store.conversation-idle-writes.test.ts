@@ -77,7 +77,7 @@ describe('idle re-discovery writes', () => {
   it('re-ensuring an unchanged segment does not rewrite it', () => {
     const store = new SessionStore(':memory:')
     const opts = {
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       nativeId: 'native-a',
       providerId: 'claude-code-jsonl',
       path: '/transcripts/native-a.jsonl',
