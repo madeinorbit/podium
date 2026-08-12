@@ -818,6 +818,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
   const TARGETED: { key: SessionCommandKey; input: (sessionId: string) => unknown }[] = [
     { key: 'kill', input: (sessionId) => ({ sessionId }) },
     { key: 'hibernate', input: (sessionId) => ({ sessionId }) },
+    { key: 'interrupt', input: (sessionId) => ({ sessionId }) },
     { key: 'resurrect', input: (sessionId) => ({ sessionId }) },
     { key: 'continue', input: (sessionId) => ({ sessionId }) },
     { key: 'stop', input: (sessionId) => ({ sessionId }) },

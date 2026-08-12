@@ -316,6 +316,17 @@ export class SessionInbox {
     return { ok: true }
   }
 
+  /** Interrupt the active native turn without injecting a replacement prompt. */
+  interruptTurn(input: Omit<InboxSendInput, 'text'>): { ok: boolean; reason?: string } {
+    const session = this.deps.getSession(input.sessionId)
+    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
+      return { ok: false, reason: 'session not running' }
+    }
+    const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
+    this.sendInput(session, '\x1b', input.inputOrigin ?? 'controller', principal.attribution)
+    return { ok: true }
+  }
+
   queueText(input: InboxSendInput & { mutationId?: string }): {
     ok: boolean
     queued?: boolean

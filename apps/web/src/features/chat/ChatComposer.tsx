@@ -3,7 +3,7 @@ import type { SessionMeta } from '@podium/model'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, Clock, CloudOff, Paperclip, Square } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useReplicaIssues } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -168,6 +168,14 @@ export function ChatComposer({
   onBackendModelChange?: (model: string) => void
   onBackendEffortChange?: (effort: string) => void
 }): JSX.Element {
+  const lastInterruptEscapeAt = useRef<number | null>(null)
+
+  // A session switch reuses this composer on mobile. Never let the first Esc
+  // from one session arm the second Esc in another.
+  useEffect(() => {
+    lastInterruptEscapeAt.current = null
+  }, [autoFocusKey])
+
   // Autofocus the composer when the chat view becomes active for a session that
   // can take input, so the user can type straight away. Gated on an enabled
   // composer and a settled transcript. Desktop only: forcing focus on mobile
@@ -390,6 +398,26 @@ export function ChatComposer({
                 // while it is open (never during an IME composition). Everything
                 // below is reached unchanged when it declines.
                 if (mention.onKeyDown(e)) return
+                // Transcript-chat equivalent of the native CLI interrupt: two
+                // Esc presses in an EMPTY composer cancel the active turn. The
+                // first press is consumed so a surrounding sheet/menu cannot
+                // close in the middle of the chord. Any other key disarms it.
+                if (e.key === 'Escape' && canInterrupt && draft === '') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const now = Date.now()
+                  if (
+                    lastInterruptEscapeAt.current !== null &&
+                    now - lastInterruptEscapeAt.current <= 600
+                  ) {
+                    lastInterruptEscapeAt.current = null
+                    onInterrupt()
+                  } else {
+                    lastInterruptEscapeAt.current = now
+                  }
+                  return
+                }
+                lastInterruptEscapeAt.current = null
                 // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
                 // still submits). Mobile keeps plain Enter as a newline — the
                 // send button submits there.

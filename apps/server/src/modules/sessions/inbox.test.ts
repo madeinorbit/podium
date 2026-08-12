@@ -282,6 +282,32 @@ describe('SessionInbox authorization and identity', () => {
     ])
   })
 
+  it('interrupt sends only Esc with the authenticated principal attribution', () => {
+    const h = harness()
+    const principal = agentPrincipal()
+
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({ ok: true })
+
+    expect(h.sent).toEqual([
+      expect.objectContaining({
+        type: 'input',
+        data: Buffer.from('\x1b').toString('base64'),
+        attribution: principal.attribution,
+      }),
+    ])
+    expect(h.answered).toEqual([])
+  })
+
+  it('refuses to interrupt a session that is not running', () => {
+    const h = harness({ status: 'exited' })
+
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: false,
+      reason: 'session not running',
+    })
+    expect(h.sent).toEqual([])
+  })
+
   it('free-text via Other schedules digit, then text, then CR', async () => {
     vi.useFakeTimers()
     try {

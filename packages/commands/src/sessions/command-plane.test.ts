@@ -23,7 +23,7 @@ const defs = Object.entries(sessionCommandPlane.defs)
 const OFFLINE_ELIGIBLE_EXCEPTION = 'resumeAndSend'
 
 describe('the command-plane table', () => {
-  it('covers exactly the eleven command-plane procs, and neither handoff nor ask', () => {
+  it('covers exactly the twelve command-plane procs, and neither handoff nor ask', () => {
     // NINE were POD-381's. `stop` and `uploadImage` were added by POD-382, which had
     // to delete the last hand-written session mutations from router.ts and could only
     // do that by giving them contracts. `ask` was briefly here too and was REMOVED at
@@ -36,6 +36,7 @@ describe('the command-plane table', () => {
       'sessions.continue',
       'sessions.create',
       'sessions.hibernate',
+      'sessions.interrupt',
       'sessions.kill',
       'sessions.resume',
       'sessions.resumeAndSend',

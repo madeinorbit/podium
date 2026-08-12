@@ -43,6 +43,7 @@ const fakeTrpc = {
       },
     },
     sendText: { mutate: vi.fn(async () => ({ disposition: 'delivered' })) },
+    interrupt: { mutate: vi.fn(async () => ({ ok: true })) },
     answerAskUserQuestion: { mutate: vi.fn(async () => {}) },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
@@ -179,6 +180,40 @@ async function flush(): Promise<void> {
 }
 
 describe('ChatView read-then-subscribe', () => {
+  it('double Escape interrupts a working native turn and recalls its prompt', async () => {
+    storeSessions = [
+      meta({
+        agentState: {
+          phase: 'working',
+          since: '2026-06-03T00:00:01.000Z',
+          nativeSubagentCount: 0,
+        },
+      }),
+    ]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [{ id: 'u1', cursor: 'c1', role: 'user', text: 'tighten the copy' }],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    if (!textarea) throw new Error('chat composer missing')
+    act(() => {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+
+    expect(fakeTrpc.sessions.interrupt.mutate).toHaveBeenCalledWith({ sessionId: 's1' })
+    expect(storeActions.setSessionDraft).toHaveBeenCalledWith('s1', 'tighten the copy')
+  })
+
   it('renders a LIVE session transcript from the initial read even with ZERO hub deltas', async () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)

@@ -356,7 +356,7 @@ export function ChatView({
         headless={chat.headless}
         turnRunning={chat.headlessTurn.turnRunning}
         canInterrupt={chat.canInterrupt}
-        onInterrupt={chat.headlessTurn.interrupt}
+        onInterrupt={chat.interrupt}
         offer={chat.offer}
         onOfferAction={chat.sendOfferPrompt}
         onOfferDismiss={chat.dismissOffer}

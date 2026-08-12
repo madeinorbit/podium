@@ -3,7 +3,7 @@ import { attachTestClient } from '../../test-support/client-transport'
 /**
  * ORACLE — command-class session writes (POD-379 for POD-312 / POD-381).
  *
- * create · resume · kill · hibernate · resurrect · sendText · resumeAndSend ·
+ * create · resume · kill · hibernate · resurrect · interrupt · sendText · resumeAndSend ·
  * answerAskUserQuestion · continue.
  *
  * These are the writes that command a PROCESS, so what is pinned here is the
@@ -321,6 +321,16 @@ describe('oracle: kill', () => {
 })
 
 describe('oracle: sendText / resumeAndSend', () => {
+  it('interrupt sends one bare Esc to the PTY and no replacement text', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId, 'working')
+    o.daemon.length = 0
+
+    expect(await o.call.sessions.interrupt({ sessionId })).toEqual({ ok: true })
+    expect(ptyFrames(o.daemon)).toEqual([{ inputOrigin: 'controller', data: '\x1b' }])
+  })
+
   it(`${MUST_NOT_CHANGE}: sendText to a live session reports a disposition and reaches the PTY stamped 'controller' (operator via substrate), not 'human'`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })

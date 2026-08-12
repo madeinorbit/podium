@@ -2,7 +2,7 @@
  * COMMAND-PLANE SESSION CONTRACTS (POD-381, under POD-312).
  *
  * The session writes that COMMAND A PROCESS — create · resume · kill ·
- * hibernate · resurrect · sendText · resumeAndSend · answerAskUserQuestion ·
+ * hibernate · resurrect · interrupt · sendText · resumeAndSend · answerAskUserQuestion ·
  * continue — as contracts: name, input schema, and the ADR 3 facets POD-380
  * landed on `CommandDef` (policy · exposure · offline · redaction) plus ADR 1's
  * conflict class. No handler code and no service imports: contracts are L1,
@@ -236,6 +236,19 @@ const resurrect: CommandDef = {
   conflict: 'cmd',
 }
 
+const interrupt: CommandDef = {
+  input: targetInput,
+  action: 'write',
+  policy: executes,
+  visibility: PERSONAL,
+  exposure: OPERATOR,
+  offline: 'online-only',
+  redaction: { fields: [] },
+  conflict: 'cmd',
+  decision:
+    "Sends the native CLI interrupt key to a running session without acquiring terminal keyboard control. This is an explicit operator act from transcript chat, matching sendText's controller-independent path; it is never queued because an interrupt applied after the active turn ended would target the wrong work.",
+}
+
 const sendText: CommandDef = {
   input: sendInput,
   action: 'write',
@@ -465,6 +478,7 @@ export const sessionCommandPlane = defineCommands('sessions', {
   continue: continueSession,
   create,
   hibernate,
+  interrupt,
   kill,
   resume,
   resumeAndSend,
@@ -502,6 +516,7 @@ export const sessionCommandPlaneInputs = {
   continue: targetInput,
   create: createInput,
   hibernate: targetInput,
+  interrupt: targetInput,
   kill: targetInput,
   resume: resumeInput,
   resumeAndSend: sendInput,

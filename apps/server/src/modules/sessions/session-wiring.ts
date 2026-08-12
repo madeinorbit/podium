@@ -354,6 +354,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.sendText = (input: any) => bag.inbox.sendText(input)
   bag.interruptText = (input: any) => bag.inbox.interruptText(input)
+  bag.interruptTurn = (input: any) => bag.inbox.interruptTurn(input)
   bag.queueText = (input: any) => bag.inbox.queueText(input)
   bag.cancelQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.cancelQueuedMessage(sessionId, sourceMessageId)

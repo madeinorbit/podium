@@ -82,6 +82,7 @@ export type SessionCommandServices = Pick<
   | 'workspace'
   | 'killSession'
   | 'hibernateSession'
+  | 'interruptTurn'
   | 'answerAskUserQuestion'
   | 'continueSession'
   | 'listSessions'
@@ -576,6 +577,16 @@ export const SESSION_COMMAND_HANDLERS = {
     ctx.target(input.sessionId, 'sessions.hibernate')
       ? ctx.sessions.hibernateSession(input)
       : { ok: false, reason: 'unknown session' },
+
+  interrupt: (ctx: SessionCommandCtx, input: TargetInput) => {
+    if (!ctx.target(input.sessionId, 'sessions.interrupt')) {
+      return { ok: false, reason: 'unknown session' }
+    }
+    return ctx.sessions.interruptTurn({
+      ...input,
+      principal: inboxPrincipalFromCommand(ctx.principal),
+    })
+  },
 
   resurrect: (ctx: SessionCommandCtx, input: TargetInput) =>
     ctx.target(input.sessionId, 'sessions.resurrect')

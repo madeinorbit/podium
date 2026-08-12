@@ -55,6 +55,9 @@ async function mount(
     attachments?: UseAttachmentsResult
     queuedTotal?: number
     turnError?: string | null
+    canInterrupt?: boolean
+    onInterrupt?: () => void
+    onDraftChange?: (draft: string) => void
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const { ChatComposer } = await import('./ChatComposer')
@@ -64,7 +67,7 @@ async function mount(
       <ChatComposer
         taRef={taRef}
         draft={opts.draft ?? ''}
-        onDraftChange={() => {}}
+        onDraftChange={opts.onDraftChange ?? (() => {})}
         enabled
         placeholder="Ask across all tasks…"
         compact={opts.compact}
@@ -74,8 +77,8 @@ async function mount(
         attachments={opts.attachments ?? noopAttachments}
         headless={false}
         turnRunning={false}
-        canInterrupt={false}
-        onInterrupt={() => {}}
+        canInterrupt={opts.canInterrupt ?? false}
+        onInterrupt={opts.onInterrupt ?? (() => {})}
         offer={null}
         onOfferAction={async () => {}}
         onOfferDismiss={async () => {}}
@@ -263,5 +266,27 @@ describe.each([
     press(ta, { isComposing: true })
     press(ta, { keyCode: 229 })
     expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('interrupts on a quick double Escape from an empty prompt', async () => {
+    const onInterrupt = vi.fn()
+    const { ta } = await mount({ compact, draft: '', canInterrupt: true, onInterrupt })
+    const first = press(ta, { key: 'Escape' })
+    expect(first.defaultPrevented).toBe(true)
+    expect(onInterrupt).not.toHaveBeenCalled()
+    press(ta, { key: 'Escape' })
+    expect(onInterrupt).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves Escape alone when there is text or no active turn', async () => {
+    const onInterrupt = vi.fn()
+    const withText = await mount({ compact, draft: 'keep me', canInterrupt: true, onInterrupt })
+    expect(press(withText.ta, { key: 'Escape' }).defaultPrevented).toBe(false)
+    expect(press(withText.ta, { key: 'Escape' }).defaultPrevented).toBe(false)
+    await mount({ compact, draft: '', canInterrupt: false, onInterrupt })
+    const idle = container.querySelector('textarea') as HTMLTextAreaElement
+    expect(press(idle, { key: 'Escape' }).defaultPrevented).toBe(false)
+    expect(press(idle, { key: 'Escape' }).defaultPrevented).toBe(false)
+    expect(onInterrupt).not.toHaveBeenCalled()
   })
 })

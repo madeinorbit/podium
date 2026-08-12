@@ -191,6 +191,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
   it.each([
     'kill',
     'hibernate',
+    'interrupt',
     'resurrect',
     'sendText',
     'resumeAndSend',

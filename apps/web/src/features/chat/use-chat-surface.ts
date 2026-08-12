@@ -9,6 +9,7 @@ import {
   chatActivityState,
   chatSessionReference,
   composerState,
+  isOperatorPrompt as isOperatorPromptOf,
   isOperatorPromptRow as isOperatorPromptRowOf,
   lastAnswer as lastAnswerOf,
   livePendingAskIndex as livePendingAskIndexOf,
@@ -26,7 +27,7 @@ import {
   transcriptSearchState,
   visibleOffer,
 } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model'
+import { isAgentComputing, type SessionId, type SessionMeta } from '@podium/model'
 import { useVoiceInput } from '@podium/terminal-client-react'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -143,6 +144,7 @@ export interface ChatSurface {
   // -- headless superagent routing -------------------------------------------
   headlessTurn: UseHeadlessTurnResult
   canInterrupt: boolean
+  interrupt: () => void
   /** The thread's harness + model + effort, for the prompt box's pickers
    *  (POD-782). `agentKind` undefined = the thread has not frozen a harness yet
    *  (no turn has run), in which case the pickers stay out of the way. */
@@ -219,6 +221,14 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [query, setQueryState] = useState('')
   const [matchCursor, setMatchCursor] = useState(0)
+  const lastSubmittedPromptRef = useRef<string | null>(initialPendingText ?? null)
+
+  // A mobile AgentPanel reuses one ChatView while switching sessions.
+  // Recollection is per-session; a stopped turn must never pull another
+  // session's prompt into this composer.
+  useEffect(() => {
+    lastSubmittedPromptRef.current = initialPendingText ?? null
+  }, [sessionId, initialPendingText])
 
   const stickyPrompts = useStickyPromptsPreference()
   // The superagent side panel is too short to give a pinned prompt anywhere to
@@ -289,6 +299,14 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     [blocks, session?.status],
   )
   const answer = useMemo(() => lastAnswerOf(blocks), [blocks])
+  const latestOperatorPrompt = useMemo(() => {
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const item = blocks[i]?.item
+      if (!item || !isOperatorPromptOf(item, promptOptions)) continue
+      return parseEnvelopeBatch(item.text)?.operatorText ?? item.text
+    }
+    return null
+  }, [blocks, promptOptions])
   // Derived once per session, not once per row: the pair depends on the row's
   // ROLE and the session and on nothing else, so three stable objects serve the
   // whole transcript and the memoized block views keep skipping renders.
@@ -444,6 +462,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     const { paths, tags } = attachments.ready()
     if (!text && paths.length === 0) return
     if (attachments.uploading) return
+    lastSubmittedPromptRef.current = text || null
     setDraft('')
     attachments.clear()
     void send.send(
@@ -452,6 +471,25 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       paths.length > 0 ? paths : undefined,
     )
   }, [draft, attachments, setDraft, send])
+
+  const canInterrupt = headless
+    ? superThread !== undefined && headlessTurn.turnRunning
+    : (session !== undefined && isAgentComputing(session)) || send.justSent
+  const interrupt = useCallback(() => {
+    if (!canInterrupt) return
+    // The keyboard chord is accepted only from an empty field. Keep that same
+    // safety here so the stop button never overwrites a reply already in flight.
+    if (draft === '') {
+      const recalled = lastSubmittedPromptRef.current ?? latestOperatorPrompt
+      if (recalled) setDraft(recalled)
+    }
+    taRef.current?.focus()
+    if (headless) {
+      headlessTurn.interrupt()
+      return
+    }
+    void trpc.sessions.interrupt.mutate({ sessionId }).catch(() => {})
+  }, [canInterrupt, draft, headless, headlessTurn, latestOperatorPrompt, sessionId, setDraft, trpc])
 
   // Answer a live AskUserQuestion from its chat card: option digits, free text
   // via the native Other entry, or skip (Esc). The server types the matching
@@ -575,7 +613,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     activity,
 
     headlessTurn,
-    canInterrupt: superThread !== undefined,
+    canInterrupt,
+    interrupt,
     backend,
     setBackendModel,
     setBackendEffort,
