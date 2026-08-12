@@ -45,6 +45,7 @@
  */
 import type { PodiumClientApi } from '../../../api'
 import type { Store } from '../../../engine/types'
+import { issueViewModelsFromReplica } from '../../../replica/issue-view-models'
 import type { IssueNavigationModel } from '../issues'
 import { defineSlice } from '../publish'
 import { groupUnifiedWorkRows, splitPinnedWork, type UnifiedWorkGroup } from './folds'
@@ -103,17 +104,21 @@ export interface WorklistSlice {
 /**
  * The issues the worklist renders.
  *
- * The web store carries two issue shapes — `issues` (server broadcast) and the
- * replica-projected view models behind `useReplicaIssues`. The slice takes the
- * store's own `issues`, which is what `useSidebarDerivation` already derived
- * from before this port; keeping that identical is the single-user parity
- * guard, and changing it is a separate, arguable change rather than something
- * to smuggle into a mechanism port.
+ * Unread left `IssueWire` (POD-797) and is derived on the replica from `readAt`
+ * versus issue/session activity. Flight Deck already reads those view models
+ * via `useReplicaIssues`. The published worklist must use the same builder —
+ * `store.issues` no longer carries `unread`, so row emphasis and the read/
+ * unread menu would otherwise stay stuck on "read" (POD-843).
+ *
+ * Stubs without a replica or projections keep the legacy array so clock-only
+ * slice tests and surface fixtures that inject `unread` still derive.
  */
 function issuesOf<TApi extends PodiumClientApi>(store: Store<TApi>): IssueNavigationModel[] {
-  // `IssueNavigationModel` is `IssueWire` minus `commentCount` plus three
-  // OPTIONAL fields, so this is an ordinary widening rather than a cast.
-  return store.issues
+  const replica = store.replica
+  const projections = store.issueProjections
+  if (!replica || !projections || projections.length === 0) return store.issues
+  const models = issueViewModelsFromReplica(replica, projections, store.issues)
+  return models.size > 0 ? [...models.values()] : store.issues
 }
 
 /**
@@ -141,6 +146,7 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
     previous.sessions === next.sessions &&
     previous.pins === next.pins &&
     previous.issues === next.issues &&
+    previous.issueProjections === next.issueProjections &&
     previous.coarseNow === next.coarseNow &&
     previous.selectedIssueId === next.selectedIssueId,
   derive: (store) => {

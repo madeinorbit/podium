@@ -16,6 +16,7 @@ export * from './bootstrap'
  */
 export * from './feed'
 export * from './feed/index'
+export * from './issue-view-models'
 export * from './issue-views'
 export * from './kernel'
 export * from './legacy-wire-v1-binding'

@@ -1,6 +1,13 @@
-import { asSessionId, type SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  type IssueProjection,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Store } from '../../../engine/types'
+import { createReplica, memoryStorage } from '../../../replica/replica'
 import { worklistSlice } from './published'
 
 // ---------------------------------------------------------------------------
@@ -103,5 +110,164 @@ describe('POD-331 published worklist slice — the clock is an INPUT, not an amb
     // Consumers used to each run their own `useNow`, so a row and its timestamp
     // could be rendered against two different "now"s. They read this instead.
     expect(worklistSlice.derive(storeAt(NOON, sessions)).now).toBe(NOON)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-843 — unread is derived from projection + session, not IssueWire.
+//
+// After unread left the wire, worklistSlice still built rows from store.issues.
+// Surfaces that read `issue.unread` then treated every row as read. This pins
+// the published slice to the same replica builder Flight Deck uses, starting
+// from projection + session inputs — not an injected `unread` on a legacy
+// fixture, which is what the sidebar surface tests still do.
+// ---------------------------------------------------------------------------
+
+const READ_AT = '2026-07-06T11:00:00.000Z'
+const BEFORE_READ = '2026-07-06T10:00:00.000Z'
+const AFTER_READ = '2026-07-06T12:00:00.000Z'
+
+function projection(over: {
+  id: string
+  title: string
+  readAt?: string | null
+  updatedAt: string
+}): IssueProjection {
+  return {
+    id: over.id,
+    seq: 1,
+    title: over.title,
+    description: { value: '' },
+    stage: 'in_progress',
+    updatedAt: over.updatedAt,
+    createdAt: '2026-06-01T00:00:00.000Z',
+    archived: false,
+    priority: 2,
+    type: 'task',
+    intentOrigin: 'human',
+    audience: 'human',
+    isDraftVessel: false,
+    readAt: over.readAt,
+  } as unknown as IssueProjection
+}
+
+function legacyIssue(id: string, title: string): IssueWire {
+  return {
+    id,
+    repoPath: '/repo',
+    seq: 1,
+    title,
+    description: '',
+    stage: 'in_progress',
+    worktreePath: '/repo',
+    branch: 'issue/1',
+    parentBranch: 'main',
+    defaultAgent: 'claude-code',
+    blockedByNotes: [],
+    createdAt: '2026-06-01T00:00:00.000Z',
+    updatedAt: BEFORE_READ,
+    archived: false,
+    needsHuman: false,
+    origin: 'human',
+    audience: 'human',
+    draft: false,
+    childCount: 0,
+    childDoneCount: 0,
+    priority: 2,
+    type: 'task',
+    pinned: false,
+    labels: [],
+    deps: [],
+    dependents: [],
+    comments: [],
+    ready: true,
+    blocked: false,
+    deferred: false,
+    readAt: READ_AT,
+    // The bug: surfaces trusted this field. The slice must ignore it.
+    unread: false,
+  } as unknown as IssueWire
+}
+
+function worklistFromProjection(args: {
+  id: string
+  title: string
+  readAt?: string | null
+  updatedAt: string
+  lastActiveAt: string
+}): ReturnType<typeof worklistSlice.derive> {
+  const row = projection(args)
+  const member = session('s-live', {
+    issueId: asIssueId(args.id),
+    cwd: '/repo',
+    lastActiveAt: args.lastActiveAt,
+    unread: false,
+    readAt: args.readAt ?? null,
+  })
+  const replica = createReplica({ storage: memoryStorage() })
+  replica.applySnapshot('issueProjections', [row])
+  replica.applySnapshot('sessions', [member])
+  replica.applySnapshot('repos', [{ id: 'repo', path: '/repo', prefix: 'POD' } as never])
+  return worklistSlice.derive({
+    repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [{ path: '/repo' }] }],
+    sessions: [member],
+    pins: { panels: [], worktrees: [], repos: [] },
+    issues: [legacyIssue(args.id, args.title)],
+    issueProjections: [row],
+    replica,
+    coarseNow: NOON,
+    selectedIssueId: null,
+  } as unknown as Store)
+}
+
+function issueUnreadOf(slice: ReturnType<typeof worklistSlice.derive>, id: string): boolean | undefined {
+  const row = slice.work.find((entry) => entry.kind === 'issue' && entry.issue.id === id)
+  expect(row, `expected a worklist row for ${id}`).toBeDefined()
+  return row && row.kind === 'issue' ? row.issue.unread : undefined
+}
+
+describe('POD-843 published worklist derives unread from projection + session', () => {
+  it('a never-read issue is unread even when the legacy wire says otherwise', () => {
+    const slice = worklistFromProjection({
+      id: 'iss_new',
+      title: 'Never read',
+      readAt: null,
+      updatedAt: BEFORE_READ,
+      lastActiveAt: BEFORE_READ,
+    })
+    expect(issueUnreadOf(slice, 'iss_new')).toBe(true)
+  })
+
+  it('session activity after readAt flips the row unread without an IssueWire.unread', () => {
+    const slice = worklistFromProjection({
+      id: 'iss_active',
+      title: 'New session activity',
+      readAt: READ_AT,
+      updatedAt: BEFORE_READ,
+      lastActiveAt: AFTER_READ,
+    })
+    expect(issueUnreadOf(slice, 'iss_active')).toBe(true)
+  })
+
+  it('issue updatedAt after readAt is unread even with a quiet session', () => {
+    const slice = worklistFromProjection({
+      id: 'iss_touched',
+      title: 'Issue edited',
+      readAt: READ_AT,
+      updatedAt: AFTER_READ,
+      lastActiveAt: BEFORE_READ,
+    })
+    expect(issueUnreadOf(slice, 'iss_touched')).toBe(true)
+  })
+
+  it('a caught-up issue stays read', () => {
+    const slice = worklistFromProjection({
+      id: 'iss_seen',
+      title: 'Caught up',
+      readAt: READ_AT,
+      updatedAt: BEFORE_READ,
+      lastActiveAt: BEFORE_READ,
+    })
+    expect(issueUnreadOf(slice, 'iss_seen')).toBe(false)
   })
 })

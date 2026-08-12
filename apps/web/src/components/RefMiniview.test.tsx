@@ -464,7 +464,7 @@ describe('RefCard is not draggable (POD-799)', () => {
         title: 'Session',
         cwd: '/home/dev/podium',
       },
-    } as ResolvedRef)
+    } as unknown as ResolvedRef)
     const { left, top } = card.style
     dragAcross(card)
     expect(card.style.left).toBe(left)
