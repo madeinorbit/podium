@@ -615,11 +615,14 @@ describe('resolvePlan — help (#18)', () => {
     expect(plan({}, ['--help'], {}, true)).toEqual({ kind: 'help' })
     expect(plan({}, ['update', '--help'])).toEqual({ kind: 'help' })
   })
-  it('sub-CLIs with their own richer help keep their --help; logs gets top-level help', () => {
+  it('sub-CLIs with their own richer help keep their --help — logs included since POD-1947', () => {
     expect(plan({}, ['issue', '--help'])).toEqual({ kind: 'issue', args: ['--help'] })
     expect(plan({}, ['quota', '--help'])).toEqual({ kind: 'quota', args: ['--help'] })
     expect(plan({}, ['spec', '-h'])).toEqual({ kind: 'spec', args: ['-h'] })
-    expect(plan({}, ['logs', '--help'])).toEqual({ kind: 'help' })
+    // `logs` used to fall through to the top-level help, which was right while it
+    // was one file reader. It now has verbs that reach the server, and their
+    // selectors do not fit in the top-level list.
+    expect(plan({}, ['logs', '--help'])).toEqual({ kind: 'logs', args: ['--help'] })
   })
   it('helpText names the commands and the takeover flag', () => {
     const text = helpText()

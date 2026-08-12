@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CRASH_MAX_EVENTS, type CrashEvent } from '@podium/runtime/crash-store'
@@ -208,6 +208,22 @@ describe('podium logs', () => {
         ])
         expect(logFilesFor(['daemon'], dir)).toEqual([join(dir, 'daemon.ndjson')])
         expect(logFilesFor(['janitor'], dir)).toEqual([])
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    })
+
+    it('a NAMED component also finds a forwarded client’s per-origin file (POD-1947)', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'podium-logs-'))
+      try {
+        mkdirSync(join(dir, 'clients'))
+        writeFileSync(join(dir, 'clients', 'web-m2.ndjson'), '')
+        writeFileSync(join(dir, 'server.ndjson'), '')
+        // The origin `podium logs level` just printed is what a reader types next.
+        expect(logFilesFor(['web-m2'], dir)).toEqual([join(dir, 'clients', 'web-m2.ndjson')])
+        // …but the bare command still means THIS host's processes. A default that
+        // swept in every client that ever forwarded would bury the server's own.
+        expect(logFilesFor([], dir)).toEqual([join(dir, 'server.ndjson')])
       } finally {
         rmSync(dir, { recursive: true, force: true })
       }

@@ -84,7 +84,7 @@ sites.
 |---|---|
 | Server / daemon / janitor / CLI | `PODIUM_LOG_LEVEL=debug` for everything |
 | One namespace | `PODIUM_LOG='daemon:*=debug'` — comma/space separated, most specific pattern wins |
-| Clients (no env: browser, webview, phone) | `setLogLevel('debug')` from `@podium/logger`, or `logs.setLevel` from the server — see below |
+| Clients (no env: browser, webview, phone) | `podium logs level debug --role web` from a shell on the server host — see below |
 | Desktop Rust side | `PODIUM_LOG_LEVEL` only; the per-namespace syntax is not implemented in the crate |
 
 Raising a client's level raises the console **and** the forwarding stream
@@ -95,9 +95,35 @@ beat the process's own default; nothing pins its own threshold.
 ### Raising a client you are not sitting at
 
 A browser, webview or phone has no env to set, and the whole point of forwarding
-is diagnosing a problem on someone else's machine. `logs.setLevel` (tRPC, admin)
-pushes a level down the client socket to the connections that are open right
-now:
+is diagnosing a problem on someone else's machine. From a shell on the server
+host — which is where you are:
+
+```sh
+podium logs clients                              # who is connected, and what they call themselves
+podium logs level debug --role web --for 30m     # turn one up
+# …reproduce the problem…
+podium logs web-<machine> --pretty               # read what it forwarded
+podium logs level reset --role web               # put it back
+```
+
+The selector flags are `--role`, `--machine` and `--client`; they AND together,
+and no selector at all means every connected client. `--for` takes `90s`, `30m`
+or `2h`, defaults to the client's own 30 minutes, and is capped at 24h.
+
+Two things to know before you use it:
+
+- **`podium logs clients` is also a reset.** There is no "list connected
+  clients" query — the server answers "who is connected" only by replying to a
+  level command, so the listing sends the safe one (`level: null`) and puts every
+  client back to its boot default. Do not run it in the middle of an
+  investigation expecting a passive read; run it *before* you raise.
+- **A raise that matched nothing exits non-zero** and says so, rather than
+  printing an ok. That is the failure mode worth guarding: a typo'd `--role`
+  reaches no connection, and the server has no way to call that an error (see
+  below).
+
+Underneath it is one call to `logs.setLevel` (tRPC, admin), which pushes a level
+down the client socket to the connections open right now:
 
 ```jsonc
 // every connected client, for half an hour
@@ -111,7 +137,17 @@ now:
 The reply lists every connection it reached, with the role/version/machine that
 connection reported — which is the same tuple `clients/<origin>.ndjson` is named
 after, and is how you find out what is connected in the first place. An unknown
-`clientId` is not an error; it simply reaches nobody.
+`clientId` is not an error; it simply reaches nobody. The CLI prints that
+reached-list verbatim for exactly this reason.
+
+The CLI talks to the local server over `/trpc` with the operator's credential,
+**not** through the agent relay: `logs.setLevel` reaches across into somebody
+else's running client, so it is not something a scoped agent capability carries.
+Run it on the box the server is on.
+
+Targeting is `role` / `machine` / `clientId` only. There is no per-namespace
+raise for a client: the wire frame carries a global level, so a `--namespace`
+flag would be a promise it cannot keep.
 
 Three things about it are load-bearing:
 
@@ -181,8 +217,13 @@ Reading them:
 ```sh
 podium logs                      # tail the component logs
 podium logs --pretty             # NDJSON rendered for humans
+podium logs web-<machine>        # a forwarded client's own file, by origin
 podium logs export-crash         # bundle recent crash events for support
 ```
+
+`podium logs clients` and `podium logs level` are the same verb's reach into a
+connected client — see [Raising a client you are not sitting
+at](#raising-a-client-you-are-not-sitting-at).
 
 Under systemd `podium logs` points you at `journalctl` instead, which is the
 authority there.

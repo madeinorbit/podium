@@ -351,6 +351,9 @@ export function resolvePlan(
     'telemetry',
     'quota',
     'machine',
+    // `logs` grew verbs of its own (POD-1947 — `clients`, `level`), so its help
+    // now has something to say that the top-level list cannot fit.
+    'logs',
   ])
   if (
     argv[0] === 'help' ||
@@ -656,6 +659,9 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '                        Show logs for managed processes (NDJSON; --pretty renders them)',
     '  logs export-crash [--limit N] [--out FILE]',
     '                        Bundle recent crash events for a support hand-off',
+    '  logs clients          List the clients connected right now (and reset them)',
+    '  logs level <level|reset> [--role R] [--for 30m]',
+    '                        Raise what a connected client records, then put it back',
     '',
     'Access:',
     '  auth mint-session     Mint this host’s operator session (password-protected instances)',
@@ -1362,7 +1368,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     }
     case 'logs': {
       const { logsCommand } = await import('./cli-lifecycle')
-      logsCommand(plan.args)
+      await logsCommand(plan.args)
       return
     }
     case 'usage-error': {
