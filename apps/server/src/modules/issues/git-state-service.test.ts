@@ -84,7 +84,8 @@ describe('POD-98 git-state service wiring', () => {
 
     onSessionRemovedOrArchived(asSessionId('sess-bound'))
     await refreshGitState(id, '/repo')
-    expect(svc.get(id)?.gitState?.commits).toBeUndefined()
+    // Archiving drops the ephemeral session ledger, not durable issue markers.
+    expect(svc.get(id)?.gitState?.commits).toEqual(['sha-bound'])
   })
 
   it('turn end probes a shared checkout and lands attributed gitState on the wire', async () => {

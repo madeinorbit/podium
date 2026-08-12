@@ -193,7 +193,7 @@ describe('probeGitState', () => {
     expect(calls.some((c) => c.op === 'isMergedInto')).toBe(true)
   })
 
-  test('shared checkout: merge axis suppressed, attribution carried', async () => {
+  test('shared checkout ignores HEAD-delta commits but carries touched-file attribution', async () => {
     const calls: Array<{ op: string; args?: Record<string, string> }> = []
     const state = await probeGitState(
       io(
@@ -215,7 +215,7 @@ describe('probeGitState', () => {
     )
     expect(state.shared).toBe(true)
     expect(state.ahead).toBeUndefined()
-    expect(state.commits).toEqual(['abc', 'def'])
+    expect(state.commits).toEqual([])
     expect(state.dirtyFiles).toBe(3)
     expect(state.dirtyOwn).toBe(1)
     expect(state.fallback).toBeUndefined()
