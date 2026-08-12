@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { createKernelReplica, createSideCache } from '../replica/kernel'
 import type { KernelCacheRead } from '../replica/kernel'
 import { createReplica, memoryStorage } from '../replica/replica'
-import { createReplicaBinding, type ReplicaPublication } from './replica-binding'
+import {
+  createReplicaBinding,
+  REPLICA_BINDING_KINDS,
+  type ReplicaPublication,
+} from './replica-binding'
 
 const session = (id: string, readAt: string | null = null) =>
   ({
@@ -81,7 +85,11 @@ describe('replica snapshot binding', () => {
       bufferedFramesApplied: 0,
     })
     expect(publications).toHaveLength(1)
-    expect([...publications[0]!.changed]).toHaveLength(8)
+    // EVERY bound kind, which is the property — a rescope replaces the whole
+    // world, so a kind left out of the batch is one the Store would still be
+    // showing from the previous scope. Counted from the list itself so adding a
+    // kind cannot quietly narrow what this asserts.
+    expect([...publications[0]!.changed]).toHaveLength(REPLICA_BINDING_KINDS.length)
     expect(publications[0]!.snapshot.sessions.map((row) => row.sessionId)).toEqual(['new-session'])
     expect(publications[0]!.snapshot.issues.map((row) => row.id)).toEqual(['new-issue'])
 
