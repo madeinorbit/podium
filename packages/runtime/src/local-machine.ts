@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto'
+import { asMachineId, type MachineId } from '@podium/model'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { stateDir } from './config'
@@ -31,11 +32,11 @@ export { stateDir }
  * leave one host wearing two identities. Owner-only (0600) to match its neighbour; the id
  * is durable identity, not a secret, and nothing is authorized by holding it.
  */
-export function readOrCreateLocalMachineId(dir: string = stateDir()): string {
+export function readOrCreateLocalMachineId(dir: string = stateDir()): MachineId {
   const path = join(dir, 'machine.id')
   try {
     const existing = readFileSync(path, 'utf8').trim()
-    if (existing) return existing
+    if (existing) return asMachineId(existing)
   } catch {
     // not minted yet — fall through and mint it
   }
@@ -45,9 +46,9 @@ export function readOrCreateLocalMachineId(dir: string = stateDir()): string {
     // `wx`: fail if the file already exists, so a server/daemon startup race can't have
     // one clobber the other's identity — the loser re-reads the winner's value.
     writeFileSync(path, id, { mode: 0o600, flag: 'wx' })
-    return id
+    return asMachineId(id)
   } catch {
-    return readFileSync(path, 'utf8').trim()
+    return asMachineId(readFileSync(path, 'utf8').trim())
   }
 }
 

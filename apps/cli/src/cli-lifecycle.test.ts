@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -289,7 +290,7 @@ describe('podium logs export-crash', () => {
   const event = (message: string): CrashEvent => ({
     id: 'abc123',
     receivedAt: '2026-08-11T14:03:22.847Z',
-    origin: { role: 'web', v: '0.1.3', machineId: 'm1' },
+    origin: { role: 'web', v: '0.1.3', machineId: asMachineId('m1') },
     err: { name: 'TypeError', message, stack: 'TypeError: x\n  at f' },
     snapshot: [{ ts: '2026-08-11T14:03:22.800Z', level: 'debug', ns: 'web:app', msg: 'before' }],
   })

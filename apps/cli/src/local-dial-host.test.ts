@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 /**
  * POD-1607 — the CLI must dial the address the server BOUND, not a hard-coded loopback.
  *
@@ -39,7 +40,12 @@ describe('local dials follow PODIUM_HOST (POD-1607)', () => {
 
   it('the local daemon dials the bound interface over ws', () => {
     expect(
-      daemonOptionsForPlan({ mode: 'all-in-one', showSetupHint: false }, 23000, 'tok', 'mid'),
+      daemonOptionsForPlan(
+        { mode: 'all-in-one', showSetupHint: false },
+        23000,
+        'tok',
+        asMachineId('mid'),
+      ),
     ).toMatchObject({ serverUrl: `ws://${HOST}:23000` })
   })
 
@@ -86,7 +92,12 @@ describe('local dials follow PODIUM_HOST (POD-1607)', () => {
       serverUrl: 'http://localhost:23000',
     })
     expect(
-      daemonOptionsForPlan({ mode: 'all-in-one', showSetupHint: false }, 23000, 'tok', 'mid'),
+      daemonOptionsForPlan(
+        { mode: 'all-in-one', showSetupHint: false },
+        23000,
+        'tok',
+        asMachineId('mid'),
+      ),
     ).toMatchObject({ serverUrl: 'ws://localhost:23000' })
     expect(portInUseMessage(23000)).toContain('http://localhost:23000')
   })

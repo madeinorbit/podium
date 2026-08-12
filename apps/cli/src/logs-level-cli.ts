@@ -55,7 +55,7 @@
  * making on the side.
  */
 
-import type { MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import { localServerUrl, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -174,7 +174,7 @@ export function parseRaiseDuration(raw: string): number {
   return ms
 }
 
-const SELECTORS = { '--client': 'clientId', '--role': 'role', '--machine': 'machineId' } as const
+const SELECTORS = { '--client': 'clientId', '--role': 'role' } as const
 
 /** PURE: the argv a `logs clients` / `logs level` invocation means. */
 export function parseLogsLevelArgs(argv: string[]): LogsLevelPlan {
@@ -209,6 +209,10 @@ export function parseLogsLevelArgs(argv: string[]): LogsLevelPlan {
     }
     if (flag === '--for') {
       ttlMs = parseRaiseDuration(take())
+      continue
+    }
+    if (flag === '--machine') {
+      target.machineId = asMachineId(take())
       continue
     }
     if (Object.hasOwn(SELECTORS, flag)) {
