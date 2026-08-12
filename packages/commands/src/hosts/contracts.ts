@@ -32,6 +32,7 @@
  * about a machine to the machine.
  */
 
+import { MachineIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -51,7 +52,9 @@ const SERVED_ON: readonly TransportTag[] = ['trpc']
  * `.optional()`, and tightening it would refuse calls the current web client
  * makes.
  */
-export const hostsMemoryBreakdownInput = z.object({ machineId: z.string().optional() }).optional()
+export const hostsMemoryBreakdownInput = z
+  .object({ machineId: MachineIdField.optional() })
+  .optional()
 
 export const hostsMemoryBreakdownContract = {
   name: 'hosts.memoryBreakdown',

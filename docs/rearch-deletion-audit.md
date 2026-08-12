@@ -654,6 +654,31 @@ Three decisions are recorded rather than left implicit:
    the phase that deletes them, instead of being silently excluded from POD-301's
    number. POD-301 cannot close by laundering them; POD-318 cannot close while
    they remain.
+
+   **Closed at POD-1361 (25 → 0), with ONE declared exception.** POD-318
+   discharged D16.2's ordering constraint and bound the `entities/` fields;
+   POD-1361 swept the rest — server queries, command contracts, protocol frames
+   and runtime settings — onto `MachineIdField`, using
+   `z.string().min(1).pipe(MachineIdField)` wherever a length constraint had to
+   survive, so no payload's accepted set changed. The exception is
+   `PeerIdentityClaims.machineId` (`packages/protocol/src/handshake/envelope.ts`):
+   a peer's UNAUTHENTICATED claim about which machine it is, which ADR 3
+   D7.1 / D14.3 forbids anything from treating as a principal. Branding it would
+   make it assignable wherever a verified `MachineId` is expected — the precise
+   assignment the schema exists to keep visible — so it carries an `UNBRANDED`
+   marker, moves into `unbranded-by-decision-ids` (17 → 18), and is pinned by a
+   test in `envelope.test.ts` that assigns an arbitrary string to the field and
+   fails the moment the brand appears. The detector was corrected in the same
+   commit to exclude excused sites from this key, as it already did for
+   `raw-string-entity-ids`: counting one field under both keys would have held
+   this item off zero with no spelling able to discharge it.
+
+   Not swept, and deliberately: a tRPC procedure's ARGUMENT type is `z.input` of
+   its schema, and a zod brand is an output-side type — so branding a server
+   input does not, and cannot, brand what a caller passes. `PodiumClientApi` in
+   `packages/client-core/src/api.ts` therefore keeps `machineId?: string`; the
+   header there records the re-measurement that overturned the earlier
+   "brand both halves in one commit" reading.
 3. **The excuse is counted too.** Without `unbranded-by-decision-ids`, the first
    item is zeroable by writing `UNBRANDED` above every field. With it, an excuse
    raises a committed number and the audit fails until the reason is recorded.

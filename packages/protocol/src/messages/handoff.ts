@@ -81,7 +81,7 @@ export const HandoffExportRequestMessage = z.object({
   repoId: RepoIdField,
   title: z.string().optional(),
   issueId: IssueIdField.optional(),
-  sourceMachineId: z.string(),
+  sourceMachineId: MachineIdField,
   /** Optional on the wire for old-frame readability; a current daemon refuses
    * an export without this authenticated server instruction. */
   binding: HandoffBindingExportInstruction.optional(),

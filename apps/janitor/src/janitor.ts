@@ -7,6 +7,7 @@ import { createLogger } from '@podium/logger'
 import {
   asAutomationId,
   asIssueId,
+  asMachineId,
   asSessionId,
   FIRST_ADMIN_USER_ID,
   type UserId,
@@ -44,9 +45,9 @@ import {
   messageExpiryRunKey,
   type SessionAutoArchiveObservation,
   type StewardPollObservation,
-  type WorktreeGcObservation,
   sessionAutoArchiveRunKey,
   stewardPollRunKey,
+  type WorktreeGcObservation,
   worktreeGcRunKey,
 } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
@@ -1131,7 +1132,7 @@ export class ConnectScanReader {
       )
       .all(localMachineId, CANDIDATE_LIMIT) as Array<{ id: string; last_seen_at: string }>
     return rows.map((row) => ({
-      machineId: row.id,
+      machineId: asMachineId(row.id),
       lastSeenAt: row.last_seen_at,
       deep: false as const,
     }))

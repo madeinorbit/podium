@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DELIVERY_CAPS, PeerHello } from './envelope'
+import { DELIVERY_CAPS, PeerHello, PeerIdentityClaims } from './envelope'
 
 const baseHello = {
   type: 'peerHello' as const,
@@ -53,6 +53,30 @@ describe('PeerHello build report', () => {
 
   it('rejects an installKind outside the closed set', () => {
     expect(() => PeerHello.parse({ ...baseHello, build: { installKind: 'wat' } })).toThrow()
+  })
+
+  /**
+   * POD-1361 swept every machine-id field onto `MachineIdField` and upheld THIS
+   * one as the single exception: a peer's claim about which machine it is, which
+   * ADR 3 D7.1 / D14.3 forbids anything from treating as a principal. The brand
+   * adds no validation, so the two spellings PARSE identically — the difference
+   * is only ever a type error at the assignment the exception exists to stop, and
+   * that is what this pins.
+   */
+  it('leaves the claimed machineId UNBRANDED — a claim is not an identity', () => {
+    const claims = PeerIdentityClaims.parse({ machineId: 'not-a-verified-id' })
+    // An ARBITRARY string is assignable to this field only while it is unbranded.
+    // Branding it makes this line a type error — which is the whole signal, in the
+    // direction that matters: it would equally stop
+    // `redeemPairCode({ machineId: hello.claims.machineId })` from reading as a
+    // verified id, and that assignment is the one this exception exists to keep
+    // visible rather than to make.
+    const claimed: typeof claims.machineId = 'any-string-a-peer-cares-to-send'
+    expect(claimed).toBe('any-string-a-peer-cares-to-send')
+    expect(claims.machineId).toBe('not-a-verified-id')
+    // Verify the instrument: the schema must actually carry the field, or the
+    // assignment above proves nothing about a field that is not there.
+    expect(Object.keys(PeerIdentityClaims.shape)).toContain('machineId')
   })
 
   it('names the three delivery capability tokens', () => {

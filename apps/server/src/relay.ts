@@ -3,7 +3,13 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, spawnedByParentSessionId } from '@podium/model'
+import {
+  asMachineId,
+  asSessionId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+  spawnedByParentSessionId,
+} from '@podium/model'
 import type {
   LiveServerMessage,
   LocalPortableStateControl,
@@ -568,7 +574,9 @@ export class SessionRegistry {
       const msg: LiveServerMessage = {
         type: 'worktreesChanged',
         repoPath,
-        ...(machineId ? { machineId } : {}),
+        // Server-side callers pass a machine id they already hold (issue start,
+        // handoff import); the brand is asserted rather than re-parsed.
+        ...(machineId ? { machineId: asMachineId(machineId) } : {}),
       }
       for (const c of clientRegistry.values()) c.send(msg)
     }

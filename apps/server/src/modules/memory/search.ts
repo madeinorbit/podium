@@ -1,4 +1,4 @@
-import { asIssueId, machineScopedKey } from '@podium/model'
+import { asIssueId, asMachineId, machineScopedKey } from '@podium/model'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { MemoryReader } from './types'
@@ -168,7 +168,10 @@ export class MemorySearchService {
         score: score('conversation', 1, row.updatedAt, now),
         ts: row.updatedAt,
         nativeId: row.id,
-        ...(row.machineId ? { machineId: row.machineId } : {}),
+        // SERIALIZATION EDGE: the conversation/transcript index rows carry the
+        // machine column as plain text, so the brand is asserted here, on the way
+        // into the wire hit, rather than re-validated.
+        ...(row.machineId ? { machineId: asMachineId(row.machineId) } : {}),
       })
     }
 
@@ -229,7 +232,7 @@ export class MemorySearchService {
         snippet: row.snippet,
         score: score('transcript', normalized, row.ts ?? row.updatedAt, now),
         ...(row.ts ? { ts: row.ts } : {}),
-        machineId: row.machineId,
+        machineId: asMachineId(row.machineId),
         nativeId: row.nativeId,
         ...(row.podiumId ? { podiumId: row.podiumId } : {}),
         ...(session ? { sessionId: session.id } : {}),

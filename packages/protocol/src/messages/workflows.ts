@@ -1,4 +1,4 @@
-import { AccountIdField, SessionIdField } from '@podium/model'
+import { AccountIdField, MachineIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -94,7 +94,7 @@ export const ExecutionProfileWire = z.object({
   id: z.string(),
   name: z.string(),
   accountId: AccountIdField,
-  machineId: z.string().nullable(),
+  machineId: MachineIdField.nullable(),
   harness: z.string(),
   model: z.string(),
   effort: z.string(),

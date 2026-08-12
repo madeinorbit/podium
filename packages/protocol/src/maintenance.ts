@@ -3,6 +3,7 @@ import {
   type AutomationRunId,
   asAutomationRunId,
   IssueIdField,
+  MachineIdField,
   SessionIdField,
   UserIdField,
 } from '@podium/model'
@@ -277,7 +278,7 @@ export type StewardPollObservation = z.infer<typeof StewardPollObservation>
 
 /** Automatic connect-scan orchestration only (deep scans stay interactive). */
 export const ConnectScanObservation = z.object({
-  machineId: z.string().min(1).max(256),
+  machineId: z.string().min(1).max(256).pipe(MachineIdField),
   lastSeenAt: z.string().datetime(),
   deep: z.literal(false),
 })

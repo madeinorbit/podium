@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FLEET_CONTRACTS } from '@podium/commands'
+import { asMachineId } from '@podium/model'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { resolveServerRole } from './roles'
@@ -158,7 +159,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
     const auth = handle.registry.modules.machines.authenticateDaemon({
       type: 'pair',
       code: 'ABCD-EFGH',
-      machineId: 'joiner',
+      machineId: asMachineId('joiner'),
       hostname: 'joiner-host',
     })
     expect(auth).toEqual({ ok: false, reason: 'pairing is disabled on this server' })
@@ -202,7 +203,7 @@ describe('startServer default role keeps hub surfaces on', () => {
     const auth = handle.registry.modules.machines.authenticateDaemon({
       type: 'pair',
       code,
-      machineId: 'joiner',
+      machineId: asMachineId('joiner'),
       hostname: 'joiner-host',
     })
     expect(auth.ok).toBe(true)

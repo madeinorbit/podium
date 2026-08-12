@@ -54,10 +54,10 @@ import {
   daemonRequestKind,
 } from '../daemon-request'
 import type { LakeReadSession, MemoryService } from '../memory/service'
-import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
+import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
@@ -514,7 +514,7 @@ export class DaemonRpcService {
       repoId: RepoId
       title?: string
       issueId?: IssueId
-      sourceMachineId: string
+      sourceMachineId: MachineId
       binding: HandoffBindingExportInstruction
     },
     machineId: string,
@@ -633,7 +633,7 @@ export class DaemonRpcService {
       cwd: string
       baseShas: string[]
       repoId: RepoId
-      sourceMachineId: string
+      sourceMachineId: MachineId
     },
     machineId: string,
   ): Promise<Omit<WorkspaceExportResultMessage, 'type' | 'requestId'>> {

@@ -30,7 +30,7 @@
  * editor's conflict UX rather than to a router cutover.
  */
 
-import { SessionIdField } from '@podium/model'
+import { MachineIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -53,7 +53,7 @@ export const filesWriteInput = z.union([
     baseHash: z.string().optional(),
   }),
   z.object({
-    machineId: z.string().optional(),
+    machineId: MachineIdField.optional(),
     root: z.string(),
     path: z.string(),
     content: z.string(),

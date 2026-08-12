@@ -5,6 +5,7 @@
  * peer, and the reply it gets back is the shape today's shipped daemon expects.
  */
 
+import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { DaemonHandshake } from '../messages/daemon-handshake'
 import { createHandshakeAcceptor } from './acceptor'
@@ -48,7 +49,7 @@ const acceptor = () =>
 
 const legacyHello: DaemonHandshake = {
   type: 'hello',
-  machineId: 'mach-vps',
+  machineId: asMachineId('mach-vps'),
   token: 'tok-ok',
   hostname: 'vps.local',
 }
@@ -56,7 +57,7 @@ const legacyHello: DaemonHandshake = {
 const legacyPair: DaemonHandshake = {
   type: 'pair',
   code: 'code-1',
-  machineId: 'mach-new',
+  machineId: asMachineId('mach-new'),
   hostname: 'new.local',
   name: 'New Box',
 }
@@ -92,7 +93,7 @@ describe('legacy daemon frames ride the permanent mechanism', () => {
     expect(envelope.claims).toMatchObject({ machineId: 'mach-vps' })
     // A stolen token presented with someone else's machineId resolves to the
     // token's own machine, not the claimed one.
-    const forged = { ...legacyHello, machineId: 'mach-someone-elses' }
+    const forged = { ...legacyHello, machineId: asMachineId('mach-someone-elses') }
     const step = acceptor().receive(JSON.stringify(helloFromLegacyDaemonFrame(forged)))
     expect(step.action === 'establish' && step.peer.principal).toMatchObject({
       machine: 'mach-vps',

@@ -3,9 +3,10 @@ import {
   type MachineHarnessInventory,
   probeAllModels,
 } from '@podium/harness'
+import { createLogger } from '@podium/logger'
+import { asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import type { ControlHandlers, DaemonContext } from './context'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:inventory')
 
@@ -62,7 +63,10 @@ export async function reportInventory(
     if (inventoryCache.get(key) !== pending) return
     // machineId comes off the probed value, not from ctx a second time: the fact
     // and the machine it is about travel together by construction.
-    ctx.send({ type: 'inventoryReport', machineId, inventory })
+    // The brand is asserted, not validated: this id is the daemon's OWN, read
+    // from its state file at boot and carried through `DaemonContext.machineId`
+    // and the inventory build, neither of which is a wire boundary.
+    ctx.send({ type: 'inventoryReport', machineId: asMachineId(machineId), inventory })
   } catch (err) {
     // Evict only OUR failed build — a concurrent rebuild may have already stored
     // a fresh pending under this key; don't discard it.

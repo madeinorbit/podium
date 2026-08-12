@@ -17,7 +17,7 @@
     "issues-legacy-local-wire": 12,
     "legacy-wire-v1-adapter": 6,
     "local-placeholders": 3,
-    "machine-id-unbranded-fields": 25,
+    "machine-id-unbranded-fields": 0,
     "mobile-client-value": 0,
     "oversized-daemon-composition-root": 0,
     "panel-mode-duality": 0,
@@ -32,7 +32,7 @@
     "state-dir-defs": 0,
     "static-systemd-units": 0,
     "superagent-shadow-types": 0,
-    "unbranded-by-decision-ids": 17,
+    "unbranded-by-decision-ids": 18,
     "upstream-sync-forwarder": 0,
     "web-storage-keys": 0
   }

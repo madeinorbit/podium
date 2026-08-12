@@ -42,7 +42,7 @@
  * replayed against a recycled id stops something else.
  */
 
-import { IssueIdField, SessionIdField } from '@podium/model'
+import { IssueIdField, MachineIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -157,7 +157,7 @@ export const cloudSourceSessionInput = z.object({
   agent: z.enum(['claude-code', 'codex']),
   resumeRef: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
-  machineId: z.string().min(1).optional(),
+  machineId: z.string().min(1).pipe(MachineIdField).optional(),
 })
 
 export const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })

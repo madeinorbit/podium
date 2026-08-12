@@ -1,4 +1,4 @@
-import { RepoIdField } from '@podium/model'
+import { MachineIdField, RepoIdField } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -23,7 +23,7 @@ export const WorkspaceManifest = z.object({
   snapshotSha: z.string().nullable(),
   worktreeName: z.string(),
   bundleBase: z.array(z.string()),
-  sourceMachineId: z.string(),
+  sourceMachineId: MachineIdField,
   exportedAt: z.string(),
 })
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifest>
@@ -35,7 +35,7 @@ export const WorkspaceExportRequestMessage = z.object({
   cwd: z.string(),
   baseShas: z.array(z.string()),
   repoId: RepoIdField,
-  sourceMachineId: z.string(),
+  sourceMachineId: MachineIdField,
 })
 export const WorkspaceExportResultMessage = z.object({
   type: z.literal('workspaceExportResult'),

@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -489,7 +489,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const lease = handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
-      machineId: 'remote',
+      machineId: asMachineId('remote'),
       lastSeenAt: oldSeen,
       deep: false as const,
     }

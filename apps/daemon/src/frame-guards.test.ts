@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
@@ -56,7 +57,7 @@ describe('daemon frame guards', () => {
     })
     guard.send({ readyState: 1, send } as never, {
       type: 'inventoryReport',
-      machineId: 'machine-1',
+      machineId: asMachineId('machine-1'),
       inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
     })
     expect(warn).toHaveBeenCalledWith(

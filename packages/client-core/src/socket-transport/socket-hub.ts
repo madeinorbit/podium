@@ -8,6 +8,7 @@ import type {
   IssueProjection,
   IssueWire,
   LayoutWire,
+  MachineId,
   MachineWire,
   ReadPositionWire,
   RepoProjection,
@@ -15,7 +16,7 @@ import type {
   SessionMeta,
   TranscriptItem,
 } from '@podium/model'
-import { layoutRowId, readPositionRowId } from '@podium/model'
+import { asMachineId, layoutRowId, readPositionRowId } from '@podium/model'
 import {
   type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
@@ -59,14 +60,17 @@ const log = createLogger('client-core:socket-hub')
  * hello is sent once per connection. Role and machine — the two an operator
  * selects on — are set before the socket opens.
  */
-function clientLogOrigin(): { origin: { role: string; v?: string; machineId?: string } } | null {
+function clientLogOrigin(): { origin: { role: string; v?: string; machineId?: MachineId } } | null {
   const { role, v, machineId } = getProcessContext()
   if (typeof role !== 'string' || role === '') return null
   return {
     origin: {
       role,
       ...(typeof v === 'string' ? { v } : {}),
-      ...(typeof machineId === 'string' ? { machineId } : {}),
+      // The logger's process context is an untyped bag, so the brand is asserted
+      // on the way OUT of it rather than re-validated: the value was put there by
+      // `installClientLogging`, which takes a `MachineId`.
+      ...(typeof machineId === 'string' ? { machineId: asMachineId(machineId) } : {}),
     },
   }
 }

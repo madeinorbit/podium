@@ -8,11 +8,9 @@
  * covered too, because a refactor that changes it silently is the failure this
  * issue's parity requirement names.
  */
-import type {
-  WorkflowDetailWire,
-  WorkflowRunWire,
-  WorkflowWire,
-} from '@podium/protocol'
+
+import { asMachineId } from '@podium/model'
+import type { WorkflowDetailWire, WorkflowRunWire, WorkflowWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { MachineView } from './machines/authority'
 import {
@@ -58,7 +56,11 @@ function revision(id: string, version: number, publishedAt: string | null) {
   }
 }
 
-function step(over: { stepId: string; status: WorkflowRunWire['steps'][number]['status']; position: number }) {
+function step(over: {
+  stepId: string
+  status: WorkflowRunWire['steps'][number]['status']
+  position: number
+}) {
   return {
     title: `step ${over.position}`,
     instructions: '',
@@ -94,7 +96,11 @@ function run(over: Partial<WorkflowRunWire> = {}): WorkflowRunWire {
   }
 }
 
-const view = (id: string, availability: MachineView['availability'], online = true): MachineView => ({
+const view = (
+  id: string,
+  availability: MachineView['availability'],
+  online = true,
+): MachineView => ({
   machine: { id, online },
   grants: { see: true, use: availability !== 'unauthorized', manage: false },
   availability,
@@ -194,18 +200,25 @@ describe('run progress', () => {
       )?.stepId,
     ).toBe('s2')
     expect(
-      currentStepOf(run({ steps: [step({ stepId: 's1', status: 'pending', position: 0 })] }))?.stepId,
+      currentStepOf(run({ steps: [step({ stepId: 's1', status: 'pending', position: 0 })] }))
+        ?.stepId,
     ).toBe('s1')
   })
 
   it('offers retry only on a blocked step, and neither advance on a terminal run', () => {
-    const blocked = run({ steps: [step({ stepId: 's1', status: 'blocked', position: 0 })], status: 'blocked' })
+    const blocked = run({
+      steps: [step({ stepId: 's1', status: 'blocked', position: 0 })],
+      status: 'blocked',
+    })
     expect(runAdvances(blocked)).toEqual({ skip: true, retry: true })
 
     const active = run({ steps: [step({ stepId: 's1', status: 'active', position: 0 })] })
     expect(runAdvances(active)).toEqual({ skip: true, retry: false })
 
-    const done = run({ status: 'complete', steps: [step({ stepId: 's1', status: 'complete', position: 0 })] })
+    const done = run({
+      status: 'complete',
+      steps: [step({ stepId: 's1', status: 'complete', position: 0 })],
+    })
     expect(runAdvances(done)).toEqual({ skip: false, retry: false })
   })
 
@@ -283,12 +296,18 @@ describe('placement fails closed', () => {
 
   it('carries unauthorized and unreachable through as different answers', () => {
     const views = [view('m1', 'unauthorized'), view('m2', 'unreachable', false)]
-    expect(profilePlacement({ id: 'p1', machineId: 'm1' }, views).state).toBe('unauthorized')
-    expect(profilePlacement({ id: 'p2', machineId: 'm2' }, views).state).toBe('unreachable')
+    expect(profilePlacement({ id: 'p1', machineId: asMachineId('m1') }, views).state).toBe(
+      'unauthorized',
+    )
+    expect(profilePlacement({ id: 'p2', machineId: asMachineId('m2') }, views).state).toBe(
+      'unreachable',
+    )
   })
 
   it('reports a machine the principal cannot see as unknown — the same as a nonexistent id', () => {
-    expect(profilePlacement({ id: 'p1', machineId: 'm-invisible' }, []).state).toBe('unknown')
+    expect(profilePlacement({ id: 'p1', machineId: asMachineId('m-invisible') }, []).state).toBe(
+      'unknown',
+    )
   })
 
   it('offers only usable machines, and reports the refused ones separately', () => {

@@ -18,12 +18,9 @@
  * deletion, not a refactor.
  */
 
+import { asMachineId } from '@podium/model'
 import type { z } from 'zod'
-import type {
-  DaemonHandshake,
-  DaemonHandshakeReply,
-  PairFrame,
-} from '../messages/daemon-handshake'
+import type { DaemonHandshake, DaemonHandshakeReply, PairFrame } from '../messages/daemon-handshake'
 import { WIRE_VERSION } from '../version'
 import type { PeerHello, PeerHelloReply } from './envelope'
 
@@ -94,7 +91,13 @@ export const legacyReplyFor = (
       token: reply.issuedToken ?? '',
       // The id the ACCEPTOR resolved, falling back to the peer's proposal only
       // when the acceptor did not name one.
-      machineId: reply.assignedId ?? frame.machineId,
+      //
+      // `assignedId` is deliberately a plain string on `AuthOutcome` — the slot is
+      // "the resolved identity, a machine id TODAY" — so the narrowing happens
+      // here, in the branch that already knows this is the machine handshake. Both
+      // strategies that set it pass `ResolvedMachine.machine`, which IS a
+      // `MachineId`; the fallback is this frame's own branded field.
+      machineId: reply.assignedId === undefined ? frame.machineId : asMachineId(reply.assignedId),
       name: reply.name ?? frame.name ?? frame.hostname,
       ...(reply.updatePubkey === undefined ? {} : { updatePubkey: reply.updatePubkey }),
     }

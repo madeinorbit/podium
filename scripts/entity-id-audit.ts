@@ -696,14 +696,25 @@ export function rawStringEntityIds(ctx: AuditContext): AuditSite[] {
 /**
  * POD-318's item: a machine-id field still declared as a bare `z.string()`.
  *
- * It reached zero when POD-318 retired the sentinels and bound every field to
- * `MachineIdField`. The detector stays because the ratchet is what stops the debt
+ * POD-318 retired the sentinels and bound the `entities/` fields; POD-1361 swept
+ * the remaining 28 across server queries, command contracts, protocol frames and
+ * runtime settings. The detector stays because the ratchet is what stops the debt
  * from being re-created: a new machine-id field written as a raw string raises
  * this number and fails the audit.
+ *
+ * The `UNBRANDED` marker excuses a site here on exactly the terms it excuses one
+ * from {@link rawStringEntityIds} — and for the same reason it is safe to: the
+ * excused set is ITSELF a ratcheted key ({@link unbrandedByDecisionFields}), so an
+ * excuse MOVES a site between two committed numbers rather than deleting it.
+ * Without this clause the two keys double-count the same field, and a machine id
+ * that must stay a string — POD-1361 upheld one, `PeerIdentityClaims.machineId`,
+ * a peer's UNAUTHENTICATED claim, where the brand would launder the exact
+ * assignment ADR 3 D7.1/D14.3 exists to forbid — would hold this item off zero
+ * forever with no spelling that could ever discharge it.
  */
 export function machineIdUnbrandedFields(ctx: AuditContext): AuditSite[] {
   return sitesOnce(ctx)
-    .filter((s) => s.brand === 'Machine' && s.form === 'zod-string')
+    .filter((s) => s.brand === 'Machine' && s.form === 'zod-string' && !s.excused)
     .map(site)
 }
 
@@ -743,7 +754,7 @@ if (import.meta.main) {
   console.log(`entity-id field positions: ${sites.length} (floor ${MIN_ID_FIELD_SITES})`)
   for (const [form, n] of [...byForm].sort((a, b) => b[1] - a[1])) console.log(`  ${form}: ${n}`)
   console.log(
-    `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && s.form === 'zod-string').length} excused=${sites.filter((s) => s.form === 'zod-string' && s.excused).length}`,
+    `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && s.form === 'zod-string' && !s.excused).length} excused=${sites.filter((s) => s.form === 'zod-string' && s.excused).length}`,
   )
   if (argv.includes('--unreachable')) {
     const wider = idFieldsWithNoBrandVocabulary(loadContext(REPO_ROOT))

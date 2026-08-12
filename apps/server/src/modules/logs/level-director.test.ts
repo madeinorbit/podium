@@ -1,7 +1,8 @@
+import { asMachineId } from '@podium/model'
 import type { ClientLogOrigin, ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { captureLogs } from '../../test-support/capture-logs'
-import { ClientLogLevelDirector, type ClientConnectionsPort } from './level-director'
+import { type ClientConnectionsPort, ClientLogLevelDirector } from './level-director'
 
 interface FakeConn {
   id: string
@@ -21,8 +22,14 @@ function connections(conns: FakeConn[]): ClientConnectionsPort & {
   }
 }
 
-const web: FakeConn = { id: 'c0', origin: { role: 'web', v: '1.0.0', machineId: 'm1' } }
-const mobile: FakeConn = { id: 'c1', origin: { role: 'mobile', v: '1.0.1', machineId: 'm2' } }
+const web: FakeConn = {
+  id: 'c0',
+  origin: { role: 'web', v: '1.0.0', machineId: asMachineId('m1') },
+}
+const mobile: FakeConn = {
+  id: 'c1',
+  origin: { role: 'mobile', v: '1.0.1', machineId: asMachineId('m2') },
+}
 /** A build too old to describe itself, or one that connected before its logging
  *  installed. It has no origin and never will. */
 const anonymous: FakeConn = { id: 'c2' }
@@ -43,15 +50,20 @@ describe('logs.setLevel', () => {
 
     const result = new ClientLogLevelDirector(clients).setLevel({
       level: 'debug',
-      target: { role: 'mobile', machineId: 'm2' },
+      target: { role: 'mobile', machineId: asMachineId('m2') },
     })
 
     expect(clients.sent.map((s) => s.id)).toEqual(['c1'])
-    expect(result.clients).toEqual([{ clientId: 'c1', role: 'mobile', v: '1.0.1', machineId: 'm2' }])
+    expect(result.clients).toEqual([
+      { clientId: 'c1', role: 'mobile', v: '1.0.1', machineId: 'm2' },
+    ])
   })
 
   it('names one of two tabs by connection id', () => {
-    const otherTab: FakeConn = { id: 'c9', origin: { role: 'web', v: '1.0.0', machineId: 'm1' } }
+    const otherTab: FakeConn = {
+      id: 'c9',
+      origin: { role: 'web', v: '1.0.0', machineId: asMachineId('m1') },
+    }
     const clients = connections([web, otherTab])
 
     new ClientLogLevelDirector(clients).setLevel({ level: 'trace', target: { clientId: 'c9' } })

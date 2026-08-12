@@ -19,14 +19,21 @@
  * out `isAllowedRoot(...)` was the shape this replaces.
  */
 
+import {
+  AutomationIdField,
+  asThreadId,
+  asUserId,
+  type MachineId,
+  MachineIdField,
+  ThreadIdField,
+} from '@podium/model'
+import { loadConfig } from '@podium/runtime/config'
 import { z } from 'zod'
 import { getFeatureStates } from '../features'
-import { loadConfig } from '@podium/runtime/config'
 import type { FamilyState } from './derived-family'
 import { assertAllowedRoot } from './files/registry'
 import { defineQuery } from './query-table'
 import { specsInputs } from './specs/service'
-import { AutomationIdField, ThreadIdField, asThreadId, asUserId } from '@podium/model'
 
 const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
@@ -66,10 +73,20 @@ export const SEARCH_QUERIES = {
 const repoOp = (op: 'statusProbe' | 'logPanel' | 'diffFile') =>
   q(
     z.object({
-      machineId: z.string().optional(),
+      machineId: MachineIdField.optional(),
       root: z.string(),
       ...(op === 'diffFile' ? { path: z.string() } : {}),
-    }) as z.ZodType<{ machineId?: string | undefined; root: string; path?: string }>,
+      // Three ops, one schema, so the shape is asserted rather than inferred. The
+      // INPUT parameter is spelled out and stays a bare `string`: a zod brand is
+      // an OUTPUT-side type, and tRPC types a procedure's argument as `z.input`.
+      // Collapsing this to the one-parameter form would publish `MachineId` as
+      // what a CALLER must pass, which no caller can construct — and `store.tsx`
+      // says so, since apps/web constrains the live client to `PodiumClientApi`.
+    }) as z.ZodType<
+      { machineId?: MachineId | undefined; root: string; path?: string },
+      z.ZodTypeDef,
+      { machineId?: string | undefined; root: string; path?: string }
+    >,
     (s, input) => {
       assertAllowedRoot(fileState(s), input.root)
       return s.modules.rpc.repoOp(

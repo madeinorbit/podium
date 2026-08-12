@@ -68,8 +68,20 @@ type WithMutationId<T> = T & { mutationId?: string }
  * types: boundary rule 4 forbids a package importing an app, so client-core
  * cannot see `AppRouter` even type-only (see the header comment).
  *
- * `machineId` stays unbranded regardless: carved out until POD-318 (ADR 1
- * Amendment 2 D16.2), with a ratchet test that fails if you brand one.
+ * `machineId` STAYS `string`, and POD-1361 measured why it may. That sweep bound
+ * every machine-id field in the server's command and query schemas to
+ * `MachineIdField` and did NOT have to touch this file, because a tRPC
+ * procedure's argument type is `z.input` of its schema (`derived-family.ts`:
+ * `input: z.input<Q[N]['input']>`) while a zod brand lives on the OUTPUT side —
+ * `z.input<typeof MachineIdField>` is a bare `string` however branded the field
+ * is. So branding a server input narrows what a HANDLER receives, never what a
+ * caller may pass, and the members here are free to move on their own schedule.
+ *
+ * The direction that DOES break this constraint is a server input whose declared
+ * type makes input and output the same branded thing — a `z.ZodType<T>` cast
+ * spelled with one parameter. `apps/server/src/modules/misc-queries.ts` carries
+ * the note; the fix is the three-parameter form, whose third parameter is the
+ * caller-facing input type this mirror must match.
  */
 export interface PodiumClientApi {
   sync: {

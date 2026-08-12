@@ -105,7 +105,7 @@
  * is that a transport is served because a contract NAMES it.
  */
 
-import { UpdateChannel, UserIdField } from '@podium/model'
+import { MachineIdField, UpdateChannel, UserIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -156,7 +156,7 @@ export interface FleetCommandContract<In extends z.ZodTypeAny = z.ZodTypeAny, Ou
 /** The optional machine selector every repo and discovery command carries.
  *  Absent means "the default machine" — resolved in the handler, exactly as the
  *  shipped procedures resolve it (`machines.defaultMachine()`). */
-const machineSelector = z.string().optional()
+const machineSelector = MachineIdField.optional()
 
 export const machineRenameInput = z.object({
   id: z.string(),
@@ -180,7 +180,7 @@ export const machineUnshareInput = machineShareInput
 
 export const machineRevokeInput = z.object({ id: z.string() })
 export const machineTransferServerInput = z.object({
-  targetMachineId: z.string().min(1),
+  targetMachineId: z.string().min(1).pipe(MachineIdField),
   publicUrl: z.string().min(1).max(2048),
   port: z.number().int().min(1).max(65535).optional(),
   confirmation: z.literal('TRANSFER SERVER'),
@@ -240,7 +240,7 @@ export const discoveryScanFolderInput = z.object({
 })
 
 export const discoveryScanMachineInput = z.object({
-  machineId: z.string(),
+  machineId: MachineIdField,
   deep: z.boolean().optional(),
   /** The folder the user is browsing — scanned as an extra root ("scan here",
    *  POD-855) [spec:SP-5eb6] alongside the always-on known-repo tiers. */

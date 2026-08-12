@@ -1,4 +1,4 @@
-import { SessionIdField } from '@podium/model'
+import { MachineIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 // ---- Omni-search (docs/spec/search-v1.md §2.4) ----
@@ -25,7 +25,7 @@ export const SearchResultWire = z.object({
   ts: z.string().optional(),
   // Open-the-hit refs.
   sessionId: SessionIdField.optional(),
-  machineId: z.string().optional(),
+  machineId: MachineIdField.optional(),
   /** Native conversation id (transcript hits — pairs with machineId). */
   nativeId: z.string().optional(),
   /** Registry identity of the conversation a transcript hit belongs to. */

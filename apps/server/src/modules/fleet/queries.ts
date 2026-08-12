@@ -9,14 +9,15 @@
  * be a behaviour change wearing a refactor's clothes.
  */
 
+import { MachineIdField } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { browseDirectories } from '../../repo-registry'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
-import { visibleMachinesFor } from '../sessions/command-ctx'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
-import { browseDirectories } from '../../repo-registry'
+import { visibleMachinesFor } from '../sessions/command-ctx'
 
 const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
@@ -42,7 +43,7 @@ export const REPO_QUERIES = {
       .object({
         path: z.string().optional(),
         includeHidden: z.boolean().optional(),
-        machineId: z.string().optional(),
+        machineId: MachineIdField.optional(),
       })
       .optional(),
     async (s, input) => {
@@ -78,7 +79,7 @@ export const DISCOVERY_QUERIES = {
   /** Most recent finished discovery for a machine (e.g. the automatic connect
    *  scan), so the picker can show results without re-scanning. */
   lastMachineScan: q(
-    z.object({ machineId: z.string() }),
+    z.object({ machineId: MachineIdField }),
     (s, input) => s.discovery?.lastResult(input.machineId) ?? null,
   ),
 } as const

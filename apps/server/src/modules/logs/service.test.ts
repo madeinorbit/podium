@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { forwardedLogLevel, type LogsCrashInput, type LogsForwardInput } from '@podium/commands'
 import { LEVELS } from '@podium/logger'
+import { asMachineId } from '@podium/model'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { createCrashStore } from '@podium/runtime/crash-store'
 import { readQueue, TelemetryEmitter } from '@podium/telemetry'
@@ -41,13 +42,13 @@ const record = (msg: string, level: 'warn' | 'debug' = 'warn') => ({
 })
 
 const batch = (over: Partial<LogsForwardInput> = {}): LogsForwardInput => ({
-  origin: { role: 'web', v: '0.1.3', machineId: 'm1' },
+  origin: { role: 'web', v: '0.1.3', machineId: asMachineId('m1') },
   records: [record('one'), record('two', 'debug')],
   ...over,
 })
 
 const crashInput = (over: Partial<LogsCrashInput> = {}): LogsCrashInput => ({
-  origin: { role: 'web', v: '0.1.3', machineId: 'm1' },
+  origin: { role: 'web', v: '0.1.3', machineId: asMachineId('m1') },
   err: {
     name: 'TypeError',
     message: 'failed to read /home/alice/acme/private.key',
@@ -107,7 +108,9 @@ describe('forwarded client logs', () => {
     const ingest = service()
 
     ingest.forward(batch())
-    ingest.forward(batch({ origin: { role: 'mobile', machineId: 'm2' }, records: [record('m')] }))
+    ingest.forward(
+      batch({ origin: { role: 'mobile', machineId: asMachineId('m2') }, records: [record('m')] }),
+    )
 
     expect(linesIn(join(dir, 'clients', 'web-m1.ndjson'))).toHaveLength(2)
     expect(linesIn(join(dir, 'clients', 'mobile-m2.ndjson'))).toHaveLength(1)
@@ -133,7 +136,12 @@ describe('forwarded client logs', () => {
     })
 
     for (const machineId of ['a', 'b', 'c', 'd']) {
-      ingest.forward(batch({ origin: { role: 'web', machineId }, records: [record(machineId)] }))
+      ingest.forward(
+        batch({
+          origin: { role: 'web', machineId: asMachineId(machineId) },
+          records: [record(machineId)],
+        }),
+      )
     }
 
     // Two named files, then everything else shares one — not one file per
@@ -148,9 +156,9 @@ describe('forwarded client logs', () => {
   it('cannot be talked into writing outside the log dir', () => {
     // Separators become underscores and a leading run of them is stripped, so
     // the traversal collapses to a plain filename in the clients dir.
-    expect(originKey({ role: '../../etc', machineId: 'passwd' })).toBe('etc-passwd')
-    expect(originKey({ role: '/', machineId: '/' })).toBe('unknown')
-    expect(originKey({ role: 'WEB', machineId: 'M 1' })).toBe('web-m_1')
+    expect(originKey({ role: '../../etc', machineId: asMachineId('passwd') })).toBe('etc-passwd')
+    expect(originKey({ role: '/', machineId: asMachineId('/') })).toBe('unknown')
+    expect(originKey({ role: 'WEB', machineId: asMachineId('M 1') })).toBe('web-m_1')
     // The property the three cases are examples of: no separator survives, at
     // any position, so the key can only ever name a file in one directory.
     // The NUL case is written as an ESCAPE, never as a literal byte: a raw NUL

@@ -438,6 +438,27 @@ describe('the MachineId carve-out (ADR 1 Amendment 2 D16.2)', () => {
     const source = SCAFFOLD + 'export const A = z.object({ machineId: MachineIdField })'
     expect(machineIdUnbrandedFields(ctxOf(source))).toHaveLength(0)
   })
+
+  it('moves an UNBRANDED machine id into the excused count, and counts it ONCE', () => {
+    // POD-1361. The two keys must partition, not overlap: an excused site that
+    // stayed in BOTH would hold this item off zero with no spelling able to
+    // discharge it, while still being counted as an excuse. The excused key is
+    // itself ratcheted, so this moves the site between committed numbers.
+    const source =
+      SCAFFOLD +
+      'export const A = z.object({\n  /** UNBRANDED: a peer CLAIM, not an identity. */\n  machineId: z.string(),\n})'
+    expect(machineIdUnbrandedFields(ctxOf(source))).toHaveLength(0)
+    expect(unbrandedByDecisionFields(ctxOf(source))).toHaveLength(1)
+  })
+
+  it('still counts a machine id whose comment does NOT carry the marker', () => {
+    // The counterfactual for the clause above: the excuse is the token, not the
+    // presence of a comment, so the sweep cannot be undone by prose.
+    const source =
+      SCAFFOLD +
+      'export const A = z.object({\n  /** the machine this row belongs to */\n  machineId: z.string(),\n})'
+    expect(machineIdUnbrandedFields(ctxOf(source))).toHaveLength(1)
+  })
 })
 
 // ---------------------------------------------------------------------------

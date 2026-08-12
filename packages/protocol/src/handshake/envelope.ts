@@ -148,6 +148,18 @@ export type CredentialKind = PeerCredential['kind']
 export const PeerIdentityClaims = z
   .object({
     user: z.string().optional(),
+    /**
+     * UNBRANDED BY DECISION (POD-1361): a peer's unauthenticated CLAIM about
+     * which machine it is, not a machine identity. The brand is what lets a
+     * value be handed to something that expects an authenticated
+     * `MachineId` — so branding this field would make the one thing this whole
+     * schema exists to prevent (D7.1 / D14.3: "never for a principal") a
+     * silent assignment instead of a type error. `machine-local-secret.ts`
+     * states in so many words that it never reads this field, and
+     * `machine-token.ts` records that a claim naming a different machine still
+     * resolves to the token's own — the authenticated id comes from the
+     * credential, and this stays a string so it cannot be mistaken for it.
+     */
     machineId: z.string().optional(),
     agentIdentity: z.string().optional(),
     onBehalfOf: z.string().optional(),
@@ -170,7 +182,7 @@ export const PeerBuild = z
 export type PeerBuild = z.infer<typeof PeerBuild>
 
 export const DELIVERY_CAPS = [
-/** Delivery methods offered through the additive capability surface. */
+  /** Delivery methods offered through the additive capability surface. */
   'update.delivery.feed',
   'update.delivery.bundle',
   'update.delivery.git',

@@ -1,16 +1,17 @@
+import { MachineIdField } from '@podium/model'
 import { z } from 'zod'
 
 // ---- daemon handshake (pre-auth; NOT part of the Control/Daemon unions) ----
 export const PairFrame = z.object({
   type: z.literal('pair'),
   code: z.string(),
-  machineId: z.string(),
+  machineId: MachineIdField,
   hostname: z.string(),
   name: z.string().optional(),
 })
 export const HelloFrame = z.object({
   type: z.literal('hello'),
-  machineId: z.string(),
+  machineId: MachineIdField,
   token: z.string(),
   hostname: z.string(),
 })
@@ -20,7 +21,7 @@ export type DaemonHandshake = z.infer<typeof DaemonHandshake>
 export const PairedReply = z.object({
   type: z.literal('paired'),
   token: z.string(),
-  machineId: z.string(),
+  machineId: MachineIdField,
   name: z.string(),
   updatePubkey: z.string().min(1).optional(),
 })

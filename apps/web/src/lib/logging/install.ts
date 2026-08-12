@@ -3,6 +3,7 @@ import {
   installClientLogging,
   type LogTransport,
 } from '@podium/client-core/logging'
+import { asMachineId, type MachineId } from '@podium/model'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { installGlobalHandlers } from './global-handlers'
 
@@ -39,15 +40,21 @@ function detectPlatform(): string | undefined {
   return typeof navigator === 'undefined' ? undefined : navigator.userAgent.slice(0, 128)
 }
 
+const machineIdOf = (options: WebLoggingOptions): MachineId | undefined => {
+  const bridged = nativeDesktopBridge()?.machineId
+  return options.machineId ?? (bridged === undefined ? undefined : asMachineId(bridged))
+}
+
 /** Wire the browser's logging and return a disposer. */
 export function installWebLogging(options: WebLoggingOptions): () => void {
   const platform = detectPlatform()
   const logging = installClientLogging({
     ...options,
     role: options.role ?? detectRole(),
-    ...((options.machineId ?? nativeDesktopBridge()?.machineId)
-      ? { machineId: options.machineId ?? nativeDesktopBridge()?.machineId }
-      : {}),
+    // The desktop bridge hands its machine id over as a plain string, so the
+    // brand is asserted at that edge — the shell reads it from the same state
+    // file the daemon registers with.
+    ...(machineIdOf(options) ? { machineId: machineIdOf(options) } : {}),
     ...(platform ? { platform } : {}),
   })
   const removeHandlers = installGlobalHandlers(window, logging.reporter)

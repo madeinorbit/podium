@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asAccountId, asMachineId, asSessionId } from '@podium/model'
 import type { Inventory } from '@podium/model'
+import { asAccountId, asMachineId, asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
@@ -25,7 +25,7 @@ function makeService(): MachinesService {
   return new MachinesService(deps)
 }
 
-const MACHINE = 'vmi'
+const MACHINE = asMachineId('vmi')
 /** A keystroke — the message class that silently queued into the void during the outage. */
 const keystroke: ControlMessage = { type: 'input', sessionId: asSessionId('s1'), data: 'ls\r' }
 

@@ -1,4 +1,4 @@
-import { Inventory } from '@podium/model'
+import { asMachineId, Inventory } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { encode, parseControlMessage, parseDaemonMessage } from './codec'
 
@@ -30,14 +30,14 @@ describe('inventory messages (#222)', () => {
   }
 
   it('round-trips inventoryReport through the DaemonMessage union', () => {
-    const msg = { type: 'inventoryReport' as const, machineId: 'm1', inventory }
+    const msg = { type: 'inventoryReport' as const, machineId: asMachineId('m1'), inventory }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 
   it('round-trips inventoryReport with podiumVersion set (post-#221)', () => {
     const msg = {
       type: 'inventoryReport' as const,
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       inventory: { ...inventory, podiumVersion: '1.2.3' },
     }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)

@@ -18,14 +18,10 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FIRST_ADMIN_USER_ID, asUserId } from '@podium/model'
+import { asMachineId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
-import {
-  mintPairingToken,
-  openEnrollmentLedger,
-  verifyPairingToken,
-} from './enrollment-ledger'
+import { mintPairingToken, openEnrollmentLedger, verifyPairingToken } from './enrollment-ledger'
 import { PairingManager } from './hub/pairing'
 import {
   canSeeMachine,
@@ -55,7 +51,9 @@ function makeWorld(stateDir: string, opts: { dbPath?: string } = {}) {
     )
   }
   const enrollment = openEnrollmentLedger(stateDir)
-  const pairing = new PairingManager({ randomCode: () => `CODE-${Math.random().toString(36).slice(2, 10)}` })
+  const pairing = new PairingManager({
+    randomCode: () => `CODE-${Math.random().toString(36).slice(2, 10)}`,
+  })
   const machines = new MachinesService({
     instanceId: 'default',
     store,
@@ -74,9 +72,11 @@ function pairRemote(
   machines: MachinesService,
   opts: { machineId?: string; ownerUserId?: string; hostname?: string } = {},
 ): { machineId: string; token: string; name: string } {
-  const machineId = opts.machineId ?? 'remote-box'
+  const machineId = asMachineId(opts.machineId ?? 'remote-box')
   const code = machines.mintPairingCode({
-    ...(opts.ownerUserId !== undefined ? { ownerUserId: opts.ownerUserId } : { ownerUserId: OWNER }),
+    ...(opts.ownerUserId !== undefined
+      ? { ownerUserId: opts.ownerUserId }
+      : { ownerUserId: OWNER }),
   })
   const auth = machines.authenticateDaemon({
     type: 'pair',
@@ -85,7 +85,8 @@ function pairRemote(
     hostname: opts.hostname ?? 'remote.local',
     name: 'Remote Box',
   })
-  if (!auth.ok || !auth.token) throw new Error(`pair failed: ${'reason' in auth ? auth.reason : '?'}`)
+  if (!auth.ok || !auth.token)
+    throw new Error(`pair failed: ${'reason' in auth ? auth.reason : '?'}`)
   return { machineId: auth.machineId, token: auth.token, name: auth.name }
 }
 
@@ -95,7 +96,12 @@ function hello(
   token: string,
   hostname = 'remote.local',
 ) {
-  return machines.authenticateDaemon({ type: 'hello', machineId, token, hostname })
+  return machines.authenticateDaemon({
+    type: 'hello',
+    machineId: asMachineId(machineId),
+    token,
+    hostname,
+  })
 }
 
 describe('enrollment ledger unit', () => {
@@ -410,12 +416,14 @@ describe('D19.4 regression sequences', () => {
     // Constructor ran reconcileOwnersFromLedger — row now shows NEW owner.
     expect(restarted.store.machines.getMachine(machineId)?.ownerUserId).toBe(OTHER)
     const ownership = ownershipFromMachines(svc)
-    expect(checkMachineUse(userCommandPrincipal(OTHER, 'member'), machineId, ownership)).toBeUndefined()
+    expect(
+      checkMachineUse(userCommandPrincipal(OTHER, 'member'), machineId, ownership),
+    ).toBeUndefined()
     expect(
       checkMachineVerb(userCommandPrincipal(OTHER, 'member'), machineId, ownership, 'manage'),
     ).toBeUndefined()
-    expect(checkMachineUse(userCommandPrincipal(asUserId(OWNER), 'admin'), machineId, ownership)).toBe(
-      'absent',
-    )
+    expect(
+      checkMachineUse(userCommandPrincipal(asUserId(OWNER), 'admin'), machineId, ownership),
+    ).toBe('absent')
   })
 })

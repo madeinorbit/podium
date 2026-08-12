@@ -1,4 +1,4 @@
-import { AgentKind, IssueIdField, SessionIdField } from '@podium/model'
+import { AgentKind, IssueIdField, MachineIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -81,7 +81,7 @@ export type ApprovalStatus = z.infer<typeof ApprovalStatus>
 /** One approval request as the web UI / CLI sees it. */
 export const ApprovalWire = z.object({
   id: z.string(),
-  machineId: z.string(),
+  machineId: MachineIdField,
   machineName: z.string().optional(),
   sessionId: SessionIdField,
   /** The issue the requesting session was attached to (navigation target). */

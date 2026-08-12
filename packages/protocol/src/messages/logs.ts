@@ -34,6 +34,7 @@
  * into somebody's support instructions.
  */
 
+import { MachineIdField } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -56,7 +57,7 @@ export const ClientLogOrigin = z.object({
   role: z.string().min(1).max(64),
   /** The client's app version, so a raise can be read against a build. */
   v: z.string().max(64).optional(),
-  machineId: z.string().max(128).optional(),
+  machineId: z.string().max(128).pipe(MachineIdField).optional(),
 })
 export type ClientLogOrigin = z.infer<typeof ClientLogOrigin>
 

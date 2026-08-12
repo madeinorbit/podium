@@ -51,6 +51,7 @@ import {
   AgentKind,
   ConversationIdField,
   IssueIdField,
+  MachineIdField,
   ResumeRef,
   SessionIdField,
 } from '@podium/model'
@@ -147,7 +148,7 @@ const createInput = z.object({
   agentKind: agentKind.optional(),
   cwd: z.string(),
   title: z.string().optional(),
-  machineId: z.string().optional(),
+  machineId: MachineIdField.optional(),
   issueId: IssueIdField.optional(),
   workflowRevisionId: z.string().optional(),
   /** First user prompt for a fresh session. Argv-capable harnesses (claude/codex/
@@ -183,7 +184,7 @@ const resumeInput = z.object({
   resume: resumeRef,
   conversationId: ConversationIdField,
   title: z.string().optional(),
-  machineId: z.string().optional(),
+  machineId: MachineIdField.optional(),
 })
 
 const resume: CommandDef = {

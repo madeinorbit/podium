@@ -6,8 +6,8 @@
  * `MachinesService`, and the machine principal's owner-less fail-closed posture.
  */
 
-import { asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
+import { asMachineId, asSessionId } from '@podium/model'
 import { machineUseAllowed, WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { PairingManager } from '../hub/pairing'
@@ -38,7 +38,13 @@ function fakeWs() {
 
 const registryWithMachine = (id = 'm1', token = 'tok', updatePubkey?: string) => {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id, name: 'box', hostname: 'box', tokenHash: sha256(token), ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({
+    id,
+    name: 'box',
+    hostname: 'box',
+    tokenHash: sha256(token),
+    ownerUserId: 'user:sole',
+  })
   return new SessionRegistry(store, undefined, {
     instanceId: 'default',
     ...(updatePubkey === undefined ? {} : { updatePubkey: () => updatePubkey }),
@@ -63,7 +69,10 @@ describe('the daemon socket speaks the permanent envelope', () => {
         claims: { hostname: 'box' },
       }),
     )
-    expect(attach).toHaveBeenCalledWith(expect.objectContaining({ kind: 'machine', machine: 'm1' }), expect.any(Function))
+    expect(attach).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'machine', machine: 'm1' }),
+      expect.any(Function),
+    )
     // The envelope peer gets the envelope reply, and it names the id the SERVER
     // resolved rather than anything the peer claimed.
     const reply = ws.sent.map((s) => JSON.parse(s) as { type: string; assignedId?: string })
@@ -126,7 +135,10 @@ describe('the daemon socket speaks the permanent envelope', () => {
       }),
     )
     // Attached as an ordinary machine; no elevation, and no accepted caps.
-    expect(attach).toHaveBeenCalledWith(expect.objectContaining({ kind: 'machine', machine: 'm1' }), expect.any(Function))
+    expect(attach).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'machine', machine: 'm1' }),
+      expect.any(Function),
+    )
     expect(JSON.parse(ws.sent[0] ?? '{}')).toMatchObject({ type: 'peerHelloOk', caps: [] })
   })
 })
@@ -167,7 +179,10 @@ describe('handshake order at the real gateway', () => {
     wireDaemonSocket(ws as never, reg)
     ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
     ws.emit('message', frame({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 }))
-    expect(onMsg).toHaveBeenCalledWith(expect.objectContaining({ kind: 'machine', machine: 'm1' }), expect.objectContaining({ type: 'agentExit' }))
+    expect(onMsg).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'machine', machine: 'm1' }),
+      expect.objectContaining({ type: 'agentExit' }),
+    )
   })
 })
 
@@ -195,7 +210,11 @@ describe('payload identity is inert at the real MachinesService', () => {
   it('pairing passes the peer name through and mints a token once', () => {
     const store = new SessionStore(':memory:')
     const pairing = new PairingManager()
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing, updatePubkey: () => 'server-key-1' })
+    const reg = new SessionRegistry(store, undefined, {
+      instanceId: 'default',
+      pairing,
+      updatePubkey: () => 'server-key-1',
+    })
     const code = pairing.mint({})
     const directory = createMachineDirectory(reg.modules.machines)
     const paired = directory.redeemPairCode(code, {
@@ -247,7 +266,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     const attackOwned = machines.authenticateDaemon({
       type: 'pair',
       code,
-      machineId: 'admin-laptop',
+      machineId: asMachineId('admin-laptop'),
       hostname: 'evil.local',
       name: 'Attacker Box',
     })
@@ -257,7 +276,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     const attackUnowned = machines.authenticateDaemon({
       type: 'pair',
       code,
-      machineId: 'unowned-box',
+      machineId: asMachineId('unowned-box'),
       hostname: 'evil.local',
       name: 'Attacker Box',
     })
@@ -267,7 +286,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     expect(
       machines.authenticateDaemon({
         type: 'hello',
-        machineId: 'admin-laptop',
+        machineId: asMachineId('admin-laptop'),
         token: 'admin-tok',
         hostname: 'admin.local',
       }),
@@ -275,7 +294,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     expect(
       machines.authenticateDaemon({
         type: 'hello',
-        machineId: 'unowned-box',
+        machineId: asMachineId('unowned-box'),
         token: 'unowned-tok',
         hostname: 'unowned.local',
       }),

@@ -26,7 +26,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
-import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asMachineId, asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
@@ -850,7 +850,7 @@ describe('a paired machine belongs to whoever minted its code', () => {
   const pairFrame = (code: string) => ({
     type: 'pair' as const,
     code,
-    machineId: 'joiner',
+    machineId: asMachineId('joiner'),
     hostname: 'joiner.local',
     name: 'joiner',
   })

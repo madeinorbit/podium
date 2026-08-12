@@ -11,6 +11,7 @@ import {
   HibernationPolicy,
   IntegrationSecrets,
   IssueAssistantPolicy,
+  MachineIdField,
   NotificationRouting,
   NotificationSecrets,
   RoleBackend,
@@ -212,7 +213,7 @@ export const Account = z.object({
   provider: AccountProvider,
   source: AccountSource,
   // native: which login on which machine.
-  machineId: z.string().optional(),
+  machineId: MachineIdField.optional(),
   harness: HarnessAgent.optional(),
   // managed (coming soon): injection mechanism; credential stored separately.
   kind: AccountKind.optional(),
@@ -441,11 +442,14 @@ function migrateDraftSyncFlag(raw: Record<string, unknown>): Record<string, bool
 }
 
 /** Preserve an explicit legacy hour value while changing the public field to minutes. */
-function migrateIdleShellMinutes(raw: Record<string, unknown>): Record<string, unknown> | undefined {
+function migrateIdleShellMinutes(
+  raw: Record<string, unknown>,
+): Record<string, unknown> | undefined {
   const hibernation = raw.hibernation
   if (!hibernation || typeof hibernation !== 'object') return undefined
   const policy = hibernation as Record<string, unknown>
-  if (policy.idleShellMinutes !== undefined || typeof policy.idleShellHours !== 'number') return undefined
+  if (policy.idleShellMinutes !== undefined || typeof policy.idleShellHours !== 'number')
+    return undefined
   return { ...policy, idleShellMinutes: policy.idleShellHours * 60 }
 }
 

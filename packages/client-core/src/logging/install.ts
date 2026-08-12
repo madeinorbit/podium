@@ -11,6 +11,7 @@ import {
   setLogLevel,
   setProcessContext,
 } from '@podium/logger'
+import type { MachineId } from '@podium/model'
 import { type CrashReporter, createCrashReporter } from './crash'
 import { createForwardingSink } from './forward-sink'
 import {
@@ -64,7 +65,9 @@ export interface ClientLoggingOptions {
   role: string
   /** App version. Late-resolving is fine — see below. */
   version?: string
-  machineId?: string
+  /** The machine this client runs on, when it knows — `LogOrigin.machineId`
+   *  carries the brand, so the caller resolves it rather than the sink. */
+  machineId?: MachineId
   platform?: string
   /** Client default. Spec: `warn`. */
   level?: LogLevel

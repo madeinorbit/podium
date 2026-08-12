@@ -1,4 +1,4 @@
-import { Inventory } from '@podium/model'
+import { Inventory, MachineIdField } from '@podium/model'
 import { z } from 'zod'
 
 // AgentInventory / ToolInventory / Inventory live in @podium/model (POD-300),
@@ -8,7 +8,7 @@ import { z } from 'zod'
 // in reply to an inventoryRequest.
 export const InventoryReportMessage = z.object({
   type: z.literal('inventoryReport'),
-  machineId: z.string(),
+  machineId: MachineIdField,
   inventory: Inventory,
 })
 export type InventoryReportMessage = z.infer<typeof InventoryReportMessage>

@@ -3,6 +3,7 @@ import {
   AgentQuotaWire,
   HostMemoryWire,
   HostMetricsWire,
+  MachineIdField,
   MachineWire,
   ProjectMemoryWire,
   SessionIdField,
@@ -33,7 +34,7 @@ export const MachinesChangedMessage = z.object({
 export const WorktreesChangedMessage = z.object({
   type: z.literal('worktreesChanged'),
   repoPath: z.string(),
-  machineId: z.string().optional(),
+  machineId: MachineIdField.optional(),
 })
 
 // Latest sample per daemon host. An array (not a single host) so the wire shape

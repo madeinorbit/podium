@@ -42,6 +42,7 @@
  * them: they exist to bound the worst case, not to shape the normal one.
  */
 
+import { MachineIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -218,7 +219,7 @@ export const logOrigin = z.object({
   role: z.string().min(1).max(64),
   /** The client's app version, so a log file can be read against a build. */
   v: z.string().max(64).optional(),
-  machineId: z.string().max(128).optional(),
+  machineId: z.string().max(128).pipe(MachineIdField).optional(),
 })
 
 /** The spec's client flushes at 50 records; 500 leaves four flushes' worth of
@@ -335,7 +336,7 @@ export const logLevelTarget = z.object({
   /** The server-minted connection id (`c3`), as reported by a previous call. */
   clientId: z.string().max(64).optional(),
   role: z.string().max(64).optional(),
-  machineId: z.string().max(128).optional(),
+  machineId: z.string().max(128).pipe(MachineIdField).optional(),
 })
 
 /** 24 hours, the same cap the wire frame carries. Restated rather than imported
