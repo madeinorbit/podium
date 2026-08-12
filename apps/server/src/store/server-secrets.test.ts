@@ -1,3 +1,4 @@
+import { asUserId } from '@podium/model'
 import { SessionStore } from '../store'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -17,12 +18,12 @@ describe('native login transfer secrets', () => {
       contentBase64: Buffer.from('credential-bytes').toString('base64'),
     }
 
-    const transferId = store.secrets.putNativeLoginTransfer('user:one', bundle)
-    expect(store.secrets.getNativeLoginTransfer('user:one', transferId)).toEqual(bundle)
-    expect(store.secrets.getNativeLoginTransfer('user:two', transferId)).toBeUndefined()
+    const transferId = store.secrets.putNativeLoginTransfer(asUserId('user:one'), bundle)
+    expect(store.secrets.getNativeLoginTransfer(asUserId('user:one'), transferId)).toEqual(bundle)
+    expect(store.secrets.getNativeLoginTransfer(asUserId('user:two'), transferId)).toBeUndefined()
     expect(JSON.stringify(store.secrets.presence())).not.toContain('credential-bytes')
 
-    store.secrets.clearNativeLoginTransfer('user:one', transferId)
-    expect(store.secrets.getNativeLoginTransfer('user:one', transferId)).toBeUndefined()
+    store.secrets.clearNativeLoginTransfer(asUserId('user:one'), transferId)
+    expect(store.secrets.getNativeLoginTransfer(asUserId('user:one'), transferId)).toBeUndefined()
   })
 })

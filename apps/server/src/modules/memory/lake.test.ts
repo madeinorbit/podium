@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -47,14 +48,14 @@ describe('TranscriptLake mirror fence', () => {
       })}\n`,
     )
     store.conversations.registry.ensure({
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       nativeId,
       providerId: 'claude-code-jsonl',
       path: sourcePath,
       sizeBytes: content.length,
     })
 
-    lake.triggerSweep('m1')
+    lake.triggerSweep(asMachineId('m1'))
     await vi.waitFor(() => expect(sent).toHaveLength(1))
     const first = sent[0]?.message
     expect(first?.type).toBe('transcriptMirrorRead')
@@ -67,7 +68,7 @@ describe('TranscriptLake mirror fence', () => {
     await Promise.resolve()
     expect(pauseResolved).toBe(false)
 
-    lake.onMirrorResult('m1', {
+    lake.onMirrorResult(asMachineId('m1'), {
       requestId: first.requestId,
       data: content.toString('base64'),
       fileSize: content.length,
@@ -76,11 +77,11 @@ describe('TranscriptLake mirror fence', () => {
     await paused
 
     const lakePath = join(lakeDir, 'm1', `${nativeId}.jsonl`)
-    expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(0)
+    expect(store.conversations.mirror.mirrorCursor(asMachineId('m1'), nativeId)).toBe(0)
     expect(existsSync(lakePath)).toBe(false)
 
     // A scan during transfer stays queued/dirty and does not issue another read.
-    lake.triggerSweep('m1')
+    lake.triggerSweep(asMachineId('m1'))
     await Promise.resolve()
     expect(sent).toHaveLength(1)
 
@@ -93,17 +94,19 @@ describe('TranscriptLake mirror fence', () => {
     }
     expect(resumed.offset).toBe(0)
 
-    lake.onMirrorResult('m1', {
+    lake.onMirrorResult(asMachineId('m1'), {
       requestId: resumed.requestId,
       data: content.toString('base64'),
       fileSize: content.length,
       eof: true,
     })
     await vi.waitFor(() => {
-      expect(store.conversations.mirror.segmentsToMirrorDirty('m1')).toEqual([])
+      expect(store.conversations.mirror.segmentsToMirrorDirty(asMachineId('m1'))).toEqual([])
     })
 
-    expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(content.length)
+    expect(store.conversations.mirror.mirrorCursor(asMachineId('m1'), nativeId)).toBe(
+      content.length,
+    )
     expect(readFileSync(lakePath)).toEqual(content)
   })
 })

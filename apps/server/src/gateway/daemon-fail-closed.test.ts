@@ -12,7 +12,7 @@
  * instrument can say YES: a good hello on the same fixture must attach and route.
  */
 
-import { asSessionId } from '@podium/model'
+import { asUserId, asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../relay'
@@ -56,7 +56,9 @@ function harness(machines: { id: string; token: string }[]) {
       id: m.id,
       name: m.id,
       hostname: m.id,
-      tokenHash: sha256(m.token), ownerUserId: 'user:sole' })
+      tokenHash: sha256(m.token),
+      ownerUserId: asUserId('user:sole'),
+    })
   }
   const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const attach = vi.spyOn(reg.gateway, 'attachDaemon')
@@ -98,7 +100,9 @@ describe('a daemon that cannot prove who it is', () => {
       id: 'm1',
       name: 'm1',
       hostname: 'm1',
-      tokenHash: sha256('rotated'), ownerUserId: 'user:sole' })
+      tokenHash: sha256('rotated'),
+      ownerUserId: asUserId('user:sole'),
+    })
     h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'old', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()
     expect(h.ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
@@ -168,7 +172,10 @@ describe('the local socket confers no more than a remote pairing', () => {
       frame({ type: 'hello', machineId: 'local', token: 'sekret', hostname: 'thishost' }),
     )
     const remote = harness([{ id: 'm1', token: 'tok' }])
-    remote.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'b' }))
+    remote.ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'b' }),
+    )
 
     const localPrincipal = local.attach.mock.calls[0]?.[0] as Record<string, string>
     const remotePrincipal = remote.attach.mock.calls[0]?.[0] as Record<string, string>

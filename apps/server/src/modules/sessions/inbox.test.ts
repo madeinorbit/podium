@@ -1,4 +1,5 @@
 import {
+  asMutationId,
   type Attribution,
   actorAgent,
   asAgentIdentityId,
@@ -139,7 +140,7 @@ describe('SessionInbox authorization and identity', () => {
       h.inbox.queueText({
         sessionId: SID,
         text: 'queued before revocation',
-        mutationId: 'queued-1',
+        mutationId: asMutationId('queued-1'),
         principal,
       }),
     ).toEqual({ ok: true, queued: true })
@@ -167,7 +168,7 @@ describe('SessionInbox authorization and identity', () => {
     h.inbox.queueText({
       sessionId: SID,
       text: 'deliver after boot',
-      mutationId: 'queued-apply',
+      mutationId: asMutationId('queued-apply'),
       sourceMessageId: 'msg_pending',
       principal: agentPrincipal(),
     })
@@ -189,7 +190,7 @@ describe('SessionInbox authorization and identity', () => {
     h.inbox.queueText({
       sessionId: SID,
       text: 'changed my mind',
-      mutationId: 'queued-cancel',
+      mutationId: asMutationId('queued-cancel'),
       sourceMessageId: 'msg_cancelled',
       principal: agentPrincipal(),
     })
@@ -206,7 +207,8 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'grok' })
     expect(h.inbox.sendText({ sessionId: SID, text: 'hello grok' })).toEqual({ ok: true })
-    const decode = (entry: unknown) => Buffer.from((entry as { data: string }).data, 'base64').toString()
+    const decode = (entry: unknown) =>
+      Buffer.from((entry as { data: string }).data, 'base64').toString()
     expect(decode(h.sent[0])).toBe('hello grok')
     vi.advanceTimersByTime(100)
     expect(decode(h.sent[1])).toBe('\r')
@@ -216,7 +218,8 @@ describe('SessionInbox authorization and identity', () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'grok', userTurns: 1 })
     expect(h.inbox.sendText({ sessionId: SID, text: 'follow up' })).toEqual({ ok: true })
-    const decode = (entry: unknown) => Buffer.from((entry as { data: string }).data, 'base64').toString()
+    const decode = (entry: unknown) =>
+      Buffer.from((entry as { data: string }).data, 'base64').toString()
     expect(decode(h.sent[0])).toBe('\x1b[200~follow up\x1b[201~')
     vi.advanceTimersByTime(100)
     expect(decode(h.sent[1])).toBe('\r')
@@ -234,13 +237,18 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.rows).toHaveLength(1)
   })
 
-  it("delivers OpenCode mail through the generic bracketed-paste route", () => {
+  it('delivers OpenCode mail through the generic bracketed-paste route', () => {
     vi.useFakeTimers()
-    const h = harness({ agentKind: "opencode" })
+    const h = harness({ agentKind: 'opencode' })
     const principal = agentPrincipal()
-    expect(h.inbox.sendText({ sessionId: SID, text: "mail", inputOrigin: "mail", principal })).toEqual({ ok: true })
-    const decode = (entry: unknown) => Buffer.from((entry as { data: string }).data, "base64").toString()
-    expect(decode(h.sent[0])).toBe(String.fromCharCode(27) + "[200~mail" + String.fromCharCode(27) + "[201~")
+    expect(
+      h.inbox.sendText({ sessionId: SID, text: 'mail', inputOrigin: 'mail', principal }),
+    ).toEqual({ ok: true })
+    const decode = (entry: unknown) =>
+      Buffer.from((entry as { data: string }).data, 'base64').toString()
+    expect(decode(h.sent[0])).toBe(
+      String.fromCharCode(27) + '[200~mail' + String.fromCharCode(27) + '[201~',
+    )
     vi.advanceTimersByTime(100)
     expect(decode(h.sent[1])).toBe(String.fromCharCode(13))
   })
@@ -368,9 +376,7 @@ describe('SessionInbox authorization and identity', () => {
       ).toEqual({ ok: true })
 
       const decoded = () =>
-        h.sent.map((m) =>
-          Buffer.from((m as { data: string }).data, 'base64').toString(),
-        )
+        h.sent.map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
 
       expect(decoded()).toEqual(['3'])
       await vi.advanceTimersByTimeAsync(120)

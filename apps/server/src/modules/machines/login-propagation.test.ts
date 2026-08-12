@@ -1,3 +1,4 @@
+import { asUserId, asMachineId } from '@podium/model'
 import type { PortableCredentialBundle, PortableCredentialKind } from '@podium/protocol'
 import { SessionStore } from '../../store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -45,20 +46,24 @@ describe('login propagation coordinator', () => {
       name: 'donor',
       hostname: 'donor',
       tokenHash: 'donor-token',
-      ownerUserId: owner,
+      ownerUserId: asUserId(owner),
     })
     store.machines.upsertMachine({
       id: 'target',
       name: 'target',
       hostname: 'target',
       tokenHash: 'target-token',
-      ownerUserId: owner,
+      ownerUserId: asUserId(owner),
     })
     store.machines.setMachineInventory('donor', JSON.stringify(inventory('in', 'same-account')))
     store.machines.setMachineInventory('target', JSON.stringify(inventory('out')))
 
     const credentialExport = vi.fn(
-      async (_kinds: PortableCredentialKind[], machineId: string, _options?: { propagation?: boolean }) => ({
+      async (
+        _kinds: PortableCredentialKind[],
+        machineId: string,
+        _options?: { propagation?: boolean },
+      ) => ({
         bundles: [bundle],
         unavailable: [],
         machineId,
@@ -83,22 +88,20 @@ describe('login propagation coordinator', () => {
 
     await expect(
       service.propagate({
-        targetMachineId: 'target',
+        targetMachineId: asMachineId('target'),
         agentKind: 'codex',
-        principalUserId: owner,
+        principalUserId: asUserId(owner),
       }),
     ).resolves.toEqual({ status: 'propagated', donorMachineId: 'donor' })
 
     expect(credentialExport).toHaveBeenCalledWith(['codex'], 'donor', { propagation: true })
-    expect(credentialInstall).toHaveBeenCalledWith(
-      [bundle],
-      'target',
-      { propagation: true },
-    )
-    expect(store.secrets.getNativeLoginTransfer(owner, 'not-the-transfer')).toBeUndefined()
-    expect(store.secrets.presence().every((item) => !JSON.stringify(item).includes('secret-'))).toBe(
-      true,
-    )
+    expect(credentialInstall).toHaveBeenCalledWith([bundle], 'target', { propagation: true })
+    expect(
+      store.secrets.getNativeLoginTransfer(asUserId(owner), 'not-the-transfer'),
+    ).toBeUndefined()
+    expect(
+      store.secrets.presence().every((item) => !JSON.stringify(item).includes('secret-')),
+    ).toBe(true)
   })
 
   it('does not cross a principal boundary and caps failed retries with backoff', async () => {
@@ -108,14 +111,14 @@ describe('login propagation coordinator', () => {
       name: 'donor',
       hostname: 'donor',
       tokenHash: 'donor-token',
-      ownerUserId: owner,
+      ownerUserId: asUserId(owner),
     })
     store.machines.upsertMachine({
       id: 'target',
       name: 'target',
       hostname: 'target',
       tokenHash: 'target-token',
-      ownerUserId: owner,
+      ownerUserId: asUserId(owner),
     })
     store.machines.setMachineInventory('donor', JSON.stringify(inventory('in', 'same-account')))
     store.machines.setMachineInventory('target', JSON.stringify(inventory('out')))
@@ -137,9 +140,9 @@ describe('login propagation coordinator', () => {
 
     await expect(
       service.propagate({
-        targetMachineId: 'target',
+        targetMachineId: asMachineId('target'),
         agentKind: 'codex',
-        principalUserId: 'user:other',
+        principalUserId: asUserId('user:other'),
       }),
     ).resolves.toEqual({ status: 'skipped', reason: 'target owner does not match principal' })
     expect(credentialExport).not.toHaveBeenCalled()

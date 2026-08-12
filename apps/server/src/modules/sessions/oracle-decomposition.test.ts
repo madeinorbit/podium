@@ -9,6 +9,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import {
+  asMachineId,
   type Attribution,
   actorUser,
   asSessionId,
@@ -504,10 +505,10 @@ describe('oracle: browser-open forwarding', () => {
 describe('oracle: spawn placement fails closed', () => {
   it(`${MUST_NOT_CHANGE}: denied and offline are distinct, neither spawns, and the same online machine succeeds when use is allowed`, async () => {
     const o = makeOracle({
-      machineId: 'online',
+      machineId: asMachineId('online'),
       offlineMachines: [
-        { id: 'online', name: 'Online' },
-        { id: 'offline', name: 'Offline' },
+        { id: asSessionId('online'), name: 'Online' },
+        { id: asSessionId('offline'), name: 'Offline' },
       ],
     })
     const sessions = () => o.reg.modules.sessions.listSessions().length
@@ -517,7 +518,7 @@ describe('oracle: spawn placement fails closed', () => {
         o.reg.modules.sessions.createSession({
           agentKind: 'claude-code',
           cwd: '/work',
-          machineId: 'online',
+          machineId: asMachineId('online'),
           use: () => 'denied',
         }),
       ),
@@ -529,7 +530,7 @@ describe('oracle: spawn placement fails closed', () => {
         o.reg.modules.sessions.createSession({
           agentKind: 'claude-code',
           cwd: '/work',
-          machineId: 'offline',
+          machineId: asMachineId('offline'),
           use: () => 'granted',
         }),
       ),
@@ -540,7 +541,7 @@ describe('oracle: spawn placement fails closed', () => {
       o.reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/work',
-        machineId: 'online',
+        machineId: asMachineId('online'),
         use: () => 'granted',
       }).sessionId,
     ).toEqual(expect.any(String))

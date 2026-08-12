@@ -36,7 +36,13 @@
  * commit history refer to these groups.
  */
 
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type IssueScope } from '@podium/model'
+import {
+  asThreadId,
+  asIssueId,
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
+  type IssueScope,
+} from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -778,7 +784,7 @@ describe('reply to a legacy raw-ref sender (A7, POD-463)', () => {
   ): MessageRow => {
     const row: MessageRow = {
       id: `msg_legacy_${fromIssue.replace(/\W/g, '')}_${fromSession ?? 'none'}`,
-      threadId: 'thr_legacy',
+      threadId: asThreadId('thr_legacy'),
       inReplyTo: null,
       fromKind: 'agent',
       fromSession: fromSession === null ? null : asSessionId(fromSession),

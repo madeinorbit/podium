@@ -298,7 +298,7 @@ function twoStepRun(
   const run = h.service.startRun({
     sessionId: asSessionId(sessionId),
     cwd,
-    issueId,
+    issueId: asIssueId(issueId),
     revisionId: created.revision.id,
   })
   return { created, run }
@@ -1360,7 +1360,7 @@ describe('POD-730 workflow mutation characterization', () => {
         h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
-          issueId: 'issue-1',
+          issueId: asIssueId('issue-1'),
         })?.id,
       ).toBe(g.revision.id)
       h.service.assign(
@@ -1371,7 +1371,7 @@ describe('POD-730 workflow mutation characterization', () => {
         h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
-          issueId: 'issue-1',
+          issueId: asIssueId('issue-1'),
         })?.id,
       ).toBe(r.revision.id)
       h.service.assign(
@@ -1382,7 +1382,7 @@ describe('POD-730 workflow mutation characterization', () => {
         h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
-          issueId: 'issue-1',
+          issueId: asIssueId('issue-1'),
         })?.id,
       ).toBe(i.revision.id)
       h.service.assign(
@@ -1393,7 +1393,7 @@ describe('POD-730 workflow mutation characterization', () => {
         h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
-          issueId: 'issue-1',
+          issueId: asIssueId('issue-1'),
         })?.id,
       ).toBe(s.revision.id)
       // an unrelated session in another repo on another issue still
@@ -1403,7 +1403,7 @@ describe('POD-730 workflow mutation characterization', () => {
         h.service.resolveRevision({
           sessionId: asSessionId('s3'),
           cwd: '/repo-b/wt',
-          issueId: 'issue-2',
+          issueId: asIssueId('issue-2'),
         })?.id,
       ).toBe(g.revision.id)
     })
@@ -1413,18 +1413,21 @@ describe('POD-730 workflow mutation characterization', () => {
         h.service.resolveRevision({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
-          issueId: 'issue-1',
+          issueId: asIssueId('issue-1'),
         }),
       ).toBeNull()
       expect(
         h.service.prepareStart({
           sessionId: asSessionId('s1'),
           cwd: '/repo-a/wt',
-          issueId: 'issue-1',
+          issueId: asIssueId('issue-1'),
         }),
       ).toBeNull()
       expect(
-        h.service.prepareExistingSession({ sessionId: asSessionId('s1'), issueId: 'issue-1' }),
+        h.service.prepareExistingSession({
+          sessionId: asSessionId('s1'),
+          issueId: asIssueId('issue-1'),
+        }),
       ).toBeNull()
     })
 
@@ -1445,7 +1448,7 @@ describe('POD-730 workflow mutation characterization', () => {
           h.service.resolveRevision({
             sessionId: asSessionId('s1'),
             cwd: '/repo-a/wt',
-            issueId: 'issue-1',
+            issueId: asIssueId('issue-1'),
             explicitRevisionId: foreign.revision.id,
           }),
         ),
@@ -1798,7 +1801,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const run = h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
       })
       const packet = h.service.checkpoint(
@@ -1989,7 +1992,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const run = h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
       })
       // A non-coordinator issue participant is refused by assertCoordinator...
@@ -2270,7 +2273,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const again = h.service.startRun({
         sessionId: asSessionId('s2'),
         cwd: '/repo-a/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
       })
       expect(again.id).toBe(run.id)
@@ -2299,7 +2302,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const run = h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
         startStepId: 'c',
       })
@@ -2317,7 +2320,7 @@ describe('POD-730 workflow mutation characterization', () => {
           h.service.startRun({
             sessionId: asSessionId('s3'),
             cwd: '/repo-b/wt',
-            issueId: 'issue-2',
+            issueId: asIssueId('issue-2'),
             revisionId: created.revision.id,
             startStepId: 'nope',
           }),
@@ -2514,7 +2517,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const run = h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
       })
       const payload = {
@@ -2881,7 +2884,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const prepared = h.service.prepareStart({
         sessionId: asSessionId('s2'),
         cwd: '/repo-a/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
       })
       expect(prepared?.revision.id).toBe(created.revision.id)
       expect(prepared?.prompt).toContain('drive it')
@@ -2891,7 +2894,7 @@ describe('POD-730 workflow mutation characterization', () => {
           h.service.prepareStart({
             sessionId: asSessionId('s2'),
             cwd: '/repo-a/wt',
-            issueId: 'issue-1',
+            issueId: asIssueId('issue-1'),
             explicitRevisionId: v2.id,
           }),
         ),
@@ -2903,7 +2906,7 @@ describe('POD-730 workflow mutation characterization', () => {
         h.service.prepareStart({
           sessionId: asSessionId('s2'),
           cwd: '/repo-a/wt',
-          issueId: 'issue-1',
+          issueId: asIssueId('issue-1'),
           explicitRevisionId: created.revision.id,
         })?.revision.id,
       ).toBe(created.revision.id)
@@ -3084,7 +3087,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const otherRun = h.service.startRun({
         sessionId: asSessionId('s3'),
         cwd: '/repo-b/wt',
-        issueId: 'issue-2',
+        issueId: asIssueId('issue-2'),
         revisionId: second.revision.id,
       })
       // Cross-user read (3.1.2): two unrelated subjects, one caller.
@@ -3126,7 +3129,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const foreignRun = h.service.startRun({
         sessionId: asSessionId('s3'),
         cwd: '/repo-b/wt',
-        issueId: 'issue-2',
+        issueId: asIssueId('issue-2'),
         revisionId: created.revision.id,
       })
       // Cross-user READ of another subject's run.
@@ -3546,7 +3549,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const foreignRun = h.service.startRun({
         sessionId: asSessionId('s3'),
         cwd: '/repo-b/wt',
-        issueId: 'issue-2',
+        issueId: asIssueId('issue-2'),
         revisionId: created.revision.id,
       })
       const own = twoStepRun(h)
@@ -3636,7 +3639,7 @@ describe('POD-730 workflow mutation characterization', () => {
           h.service.startRun({
             sessionId: asSessionId('s1'),
             cwd: '/repo-a/wt',
-            issueId: 'issue-1',
+            issueId: asIssueId('issue-1'),
             revisionId: revoked.revision.id,
             onBehalfOf: null,
           }),
@@ -3647,7 +3650,7 @@ describe('POD-730 workflow mutation characterization', () => {
       h.service.startRun({
         sessionId: asSessionId('s3'),
         cwd: '/repo-b/wt',
-        issueId: 'issue-2',
+        issueId: asIssueId('issue-2'),
         revisionId: h.service.create(
           {
             name: `Live ${Math.random()}`,
@@ -3740,7 +3743,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const run = h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
       })
       expect(readEvents(h.store).at(-1)).toMatchObject({
@@ -3793,7 +3796,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const run = h.service.startRun({
         sessionId: asSessionId('s1'),
         cwd: '/repo-a/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         revisionId: created.revision.id,
       })
 
@@ -3880,14 +3883,16 @@ describe('POD-730 workflow mutation characterization', () => {
         })
         // The recovery paths a resumed session actually uses.
         expect(
-          after.service.prepareExistingSession({ sessionId: asSessionId('s1'), issueId: 'issue-1' })
-            ?.revision.id,
+          after.service.prepareExistingSession({
+            sessionId: asSessionId('s1'),
+            issueId: asIssueId('issue-1'),
+          })?.revision.id,
         ).toBe(recovered.revision.id)
         expect(
           after.service.prepareStart({
             sessionId: asSessionId('s2'),
             cwd: '/repo-a/wt',
-            issueId: 'issue-1',
+            issueId: asIssueId('issue-1'),
           })?.revision.id,
         ).toBe(recovered.revision.id)
         expect(after.service.runs({}, agent('s1')).map((r) => r.id)).toEqual([run.id])

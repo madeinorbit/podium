@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -20,7 +21,10 @@ describe('SessionRegistry model catalog wiring', () => {
       grok: [{ value: 'grok-build', label: 'grok-build' }],
       cursor: [{ value: 'composer-2.5', label: 'Composer 2.5' }],
     }))
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default', modelProbe })
+    const registry = new SessionRegistry(undefined, undefined, {
+      instanceId: 'default',
+      modelProbe,
+    })
     const machineId = registry.sessionStore.hostMachineId
     const snapshot = await registry.modules.settings.refreshModelCatalog(machineId)
     expect(snapshot.machineId).toBe(machineId)
@@ -39,7 +43,10 @@ describe('SessionRegistry model catalog wiring', () => {
     const probe = vi.fn(async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }))
 
     // First "boot": probe once, which persists to the shared store under this machine.
-    const first = new SessionRegistry(store, undefined, { instanceId: 'default', modelProbe: probe })
+    const first = new SessionRegistry(store, undefined, {
+      instanceId: 'default',
+      modelProbe: probe,
+    })
     await first.modules.settings.refreshModelCatalog(machineId)
     first.dispose()
 
@@ -75,9 +82,9 @@ describe('SessionRegistry model catalog wiring', () => {
       modelProbe: probe,
     })
     await registry.modules.settings.refreshModelCatalog(host)
-    await registry.modules.settings.refreshModelCatalog(other)
+    await registry.modules.settings.refreshModelCatalog(asMachineId(other))
     const hostSnap = registry.modules.settings.getModelCatalog(host)
-    const otherSnap = registry.modules.settings.getModelCatalog(other)
+    const otherSnap = registry.modules.settings.getModelCatalog(asMachineId(other))
     expect(hostSnap.machineId, `host snapshot.machineId=${hostSnap.machineId}`).toBe(host)
     expect(otherSnap.machineId, `other snapshot.machineId=${otherSnap.machineId}`).toBe(other)
     expect(
@@ -92,7 +99,9 @@ describe('SessionRegistry model catalog wiring', () => {
     expect(otherSnap.byAgent.grok?.some((m) => m.value === 'host-model')).toBe(false)
     // Durable store rows are keyed separately — a global meta key would collapse them.
     expect(store.settings.getModelCatalog(host)?.byAgent.grok?.[0]?.value).toBe('host-model')
-    expect(store.settings.getModelCatalog(other)?.byAgent.grok?.[0]?.value).toBe('other-model')
+    expect(store.settings.getModelCatalog(asMachineId(other))?.byAgent.grok?.[0]?.value).toBe(
+      'other-model',
+    )
     registry.dispose()
 
     // Restart: each machine still reads its own persisted catalog, not the other's.
@@ -104,9 +113,9 @@ describe('SessionRegistry model catalog wiring', () => {
     expect(second.modules.settings.getModelCatalog(host).byAgent.grok?.[0]?.value).toBe(
       'host-model',
     )
-    expect(second.modules.settings.getModelCatalog(other).byAgent.grok?.[0]?.value).toBe(
-      'other-model',
-    )
+    expect(
+      second.modules.settings.getModelCatalog(asMachineId(other)).byAgent.grok?.[0]?.value,
+    ).toBe('other-model')
     second.dispose()
   })
 })

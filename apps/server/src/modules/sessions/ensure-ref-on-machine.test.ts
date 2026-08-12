@@ -8,6 +8,7 @@
  *     the transfer is attempted and its failure is raised.
  */
 
+import { asMachineId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -50,8 +51,8 @@ function makeRig(
     tokenHash: 'y',
     ownerUserId: null,
   })
-  store.repos.addRepo(SOURCE, 'src')
-  store.repos.addRepo(TARGET, 'tgt')
+  store.repos.addRepo(SOURCE, asMachineId('src'))
+  store.repos.addRepo(TARGET, asMachineId('tgt'))
   const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const calls: OpCall[] = []
   const rpc = {
@@ -107,7 +108,7 @@ const call = (reg: SessionRegistry, ref = REF) =>
   reg.modules.sessions.workspace.ensureRefOnMachine({
     sourceRepoPath: SOURCE,
     targetRepoPath: TARGET,
-    targetMachineId: 'tgt',
+    targetMachineId: asMachineId('tgt'),
     ref,
   })
 

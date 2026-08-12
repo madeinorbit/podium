@@ -1,4 +1,10 @@
-import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import {
+  asThreadId,
+  asIssueId,
+  asSessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { FIRST_ADMIN_USER_ID, userCommandPrincipal } from './command-principal'
@@ -102,7 +108,7 @@ function seedTold(
   const id = opts.id ?? `msg_${to.kind}_${to.id}`
   store.messages.addMessage({
     id,
-    threadId: id,
+    threadId: asThreadId(id),
     inReplyTo: null,
     fromKind: 'agent',
     fromSession: null,
@@ -799,7 +805,7 @@ describe('StewardService child→review parent nudge', () => {
       parentId: parent.id,
       startNow: false,
     })
-    issues.update(c1.id, { stage: 'review' }, { actorSessionId: 'causer' })
+    issues.update(c1.id, { stage: 'review' }, { actorSessionId: asSessionId('causer') })
     await steward.tick()
     expect(stewardComments(issues, parent.id).length).toBe(1)
     const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])

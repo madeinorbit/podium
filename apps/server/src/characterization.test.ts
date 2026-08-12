@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  asMutationId,
   asIssueId,
   asMachineId,
   asUserId,
@@ -515,7 +516,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     const issue = reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
     reg1.issues.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
     reg1.issues.close(issue.id, 'done')
-    reg1.modules.mutations.once('mut-char-1', 'issues.close', () => ({ ok: true }))
+    reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({ ok: true }))
     store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
     reg1.modules.sessions.flushBroadcasts() // oplog `changes` rows
 
@@ -527,7 +528,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       events: store1.events.listEventsSince(0),
       changes: store1.sync.changesSince(0),
       maxChangeSeq: store1.sync.maxChangeSeq(),
-      applied: store1.sync.getAppliedMutation('mut-char-1'),
+      applied: store1.sync.getAppliedMutation(asMutationId('mut-char-1')),
       queued: store1.sync.listQueuedMessages(sessionId),
     }
     expect(before.sessionIds).toContain(sessionId)
@@ -549,7 +550,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       events: store2.events.listEventsSince(0),
       changes: store2.sync.changesSince(0),
       maxChangeSeq: store2.sync.maxChangeSeq(),
-      applied: store2.sync.getAppliedMutation('mut-char-1'),
+      applied: store2.sync.getAppliedMutation(asMutationId('mut-char-1')),
       queued: store2.sync.listQueuedMessages(sessionId),
     }
     expect(after).toEqual(before)

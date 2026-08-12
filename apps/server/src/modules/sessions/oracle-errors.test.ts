@@ -18,7 +18,7 @@
  * Messages are pinned with EXACT equality, never a substring (POD-743).
  */
 
-import { SOLE_USER_ID } from '@podium/model'
+import { asUserId, SOLE_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -69,7 +69,7 @@ describe('oracle: not-found shape, per write', () => {
     const o = makeOracle()
 
     await expect(o.call.snoozes.set({ sessionId: GHOST, until: null })).resolves.toBeUndefined()
-    expect(o.store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
+    expect(o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
     await expect(o.call.snoozes.clear({ sessionId: GHOST })).resolves.toBeUndefined()
   })
 
@@ -84,7 +84,7 @@ describe('oracle: not-found shape, per write', () => {
     await expect(
       o.call.tabs.setOrder({ worktree: '/nowhere', sessionIds: [GHOST] }),
     ).resolves.toBeUndefined()
-    expect(o.store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({})
+    expect(o.store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({})
   })
 
   it(`${EXISTENCE_ORACLE}: the lifecycle primitives REPORT not-found as a returned reason`, async () => {

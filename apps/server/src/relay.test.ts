@@ -1791,14 +1791,14 @@ describe('host metrics relay', () => {
       name: 'alpha',
       hostname: 'alpha',
       tokenHash: 'x',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     store.machines.upsertMachine({
       id: 'm-beta',
       name: 'beta',
       hostname: 'beta',
       tokenHash: 'y',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon('m-alpha', () => {})
@@ -4018,11 +4018,13 @@ describe('SessionRegistry snooze', () => {
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
     reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
-    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [sessionId]: null })
+    expect(reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({
+      [sessionId]: null,
+    })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
     reg.modules.sessions.clearSnooze(SOLE_USER_ID, sessionId)
-    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
+    expect(reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
     expect('snoozedUntil' in (reg.modules.sessions.listSessions()[0] ?? {})).toBe(false)
   })
 
@@ -4037,7 +4039,7 @@ describe('SessionRegistry snooze', () => {
     reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
 
     reg.modules.sessions.sendText({ sessionId, text: 'hi' })
-    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
+    expect(reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
   })
 
   it('leaving the attention phase clears it; staying in attention keeps it', () => {
@@ -4059,11 +4061,13 @@ describe('SessionRegistry snooze', () => {
       'local',
       agentState(sessionId, 'idle', { idle: { kind: 'question' } }),
     )
-    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [sessionId]: null })
+    expect(reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({
+      [sessionId]: null,
+    })
 
     // -> working leaves attention: snooze clears.
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentState(sessionId, 'working'))
-    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
+    expect(reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
   })
 
   it('seeds snoozedUntil from the store at load', () => {
@@ -4091,7 +4095,7 @@ describe('SessionRegistry snooze', () => {
       archived: false,
       workState: null,
     })
-    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s1'), null)
+    store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'), null)
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
   })

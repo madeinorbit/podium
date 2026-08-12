@@ -1,3 +1,4 @@
+import { asAccountId } from '@podium/model'
 import { beforeEach, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { AccountsRepository } from './accounts'
@@ -11,7 +12,7 @@ beforeEach(() => {
 
 it('round-trips a managed account', () => {
   repo.upsert({
-    id: 'managed:anthropic',
+    id: asAccountId('managed:anthropic'),
     provider: 'anthropic',
     kind: 'api-key',
     credential: 'sk-ant-secret',
@@ -40,7 +41,7 @@ it('upsert replaces an existing id rather than duplicating', () => {
 
 it('remove deletes the row', () => {
   repo.upsert({
-    id: 'managed:anthropic',
+    id: asAccountId('managed:anthropic'),
     provider: 'anthropic',
     kind: 'api-key',
     credential: 'sk',

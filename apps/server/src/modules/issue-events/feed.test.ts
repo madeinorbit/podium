@@ -1,5 +1,5 @@
 import type { IssueEventWire } from '@podium/model'
-import { issueEventRowId } from '@podium/model'
+import { asIssueId, issueEventRowId } from '@podium/model'
 import type { EntityChangeSpec } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { IssueEventFeedPublisher } from './feed'
@@ -89,7 +89,7 @@ describe('IssueEventFeedPublisher', () => {
   it('keeps the window bounded across many events', () => {
     const { publisher } = harness(3)
     for (let id = 1; id <= 20; id++) publisher.publish(id, event())
-    expect(publisher.subjectsFor('POD-13')).toEqual([
+    expect(publisher.subjectsFor(asIssueId('POD-13'))).toEqual([
       { entity: 'issueEvent', entityId: issueEventRowId(18, 'POD-13') },
       { entity: 'issueEvent', entityId: issueEventRowId(19, 'POD-13') },
       { entity: 'issueEvent', entityId: issueEventRowId(20, 'POD-13') },
@@ -101,10 +101,10 @@ describe('IssueEventFeedPublisher', () => {
     publisher.publish(1, event({ subject: 'POD-13' }))
     publisher.publish(2, event({ subject: 'POD-14' }))
     publisher.publish(3, event({ subject: 'POD-13' }))
-    expect(publisher.subjectsFor('POD-14')).toEqual([
+    expect(publisher.subjectsFor(asIssueId('POD-14'))).toEqual([
       { entity: 'issueEvent', entityId: issueEventRowId(2, 'POD-14') },
     ])
-    expect(publisher.subjectsFor('POD-99')).toEqual([])
+    expect(publisher.subjectsFor(asIssueId('POD-99'))).toEqual([])
   })
 
   it('resumes its window from what the Authority already holds', () => {

@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
+import { asUserId, FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
@@ -26,7 +26,7 @@ describe('machines store', () => {
       name: 'box',
       hostname: 'box',
       tokenHash: hash('secret'),
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
       podiumManaged: false,
     })
     expect(s.machines.listMachines().map((m) => m.id)).toEqual(['m1'])
@@ -80,7 +80,7 @@ describe('machines store', () => {
   it('repos table is re-keyed to (machine_id, path) with origin_url', () => {
     const s = new SessionStore(':memory:')
     s.repos.addRepo('/home/u/a', s.hostMachineId)
-    s.repos.addRepo('/home/u/b', 'm2', 'https://github.com/u/b')
+    s.repos.addRepo('/home/u/b', asMachineId('m2'), 'https://github.com/u/b')
     const rows = s.repos.listRepos()
     expect(rows.find((r) => r.path === '/home/u/a')?.machineId).toBe(s.hostMachineId)
     expect(rows.find((r) => r.path === '/home/u/b')?.originUrl).toBe('https://github.com/u/b')
@@ -92,7 +92,7 @@ describe('machines store', () => {
   it('listRepoPaths returns a flat string[] for back-compat', () => {
     const s = new SessionStore(':memory:')
     s.repos.addRepo('/abs/one', s.hostMachineId)
-    s.repos.addRepo('/abs/two', 'm2')
+    s.repos.addRepo('/abs/two', asMachineId('m2'))
     const paths = s.repos.listRepoPaths()
     expect(paths).toEqual(['/abs/one', '/abs/two'])
     s.close()
@@ -101,10 +101,10 @@ describe('machines store', () => {
   it('listRepos(machineId) filters to one machine', () => {
     const s = new SessionStore(':memory:')
     s.repos.addRepo('/abs/local', s.hostMachineId)
-    s.repos.addRepo('/abs/remote', 'm2')
+    s.repos.addRepo('/abs/remote', asMachineId('m2'))
     expect(s.repos.listRepos(s.hostMachineId).map((r) => r.path)).toEqual(['/abs/local'])
-    expect(s.repos.listRepos('m2').map((r) => r.path)).toEqual(['/abs/remote'])
-    expect(s.repos.listRepoPaths('m2')).toEqual(['/abs/remote'])
+    expect(s.repos.listRepos(asMachineId('m2')).map((r) => r.path)).toEqual(['/abs/remote'])
+    expect(s.repos.listRepoPaths(asMachineId('m2'))).toEqual(['/abs/remote'])
     s.close()
   })
 
@@ -115,7 +115,7 @@ describe('machines store', () => {
       name: 'server',
       hostname: 'srv',
       tokenHash: hash('tok'),
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     const m = s.machines.getMachine('m2')
     expect(m?.id).toBe('m2')
@@ -131,7 +131,7 @@ describe('machines store', () => {
       name: 'box',
       hostname: 'old-host',
       tokenHash: hash('t'),
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     s.machines.touchMachine('m3', 'new-host')
     const m = s.machines.getMachine('m3')
@@ -151,7 +151,7 @@ describe('machines store', () => {
       name: 'a',
       hostname: 'h',
       tokenHash: 'x',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     s1.repos.addRepo('/a', s1.hostMachineId)
     s1.sessions.upsertSession({

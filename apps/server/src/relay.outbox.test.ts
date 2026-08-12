@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  asMutationId,
   actorAgent,
   asAgentIdentityId,
   asMachineId,
@@ -124,7 +125,7 @@ describe('queueText (durable outbox sends)', () => {
         reg.modules.sessions.queueText({
           sessionId: target,
           text: 'must not cross revocation',
-          mutationId: 'revoke-before-drain',
+          mutationId: asMutationId('revoke-before-drain'),
           principal,
         }),
       ).toEqual({ ok: true, queued: true })
@@ -191,7 +192,7 @@ describe('queueText (durable outbox sends)', () => {
       expect(pastesContaining(daemon, 'wake-up-msg')).toEqual(['\x1b[200~wake-up-msg\x1b[201~'])
       // Delivered: the count leaves the meta and the durable row is gone.
       expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBeUndefined()
-      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
+      expect(reg.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
     } finally {
       vi.useRealTimers()
     }
@@ -212,7 +213,7 @@ describe('queueText (durable outbox sends)', () => {
           name: 'Night quota wake',
           scheduleKind: 'once',
           runAt,
-          targetSessionId: sessionId,
+          targetSessionId: asSessionId(sessionId),
           repoPath: '/w',
           agentKind: 'claude-code',
           prompt: 'continue-night-work',
@@ -269,7 +270,11 @@ describe('queueText (durable outbox sends)', () => {
       cwd: '/w',
     })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 1 })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 1,
+    })
     daemon.length = 0
 
     expect(reg.modules.sessions.queueText({ sessionId, text: 'into-the-void' })).toEqual({
@@ -320,7 +325,7 @@ describe('queueText (durable outbox sends)', () => {
       // Silent respawn: no output at all — the READY_MAX fallback (6s) delivers.
       await vi.advanceTimersByTimeAsync(7_000)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
-      expect(regB.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
+      expect(regB.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
       expect(
         regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
           ?.queuedMessageCount,
@@ -443,7 +448,7 @@ describe('queueText (durable outbox sends)', () => {
 
     reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })
     expect('snoozedUntil' in (reg.modules.sessions.listSessions()[0] ?? {})).toBe(false)
-    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
+    expect(reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
   })
 })
 
@@ -464,11 +469,11 @@ describe('framework idempotency (modules.mutations)', () => {
   it('runs once per id; a replay returns the recorded result without re-running', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     let runs = 0
-    const first = reg.modules.mutations.once('m-1', 'test.proc', () => {
+    const first = reg.modules.mutations.once(asMutationId('m-1'), 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['a', 'b'] }
     })
-    const replay = reg.modules.mutations.once('m-1', 'test.proc', () => {
+    const replay = reg.modules.mutations.once(asMutationId('m-1'), 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['DIFFERENT'] }
     })
@@ -477,7 +482,7 @@ describe('framework idempotency (modules.mutations)', () => {
     expect(replay).toEqual(first) // deep-equal via the JSON round-trip
 
     // A different id runs again.
-    const other = reg.modules.mutations.once('m-2', 'test.proc', () => {
+    const other = reg.modules.mutations.once(asMutationId('m-2'), 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['c'] }
     })
@@ -505,8 +510,8 @@ describe('framework idempotency (modules.mutations)', () => {
       runs += 1
       return { id: 'issue-1', title: 'once' }
     }
-    const first = await reg.modules.mutations.once('m-async', 'issues.create', fn)
-    const replay = await reg.modules.mutations.once('m-async', 'issues.create', fn)
+    const first = await reg.modules.mutations.once(asMutationId('m-async'), 'issues.create', fn)
+    const replay = await reg.modules.mutations.once(asMutationId('m-async'), 'issues.create', fn)
     expect(runs).toBe(1)
     expect(first).toEqual({ id: 'issue-1', title: 'once' })
     expect(replay).toEqual(first)
@@ -525,7 +530,7 @@ describe('framework idempotency (modules.mutations)', () => {
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
       const send = () =>
-        reg.modules.mutations.once('send-1', 'sessions.sendText', () =>
+        reg.modules.mutations.once(asMutationId('send-1'), 'sessions.sendText', () =>
           reg.modules.sessions.sendText({ sessionId, text: 'only-once' }),
         )
       expect(send()).toEqual({ ok: true })

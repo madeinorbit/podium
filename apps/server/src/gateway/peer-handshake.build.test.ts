@@ -1,3 +1,4 @@
+import { asUserId, asMachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -43,9 +44,9 @@ describe('build report on hello accept', () => {
       name: 'box',
       hostname: 'box.local',
       tokenHash: 'token-hash',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
-    recordHelloBuild(store.machines, 'm1', {
+    recordHelloBuild(store.machines, asMachineId('m1'), {
       build: { appVersion: '0.4.2', installKind: 'installed' },
       caps: ['update.delivery.feed'],
       at: '2026-08-04T00:00:00.000Z',
@@ -60,14 +61,14 @@ describe('build report on hello accept', () => {
       name: 'box',
       hostname: 'box.local',
       tokenHash: 'token-hash',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
-    recordHelloBuild(store.machines, 'm1', {
+    recordHelloBuild(store.machines, asMachineId('m1'), {
       build: { appVersion: '0.4.2' },
       caps: [],
       at: '2026-08-04T00:00:00.000Z',
     })
-    recordHelloBuild(store.machines, 'm1', {
+    recordHelloBuild(store.machines, asMachineId('m1'), {
       build: undefined,
       caps: [],
       at: '2026-08-04T01:00:00.000Z',
@@ -82,7 +83,7 @@ describe('build report on hello accept', () => {
       name: 'box',
       hostname: 'box.local',
       tokenHash: sha256('tok'),
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const ws = fakeWs()

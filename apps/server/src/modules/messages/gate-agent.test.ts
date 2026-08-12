@@ -243,14 +243,16 @@ describe('agent spawn (gate)', () => {
    * independently of the issue, so it is the only way to reach this state.
    */
   describe('cross-machine spawn', () => {
-    const profileOn = (machineId: string): MessageGateDeps['resolveExecutionProfile'] => () => ({
-      id: 'prof_x',
-      accountId: 'native:claude-code',
-      machineId,
-      harness: 'claude-code',
-      model: 'auto',
-      effort: 'auto',
-    })
+    const profileOn =
+      (machineId: string): MessageGateDeps['resolveExecutionProfile'] =>
+      () => ({
+        id: 'prof_x',
+        accountId: 'native:claude-code',
+        machineId,
+        harness: 'claude-code',
+        model: 'auto',
+        effort: 'auto',
+      })
 
     it('refuses to spawn a delegate on a machine other than the issue’s home', async () => {
       const { gate, spawns } = harness({
@@ -454,7 +456,7 @@ describe('agent spawn (gate)', () => {
     // runs and is NOT refunded when the seam throws, so the next call is the
     // second of the day. A looping agent whose spawns all fail is still braked,
     // which is the reason the ordering is this way round.
-    expect(svc.takeSpawnBudget(ISSUE.id).count).toBe(2)
+    expect(svc.takeSpawnBudget(asIssueId(ISSUE.id)).count).toBe(2)
     // …but the charge is IN-MEMORY: no `agent.spawned` event was written, so a
     // restart forgives it. That asymmetry is the thing to notice if this ever
     // needs changing — the durable half and the live half disagree on purpose.
@@ -474,7 +476,7 @@ describe('agent spawn (gate)', () => {
     expect(spawned.some((e) => 'budgetIssue' in (e.payload as object))).toBe(false)
     // And an agent's budget on the same issue is untouched — the operator's
     // spawns did not spend it.
-    expect(svc.takeSpawnBudget(ISSUE.id)).toEqual({ ok: true, count: 1 })
+    expect(svc.takeSpawnBudget(asIssueId(ISSUE.id))).toEqual({ ok: true, count: 1 })
   })
 
   it('--new needs --repo when the caller has NO issue scope to inherit one from', async () => {
@@ -519,10 +521,10 @@ describe('agent spawn (gate)', () => {
     // minute either side of midnight UTC is the whole difference.
     let clock = '2026-07-20T23:59:00.000Z'
     const { svc } = harness({ now: () => clock })
-    for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) svc.takeSpawnBudget(ISSUE.id)
-    expect(svc.takeSpawnBudget(ISSUE.id).ok).toBe(false)
+    for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) svc.takeSpawnBudget(asIssueId(ISSUE.id))
+    expect(svc.takeSpawnBudget(asIssueId(ISSUE.id)).ok).toBe(false)
     clock = '2026-07-21T00:01:00.000Z'
-    expect(svc.takeSpawnBudget(ISSUE.id)).toEqual({ ok: true, count: 1 })
+    expect(svc.takeSpawnBudget(asIssueId(ISSUE.id))).toEqual({ ok: true, count: 1 })
   })
 
   it('--worktree on an unstarted issue refuses (issue start stays deliberate)', async () => {
@@ -1238,4 +1240,3 @@ describe('mail dismiss — recipient-only clear', () => {
     ).rejects.toThrow(/only the recipient/)
   })
 })
-

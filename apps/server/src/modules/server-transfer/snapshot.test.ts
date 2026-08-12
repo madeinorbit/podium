@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -66,8 +67,8 @@ describe('portable server snapshot', () => {
         packageDir: join(root, '.server-transfer', 'snapshot'),
         transferId: 'transfer-1',
         sourceInstanceId: 'instance-1',
-        sourceMachineId: 'source-1',
-        targetMachineId: 'target-1',
+        sourceMachineId: asMachineId('source-1'),
+        targetMachineId: asMachineId('target-1'),
         sourceFeedId: 'feed-1',
         sourceFeedEpoch: 'epoch-1',
         sourceApplicationVersion: 'test',

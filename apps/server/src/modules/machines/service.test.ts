@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory } from '@podium/model'
-import { asAccountId, asMachineId, asSessionId } from '@podium/model'
+import { asUserId, asAccountId, asMachineId, asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
@@ -169,7 +169,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     const before = svc.listMachines().map((m) => m.id)
     expect(before).not.toContain(MACHINE)
 
-    const code = svc.mintPairingCode({ ownerUserId: 'user:sole' })
+    const code = svc.mintPairingCode({ ownerUserId: asUserId('user:sole') })
     const result = svc.authenticateDaemon({
       type: 'pair',
       code,
@@ -193,7 +193,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
       name: 'Builder',
       hostname: 'old.local',
       tokenHash: sha256(token),
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
 
     // Warm on the pre-hello row — the upsert went straight to the store, so this
@@ -249,7 +249,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'vmi',
       hostname: 'vmi',
       tokenHash: 'x',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
 
     svc.recordInventory(MACHINE, INV)
@@ -268,7 +268,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'Builder',
       hostname: 'vmi',
       tokenHash: 'x',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     svc.recordInventory(MACHINE, {
       ...INV,
@@ -296,7 +296,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'Builder',
       hostname: 'vmi',
       tokenHash: 'x',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     svc.attach(MACHINE, recorder().send)
 
@@ -321,24 +321,24 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'Missing',
       hostname: 'a',
       tokenHash: 'x',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     store.machines.upsertMachine({
       id: other,
       name: 'Capable',
       hostname: 'b',
       tokenHash: 'y',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     store.repos.addRepo('/repo', MACHINE)
-    store.repos.addRepo('/repo', other)
+    store.repos.addRepo('/repo', asMachineId(other))
     svc.attach(MACHINE, recorder().send)
-    svc.attach(other, recorder().send)
+    svc.attach(asMachineId(other), recorder().send)
     svc.recordInventory(MACHINE, {
       ...INV,
       agents: [{ kind: 'codex', installed: true, login: { state: 'out' } }],
     })
-    svc.recordInventory(other, {
+    svc.recordInventory(asMachineId(other), {
       ...INV,
       agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
     })
@@ -401,7 +401,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       name: 'Builder',
       hostname: 'vmi.local',
       tokenHash: sha256('tok'),
-      ownerUserId: OWNER_A,
+      ownerUserId: asUserId(OWNER_A),
     })
     return { svc, store, dir, broadcasts }
   }
@@ -428,7 +428,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       expect(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_A)
       expect(broadcasts).toHaveLength(0)
 
-      svc.transferMachineOwnership(MACHINE, OWNER_B, OWNER_A)
+      svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), OWNER_A)
 
       // 1 — THE ROW. Read straight from the store, past every cache.
       expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_B)
@@ -463,7 +463,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       })
       expect(svc.grantsForMachine(MACHINE)).toHaveLength(1)
 
-      svc.transferMachineOwnership(MACHINE, OWNER_B, OWNER_A)
+      svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), OWNER_A)
 
       // Carol's `use` was Alice's deliberate act on Alice's hardware. It is not
       // Bob's, and `use` is a code-execution boundary (readiness M2).
@@ -479,7 +479,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // SECOND PRINCIPAL. The gate refuses this in `fleetAuthzFailure`; the
       // service refuses it again, because a service reachable from more than one
       // transport must not depend on every one of them remembering.
-      expect(() => svc.transferMachineOwnership(MACHINE, OWNER_A, OWNER_B)).toThrow(
+      expect(() => svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), OWNER_B)).toThrow(
         'only the machine owner may transfer ownership',
       )
       expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_A)
@@ -494,7 +494,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   test('an unknown recipient is refused rather than quarantining the machine', () => {
     const { svc, store, dir, broadcasts } = transferWorld()
     try {
-      expect(() => svc.transferMachineOwnership(MACHINE, 'user:typo', OWNER_A)).toThrow(
+      expect(() => svc.transferMachineOwnership(MACHINE, asUserId('user:typo'), OWNER_A)).toThrow(
         'unknown user: user:typo',
       )
       // The hazard this closes: an owner the ledger records but `userExists`
@@ -511,7 +511,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   test('transferring to the current owner is refused, not a silent no-op broadcast', () => {
     const { svc, dir, broadcasts } = transferWorld()
     try {
-      expect(() => svc.transferMachineOwnership(MACHINE, OWNER_A, OWNER_A)).toThrow(
+      expect(() => svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), OWNER_A)).toThrow(
         'machine is already owned by that user',
       )
       expect(broadcasts).toEqual([])
@@ -582,7 +582,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // The ledger holds nothing about this machine's ownership at all.
       expect(svc.effectiveOwner(MACHINE)).toBeNull()
 
-      svc.adoptMachine(MACHINE, ALICE)
+      svc.adoptMachine(MACHINE, asUserId(ALICE))
 
       expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
       expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
@@ -596,10 +596,10 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     try {
       // What `authenticateDaemon` writes for a code with no `ownerUserId`: an
       // owner event whose owner is explicitly null, not a missing event.
-      svc.transferOwnership(MACHINE, null as unknown as string)
+      svc.transferOwnership(MACHINE, asUserId(null as unknown as string))
       expect(svc.effectiveOwner(MACHINE)).toBeNull()
 
-      svc.adoptMachine(MACHINE, BOB)
+      svc.adoptMachine(MACHINE, asUserId(BOB))
 
       expect(svc.effectiveOwner(MACHINE)).toBe(BOB)
       expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(BOB)
@@ -611,7 +611,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('state 3 — QUARANTINE: the recorded owner no longer resolves (D19.4b)', () => {
     const { svc, store, dir, known, reboot } = adoptWorld({ rowOwner: ALICE })
     try {
-      svc.transferOwnership(MACHINE, ALICE)
+      svc.transferOwnership(MACHINE, asUserId(ALICE))
       expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
 
       // Alice's account goes away. This is POD-1114's quarantine, reached
@@ -629,7 +629,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // refused AUTOMATIC assignment to the first admin on a restore; it did not
       // refuse assignment. Without this the machine is usable by nobody forever,
       // because its only other remedy is revoke plus a physical re-pair.
-      rebooted.adoptMachine(MACHINE, BOB)
+      rebooted.adoptMachine(MACHINE, asUserId(BOB))
 
       expect(rebooted.effectiveOwner(MACHINE)).toBe(BOB)
       expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(BOB)
@@ -645,13 +645,15 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('a machine with a LIVE owner is refused — that is transfer’s act, not this one', () => {
     const { svc, store, dir } = adoptWorld({ rowOwner: ALICE })
     try {
-      svc.transferOwnership(MACHINE, ALICE)
+      svc.transferOwnership(MACHINE, asUserId(ALICE))
 
       // TWO PRINCIPALS' WORTH OF ROUTE, at the service seam: adoption refuses
       // Alice's machine whether the adopter meant to take it themselves or hand
       // it to someone else. Neither recipient makes the machine unowned.
-      expect(() => svc.adoptMachine(MACHINE, BOB)).toThrow('machine already has an owner')
-      expect(() => svc.adoptMachine(MACHINE, ALICE)).toThrow('machine already has an owner')
+      expect(() => svc.adoptMachine(MACHINE, asUserId(BOB))).toThrow('machine already has an owner')
+      expect(() => svc.adoptMachine(MACHINE, asUserId(ALICE))).toThrow(
+        'machine already has an owner',
+      )
 
       // Refused means SILENT: the ledger was not appended and the row is intact.
       expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
@@ -664,7 +666,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('the refusal reads the LEDGER, not the row it is a projection of', () => {
     const { svc, store, dir } = adoptWorld({ rowOwner: ALICE })
     try {
-      svc.transferOwnership(MACHINE, ALICE)
+      svc.transferOwnership(MACHINE, asUserId(ALICE))
       // Force the row to disagree with the ledger — the state D19.4d says can
       // exist between an append and its projection, and which boot repair
       // exists to fix. A service that asked the ROW would now happily adopt a
@@ -674,7 +676,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBeNull()
       expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
 
-      expect(() => svc.adoptMachine(MACHINE, BOB)).toThrow('machine already has an owner')
+      expect(() => svc.adoptMachine(MACHINE, asUserId(BOB))).toThrow('machine already has an owner')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -683,7 +685,9 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown recipient is refused rather than re-quarantining the machine', () => {
     const { svc, store, dir } = adoptWorld()
     try {
-      expect(() => svc.adoptMachine(MACHINE, 'user:typo')).toThrow('unknown user: user:typo')
+      expect(() => svc.adoptMachine(MACHINE, asUserId('user:typo'))).toThrow(
+        'unknown user: user:typo',
+      )
       // The hazard: adopting to an unresolvable id appends an owner the next
       // reconcile cannot resolve, so the machine comes out of adoption in
       // exactly the quarantine it went in with. Nothing was appended.
@@ -697,7 +701,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown machine is refused before anything is read', () => {
     const { svc, dir } = adoptWorld()
     try {
-      expect(() => svc.adoptMachine('ghost', ALICE)).toThrow("unknown machine 'ghost'")
+      expect(() => svc.adoptMachine('ghost', asUserId(ALICE))).toThrow("unknown machine 'ghost'")
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -710,7 +714,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('THE LEDGER APPEND IS THE COMMIT POINT — the row is only a projection', () => {
     const { svc, store, dir, reboot } = adoptWorld()
     try {
-      svc.adoptMachine(MACHINE, ALICE)
+      svc.adoptMachine(MACHINE, asUserId(ALICE))
       expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
 
       // DESTROY THE PROJECTION and nothing else. If the row were the source of
@@ -733,10 +737,10 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('adoption APPENDS — it never rewrites the ledger entry that was there', () => {
     const { svc, dir, known, reboot } = adoptWorld({ rowOwner: ALICE })
     try {
-      svc.transferOwnership(MACHINE, ALICE)
+      svc.transferOwnership(MACHINE, asUserId(ALICE))
       known.delete(ALICE)
       const quarantined = reboot()
-      quarantined.adoptMachine(MACHINE, BOB)
+      quarantined.adoptMachine(MACHINE, asUserId(BOB))
 
       // Alice's account comes back — a half-restored directory finishing its
       // import. The ledger is append-only and never-delete, so her original
@@ -770,7 +774,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       })
       expect(svc.grantsForMachine(MACHINE)).toHaveLength(1)
 
-      svc.adoptMachine(MACHINE, BOB)
+      svc.adoptMachine(MACHINE, asUserId(BOB))
 
       // Carol's `use` was approved under a regime that is gone, on hardware that
       // is now Bob's. `use` is a code-execution boundary (readiness M2).

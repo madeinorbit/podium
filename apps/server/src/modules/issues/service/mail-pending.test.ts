@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asThreadId, asIssueId, asSessionId } from '@podium/model'
 import { type SqlDatabase, type SqlParam } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore, type MessageRow } from '../../../store'
@@ -40,7 +40,7 @@ function message(input: {
 }): MessageRow {
   return {
     id: asIssueId(input.id),
-    threadId: input.id,
+    threadId: asThreadId(input.id),
     inReplyTo: null,
     fromKind: 'agent',
     fromSession: input.fromSession ? asSessionId(input.fromSession) : null,
@@ -98,14 +98,17 @@ describe('countContextAwarePendingMail', () => {
           status: 'delivered',
         }),
       )
-      store.messages.recordRead('msg-seen', 'reader-session', 't1')
+      store.messages.recordRead('msg-seen', asSessionId('reader-session'), 't1')
       counts.clear()
 
       const baselineSenders = messages.listPendingSendersForSession(
-        'iss_target',
+        asIssueId('iss_target'),
         'reader-session',
       )
-      const baselineCount = messages.countPendingForSession('iss_target', 'reader-session')
+      const baselineCount = messages.countPendingForSession(
+        asIssueId('iss_target'),
+        'reader-session',
+      )
       expect(baselineCount).toBe(3)
       expect(baselineSenders).toHaveLength(2)
       expect([...counts].reduce((total, [, count]) => total + count, 0)).toBe(2)
@@ -113,7 +116,7 @@ describe('countContextAwarePendingMail', () => {
 
       const result = countContextAwarePendingMail(
         { messages, issues: store.issues },
-        'iss_target',
+        asIssueId('iss_target'),
         (fromIssue) => `issue:${fromIssue}`,
         'reader-session',
       )
@@ -129,9 +132,10 @@ describe('countContextAwarePendingMail', () => {
       expect(groupedReads).toHaveLength(1)
       expect(groupedReads[0]?.[1]).toBe(1)
 
-      const oldSeparateReads = [...counts].filter(([sql]) =>
-        sql.includes('SELECT DISTINCT from_kind, from_issue, from_session') ||
-        sql.includes('SELECT COUNT(*) AS n FROM messages'),
+      const oldSeparateReads = [...counts].filter(
+        ([sql]) =>
+          sql.includes('SELECT DISTINCT from_kind, from_issue, from_session') ||
+          sql.includes('SELECT COUNT(*) AS n FROM messages'),
       )
       expect(oldSeparateReads).toHaveLength(0)
     } finally {

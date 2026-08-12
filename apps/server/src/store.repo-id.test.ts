@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID, SOLE_USER_ID, asIssueId } from '@podium/model'
+import { asMachineId, FIRST_ADMIN_USER_ID, SOLE_USER_ID, asIssueId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,18 +14,51 @@ function db(store: SessionStore) {
 
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
-    id: asIssueId('iss_x'), repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
-    ownerUserId: FIRST_ADMIN_USER_ID, visibility: 'personal', createdByActor: FIRST_ADMIN_USER_ID,
+    id: asIssueId('iss_x'),
+    repoPath: '/r',
+    seq: 1,
+    title: 'X',
+    description: '',
+    stage: 'backlog',
+    ownerUserId: FIRST_ADMIN_USER_ID,
+    visibility: 'personal',
+    createdByActor: FIRST_ADMIN_USER_ID,
     createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
-    worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
-    defaultModel: 'auto', defaultEffort: 'auto',
-    linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null,
-    notesUpdatedAt: null, suggestedStage: null, suggestedReason: null, blockedBy: [],
-    dependencyNote: null, prUrl: null, createdAt: 't', updatedAt: 't', archived: false,
-    priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-    notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null, supersededBy: null,
-    duplicateOf: null, estimateMin: null,
-    needsHuman: false, humanQuestion: null,
+    worktreePath: null,
+    branch: null,
+    parentBranch: 'main',
+    defaultAgent: 'claude-code',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    linearId: null,
+    linearIdentifier: null,
+    linearUrl: null,
+    activityNotes: null,
+    notesUpdatedAt: null,
+    suggestedStage: null,
+    suggestedReason: null,
+    blockedBy: [],
+    dependencyNote: null,
+    prUrl: null,
+    createdAt: 't',
+    updatedAt: 't',
+    archived: false,
+    priority: 2,
+    type: 'task',
+    assignee: null,
+    parentId: null,
+    design: null,
+    acceptance: null,
+    notes: null,
+    dueAt: null,
+    deferUntil: null,
+    closedReason: null,
+    closedAt: null,
+    supersededBy: null,
+    duplicateOf: null,
+    estimateMin: null,
+    needsHuman: false,
+    humanQuestion: null,
     ...over,
   }
 }
@@ -69,10 +102,14 @@ describe('repo_id schema (v8, #74)', () => {
     s.migrateLegacyRepoIdentity()
     const repos = s.repos.listRepos()
     expect(repos.find((r) => r.path === '/r')?.repoId).toBe(
-      deriveRepoId({ originUrl: 'git@github.com:o/r.git', machineId: 'm1', path: '/r' }),
+      deriveRepoId({
+        originUrl: 'git@github.com:o/r.git',
+        machineId: asMachineId('m1'),
+        path: '/r',
+      }),
     )
     expect(repos.find((r) => r.path === '/no-origin')?.repoId).toBe(
-      deriveRepoId({ machineId: 'm2', path: '/no-origin' }),
+      deriveRepoId({ machineId: asMachineId('m2'), path: '/no-origin' }),
     )
     // Issue under a registered repo inherits its repo_id via prefix match…
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(repos.find((r) => r.path === '/r')?.repoId)
@@ -89,22 +126,26 @@ describe('repo_id schema (v8, #74)', () => {
 
   it('addRepo derives repo_id (origin-based when given, path-fallback otherwise)', () => {
     const s = new SessionStore(':memory:')
-    s.repos.addRepo('/a', 'm1', 'https://github.com/o/r')
-    s.repos.addRepo('/b', 'm1')
+    s.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/o/r')
+    s.repos.addRepo('/b', asMachineId('m1'))
     const rows = s.repos.listRepos()
     expect(rows.find((r) => r.path === '/a')?.repoId).toBe(
-      deriveRepoId({ originUrl: 'https://github.com/o/r', machineId: 'm1', path: '/a' }),
+      deriveRepoId({
+        originUrl: 'https://github.com/o/r',
+        machineId: asMachineId('m1'),
+        path: '/a',
+      }),
     )
     expect(rows.find((r) => r.path === '/b')?.repoId).toBe(
-      deriveRepoId({ machineId: 'm1', path: '/b' }),
+      deriveRepoId({ machineId: asMachineId('m1'), path: '/b' }),
     )
     s.close()
   })
 
   it('two paths with the same origin share one repo_id', () => {
     const s = new SessionStore(':memory:')
-    s.repos.addRepo('/clone/one', 'm1', 'git@github.com:o/r.git')
-    s.repos.addRepo('/clone/two', 'm2', 'https://github.com/o/r')
+    s.repos.addRepo('/clone/one', asMachineId('m1'), 'git@github.com:o/r.git')
+    s.repos.addRepo('/clone/two', asMachineId('m2'), 'https://github.com/o/r')
     const rows = s.repos.listRepos()
     expect(rows[0]?.repoId).toBe(rows[1]?.repoId)
     s.close()
@@ -112,16 +153,20 @@ describe('repo_id schema (v8, #74)', () => {
 
   it('updateRepoOrigin upgrades a path-fallback id (and its issues) but not an origin-derived id', () => {
     const s = new SessionStore(':memory:')
-    s.repos.addRepo('/r', 'm1') // no origin → path fallback
+    s.repos.addRepo('/r', asMachineId('m1')) // no origin → path fallback
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }))
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }))
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_3'), repoPath: '/other', seq: 3 }))
-    const fallback = deriveRepoId({ machineId: 'm1', path: '/r' })
+    const fallback = deriveRepoId({ machineId: asMachineId('m1'), path: '/r' })
     expect(s.repos.listRepos()[0]?.repoId).toBe(fallback)
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(fallback)
 
-    s.repos.updateRepoOrigin('m1', '/r', 'git@github.com:o/r.git')
-    const originId = deriveRepoId({ originUrl: 'git@github.com:o/r.git', machineId: 'm1', path: '/r' })
+    s.repos.updateRepoOrigin(asMachineId('m1'), '/r', 'git@github.com:o/r.git')
+    const originId = deriveRepoId({
+      originUrl: 'git@github.com:o/r.git',
+      machineId: asMachineId('m1'),
+      path: '/r',
+    })
     expect(s.repos.listRepos()[0]?.repoId).toBe(originId)
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(originId)
     expect(s.issues.getIssue('iss_2')?.repoId).toBe(originId)
@@ -131,7 +176,7 @@ describe('repo_id schema (v8, #74)', () => {
     )
 
     // A later, different origin must NOT rewrite the established identity.
-    s.repos.updateRepoOrigin('m1', '/r', 'git@github.com:fork/r.git')
+    s.repos.updateRepoOrigin(asMachineId('m1'), '/r', 'git@github.com:fork/r.git')
     expect(s.repos.listRepos()[0]?.repoId).toBe(originId)
     expect(s.repos.listRepos()[0]?.originUrl).toBe('git@github.com:fork/r.git')
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(originId)
@@ -140,10 +185,14 @@ describe('repo_id schema (v8, #74)', () => {
 
   it('upsertIssue dual-writes repo_id from the registered repo prefix match', () => {
     const s = new SessionStore(':memory:')
-    s.repos.addRepo('/repo', 'm1', 'https://github.com/o/repo')
+    s.repos.addRepo('/repo', asMachineId('m1'), 'https://github.com/o/repo')
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }))
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(
-      deriveRepoId({ originUrl: 'https://github.com/o/repo', machineId: 'm1', path: '/repo' }),
+      deriveRepoId({
+        originUrl: 'https://github.com/o/repo',
+        machineId: asMachineId('m1'),
+        path: '/repo',
+      }),
     )
     s.close()
   })
@@ -208,7 +257,11 @@ describe('the repo-identity upgrade is spent once per database (POD-1360)', () =
       const third = new SessionStore(file)
       expect(nullRepoIdCounts(third)).toEqual({ repos: 0, issues: 0 })
       expect(third.issues.getIssue('iss_legacy')?.repoId).toBe(
-        deriveRepoId({ originUrl: 'git@github.com:o/r.git', machineId: 'm1', path: '/legacy' }),
+        deriveRepoId({
+          originUrl: 'git@github.com:o/r.git',
+          machineId: asMachineId('m1'),
+          path: '/legacy',
+        }),
       )
       // …and it re-stamps the marker, so a fourth boot is bounded again.
       expect(
@@ -241,7 +294,10 @@ describe('the repo-identity upgrade is spent once per database (POD-1360)', () =
       // Every imported row identified, despite the spent marker…
       for (const r of second.repos.listRepos()) {
         expect(r.repoId, `repo ${r.path} has no repo_id`).not.toBeNull()
-        expect(second.repos.prefixForRepoId(r.repoId!), `repo ${r.path} has no prefix`).not.toBeNull()
+        expect(
+          second.repos.prefixForRepoId(r.repoId!),
+          `repo ${r.path} has no prefix`,
+        ).not.toBeNull()
       }
       second.close()
     } finally {
@@ -275,7 +331,11 @@ describe('the repo-identity upgrade is spent once per database (POD-1360)', () =
       // The identity upgraded with it — a path fallback replaced by the origin-derived
       // id, which is the whole reason the origin read was worth doing at all.
       expect(row?.repoId).toBe(
-        deriveRepoId({ originUrl: 'git@github.com:o/local.git', machineId: 'm1', path: dir }),
+        deriveRepoId({
+          originUrl: 'git@github.com:o/local.git',
+          machineId: asMachineId('m1'),
+          path: dir,
+        }),
       )
       // And the prefix step ran after it, keyed on the settled id (#474).
       expect(s.repos.prefixForRepoId(row!.repoId!)).not.toBeNull()
@@ -306,7 +366,7 @@ describe('the repo-identity upgrade is spent once per database (POD-1360)', () =
     // `assignRepoIdToIssuesUnder` on the repos path invalidates too, so a fixture where
     // BOTH halves write would still go green with this method's own invalidate deleted,
     // and would be testing POD-1931's line instead of the one this issue owns.
-    s.repos.addRepo('/framed', 'm1', 'git@github.com:o/r.git')
+    s.repos.addRepo('/framed', asMachineId('m1'), 'git@github.com:o/r.git')
     db(s)
       .prepare(
         `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
@@ -336,7 +396,11 @@ describe('the repo-identity upgrade is spent once per database (POD-1360)', () =
     expect(s.issues.getIssue('iss_framed')?.title).toBe('behind-the-cache')
 
     expect(s.issues.getIssue('iss_framed')?.repoId).toBe(
-      deriveRepoId({ originUrl: 'git@github.com:o/r.git', machineId: 'm1', path: '/framed' }),
+      deriveRepoId({
+        originUrl: 'git@github.com:o/r.git',
+        machineId: asMachineId('m1'),
+        path: '/framed',
+      }),
     )
     s.close()
   })
@@ -376,9 +440,9 @@ describe('stored repo ids survive the machine-identity upgrade untouched', () =>
   it('the row keeps the id it was minted with after its machine_id is rewritten', () => {
     const s = new SessionStore(':memory:')
     // A pre-POD-318 row: minted under the placeholder, machine column since moved.
-    s.repos.addRepo('/legacy', '__local__')
+    s.repos.addRepo('/legacy', asMachineId('__local__'))
     const minted = s.repos.listRepos()[0]?.repoId
-    expect(minted).toBe(deriveRepoId({ machineId: '__local__', path: '/legacy' }))
+    expect(minted).toBe(deriveRepoId({ machineId: asMachineId('__local__'), path: '/legacy' }))
 
     s.migrateLegacyMachineIdentity(s.hostMachineId)
 
@@ -396,7 +460,7 @@ describe('stored repo ids survive the machine-identity upgrade untouched', () =>
     // counterfactual is right there, since deriving the same path under this host
     // gives a DIFFERENT id.
     const s = new SessionStore(':memory:')
-    s.repos.addRepo('/legacy', '__local__')
+    s.repos.addRepo('/legacy', asMachineId('__local__'))
     s.migrateLegacyMachineIdentity(s.hostMachineId)
 
     const stored = s.repos.listRepos()[0]?.repoId

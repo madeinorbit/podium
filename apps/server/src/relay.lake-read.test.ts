@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -75,7 +75,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     mkdirSync(join(lakeDir, 'm1'), { recursive: true })
     writeFileSync(join(lakeDir, 'm1', `${nativeId}.jsonl`), lakeContent)
     store.conversations.mirror.setMirrorCursor(
-      'm1',
+      asMachineId('m1'),
       nativeId,
       Buffer.byteLength(lakeContent),
       '2026-07-01T11:00:00Z',
@@ -176,13 +176,13 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     })}\n`
     const sessionId = seedMirroredSession(registry, store, lakeDir, nativeId, current)
     store.conversations.mirror.startIncarnation(
-      'm1',
+      asMachineId('m1'),
       nativeId,
       { device: '7', inode: '8961297' },
       '2026-07-01T09:00:00Z',
     )
     store.conversations.mirror.rotateIncarnation(
-      'm1',
+      asMachineId('m1'),
       nativeId,
       { device: '7', inode: '7115245' },
       Buffer.byteLength(predecessor),
@@ -190,7 +190,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     )
     writeFileSync(join(lakeDir, 'm1', `${nativeId}.incarnation-1.jsonl`), predecessor)
     store.conversations.mirror.setMirrorCursor(
-      'm1',
+      asMachineId('m1'),
       nativeId,
       Buffer.byteLength(current),
       '2026-07-01T10:00:01Z',
@@ -233,7 +233,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     )
     let inode = '8961297'
     store.conversations.registry.ensure({
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       nativeId,
       providerId: 'claude-code-jsonl',
       path: sourcePath,
@@ -252,13 +252,17 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
         inode,
       })
     })
-    registry.modules.memory.triggerLakeSweep('m1')
+    registry.modules.memory.triggerLakeSweep(asMachineId('m1'))
     // Each leg is a real daemon round-trip plus lake file I/O, so the 1s
     // waitFor default is too tight on a loaded CI host.
     await vi.waitFor(
       () => {
-        expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(source.length)
-        expect(store.conversations.mirror.activeIncarnation('m1', nativeId)?.inode).toBe('8961297')
+        expect(store.conversations.mirror.mirrorCursor(asMachineId('m1'), nativeId)).toBe(
+          source.length,
+        )
+        expect(
+          store.conversations.mirror.activeIncarnation(asMachineId('m1'), nativeId)?.inode,
+        ).toBe('8961297')
       },
       { timeout: 8_000 },
     )
@@ -268,13 +272,19 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'next' } })}\n`,
     )
     inode = '7115245'
-    store.conversations.mirror.setReportedBytes('m1', nativeId, source.length)
-    registry.modules.memory.triggerLakeSweep('m1')
+    store.conversations.mirror.setReportedBytes(asMachineId('m1'), nativeId, source.length)
+    registry.modules.memory.triggerLakeSweep(asMachineId('m1'))
 
     await vi.waitFor(
       () => {
-        expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(source.length)
-        expect(store.conversations.mirror.incarnations('m1', nativeId)).toHaveLength(2)
+        // The first sweep may still be dropping its single-flight queue marker
+        // when the replacement is installed; retriggering is how the next daemon
+        // scan reports the dirty smaller file in production.
+        registry.modules.memory.triggerLakeSweep(asMachineId('m1'))
+        expect(store.conversations.mirror.mirrorCursor(asMachineId('m1'), nativeId)).toBe(
+          source.length,
+        )
+        expect(store.conversations.mirror.incarnations(asMachineId('m1'), nativeId)).toHaveLength(2)
       },
       { timeout: 8_000 },
     )
@@ -289,17 +299,19 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     // Pre-P5 state: lake file + mirrored_bytes > 0, indexed_bytes 0, and NO
     // onBytes hook will ever fire for it (the mirror is already caught up).
     seedMirroredSession(registry, store, lakeDir, 'native-old', LAKE_LINES)
-    expect(store.conversations.transcriptIndex.rows('m1', 'native-old')).toEqual([])
+    expect(store.conversations.transcriptIndex.rows(asMachineId('m1'), 'native-old')).toEqual([])
 
     // The attach trigger runs the backfill sweep (same seam as enqueueMachine).
     registry.gateway.detachDaemon('m1')
     registry.gateway.attachDaemon('m1', () => {})
     await vi.waitFor(() => {
       expect(
-        store.conversations.transcriptIndex.rows('m1', 'native-old').map((r) => r.content),
+        store.conversations.transcriptIndex
+          .rows(asMachineId('m1'), 'native-old')
+          .map((r) => r.content),
       ).toEqual(['where does the flux capacitor live?', 'The flux capacitor lives in engine.ts'])
     })
-    expect(store.conversations.transcriptIndex.segmentsToIndex('m1')).toEqual([])
+    expect(store.conversations.transcriptIndex.segmentsToIndex(asMachineId('m1'))).toEqual([])
   })
 
   it('resolves empty when detached and nothing was mirrored (cursor at 0)', async () => {

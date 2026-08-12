@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UpdatesService } from './service'
 import { restartCoordinatorAfterDevelopmentFleet } from './trpc'
@@ -73,7 +74,11 @@ describe('restartCoordinatorAfterDevelopmentFleet', () => {
     // Well past the silence deadline in total elapsed time, but never silent.
     for (let round = 0; round < 4; round++) {
       await advance(SILENCE_MS - 10_000)
-      service.onStatus('a', { type: 'updateStatus', state: 'restarting', version: '0.4.1' })
+      service.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        state: 'restarting',
+        version: '0.4.1',
+      })
       expect(service.fleet()[0]).toMatchObject({ state: 'restarting' })
     }
 

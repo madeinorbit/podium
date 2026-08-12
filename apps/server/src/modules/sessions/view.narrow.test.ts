@@ -77,8 +77,8 @@ const CORPUS = () => [
 describe('SessionView.listForIssue [POD-1639]', () => {
   it('returns exactly what filtering the full list returns', () => {
     const { view } = viewOver(CORPUS())
-    const oracle = sessionsForIssue(WORKTREE, view.list(PRINCIPAL), ISSUE)
-    const narrow = view.listForIssue(WORKTREE, ISSUE, PRINCIPAL)
+    const oracle = sessionsForIssue(WORKTREE, view.list(PRINCIPAL), asIssueId(ISSUE))
+    const narrow = view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)
     expect(narrow.map((s) => s.sessionId)).toEqual(oracle.map((s) => s.sessionId))
     expect(narrow).toEqual(oracle)
     // Named, so a predicate that silently widened is visible in the diff.
@@ -91,8 +91,8 @@ describe('SessionView.listForIssue [POD-1639]', () => {
 
   it('still applies the visibility rule to the members it keeps', () => {
     const { view } = viewOver(CORPUS(), new Set(['mine-by-cwd']))
-    const oracle = sessionsForIssue(WORKTREE, view.list(PRINCIPAL), ISSUE)
-    expect(view.listForIssue(WORKTREE, ISSUE, PRINCIPAL)).toEqual(oracle)
+    const oracle = sessionsForIssue(WORKTREE, view.list(PRINCIPAL), asIssueId(ISSUE))
+    expect(view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)).toEqual(oracle)
     expect(oracle.map((s) => s.sessionId)).toEqual(['mine-explicit', 'mine-is-the-root'])
   })
 
@@ -101,7 +101,7 @@ describe('SessionView.listForIssue [POD-1639]', () => {
     view.list(PRINCIPAL)
     expect(canReadCalls.length).toBe(6)
     canReadCalls.length = 0
-    view.listForIssue(WORKTREE, ISSUE, PRINCIPAL)
+    view.listForIssue(WORKTREE, asIssueId(ISSUE), PRINCIPAL)
     expect(canReadCalls).toEqual(['mine-explicit', 'mine-by-cwd', 'mine-is-the-root'])
   })
 

@@ -1,3 +1,4 @@
+import { asUserId, asMachineId } from '@podium/model'
 import type { SessionId, SessionMeta } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -26,14 +27,14 @@ describe('bind-storm regression', () => {
       name: 'one',
       hostname: 'one',
       tokenHash: 'x',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     store.machines.upsertMachine({
       id: 'm2',
       name: 'two',
       hostname: 'two',
       tokenHash: 'y',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon('m1', () => {})
@@ -48,7 +49,7 @@ describe('bind-storm regression', () => {
       const { sessionId } = registry.modules.sessions.createSession({
         agentKind: 'shell',
         cwd,
-        machineId,
+        machineId: asMachineId(machineId),
       })
       bound.push({ sessionId, cwd, machineId })
     }

@@ -560,8 +560,14 @@ describe('sendTurn (headless harness turns)', () => {
   it('keeps legacy buffered history readable; successful turns add nothing to it', async () => {
     const h = await harness()
     const store = h.registry.sessionStore
-    store.superagent.appendSuperagentMessage('global', { role: 'user', content: 'old question' })
-    store.superagent.appendSuperagentMessage('global', { role: 'assistant', content: 'old answer' })
+    store.superagent.appendSuperagentMessage(asThreadId('global'), {
+      role: 'user',
+      content: 'old question',
+    })
+    store.superagent.appendSuperagentMessage(asThreadId('global'), {
+      role: 'assistant',
+      content: 'old answer',
+    })
     await h.sa.sendTurn({
       ownerUserId: FIRST_ADMIN_USER_ID,
       threadId: asThreadId('global'),

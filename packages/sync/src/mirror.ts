@@ -92,15 +92,8 @@ export class MirrorService {
   private readonly queues = new Map<MachineId, { nativeId: string; path: string }[]>()
   /** Machines with a drain loop running (single-flight per machine). */
   private readonly active = new Set<MachineId>()
-<<<<<<< HEAD
   /** Segment keys queued or in flight — direct duplicates are no-ops; a fresh
    *  sweep observation may additionally arm one trailing pass. */
-||||||| parent of f655f67c8 (Repair sync branded ID call sites)
-  private readonly active = new Set<string>()
-  /** Segment keys queued or in flight — an enqueue for one is a no-op. */
-=======
-  /** Segment keys queued or in flight — an enqueue for one is a no-op. */
->>>>>>> f655f67c8 (Repair sync branded ID call sites)
   private readonly queued = new Set<string>()
   /** Segment keys currently inside {@link mirrorOne}. A dirty sweep that sees
    *  one has observed new source state after this pass was selected. */

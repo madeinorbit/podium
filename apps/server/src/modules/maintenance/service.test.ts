@@ -1,4 +1,11 @@
-import { asIssueId, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import {
+  asThreadId,
+  asUserId,
+  asIssueId,
+  asMachineId,
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
+} from '@podium/model'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -26,7 +33,7 @@ import { MaintenanceService } from './service'
 
 const baseMessage = (over: Partial<MessageRow> = {}): MessageRow => ({
   id: 'msg_1',
-  threadId: 'thread_1',
+  threadId: asThreadId('thread_1'),
   inReplyTo: null,
   fromKind: 'agent',
   fromSession: asSessionId('sess_sender'),
@@ -464,7 +471,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         name: 'remote',
         hostname: 'remote',
         tokenHash: 'x',
-        ownerUserId: 'user:sole',
+        ownerUserId: asUserId('user:sole'),
       })
     } finally {
       vi.useRealTimers()
@@ -483,7 +490,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         connectScan: (id) => {
           scans.push(id)
         },
-        localMachineId: 'local',
+        localMachineId: asMachineId('local'),
       },
     )
     const lease = handshake('gen_a')

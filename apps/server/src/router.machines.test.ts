@@ -1,3 +1,4 @@
+import { asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { PairingManager } from './hub/pairing'
@@ -17,7 +18,7 @@ function machineCaller() {
     name: 'machine-one',
     hostname: 'host-one',
     tokenHash: 'h1',
-    ownerUserId: 'user:sole',
+    ownerUserId: asUserId('user:sole'),
   })
   // Pairing is a hub-role capability, injected the way server assembly does it.
   const registry = new SessionRegistry(store, undefined, {
@@ -90,7 +91,7 @@ describe('sessions.create with machineId', () => {
       name: 'machine-two',
       hostname: 'host-two',
       tokenHash: 'h2',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     store.machines.setMachineInventory(
       'm2',

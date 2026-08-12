@@ -13,7 +13,9 @@ import {
 } from './commands'
 import { asIssueId, asSessionId, type IssueWire, type IssueWireInput } from '@podium/model'
 
-function issue(partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title'>): IssueWire {
+function issue(
+  partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title'>,
+): IssueWire {
   return {
     repoPath: '/p',
     description: '',
@@ -131,13 +133,13 @@ describe('issue formatters', () => {
     const built = buildIssuesMessage(issues, 'active')
     expect(built.text).toContain('POD-2')
     expect(built.buttons).toEqual([
-      [{ label: 'POD-2 In flight', data: issueCallbackData('b') }],
-      [{ label: 'POD-4 Ready task', data: issueCallbackData('d') }],
+      [{ label: 'POD-2 In flight', data: issueCallbackData(asIssueId('b')) }],
+      [{ label: 'POD-4 Ready task', data: issueCallbackData(asIssueId('d')) }],
     ])
   })
 
   it('round-trips issue callback data', () => {
-    expect(parseIssueCallbackData(issueCallbackData('iss_abc'))).toBe('iss_abc')
+    expect(parseIssueCallbackData(issueCallbackData(asIssueId('iss_abc')))).toBe('iss_abc')
     expect(parseIssueCallbackData('nope')).toBeUndefined()
   })
 
@@ -147,42 +149,42 @@ describe('issue formatters', () => {
     // fixture states the two separately instead of nesting one inside the other.
     const withSessions = issue({ id: asIssueId('e'), seq: 5, title: 'Epic' })
     const held = [
-        {
-          sessionId: asSessionId('old'),
-          issueId: asIssueId('e'),
-          agentKind: 'grok',
-          title: 'old',
-          cwd: '/p',
-          status: 'exited',
-          controllerId: null,
-          geometry: { cols: 80, rows: 24 },
-          epoch: 0,
-          clientCount: 0,
-          createdAt: '2026-01-01T00:00:00.000Z',
-          lastActiveAt: '2026-07-10T00:00:00.000Z',
-          origin: { kind: 'spawn' },
-          archived: false,
-          readAt: null,
-          unread: false,
-        },
-        {
-          sessionId: asSessionId('live'),
-          issueId: asIssueId('e'),
-          agentKind: 'grok',
-          title: 'live',
-          cwd: '/p',
-          status: 'live',
-          controllerId: null,
-          geometry: { cols: 80, rows: 24 },
-          epoch: 0,
-          clientCount: 0,
-          createdAt: '2026-01-01T00:00:00.000Z',
-          lastActiveAt: '2026-07-16T00:00:00.000Z',
-          origin: { kind: 'spawn' },
-          archived: false,
-          readAt: null,
-          unread: false,
-        },
+      {
+        sessionId: asSessionId('old'),
+        issueId: asIssueId('e'),
+        agentKind: 'grok',
+        title: 'old',
+        cwd: '/p',
+        status: 'exited',
+        controllerId: null,
+        geometry: { cols: 80, rows: 24 },
+        epoch: 0,
+        clientCount: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        lastActiveAt: '2026-07-10T00:00:00.000Z',
+        origin: { kind: 'spawn' },
+        archived: false,
+        readAt: null,
+        unread: false,
+      },
+      {
+        sessionId: asSessionId('live'),
+        issueId: asIssueId('e'),
+        agentKind: 'grok',
+        title: 'live',
+        cwd: '/p',
+        status: 'live',
+        controllerId: null,
+        geometry: { cols: 80, rows: 24 },
+        epoch: 0,
+        clientCount: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        lastActiveAt: '2026-07-16T00:00:00.000Z',
+        origin: { kind: 'spawn' },
+        archived: false,
+        readAt: null,
+        unread: false,
+      },
     ] as SessionMeta[]
     // The held-session list is now a SEPARATE argument: membership moved off the
     // embedded array, so the caller supplies the sessions it holds.

@@ -1,4 +1,11 @@
-import { asSessionId, FIRST_ADMIN_USER_ID, type SessionMeta, SOLE_USER_ID, asMachineId} from '@podium/model'
+import {
+  asUserId,
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
+  type SessionMeta,
+  SOLE_USER_ID,
+  asMachineId,
+} from '@podium/model'
 import { type MetadataChange, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -743,7 +750,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(
       registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.snoozedUntil,
     ).toBeUndefined()
-    expect(registry.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).not.toHaveProperty(sessionId)
+    expect(registry.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).not.toHaveProperty(
+      sessionId,
+    )
     expect(cursorOf(registry)).toBe(cursor)
     expect(events).toEqual([])
 

@@ -1,3 +1,4 @@
+import { asUserId, asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -14,7 +15,13 @@ function captureSpawn(over: {
   effort?: string
 }) {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({
+    id: 'm1',
+    name: 'one',
+    hostname: 'one',
+    tokenHash: 'x',
+    ownerUserId: asUserId('user:sole'),
+  })
   store.machines.setMachineInventory(
     'm1',
     JSON.stringify({
@@ -27,7 +34,7 @@ function captureSpawn(over: {
   const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const sent: ControlMessage[] = []
   registry.gateway.attachDaemon('m1', (m) => sent.push(m))
-  registry.modules.sessions.createSession({ cwd: '/wt', machineId: 'm1', ...over })
+  registry.modules.sessions.createSession({ cwd: '/wt', machineId: asMachineId('m1'), ...over })
   const spawn = sent.find((m) => m.type === 'spawn')
   registry.dispose()
   return spawn as Extract<ControlMessage, { type: 'spawn' }> | undefined

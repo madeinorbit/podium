@@ -30,6 +30,7 @@
  */
 
 import { AUTOMATION_CONTRACTS, AUTOMATION_QUERY_NAMES } from '@podium/commands'
+import { asMachineId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -182,7 +183,7 @@ describe('POD-735 operator-only — the relay refuses automations, and can still
         if (frame.type === 'agentRelayResult') replies.push(frame)
       },
     })
-    await gate.run('machine-1', {
+    await gate.run(asMachineId('machine-1'), {
       type: 'agentRelayRequest',
       requestId: 'req-1',
       sessionId: SESSION,

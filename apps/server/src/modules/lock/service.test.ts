@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asRepoId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
@@ -132,7 +132,7 @@ describe('LockService', () => {
     advance(1_000)
     svc.acquire(agent(3), { repoPath: REPO, name: 'test:heavy' })
 
-    const before = store.locks.listWaiters('repo:/repo', 'test:heavy')
+    const before = store.locks.listWaiters(asRepoId('repo:/repo'), 'test:heavy')
     expect(before[0]).toMatchObject({
       sessionId: asSessionId('sess_2'),
       ttlSeconds: 1_800,
@@ -147,7 +147,7 @@ describe('LockService', () => {
       note: 'updated request',
     })
     expect(again).toMatchObject({ granted: false, position: 1 })
-    const after = store.locks.listWaiters('repo:/repo', 'test:heavy')
+    const after = store.locks.listWaiters(asRepoId('repo:/repo'), 'test:heavy')
     expect(after).toHaveLength(2)
     expect(after[0]).toMatchObject({
       id: before[0]?.id,
@@ -228,9 +228,10 @@ describe('LockService', () => {
     expect(() => svc.acquire(third, { repoPath: REPO, name: 'l' })).toThrow(
       /sibling sess_1b \(issue:#1\) is already queued/,
     )
-    expect(
-      svc.acquire(third, { repoPath: REPO, name: 'l', allowSibling: true }),
-    ).toMatchObject({ granted: false, position: 2 })
+    expect(svc.acquire(third, { repoPath: REPO, name: 'l', allowSibling: true })).toMatchObject({
+      granted: false,
+      position: 2,
+    })
   })
 
   it('refuses co-located sessions that share a worktree even on different issues', () => {

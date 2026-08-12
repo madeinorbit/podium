@@ -7,7 +7,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { asMachineId, asSessionId } from '@podium/model'
+import { asUserId, asMachineId, asSessionId } from '@podium/model'
 import { machineUseAllowed, WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { PairingManager } from '../hub/pairing'
@@ -43,7 +43,7 @@ const registryWithMachine = (id = 'm1', token = 'tok', updatePubkey?: string) =>
     name: 'box',
     hostname: 'box',
     tokenHash: sha256(token),
-    ownerUserId: 'user:sole',
+    ownerUserId: asUserId('user:sole'),
   })
   return new SessionRegistry(store, undefined, {
     instanceId: 'default',
@@ -218,14 +218,14 @@ describe('payload identity is inert at the real MachinesService', () => {
     const code = pairing.mint({})
     const directory = createMachineDirectory(reg.modules.machines)
     const paired = directory.redeemPairCode(code, {
-      machineId: 'm-new',
+      machineId: asMachineId('m-new'),
       name: 'New Box',
       hostname: 'new.local',
     })
     expect(paired).toMatchObject({ machine: 'm-new', name: 'New Box' })
     expect(paired).toMatchObject({ issuedToken: expect.any(String), updatePubkey: 'server-key-1' })
     // Single use.
-    expect(directory.redeemPairCode(code, { machineId: 'm-new' })).toBeNull()
+    expect(directory.redeemPairCode(code, { machineId: asMachineId('m-new') })).toBeNull()
   })
 
   /**
@@ -246,7 +246,7 @@ describe('payload identity is inert at the real MachinesService', () => {
       name: 'Admin Laptop',
       hostname: 'admin.local',
       tokenHash: sha256('admin-tok'),
-      ownerUserId: 'user:admin',
+      ownerUserId: asUserId('user:admin'),
     })
     // Unowned but still registered — existence, not ownership, is the rule.
     store.machines.upsertMachine({
@@ -260,7 +260,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing })
     const machines = reg.modules.machines
     // Mint via the service so ownerUserId is stamped (hub PairingGrant is a narrower type).
-    const code = machines.mintPairingCode({ ownerUserId: 'user:attacker' })
+    const code = machines.mintPairingCode({ ownerUserId: asUserId('user:attacker') })
 
     // SECOND machine (attacker) attempts rebind under admin-laptop's id.
     const attackOwned = machines.authenticateDaemon({
@@ -314,7 +314,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     // (the allowance branch — without it the guard could be "refuse all pairs").
     const directory = createMachineDirectory(machines)
     const paired = directory.redeemPairCode(code, {
-      machineId: 'attacker-fresh',
+      machineId: asMachineId('attacker-fresh'),
       name: 'Attacker Box',
       hostname: 'evil.local',
     })

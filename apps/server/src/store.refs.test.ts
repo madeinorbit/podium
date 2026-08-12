@@ -3,7 +3,7 @@
  * collision, transactional letter allocation, per-repo DRAFT counter, and the
  * migration backfill over colliding repo names.
  */
-import { asRepoId } from '@podium/model'
+import { asMachineId, asIssueId, asRepoId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -25,10 +25,14 @@ describe('repo prefixes', () => {
 
   it('honours a validated explicit override and rejects a bad/duplicate one', () => {
     const s = memStore()
-    s.repos.addRepo('/a/podium', '__local__', undefined, 'PDM')
+    s.repos.addRepo('/a/podium', asMachineId('__local__'), undefined, 'PDM')
     expect(s.repos.prefixForPath('/a/podium')).toBe('PDM')
-    expect(() => s.repos.addRepo('/b/thing', '__local__', undefined, 'lower')).toThrow()
-    expect(() => s.repos.addRepo('/c/thing', '__local__', undefined, 'PDM')).toThrow(/already in use/)
+    expect(() =>
+      s.repos.addRepo('/b/thing', asMachineId('__local__'), undefined, 'lower'),
+    ).toThrow()
+    expect(() => s.repos.addRepo('/c/thing', asMachineId('__local__'), undefined, 'PDM')).toThrow(
+      /already in use/,
+    )
     s.close()
   })
 
@@ -45,10 +49,10 @@ describe('repo prefixes', () => {
     const s = memStore()
     s.repos.addRepo('/a/podium', s.hostMachineId)
     s.repos.addRepo('/b/other', s.hostMachineId)
-    s.repos.setRepoPrefix('__local__', '/a/podium', 'PODX')
+    s.repos.setRepoPrefix(asMachineId('__local__'), '/a/podium', 'PODX')
     expect(s.repos.prefixForPath('/a/podium')).toBe('PODX')
     const otherPrefix = s.repos.prefixForPath('/b/other')!
-    expect(() => s.repos.setRepoPrefix('__local__', '/a/podium', otherPrefix)).toThrow(
+    expect(() => s.repos.setRepoPrefix(asMachineId('__local__'), '/a/podium', otherPrefix)).toThrow(
       /already used/,
     )
     s.close()
@@ -58,19 +62,19 @@ describe('repo prefixes', () => {
 describe('session letter allocation', () => {
   it('allocates A, B, C… and never reuses within an issue', () => {
     const s = memStore()
-    const a = s.issues.allocateSessionLetter('iss_1')
-    const b = s.issues.allocateSessionLetter('iss_1')
-    const c = s.issues.allocateSessionLetter('iss_1')
+    const a = s.issues.allocateSessionLetter(asIssueId('iss_1'))
+    const b = s.issues.allocateSessionLetter(asIssueId('iss_1'))
+    const c = s.issues.allocateSessionLetter(asIssueId('iss_1'))
     expect([a, b, c]).toEqual(['A', 'B', 'C'])
     // A different issue starts its own sequence.
-    expect(s.issues.allocateSessionLetter('iss_2')).toBe('A')
+    expect(s.issues.allocateSessionLetter(asIssueId('iss_2'))).toBe('A')
     s.close()
   })
 
   it('crosses Z -> AA', () => {
     const s = memStore()
     let last = ''
-    for (let i = 0; i < 27; i++) last = s.issues.allocateSessionLetter('iss_z')
+    for (let i = 0; i < 27; i++) last = s.issues.allocateSessionLetter(asIssueId('iss_z'))
     expect(last).toBe('AA')
     s.close()
   })

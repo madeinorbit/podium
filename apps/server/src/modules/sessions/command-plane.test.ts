@@ -13,7 +13,7 @@
  */
 
 import type { MachineId } from '@podium/model'
-import { asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
 import type { MachineGrant } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -130,7 +130,10 @@ function oracleWithPairedMachine(): {
   o: Oracle
   rows: Map<string, { owner: UserId | null; grants: MachineGrant[]; name?: string }>
 } {
-  const o = makeOracle({ machineId: 'box', offlineMachines: [{ id: 'box', name: 'The Box' }] })
+  const o = makeOracle({
+    machineId: asMachineId('box'),
+    offlineMachines: [{ id: asSessionId('box'), name: 'The Box' }],
+  })
   const rows = new Map([
     ['box', { owner: FIRST_ADMIN_USER_ID, grants: [] as MachineGrant[], name: 'The Box' }],
   ])
@@ -251,11 +254,11 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
 describe('the spawn surface never OFFERS a machine the principal cannot use', () => {
   it('drops what the principal cannot see, and marks what it may see but not use', () => {
     const o = makeOracle({
-      machineId: 'mine',
+      machineId: asMachineId('mine'),
       offlineMachines: [
-        { id: 'mine', name: 'Mine' },
-        { id: 'shared', name: 'Shared' },
-        { id: 'theirs', name: 'Theirs' },
+        { id: asSessionId('mine'), name: 'Mine' },
+        { id: asSessionId('shared'), name: 'Shared' },
+        { id: asSessionId('theirs'), name: 'Theirs' },
       ],
     })
     const ownership = ownershipTable(
@@ -358,10 +361,10 @@ describe('delegation, resolved live at every apply', () => {
 
   it('a sub-agent cannot spawn on a machine its PARENT could not use', async () => {
     const o = makeOracle({
-      machineId: 'a',
+      machineId: asMachineId('a'),
       offlineMachines: [
-        { id: 'a', name: 'A' },
-        { id: 'b', name: 'B' },
+        { id: asSessionId('a'), name: 'A' },
+        { id: asSessionId('b'), name: 'B' },
       ],
     })
     // 'b' needs a live daemon, or every spawn on it refuses as OFFLINE and the
@@ -556,7 +559,7 @@ describe('attribution and ownership come from the principal', () => {
 
   it("a session spawned under an issue inherits THAT issue's owner, not the actor's", () => {
     const underIssue = createdOwnership(agentFor('agent-1', COLLEAGUE), {
-      id: 'podium-7',
+      id: asSessionId('podium-7'),
       owner: FIRST_ADMIN_USER_ID,
     })
 
@@ -569,8 +572,8 @@ describe('attribution and ownership come from the principal', () => {
     })
     // An issue with no owner recorded yet falls back to the delegating human,
     // never to nobody: the draft vessel is OWNED.
-    expect(createdOwnership(agentFor('agent-1', COLLEAGUE), { id: 'draft-1' }).owner).toBe(
-      COLLEAGUE,
-    )
+    expect(
+      createdOwnership(agentFor('agent-1', COLLEAGUE), { id: asSessionId('draft-1') }).owner,
+    ).toBe(COLLEAGUE)
   })
 })

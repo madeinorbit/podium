@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
@@ -65,7 +65,7 @@ describe('fleet default update channel', () => {
       .find((candidate) => candidate.id === 'unpinned')
     expect(machine?.updateChannelOverride ?? null).toBeNull()
     expect(machine?.updateChannel).toBe('edge')
-    expect(registry.modules.machines.updateChannel('unpinned')).toBe('edge')
+    expect(registry.modules.machines.updateChannel(asMachineId('unpinned'))).toBe('edge')
     registry.dispose()
   })
 
@@ -75,11 +75,11 @@ describe('fleet default update channel', () => {
     addMachine(registry, 'pinned')
     registry.modules.machines.setUpdateChannel('pinned', 'stable')
 
-    expect(registry.modules.machines.updateChannel('pinned')).toBe('stable')
+    expect(registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
 
     // The fleet moves; the pinned machine does not.
     process.env.PODIUM_UPDATE_CHANNEL = 'dev'
-    expect(registry.modules.machines.updateChannel('pinned')).toBe('stable')
+    expect(registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
     const pinned = registry.modules.machines
       .listMachines()
       .find((candidate) => candidate.id === 'pinned')
@@ -122,11 +122,11 @@ describe('fleet default update channel', () => {
     const { registry } = harness()
     addMachine(registry, 'released')
     registry.modules.machines.setUpdateChannel('released', 'dev')
-    expect(registry.modules.machines.updateChannel('released')).toBe('dev')
+    expect(registry.modules.machines.updateChannel(asMachineId('released'))).toBe('dev')
 
     registry.modules.machines.setUpdateChannel('released', null)
 
-    expect(registry.modules.machines.updateChannel('released')).toBe('edge')
+    expect(registry.modules.machines.updateChannel(asMachineId('released'))).toBe('edge')
     const released = registry.modules.machines
       .listMachines()
       .find((candidate) => candidate.id === 'released')
@@ -209,7 +209,7 @@ describe('updates tRPC', () => {
     })
     registry.modules.machines.setUpdateChannel('flatblock', 'dev')
     registry.modules.machines.setMachineBuild(
-      'flatblock',
+      asMachineId('flatblock'),
       { appVersion: '0.4.1' },
       [],
       '2026-08-10T00:00:00.000Z',
@@ -265,7 +265,7 @@ describe('updates tRPC', () => {
     })
     registry.modules.machines.setUpdateChannel('stable-machine', 'stable')
     registry.modules.machines.setMachineBuild(
-      'stable-machine',
+      asMachineId('stable-machine'),
       { appVersion: '0.4.1' },
       [],
       '2026-08-10T00:00:00.000Z',

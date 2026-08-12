@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -52,7 +53,7 @@ function captureCloudProvider(): {
     state: 'running',
     provider: 'test-cloud',
     displayName: request.displayName,
-    machineId: 'sprite:podium-test',
+    machineId: asMachineId('sprite:podium-test'),
     createdAt: '2026-07-07T10:00:00.000Z',
     updatedAt: '2026-07-07T10:00:00.000Z',
     metadata: { request },

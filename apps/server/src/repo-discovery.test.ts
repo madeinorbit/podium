@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { ScanReposResult } from './relay'
 import {
@@ -31,7 +32,7 @@ describe('probeRootsFor', () => {
       row('hub', '/srv/deploy/tools'),
       row('mac', '/Users/mike/src/registered'),
     ]
-    expect(probeRootsFor('mac', rows)).toEqual([
+    expect(probeRootsFor(asMachineId('mac'), rows)).toEqual([
       '/home/mgw/src/other/podium',
       '~/src/other/podium',
       '/srv/deploy/tools',
@@ -40,7 +41,7 @@ describe('probeRootsFor', () => {
 
   it('dedupes probes across machines', () => {
     const rows = [row('a', '/home/u/src/x'), row('b', '/home/u/src/x')]
-    expect(probeRootsFor('mac', rows)).toEqual(['/home/u/src/x', '~/src/x'])
+    expect(probeRootsFor(asMachineId('mac'), rows)).toEqual(['/home/u/src/x', '~/src/x'])
   })
 })
 
@@ -80,7 +81,7 @@ function makeService(overrides: Partial<ConstructorParameters<typeof MachineRepo
     },
     scanRepos: async () => scanResult([]),
     machineName: (id) => `name:${id}`,
-    localMachineId: 'local',
+    localMachineId: asMachineId('local'),
     ...overrides,
   })
   return { svc, added }
@@ -99,7 +100,7 @@ describe('MachineRepoDiscovery.scan', () => {
     })
     const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
 
-    const result = await svc.scan('mac', { deep: false })
+    const result = await svc.scan(asMachineId('mac'), { deep: false })
 
     // T1 roots include both raw and ~-translated candidate paths.
     expect(scanRepos.mock.calls[0]?.[0]).toEqual([
@@ -137,7 +138,7 @@ describe('MachineRepoDiscovery.scan', () => {
     )
     const { svc } = makeService({ scanRepos })
 
-    await svc.scan('mac', { deep: true })
+    await svc.scan(asMachineId('mac'), { deep: true })
 
     expect(scanRepos).toHaveBeenCalledTimes(1) // no probes/adjacent (no known repos) → sweep only
     expect(scanRepos.mock.calls[0]?.[1]).toEqual({ includeHome: true, maxDepth: 4 })
@@ -154,7 +155,7 @@ describe('MachineRepoDiscovery.scan', () => {
     )
     const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
 
-    const result = await svc.scan('mac', { deep: false })
+    const result = await svc.scan(asMachineId('mac'), { deep: false })
 
     expect(added).toEqual([])
     expect(result.repos).toEqual([
@@ -175,7 +176,7 @@ describe('MachineRepoDiscovery.scan', () => {
     )
     const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
 
-    const result = await svc.scan('mac', { deep: false })
+    const result = await svc.scan(asMachineId('mac'), { deep: false })
 
     expect(added).toEqual([])
     expect(result.repos.map((r) => r.status)).toEqual(['candidate', 'candidate'])
@@ -192,7 +193,7 @@ describe('MachineRepoDiscovery.scan', () => {
     )
     const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
 
-    const result = await svc.scan('mac', { deep: false })
+    const result = await svc.scan(asMachineId('mac'), { deep: false })
 
     expect(added).toEqual([])
     expect(result.repos).toEqual([
@@ -210,12 +211,12 @@ describe('MachineRepoDiscovery.scan', () => {
       scanRepos: () => gate,
     })
 
-    const first = svc.scan('mac', { deep: false })
-    const second = svc.scan('mac', { deep: false })
+    const first = svc.scan(asMachineId('mac'), { deep: false })
+    const second = svc.scan(asMachineId('mac'), { deep: false })
     expect(second).toBe(first)
     resolveScan(scanResult([]))
     const result = await first
-    expect(svc.lastResult('mac')).toBe(result)
+    expect(svc.lastResult(asMachineId('mac'))).toBe(result)
   })
 
   it('scans the browsed folder first when atPath is given (POD-855 "scan here")', async () => {
@@ -234,7 +235,10 @@ describe('MachineRepoDiscovery.scan', () => {
     )
     const { svc } = makeService({ listRepos: () => [], scanRepos })
 
-    const result = await svc.scan('mac', { deep: false, atPath: '/Users/mike/projects/app' })
+    const result = await svc.scan(asMachineId('mac'), {
+      deep: false,
+      atPath: '/Users/mike/projects/app',
+    })
 
     // T0 (the browsed folder) is the FIRST scan root, walked at folder-scan depth.
     expect(scanRepos.mock.calls[0]?.[0]).toEqual(['/Users/mike/projects/app'])
@@ -249,8 +253,8 @@ describe('MachineRepoDiscovery.scan', () => {
     })
     const { svc } = makeService({ listRepos: () => [], scanRepos: () => gate })
 
-    const a = svc.scan('mac', { deep: false, atPath: '/a' })
-    const b = svc.scan('mac', { deep: false, atPath: '/b' })
+    const a = svc.scan(asMachineId('mac'), { deep: false, atPath: '/a' })
+    const b = svc.scan(asMachineId('mac'), { deep: false, atPath: '/b' })
     expect(b).not.toBe(a) // different folders → independent scans, not a shared result
     resolveScan(scanResult([]))
     await Promise.all([a, b])
@@ -272,16 +276,16 @@ describe('MachineRepoDiscovery.scan', () => {
         now: () => Date.now(),
       })
 
-      svc.onMachineConnected('local')
+      svc.onMachineConnected(asMachineId('local'))
       vi.advanceTimersByTime(10_000)
       expect(scanRepos).not.toHaveBeenCalled()
 
-      svc.onMachineConnected('mac')
-      svc.onMachineConnected('mac') // reconnect burst — throttled
+      svc.onMachineConnected(asMachineId('mac'))
+      svc.onMachineConnected(asMachineId('mac')) // reconnect burst — throttled
       vi.advanceTimersByTime(10_000)
       expect(scanRepos.mock.calls.filter((c) => c[2] === 'mac').length).toBeGreaterThanOrEqual(1)
       const callsAfterFirst = scanRepos.mock.calls.length
-      svc.onMachineConnected('mac')
+      svc.onMachineConnected(asMachineId('mac'))
       vi.advanceTimersByTime(10_000)
       expect(scanRepos.mock.calls.length).toBe(callsAfterFirst)
     } finally {
@@ -327,7 +331,7 @@ describe('moved-repo heal (POD-1498)', () => {
       ...(opts.pathExists ? { pathExists: opts.pathExists } : {}),
       scanRepos: async () => scanResult(opts.found ?? [{ path: NEW, originUrl: ORIGIN }]),
       machineName: (id) => `name:${id}`,
-      localMachineId: 'local',
+      localMachineId: asMachineId('local'),
     })
     return { svc, added, removed, rows }
   }
@@ -344,7 +348,7 @@ describe('moved-repo heal (POD-1498)', () => {
         return true // still there — the scan simply could not see it
       },
     })
-    await svc.scan('vmi', { deep: false })
+    await svc.scan(asMachineId('vmi'), { deep: false })
     expect(probed).toContain(OLD)
     expect(removed, 'a healthy repo was deregistered on scan-coverage evidence').toEqual([])
     expect(added).toEqual([])
@@ -352,7 +356,7 @@ describe('moved-repo heal (POD-1498)', () => {
 
   it('replaces the row when the path is GONE and exactly one same-origin path appears', async () => {
     const { svc, added, removed } = movedService({ pathExists: async () => false })
-    await svc.scan('vmi', { deep: false })
+    await svc.scan(asMachineId('vmi'), { deep: false })
     // REPLACE, not join: resolveRepoOnMachine takes the FIRST row by rowid, so leaving
     // the old row in place would keep the dead path winning.
     expect(removed).toEqual([{ path: OLD, machineId: 'vmi' }])
@@ -363,7 +367,7 @@ describe('moved-repo heal (POD-1498)', () => {
     // A path-fallback repoId would be machine-specific and resolveRepoOnMachine could
     // never match it against the other machine's copy.
     const { svc, added } = movedService({ pathExists: async () => false })
-    await svc.scan('vmi', { deep: false })
+    await svc.scan(asMachineId('vmi'), { deep: false })
     expect(added[0]?.originUrl).toBe(ORIGIN)
   })
 
@@ -375,7 +379,7 @@ describe('moved-repo heal (POD-1498)', () => {
         { path: '/home/mgw/bak_podium', originUrl: ORIGIN },
       ],
     })
-    await svc.scan('vmi', { deep: false })
+    await svc.scan(asMachineId('vmi'), { deep: false })
     expect(removed, 'picked one of two candidates instead of asking').toEqual([])
     expect(added).toEqual([])
   })
@@ -386,7 +390,7 @@ describe('moved-repo heal (POD-1498)', () => {
         throw new Error('daemon unreachable')
       },
     })
-    await svc.scan('vmi', { deep: false })
+    await svc.scan(asMachineId('vmi'), { deep: false })
     expect(removed).toEqual([])
     expect(added).toEqual([])
   })
@@ -402,9 +406,9 @@ describe('moved-repo heal (POD-1498)', () => {
       },
       scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
       machineName: (id) => `name:${id}`,
-      localMachineId: 'local',
+      localMachineId: asMachineId('local'),
     })
-    await svc.scan('vmi', { deep: false })
+    await svc.scan(asMachineId('vmi'), { deep: false })
     expect(removed).toEqual([])
   })
 
@@ -421,9 +425,9 @@ describe('moved-repo heal (POD-1498)', () => {
       },
       scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
       machineName: (id) => `name:${id}`,
-      localMachineId: 'local',
+      localMachineId: asMachineId('local'),
     })
-    await svc.scan('vmi', { deep: false })
+    await svc.scan(asMachineId('vmi'), { deep: false })
     expect(probed).toEqual([])
   })
 })

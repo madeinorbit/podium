@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asThreadId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { TranscriptItem } from '@podium/model'
 import {
@@ -20,19 +20,22 @@ describe('transcriptSessionIdForThread', () => {
     expect(
       transcriptSessionIdForThread(
         { podiumSessionId: asSessionId('pod'), originSessionId: asSessionId('origin') },
-        'btw_origin',
+        asThreadId('btw_origin'),
       ),
     ).toBe('pod')
   })
 
   it('falls back to origin for btw threads without a podium session yet', () => {
     expect(
-      transcriptSessionIdForThread({ originSessionId: asSessionId('sess_1') }, 'btw_sess_1'),
+      transcriptSessionIdForThread(
+        { originSessionId: asSessionId('sess_1') },
+        asThreadId('btw_sess_1'),
+      ),
     ).toBe('sess_1')
   })
 
   it('parses btw_ thread ids when the thread row is missing', () => {
-    expect(transcriptSessionIdForThread(undefined, 'btw_sess_x')).toBe('sess_x')
+    expect(transcriptSessionIdForThread(undefined, asThreadId('btw_sess_x'))).toBe('sess_x')
   })
 })
 

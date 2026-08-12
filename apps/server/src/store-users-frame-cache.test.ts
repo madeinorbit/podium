@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -52,10 +52,10 @@ describe('account frame read cache', () => {
   it('caches "no account" as an answer, because that is the verdict callers act on', async () => {
     const store = await freshStore()
     const reads = readProbe(store)
-    expect(store.users.get('user-nobody')).toBeUndefined()
+    expect(store.users.get(asUserId('user-nobody'))).toBeUndefined()
     const afterFirst = reads()
-    expect(store.users.get('user-nobody')).toBeUndefined()
-    expect(store.users.roleOf('user-nobody')).toBeUndefined()
+    expect(store.users.get(asUserId('user-nobody'))).toBeUndefined()
+    expect(store.users.roleOf(asUserId('user-nobody'))).toBeUndefined()
     expect(reads()).toBe(afterFirst)
   })
 
@@ -69,7 +69,7 @@ describe('account frame read cache', () => {
 
   it('a mint inside the frame is visible to the read that follows it', async () => {
     const store = await freshStore()
-    expect(store.users.get('user-minted')).toBeUndefined()
+    expect(store.users.get(asUserId('user-minted'))).toBeUndefined()
     store.users.create(
       {
         id: 'user-minted',
@@ -80,6 +80,6 @@ describe('account frame read cache', () => {
       },
       'hash',
     )
-    expect(store.users.get('user-minted')?.displayName).toBe('Minted')
+    expect(store.users.get(asUserId('user-minted'))?.displayName).toBe('Minted')
   })
 })

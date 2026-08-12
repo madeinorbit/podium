@@ -10,7 +10,7 @@
  */
 
 import type { MachineId } from '@podium/model'
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../../machine-access'
@@ -57,7 +57,7 @@ const gate = machineUseGateFor({ principal: user(FIRST_ADMIN_USER_ID), ownership
 
 const refusalFor = (machineId: string): { reason: unknown; message: string } => {
   try {
-    gate(machineId)
+    gate(asMachineId(machineId))
     return { reason: 'NOT REFUSED', message: '' }
   } catch (error) {
     return { reason: handoffRefusalOf(error), message: (error as Error).message }
@@ -66,7 +66,7 @@ const refusalFor = (machineId: string): { reason: unknown; message: string } => 
 
 describe('the handoff `use` gate classifies its refusals', () => {
   it('says YES for a machine the caller owns — so a refusal below is not the fixture', () => {
-    expect(() => gate('mine')).not.toThrow()
+    expect(() => gate(asMachineId('mine'))).not.toThrow()
   })
 
   it('a machine the caller may SEE but not USE is `unauthorized`', () => {
@@ -122,8 +122,8 @@ describe('the handoff `use` gate classifies its refusals', () => {
     // throws; there is no channel through which a substitute machine could come
     // back, and this asserts that shape rather than a behaviour.
     expect(refusalFor('theirs').reason).toBe('unknown-target')
-    expect(() => gate('mine')).not.toThrow()
-    expect(gate('mine')).toBeUndefined()
+    expect(() => gate(asMachineId('mine'))).not.toThrow()
+    expect(gate(asMachineId('mine'))).toBeUndefined()
   })
 
   it('a session id is not a machine id — the gate refuses what it does not know', () => {

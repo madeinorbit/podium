@@ -1,4 +1,4 @@
-import { asMachineId } from '@podium/model'
+import { asUserId, asMachineId } from '@podium/model'
 /**
  * Task 9: per-machine repo registration + machine-tagged repo scans.
  *
@@ -14,8 +14,20 @@ import { SessionStore } from './store'
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
-  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({
+    id: 'm1',
+    name: 'one',
+    hostname: 'one',
+    tokenHash: 'x',
+    ownerUserId: asUserId('user:sole'),
+  })
+  store.machines.upsertMachine({
+    id: 'm2',
+    name: 'two',
+    hostname: 'two',
+    tokenHash: 'y',
+    ownerUserId: asUserId('user:sole'),
+  })
   const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(reg, store)
   const m1Out: ControlMessage[] = []
@@ -28,10 +40,10 @@ function regWithTwoDaemons() {
 describe('RepoRegistry.list(machineId)', () => {
   it('filters repos by machine', async () => {
     const { repos } = regWithTwoDaemons()
-    await repos.add('/a', 'm1')
-    await repos.add('/b', 'm2')
-    const m1Repos = repos.list('m1')
-    const m2Repos = repos.list('m2')
+    await repos.add('/a', asMachineId('m1'))
+    await repos.add('/b', asMachineId('m2'))
+    const m1Repos = repos.list(asMachineId('m1'))
+    const m2Repos = repos.list(asMachineId('m2'))
     expect(m1Repos).toContain('/a')
     expect(m1Repos).not.toContain('/b')
     expect(m2Repos).toContain('/b')
@@ -40,8 +52,8 @@ describe('RepoRegistry.list(machineId)', () => {
 
   it('list() with no machineId returns all repos', async () => {
     const { repos } = regWithTwoDaemons()
-    await repos.add('/a', 'm1')
-    await repos.add('/b', 'm2')
+    await repos.add('/a', asMachineId('m1'))
+    await repos.add('/b', asMachineId('m2'))
     const all = repos.list()
     expect(all).toContain('/a')
     expect(all).toContain('/b')
@@ -49,19 +61,19 @@ describe('RepoRegistry.list(machineId)', () => {
 
   it('remove(path, machineId) removes the right machine repo', async () => {
     const { repos } = regWithTwoDaemons()
-    await repos.add('/a', 'm1')
-    await repos.add('/a', 'm2') // same path, different machine
-    await repos.remove('/a', 'm1')
-    expect(repos.list('m1')).not.toContain('/a')
-    expect(repos.list('m2')).toContain('/a')
+    await repos.add('/a', asMachineId('m1'))
+    await repos.add('/a', asMachineId('m2')) // same path, different machine
+    await repos.remove('/a', asMachineId('m1'))
+    expect(repos.list(asMachineId('m1'))).not.toContain('/a')
+    expect(repos.list(asMachineId('m2'))).toContain('/a')
   })
 })
 
 describe('RepoRegistry.scanReposAll()', () => {
   it('stamps each repo with its originating machineId', async () => {
     const { reg, repos, m1Out, m2Out } = regWithTwoDaemons()
-    await repos.add('/a', 'm1')
-    await repos.add('/b', 'm2')
+    await repos.add('/a', asMachineId('m1'))
+    await repos.add('/b', asMachineId('m2'))
 
     // Fire the scan
     const scanPromise = repos.scanReposAll()
@@ -99,8 +111,8 @@ describe('RepoRegistry.scanReposAll()', () => {
 
   it('keeps a registered machine repo visible when that machine scan times out', async () => {
     const { reg, repos, store, m1Out, m2Out } = regWithTwoDaemons()
-    store.repos.addRepo('/a', 'm1', 'https://github.com/acme/a.git')
-    store.repos.addRepo('/b', 'm2', 'https://github.com/acme/b.git')
+    store.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/acme/a.git')
+    store.repos.addRepo('/b', asMachineId('m2'), 'https://github.com/acme/b.git')
 
     const scanPromise = repos.scanReposAll()
     const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
@@ -138,12 +150,18 @@ describe('RepoRegistry.scanReposAll()', () => {
   it('single-machine invariant: with one daemon scanReposAll equals scanRepos for that machine', async () => {
     // Single machine setup
     const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
+    store.machines.upsertMachine({
+      id: 'm1',
+      name: 'one',
+      hostname: 'one',
+      tokenHash: 'x',
+      ownerUserId: asUserId('user:sole'),
+    })
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const repos = new RepoRegistry(reg, store)
     const m1Out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
-    await repos.add('/repo', 'm1')
+    await repos.add('/repo', asMachineId('m1'))
 
     const scanPromise = repos.scanReposAll()
 

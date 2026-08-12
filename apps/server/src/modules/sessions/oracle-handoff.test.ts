@@ -150,14 +150,14 @@ async function handoffFixture(
     name: 'source',
     hostname: 'source',
     tokenHash: 'x',
-    ownerUserId: 'user:sole',
+    ownerUserId: asUserId('user:sole'),
   })
   store.machines.upsertMachine({
     id: 'm2',
     name: 'target',
     hostname: 'target',
     tokenHash: 'y',
-    ownerUserId: 'user:sole',
+    ownerUserId: asUserId('user:sole'),
   })
   const inventory = JSON.stringify({
     os: 'linux',
@@ -167,8 +167,8 @@ async function handoffFixture(
   })
   store.machines.setMachineInventory('m1', inventory)
   store.machines.setMachineInventory('m2', inventory)
-  store.repos.addRepo('/source/repo', 'm1', 'git@github.com:example/repo.git')
-  store.repos.addRepo('/target/repo', 'm2', 'git@github.com:example/repo.git')
+  store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
+  store.repos.addRepo('/target/repo', asMachineId('m2'), 'git@github.com:example/repo.git')
   const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   built.push(reg)
 
@@ -225,7 +225,7 @@ async function handoffFixture(
                 agentKind: 'claude-code',
                 resume: { kind: 'claude-session', value: 'native-id' },
                 transcriptFilename: 'native-id.jsonl',
-                repoId: store.repos.listRepos('m1')[0]?.repoId as RepoId,
+                repoId: store.repos.listRepos(asMachineId('m1'))[0]?.repoId as RepoId,
                 branch: 'x',
                 headSha: SHA,
                 snapshotSha: null,
@@ -331,7 +331,7 @@ async function handoffFixture(
     cwd: '/source/repo/.worktrees/x',
     resume: { kind: 'claude-session', value: 'native-id' },
     conversationId: 'native-id',
-    machineId: 'm1',
+    machineId: asMachineId('m1'),
   })
   timeline.length = 0
   source.length = 0
@@ -440,7 +440,7 @@ describe('oracle: handoff success across two machines', () => {
     const result = await f.reg.modules.issueSessionLifecycle.handoffSession(
       {
         sessionId: f.sessionId,
-        machineId: 'm2',
+        machineId: asMachineId('m2'),
       },
       TEST_CALLER,
     )
@@ -474,7 +474,7 @@ describe('oracle: handoff success across two machines', () => {
     const f = await handoffFixture()
 
     await f.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: f.sessionId, machineId: 'm2' },
+      { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
 
@@ -536,7 +536,7 @@ describe('oracle: handoff success across two machines', () => {
     const f = await handoffFixture({ modelSourceReleaseMs: 120 })
 
     await f.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: f.sessionId, machineId: 'm2' },
+      { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
 
@@ -572,7 +572,7 @@ describe('oracle: handoff success across two machines', () => {
     // default rather than an absence of enforcement.
     await expect(
       f.reg.modules.issueSessionLifecycle.handoffSession(
-        { sessionId: f.sessionId, machineId: 'm2' },
+        { sessionId: f.sessionId, machineId: asMachineId('m2') },
         WORKER_CALLER,
       ),
     ).resolves.toMatchObject({ ok: true })
@@ -588,7 +588,7 @@ describe('oracle: handoff success across two machines', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
+          { sessionId: f.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -611,13 +611,13 @@ describe('oracle: handoff success across two machines', () => {
 
     const invisible = await messageOf(() =>
       f.reg.modules.issueSessionLifecycle.handoffSession(
-        { sessionId: f.sessionId, machineId: 'm2' },
+        { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
     )
     const nonexistent = await messageOf(() =>
       f.reg.modules.issueSessionLifecycle.handoffSession(
-        { sessionId: f.sessionId, machineId: 'no-such-machine' },
+        { sessionId: f.sessionId, machineId: asMachineId('no-such-machine') },
         TEST_CALLER,
       ),
     )
@@ -640,7 +640,7 @@ describe('oracle: handoff success across two machines', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
+          { sessionId: f.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -655,7 +655,7 @@ describe('oracle: handoff refusals that must not move anything', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
+          { sessionId: f.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -676,7 +676,7 @@ describe('oracle: handoff refusals that must not move anything', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm1' },
+          { sessionId: f.sessionId, machineId: asMachineId('m1') },
           TEST_CALLER,
         ),
       ),
@@ -688,13 +688,13 @@ describe('oracle: handoff refusals that must not move anything', () => {
     const shell = f.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/source/repo/.worktrees/x',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     })
 
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: shell.sessionId, machineId: 'm2' },
+          { sessionId: shell.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -709,7 +709,7 @@ describe('oracle: mid-transfer crash', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
+          { sessionId: f.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -735,7 +735,7 @@ describe('oracle: mid-transfer crash', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
+          { sessionId: f.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -769,7 +769,7 @@ describe('oracle: mid-transfer crash', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
+          { sessionId: f.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -801,7 +801,7 @@ describe('oracle: mid-transfer crash', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
+          { sessionId: f.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -834,7 +834,7 @@ describe('oracle: mid-transfer crash', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
+          { sessionId: f.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -855,7 +855,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
     const f = await handoffFixture()
 
     await f.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: f.sessionId, machineId: 'm2' },
+      { sessionId: f.sessionId, machineId: asMachineId('m2') },
       {
         capability: OPERATOR,
         principal: { kind: 'user', user: 'bob' as UserId, capability: OPERATOR },
@@ -889,7 +889,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
     const before = rowOf(f)
 
     await f.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: f.sessionId, machineId: 'm2' },
+      { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
 
@@ -913,7 +913,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
   it(`${MUST_NOT_CHANGE}: the durable record names the ACTOR and the ON-BEHALF-OF human, and an agent-initiated move is distinguishable from a human one`, async () => {
     const human = await handoffFixture()
     await human.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: human.sessionId, machineId: 'm2' },
+      { sessionId: human.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
 
@@ -925,7 +925,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
       onBehalfOf: FIRST_ADMIN_USER_ID,
     }
     await agent.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: agent.sessionId, machineId: 'm2' },
+      { sessionId: agent.sessionId, machineId: asMachineId('m2') },
       {
         capability: agentCapability,
         principal: {
@@ -966,7 +966,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
     await f.reg.modules.issueSessionLifecycle.handoffSession(
       {
         sessionId: f.sessionId,
-        machineId: 'm2',
+        machineId: asMachineId('m2'),
         // ADR 3 D7 rule 1: payload identity is informational at best and must not
         // reach an authorization or attribution decision. Cast because the command
         // input has no such fields — which is the first half of the defence.
@@ -1002,7 +1002,7 @@ describe('oracle: duplicate dispatch', () => {
   it(`${MUST_NOT_CHANGE}: a SECOND handoff after the first completed is refused as already-there, not run twice`, async () => {
     const f = await handoffFixture()
     await f.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: f.sessionId, machineId: 'm2' },
+      { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
     const importsAfterFirst = f.target.filter((m) => m.type === 'handoffImportRequest').length
@@ -1010,7 +1010,7 @@ describe('oracle: duplicate dispatch', () => {
     expect(
       await messageOf(() =>
         f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
+          { sessionId: f.sessionId, machineId: asMachineId('m2') },
           TEST_CALLER,
         ),
       ),
@@ -1025,11 +1025,11 @@ describe('oracle: duplicate dispatch', () => {
 
     const settled = await Promise.allSettled([
       f.reg.modules.issueSessionLifecycle.handoffSession(
-        { sessionId: f.sessionId, machineId: 'm2' },
+        { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
       f.reg.modules.issueSessionLifecycle.handoffSession(
-        { sessionId: f.sessionId, machineId: 'm2' },
+        { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
     ])
@@ -1071,7 +1071,7 @@ describe('oracle: duplicate dispatch', () => {
       name: 'third',
       hostname: 'third',
       tokenHash: 'z',
-      ownerUserId: 'user:sole',
+      ownerUserId: asUserId('user:sole'),
     })
     f.store.machines.setMachineInventory(
       'm3',
@@ -1082,20 +1082,20 @@ describe('oracle: duplicate dispatch', () => {
         tools: [],
       }),
     )
-    f.store.repos.addRepo('/third/repo', 'm3', 'git@github.com:example/repo.git')
+    f.store.repos.addRepo('/third/repo', asMachineId('m3'), 'git@github.com:example/repo.git')
     f.reg.gateway.attachDaemon('m3', () => {})
 
     const first = f.reg.modules.issueSessionLifecycle.handoffSession(
       {
         sessionId: f.sessionId,
-        machineId: 'm2',
+        machineId: asMachineId('m2'),
       },
       TEST_CALLER,
     )
     const second = f.reg.modules.issueSessionLifecycle.handoffSession(
       {
         sessionId: f.sessionId,
-        machineId: 'm3',
+        machineId: asMachineId('m3'),
       },
       TEST_CALLER,
     )
@@ -1126,11 +1126,11 @@ describe('oracle: duplicate dispatch', () => {
           })
 
     const initiator = f.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: f.sessionId, machineId: 'm2' },
+      { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
     const joiner = f.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: f.sessionId, machineId: 'm2' },
+      { sessionId: f.sessionId, machineId: asMachineId('m2') },
       CAROL_CALLER,
     )
 
@@ -1146,7 +1146,7 @@ describe('oracle: duplicate dispatch', () => {
 
     const first = await messageOf(() =>
       f.reg.modules.issueSessionLifecycle.handoffSession(
-        { sessionId: f.sessionId, machineId: 'm2' },
+        { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
     )
@@ -1156,7 +1156,7 @@ describe('oracle: duplicate dispatch', () => {
     // other test in this file would still pass.
     const second = await messageOf(() =>
       f.reg.modules.issueSessionLifecycle.handoffSession(
-        { sessionId: f.sessionId, machineId: 'm2' },
+        { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
     )
@@ -1174,11 +1174,11 @@ describe('oracle: worktree reuse on the target', () => {
       cwd: '/target/repo/.worktrees/shared',
       resume: { kind: 'claude-session', value: 'other-native-id' },
       conversationId: 'other-native-id',
-      machineId: 'm2',
+      machineId: asMachineId('m2'),
     })
 
     await f.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: f.sessionId, machineId: 'm2' },
+      { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
 
@@ -1197,7 +1197,7 @@ describe('oracle: worktree reuse on the target', () => {
       cwd: '/target/repo/.worktrees/shared',
       resume: { kind: 'claude-session', value: 'other-native-id' },
       conversationId: 'other-native-id',
-      machineId: 'm2',
+      machineId: asMachineId('m2'),
     })
     f.reg.gateway.routeDaemonFrame('m2', {
       type: 'agentExit',
@@ -1206,7 +1206,7 @@ describe('oracle: worktree reuse on the target', () => {
     })
 
     await f.reg.modules.issueSessionLifecycle.handoffSession(
-      { sessionId: f.sessionId, machineId: 'm2' },
+      { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
 
