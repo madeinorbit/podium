@@ -693,6 +693,40 @@ describe('test lane configuration', () => {
     }
   })
 
+  it('keeps the desktop shell’s Rust tests reachable from a script and a CI job [POD-1906]', () => {
+    // The hole this closes: ~20 `#[test]`s in apps/desktop/src-tauri (the native
+    // log sink, its rotation bound, the panic hook, the pending-crash queue) with
+    // no lane at all. `cargo test` appeared in no workflow, no package.json script
+    // and no scripts/ runner, so inverting the rotation bound passed EVERY gate
+    // the repo had. Same failure shape as POD-1227's browser lane, so the lane's
+    // EXISTENCE is asserted here rather than left to a comment.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(pkg.scripts['test:rust'], 'the rust lane script is gone').toBe(
+      'bun scripts/test-rust.ts',
+    )
+
+    const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    expect(ci, 'ci.yml has no job invoking the rust lane').toMatch(/^\s*run: bun run test:rust\b/m)
+    // Without the system libraries the crate cannot link, and the job would fail
+    // on setup — a red that reads as a broken gate rather than a broken behaviour.
+    expect(ci, 'the rust job installs no webkit2gtk').toContain('libwebkit2gtk-4.1-dev')
+    // A `--if-available` in CI would turn a missing toolchain into a silent skip:
+    // the exact "gate that cannot fire" this lane exists to remove.
+    expect(ci, 'the CI rust lane must not be allowed to skip itself').not.toMatch(
+      /run: bun run test:rust .*--if-available/,
+    )
+
+    // Every #[test] in the crate is inside a module `cargo test` reaches, so the
+    // count only has to be non-zero for the lane to be worth its five minutes.
+    const rustSources = ['logging.rs', 'bootstrap.rs'].map((f) =>
+      readFileSync(new URL(`../apps/desktop/src-tauri/src/${f}`, import.meta.url), 'utf8'),
+    )
+    const tests = rustSources.reduce((n, src) => n + (src.match(/#\[test\]/g)?.length ?? 0), 0)
+    expect(tests, 'the rust lane would run no tests').toBeGreaterThan(10)
+  })
+
   it('keeps the oracle lane set, its runner, and CI in sync [POD-295]', () => {
     // The oracle is defined in three places that can drift apart silently: the lane
     // set (scripts/oracle.ts), the local runner (`bun run oracle`), and the CI job.

@@ -216,11 +216,46 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     }
 }
 
+/// The caps `logs.crash` enforces on `err`: `MAX_TEXT` and `MAX_TEXT * 4` in
+/// packages/commands/src/logs/contracts.ts.
+///
+/// THE SERVER REFUSES AN OVERSIZED RECORD RATHER THAN TRUNCATING IT, which is
+/// right for a server (a truncated stack lies about where it ends) and fatal
+/// here if the producer ignores it: a symbol-rich backtrace over 32 KiB makes
+/// the next launch's replay 400 on every attempt, the hand-off script swallows
+/// the failure, and the pending queue was already cleared — so precisely the
+/// RICHEST crashes would be the ones that never reach the server. The producer
+/// CAN know what it meant, so it clamps here and says so in the text, the same
+/// bargain `toForwarded` strikes on the TypeScript side.
+pub const MAX_ERR_MESSAGE: usize = 8192;
+pub const MAX_ERR_STACK: usize = 8192 * 4;
+
+/// `value` cut to at most `max` BYTES, ending in `marker` when anything was cut.
+///
+/// The cut lands on a char boundary (a `String` sliced mid-codepoint panics —
+/// inside the panic hook, which would be a crash reporter that crashes), and the
+/// marker is counted INSIDE the budget rather than appended past it, so the
+/// result is always acceptable to the contract.
+pub fn clamp_text(value: &str, max: usize, marker: &str) -> String {
+    if value.len() <= max {
+        return value.to_string();
+    }
+    let budget = max.saturating_sub(marker.len());
+    let mut end = budget.min(value.len());
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{marker}", &value[..end])
+}
+
 /// The `err` object for a panic, in the logger's `SerializedError` shape.
 ///
 /// `name: "RustPanic"` rather than `Error`: a reader grouping crash events by
 /// error name must be able to see at a glance that this one came from the native
 /// shell and not from the webview's JavaScript.
+///
+/// Both text fields are clamped to what the crash contract accepts — see
+/// [`MAX_ERR_MESSAGE`] for why an unclamped one loses the whole report.
 pub fn panic_error_value(
     message: &str,
     location: Option<String>,
@@ -229,10 +264,20 @@ pub fn panic_error_value(
     let where_ = location.unwrap_or_else(|| "unknown location".to_string());
     serde_json::json!({
         "name": "RustPanic",
-        "message": format!("{message} (at {where_})"),
+        "message": clamp_text(
+            &format!("{message} (at {where_})"),
+            MAX_ERR_MESSAGE,
+            "… [message truncated]",
+        ),
         // The stack is prefixed with the panic line so the first line of a stack
         // reads like every other stack: "Name: message", then frames.
-        "stack": format!("RustPanic: {message}\n    at {where_}\n{backtrace}"),
+        // Truncation is MARKED rather than silent: a reader who sees the last
+        // frame cut off must be able to tell that from a backtrace that ended.
+        "stack": clamp_text(
+            &format!("RustPanic: {message}\n    at {where_}\n{backtrace}"),
+            MAX_ERR_STACK,
+            "\n    … [backtrace truncated]",
+        ),
     })
 }
 
@@ -526,6 +571,40 @@ mod tests {
         let stack = err["stack"].as_str().unwrap();
         assert!(stack.starts_with("RustPanic: boom"));
         assert!(stack.contains("frame one"));
+    }
+
+    #[test]
+    fn an_oversized_panic_stays_inside_what_the_crash_contract_accepts() {
+        // The failure this pins: a symbol-rich backtrace over the contract's
+        // 32 KiB stack cap makes `logs.crash` refuse the replay forever, and the
+        // pending queue is already cleared by then — the record is lost.
+        let message = "b".repeat(MAX_ERR_MESSAGE * 2);
+        let backtrace = "    at frame\n".repeat(MAX_ERR_STACK / 4);
+        let err = panic_error_value(&message, Some("src/main.rs:1:1".into()), &backtrace);
+        let (msg, stack) = (
+            err["message"].as_str().unwrap(),
+            err["stack"].as_str().unwrap(),
+        );
+        assert!(msg.len() <= MAX_ERR_MESSAGE, "message {} bytes", msg.len());
+        assert!(stack.len() <= MAX_ERR_STACK, "stack {} bytes", stack.len());
+        // Clamped, not silently cut: the reader can tell a cut stack from an end.
+        assert!(msg.ends_with("[message truncated]"));
+        assert!(stack.ends_with("[backtrace truncated]"));
+        // And the part that identifies the crash survives the clamp.
+        assert!(stack.starts_with("RustPanic: bbb"));
+    }
+
+    #[test]
+    fn clamping_never_splits_a_multibyte_character() {
+        // A panic message is arbitrary text, so it can be non-ASCII, and slicing
+        // a String mid-codepoint PANICS — inside the panic hook.
+        let value = "é".repeat(64); // 128 bytes, no char boundary at an odd index
+        let clamped = clamp_text(&value, 41, "…"); // "…" is itself 3 bytes
+        assert!(clamped.len() <= 41);
+        assert!(clamped.ends_with('…'));
+        assert!(clamped.starts_with("éé"));
+        // Under the cap it is returned untouched, marker and all.
+        assert_eq!(clamp_text("short", 41, "…"), "short");
     }
 
     /// A scratch directory that does not depend on a random-number crate: the

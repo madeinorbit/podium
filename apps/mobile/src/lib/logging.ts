@@ -21,6 +21,15 @@
  *     `logs.forward`/`logs.crash` take plain JSON and `makeMobileTrpc` uses no
  *     transformer, so this sends exactly the bytes the batch link would.
  *
+ * A GENUINELY FATAL MOBILE CRASH MOSTLY SHIPS NOTHING, and that is accepted for
+ * now rather than overlooked. `report()` starts an async `fetch` and the chained
+ * handler then lets the platform kill the process, so the report only lands if
+ * the request happens to get out first. The desktop shell solves this with an
+ * on-disk pending queue replayed by the next launch; the phone has no equivalent
+ * yet (POD-1918). What survives today is the non-fatal case — a caught-but-
+ * reported error, a rejection, a JS error the app recovers from — plus whatever
+ * a fatal manages to flush. Do not read an empty crash list as "no crashes".
+ *
  * THE FORWARDING SINK PINS NO THRESHOLD, on either client. It follows the
  * namespace level, so `setLogLevel('debug')` raises the console and the
  * forwarded stream together — one knob rather than two that can disagree about
@@ -96,9 +105,22 @@ export interface InstalledCapture {
  * production. A logger that replaced it would trade a visible crash for a
  * logged one, which is a worse app that produces better logs.
  */
+/**
+ * How long a Hermes rejection is held before it is reported as a crash. Long
+ * enough to cover "awaited a tick or two later", short enough that a real
+ * unhandled rejection is still reported inside the same user interaction.
+ */
+export const DEFAULT_REJECTION_GRACE_MS = 2000
+
+export interface CaptureOptions {
+  /** Overridden only by tests, which drive the grace period with fake timers. */
+  rejectionGraceMs?: number
+}
+
 export function installGlobalErrorCapture(
   scope: CaptureScope,
   handlers: CaptureHandlers,
+  options: CaptureOptions = {},
 ): InstalledCapture {
   const undo: Array<() => void> = []
   let uncaught = false
@@ -124,9 +146,57 @@ export function installGlobalErrorCapture(
   }
 
   let rejection: RejectionCapture = 'none'
-  if (typeof scope.addEventListener === 'function') {
-    // React Native Web, and any build carrying the DOM event shim: the same
-    // surface `apps/web` uses, so the two clients behave identically here.
+  // HERMES IS ASKED FIRST, and the presence of an `addEventListener` is NOT
+  // taken as proof that `unhandledrejection` is dispatched. Any dependency can
+  // install an event-target polyfill; on a Hermes build that polyfill accepts
+  // the listener and then never fires it, so the branch order used to decide
+  // whether rejections were captured at all — while the boot line reported
+  // `event-target` and looked healthy. The engine's own tracker is the surface
+  // that actually exists on a released build, so it wins when it is there.
+  if (typeof scope.HermesInternal?.enablePromiseRejectionTracker === 'function') {
+    // Bare Hermes has no `unhandledrejection` event at all; this tracker is the
+    // engine's own equivalent and is what React Native's LogBox uses.
+    //
+    // `allRejections: true` MEANS "tell me about every rejection, including ones
+    // handled later" — the tracker's whole point being that it cannot know the
+    // future. Reporting on `onUnhandled` alone therefore files a crash for the
+    // ordinary `const p = doWork(); …; await p` pattern, and there is no way to
+    // retract one that has already been posted: ten of those exhaust the crash
+    // reporter's per-session budget on non-crashes. So a rejection is held for a
+    // grace period and only reported if `onHandled` has not arrived by then.
+    const graceMs = options.rejectionGraceMs ?? DEFAULT_REJECTION_GRACE_MS
+    const held = new Map<number, ReturnType<typeof setTimeout>>()
+    scope.HermesInternal.enablePromiseRejectionTracker({
+      allRejections: true,
+      onUnhandled: (id: number, reason: unknown) => {
+        const timer = setTimeout(() => {
+          held.delete(id)
+          handlers.onUnhandledRejection(reason)
+        }, graceMs)
+        // A held report must not keep a background app awake for the timer.
+        ;(timer as { unref?: () => void }).unref?.()
+        held.set(id, timer)
+      },
+      onHandled: (id: number) => {
+        const timer = held.get(id)
+        if (timer === undefined) return
+        clearTimeout(timer)
+        held.delete(id)
+      },
+    })
+    rejection = 'hermes'
+    // The TRACKER has no removal API — saying so is better than a no-op disposer
+    // that implies otherwise — but the timers it left behind are ours to drop.
+    undo.push(() => {
+      for (const timer of held.values()) clearTimeout(timer)
+      held.clear()
+    })
+  } else if (typeof scope.addEventListener === 'function') {
+    // React Native Web, and any build carrying a REAL DOM event target: the same
+    // surface `apps/web` uses, so the two clients behave identically here. No
+    // grace period is needed — the DOM event fires only for a rejection that
+    // went unhandled through a full turn, and `rejectionhandled` exists for the
+    // late case precisely because this event does not fire early.
     const listener = (event: unknown): void => {
       const reason = (event as { reason?: unknown } | undefined)?.reason
       handlers.onUnhandledRejection(reason ?? event)
@@ -134,18 +204,6 @@ export function installGlobalErrorCapture(
     scope.addEventListener('unhandledrejection', listener)
     rejection = 'event-target'
     undo.push(() => scope.removeEventListener?.('unhandledrejection', listener))
-  } else if (typeof scope.HermesInternal?.enablePromiseRejectionTracker === 'function') {
-    // Bare Hermes has no `unhandledrejection` event at all; this tracker is the
-    // engine's own equivalent and is what React Native's LogBox uses.
-    scope.HermesInternal.enablePromiseRejectionTracker({
-      allRejections: true,
-      onUnhandled: (_id: number, reason: unknown) => {
-        handlers.onUnhandledRejection(reason)
-      },
-    })
-    rejection = 'hermes'
-    // No uninstall: the tracker is engine-level and has no removal API. Saying
-    // so here is better than a no-op disposer that implies otherwise.
   }
 
   return {
@@ -263,6 +321,15 @@ export function installMobileLogging(options: MobileLoggingOptions): MobileLoggi
   // Which surfaces exist is a property of the BUILD, and a crash that never
   // arrived is indistinguishable from a handler that was never installed unless
   // this line is in the log.
+  //
+  // `info` UNDER A `warn` DEFAULT MEANS RING-ONLY, BY DESIGN. At the boot level
+  // this record reaches neither the console nor the server on its own — it lives
+  // in the flight recorder, so it rides along in every crash snapshot, which is
+  // the moment the question "was capture even installed?" gets asked. Raising it
+  // to `warn` would forward a healthy-boot line from every launch of every phone
+  // to buy nothing at the moment of the crash. (`level: 'info'` in the test that
+  // asserts it is therefore reading the ring at a raised level, not propping up
+  // a record that would otherwise be missing.)
   createLogger('mobile:boot').info('log capture installed', {
     rejectionCapture: capture.rejection,
     uncaughtCapture: capture.uncaught,

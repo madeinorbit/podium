@@ -51,6 +51,8 @@
     "test:cached": "bun scripts/test.ts --shared-admission --filter @podium/web --filter @podium/mobile",
     "test:web": "bun scripts/test.ts --shared-admission --filter @podium/web",
     "test:mobile": "bun scripts/test.ts --shared-admission --filter @podium/mobile",
+    "//test:rust": "The desktop shell's Rust tests (native NDJSON sink, rotation, panic hook, crash hand-off). They ran in NO lane until POD-1906; see scripts/test-rust.ts for why cargo needs placeholder resources.",
+    "test:rust": "bun scripts/test-rust.ts",
     "test:affected": "bun scripts/test-affected.ts",
     "test:changed": "bun scripts/validation-admission.ts focused --label test:changed -- bun --bun node_modules/vitest/vitest.mjs run --changed HEAD --passWithNoTests --config vitest.unit.config.ts --project node --project normalized-wire",
     "test:related": "bun scripts/validation-admission.ts focused --label test:related -- bun --bun node_modules/vitest/vitest.mjs related --passWithNoTests --config vitest.unit.config.ts --project node --project normalized-wire",

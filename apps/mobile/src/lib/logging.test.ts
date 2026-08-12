@@ -34,6 +34,27 @@ function errorUtilsScope(previous?: (error: unknown, isFatal?: boolean) => void)
   return { scope, fire: (error: unknown, isFatal?: boolean) => current?.(error, isFatal) }
 }
 
+/** A Hermes stand-in that hands the tracker's two callbacks back to the test. */
+function hermesScope() {
+  let unhandled: ((id: number, reason: unknown) => void) | undefined
+  let handled: ((id: number) => void) | undefined
+  const scope: CaptureScope & {
+    unhandled(id: number, reason: unknown): void
+    handled(id: number): void
+  } = {
+    HermesInternal: {
+      enablePromiseRejectionTracker: (opts) => {
+        expect(opts.allRejections).toBe(true)
+        unhandled = opts.onUnhandled
+        handled = opts.onHandled
+      },
+    },
+    unhandled: (id, reason) => unhandled?.(id, reason),
+    handled: (id) => handled?.(id),
+  }
+  return scope
+}
+
 describe('installGlobalErrorCapture', () => {
   it('routes an uncaught error through the logger AND still calls the previous handler', () => {
     // The chain is the property under test: React Native's own handler is what
@@ -96,22 +117,71 @@ describe('installGlobalErrorCapture', () => {
   it('falls back to Hermes’ rejection tracker on a build with no event target', () => {
     // Bare Hermes has no `unhandledrejection` event at all. Without this branch
     // a released iOS/Android build captures no rejections and nothing says so.
-    let tracker: ((id: number, reason: unknown) => void) | undefined
-    const scope: CaptureScope = {
-      HermesInternal: {
-        enablePromiseRejectionTracker: (opts) => {
-          expect(opts.allRejections).toBe(true)
-          tracker = opts.onUnhandled
-        },
-      },
-    }
+    vi.useFakeTimers()
+    const scope = hermesScope()
     const handlers = handlerSpies()
-    const installed = installGlobalErrorCapture(scope, handlers)
+    const installed = installGlobalErrorCapture(scope, handlers, { rejectionGraceMs: 10 })
     expect(installed.rejection).toBe('hermes')
 
     const reason = new Error('hermes rejection')
-    tracker?.(1, reason)
+    scope.unhandled(1, reason)
+    vi.advanceTimersByTime(10)
     expect(handlers.onUnhandledRejection).toHaveBeenCalledWith(reason)
+    vi.useRealTimers()
+  })
+
+  it('does not file a crash for a rejection that is handled a tick late', () => {
+    // `allRejections: true` reports every rejection, including ones handled
+    // later — `const p = work(); …; await p` is the ordinary shape. A crash
+    // report cannot be retracted once posted, and ten of them exhaust the
+    // reporter's per-session budget on things that were never crashes.
+    vi.useFakeTimers()
+    const scope = hermesScope()
+    const handlers = handlerSpies()
+    installGlobalErrorCapture(scope, handlers, { rejectionGraceMs: 10 })
+
+    scope.unhandled(7, new Error('awaited one tick later'))
+    vi.advanceTimersByTime(5)
+    scope.handled(7)
+    vi.advanceTimersByTime(100)
+
+    expect(handlers.onUnhandledRejection).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('prefers Hermes’ tracker over an addEventListener that may never fire', () => {
+    // An event-target polyfill from any dependency accepts the listener and then
+    // never dispatches `unhandledrejection` on a Hermes build — capture silently
+    // off, while the boot line reported `event-target` and looked healthy.
+    vi.useFakeTimers()
+    const scope = hermesScope()
+    let listenerAdded = false
+    scope.addEventListener = () => {
+      listenerAdded = true
+    }
+    const handlers = handlerSpies()
+    const installed = installGlobalErrorCapture(scope, handlers, { rejectionGraceMs: 10 })
+
+    expect(installed.rejection).toBe('hermes')
+    expect(listenerAdded).toBe(false)
+    scope.unhandled(1, new Error('still captured'))
+    vi.advanceTimersByTime(10)
+    expect(handlers.onUnhandledRejection).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('drops a held rejection report on uninstall rather than firing it later', () => {
+    vi.useFakeTimers()
+    const scope = hermesScope()
+    const handlers = handlerSpies()
+    const installed = installGlobalErrorCapture(scope, handlers, { rejectionGraceMs: 10 })
+
+    scope.unhandled(3, new Error('in flight when the app tore logging down'))
+    installed.uninstall()
+    vi.advanceTimersByTime(100)
+
+    expect(handlers.onUnhandledRejection).not.toHaveBeenCalled()
+    vi.useRealTimers()
   })
 
   it('reports "none" rather than pretending, when neither surface exists', () => {

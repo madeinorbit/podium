@@ -165,9 +165,10 @@ const LOGS_ERRORS: ErrorConsistency = {
  * a zod-free L0 leaf that could not export a schema anyway.
  *
  * A restatement is a drift risk, so it is CHECKED rather than trusted — by
- * `apps/server/src/modules/logs/service.test.ts`, which can import both and
- * asserts this enum equals the logger's `LOG_LEVELS` exactly. The check lives
- * there because that is the nearest place both are legal imports.
+ * `apps/server/src/modules/logs/service.test.ts` ("the restated level enum
+ * cannot drift from the logger's"), which can import both and asserts
+ * `forwardedLogLevel.options` equals the logger's `LEVELS` exactly. The check
+ * lives there because that is the nearest place both are legal imports.
  */
 export const forwardedLogLevel = z.enum(['error', 'warn', 'info', 'debug', 'trace'])
 

@@ -136,10 +136,17 @@ export class LogIngestService {
       ((path) =>
         createFileSink({
           path,
-          // ALL LEVELS. The client already applied its own threshold before
-          // forwarding (default `warn`+, raisable at runtime); a second gate
-          // here would silently discard the `debug` records an operator just
-          // turned on for one user's client.
+          // ALL LEVELS: the client already applied its own threshold before
+          // forwarding (default `warn`+), so a gate here would silently discard
+          // the `debug` records an operator turned on for one user's client.
+          //
+          // WHAT ACTUALLY GUARANTEES THAT is `write()` being called directly
+          // below — `minLevel` is only ever consulted by the logger's dispatch
+          // (packages/logger/src/sinks.ts), which these ingestion sinks are
+          // never registered with, so the field is inert here. It is set anyway,
+          // and honestly: it states the intended threshold for the day one of
+          // these sinks IS handed to dispatch, and `trace` is the answer that
+          // keeps the no-second-gate property when that happens.
           minLevel: 'trace',
         }))
   }
