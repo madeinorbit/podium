@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { SessionMeta, UnbrandIds } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -70,6 +72,8 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 import { CommandPalette } from './CommandPalette'
 
+const styles = readFileSync(resolve(import.meta.dirname, '../styles.css'), 'utf8')
+
 function makeSession(over: Partial<UnbrandIds<SessionMeta>> & { sessionId: string }): SessionMeta {
   return {
     agentKind: 'claude-code',
@@ -101,6 +105,13 @@ afterEach(() => {
 })
 
 describe('CommandPalette', () => {
+  it('keeps its resting translation neutral after the drop animation', () => {
+    const panelRule = styles.match(/\.cmdk-panel\s*\{(?<body>[^}]*)\}/)?.groups?.body
+
+    expect(panelRule).toContain('translate: 0;')
+    expect(panelRule).toContain('transform: translateX(-50%);')
+  })
+
   it('mounts — every module it pulls in initialises', () => {
     render(<CommandPalette />)
     expect(screen.getByLabelText('Command palette')).toBeTruthy()

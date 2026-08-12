@@ -1482,6 +1482,10 @@ html[data-density="balanced"] .header-quota-pools {
 .cmdk-panel {
   top: 13vh;
   left: 50%;
+  /* DialogContent contributes -translate-x/y-1/2 utilities. The authored
+     animation temporarily overrides that longhand; neutralize its resting
+     value so it cannot return after the animation and shift the panel twice. */
+  translate: 0;
   display: flex;
   width: min(640px, calc(100vw - 32px));
   max-width: none;
