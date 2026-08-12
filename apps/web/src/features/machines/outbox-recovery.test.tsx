@@ -20,7 +20,12 @@ import { createOutbox, type Outbox } from '@podium/client-core/outbox'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-type Kinds = { rename: { sessionId: string; name: string } }
+type Kinds = {
+  rename: { sessionId: string; name: string }
+  /** POD-781's shape: a command wrapping a PATCH, so the operator's prose sits
+   *  one level down at `patch.title` rather than on the input itself. */
+  issueUpdate: { id: string; patch: { title?: string } }
+}
 
 /** The refusal under test, in the shape a tRPC error really arrives in. */
 const refuse = (code: string) => Object.assign(new Error('refused'), { data: { code } })
@@ -59,6 +64,9 @@ beforeEach(() => {
     storage: { load: () => [], save: () => {} },
     executors: {
       rename: async () => {
+        throw refuse(refusalCode)
+      },
+      issueUpdate: async () => {
         throw refuse(refusalCode)
       },
     },
@@ -126,6 +134,9 @@ describe('dead-letter recovery, at runtime', () => {
         rename: async () => {
           throw refuse(refusalCode)
         },
+        issueUpdate: async () => {
+          throw refuse(refusalCode)
+        },
       },
     })
     await parkOne('same text')
@@ -190,5 +201,34 @@ describe('dead-letter recovery, at runtime', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save and send' }))
 
     expect(outbox.deadLetters().some((d) => d.entry.mutationId === original)).toBe(false)
+  })
+
+  /**
+   * POD-781. `issues.update` is the first queued kind whose prose is NESTED, and
+   * a surface that only scanned the top level showed the whole payload as JSON
+   * and wrote the input back UNCHANGED on save — a silent no-op standing in for
+   * the one recovery a validation-poisoned entry has.
+   */
+  it('finds and rewrites the author’s text one level down, inside a patch', async () => {
+    refusalCode = 'BAD_REQUEST'
+    const original = outbox.enqueue('issueUpdate', { id: 'i1', patch: { title: 'bad title' } })
+    await outbox.drain()
+    render(<OutboxRecoveryIndicator />)
+    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+
+    // Their own words, not the JSON dump the old scan fell back to.
+    expect(screen.getByText(/bad title/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    const box = screen.getByLabelText('Your text') as HTMLTextAreaElement
+    expect(box.value).toBe('bad title')
+    fireEvent.change(box, { target: { value: 'fixed title' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and send' }))
+
+    // The edit landed WHERE THE COMMAND READS IT, and took nothing else with it:
+    // the re-queued entry still names the same issue.
+    const requeued = outbox.pending().find((e) => e.mutationId !== original.mutationId)
+    expect(requeued?.input).toEqual({ id: 'i1', patch: { title: 'fixed title' } })
   })
 })

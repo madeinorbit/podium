@@ -16,6 +16,7 @@
  * store reads them; inputs match exactly what it sends.
  */
 
+import type { IssueUpdatePatch } from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
@@ -140,6 +141,19 @@ export interface PodiumClientApi {
     markUnread: ApiMutation<WithMutationId<{ id: string }>>
     /** Tuck-away dismissal (POD-333) — server-side, global, outboxed. */
     setTucked: ApiMutation<WithMutationId<{ id: string; tucked: boolean }>>
+    /**
+     * THE CURATION WRITES, outboxed since POD-781 — the sidebar's rename,
+     * dismiss and delete no longer wait on a round trip.
+     *
+     * `patch` is `IssueUpdatePatch`, imported as a TYPE from `@podium/commands`
+     * and inferred from the contract's own zod schema. Type-only, so nothing of
+     * the command registry reaches the browser bundle (`audit:browser-reach`),
+     * and a key added to the contract is queueable the same day rather than
+     * after someone remembers to copy it here.
+     */
+    update: ApiMutation<WithMutationId<{ id: string; patch: IssueUpdatePatch }>>
+    archive: ApiMutation<WithMutationId<{ id: string }>>
+    delete: ApiMutation<WithMutationId<{ id: string }>>
   }
   pins: {
     list: ApiQuery<void, PinState>

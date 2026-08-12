@@ -54,6 +54,26 @@ export type OutboxKinds = {
   issueMarkRead: { id: string }
   issueMarkUnread: { id: string }
   issueSetTucked: { id: string; tucked: boolean }
+  /**
+   * THE ISSUE CURATION WRITES (POD-781).
+   *
+   * ONE GENERIC PATCH KIND rather than one kind per field, and the precedent is
+   * `settingsUpdatePersonal` directly above: the command is `issues.update` and
+   * its input is a partial patch, so a `issueRename` / `issueSetColor` /
+   * `issueSetStage` family would be N kinds all naming ONE contract, N routing
+   * rows and N overlay cases that differ only in which key they carry. The
+   * distinctions those kinds would encode are not distinctions the queue has —
+   * same contract, same partition, same collapse answer (none).
+   *
+   * `issueArchive` and `issueDelete` are separate because they are separate
+   * COMMANDS. `issues.archive` is not `issues.update{archived:true}` — the
+   * sidebar's dismiss calls the former, the context menu's archive/unarchive
+   * TOGGLE calls the latter — and `issues.delete` cascades to member sessions.
+   * A kind names a contract; two contracts cannot share one.
+   */
+  issueUpdate: Omit<Parameters<PodiumClientApi['issues']['update']['mutate']>[0], 'mutationId'>
+  issueArchive: { id: string }
+  issueDelete: { id: string }
 }
 
 /** The engine-facing queue contract. Kernel-backed web clients inject this
@@ -147,6 +167,30 @@ export const OUTBOX_COMMANDS: Record<
   issueMarkRead: { name: 'issues.markRead', version: 1, delivery, confirmation: 'none' },
   issueMarkUnread: { name: 'issues.markUnread', version: 1, delivery, confirmation: 'none' },
   issueSetTucked: { name: 'issues.setTucked', version: 1, delivery, confirmation: 'none' },
+  // THE FIRST QUEUED KINDS WITH `confirmation: 'confirm'` (POD-781). Every issue
+  // WRITE/MANAGE contract carries it, and it is a copy of the contract's value,
+  // not a choice made here — `outbox-contract-table.test.ts` pins it EQUAL.
+  //
+  // IT IS NOT INERT, and it was checked rather than assumed. The recovery
+  // surface reads exactly this field (`inlineConfirmationCanSatisfy`) to decide
+  // whether to offer "Confirm and retry" on a `confirmation-required` refusal;
+  // under `confirm` it offers it, under `broker`/`none` it withholds it and says
+  // why. What the field means here is ADR 3 D2's `--outside-scope` gate, which
+  // is an AGENT gate: it fires when a subtree-scoped caller writes outside its
+  // subtree, arrives as PRECONDITION_FAILED, and an operator capability (scope
+  // 'all') short-circuits the target check entirely. This queue belongs to the
+  // operator's own client on the tRPC path — where `overrideScope` is a
+  // relay-context flag no tRPC input carries — so the refusal is unreachable
+  // from here and the affordance never renders. Declaring 'none' to keep it that
+  // way would be a lie about the contract AND the arm that tells the user "the
+  // server asked for a confirmation this change is not set up to carry", which
+  // is the worse of the two failures. Recorded in POD-781's report: were an
+  // agent-scoped principal ever to drive this queue, `Outbox.retry` re-queues
+  // the entry UNCHANGED, so the confirm button would not yet carry the
+  // confirmation through — that is the day this needs threading, not today.
+  issueUpdate: { name: 'issues.update', version: 1, delivery, confirmation: 'confirm' },
+  issueArchive: { name: 'issues.archive', version: 1, delivery, confirmation: 'confirm' },
+  issueDelete: { name: 'issues.delete', version: 1, delivery, confirmation: 'confirm' },
 }
 
 /**
@@ -268,6 +312,30 @@ export const OUTBOX_ROUTING: {
     partitionKey: `issue:${i.id}`,
     collapseKey: `issue-tucked:${i.id}`,
   }),
+
+  // The curation writes (POD-781) share the issue's partition with the per-user
+  // ones above, so a rename cannot overtake the delete that follows it.
+  //
+  // `issueUpdate` gets NO COLLAPSE, for the reason `layoutSet` and
+  // `settingsUpdatePersonal` get none: it is a PARTIAL patch. Two updates to one
+  // issue are usually two different fields — rename then recolour — and
+  // collapsing them on the row id would drop the rename. There is no cell to key
+  // on, because the kind does not name a cell; it names a patch.
+  issueUpdate: (i) => ({ partitionKey: `issue:${i.id}` }),
+  // Archive and delete DO name a cell each, and each is one-way: a second
+  // archive of an already-archived issue, or a second delete of an already-
+  // tombstoned one, adds nothing the first did not do. Newest wins, which is the
+  // same thing the user's second click meant. Deliberately NOT shared with
+  // `issueUpdate{archived}` — the un-archive path goes through the patch kind,
+  // which collapses with nothing, so nothing can silently drop it.
+  issueArchive: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-archived:${i.id}`,
+  }),
+  issueDelete: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-deleted:${i.id}`,
+  }),
 }
 
 /** Route one queued write. Falls back to the entry's own private partition — D12's
@@ -380,6 +448,9 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
       issueMarkRead: (i) => api.issues.markRead.mutate(i),
       issueMarkUnread: (i) => api.issues.markUnread.mutate(i),
       issueSetTucked: (i) => api.issues.setTucked.mutate(i),
+      issueUpdate: (i) => api.issues.update.mutate(i),
+      issueArchive: (i) => api.issues.archive.mutate(i),
+      issueDelete: (i) => api.issues.delete.mutate(i),
     },
     onApplied: args.onApplied,
     // A definitively-refused entry can never sync AS IT IS — but it is no longer

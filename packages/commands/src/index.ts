@@ -252,6 +252,7 @@ export {
   ISSUE_CONTRACT_LIST,
   ISSUE_CONTRACTS,
   type IssueContractName,
+  type IssueUpdatePatch,
 } from './issues/contracts'
 export {
   LAYOUT_CONTRACT_NAMES,

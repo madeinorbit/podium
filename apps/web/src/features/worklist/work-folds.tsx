@@ -280,26 +280,26 @@ export function ClosedIssueFold<T>({
   rows,
   renderRow,
   issueForRow,
-  archivingIssueIds,
   onArchive,
 }: {
   groupKey: string
   rows: T[]
   renderRow: (row: T) => JSX.Element
   issueForRow: (row: T) => UnifiedIssueRowView
-  archivingIssueIds: ReadonlySet<string>
   onArchive: (id: string) => void
 }): JSX.Element {
   const [collapsed, toggle] = useCollapsed(closedFoldKey(groupKey), true)
   const contentId = useId()
   const issueRows = rows.map(issueForRow)
-  const allArchiving = issueRows.every((row) => archivingIssueIds.has(row.issue.id))
+  // NO IN-FLIGHT ARCHIVE SET (POD-781). This fold used to take one, to disable
+  // the buttons and fade their icons while the server was asked. Archiving is
+  // outboxed now: the row is gone from `rows` on the press, so a "still
+  // archiving" state has nobody to describe — and a control whose only job was
+  // to look busy during a wait that no longer happens is not a control.
   const archiveAll = (event: ReactMouseEvent): void => {
     event.preventDefault()
     event.stopPropagation()
-    for (const row of issueRows) {
-      if (!archivingIssueIds.has(row.issue.id)) onArchive(row.issue.id)
-    }
+    for (const row of issueRows) onArchive(row.issue.id)
   }
   return (
     <div className="min-w-0" data-testid="closed-issue-fold">
@@ -327,7 +327,6 @@ export function ClosedIssueFold<T>({
           type="button"
           aria-label={`Archive all ${issueRows.length} closed issues`}
           title="Archive all closed issues"
-          disabled={allArchiving}
           onClick={archiveAll}
           className="shell-type-micro absolute right-2.5 flex h-5 items-center gap-1 rounded-[5px] border border-hairline-bar bg-chip px-1.5 font-mono font-medium tracking-[.02em] text-label opacity-0 shadow-sm transition-[color,opacity,background-color] duration-100 group-hover/fold:opacity-100 group-focus-within/fold:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong disabled:pointer-events-none disabled:opacity-0"
           data-testid="closed-issues-archive-all"
@@ -340,7 +339,6 @@ export function ClosedIssueFold<T>({
         <div id={contentId} className="min-w-0" data-testid="closed-fold-rows">
           {rows.map((row) => {
             const issueRow = issueForRow(row)
-            const archiving = archivingIssueIds.has(issueRow.issue.id)
             return (
               <div
                 key={issueRow.issue.id}
@@ -359,18 +357,13 @@ export function ClosedIssueFold<T>({
                   aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
                   title="Archive — remove from sidebar"
                   data-testid="closed-issue-archive"
-                  disabled={archiving}
                   onClick={(event) => {
                     event.preventDefault()
                     event.stopPropagation()
                     onArchive(issueRow.issue.id)
                   }}
                 >
-                  <Archive
-                    size={11}
-                    className={cn('transition-opacity duration-100', archiving && 'opacity-0')}
-                    aria-hidden="true"
-                  />
+                  <Archive size={11} aria-hidden="true" />
                 </button>
               </div>
             )

@@ -50,19 +50,61 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
+/** The keys an author's own prose can arrive under, in the order we prefer them. */
+const AUTHORED_KEYS = ['text', 'name', 'title', 'body', 'description'] as const
+
+/**
+ * WHERE THE PROSE SITS in a queued input, as a path rather than a key.
+ *
+ * It used to be a key, scanned at the top level only. POD-781 queued
+ * `issues.update`, whose whole payload is `{ id, patch }` — the operator's new
+ * title is one level down at `patch.title`. Under the old scan that entry showed
+ * as raw JSON and "Save and send" wrote the input back unchanged, which is the
+ * silent no-op version of the ONE recovery an `invalid` entry has.
+ *
+ * One level of nesting, not a deep walk: the queued inputs are flat commands or
+ * a command around a single patch object, and a recursive search would start
+ * offering to edit ids.
+ */
+/** Where the prose was found, and what it said — carried together so neither
+ *  caller has to look it up a second time under a different set of casts. */
+interface Authored {
+  /** The key on `input` itself, or the key of the object the prose lives inside. */
+  readonly outer: string
+  /** The key WITHIN that object, when the prose is nested. */
+  readonly inner?: string
+  readonly value: string
+}
+
+/** The first prose-shaped key on one flat object, if any. */
+function authoredIn(record: Record<string, unknown>): { key: string; value: string } | null {
+  for (const key of AUTHORED_KEYS) {
+    const value = record[key]
+    if (typeof value === 'string' && value.length > 0) return { key, value }
+  }
+  return null
+}
+
+function authoredAt(input: unknown): Authored | null {
+  if (!input || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  const top = authoredIn(record)
+  if (top) return { outer: top.key, value: top.value }
+  for (const [outer, nested] of Object.entries(record)) {
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) continue
+    const found = authoredIn(nested as Record<string, unknown>)
+    if (found) return { outer, inner: found.key, value: found.value }
+  }
+  return null
+}
+
 /** The author's own text, pulled out of their own input for display and export.
  *  A best-effort projection over an opaque payload — when nothing reads as prose
  *  we show the input as JSON rather than showing nothing, because the entire
  *  point is that the user can get their words back. */
 function authoredText(input: unknown): string {
   if (typeof input === 'string') return input
-  if (input && typeof input === 'object') {
-    for (const key of ['text', 'name', 'title', 'body', 'description']) {
-      const value = (input as Record<string, unknown>)[key]
-      if (typeof value === 'string' && value.length > 0) return value
-    }
-  }
-  return JSON.stringify(input, null, 2)
+  return authoredAt(input)?.value ?? JSON.stringify(input, null, 2)
 }
 
 function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Element {
@@ -211,14 +253,17 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
 }
 
 /** Put the edited prose back on the field it came from, so an edit of a rename
- *  revises `name` rather than replacing the whole input with a bare string. */
+ *  revises `name` rather than replacing the whole input with a bare string —
+ *  and an edit of an `issues.update` title revises `patch.title` rather than
+ *  landing beside the patch where nothing reads it. Merged over the original
+ *  input by the caller, so the nested arm rebuilds only the object it descends
+ *  into and leaves that object's other keys intact. */
 function replaceAuthored(input: unknown, next: string): Record<string, unknown> {
-  if (input && typeof input === 'object') {
-    for (const key of ['text', 'name', 'title', 'body', 'description']) {
-      if (typeof (input as Record<string, unknown>)[key] === 'string') return { [key]: next }
-    }
-  }
-  return {}
+  const found = authoredAt(input)
+  if (!found) return {}
+  if (found.inner === undefined) return { [found.outer]: next }
+  const nested = (input as Record<string, unknown>)[found.outer] as Record<string, unknown>
+  return { [found.outer]: { ...nested, [found.inner]: next } }
 }
 
 /**

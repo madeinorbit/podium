@@ -133,7 +133,26 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     issueId: string
     folded: boolean
   } | null>(null)
-  const [archivingIssueIds, setArchivingIssueIds] = useState<ReadonlySet<string>>(() => new Set())
+  /**
+   * WHY THE ROW LEFT, not whether it may leave (POD-781).
+   *
+   * This used to be the archive's whole optimism: the id went in on the click,
+   * the row was FILTERED OUT of the transition targets by this set, and it came
+   * back out if the server said no — a fourth optimism mechanism beside the
+   * three #263 collapsed into the overlay, and one that only knew about this one
+   * screen (the same archive from the context menu or the palette painted
+   * nothing).
+   *
+   * `archiveIssue` is outboxed now, so the queued entry paints `archived: true`
+   * over the replica row and the worklist drops it before this component runs.
+   * Hiding is no longer this set's job. What is left is presentation and only
+   * presentation: an exit caused by THIS button gets the quick archive exit
+   * rather than the ordinary one, and nothing else can tell those apart. Ids are
+   * pruned as their exits finish, so the set tracks live exits and never grows.
+   */
+  const [quickArchiveExitIds, setQuickArchiveExitIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
   useEffect(() => {
     setSelectedClosedPlacement((placement) =>
       placement && placement.issueId !== selectedIssueId ? null : placement,
@@ -157,15 +176,21 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   }
   const selectedWasFolded =
     selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded
-  const archiveClosedIssue = (id: string): void => {
-    setArchivingIssueIds((current) => new Set(current).add(id))
-    void archiveIssue(id).catch(() => {
-      setArchivingIssueIds((current) => {
-        const next = new Set(current)
-        next.delete(id)
-        return next
-      })
+  const forgetQuickArchive = (ids: readonly string[]): void => {
+    if (ids.length === 0) return
+    setQuickArchiveExitIds((current) => {
+      if (!ids.some((id) => current.has(id))) return current
+      const next = new Set(current)
+      for (const id of ids) next.delete(id)
+      return next
     })
+  }
+  const archiveClosedIssue = (id: string): void => {
+    setQuickArchiveExitIds((current) => new Set(current).add(id))
+    // The overlay repaints the list; a refusal drops it and the row returns, at
+    // which point the exit never happened and the marker must not linger to
+    // restyle some later, unrelated exit of the same row.
+    void archiveIssue(id).catch(() => forgetQuickArchive([id]))
   }
 
   // The pinned split and the project-group tree come from the PUBLISHED slice
@@ -195,18 +220,11 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   // the row level (`rows.ts`: "the unified list is live work, not a tree"),
   // which is exactly why that derivation had to exist locally to begin with.
   // The only folds left are snoozed and closed.
-  useEffect(() => {
-    const closedIds = new Set<string>(
-      targetGroups.flatMap((group) => group.closedRows.map((row) => row.issue.id)),
-    )
-    setArchivingIssueIds((current) => {
-      const next = new Set(current)
-      for (const id of current) {
-        if (!closedIds.has(id)) next.delete(id)
-      }
-      return next.size === current.size ? current : next
-    })
-  }, [targetGroups])
+  // The prune that used to live here — clearing an id once its row left
+  // `closedRows` — is gone with the hiding it belonged to (POD-781). The overlay
+  // takes the row out of `closedRows` on the press, so this effect fired BEFORE
+  // the exit animation and would now clear the quick-exit marker just as the
+  // marker was needed. Pruning moved below, to where the exits actually finish.
   const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(
     () => [
       ...pinned.map((row) => ({
@@ -240,23 +258,42 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             row,
           },
         })),
-        ...group.closedRows
-          .filter((row) => !archivingIssueIds.has(row.issue.id))
-          .map((row) => ({
-            key: `issue:${row.issue.id}`,
-            placement: `closed:${group.key}`,
-            value: {
-              lane: 'closed' as const,
-              groupKey: group.key,
-              groupLabel: group.label,
-              row,
-            },
-          })),
+        // NO ARCHIVE FILTER (POD-781): an archived row is already absent from
+        // `group.closedRows` — the outbox overlay paints `archived: true` and
+        // the worklist derivation drops it. Filtering here as well would be a
+        // second hiding rule racing the first, and the one that lost would
+        // decide whether the exit animation ever ran.
+        ...group.closedRows.map((row) => ({
+          key: `issue:${row.issue.id}`,
+          placement: `closed:${group.key}`,
+          value: {
+            lane: 'closed' as const,
+            groupKey: group.key,
+            groupLabel: group.label,
+            row,
+          },
+        })),
       ]),
     ],
-    [archivingIssueIds, pinned, targetGroups],
+    [pinned, targetGroups],
   )
   const { items: transitionRows, settle, discardExit } = useRowTransitions(transitionTargets)
+
+  // Prune the quick-exit markers once their rows are gone from the transition
+  // list — the exit has played and the styling has nothing left to style. Kept
+  // as an effect over what is actually on screen rather than a timer: the exit's
+  // duration is the motion layer's business, not this component's.
+  useEffect(() => {
+    const onScreen = new Set(transitionRows.map((item) => item.key))
+    // Functional form and an identity-preserving no-op arm: this runs on every
+    // transition list change, and returning `current` unchanged is what stops it
+    // re-rendering itself in a loop.
+    setQuickArchiveExitIds((current) => {
+      if (current.size === 0) return current
+      const next = new Set([...current].filter((id) => onScreen.has(`issue:${id}`)))
+      return next.size === current.size ? current : next
+    })
+  }, [transitionRows])
 
   // Grip-drag manual sort (POD-168): drops persist fractional sortKeys through
   // issues.update; crossing the PINNED boundary toggles `pinned`. The preview
@@ -305,7 +342,8 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     const folded = lane === 'closed' || lane === 'snoozed'
     const arriving = animate && item.phase === 'entering'
     const exiting = item.phase === 'exiting'
-    const quickArchiveExit = exiting && row.kind === 'issue' && archivingIssueIds.has(row.issue.id)
+    const quickArchiveExit =
+      exiting && row.kind === 'issue' && quickArchiveExitIds.has(row.issue.id)
     const draggable = row.kind === 'issue' && !isIssueDeferred(row.issue, now)
     const inner =
       folded && row.kind === 'issue' ? (
@@ -522,7 +560,6 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
                   rows={group.closedRows}
                   renderRow={renderWorkRow}
                   issueForRow={(item) => item.value.row as UnifiedIssueRowView}
-                  archivingIssueIds={archivingIssueIds}
                   onArchive={archiveClosedIssue}
                 />
               </motion.div>

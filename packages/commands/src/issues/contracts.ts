@@ -299,6 +299,15 @@ export const updateInput = z.object({
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
+/**
+ * The PATCH half of `issues.update`, named so a client can type a queued write
+ * against it (POD-781). Inferred from the schema above rather than restated:
+ * the outbox's `issueUpdate` kind and the engine action behind it both carry
+ * this shape, and a hand-written copy of a twenty-four-key partial patch is a
+ * drift generator — a key added here would silently not be queueable.
+ */
+export type IssueUpdatePatch = z.infer<typeof updateInput>['patch']
+
 export const promoteInput = z.object({ id: IssueIdField })
 
 export const attachSessionInput = z.object({
@@ -312,9 +321,28 @@ export const attachSessionInput = z.object({
   newSpinoff: z.object({ title: z.string().min(1) }).optional(),
 })
 
-export const archiveInput = byIssueId
+/**
+ * ARCHIVE AND DELETE CARRY A `mutationId`, and `restore` does not — POD-781.
+ *
+ * The field is the caller's replay identity: `MutationLedgerPort.once` keys the
+ * receipt on it, which is the ONE property that makes a queued write safe to
+ * replay after a reload or a reconnect (ADR 3 D4's `offline-eligible` class is a
+ * statement about shape; this is what cashes it). Both commands are now served
+ * by the client outbox, so both need one; without it every drain re-runs the
+ * mutation unguarded and `withMutation` receives `undefined`.
+ *
+ * `restore` is deliberately left bare: nothing queues it yet (POD-781 group 3),
+ * and an input field that no caller sends and no handler reads is exactly the
+ * decoration ADR 3 D3's "permission is not wiring" rule warns about. It gains
+ * the field on the day it gains an outbox kind.
+ */
+export const archiveInput = byIssueId.extend({
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
 
-export const deleteInput = byIssueId
+export const deleteInput = byIssueId.extend({
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
 
 export const restoreInput = byIssueId
 

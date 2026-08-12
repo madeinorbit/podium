@@ -9,7 +9,7 @@
  *
  * Recorded here because the issue brief says "offline queueing is issue-writes
  * only today", and that is not what the code does: the covered set spans eight
- * SESSION writes plus three issue writes and five replicated per-user writes.
+ * SESSION writes plus SIX issue writes and five replicated per-user writes.
  * Only live interaction (`sendText`, `ask`, and `uploadImage`) remains a
  * deliberate direct-only exclusion: replaying chat, a seance, or an image
  * upload hours later is worse than an immediate failure.
@@ -18,6 +18,28 @@
  * product decision the migration must carry over verbatim, not a
  * single-user artefact. Per-user state (POD-1076) changes WHERE snooze/read
  * rows live, not whether the write queues offline.
+ *
+ * ---------------------------------------------------------------------------
+ * THE ONE DELIBERATE EXTENSION (POD-781), recorded rather than merely made
+ * ---------------------------------------------------------------------------
+ *
+ * The issue half of this set was THREE per-user markers (`markRead`,
+ * `markUnread`, `setTucked`) and is now six: `issues.update`, `issues.archive`
+ * and `issues.delete` joined them. Every case here is tagged must-not-change ON
+ * PURPOSE, so growing the set is a product decision and this paragraph is where
+ * it is taken.
+ *
+ * WHY. The sidebar's delete, dismiss and inline rename went straight to the
+ * server and painted NOTHING until it answered — on a slow link the click read
+ * as not having registered, which is the failure the outbox-as-overlay (#263)
+ * exists to delete. The commands were already `offline-eligible` on ADR 1's
+ * `issueCore` row, and idempotency was already framework-owned
+ * (`MutationLedgerPort.once`); what was missing was the client half.
+ *
+ * WHAT DID NOT CHANGE, and must not: `sendText`, `ask` and `uploadImage` stay
+ * OUT. Those exclusions are about REPLAY being wrong — a chat message sent
+ * hours late is worse than a failure — and nothing about curating an issue row
+ * argues for reopening them. The exclusion test below still pins all three.
  */
 
 import type { SessionId } from '@podium/model'
@@ -75,6 +97,9 @@ function recordingApi() {
       markRead: proc('issues.markRead'),
       markUnread: proc('issues.markUnread'),
       setTucked: proc('issues.setTucked'),
+      update: proc('issues.update'),
+      archive: proc('issues.archive'),
+      delete: proc('issues.delete'),
     },
   } as unknown as PodiumClientApi
   return { api, calls }
@@ -146,10 +171,19 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
   { kind: 'issueMarkRead', input: { id: 'i1' }, path: 'issues.markRead' },
   { kind: 'issueMarkUnread', input: { id: 'i1' }, path: 'issues.markUnread' },
   { kind: 'issueSetTucked', input: { id: 'i1', tucked: true }, path: 'issues.setTucked' },
+  // POD-781 — the curation writes. One generic patch kind plus the two commands
+  // that are not `issues.update`; see the header for why the set grew.
+  {
+    kind: 'issueUpdate',
+    input: { id: 'i1', patch: { title: 'renamed offline' } },
+    path: 'issues.update',
+  },
+  { kind: 'issueArchive', input: { id: 'i1' }, path: 'issues.archive' },
+  { kind: 'issueDelete', input: { id: 'i1' }, path: 'issues.delete' },
 ]
 
 describe('oracle: the offline-queued write set', () => {
-  it(`${MUST_NOT_CHANGE}: eight session writes, three issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
+  it(`${MUST_NOT_CHANGE}: eight session writes, six issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
     const { outbox, calls } = makeOutbox()
 
     for (const covered of COVERED) {
@@ -161,6 +195,26 @@ describe('oracle: the offline-queued write set', () => {
     expect(
       calls.filter((c) => c.path.startsWith('sessions.') || c.path.startsWith('snooze')),
     ).toHaveLength(8)
+    // Counted, not implied by the list above: POD-781 doubled the issue half,
+    // and a future edit that drops one of the curation kinds while leaving its
+    // row in COVERED would still pass the ordering assertion.
+    expect(calls.filter((c) => c.path.startsWith('issues.'))).toHaveLength(6)
+    outbox.dispose()
+  })
+
+  it(`${MUST_NOT_CHANGE}: an issue write replays with its mutationId too — the property that makes a cascading delete safe to re-send`, async () => {
+    const { outbox, calls } = makeOutbox()
+
+    // `issues.delete` tombstones the issue AND every session on it. Without a
+    // stable id on the replay the server would run that cascade twice, which is
+    // why `issues.archive`/`issues.delete` gained a `mutationId` input field and
+    // a `ctx.withMutation` wrapper alongside this kind (POD-781).
+    const entry = outbox.enqueue('issueDelete', { id: 'i1' })
+    await outbox.drain()
+
+    expect(calls).toEqual([
+      { path: 'issues.delete', input: { id: 'i1', mutationId: entry.mutationId } },
+    ])
     outbox.dispose()
   })
 

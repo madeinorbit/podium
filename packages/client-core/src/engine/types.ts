@@ -6,6 +6,7 @@
  * client).
  */
 
+import type { IssueUpdatePatch } from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
@@ -396,6 +397,33 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  folds on the press and the dismissal is SERVER state — it survives a
    *  different browser and every other client folds the same row. */
   setIssueTucked: (id: string, tucked: boolean) => Promise<void>
+  /**
+   * PATCH AN ISSUE — the generic curation write (POD-781). Optimistic +
+   * outboxed: the row repaints on the press instead of after the round trip,
+   * which is what an inline rename, a colour, a pin, a stage move and a
+   * drag-reorder all needed and none of them had.
+   *
+   * One action for one command. `patch` is the contract's own patch type, so
+   * every field `issues.update` accepts is reachable here without this signature
+   * growing a case per field.
+   */
+  updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<void>
+  /**
+   * DISMISS an issue — `issues.archive`, the sidebar's one-way archive.
+   *
+   * Distinct from `updateIssue(id, { archived })` ON PURPOSE: they are two
+   * commands, and the sidebar's dismiss has always called this one while the
+   * context menu's archive/unarchive TOGGLE calls the patch. Collapsing them
+   * here would silently re-route one surface's writes through the other's
+   * contract.
+   */
+  archiveIssue: (id: string) => Promise<void>
+  /**
+   * TOMBSTONE an issue and, server-side, every session on it. Optimistic +
+   * outboxed: the row and its nested sessions leave the sidebar on the press.
+   * Soft: `issues.restore` brings both back.
+   */
+  deleteIssue: (id: string) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the

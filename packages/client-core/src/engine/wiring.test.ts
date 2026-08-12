@@ -55,6 +55,9 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
   issueMarkRead: { id: 'POD-1' } as OutboxKinds['issueMarkRead'],
   issueMarkUnread: { id: 'POD-1' } as OutboxKinds['issueMarkUnread'],
   issueSetTucked: { id: 'POD-1', tucked: true } as OutboxKinds['issueSetTucked'],
+  issueUpdate: { id: 'POD-1', patch: { title: 'renamed' } } as OutboxKinds['issueUpdate'],
+  issueArchive: { id: 'POD-1' } as OutboxKinds['issueArchive'],
+  issueDelete: { id: 'POD-1' } as OutboxKinds['issueDelete'],
 }
 
 const kinds = Object.keys(OUTBOX_COMMANDS) as (keyof OutboxKinds)[]
@@ -126,6 +129,44 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(
       route('settingsUpdatePersonal', SAMPLE.settingsUpdatePersonal).collapseKey,
     ).toBeUndefined()
+    // POD-781: `issues.update` is the same shape of partial patch — a rename and
+    // a recolour of one issue are two different keys, and collapsing them on the
+    // issue id would silently drop the rename.
+    expect(route('issueUpdate', SAMPLE.issueUpdate).collapseKey).toBeUndefined()
+  })
+
+  it('collapses the one-way issue commands, which a repeat cannot add to', () => {
+    // POD-781. `issues.archive` has no un-archive arm and `issues.delete` no
+    // un-delete one (that is `issues.restore`), so a second queued copy of
+    // either does exactly what the first did. Their keys are DISTINCT from the
+    // patch kind's — which has none — so nothing can collapse an un-archive.
+    const id = 'POD-1'
+    expect(route('issueArchive', { id }).collapseKey).toBe(
+      route('issueArchive', { id }).collapseKey,
+    )
+    expect(route('issueArchive', { id }).collapseKey).not.toBe(
+      route('issueDelete', { id }).collapseKey,
+    )
+    expect(route('issueArchive', { id }).collapseKey).not.toBe(
+      route('issueArchive', { id: 'POD-2' }).collapseKey,
+    )
+  })
+
+  it('keeps every issue write on ONE partition per issue, so a rename cannot overtake its delete', () => {
+    // POD-781: the curation writes join the per-user ones on `issue:<id>`.
+    const id = 'POD-1'
+    const partitions = new Set([
+      route('issueUpdate', { id, patch: { title: 'x' } }).partitionKey,
+      route('issueArchive', { id }).partitionKey,
+      route('issueDelete', { id }).partitionKey,
+      route('issueMarkRead', { id }).partitionKey,
+      route('issueSetTucked', { id, tucked: true }).partitionKey,
+    ])
+    expect([...partitions]).toEqual([`issue:${id}`])
+    // ...and two DIFFERENT issues still never serialise against each other.
+    expect(route('issueDelete', { id }).partitionKey).not.toBe(
+      route('issueDelete', { id: 'POD-2' }).partitionKey,
+    )
   })
 
   it('shares one collapse key between commands that write the same state cell', () => {

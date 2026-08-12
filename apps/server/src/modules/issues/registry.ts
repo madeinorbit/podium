@@ -634,13 +634,20 @@ const defs = {
     target: targetId,
     handler: (ctx, input) => {
       assertNotProposedForAgent(ctx, input.id, 'archive')
-      return ctx.attention.archive(input.id)
+      // The scope guard stays OUTSIDE the ledger, like `update`'s does: a
+      // replayed archive must not be waved through on a cached receipt minted
+      // when the subtree looked different (D8 re-authorizes at every apply).
+      return ctx.withMutation(input.mutationId, () => ctx.attention.archive(input.id))
     },
   }),
   delete: def('delete', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.deleteIssue(input.id),
+    // POD-781: outboxed, so a replayed drain must not tombstone twice. The
+    // cascade behind this call deletes every member session as well, which is
+    // exactly why the receipt matters — a second pass would re-stamp tombstones
+    // over rows the operator may have restored in between.
+    handler: (ctx, input) => ctx.withMutation(input.mutationId, () => ctx.deleteIssue(input.id)),
   }),
   restore: def('restore', {
     kind: 'mutation',

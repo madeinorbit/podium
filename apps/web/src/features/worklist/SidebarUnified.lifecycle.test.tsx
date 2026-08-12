@@ -27,7 +27,11 @@ const ui = vi.hoisted(() => {
   }
 })
 
+/** POD-781: the sidebar's dismiss is the OUTBOXED `store.archiveIssue`, not
+ *  `trpc.issues.archive`. Both are stubbed so the direct path can be asserted
+ *  ABSENT — a regression to it would restore the round-trip wait silently. */
 const archiveMutate = vi.hoisted(() => vi.fn(async () => ({})))
+const archiveIssue = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('@/app/store', () => {
   const closed = {
@@ -131,6 +135,10 @@ vi.mock('@/app/store', () => {
     setView: vi.fn(),
     markIssueRead: vi.fn(async () => {}),
     markSessionRead: vi.fn(async () => {}),
+    updateIssue: vi.fn(async () => {}),
+    archiveIssue,
+    deleteIssue: vi.fn(async () => {}),
+    setIssueTucked: vi.fn(async () => {}),
     sidebarSettings: { groupByRepo: false },
     setSidebarSettings: vi.fn(),
   })
@@ -160,6 +168,7 @@ afterEach(() => {
   cleanup()
   ui.reset()
   archiveMutate.mockClear()
+  archiveIssue.mockClear()
 })
 describe('closed issue fold lifecycle', () => {
   it('folds snoozed rows with arrival motion and removes every drag target', () => {
@@ -195,17 +204,22 @@ describe('closed issue fold lifecycle', () => {
       name: 'Archive POD-42',
     })
     fireEvent.click(archiveButton)
-    expect(archiveMutate).toHaveBeenCalledWith({ id: 'closed' })
-    expect(archiveButton.querySelector('svg')?.getAttribute('class')).toContain('opacity-0')
-    expect(archiveButton).toHaveProperty('disabled', true)
+    expect(archiveIssue).toHaveBeenCalledWith('closed')
+    expect(archiveMutate).not.toHaveBeenCalled()
+    // NO in-flight state to assert any more (POD-781). This used to check that
+    // the icon faded and the button disabled itself while the server was asked;
+    // the overlay takes the row off the list on the press, so there is no wait
+    // for a busy state to describe, and a control that only looked busy during a
+    // wait that no longer happens is not a control.
   })
 
   it('archives every closed issue from the fold title action', () => {
     render(<SidebarUnified />)
     fireEvent.click(screen.getByRole('button', { name: 'Archive all 2 closed issues' }))
 
-    expect(archiveMutate).toHaveBeenCalledTimes(2)
-    expect(archiveMutate).toHaveBeenCalledWith({ id: 'closed' })
-    expect(archiveMutate).toHaveBeenCalledWith({ id: 'closed-second' })
+    expect(archiveIssue).toHaveBeenCalledTimes(2)
+    expect(archiveIssue).toHaveBeenCalledWith('closed')
+    expect(archiveIssue).toHaveBeenCalledWith('closed-second')
+    expect(archiveMutate).not.toHaveBeenCalled()
   })
 })

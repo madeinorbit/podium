@@ -14,6 +14,8 @@ const deps = {
   trpc: {} as never,
   markIssueRead: vi.fn(async () => {}),
   markIssueUnread: vi.fn(async () => {}),
+  updateIssue: vi.fn(async () => {}),
+  deleteIssue: vi.fn(async () => {}),
   setOpenIssueId: vi.fn(),
   setView: vi.fn(),
 }

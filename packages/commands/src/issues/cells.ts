@@ -121,11 +121,22 @@ export const REAUTHORIZATION =
  * ISSUE WRITES ARE `offline-eligible`, AND THAT IS READ OFF THE MATRIX RATHER THAN
  * JUDGED HERE: ADR 1's `issueCore` row carries `offline: 'offline-eligible'`.
  *
- * The class is a statement about the command's SHAPE; `exposure` is a statement about
- * what is wired, and NOTHING here names `outbox`. No client outbox path exists for
- * issues — POD-379's oracle covers the session presence family and tags that set
- * must-not-change — so declaring the tag would open a transport nothing serves. ADR 3
- * D3 rule 2 permits the tag only for this class; permission is not wiring.
+ * THE CLIENT OUTBOX NOW SERVES ISSUES (POD-781). This cell used to end "`offline-eligible`
+ * above still buys nothing until a client outbox serves issues" — a true statement with a
+ * recorded expiry condition, and the condition has been met. `packages/client-core`'s
+ * engine queues `issues.update`, `issues.archive` and `issues.delete` through the same
+ * outbox-as-overlay path (#263 [spec:SP-3fe2]) the session presence family uses, so a
+ * sidebar delete, dismiss or inline rename paints on the press and replays — deduped by
+ * `mutationId` — on reconnect. `outbox-coverage.oracle.test.ts` pins the extended set.
+ *
+ * `exposure` STILL DOES NOT NAME `outbox`, and that is not an oversight. ADR 3 D3 rule 2
+ * permits the tag for this class, but the transport tags name SERVER-SIDE arms that
+ * dispatch a command (`trpc`, `relay`, `cli`, `mcp`); the client queue reaches the
+ * authority THROUGH `trpc`, which is already declared. The queued per-user issue
+ * commands (`markRead`/`markUnread`/`setTucked`) have been outboxed since POD-1076
+ * without the tag, and `audit-issue-commands.ts` checks declarations against what each
+ * arm actually reaches — a tag with no dispatching arm behind it is the decoration D3
+ * exists to forbid.
  *
  * THE DURABILITY THAT USED TO EXIST WAS A DIFFERENT OBJECT, and confusing the two is
  * the exact mistake ADR 3 D4 rule 4 was written to prevent. `IssueCommandCtx.issueWrite`
@@ -133,20 +144,24 @@ export const REAUTHORIZATION =
  * and answered `{ queued: true }` when the hub was unreachable. That was a SERVER-side
  * queue for an already-authorized online command — D4 rule 4's "delivery mechanism",
  * not a client Outbox class. POD-309 retired it with the rest of the federation
- * half-build, so the distinction is now historical: there is no queue on this path at
- * all, and `offline-eligible` above still buys nothing until a client outbox serves
- * issues.
+ * half-build, so the distinction is now historical — and with a real client Outbox on
+ * this path it is also the one that must not be re-blurred: the two are still different
+ * objects, and only the client one is reconciled below.
  */
 export const WRITE_DELIVERY: DeliveryPolicy = {
   class: 'offline-eligible',
   outboxReconciliation:
-    'ADR 1’s `issueCore` row declares `offline: offline-eligible`, and idempotency is framework-owned ' +
-    '(`MutationLedgerPort.once`, keyed by the caller’s `mutationId` and the wire name), which is the ' +
-    'property a replay needs. NOT exposed on `outbox`: no client outbox path exists for issues and ' +
-    'POD-379’s oracle pins the covered set to the session presence family. The `{ queued: true }` the ' +
-    'viaHub forwarder can return is ADR 3 D4 rule 4’s server-held delivery queue for an ALREADY ' +
-    'AUTHORIZED online command, re-authorized by the hub against this same registry — a different ' +
-    'durability from the client Outbox, and deliberately not reconciled with it here.',
+    'QUEUED (POD-781). ADR 1’s `issueCore` row declares `offline: offline-eligible`, and idempotency ' +
+    'is framework-owned (`MutationLedgerPort.once`, keyed by the caller’s `mutationId` and the wire ' +
+    'name), which is the property a replay needs — so `update`, `archive` and `delete` all carry a ' +
+    '`mutationId` and all wrap `ctx.withMutation`. The client queue partitions per issue ' +
+    '(`issue:<id>`), so one refused write parks its own row rather than wedging the rest, and the ' +
+    'queued entry doubles as the optimistic overlay: it paints until covering server truth lands and ' +
+    'retires on the first of coverage, a competing write, or the awaiting-truth TTL. A partial patch ' +
+    'never collapses — a later `update` carries only the keys it touches and cannot subsume an ' +
+    'earlier one. Not reconciled with the `{ queued: true }` the viaHub forwarder could return: that ' +
+    'was ADR 3 D4 rule 4’s server-held delivery queue for an ALREADY AUTHORIZED online command, a ' +
+    'different durability, and POD-309 retired it.',
   applyTimeReauthorization: REAUTHORIZATION,
 }
 

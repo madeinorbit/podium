@@ -186,6 +186,8 @@ function PaletteDialog({
     machines,
     markIssueRead,
     markIssueUnread,
+    updateIssue,
+    deleteIssue,
     markSessionRead,
     markSessionUnread,
     openIssueId,
@@ -213,6 +215,8 @@ function PaletteDialog({
       machines: s.machines,
       markIssueRead: s.markIssueRead,
       markIssueUnread: s.markIssueUnread,
+      updateIssue: s.updateIssue,
+      deleteIssue: s.deleteIssue,
       markSessionRead: s.markSessionRead,
       markSessionUnread: s.markSessionUnread,
       openIssueId: s.openIssueId,
@@ -417,6 +421,8 @@ function PaletteDialog({
           trpc,
           markIssueRead,
           markIssueUnread,
+          updateIssue,
+          deleteIssue,
           setOpenIssueId: (id) => setOpenIssueId(id as IssueId),
           setView: (view) => setView(view),
           handoff: (machineId) => {
@@ -733,11 +739,7 @@ function PaletteDialog({
         if (!o) onClose()
       }}
     >
-      <DialogContent
-        aria-label="Command palette"
-        showCloseButton={false}
-        className="cmdk-panel"
-      >
+      <DialogContent aria-label="Command palette" showCloseButton={false} className="cmdk-panel">
         <DialogTitle className="sr-only">Command palette</DialogTitle>
         {/* THE FIELD IS THE WELL. The command bar's signature control — a groove
             carved into the chassis, lit along its lower lip — at full width.
@@ -847,7 +849,9 @@ function PaletteDialog({
             <span>{query ? 'clear' : 'close'}</span>
           </span>
           <span className="cmdk-count">
-            {resting ? `${commands.length} commands` : `${rowCount} ${rowCount === 1 ? 'match' : 'matches'}`}
+            {resting
+              ? `${commands.length} commands`
+              : `${rowCount} ${rowCount === 1 ? 'match' : 'matches'}`}
           </span>
         </div>
       </DialogContent>

@@ -137,6 +137,20 @@ export function rowFingerprint(row: object): string {
   return JSON.stringify(data)
 }
 
+/**
+ * Cell equality for a partial-patch overlay's `coveredBy`.
+ *
+ * `null` and `undefined` are ONE value here, and that is not laziness about
+ * types: the wire spells "unset" both ways for the same field. `issues.update`
+ * clears a colour with `color: null` while `IssueWire.color` is `optional()` —
+ * absent once cleared — so a strict `===` would leave every clear painted until
+ * its TTL. `rowFingerprint` above already makes the same collapse for the same
+ * reason (JSON.stringify drops undefined-valued keys).
+ */
+function sameCell(a: unknown, b: unknown): boolean {
+  return (a ?? null) === (b ?? null)
+}
+
 function patchOverlay(
   entity: OverlayEntity,
   id: string,
@@ -273,6 +287,89 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
         (r) => ((r as IssueWire).tuckedAt != null) === i.tucked,
       )
     }
+    case 'issueUpdate': {
+      // THE PATCH IS THE OVERLAY (POD-781). Every key `issues.update` accepts is
+      // a plain field on `IssueWire` — checked against `packages/model`'s
+      // `entities/issue.ts`, key for key — so the patch folds over the row as it
+      // stands, with no per-field translation table to fall out of date. The
+      // fields that live on `IssueProjectionRow` instead (`readAt`) are not in
+      // this patch at all; they have their own kinds above.
+      //
+      // COVERED = every key the caller set now reads back equal. Not "the row
+      // changed": a competing writer moving some OTHER field must not retire
+      // this overlay, and the moved-past-baseline escape in `pruneAwaiting`
+      // already handles the case where one genuinely won.
+      //
+      // The server is trusted to land these verbatim, which is a claim about
+      // THIS command and was verified: `IssueCrud.update` normalizes only by
+      // ADDING keys (`normalizeClosedPatch` stamps `stage: 'done'` beside a
+      // `closedReason`, a `defaultAgent` change resets model/effort) and never
+      // rewrites a key the caller sent — no trimming, no coercion. Were that to
+      // change, the mismatch costs one prune pass, not a wedge: the row moves
+      // past the enqueue baseline without covering, and server truth wins.
+      const i = entry.input as OutboxKinds['issueUpdate']
+      const patch = i.patch as OverlayPatch
+      const keys = Object.keys(patch)
+      // An empty patch is a write with nothing to paint. Returning null keeps it
+      // out of the overlay set entirely rather than parking a no-op that has to
+      // wait for coverage it would get for free.
+      if (keys.length === 0) return null
+      return patchOverlay('issues', i.id, entry.mutationId, patch, (r) => {
+        const row = r as unknown as Record<string, unknown>
+        return keys.every((k) => sameCell(row[k], patch[k]))
+      })
+    }
+    case 'issueArchive': {
+      // `issues.archive` is one-way — there is no `archived: false` arm on this
+      // command (unarchiving goes through `issueUpdate`). The sidebar drops a
+      // row on `issue.archived || issue.deletedAt`, so this is an ordinary patch
+      // and the row leaves the list on the press.
+      const i = entry.input as OutboxKinds['issueArchive']
+      return patchOverlay(
+        'issues',
+        i.id,
+        entry.mutationId,
+        { archived: true },
+        (r) => (r as IssueWire).archived === true,
+      )
+    }
+    case 'issueDelete': {
+      // THE DELETE CASCADE (POD-781 design constraint (b)), and why ONE overlay
+      // on the issue is the honest answer rather than a second overlay per
+      // member session.
+      //
+      // `IssueSessionLifecycle.deleteIssue` tombstones every member session too,
+      // so an overlay that hid only the issue row while its sessions kept
+      // rendering would be lying. It does not, and the reason is where session
+      // rows come from: the work sidebar is ISSUE-ONLY (`worklist/rows.ts` — "a
+      // repository branch is never promoted into a pseudo-issue row"), and a
+      // session reaches the screen ONLY nested under the issue that owns it.
+      // Ownership itself is already delete-aware: `issueIdOwningSession` refuses
+      // to own a session whose issue carries `deletedAt`. So painting `deletedAt`
+      // on the issue takes the row and every member session with it, in one move.
+      //
+      // The alternative — a second overlay per `memberSessionIds` entry — was
+      // rejected because that field is DERIVED client-side (`replica/issue-views.ts`
+      // joins sessions by `issueId`) and is not in the delete input. An overlay
+      // is a pure function of its outbox entry, so per-session overlays would
+      // have to smuggle a session list into the tRPC input, or read the replica
+      // from inside the projection: a second source of truth for membership,
+      // which is precisely what POD-791 recorded as the thing not to build.
+      //
+      // What this paints is also not a state the app invents. It is exactly the
+      // state that already occurs against server truth whenever the issue
+      // tombstone lands a beat before the session tombstones.
+      const i = entry.input as OutboxKinds['issueDelete']
+      return patchOverlay(
+        'issues',
+        i.id,
+        entry.mutationId,
+        // The server stamps its own clock; covering truth is judged on PRESENCE,
+        // like `sessionMarkRead`'s readAt and `issueSetTucked`'s tuckedAt.
+        { deletedAt: new Date(entry.queuedAt).toISOString() },
+        (r) => (r as IssueWire).deletedAt != null,
+      )
+    }
     case 'resumeAndSend': {
       // A WAKE *IS* ROW-VISIBLE (POD-762). This used to project null on the
       // grounds that it is delivery rather than curation, and the row said
@@ -321,6 +418,17 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
  * and the contract table is keyed by dotted name; without one explicit map the two
  * vocabularies drift silently and nothing notices. `overlay.test.ts` asserts every
  * OFFLINE-ELIGIBLE presence contract appears here — pins and tab order reduce in actions.ts because they are non-entity per-user rows.
+ *
+ * THE ISSUE KINDS ARE DELIBERATELY ABSENT, and always have been: `issueMarkRead`,
+ * `issueMarkUnread` and `issueSetTucked` have reducer cases above without an entry
+ * here, and POD-781's `issueUpdate` / `issueArchive` / `issueDelete` follow them.
+ * This map's totality test is stated against `sessionStateCommandNames()` — the
+ * PRESENCE family — so it asserts equality, not containment, and an `issues.*`
+ * name in it would red the suite by being a key with no eligible contract to
+ * match. The join it exists to make is presence-contract → reducer; issue
+ * contracts are joined by `outbox-contract-table.test.ts` instead, which compares
+ * `OUTBOX_COMMANDS` against `ISSUE_CONTRACTS` directly and so covers the same
+ * drift for them.
  */
 export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> = {
   'sessions.rename': 'rename',

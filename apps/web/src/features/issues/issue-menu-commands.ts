@@ -1,3 +1,4 @@
+import type { IssueUpdatePatch } from '@podium/commands'
 import { DEFER_NEXT_MESSAGE, isIssueColorSlot, snoozeUntil1h } from '@podium/model'
 import type { Trpc } from '@/app/trpc'
 import { deferDateFromNow, toggleLabelAcross } from './issue-context-menu'
@@ -8,6 +9,18 @@ export interface IssueMenuCommandDeps {
   trpc: Trpc
   markIssueRead: (id: string) => Promise<unknown>
   markIssueUnread: (id: string) => Promise<unknown>
+  /** Optimistic + outboxed (POD-781) — the store action, not `trpc.issues.update`.
+   *  Passed in rather than reached for, like the two mark-read actions above, so
+   *  this module stays a pure descriptor runner with no store dependency.
+   *
+   *  Typed against the CONTRACT's whole patch rather than the one key the archive
+   *  toggle sends: the stage, priority and colour entries below are the same
+   *  command and move onto this action next (POD-781 group 2), and a signature
+   *  narrowed to today's caller would have to be widened first — which reads as
+   *  a decision being taken when it is only being caught up with. */
+  updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
+  /** Optimistic + outboxed (POD-781): tombstones the issue AND its sessions. */
+  deleteIssue: (id: string) => Promise<unknown>
   setOpenIssueId: (id: string) => void
   setView: (view: 'issues') => void
   handoff?: (machineId: string) => void
@@ -41,10 +54,10 @@ export function runIssueMenuCommand(
       case 'pin':
         return deps.trpc.issues.update.mutate({ id, patch: { pinned: !data.first.pinned } })
       case 'archive':
-        return deps.trpc.issues.update.mutate({
-          id,
-          patch: { archived: !data.first.archived },
-        })
+        // THE TOGGLE, not the dismiss (POD-781). `issues.archive` is one-way, so
+        // the menu's archive/unarchive pair has always gone through the patch —
+        // two commands for one word, and both are outboxed now.
+        return deps.updateIssue(id, { archived: !data.first.archived })
       case 'restore':
         return deps.trpc.issues.restore.mutate({ id })
       case 'delete': {
@@ -53,9 +66,7 @@ export function runIssueMenuCommand(
         const message = `Delete ${count} task${count > 1 ? 's' : ''} and ${sessions.size} session${sessions.size === 1 ? '' : 's'}? Tasks and sessions can be restored; running processes will be stopped.`
         const confirm = deps.confirm ?? ((text: string) => window.confirm(text))
         if (!confirm(message)) return
-        return Promise.all(
-          data.issues.map((issue) => deps.trpc.issues.delete.mutate({ id: issue.id })),
-        )
+        return Promise.all(data.issues.map((issue) => deps.deleteIssue(issue.id)))
       }
     }
   }

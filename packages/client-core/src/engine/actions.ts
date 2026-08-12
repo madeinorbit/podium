@@ -129,6 +129,9 @@ export const COMMAND_ACTIONS = [
   'markIssueRead',
   'markIssueUnread',
   'setIssueTucked',
+  'updateIssue',
+  'archiveIssue',
+  'deleteIssue',
   'setSessionDraft',
   'setSidebarSettings',
 ] as const
@@ -724,6 +727,13 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     markIssueRead: async (id) => rt.enqueueOverlayed('issueMarkRead', { id }),
     markIssueUnread: async (id) => rt.enqueueOverlayed('issueMarkUnread', { id }),
     setIssueTucked: async (id, tucked) => rt.enqueueOverlayed('issueSetTucked', { id, tucked }),
+    // The curation writes (POD-781). Nothing here but the enqueue: the queued
+    // entry IS the optimistic apply (#263), so there is no local mirror to keep
+    // and no rollback to write — the overlay retires itself on covering truth or
+    // drops on a definitive refusal, and the poison toast is the failure surface.
+    updateIssue: async (id, patch) => rt.enqueueOverlayed('issueUpdate', { id, patch }),
+    archiveIssue: async (id) => rt.enqueueOverlayed('issueArchive', { id }),
+    deleteIssue: async (id) => rt.enqueueOverlayed('issueDelete', { id }),
     setSessionDraft: (sessionId, text) => rt.setSessionDraft(sessionId, text),
     setSidebarSettings: async (next) => {
       const previous = rt.state().sidebarSettings

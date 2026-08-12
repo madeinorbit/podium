@@ -142,6 +142,67 @@ describe('overlayForOutboxEntry projection', () => {
     expect(overlayForOutboxEntry(entry('someFutureKind', {}))).toBeNull()
   })
 
+  // ---------------------------------------------------------------------------
+  // POD-781 — the curation writes
+  // ---------------------------------------------------------------------------
+
+  it('issueUpdate paints the patch verbatim, and is covered only when EVERY key it set reads back', () => {
+    const o = overlayForOutboxEntry(
+      entry('issueUpdate', { id: 'i1', patch: { title: 'Renamed', priority: 2 } }),
+    )
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(o.entity).toBe('issues')
+    expect(o.id).toBe('i1')
+    expect(o.patch).toEqual({ title: 'Renamed', priority: 2 })
+    expect(o.coveredBy({ title: 'Renamed', priority: 2 } as IssueWire)).toBe(true)
+    // HALF-landed truth is not coverage: a row carrying the rename but not the
+    // priority must keep painting, or the second field flashes back.
+    expect(o.coveredBy({ title: 'Renamed', priority: 0 } as IssueWire)).toBe(false)
+    expect(o.coveredBy({ title: 'Old', priority: 2 } as IssueWire)).toBe(false)
+    // A competing writer moving some OTHER field neither covers nor un-covers —
+    // that judgement belongs to pruneAwaiting's moved-past-baseline escape.
+    expect(o.coveredBy({ title: 'Renamed', priority: 2, stage: 'done' } as IssueWire)).toBe(true)
+  })
+
+  it('issueUpdate treats a cleared field as covered by an ABSENT one — null and undefined are one value', () => {
+    // `issues.update` clears a colour with `color: null`; `IssueWire.color` is
+    // optional and simply absent once cleared. A strict `===` would leave every
+    // clear painted until its TTL.
+    const cleared = overlayForOutboxEntry(
+      entry('issueUpdate', { id: 'i1', patch: { color: null } }),
+    )
+    if (cleared?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(cleared.coveredBy({} as IssueWire)).toBe(true)
+    expect(cleared.coveredBy({ color: undefined } as IssueWire)).toBe(true)
+    expect(cleared.coveredBy({ color: 'amber' } as unknown as IssueWire)).toBe(false)
+  })
+
+  it('an EMPTY issueUpdate patch projects to null rather than parking a no-op overlay', () => {
+    expect(overlayForOutboxEntry(entry('issueUpdate', { id: 'i1', patch: {} }))).toBeNull()
+  })
+
+  it('issueArchive is a one-way patch — the sidebar drops the row on `archived`', () => {
+    const o = overlayForOutboxEntry(entry('issueArchive', { id: 'i1' }))
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(o.entity).toBe('issues')
+    expect(o.patch).toEqual({ archived: true })
+    expect(o.coveredBy({ archived: true } as IssueWire)).toBe(true)
+    expect(o.coveredBy({ archived: false } as IssueWire)).toBe(false)
+  })
+
+  it('issueDelete stamps deletedAt from queuedAt; covering truth is judged on PRESENCE', () => {
+    const o = overlayForOutboxEntry(entry('issueDelete', { id: 'i1' }, 1751500800000))
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(o.entity).toBe('issues')
+    expect(o.id).toBe('i1')
+    expect(o.patch).toEqual({ deletedAt: new Date(1751500800000).toISOString() })
+    // The server stamps its own tombstone clock, so any stamp covers…
+    expect(o.coveredBy({ deletedAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
+    // …and a heal snapshot taken before the delete reached the server does not,
+    // so the row cannot flicker back into the list mid-flight.
+    expect(o.coveredBy({} as IssueWire)).toBe(false)
+  })
+
   // POD-762: a wake is row-visible. The queue depth is the fact — the operator's
   // message is waiting on this session — and one field lights the wake up on
   // every surface at once.

@@ -124,6 +124,14 @@ export function kindLabel(kind: string): string {
     issueMarkRead: 'Issue marked read',
     issueMarkUnread: 'Issue marked unread',
     issueSetTucked: 'Issue tucked',
+    // POD-781. `issueUpdate` is one kind carrying any of two dozen fields, so it
+    // gets the honest generic label rather than a guess at which one the user
+    // changed — the row already shows their own words for the fields that have
+    // any (`authoredText` reads `title`), and naming a field the entry may not
+    // carry would be worse than naming none.
+    issueUpdate: 'Issue change',
+    issueArchive: 'Issue archived',
+    issueDelete: 'Issue deleted',
     resumeAndSend: 'Message',
   }
   return labels[kind] ?? kind

@@ -82,6 +82,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     markIssueRead,
     markSessionRead,
     setIssueTucked,
+    updateIssue,
+    archiveIssueAction,
+    deleteIssueAction,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -100,6 +103,12 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       markIssueRead: s.markIssueRead,
       markSessionRead: s.markSessionRead,
       setIssueTucked: s.setIssueTucked,
+      updateIssue: s.updateIssue,
+      // Renamed on the way in: this hook already exports `archiveIssue` and
+      // `deleteIssue` as its OWN callbacks, and shadowing the store actions with
+      // them is how a "fixed" call site quietly keeps calling trpc.
+      archiveIssueAction: s.archiveIssue,
+      deleteIssueAction: s.deleteIssue,
     }),
     shallowEqual,
   )
@@ -256,12 +265,21 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
 
   // Concrete mutation callbacks rather than the raw trpc client, so the hook's
   // inferred return type stays portable across packages.
+  //
+  // OPTIMISTIC (POD-781): rename, archive and delete go through the engine's
+  // outbox-as-overlay rather than straight to tRPC, so the row repaints on the
+  // press. There is no `.catch(() => {})` any more and that is the point — a
+  // swallowed rejection was the old way of saying "the click may have done
+  // nothing and we will not mention it". The queue keeps the write, replays it
+  // on reconnect, and parks it in the recovery surface with a toast if the
+  // server definitively refuses.
   const renameIssue = (id: string, title: string): void => {
-    void trpc.issues.update.mutate({ id, patch: { title } }).catch(() => {})
+    void updateIssue(id, { title })
   }
   const setIssueColor = (id: string, color: IssueColorSlot | null): Promise<unknown> =>
     trpc.issues.update.mutate({ id, patch: { color } })
-  const archiveIssue = (id: string): Promise<unknown> => trpc.issues.archive.mutate({ id })
+  const archiveIssue = (id: string): Promise<unknown> => archiveIssueAction(id)
+  const deleteIssue = (id: string): Promise<unknown> => deleteIssueAction(id)
   // Manual-sort persistence (POD-168): one patch per row whose key changes
   // (fast path = exactly the dragged row; legacy backfill = the whole scope).
   const applySortPatches = (
@@ -295,6 +313,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     renameIssue,
     setIssueColor,
     archiveIssue,
+    deleteIssue,
     applySortPatches,
     setIssueTucked,
   }

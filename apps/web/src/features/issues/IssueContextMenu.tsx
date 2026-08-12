@@ -97,11 +97,22 @@ export function IssueContextMenu({
   onRequestClose?: (reason: IssueCloseReason) => void
   surface?: IssueMenuSurface
 }): JSX.Element | null {
-  const { trpc, markIssueRead, markIssueUnread, sessions, repos, machines } = useStoreSelector(
+  const {
+    trpc,
+    markIssueRead,
+    markIssueUnread,
+    updateIssue,
+    deleteIssue,
+    sessions,
+    repos,
+    machines,
+  } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
       markIssueRead: s.markIssueRead,
       markIssueUnread: s.markIssueUnread,
+      updateIssue: s.updateIssue,
+      deleteIssue: s.deleteIssue,
       sessions: s.sessions,
       repos: s.repos,
       machines: s.machines,
@@ -219,7 +230,9 @@ export function IssueContextMenu({
     const sessionCount = sessionIds.size
     const message = `Delete ${n} task${n > 1 ? 's' : ''} and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? Tasks and sessions can be restored; running processes will be stopped.`
     if (!window.confirm(message)) return
-    run(() => Promise.all(ids.map((id) => trpc.issues.delete.mutate({ id }))))
+    // Optimistic + outboxed (POD-781): every selected row and its nested sessions
+    // leave the sidebar on the press, not after the cascade round-trips.
+    run(() => Promise.all(ids.map((id) => deleteIssue(id))))
   }
   const restore = (): void =>
     run(() => Promise.all(ids.map((id) => trpc.issues.restore.mutate({ id }))))
@@ -303,7 +316,9 @@ export function IssueContextMenu({
         run(() => trpc.issues.update.mutate({ id: first.id, patch: { pinned: !first.pinned } }))
         return
       case 'archive':
-        run(() => trpc.issues.update.mutate({ id: first.id, patch: { archived: !first.archived } }))
+        // The archive/unarchive TOGGLE — `issues.update`, not the one-way
+        // `issues.archive` the sidebar's dismiss calls. Outboxed (POD-781).
+        run(() => updateIssue(first.id, { archived: !first.archived }))
         return
       case 'restore':
         restore()

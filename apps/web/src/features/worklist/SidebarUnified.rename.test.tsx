@@ -67,6 +67,10 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
 }
 
 const updateMutate = vi.fn(async () => ({}))
+/** The OUTBOXED rename (POD-781): `store.updateIssue`, not `trpc.issues.update`.
+ *  The colour picker below still goes direct — that call site is POD-781 group 2,
+ *  and the two live side by side until it moves. */
+const updateIssue = vi.fn(async () => {})
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
@@ -98,6 +102,10 @@ vi.mock('@/app/store', () => {
     spawnDraftAgent: vi.fn(),
     markIssueRead: vi.fn(),
     markSessionRead: vi.fn(),
+    updateIssue,
+    archiveIssue: vi.fn(async () => {}),
+    deleteIssue: vi.fn(async () => {}),
+    setIssueTucked: vi.fn(async () => {}),
   })
   // The selector-store hook reads slices off the same store shape.
   return {
@@ -123,6 +131,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 afterEach(() => {
   cleanup()
   updateMutate.mockClear()
+  updateIssue.mockClear()
 })
 
 describe('SidebarUnified issue rename (#170 Fix 3)', () => {
@@ -138,13 +147,18 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
     expect(input.selectionEnd).toBe('Original title'.length)
   })
 
-  it('Enter commits the new title via trpc.issues.update', () => {
+  // POD-781: the commit goes through the OUTBOX, so the row repaints on Enter
+  // rather than after the round trip. Asserted against the store action and NOT
+  // against `trpc.issues.update` — going back to the direct call would restore
+  // the wait this issue removed, and a test that accepted either would not say so.
+  it('Enter commits the new title through the outboxed updateIssue action', () => {
     render(<SidebarUnified />)
     fireEvent.doubleClick(screen.getByText('Original title'))
     const input = screen.getByDisplayValue('Original title') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'Renamed issue' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(updateMutate).toHaveBeenCalledWith({ id: 'a', patch: { title: 'Renamed issue' } })
+    expect(updateIssue).toHaveBeenCalledWith('a', { title: 'Renamed issue' })
+    expect(updateMutate).not.toHaveBeenCalled()
   })
 
   it('Escape cancels without mutating', () => {
@@ -153,6 +167,7 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
     const input = screen.getByDisplayValue('Original title') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'Nope' } })
     fireEvent.keyDown(input, { key: 'Escape' })
+    expect(updateIssue).not.toHaveBeenCalled()
     expect(updateMutate).not.toHaveBeenCalled()
     // Editor closed; the label is back.
     expect(screen.getByText('Original title')).toBeTruthy()
@@ -164,6 +179,7 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
     const input = screen.getByDisplayValue('Original title') as HTMLInputElement
     fireEvent.change(input, { target: { value: '   ' } })
     fireEvent.keyDown(input, { key: 'Enter' })
+    expect(updateIssue).not.toHaveBeenCalled()
     expect(updateMutate).not.toHaveBeenCalled()
   })
 
