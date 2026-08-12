@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
 import { CHANGE_ROW_KEYS } from './change-row-audit'
-import { entityIdSites, MIN_ID_FIELD_SITES } from './entity-id-audit'
+import { detectorAnchorFailures, entityIdSites, MIN_ID_FIELD_SITES } from './entity-id-audit'
 import {
   type AuditContext,
   type AuditResult,
@@ -1151,8 +1151,12 @@ describe('against the live repo', () => {
     // The raw class reaching zero must not take the BRANDED class with it: every
     // site POD-301 flipped is still here, counted as branded. If both went quiet
     // together, the walk broke rather than the debt being paid.
-    expect(sites.filter((s) => s.form === 'zod-branded').length).toBeGreaterThan(100)
-    expect(sites.filter((s) => s.form === 'db-column').length).toBeGreaterThan(20)
+    // The per-form anchors live in DETECTOR_ANCHORS, beside the detector, and
+    // are shared with `entity-id-audit.test.ts`. They used to be spelled out
+    // here AND there, which meant re-anchoring one file looked like the whole
+    // fix — POD-1199 updated the column anchor in that file and this copy still
+    // failed. One definition, so the next ratchet cannot fix half of it.
+    expect(detectorAnchorFailures(sites)).toEqual([])
   })
 
   it('the redefined vocabulary detector still binds to the live tree', () => {

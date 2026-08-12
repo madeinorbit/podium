@@ -387,6 +387,61 @@ describe('AutomationsService.tick — spawn', () => {
     expect(() => h.service.setEnabled(a.id, true)).toThrow(/new runAt/)
   })
 
+  it('[POD-1107] refuses to create an automation naming a harness this build cannot run', () => {
+    const h = harness()
+    expect(() =>
+      h.service.create({
+        name: 'Unknown harness',
+        scheduleKind: 'once',
+        runAt: iso(minutesAhead(2)),
+        agentKind: 'not-a-harness',
+        prompt: 'Continue.',
+        sessionMode: 'fresh',
+      }),
+    ).toThrow(/unknown agent kind: not-a-harness/)
+
+    const ok = h.service.create({
+      name: 'Known harness',
+      scheduleKind: 'once',
+      runAt: iso(minutesAhead(2)),
+      agentKind: 'codex',
+      prompt: 'Continue.',
+      sessionMode: 'fresh',
+    })
+    expect(() => h.service.update(ok.id, { agentKind: 'not-a-harness' })).toThrow(
+      /unknown agent kind/,
+    )
+  })
+
+  it('[POD-1107] refuses to spawn an agent kind no adapter implements', () => {
+    const h = harness()
+    const runAt = minutesAhead(2)
+    // The automations wire and column type agentKind as an open string (a newer
+    // peer may name a harness this build has never heard of), so a row written
+    // before this build — or by one — CAN carry a kind it cannot run. Written
+    // straight to the store, the way such a row actually arrives: the write seam
+    // above refuses it, the spawn seam is what protects the rows already there.
+    const a = h.service.create({
+      name: 'Unknown harness',
+      scheduleKind: 'once',
+      runAt: iso(runAt),
+      agentKind: 'codex',
+      prompt: 'Continue.',
+      enabled: true,
+      sessionMode: 'fresh',
+    })
+    h.store.automations.update({ ...h.store.automations.get(a.id)!, agentKind: 'not-a-harness' })
+
+    h.setNow(new Date(runAt.getTime() + 1_000))
+    h.service.tick()
+
+    expect(h.createSession).not.toHaveBeenCalled()
+    expect(h.createIssue).not.toHaveBeenCalled()
+    const [run] = h.service.runs(a.id)
+    expect(run).toMatchObject({ outcome: 'error', sessionId: null })
+    expect(run?.detail).toContain('not-a-harness')
+  })
+
   it('records a terminal error instead of replacing a lost explicit target', () => {
     const h = harness({ resumeOk: false, resumeReason: 'no resume ref' })
     const runAt = minutesAhead(2)

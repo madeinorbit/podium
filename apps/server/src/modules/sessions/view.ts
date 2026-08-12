@@ -174,6 +174,28 @@ export class SessionView {
       memo,
       candidates.map((session) => session.sessionId),
     )
+    // ...and its ISSUE half the same way [POD-1931]. `computeDisplayRef` resolves
+    // `refIssueId` per session for the ref string. The memo already collapses
+    // repeats, but the ids are DISTINCT — one per issue a session was born on —
+    // so a pass over the live fleet still issued ~693 single-row statements,
+    // measured in one event-loop frame on the live server. Asking for them
+    // together makes the whole pass two reads.
+    //
+    // Same rows, same freshness: this fills the memo with exactly what
+    // `memoIssue` would have put there one statement at a time. An id that has
+    // no row is recorded as null, because `memoIssue` reads a `has()` miss as
+    // "not looked up yet" and would re-issue the statement this removes.
+    const refIssueIds = [
+      ...new Set(
+        candidates.flatMap((session) =>
+          session.refIssueId && session.refLetter ? [session.refIssueId] : [],
+        ),
+      ),
+    ]
+    if (refIssueIds.length > 0) {
+      const found = this.ports.store.issues.getIssues(refIssueIds)
+      for (const id of refIssueIds) memo.issues.set(id, found.get(id) ?? null)
+    }
     return candidates
       .filter((session) => this.ports.state.canReadSession(principal, session.sessionId, memo))
       .map((session) => this.wire(session, principal, memo))

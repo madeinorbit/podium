@@ -13,7 +13,7 @@ import {
   sortKeyBetween,
   type UserId,
 } from '@podium/model'
-import { resolveRole } from '@podium/runtime'
+import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
@@ -314,9 +314,15 @@ export class IssueCrudModule {
     const seq = this.store.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.store.now()
     const settings = this.store.deps.getSettings()
-    const coding = resolveRole(settings, 'coding')
-    const defaultAgent = input.defaultAgent || coding.harness
-    const useCodingDefaults = defaultAgent === coding.harness // [spec:SP-7ff1]
+    // THE shared answer to "which agent, model and effort?" (POD-1107) — the same
+    // function the approvals broker's automation-schedule path calls, so the two
+    // can no longer drift apart. The role-defaults rule [spec:SP-7ff1] lives
+    // inside it now rather than being restated here.
+    const spawnDefaults = resolveSpawnDefaults(settings, {
+      agentKind: input.defaultAgent,
+      model: input.defaultModel,
+      effort: input.defaultEffort,
+    })
     // Built as the IN-MEMORY issue (R1) and encoded ONCE, through the pair that
     // owns the R1 <-> R3 splits (ADR 4 §4.1). Everything absent here is absent by
     // R1's own optionality — the storage nulls are `toStorage`'s to write, and
@@ -332,11 +338,9 @@ export class IssueCrudModule {
       worktreePath: null,
       branch: null,
       parentBranch: input.parentBranch || settings.gitWorkflow.defaultParentBranch || 'main',
-      defaultAgent,
-      defaultModel:
-        input.defaultModel || (useCodingDefaults ? settings.roles.coding.model : 'auto'),
-      defaultEffort:
-        input.defaultEffort || (useCodingDefaults ? settings.roles.coding.effort : 'auto'),
+      defaultAgent: spawnDefaults.agentKind,
+      defaultModel: spawnDefaults.model,
+      defaultEffort: spawnDefaults.effort,
       ...(input.machineId != null ? { machineId: input.machineId } : {}),
       ...(input.linear?.id != null ? { linearId: input.linear.id } : {}),
       ...(input.linear?.identifier != null ? { linearIdentifier: input.linear.identifier } : {}),

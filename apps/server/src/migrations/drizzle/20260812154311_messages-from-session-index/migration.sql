@@ -1,0 +1,1 @@
+CREATE INDEX `idx_messages_from_session` ON `messages` (`from_session`);

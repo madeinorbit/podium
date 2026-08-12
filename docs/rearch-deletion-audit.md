@@ -234,6 +234,106 @@ table is the defect.** The rule the rows apply:
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
 
+### 2026-08-12 — POD-1199 brands the columns: `unbranded-db-columns` 90 → 0, `unbranded-by-decision-ids` 18 → 24
+
+**The product commit that discharges the key added below, and it RAISES a
+different one — which is the hatch working, not a rebaseline.**
+
+84 columns took `$type<Brand>()`. Six did not, and the excuse costs six on
+`unbranded-by-decision-ids` (18 → 24, on top of POD-1361's landing at
+`d02778d8a`, which took it 17 → 18; both values were re-derived on the rebased
+tree rather than merged as text, because the two edits do not conflict
+textually and one would otherwise have silently won). Each one matches a carve-out the zod
+schemas already record, at the same value, for the reason recorded there:
+
+| Column | Whose id space | Where the same carve-out already lives |
+|---|---|---|
+| `provider_session_id` | the PROVIDER's | `protocol/messages/runtime-state.ts` (7 fields) |
+| `from_provider_session_id` | the PROVIDER's | as above |
+| `to_provider_session_id` | the PROVIDER's | as above |
+| `harness_session_id` | the HARNESS's | `protocol/messages/headless.ts` |
+| `conversation_id` | the harness-NATIVE transcript's | `entities/session.ts` (`SessionOrigin` resume arm) |
+| `parent_conversation_id` | the harness-NATIVE transcript's | `entities/conversation.ts` |
+
+Branding any of them `SessionId` / `ConversationId` would launder a foreign id
+into Podium's id space — a well-typed lie, which is the failure `ids/brands.ts`
+warns about at `controllerId`. The Podium-stable conversation identity is a
+DIFFERENT column, `conversation_registry.podium_id`, and that one IS branded.
+
+**The flip emits no SQL and needed no migration.** `$type<>()` is type-level
+only: `drizzle-kit generate` reports "No schema changes" across all 84, and the
+migration journal is untouched. Typecheck is green tree-wide.
+
+**One thing this does NOT yet buy, stated so the number is not over-read.** No
+runtime code imports these schemas — they are read by `drizzle-kit` for
+authoring, and the applier is `drizzle-runner.ts` — so the brands bind inside
+the schema (defaults, references) rather than at call sites today. What the item
+now guarantees is that a NEW entity-id column cannot be added raw without
+raising a committed number. Where the brands will bite immediately is the
+tables' own primary keys, which is the gap below.
+
+**A GAP THIS DID NOT CLOSE, filed rather than swept.** Every foreign key is now
+branded and every table's own `id` primary key is still raw — `sessions.id`,
+`issues.id`, `machines.id`, `users.id`, `accounts.id`, `automations.id`,
+`superagent_threads.id` and more. The detector cannot see them: all three of its
+spellings read a NAME, and `id: text().primaryKey()` inside
+`export const sessions = sqliteTable(…)` has neither a `<brand>Id` key nor a
+declaration name the brand vocabulary matches (`sessions`, lowercase and plural,
+is not `Session`). Sweeping nine invisible sites inside a commit whose whole
+argument is measurement would have been the exact move this file exists to stop,
+so the detector needs a fourth spelling first, as its own extension. Filed as
+discovered work with a `discovered-from` edge.
+
+### 2026-08-12 — POD-1199 splits the drizzle-column form and adds `unbranded-db-columns` (+1 item, baseline 90)
+
+**A ratchet EXTENSION, in a commit that touches no product code** — the same act
+and the same disclosure as POD-301's three entity-id keys below. No debt was
+added; a class that was measured but not *drivable* became both.
+
+POD-301 classified drizzle columns from the day the detector existed and printed
+them under `--sites`, and its Limit 1 said plainly that they were in no baseline
+key. Two things followed from that, and the second is the one worth recording:
+
+1. **The class drifted.** 68 sites at POD-301's close, **90** here. Nothing was
+   wrong with anyone's work — an unratcheted count is free to rise, which is the
+   whole argument for the ratchet.
+2. **Branding a column moved no number at all.** `classifyRhs` had ONE form,
+   `db-column`, covering `text('session_id')` and a fully-branded
+   `text('session_id').$type<SessionId>()` alike. So the class could be *reported*
+   but not *discharged*: a ratchet pointed at it could never have reached zero,
+   and a sweep that branded every column in the repo would have left the printed
+   count unchanged. That is POD-423's "an item named but absent from the baseline
+   is an unmeasured claim" one level down — present in the baseline, but with a
+   unit that cannot register the fix. `db-column-branded` is the discharged form
+   the new key can fall to.
+
+| Key | Baseline | Phase | What one count is |
+|---|---|---|---|
+| `unbranded-db-columns` | 90 | POD-1199 | a drizzle column whose key names a branded entity id and which carries no `$type<>()` |
+
+Three decisions are recorded rather than left implicit:
+
+1. **Not folded into `raw-string-entity-ids`.** That item's unit is a ZOD field,
+   and a column is discharged by a different act — drizzle's `$type<Brand>()`,
+   which is type-only and emits no SQL (verified: `drizzle-kit generate` reports
+   no schema change across the flip). One key over two mechanisms lets progress
+   on the easier one mask the other.
+2. **Columns share the existing `UNBRANDED` hatch** rather than getting a second
+   one. `provider_session_id` and `harness_session_id` are HARNESS-minted, and
+   branding them `SessionId` would launder a foreign id into Podium's id space —
+   the identical judgement `entities/session.ts` already records on the zod side.
+   A second excuse key would let that one decision be spent twice at half the
+   visible price. `unbranded-by-decision-ids` therefore rises when a column is
+   excused, and is unmoved by this commit, which excuses none.
+3. **The `text()` anchor was tightened, and it cost two sites (92 → 90).**
+   `apps/server/src/store/workflows.ts` coerces rows with a local helper it calls
+   `text`, so `text(row.owner_user_id)` read as a column. It is a value
+   expression — there is no `$type<>()` to put on one — so counting it as a
+   column filed it in a class it could never leave. A column's name argument is a
+   string literal or absent; those two sites are now `other`. This is a
+   correction to the measurement, not a win, and it is why the key lands at 90
+   and not at the 92 the CLI printed the day before.
+
 ### 2026-08-03 — POD-333 re-anchors `cli-launch-plan-debt` onto the states it is named after (1 → 0)
 
 **A RE-ANCHOR PLUS A DELETION, and the re-anchor is the part to scrutinise:**

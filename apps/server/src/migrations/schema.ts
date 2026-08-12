@@ -14,8 +14,43 @@
  *
  * This is a drizzle-orm import used ONLY for authoring (a devDependency);
  * runtime code never imports drizzle-orm — the applier is drizzle-runner.ts.
+ *
+ * ENTITY ID COLUMNS CARRY THEIR BRAND (POD-1199), via drizzle's `$type<Brand>()`.
+ * Three things about that are easy to get wrong and each fails quietly:
+ *
+ *  - **`import type`, never a value import.** drizzle-kit reads this file with
+ *    its own loader, which cannot resolve `@podium/model` as a value ("No
+ *    exports main defined in node_modules/@podium/model/package.json") and dies
+ *    before emitting anything. A type-only import is erased first, so it is the
+ *    only form that works here.
+ *  - **`$type<>()` goes AFTER a literal `.default(…)`.** Ahead of it, the
+ *    default's raw string stops typechecking against the brand. That is the
+ *    brand doing its job, but a SQL default is a database literal and not a
+ *    `UserId`, so the honest placement types the column and leaves the default
+ *    as what it is.
+ *  - **It emits NO SQL.** `$type` is type-level only; `drizzle-kit generate`
+ *    reports no schema change across the whole flip, which is why branding
+ *    every column needed no migration.
+ *
+ * A column NOT branded here carries an `UNBRANDED` doc comment naming whose id
+ * space it belongs to — provider-, harness- and transcript-native ids, matching
+ * the carve-outs the zod schemas already record. That token is what
+ * `scripts/entity-id-audit.ts` reads, and it raises a ratcheted count, so an
+ * excuse costs something rather than passing unnoticed.
  */
 
+import type {
+  AccountId,
+  AutomationId,
+  ConversationId,
+  IssueId,
+  MachineId,
+  MutationId,
+  RepoId,
+  SessionId,
+  ThreadId,
+  UserId,
+} from '@podium/model'
 import { desc, sql } from 'drizzle-orm'
 import {
   type AnySQLiteColumn,
@@ -34,15 +69,22 @@ export const sessions = sqliteTable(
   'sessions',
   {
     id: text().primaryKey(),
-    ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     agentKind: text('agent_kind').notNull(),
     // Resolved launch placement, captured once at spawn [spec:SP-dae6].
     model: text(),
     effort: text(),
-    accountId: text('account_id'),
+    accountId: text('account_id').$type<AccountId>(),
     cwd: text().notNull(),
     title: text().notNull(),
     originKind: text('origin_kind').notNull(),
+    /** UNBRANDED BY DECISION: the harness-NATIVE transcript id, not the
+     *  Podium-stable {@link ConversationId} — that one lives in
+     *  `conversation_registry.podium_id`, which IS branded. `SessionOrigin`'s
+     *  resume arm carries the same carve-out for the same value
+     *  (`entities/session.ts`), and POD-360 recorded that no brand exists for a
+     *  native id and none should: a resume that rolls into a new transcript
+     *  file gets a new one, which is the opposite of a stable identity. */
     conversationId: text('conversation_id'),
     resumeKind: text('resume_kind'),
     resumeValue: text('resume_value'),
@@ -55,23 +97,23 @@ export const sessions = sqliteTable(
     name: text(),
     archived: integer().default(0).notNull(),
     workState: text('work_state'),
-    machineId: text('machine_id').notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
     lastOutputAt: text('last_output_at'),
     lastInputAt: text('last_input_at'),
     lastResumedAt: text('last_resumed_at'),
     spawnedBy: text('spawned_by'),
     headless: integer().default(0).notNull(),
-    issueId: text('issue_id'),
+    issueId: text('issue_id').$type<IssueId>(),
     stoppedAt: text('stopped_at'),
     stopReason: text('stop_reason'),
     deletedAt: text('deleted_at'),
-    deletedByIssueId: text('deleted_by_issue_id'),
+    deletedByIssueId: text('deleted_by_issue_id').$type<IssueId>(),
     deletionSource: text('deletion_source'),
     workflowRunId: text('workflow_run_id'),
     workflowStepId: text('workflow_step_id'),
     executionProfileId: text('execution_profile_id'),
     nameSource: text('name_source'),
-    refIssueId: text('ref_issue_id'),
+    refIssueId: text('ref_issue_id').$type<IssueId>(),
     refLetter: text('ref_letter'),
     refDraft: integer('ref_draft'),
     terminalCols: integer('terminal_cols').notNull().default(80),
@@ -114,9 +156,12 @@ export const sessions = sqliteTable(
 )
 
 export const sessionObservationCheckpoints = sqliteTable('session_observation_checkpoints', {
-  sessionId: text('session_id').primaryKey(),
+  sessionId: text('session_id').$type<SessionId>().primaryKey(),
   schemaVersion: integer('schema_version').default(1).notNull(),
   provider: text().notNull(),
+  /** UNBRANDED: PROVIDER-minted, not Podium's. Branding it {@link SessionId}
+   *  would launder a foreign id into Podium's id space — the carve-out
+   *  `protocol/messages/runtime-state.ts` already records at seven zod fields. */
   providerSessionId: text('provider_session_id'),
   bindingVersion: integer('binding_version').default(0).notNull(),
   observationGeneration: integer('observation_generation').default(0).notNull(),
@@ -126,12 +171,15 @@ export const sessionObservationCheckpoints = sqliteTable('session_observation_ch
 
 export const sessionObservationRebinds = sqliteTable('session_observation_rebinds', {
   sessionId: text('session_id')
+    .$type<SessionId>()
     .primaryKey()
     .references(() => sessionObservationCheckpoints.sessionId, { onDelete: 'cascade' }),
   provider: text().notNull(),
+  /** UNBRANDED: PROVIDER-minted, as `provider_session_id` above. */
   fromProviderSessionId: text('from_provider_session_id'),
   fromBindingVersion: integer('from_binding_version').notNull(),
   fromObservationGeneration: integer('from_observation_generation').notNull(),
+  /** UNBRANDED: PROVIDER-minted, as `provider_session_id` above. */
   toProviderSessionId: text('to_provider_session_id').notNull(),
   resultingBindingVersion: integer('resulting_binding_version').notNull(),
   resultingObservationGeneration: integer('resulting_observation_generation').notNull(),
@@ -140,6 +188,7 @@ export const sessionObservationRebinds = sqliteTable('session_observation_rebind
 
 export const sessionTerminalCandidates = sqliteTable('session_terminal_candidates', {
   sessionId: text('session_id')
+    .$type<SessionId>()
     .primaryKey()
     .references(() => sessionObservationCheckpoints.sessionId, { onDelete: 'cascade' }),
   proofJson: text('proof_json', { mode: 'json' }).notNull(),
@@ -263,17 +312,17 @@ export const settingsAuditEvents = sqliteTable(
 
 // Human-facing ids (#474): stable presentable refs on top of internal ids.
 export const repoPrefixes = sqliteTable('repo_prefixes', {
-  repoId: text('repo_id').primaryKey(),
+  repoId: text('repo_id').$type<RepoId>().primaryKey(),
   prefix: text().notNull().unique(),
 })
 
 export const issueRefLetters = sqliteTable('issue_ref_letters', {
-  issueId: text('issue_id').primaryKey(),
+  issueId: text('issue_id').$type<IssueId>().primaryKey(),
   nextIndex: integer('next_index').notNull(),
 })
 
 export const repoDraftSeq = sqliteTable('repo_draft_seq', {
-  repoId: text('repo_id').primaryKey(),
+  repoId: text('repo_id').$type<RepoId>().primaryKey(),
   nextSeq: integer('next_seq').notNull(),
 })
 
@@ -283,7 +332,7 @@ export const repoDraftSeq = sqliteTable('repo_draft_seq', {
 export const pins = sqliteTable(
   'pins',
   {
-    userId: text('user_id').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
     kind: text().notNull(),
     id: text().notNull(),
     pinnedAt: text('pinned_at').notNull(),
@@ -295,7 +344,7 @@ export const pins = sqliteTable(
 export const tabOrder = sqliteTable(
   'tab_order',
   {
-    userId: text('user_id').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
     worktree: text().notNull(),
     ids: text().notNull(),
     updatedAt: text('updated_at').notNull(),
@@ -316,8 +365,8 @@ export const tabOrder = sqliteTable(
 export const sessionUserState = sqliteTable(
   'session_user_state',
   {
-    userId: text('user_id').notNull(),
-    sessionId: text('session_id').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
     /** When this person last opened it. Row absent = never opened; there is no
      *  second spelling, because `markUnread` DELETES the row. */
     readAt: text('read_at'),
@@ -334,8 +383,8 @@ export const sessionUserState = sqliteTable(
 export const issueUserState = sqliteTable(
   'issue_user_state',
   {
-    userId: text('user_id').notNull(),
-    issueId: text('issue_id').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
+    issueId: text('issue_id').$type<IssueId>().notNull(),
     readAt: text('read_at'),
     tuckedAt: text('tucked_at'),
     pinnedAt: text('pinned_at'),
@@ -346,7 +395,7 @@ export const issueUserState = sqliteTable(
 export const issueMessageUserState = sqliteTable(
   'issue_message_user_state',
   {
-    userId: text('user_id').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
     issueMessageId: text('issue_message_id').notNull(),
     readAt: text('read_at'),
   },
@@ -382,7 +431,7 @@ export const issueMessageUserState = sqliteTable(
 export const userPreferences = sqliteTable(
   'user_preferences',
   {
-    userId: text('user_id').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
     key: text().notNull(),
     /** The leaf value as JSON text. */
     value: text().notNull(),
@@ -416,7 +465,7 @@ export const userPreferences = sqliteTable(
 export const userLayout = sqliteTable(
   'user_layout',
   {
-    userId: text('user_id').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
     key: text().notNull(),
     /** The layout value as JSON text. */
     value: text().notNull(),
@@ -448,7 +497,7 @@ export const userLayout = sqliteTable(
 export const userReadPosition = sqliteTable(
   'user_read_position',
   {
-    userId: text('user_id').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
     streamId: text('stream_id').notNull(),
     /** Highest acknowledged event id. Integer so monotonicity is comparable in SQL. */
     lastEventId: integer('last_event_id').notNull(),
@@ -476,7 +525,9 @@ export const conversations = sqliteTable(
     createdAt: text('created_at'),
     updatedAt: text('updated_at'),
     messageCount: integer('message_count'),
-    machineId: text('machine_id').notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    /** UNBRANDED: the parent's NATIVE id, same id space as `id` above — the
+     *  carve-out `ConversationSummaryWire.parentConversationId` already makes. */
     parentConversationId: text('parent_conversation_id'),
   },
   (table) => [
@@ -487,21 +538,21 @@ export const conversations = sqliteTable(
 
 export const superagentMessages = sqliteTable('superagent_messages', {
   id: integer().primaryKey({ autoIncrement: true }),
-  ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+  ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
   role: text().notNull(),
   content: text().notNull(),
   toolCalls: text('tool_calls'),
   toolCallId: text('tool_call_id'),
   toolName: text('tool_name'),
   createdAt: text('created_at').notNull(),
-  threadId: text('thread_id').default('global').notNull(),
+  threadId: text('thread_id').default('global').$type<ThreadId>().notNull(),
 })
 
 export const superagentThreads = sqliteTable('superagent_threads', {
   id: text().primaryKey(),
-  ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+  ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
   kind: text().notNull(),
-  originSessionId: text('origin_session_id'),
+  originSessionId: text('origin_session_id').$type<SessionId>(),
   title: text(),
   watermarkItemId: text('watermark_item_id'),
   watermarkTs: text('watermark_ts'),
@@ -510,9 +561,14 @@ export const superagentThreads = sqliteTable('superagent_threads', {
   archived: integer().default(0).notNull(),
   repoPath: text('repo_path'),
   agentKind: text('agent_kind'),
-  podiumSessionId: text('podium_session_id'),
+  podiumSessionId: text('podium_session_id').$type<SessionId>(),
+  /** UNBRANDED: a HARNESS-minted id, the carve-out `protocol/messages/headless.ts`
+   *  already records. Deliberately NOT a {@link SessionId}. */
   harnessSessionId: text('harness_session_id'),
-  terminalSessionId: text('terminal_session_id'),
+  /** A PODIUM session id: `superagent/service.ts` resolves it through
+   *  `sessionById(...)`, so it is the sessions table's key and not a terminal
+   *  emulator's handle — unlike `harness_session_id` two lines up. */
+  terminalSessionId: text('terminal_session_id').$type<SessionId>(),
   /**
    * The thread's own model / effort (POD-782). NULLABLE and null is MEANINGFUL:
    * null = "follow the `superagent` settings role", which is what every thread
@@ -566,7 +622,7 @@ export const machines = sqliteTable('machines', {
   // Grants live in the `grants` edge table keyed `('machine', id, grantee,
   // verb)` — NOT in a column here. ADR 4 D7.1: a grant is its own aggregate and
   // a granted row never embeds its grants.
-  ownerUserId: text('owner_user_id'),
+  ownerUserId: text('owner_user_id').$type<UserId>(),
   // BUILD REPORT (POD-1670). What the daemon last told us it is running.
   // ADVISORY: peer-asserted, unverified, never used to grant anything. Additive
   // and nullable because an existing row has simply not reported yet, and that
@@ -581,18 +637,18 @@ export const machines = sqliteTable('machines', {
 export const repos = sqliteTable(
   'repos',
   {
-    machineId: text('machine_id').notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
     path: text().notNull(),
     originUrl: text('origin_url'),
     repoName: text('repo_name'),
     addedAt: text('added_at').notNull(),
-    repoId: text('repo_id'),
+    repoId: text('repo_id').$type<RepoId>(),
   },
   (table) => [primaryKey({ columns: [table.machineId, table.path], name: 'repos_pk' })],
 )
 
 export const sessionDrafts = sqliteTable('session_drafts', {
-  sessionId: text('session_id').primaryKey(),
+  sessionId: text('session_id').$type<SessionId>().primaryKey(),
   text: text().notNull(),
   updatedAt: text('updated_at').notNull(),
   // Draft Sync v2 (POD-859): versioned-draft columns — server-assigned rev, the
@@ -610,8 +666,8 @@ export const sessionDrafts = sqliteTable('session_drafts', {
 export const snoozes = sqliteTable(
   'snoozes',
   {
-    userId: text('user_id').notNull(),
-    sessionId: text('session_id').notNull(),
+    userId: text('user_id').$type<UserId>().notNull(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
     snoozedUntil: text('snoozed_until'),
     createdAt: text('created_at').notNull(),
   },
@@ -622,7 +678,7 @@ export const snoozes = sqliteTable(
 // message + JSON-encoded action buttons). Ephemeral overlay like `snoozes`;
 // replaced on re-offer, deleted on clear/next-turn.
 export const offers = sqliteTable('offers', {
-  sessionId: text('session_id').primaryKey(),
+  sessionId: text('session_id').$type<SessionId>().primaryKey(),
   message: text().notNull(),
   actions: text().notNull(), // JSON array of { label, prompt }
   artifacts: text(), // JSON array of issue-artifact paths [POD-120]; NULL = none
@@ -657,7 +713,7 @@ export const users = sqliteTable('users', {
 // the migration's own header. `per-user-scrypt` with a hash is Phase 3's
 // (POD-315) per-account credential.
 export const userCredentials = sqliteTable('user_credentials', {
-  userId: text('user_id').primaryKey(),
+  userId: text('user_id').$type<UserId>().primaryKey(),
   source: text().notNull(),
   passwordHash: text('password_hash'),
   updatedAt: text('updated_at').notNull(),
@@ -710,7 +766,7 @@ export const grants = sqliteTable(
 // three are indistinguishable and revoking one class signs every device out too.
 export const clientSessions = sqliteTable('client_sessions', {
   tokenHash: text('token_hash').primaryKey(),
-  userId: text('user_id').notNull(),
+  userId: text('user_id').$type<UserId>().notNull(),
   createdAt: text('created_at').notNull(),
   expiresAt: text('expires_at').notNull(),
   label: text().notNull().default('login'),
@@ -736,7 +792,7 @@ export const clientSessions = sqliteTable('client_sessions', {
 // direction is unconstrained, and it is the direction that is safe.
 export const telegramChatBindings = sqliteTable('telegram_chat_bindings', {
   chatId: text('chat_id').primaryKey(),
-  userId: text('user_id').notNull(),
+  userId: text('user_id').$type<UserId>().notNull(),
   boundAt: text('bound_at').notNull(),
   // The attribution pair (ADR 3 Amendment 1 D17), stored in the same three
   // columns the `grants` table uses so the shape is one shape.
@@ -758,7 +814,7 @@ export const queuedMessages = sqliteTable(
   'queued_messages',
   {
     id: text().primaryKey(),
-    sessionId: text('session_id').notNull(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
     text: text().notNull(),
     queuedAt: integer('queued_at').notNull(),
     inputOrigin: text('input_origin').default('unknown').notNull(),
@@ -784,7 +840,7 @@ export const queuedMessages = sqliteTable(
 )
 
 export const conversationIdentities = sqliteTable('conversation_identities', {
-  podiumId: text('podium_id').primaryKey(),
+  podiumId: text('podium_id').$type<ConversationId>().primaryKey(),
   parentPodiumId: text('parent_podium_id'),
   createdAt: text('created_at').notNull(),
 })
@@ -792,10 +848,10 @@ export const conversationIdentities = sqliteTable('conversation_identities', {
 export const conversationSegments = sqliteTable(
   'conversation_segments',
   {
-    machineId: text('machine_id').notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
     nativeId: text('native_id').notNull(),
     providerId: text('provider_id').notNull(),
-    podiumId: text('podium_id').notNull(),
+    podiumId: text('podium_id').$type<ConversationId>().notNull(),
     path: text(),
     seqInConv: integer('seq_in_conv').notNull(),
     linkedBy: text('linked_by').notNull(),
@@ -818,7 +874,7 @@ export const conversationSegments = sqliteTable(
 export const conversationSegmentIncarnations = sqliteTable(
   'conversation_segment_incarnations',
   {
-    machineId: text('machine_id').notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
     nativeId: text('native_id').notNull(),
     sequence: integer().notNull(),
     device: text().notNull(),
@@ -863,7 +919,7 @@ export const stewardState = sqliteTable('steward_state', {
 })
 
 export const upstreamOutbox = sqliteTable('upstream_outbox', {
-  mutationId: text('mutation_id').primaryKey(),
+  mutationId: text('mutation_id').$type<MutationId>().primaryKey(),
   proc: text().notNull(),
   input: text().notNull(),
   queuedAt: integer('queued_at').notNull(),
@@ -908,7 +964,7 @@ export const notificationFacts = sqliteTable(
     factKey: text('fact_key').notNull(),
     target: text().notNull(),
     source: text(),
-    issueId: text('issue_id'),
+    issueId: text('issue_id').$type<IssueId>(),
     createdAt: text('created_at').notNull(),
     expiresAt: text('expires_at'),
     consumedAt: text('consumed_at'),
@@ -924,6 +980,7 @@ export const issueLabels = sqliteTable(
   'issue_labels',
   {
     issueId: text('issue_id')
+      .$type<IssueId>()
       .notNull()
       .references(() => issues.id, { onDelete: 'cascade' }),
     label: text().notNull(),
@@ -957,6 +1014,7 @@ export const issueComments = sqliteTable(
   {
     id: text().primaryKey(),
     issueId: text('issue_id')
+      .$type<IssueId>()
       .notNull()
       .references(() => issues.id, { onDelete: 'cascade' }),
     author: text().notNull(),
@@ -973,6 +1031,7 @@ export const issueMessages = sqliteTable(
   {
     id: text().primaryKey(),
     issueId: text('issue_id')
+      .$type<IssueId>()
       .notNull()
       .references(() => issues.id, { onDelete: 'cascade' }),
     fromAuthor: text('from_author').notNull(),
@@ -991,12 +1050,12 @@ export const issues = sqliteTable(
   'issues',
   {
     id: text().primaryKey(),
-    ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     visibility: text().default('personal').notNull(),
     createdByActor: text('created_by_actor').default('user:sole').notNull(),
     createdByOnBehalfOf: text('created_by_on_behalf_of'),
     repoPath: text('repo_path').notNull(),
-    repoId: text('repo_id'),
+    repoId: text('repo_id').$type<RepoId>(),
     seq: integer().notNull(),
     title: text().notNull(),
     description: text().default('').notNull(),
@@ -1008,7 +1067,7 @@ export const issues = sqliteTable(
     defaultAgent: text('default_agent').notNull(),
     defaultModel: text('default_model').default('auto').notNull(),
     defaultEffort: text('default_effort').default('auto').notNull(),
-    machineId: text('machine_id'),
+    machineId: text('machine_id').$type<MachineId>(),
     linearId: text('linear_id'),
     linearIdentifier: text('linear_identifier'),
     linearUrl: text('linear_url'),
@@ -1072,13 +1131,31 @@ export const issues = sqliteTable(
     /** Designated coordinator session for this issue (bare session id). Claimable/
      *  changeable; dangling-tolerant — no FK so a later-deleted session leaves the
      *  id in place and routing falls back [docs/agent-comms-target.html §05 q1]. */
-    coordinatorSessionId: text('coordinator_session_id'),
+    coordinatorSessionId: text('coordinator_session_id').$type<SessionId>(),
     /** Bare session id of the agent session that created this issue (started-by
      *  provenance). Null for operator/human creates. Dangling-tolerant TEXT. */
     startedBySession: text('started_by_session'),
   },
   (table) => [
     index('idx_issues_deleted_at').on(table.deletedAt),
+    // COVERS the finished-work projection [POD-1931]. `closedIssueIds()` reads
+    // four narrow columns off every issue and has no WHERE to narrow with — the
+    // predicate is `isIssueClosed`'s and stays in TypeScript so there is one
+    // definition of finished. Without this the scan still walks the full row,
+    // dragging description/design/acceptance/notes through the page cache:
+    // 6.5MB of table pages against 123KB of index, a 53x difference in bytes
+    // read. It only became the top line when the box lost its page cache and
+    // each scan started costing ~694ms instead of ~60ms — the query was always
+    // this shape, the machine stopped hiding it.
+    //
+    // Column order follows the SELECT so the index is genuinely covering;
+    // nothing seeks on it, so no other order would be better.
+    index('idx_issues_closed_projection').on(
+      table.id,
+      table.stage,
+      table.closedReason,
+      table.deletedAt,
+    ),
     uniqueIndex('idx_issues_repo_id_seq').on(table.repoId, table.seq),
     index('idx_issues_parent').on(table.parentId),
     index('idx_issues_repo').on(table.repoPath),
@@ -1098,9 +1175,9 @@ export const approvalRequests = sqliteTable(
   'approval_requests',
   {
     id: text().primaryKey(),
-    machineId: text('machine_id').notNull(),
-    sessionId: text('session_id').notNull(),
-    issueId: text('issue_id'),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
+    issueId: text('issue_id').$type<IssueId>(),
     opJson: text('op_json').notNull(),
     status: text().default('pending').notNull(),
     createdAt: text('created_at').notNull(),
@@ -1121,10 +1198,10 @@ export const approvalRequests = sqliteTable(
 export const locks = sqliteTable(
   'locks',
   {
-    repoId: text('repo_id').notNull(),
+    repoId: text('repo_id').$type<RepoId>().notNull(),
     name: text().notNull(),
-    holderSessionId: text('holder_session_id'),
-    holderIssueId: text('holder_issue_id'),
+    holderSessionId: text('holder_session_id').$type<SessionId>(),
+    holderIssueId: text('holder_issue_id').$type<IssueId>(),
     holderLabel: text('holder_label').notNull(),
     note: text(),
     acquiredAt: text('acquired_at').notNull(),
@@ -1141,10 +1218,10 @@ export const lockWaiters = sqliteTable(
   'lock_waiters',
   {
     id: integer().primaryKey({ autoIncrement: true }),
-    repoId: text('repo_id').notNull(),
+    repoId: text('repo_id').$type<RepoId>().notNull(),
     name: text().notNull(),
-    sessionId: text('session_id').notNull(),
-    issueId: text('issue_id'),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
+    issueId: text('issue_id').$type<IssueId>(),
     label: text().notNull(),
     ttlSeconds: integer('ttl_seconds').notNull().default(120),
     note: text(),
@@ -1160,9 +1237,9 @@ export const lockWaiters = sqliteTable(
 export const superagentQueuedInputs = sqliteTable(
   'superagent_queued_inputs',
   {
-    ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     inputId: text('input_id').primaryKey(),
-    threadId: text('thread_id').notNull(),
+    threadId: text('thread_id').$type<ThreadId>().notNull(),
     text: text().notNull(),
     focusJson: text('focus_json'),
     createdAt: text('created_at').notNull(),
@@ -1192,10 +1269,10 @@ export const superagentQueuedInputs = sqliteTable(
 export const superagentPendingTurns = sqliteTable(
   'superagent_pending_turns',
   {
-    ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     turnId: text('turn_id').primaryKey(),
-    threadId: text('thread_id').notNull(),
-    podiumSessionId: text('podium_session_id').notNull(),
+    threadId: text('thread_id').$type<ThreadId>().notNull(),
+    podiumSessionId: text('podium_session_id').$type<SessionId>().notNull(),
     payloadJson: text('payload_json').notNull(),
     firstTurn: integer('first_turn').default(0).notNull(),
     createdAt: text('created_at').notNull(),
@@ -1209,7 +1286,7 @@ export const messages = sqliteTable(
   'messages',
   {
     id: text().primaryKey(),
-    threadId: text('thread_id').notNull(),
+    threadId: text('thread_id').$type<ThreadId>().notNull(),
     inReplyTo: text('in_reply_to'),
     fromKind: text('from_kind').notNull(),
     fromSession: text('from_session'),
@@ -1251,6 +1328,14 @@ export const messages = sqliteTable(
   },
   (table) => [
     index('idx_messages_delivered_to').on(table.deliveredTo),
+    // The THIRD arm of the ledger's OR [POD-1931]. `messages.ledger` asks
+    // `from_session = ? OR (to_kind='session' AND to_id = ?) OR delivered_to = ?`;
+    // the other two arms were indexed and this one was not, so SQLite could not
+    // take the OR-by-union path and fell back to SCAN messages + a temp B-tree
+    // for the ORDER BY. Measured on the live server: 8 calls costing 8,214ms of
+    // blocked event loop in five minutes, over only 6,969 rows — `SELECT *`
+    // drags every message body through the scan.
+    index('idx_messages_from_session').on(table.fromSession),
     index('idx_messages_thread').on(table.threadId),
     index('idx_messages_recipient').on(table.toKind, table.toId, table.status),
     index('idx_messages_recipient_order').on(
@@ -1295,7 +1380,7 @@ export const messageReads = sqliteTable(
   'message_reads',
   {
     messageId: text('message_id').notNull(),
-    sessionId: text('session_id').notNull(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
     readAt: text('read_at').notNull(),
   },
   (table) => [
@@ -1333,7 +1418,7 @@ export const recapWatermarks = sqliteTable(
   'recap_watermarks',
   {
     reader: text().notNull(),
-    sessionId: text('session_id').notNull(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
     watermark: text().notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -1346,10 +1431,10 @@ export const recapWatermarks = sqliteTable(
 export const messagingIssueTopics = sqliteTable(
   'messaging_issue_topics',
   {
-    issueId: text('issue_id').notNull(),
+    issueId: text('issue_id').$type<IssueId>().notNull(),
     chatId: text('chat_id').notNull(),
     threadRef: text('thread_ref').notNull(),
-    superagentThreadId: text('superagent_thread_id').notNull(),
+    superagentThreadId: text('superagent_thread_id').$type<ThreadId>().notNull(),
     updatedAt: text('updated_at').notNull(),
   },
   (table) => [
@@ -1372,7 +1457,7 @@ export const workflows = sqliteTable(
     createdById: text('created_by_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
-    ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
   },
   (table) => [
     uniqueIndex('workflows_scope_name_active')
@@ -1417,7 +1502,7 @@ export const workflowBindings = sqliteTable(
     updatedByKind: text('updated_by_kind').notNull(),
     updatedById: text('updated_by_id'),
     updatedAt: text('updated_at').notNull(),
-    ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.targetKind, table.targetId], name: 'workflow_bindings_pk' }),
@@ -1434,8 +1519,8 @@ export const executionProfiles = sqliteTable(
   {
     id: text().primaryKey(),
     name: text().notNull(),
-    accountId: text('account_id').notNull(),
-    machineId: text('machine_id'),
+    accountId: text('account_id').$type<AccountId>().notNull(),
+    machineId: text('machine_id').$type<MachineId>(),
     harness: text().notNull(),
     model: text().default('auto').notNull(),
     effort: text().default('auto').notNull(),
@@ -1443,7 +1528,7 @@ export const executionProfiles = sqliteTable(
     createdById: text('created_by_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
-    ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
   },
   (table) => [
     unique('execution_profiles_name_unique').on(table.name),
@@ -1457,7 +1542,7 @@ export const workflowRuns = sqliteTable(
     id: text().primaryKey(),
     subjectKind: text('subject_kind').notNull(),
     subjectId: text('subject_id').notNull(),
-    coordinatorSessionId: text('coordinator_session_id').notNull(),
+    coordinatorSessionId: text('coordinator_session_id').$type<SessionId>().notNull(),
     revisionId: text('revision_id')
       .notNull()
       .references(() => workflowRevisions.id, { onDelete: 'restrict' }),
@@ -1467,7 +1552,7 @@ export const workflowRuns = sqliteTable(
     }),
     startedAt: text('started_at').notNull(),
     completedAt: text('completed_at'),
-    ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
   },
   (table) => [
     uniqueIndex('workflow_runs_one_live_subject')
@@ -1493,7 +1578,7 @@ export const workflowRunSteps = sqliteTable(
     executionProfileId: text('execution_profile_id'),
     executionProfileJson: text('execution_profile_json'),
     status: text().notNull(),
-    assignedSessionId: text('assigned_session_id'),
+    assignedSessionId: text('assigned_session_id').$type<SessionId>(),
     attempt: integer().default(1).notNull(),
     summary: text().default('').notNull(),
     evidenceJson: text('evidence_json', { mode: 'json' }).default({}).notNull(),
@@ -1555,7 +1640,7 @@ export const automations = sqliteTable(
   'automations',
   {
     id: text().primaryKey(),
-    ownerUserId: text('owner_user_id').default('user:sole').notNull(),
+    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     createdByActor: text('created_by_actor').default('user:sole').notNull(),
     createdByOnBehalfOf: text('created_by_on_behalf_of').default('user:sole').notNull(),
     name: text().notNull(),
@@ -1564,7 +1649,7 @@ export const automations = sqliteTable(
     scheduleKind: text('schedule_kind').default('cron').notNull(),
     cron: text().notNull(),
     runAt: text('run_at'),
-    targetSessionId: text('target_session_id'),
+    targetSessionId: text('target_session_id').$type<SessionId>(),
     agentKind: text('agent_kind').notNull(),
     model: text().default('auto').notNull(),
     effort: text().default('auto').notNull(),
@@ -1587,10 +1672,11 @@ export const automationRuns = sqliteTable(
     actor: text().default('system:automation-migration').notNull(),
     onBehalfOf: text('on_behalf_of').default('user:sole').notNull(),
     automationId: text('automation_id')
+      .$type<AutomationId>()
       .notNull()
       .references(() => automations.id, { onDelete: 'cascade' }),
     firedAt: text('fired_at').notNull(),
-    sessionId: text('session_id'),
+    sessionId: text('session_id').$type<SessionId>(),
     outcome: text().notNull(),
     detail: text(),
     /** Same tombstone, same reason — see `automations.deletedAt`. */

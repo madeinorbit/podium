@@ -1,5 +1,6 @@
-import { asSessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
+import { nativeAccountId } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 
@@ -107,6 +108,45 @@ describe('approval broker relay e2e (#410)', () => {
         targetSessionId: sA,
         sessionMode: 'resume',
         enabled: true,
+      }),
+    ])
+  })
+
+  it('[POD-1107] a fresh schedule with no agent gets the configured default, not codex', async () => {
+    registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+      ...registry.modules.settings.getSettings(),
+      roles: {
+        ...registry.modules.settings.getSettings().roles,
+        coding: {
+          ...registry.modules.settings.getSettings().roles.coding,
+          accountId: nativeAccountId('grok'),
+          model: 'grok-4',
+          effort: 'high',
+        },
+      },
+    })
+    const runAt = '2099-07-17T02:00:00.000Z'
+    const r = await relay('request', {
+      op: {
+        kind: 'automation-schedule',
+        name: 'Overnight sweep',
+        runAt,
+        prompt: 'Sweep the repo.',
+        target: { kind: 'fresh', repoPath: '/r' },
+      },
+    })
+    expect(r.ok).toBe(true)
+
+    registry.modules.approvals.approve((r.result as { id: string }).id)
+    expect(registry.modules.automations.list()).toEqual([
+      expect.objectContaining({
+        name: 'Overnight sweep',
+        repoPath: '/r',
+        // The operator's configured harness — the hardcoded 'codex'/'auto' that
+        // stood here ignored it entirely.
+        agentKind: 'grok',
+        model: 'grok-4',
+        effort: 'high',
       }),
     ])
   })

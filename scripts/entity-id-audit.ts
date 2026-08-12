@@ -111,15 +111,19 @@
  * LIMITS — stated, because a grep audit is never sufficient
  * ---------------------------------------------------------------------------
  *
- *  1. **Only zod field positions are counted.** The same scan also classifies
- *     drizzle columns (`text("session_id")`, measured 68) and hand-written TS
- *     `sessionId: string` members (measured 754) and reports them under
- *     `--sites` via `bun scripts/entity-id-audit.ts`, but neither is in a
- *     baseline key. They are a different act: a
- *     column is branded with drizzle's `$type<>()` and most TS members are
- *     `z.infer`-derived and follow the zod flip for free. Reading a zero here as
- *     "no raw entity id exists anywhere" is not valid; reading it as "no zod
- *     schema declares one" is.
+ *  1. **Hand-written TS members are classified but NOT ratcheted.** The same
+ *     scan classifies `sessionId: string` members and reports them under
+ *     `--sites` (measured 754 at POD-301, 1227 at POD-1199 — the class drifts
+ *     upward precisely because no key holds it), but they are in no baseline
+ *     key. Reading a zero on the counted items as "no raw entity id exists
+ *     anywhere" is not valid; reading it as "no zod schema and no drizzle column
+ *     declares one" is.
+ *
+ *     Drizzle columns WERE in this limit and are not any more: POD-1199 split
+ *     `db-column` from `db-column-branded` and gave the unbranded half a key.
+ *     Until that split the two were one form, so branding a column moved no
+ *     number at all — the class was measurable but not drivable, which is the
+ *     same "unmeasured claim" shape POD-423 named, one level down.
  *  2. **A POLYMORPHIC id is out of scope by design.** `workflowAssignInput
  *     .targetId` and `MessageRow.toId` name whichever entity `targetKind` says,
  *     so branding them at the declaration forces a false choice (POD-362's
@@ -212,8 +216,10 @@ export type IdFieldForm =
   | 'zod-string'
   /** A zod schema carrying the brand (`SessionIdField`, `.brand<…>`, `.pipe(…)`). */
   | 'zod-branded'
-  /** A drizzle column (`text("session_id")`). Limit 1. */
+  /** A drizzle column left unbranded (`text("session_id")`). POD-1199's item. */
   | 'db-column'
+  /** A drizzle column carrying the brand (`text("session_id").$type<SessionId>()`). */
+  | 'db-column-branded'
   /** A hand-written TypeScript `string` member. Limit 1. */
   | 'ts-string'
   /** A branded TS type, a function parameter, a value expression — anything else. */
@@ -429,7 +435,19 @@ export function classifyRhs(rhs: string): IdFieldForm {
     return 'zod-string'
   }
   if (/^z\./.test(norm)) return 'other'
-  if (/^(?:text|integer|blob|real|numeric)\(/.test(norm)) return 'db-column'
+  // A DRIZZLE COLUMN, and only one: the column-name argument is a string literal
+  // or absent. Without that anchor `text(row.owner_user_id)` in
+  // `store/workflows.ts` — a local row-coercion helper that happens to be called
+  // `text` — reads as a column and lands in a class it can never be flipped in,
+  // since there is no `$type<>()` to put on a function call. Two such sites were
+  // counted as columns before POD-1199 tightened this; they are value
+  // expressions and belong in `other`.
+  if (/^(?:text|integer|blob|real|numeric)\((?:'|"|\))/.test(norm)) {
+    // `$type<>()` is drizzle's TYPE-ONLY brand: it emits no SQL (verified with
+    // `drizzle-kit generate`, which reports no schema change across the flip),
+    // so it is the column's counterpart to a zod `.brand<>()`.
+    return /\.\$type</.test(norm) ? 'db-column-branded' : 'db-column'
+  }
   if (/^(?:string|\|?string\b)/.test(norm) || /^(?:string\|null|string\|undefined)/.test(norm)) {
     return 'ts-string'
   }
@@ -605,6 +623,43 @@ export function entityIdSites(ctx: AuditContext): EntityIdSite[] {
 
 const site = (s: EntityIdSite): AuditSite => ({ file: s.file, line: s.line, text: s.text })
 
+/**
+ * THE LIVE-TREE ANCHORS, in ONE place because they were in two.
+ *
+ * `MIN_ID_FIELD_SITES` guards the total; these guard its COMPOSITION, which a
+ * single total cannot: a form that silently stopped matching is invisible in a
+ * sum that other forms hold up. Both `entity-id-audit.test.ts` and
+ * `rearch-audit.test.ts` assert this, and until POD-1199 they each carried
+ * their own copy — so fixing one looked exactly like being done. That is the
+ * duplication this constant exists to remove, and it is not hypothetical: the
+ * `db-column` anchor below was updated in one file and failed in the other.
+ *
+ * ANCHOR ON A FAMILY, NEVER ON A FORM A RATCHET DRIVES TO ZERO. `db-column` is
+ * now the raw half of a ratcheted pair, so requiring it to be non-empty would
+ * make POD-1199's win fail this assertion — and a win that reds the guard is
+ * indistinguishable from the broken walk the guard exists to catch. The
+ * invariant that survives is that the scan still SEES columns, branded or not.
+ */
+export const DETECTOR_ANCHORS: readonly {
+  readonly forms: readonly IdFieldForm[]
+  readonly min: number
+}[] = [
+  { forms: ['zod-branded'], min: 100 },
+  { forms: ['ts-string'], min: 20 },
+  { forms: ['db-column', 'db-column-branded'], min: 20 },
+]
+
+/** Which anchors a scan FAILS, as readable strings. Empty means every form
+ *  family the detector parses is still matching on the live tree. */
+export function detectorAnchorFailures(sites: readonly EntityIdSite[]): string[] {
+  const out: string[] = []
+  for (const { forms, min } of DETECTOR_ANCHORS) {
+    const n = sites.filter((s) => forms.includes(s.form)).length
+    if (n <= min) out.push(`${forms.join('|')}: ${n} sites, expected more than ${min}`)
+  }
+  return out
+}
+
 /** An id-SHAPED key: the population {@link brandOfKey} is a filter over. */
 const ID_SHAPED_KEY = /Id$|^id$|_id$/
 
@@ -719,16 +774,52 @@ export function machineIdUnbrandedFields(ctx: AuditContext): AuditSite[] {
 }
 
 /**
- * The escape hatch, counted. A zod id field excused by an `UNBRANDED` doc
+ * POD-1199's item: a drizzle column whose key names a branded entity id and
+ * which carries no `$type<>()`.
+ *
+ * A SEPARATE ACT from the zod items above, which is why POD-301 measured this
+ * class and deliberately left it: a column is not branded by a schema, it is
+ * branded by drizzle's type-only `$type<Brand>()`. Two constraints found by
+ * spiking the mechanism are worth stating, because both are silent failures:
+ *
+ *   - the brand must arrive by `import type`. `apps/server/src/migrations/schema.ts`
+ *     is read by `drizzle-kit` through its own loader, which cannot resolve a
+ *     VALUE import of `@podium/model` ("No exports main defined") — a type-only
+ *     import is erased before it gets there.
+ *   - `$type<>()` goes AFTER a literal `.default(…)`. Placed before it, the
+ *     default's raw string stops typechecking against the brand — which is the
+ *     brand working, but the SQL default is a database literal and not a
+ *     `UserId`, so the honest placement types the column and leaves the default
+ *     as what it is.
+ *
+ * `db-column-branded` is the discharged form, so this ratchet can reach zero.
+ */
+export function unbrandedDbColumns(ctx: AuditContext): AuditSite[] {
+  return sitesOnce(ctx)
+    .filter((s) => s.form === 'db-column' && !s.excused)
+    .map(site)
+}
+
+/**
+ * The escape hatch, counted. An id field excused by an `UNBRANDED` doc
  * comment — harness-native ids, external correlation ids, and the four sites
  * POD-423 checked individually and upheld.
  *
  * Ratcheted so POD-301's count cannot be zeroed by sprinkling comments: a new
  * marker raises THIS number and the audit fails until it is recorded.
+ *
+ * COLUMNS SHARE THE HATCH (POD-1199) rather than getting their own, because
+ * they need it for the same reason and at the same sites: `provider_session_id`
+ * and `harness_session_id` are HARNESS-minted and branding them `SessionId`
+ * would launder a foreign id into Podium's id space — the identical judgement
+ * `entities/session.ts` already records on the zod side. Giving columns a second
+ * excuse key would let the same decision be spent twice at half the visible
+ * price; sharing this one means a column excuse raises the number the deletion
+ * audit already makes someone justify.
  */
 export function unbrandedByDecisionFields(ctx: AuditContext): AuditSite[] {
   return sitesOnce(ctx)
-    .filter((s) => s.form === 'zod-string' && s.excused)
+    .filter((s) => (s.form === 'zod-string' || s.form === 'db-column') && s.excused)
     .map(site)
 }
 
@@ -754,7 +845,7 @@ if (import.meta.main) {
   console.log(`entity-id field positions: ${sites.length} (floor ${MIN_ID_FIELD_SITES})`)
   for (const [form, n] of [...byForm].sort((a, b) => b[1] - a[1])) console.log(`  ${form}: ${n}`)
   console.log(
-    `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && s.form === 'zod-string' && !s.excused).length} excused=${sites.filter((s) => s.form === 'zod-string' && s.excused).length}`,
+    `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && s.form === 'zod-string' && !s.excused).length} column=${sites.filter((s) => s.form === 'db-column' && !s.excused).length} excused=${sites.filter((s) => (s.form === 'zod-string' || s.form === 'db-column') && s.excused).length}`,
   )
   if (argv.includes('--unreachable')) {
     const wider = idFieldsWithNoBrandVocabulary(loadContext(REPO_ROOT))

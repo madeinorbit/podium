@@ -408,6 +408,47 @@ describe('resolvePlan — utility subcommands', () => {
         },
       },
     })
+    // [POD-1107] --agent is optional: absent means the server's configured
+    // default harness, so the CLI must not invent one either.
+    expect(
+      plan(
+        {},
+        [
+          'automation',
+          'schedule',
+          '--at',
+          at,
+          '--message',
+          'Start a clean run.',
+          '--fresh',
+          '--repo',
+          '/repos/podium',
+        ],
+        agent,
+      ),
+    ).toMatchObject({
+      kind: 'approval-request',
+      op: { target: { kind: 'fresh', repoPath: '/repos/podium' } },
+    })
+    expect(
+      plan(
+        {},
+        [
+          'automation',
+          'schedule',
+          '--at',
+          at,
+          '--message',
+          'x',
+          '--fresh',
+          '--repo',
+          '/repos/podium',
+          '--agent',
+          'not-a-harness',
+        ],
+        agent,
+      ),
+    ).toMatchObject({ kind: 'usage-error' })
     expect(
       plan({}, ['automation', 'schedule', '--at', 'nope', '--message', 'x'], agent),
     ).toMatchObject({

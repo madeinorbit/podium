@@ -49,12 +49,55 @@ export class UsersRepository {
   constructor(private readonly db: SqlDatabase) {}
 
   /**
+   * THE FRAME READ CACHE [POD-1931].
+   *
+   * Every authorization decision asks who the principal is, so the account read
+   * rides the publish fan-out: one event-loop frame was measured issuing 1,221
+   * `SELECT * FROM users WHERE id = ?` statements — against a table holding ONE
+   * row. The answer was identical 1,221 times.
+   *
+   * An account cannot change inside a frame that never yields, so within one
+   * synchronous turn the second read is the first read's answer.
+   * `queueMicrotask` is the invalidation because a microtask cannot run inside a
+   * synchronous frame: the cache lives exactly as long as the turn that filled
+   * it, and the first `await` anywhere re-reads.
+   *
+   * `create` is the table's ONLY writer in product code — there is no UPDATE or
+   * DELETE against `users` anywhere — and it drops the cache, so an account
+   * minted mid-frame is visible to the read after it. A caller still gets its
+   * own object per call: `undefined` is cached as an answer too, because
+   * "no account" is the verdict every caller acts on.
+   */
+  private frameAccounts: Map<string, UserAccountRow | undefined> | undefined
+
+  private frameCache(): Map<string, UserAccountRow | undefined> {
+    if (this.frameAccounts) return this.frameAccounts
+    const opened = new Map<string, UserAccountRow | undefined>()
+    this.frameAccounts = opened
+    queueMicrotask(() => {
+      if (this.frameAccounts === opened) this.frameAccounts = undefined
+    })
+    return opened
+  }
+
+  /**
    * One account, or `undefined` when there is no row, the row is unreadable, or
    * the account is disabled. All three collapse to "no account", because every
    * caller's next move is the same — refuse — and giving the caller three arms
    * to get wrong is how one of them ends up permissive.
    */
   get(userId: string): UserAccountRow | undefined {
+    const cache = this.frameCache()
+    if (cache.has(userId)) {
+      const hit = cache.get(userId)
+      return hit === undefined ? undefined : { ...hit }
+    }
+    const account = this.read(userId)
+    cache.set(userId, account)
+    return account === undefined ? undefined : { ...account }
+  }
+
+  private read(userId: string): UserAccountRow | undefined {
     const r = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as
       | Record<string, unknown>
       | undefined
@@ -116,18 +159,28 @@ export class UsersRepository {
   }
 
   create(account: UserAccountRow, passwordHash: string): void {
-    transaction(this.db, () => {
-      this.db
-        .prepare(
-          'INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, ?, NULL)',
-        )
-        .run(account.id, account.displayName, account.role, account.createdAt)
-      this.db
-        .prepare(
-          "INSERT INTO user_credentials (user_id, source, password_hash, updated_at) VALUES (?, 'per-user-scrypt', ?, ?)",
-        )
-        .run(account.id, passwordHash, account.createdAt)
-    })
+    // The table's only writer drops the frame cache, so the read after a mint
+    // sees the account rather than the "no account" this frame had cached.
+    this.frameAccounts = undefined
+    try {
+      transaction(this.db, () => {
+        this.db
+          .prepare(
+            'INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, ?, NULL)',
+          )
+          .run(account.id, account.displayName, account.role, account.createdAt)
+        this.db
+          .prepare(
+            "INSERT INTO user_credentials (user_id, source, password_hash, updated_at) VALUES (?, 'per-user-scrypt', ?, ?)",
+          )
+          .run(account.id, passwordHash, account.createdAt)
+      })
+    } finally {
+      // And again on the way out — in a `finally`, because the case that needs
+      // it is the ROLLBACK. A read taken inside the transaction would otherwise
+      // outlive it and hold an account that does not exist.
+      this.frameAccounts = undefined
+    }
   }
 
   setPasswordHash(userId: string, passwordHash: string, updatedAt: string): void {

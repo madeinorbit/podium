@@ -62,6 +62,14 @@ export const AutomationWire = z.object({
   runAt: z.string().nullable(),
   /** Explicit existing-session target. null keeps the fresh/previous-run behavior. */
   targetSessionId: SessionIdField.nullable(),
+  /** OPEN ON THE WIRE BY DECISION, not by omission (POD-1107): a newer peer may
+   *  name a harness this build has never heard of, and the frame must still
+   *  decode — the same reason `HarnessId` (./agent.ts) is open. Closing it to
+   *  `AgentKind` here would make an older server reject the whole automation
+   *  rather than degrade. The narrowing happens where it matters, at the seam
+   *  where the value becomes a process: the automations service passes it through
+   *  `isAgentKind` and records an error run if this build cannot run it. If you
+   *  find a bare `as AgentKind` on this field again, that is the bug. */
   agentKind: z.string(),
   model: z.string(),
   effort: z.string(),
