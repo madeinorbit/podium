@@ -11,8 +11,10 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { ActivationResumeBar } from '@/features/setup/ActivationShell'
-import { hasActivationState } from '@/features/setup/activation-route'
+import { hasActivationState, isActivationEligible } from '@/features/setup/activation-route'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
+import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
+import { activationRouteLabel, vpsIntroState } from '@/features/setup/vps-activation'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
@@ -266,26 +268,64 @@ function AppBody(): JSX.Element {
   const closeOverlay = (): void => setView(baseView)
   const workspaceActive = baseView === 'workspace'
   const sessions = useStoreSelector((s) => s.sessions)
+  const trpc = useStoreSelector((s) => s.trpc)
   const {
     state: activationState,
     navigate: navigateActivation,
+    reconcile: reconcileActivation,
     explore: explorePodium,
     resume: resumeActivationRoute,
     clear: clearActivation,
   } = useActivationRoute()
-  const activationEligible = reposLoaded && repos.length === 0 && sessions.length === 0
+  const vpsActivation = useConfirmedVpsActivation(trpc)
+  const emptyActivationEligible = reposLoaded && repos.length === 0 && sessions.length === 0
+  const activationEligible = isActivationEligible({
+    loaded: reposLoaded,
+    repoCount: repos.length,
+    sessionCount: sessions.length,
+    hasVpsCheckpoint: vpsActivation.state !== null,
+  })
   const activationVisible =
     activationEligible && activationState.mode === 'active' && workspaceActive
   const activationResumeVisible =
     activationEligible && (activationState.mode === 'exploring' || !workspaceActive)
 
-  // Repo/session creation is setup completion; query state is only a resumable
-  // first-run draft and must not shadow normal shell behavior afterward.
+  // Repo/session creation completes the ordinary local draft. A durable VPS lane is different:
+  // it must survive exploration and existing work until daemon-only or connected completion.
   useEffect(() => {
-    if (reposLoaded && !activationEligible && hasActivationState(window.location.search)) {
-      clearActivation()
+    if (!reposLoaded || emptyActivationEligible || vpsActivation.state) return
+    if (hasActivationState(window.location.search)) clearActivation()
+  }, [clearActivation, emptyActivationEligible, reposLoaded, vpsActivation.state])
+
+  // Desktop transfer retargeting can arrive on a clean destination URL. The replicated VPS
+  // checkpoint is authoritative in that case; reconstruct the exact nested route it names.
+  useEffect(() => {
+    if (
+      activationEligible &&
+      vpsActivation.ready &&
+      vpsActivation.state &&
+      activationState.route !== vpsActivation.state.route
+    ) {
+      reconcileActivation(vpsActivation.state.route)
     }
-  }, [activationEligible, clearActivation, reposLoaded])
+  }, [
+    activationEligible,
+    activationState.route,
+    reconcileActivation,
+    vpsActivation.ready,
+    vpsActivation.state,
+  ])
+
+  const enterVpsActivation = async (returnRoute: 'welcome' | 'local-project'): Promise<void> => {
+    const next = vpsIntroState(returnRoute)
+    await vpsActivation.persist(next)
+    navigateActivation(next.route)
+  }
+
+  const completeActivation = (): void => {
+    clearActivation()
+    if (vpsActivation.state) void vpsActivation.clear().catch(() => {})
+  }
 
   const resumeActivation = (): void => {
     resumeActivationRoute()
@@ -536,9 +576,7 @@ function AppBody(): JSX.Element {
           <TopBar />
           {activationResumeVisible && (
             <ActivationResumeBar
-              routeLabel={
-                activationState.route === 'local-project' ? 'local projects' : 'welcome'
-              }
+              routeLabel={activationRouteLabel(activationState.route)}
               onResume={resumeActivation}
             />
           )}
@@ -610,7 +648,9 @@ function AppBody(): JSX.Element {
                     route={activationState.route}
                     onRouteChange={navigateActivation}
                     onExplore={explorePodium}
-                    onComplete={clearActivation}
+                    onComplete={completeActivation}
+                    onEnterVps={enterVpsActivation}
+                    vps={vpsActivation}
                   />
                 ) : (
                   <Workspace />

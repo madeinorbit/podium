@@ -1,4 +1,4 @@
-import { ArrowRight, FolderGit2, Sparkles } from 'lucide-react'
+import { ArrowRight, FolderGit2, Server, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 
@@ -67,6 +67,32 @@ export function LocalProjectChoice({ onSelect }: { onSelect: () => void }): JSX.
           </p>
           <Button type="button" className="mt-4" onClick={onSelect}>
             Find local projects
+            <ArrowRight data-icon="inline-end" aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+export function AlwaysOnVpsChoice({ onSelect }: { onSelect: () => void }): JSX.Element {
+  return (
+    <article className="max-w-[560px] rounded-xl border border-primary/30 bg-primary/[0.06] p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Server size={17} aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-[10px] font-semibold tracking-[0.11em] text-primary uppercase">
+            Recommended for multi-machine Podium
+          </p>
+          <h2 className="mt-1 text-[14px] font-semibold text-foreground">Add an always-on VPS</h2>
+          <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
+            Pair a small server, keep shared Podium state available there, and let this computer
+            stay focused on projects and agents.
+          </p>
+          <Button type="button" className="mt-4" onClick={onSelect}>
+            Set up a VPS
             <ArrowRight data-icon="inline-end" aria-hidden="true" />
           </Button>
         </div>

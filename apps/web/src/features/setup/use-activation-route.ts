@@ -11,6 +11,8 @@ export type ActivationNavigation = {
   state: ActivationState
   /** Visit a step and make it the exact route restored by reload/back/forward. */
   navigate: (route: ActivationRoute) => void
+  /** Replace a stale step from durable state without changing active/exploring mode. */
+  reconcile: (route: ActivationRoute) => void
   /** Leave activation without completing it or discarding its current route. */
   explore: () => void
   /** Return to the route held while the user explored. */
@@ -56,6 +58,10 @@ export function useActivationRoute(): ActivationNavigation {
     (route: ActivationRoute) => commit({ route, mode: 'active' }),
     [commit],
   )
+  const reconcile = useCallback(
+    (route: ActivationRoute) => commit({ route, mode: stateRef.current.mode }, true),
+    [commit],
+  )
   const explore = useCallback(
     () => commit({ route: stateRef.current.route, mode: 'exploring' }),
     [commit],
@@ -72,5 +78,5 @@ export function useActivationRoute(): ActivationNavigation {
     setState(DEFAULT_ACTIVATION_STATE)
   }, [])
 
-  return { state, navigate, explore, resume, clear }
+  return { state, navigate, reconcile, explore, resume, clear }
 }

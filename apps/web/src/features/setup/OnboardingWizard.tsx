@@ -1,9 +1,12 @@
 import { ArrowRight } from 'lucide-react'
 import type { JSX } from 'react'
 import { Button } from '@/components/ui/button'
-import { ActivationShell, LocalProjectChoice } from './ActivationShell'
+import { ActivationShell, AlwaysOnVpsChoice, LocalProjectChoice } from './ActivationShell'
 import type { ActivationRoute } from './activation-route'
+import { GuidedVpsActivation } from './GuidedVpsActivation'
 import { RepoScanFlow } from './RepoScanFlow'
+import type { ConfirmedVpsActivation } from './use-vps-activation'
+import { isVpsActivationRoute, type VpsReturnRoute } from './vps-activation'
 
 /**
  * Routed first-run experience inside the desktop shell. The route belongs to the
@@ -16,12 +19,27 @@ export function OnboardingWizard({
   onRouteChange,
   onExplore,
   onComplete,
+  onEnterVps,
+  vps,
 }: {
   route: ActivationRoute
   onRouteChange: (route: ActivationRoute) => void
   onExplore: () => void
   onComplete: () => void
+  onEnterVps: (returnRoute: VpsReturnRoute) => Promise<void>
+  vps: ConfirmedVpsActivation
 }): JSX.Element {
+  if (isVpsActivationRoute(route)) {
+    return (
+      <GuidedVpsActivation
+        route={route}
+        vps={vps}
+        onRouteChange={onRouteChange}
+        onExplore={onExplore}
+      />
+    )
+  }
+
   if (route === 'local-project') {
     return (
       <>
@@ -40,10 +58,20 @@ export function OnboardingWizard({
               <span className="max-w-[52ch] text-muted-foreground">
                 Choose a folder and scan it for Git repositories, then pick what to add.
               </span>
-              <Button type="button" variant="outline" size="sm" onClick={onExplore}>
-                Explore Podium
-                <ArrowRight data-icon="inline-end" aria-hidden="true" />
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void onEnterVps('local-project').catch(() => {})}
+                >
+                  Set up an always-on VPS
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={onExplore}>
+                  Explore Podium
+                  <ArrowRight data-icon="inline-end" aria-hidden="true" />
+                </Button>
+              </div>
             </div>
           }
         />
@@ -58,7 +86,15 @@ export function OnboardingWizard({
       description="Podium is ready to explore. Add a project when you want to start real work; activation will keep your place until then."
       onExplore={onExplore}
     >
-      <LocalProjectChoice onSelect={() => onRouteChange('local-project')} />
+      <div className="grid gap-3 lg:grid-cols-2">
+        <LocalProjectChoice onSelect={() => onRouteChange('local-project')} />
+        <AlwaysOnVpsChoice onSelect={() => void onEnterVps('welcome').catch(() => {})} />
+      </div>
+      {vps.error && (
+        <p role="alert" className="settings-prose mt-3 text-destructive">
+          {vps.error}
+        </p>
+      )}
     </ActivationShell>
   )
 }

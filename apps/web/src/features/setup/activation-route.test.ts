@@ -3,6 +3,7 @@ import {
   activationUrl,
   DEFAULT_ACTIVATION_STATE,
   hasActivationState,
+  isActivationEligible,
   readActivationState,
 } from './activation-route'
 
@@ -19,9 +20,16 @@ describe('activation route persistence', () => {
       route: 'local-project',
       mode: 'active',
     })
-    expect(
-      readActivationState('?activation=local-project&activationMode=exploring'),
-    ).toEqual({ route: 'local-project', mode: 'exploring' })
+    expect(readActivationState('?activation=local-project&activationMode=exploring')).toEqual({
+      route: 'local-project',
+      mode: 'exploring',
+    })
+  })
+
+  it('restores every nested VPS route exactly', () => {
+    for (const route of ['vps-intro', 'vps-pairing', 'vps-transfer'] as const) {
+      expect(readActivationState(`?activation=${route}`)).toEqual({ route, mode: 'active' })
+    }
   })
 
   it('preserves shell/router query state while writing activation', () => {
@@ -57,5 +65,24 @@ describe('activation route persistence', () => {
     expect(url).toBe('/workspace?e2e=1')
     expect(hasActivationState('?activation=welcome')).toBe(true)
     expect(hasActivationState('?e2e=1')).toBe(false)
+  })
+
+  it('keeps a durable VPS handoff resumable after work is created while exploring', () => {
+    expect(
+      isActivationEligible({
+        loaded: true,
+        repoCount: 1,
+        sessionCount: 2,
+        hasVpsCheckpoint: true,
+      }),
+    ).toBe(true)
+    expect(
+      isActivationEligible({
+        loaded: true,
+        repoCount: 1,
+        sessionCount: 0,
+        hasVpsCheckpoint: false,
+      }),
+    ).toBe(false)
   })
 })

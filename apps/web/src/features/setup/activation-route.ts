@@ -7,7 +7,12 @@ export const ACTIVATION_MODE_PARAM = 'activationMode'
  * replacement application mode. A guided VPS route can extend this union
  * without coupling its steps to AppShell.
  */
-export type ActivationRoute = 'welcome' | 'local-project'
+export type ActivationRoute =
+  | 'welcome'
+  | 'local-project'
+  | 'vps-intro'
+  | 'vps-pairing'
+  | 'vps-transfer'
 
 export type ActivationState = {
   route: ActivationRoute
@@ -20,7 +25,13 @@ export const DEFAULT_ACTIVATION_STATE: ActivationState = {
 }
 
 function isActivationRoute(value: string | null): value is ActivationRoute {
-  return value === 'welcome' || value === 'local-project'
+  return (
+    value === 'welcome' ||
+    value === 'local-project' ||
+    value === 'vps-intro' ||
+    value === 'vps-pairing' ||
+    value === 'vps-transfer'
+  )
 }
 
 /** Parse defensively so stale or future route names return to the welcome step. */
@@ -40,6 +51,21 @@ export function readActivationState(search: string): ActivationState {
 export function hasActivationState(search: string): boolean {
   const params = new URLSearchParams(search)
   return params.has(ACTIVATION_ROUTE_PARAM) || params.has(ACTIVATION_MODE_PARAM)
+}
+
+/** A durable VPS handoff remains activation even after the user creates work while exploring. */
+export function isActivationEligible({
+  loaded,
+  repoCount,
+  sessionCount,
+  hasVpsCheckpoint,
+}: {
+  loaded: boolean
+  repoCount: number
+  sessionCount: number
+  hasVpsCheckpoint: boolean
+}): boolean {
+  return loaded && ((repoCount === 0 && sessionCount === 0) || hasVpsCheckpoint)
 }
 
 /**

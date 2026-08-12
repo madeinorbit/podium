@@ -19,7 +19,8 @@ export interface MachinePairingController {
   podiumManaged: boolean
   newMachine: MachineWire | null
   mint: (options?: MintMachinePairingOptions) => Promise<void>
-  watchForNewMachine: () => void
+  /** Start live detection from now, or from a durable pre-pairing baseline after reload. */
+  watchForNewMachine: (baselineIds?: ReadonlySet<string>) => void
   stopWatchingForNewMachine: () => void
   reset: () => void
 }
@@ -94,10 +95,17 @@ export function useMachinePairing({
     [podiumManaged, trpc],
   )
 
-  const watchForNewMachine = useCallback((): void => {
-    setBaselineIds(new Set(machines.map((machine) => machine.id)))
-    setWatching(true)
-  }, [machines])
+  const watchForNewMachine = useCallback(
+    (durableBaselineIds?: ReadonlySet<string>): void => {
+      setBaselineIds(
+        durableBaselineIds
+          ? new Set(durableBaselineIds)
+          : new Set(machines.map((machine) => machine.id)),
+      )
+      setWatching(true)
+    },
+    [machines],
+  )
 
   const stopWatchingForNewMachine = useCallback((): void => {
     setWatching(false)
@@ -123,9 +131,7 @@ export function useMachinePairing({
     error,
     loading,
     podiumManaged,
-    newMachine: watching
-      ? findNewMachine(machines, baselineIds, isNewMachineEligible)
-      : null,
+    newMachine: watching ? findNewMachine(machines, baselineIds, isNewMachineEligible) : null,
     mint,
     watchForNewMachine,
     stopWatchingForNewMachine,

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ActivationResumeBar } from './ActivationShell'
 import { OnboardingWizard } from './OnboardingWizard'
+import type { ConfirmedVpsActivation } from './use-vps-activation'
 
 const scan = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }))
 
@@ -29,20 +30,37 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+function vpsController(overrides: Partial<ConfirmedVpsActivation> = {}): ConfirmedVpsActivation {
+  return {
+    state: null,
+    ready: true,
+    saving: false,
+    error: null,
+    persist: vi.fn(),
+    clear: vi.fn(),
+    ...overrides,
+  }
+}
+
 describe('OnboardingWizard activation routes', () => {
   it('starts on a shell-native welcome surface with a prominent exploration exit', () => {
     const onRouteChange = vi.fn()
     const onExplore = vi.fn()
+    const onEnterVps = vi.fn().mockResolvedValue(undefined)
     render(
       <OnboardingWizard
         route="welcome"
         onRouteChange={onRouteChange}
         onExplore={onExplore}
         onComplete={() => {}}
+        onEnterVps={onEnterVps}
+        vps={vpsController()}
       />,
     )
 
     expect(screen.getByRole('heading', { name: /Start with a project/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Set up a VPS' }))
+    expect(onEnterVps).toHaveBeenCalledWith('welcome')
     fireEvent.click(screen.getByRole('button', { name: 'Find local projects' }))
     expect(onRouteChange).toHaveBeenCalledWith('local-project')
     fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
@@ -53,16 +71,21 @@ describe('OnboardingWizard activation routes', () => {
     const onRouteChange = vi.fn()
     const onExplore = vi.fn()
     const onComplete = vi.fn()
+    const onEnterVps = vi.fn().mockResolvedValue(undefined)
     render(
       <OnboardingWizard
         route="local-project"
         onRouteChange={onRouteChange}
         onExplore={onExplore}
         onComplete={onComplete}
+        onEnterVps={onEnterVps}
+        vps={vpsController()}
       />,
     )
 
     expect(screen.getByTestId('repo-scan-flow')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Set up an always-on VPS/ }))
+    expect(onEnterVps).toHaveBeenCalledWith('local-project')
     fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
     expect(onExplore).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: 'Close browser' }))

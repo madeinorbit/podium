@@ -11,8 +11,8 @@ function machine(id: string, online = true): MachineWire {
     name: id,
     hostname: `${id}.local`,
     online,
-    lastSeenAt: Date.now(),
-  } as MachineWire
+    lastSeenAt: new Date().toISOString(),
+  }
 }
 
 function trpcWithPairing(
@@ -68,6 +68,18 @@ describe('machine pairing controller', () => {
 
     act(() => result.current.watchForNewMachine())
     rerender({ machines: [source, ineligible, target] })
+
+    await waitFor(() => expect(result.current.newMachine?.id).toBe(target.id))
+  })
+
+  it('restores live detection from a durable baseline after the target is already present', async () => {
+    const source = machine('source')
+    const target = machine('target')
+    const { result } = renderHook(() =>
+      useMachinePairing({ trpc: trpcWithPairing(), machines: [source, target] }),
+    )
+
+    act(() => result.current.watchForNewMachine(new Set([source.id])))
 
     await waitFor(() => expect(result.current.newMachine?.id).toBe(target.id))
   })
