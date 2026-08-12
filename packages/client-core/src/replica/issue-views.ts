@@ -67,7 +67,7 @@ import type { Replica } from './replica'
  * is O(this issue's neighbourhood) — never O(world).
  */
 export interface IssueView {
-  id: IssueId
+  id: string
   /** Non-shell sessions working this issue, BY ID. Never the sessions themselves. */
   memberSessionIds: SessionId[]
   /** `POD-13`, or `#13` before a repo has a prefix. Derived from (prefix, seq) —
@@ -108,7 +108,7 @@ export interface IssueSessionRollups {
 export interface IssueViewInput {
   id: string
   seq: number
-  parentId?: IssueId | null
+  parentId?: string | null
   prefix?: string | null
   stage: string
   status?: string
@@ -116,7 +116,7 @@ export interface IssueViewInput {
   readAt?: string | null
   updatedAt: string
   deletedAt?: string | null
-  deps?: Array<{ id: IssueId; type: string }>
+  deps?: Array<{ id: string; type: string }>
 }
 
 /** The session fields these derivations read. Ids and scalars only. */
@@ -202,23 +202,25 @@ export function deriveIssueViews(
   // touching A rewrite B).
   const dependentsByIssue = new Map<IssueId, { id: IssueId; type: string }[]>()
   for (const issue of issues) {
-    const parentId = issue.parentId
+    const issueId = asIssueId(issue.id)
+    const parentId = issue.parentId ? asIssueId(issue.parentId) : issue.parentId
     if (parentId) {
       const kids = childrenByParent.get(parentId)
-      if (kids) kids.push(issue.id)
-      else childrenByParent.set(parentId, [issue.id])
+      if (kids) kids.push(issueId)
+      else childrenByParent.set(parentId, [issueId])
     }
     for (const dep of issue.deps ?? []) {
-      const dependent = { id: issue.id, type: dep.type }
-      const list = dependentsByIssue.get(dep.id)
+      const dependent = { id: issueId, type: dep.type }
+      const list = dependentsByIssue.get(asIssueId(dep.id))
       if (list) list.push(dependent)
-      else dependentsByIssue.set(dep.id, [dependent])
+      else dependentsByIssue.set(asIssueId(dep.id), [dependent])
     }
   }
 
   const views = new Map<string, IssueView>()
   for (const issue of issues) {
-    const childIds = childrenByParent.get(issue.id) ?? []
+    const issueId = asIssueId(issue.id)
+    const childIds = childrenByParent.get(issueId) ?? []
     const childDoneCount = childIds.filter((id) => stageById.get(id) === 'done').length
     // `blocked`: something this issue depends on is not done yet. An unknown
     // dep id counts as NOT blocking — the alternative is that a replica which
@@ -229,8 +231,8 @@ export function deriveIssueViews(
     )
     const deferred = issue.deferUntil != null && Date.parse(issue.deferUntil) > now()
     views.set(issue.id, {
-      id: issue.id,
-      memberSessionIds: sessionsByIssue.get(issue.id) ?? [],
+      id: issueId,
+      memberSessionIds: sessionsByIssue.get(issueId) ?? [],
       displayRef: issueDisplayRef(issue),
       childIds,
       childCount: childIds.length,
@@ -238,7 +240,7 @@ export function deriveIssueViews(
       blocked,
       deferred,
       ready: !blocked && !deferred && issue.stage !== 'done',
-      dependents: dependentsByIssue.get(issue.id) ?? [],
+      dependents: dependentsByIssue.get(issueId) ?? [],
     })
   }
   return views
