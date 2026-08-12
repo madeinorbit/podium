@@ -86,6 +86,7 @@ export interface UseChatSendResult {
   /** Decline the offer outright: clears it for every surface and every viewer,
    *  no turn sent. Throws on failure so the bar can un-hide itself. */
   dismissOffer: (offerAt: string) => Promise<void>
+  retractQueuedMessage: (id: string) => Promise<void>
   /** Optimistic hide of the offer bar, keyed by the offer's createdAt. */
   dismissedOfferAt: string | null
   setDismissedOfferAt: (at: string | null) => void
@@ -153,6 +154,15 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     return () => clearInterval(timer)
   }, [active, headless, refreshQueuedMessages])
 
+  // A local resumeAndSend acknowledgement precedes the authority's ledger row.
+  // While that narrow gap exists, poll quickly so the optimistic bubble gains
+  // its durable message id (and therefore its Retract action) promptly.
+  useEffect(() => {
+    if (headless || !active || !pending.some((item) => item.state === 'queued')) return
+    const timer = setInterval(refreshQueuedMessages, 1_000)
+    return () => clearInterval(timer)
+  }, [active, headless, pending, refreshQueuedMessages])
+
   // A mobile AgentPanel reuses one ChatView instance across sessions (it isn't
   // keyed by sessionId like the desktop tabs are), so reset per-session local UI
   // state on a session switch — otherwise a stale optimistic bubble or "Sending…"
@@ -186,6 +196,25 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       else setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserItems)))
     }
   }, [blocks, headless])
+
+  // Once the authority's durable row arrives, let it replace the text-matched
+  // optimistic bubble. The server row carries the id retraction needs; keeping
+  // the local duplicate instead would leave a visible queued message that could
+  // not be acted on.
+  useEffect(() => {
+    if (queuedMessages.length === 0) return
+    setPending((current) => {
+      const durableTexts = queuedMessages.map((message) => message.text.trim())
+      const next = current.filter((item) => {
+        if (item.state !== 'queued') return true
+        const index = durableTexts.indexOf(item.text.trim())
+        if (index === -1) return true
+        durableTexts.splice(index, 1)
+        return false
+      })
+      return next.length === current.length ? current : next
+    })
+  }, [queuedMessages])
 
   // Drop the "sending" affordance after a grace period even if no echo arrived
   // (slow tail / uninstrumented) — the prompt was still sent, so settle to 'sent'
@@ -379,6 +408,26 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     [trpc, sessionId],
   )
 
+  const retractQueuedMessage = useCallback(
+    async (id: string) => {
+      const previous = queuedMessages
+      setQueuedMessages((messages) => messages.filter((message) => message.id !== id))
+      try {
+        await trpc.messages.cancel.mutate({ id })
+      } catch {
+        setQueuedMessages((current) => {
+          if (current.some((message) => message.id === id)) return current
+          const retracted = previous.find((message) => message.id === id)
+          return retracted
+            ? [...current, retracted].sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+            : current
+        })
+        refreshQueuedMessages()
+      }
+    },
+    [queuedMessages, refreshQueuedMessages, trpc],
+  )
+
   return {
     pending,
     queuedMessages,
@@ -387,6 +436,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     send,
     sendOfferPrompt,
     dismissOffer,
+    retractQueuedMessage,
     dismissedOfferAt,
     setDismissedOfferAt,
   }

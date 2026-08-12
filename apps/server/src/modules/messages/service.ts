@@ -41,6 +41,7 @@ import {
   actorUser,
   asAgentIdentityId,
   asIssueId,
+  asSessionId,
   FIRST_ADMIN_USER_ID,
   type IssueScope,
   type SessionId,
@@ -189,6 +190,8 @@ export interface MessageDeliveryDeps {
       queued?: boolean
       reason?: string
     }
+    cancelQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
+    hasQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
     /** ESC + queue-as-next-turn (#237 hard interrupt). */
     interruptText(input: InboxDeliveryInput): {
       ok: boolean
@@ -395,6 +398,11 @@ export class MessageDeliveryService {
           }
         : {}),
       send: (from, input) => this.send(from, input),
+      cancelQueuedInput: (message) => {
+        const sessionId =
+          message.deliveredTo ?? (message.toKind === 'session' ? message.toId : null)
+        if (sessionId) deps.sessions.cancelQueuedMessage?.(asSessionId(sessionId), message.id)
+      },
       emitTransition: (message, kind, extra) => this.emitTransition(message, kind, extra),
       fromLabel: (message) => this.render.fromLabel(message),
     })
@@ -1120,6 +1128,15 @@ export class MessageDeliveryService {
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
     if (!r.ok) return { ...r, disposition: 'queued' }
+    // A boot/busy queue acceptance is not delivery. Keep the ledger row queued
+    // until SessionInbox drains this exact sourceMessageId; otherwise the
+    // transcript hides a still-pending human message as soon as revival starts,
+    // and cancellation can no longer stop it. Recording the chosen target here
+    // preserves the existing sweep/retry guard while status remains retractable.
+    if (via === 'queue') {
+      this.markInjected(message, sessionId)
+      return { ...r, disposition: okDisposition }
+    }
     const confirmed = this.render.confirmedOnInjection(message)
     if (confirmed) {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
@@ -1144,6 +1161,19 @@ export class MessageDeliveryService {
       return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
     }
     return { ...r, disposition: okDisposition }
+  }
+
+  /** SessionInbox calls this at the real queued-input boundary, after typeText
+   * accepted the row. Unwrapped human text is confirmed there; enveloped mail
+   * records injection and still waits for its transcript echo. */
+  onQueuedInputApplied(messageId: string, sessionId: SessionId): void {
+    const message = this.deps.messages.getMessage(messageId)
+    if (!message || message.status !== 'queued') return
+    if (this.render.confirmedOnInjection(message)) {
+      this.markDelivered(message, sessionId, 'injection')
+    } else {
+      this.markInjected(message, sessionId)
+    }
   }
 
   /** Brake 2 + the spawn seam: unresumable wake → spawn a fresh agent on the
@@ -1235,6 +1265,12 @@ export class MessageDeliveryService {
           })
           for (const message of page) {
             if (!message.injectedAt || message.deliveredTo !== session.sessionId) continue
+            // A wake can report idle before SessionInbox's readiness loop has
+            // actually typed its durable row. Queue acceptance stamps
+            // injectedAt for retry suppression, so the physical PTY queue is
+            // the final discriminator: never let the startup idle edge confirm
+            // (and hide) text that is still waiting to cross that boundary.
+            if (this.deps.sessions.hasQueuedMessage?.(session.sessionId, message.id)) continue
             if (this.render.isPointer(message)) continue
             this.markDelivered(message, session.sessionId, 'boundary')
           }
@@ -1502,6 +1538,10 @@ export class MessageDeliveryService {
   /** Explicitly clear one recipient-owned message without opening the inbox. */
   dismiss(messageId: string, consume: string | null): MessageRow {
     return this.mailbox.dismiss(messageId, consume)
+  }
+
+  cancel(messageId: string): MessageRow {
+    return this.mailbox.cancel(messageId)
   }
 
   // ---- clamp matrix / relationships ----

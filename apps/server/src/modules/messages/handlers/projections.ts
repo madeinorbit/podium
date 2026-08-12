@@ -16,6 +16,7 @@
 
 import type {
   ContractInput,
+  mailCancelContract,
   mailDismissContract,
   mailShowContract,
   mailStatusContract,
@@ -65,4 +66,17 @@ export function dismissHandler(
     throw new Error('only the recipient of a message may dismiss it')
   }
   return access.wire(svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
+}
+
+export function cancelHandler(
+  ctx: MailHandlerContext,
+  input: ContractInput<typeof mailCancelContract>,
+): MessageWire {
+  const { caller, deps, access } = ctx
+  const message = deps.messages.message(input.id)
+  if (!message) throw new Error(`unknown message ${input.id}`)
+  if (!access.isSender(caller, message)) {
+    throw new Error('only the sender of a message may cancel it')
+  }
+  return access.wire(deps.messages.cancel(message.id))
 }

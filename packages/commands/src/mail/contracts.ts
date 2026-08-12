@@ -550,6 +550,7 @@ const MESSAGE_ID_ORACLE_RULE: ErrorConsistency = {
 
 export const mailShowInput = z.object({ id: z.string() })
 export const mailDismissInput = z.object({ id: z.string() })
+export const mailCancelInput = z.object({ id: z.string() })
 export const mailStatusInput = z.object({ id: z.string() })
 export const mailPendingRemindersInput = z.object({}).optional()
 export const mailAskInput = z.object({
@@ -619,6 +620,33 @@ export const mailDismissContract: CommandContract<typeof mailDismissInput> = {
   conflict: 'cmd',
   conflictRule:
     'Recipient-only clear of one row; idempotent, and a second dismiss of an already-cleared row is a no-op rather than a rejection',
+}
+
+export const mailCancelContract: CommandContract<typeof mailCancelInput> = {
+  name: 'mail.cancel',
+  version: 1,
+  visibility: 'personal',
+  input: mailCancelInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'none',
+    confirmation: 'none',
+    rationale:
+      'SENDER-SHIP IS THE AUTHORIZATION. Cancelling retracts a message before delivery, so only ' +
+      'the principal that authored the queued row may perform it; viewing or receiving the row is ' +
+      'not enough.',
+  },
+  exposure: ['trpc'],
+  delivery: DURABLE_QUEUED_ONLINE,
+  redaction: NO_SECRETS,
+  ownership: { creates: [], note: 'Transitions an existing queued row to cancelled.' },
+  attribution: MAIL_ATTRIBUTION,
+  errorConsistency: MESSAGE_ID_ORACLE_RULE,
+  cli: { positional: ['id'], summary: 'Retract a queued message' },
+  conflict: 'cmd',
+  conflictRule:
+    'Sender-only queued-to-cancelled transition; delivery wins if the row has already left queued.',
 }
 
 export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
@@ -772,6 +800,7 @@ export const MAIL_CONTRACTS = [
   mailLedgerContract,
   mailShowContract,
   mailDismissContract,
+  mailCancelContract,
   mailStatusContract,
   mailPendingRemindersContract,
   mailAskContract,

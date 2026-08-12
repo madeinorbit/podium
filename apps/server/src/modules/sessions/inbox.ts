@@ -140,6 +140,8 @@ export interface InboxAuthorizationPort {
     principal: InboxPrincipalReference
     reason: string
   }): void
+  /** The queued row has now crossed the real PTY boundary. */
+  applied(input: { sourceMessageId: string; sessionId: SessionId }): void
 }
 
 export interface InboxAttentionPort {
@@ -352,6 +354,25 @@ export class SessionInbox {
     return { ok: true, queued: true }
   }
 
+  /** Remove every still-pending PTY row backed by one message-ledger intent. */
+  cancelQueuedMessage(sessionId: SessionId, sourceMessageId: string): boolean {
+    const session = this.deps.getSession(sessionId)
+    if (!session) return false
+    const matches = this.deps.queue
+      .list(sessionId)
+      .filter((row) => row.sourceMessageId === sourceMessageId)
+    if (matches.length === 0) return false
+    for (const row of matches) this.deps.queue.delete(row.id)
+    session.queuedMessageCount = Math.max(0, session.queuedMessageCount - matches.length)
+    this.deps.persist(session)
+    this.deps.broadcast()
+    return true
+  }
+
+  hasQueuedMessage(sessionId: SessionId, sourceMessageId: string): boolean {
+    return this.deps.queue.list(sessionId).some((row) => row.sourceMessageId === sourceMessageId)
+  }
+
   drain(sessionId: SessionId): void {
     if (this.activeDrains.has(sessionId)) return
     const session = this.deps.getSession(sessionId)
@@ -406,6 +427,12 @@ export class SessionInbox {
         if (!sent.ok) {
           stop()
           return
+        }
+        if (head.sourceMessageId) {
+          this.deps.authorization.applied({
+            sourceMessageId: head.sourceMessageId,
+            sessionId,
+          })
         }
         removeHead(current, head.id)
       }

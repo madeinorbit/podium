@@ -305,6 +305,8 @@ export {
   type MailContractName,
   mailAskContract,
   mailAskInput,
+  mailCancelContract,
+  mailCancelInput,
   mailDismissContract,
   mailDismissInput,
   mailInboxConsumeContract,

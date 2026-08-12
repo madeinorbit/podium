@@ -177,6 +177,8 @@ interface HarnessOpts {
   issueForCwd?: (cwd: string) => string | null
   /** Repo prefix for nice-id envelope labels (#474). */
   prefix?: string
+  /** Source ids still physically waiting in SessionInbox's durable PTY queue. */
+  queuedSourceIds?: Set<string>
 }
 
 function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
@@ -234,6 +236,8 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
         queued.push(i)
         return opts?.queueText?.(i) ?? { ok: true, queued: true }
       },
+      hasQueuedMessage: (_sessionId, sourceMessageId) =>
+        opts?.queuedSourceIds?.has(sourceMessageId) ?? false,
       interruptText: (i) => {
         interrupted.push(i)
         return { ok: true, queued: true }
@@ -1061,7 +1065,10 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
     expect(sent).toHaveLength(0)
     expect(queued).toHaveLength(1)
-    expect(r.message.status).toBe('delivered')
+    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveredTo).toBe('s1')
+    svc.onQueuedInputApplied(r.message.id, asSessionId('s1'))
+    expect(svc.message(r.message.id)?.status).toBe('delivered')
   })
 
   it('parked target + wait: stays queued (durable)', () => {
@@ -1085,8 +1092,34 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     // Enqueued to resurrect; queued until it wakes, types, and echoes.
     expect(r.message.status).toBe('queued')
     expect(r.message.deliveredTo).toBe('s1')
+    svc.onQueuedInputApplied(r.message.id, asSessionId('s1'))
+    expect(store.messages.getMessage(r.message.id)!.deliveredTo).toBe('s1')
     echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
+  it('a queued operator message stays retractable until the PTY drain applies it', () => {
+    const queuedSourceIds = new Set<string>()
+    const { svc, store } = harness(
+      [session({ sessionId: asSessionId('s1'), status: 'hibernated' })],
+      { queuedSourceIds },
+    )
+    const sent = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'maybe later',
+        lifecycle: 'wake',
+      },
+    )
+
+    expect(store.messages.getMessage(sent.message.id)?.status).toBe('queued')
+    queuedSourceIds.add(sent.message.id)
+    svc.onSessionIdle(session({ sessionId: asSessionId('s1'), agentState: IDLE }))
+    expect(store.messages.getMessage(sent.message.id)?.status).toBe('queued')
+    expect(svc.cancel(sent.message.id).status).toBe('cancelled')
+    svc.onQueuedInputApplied(sent.message.id, asSessionId('s1'))
+    expect(store.messages.getMessage(sent.message.id)?.status).toBe('cancelled')
   })
 
   it('unknown session target dead-letters, never silently queues [POD-834]', () => {

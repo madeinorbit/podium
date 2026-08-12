@@ -277,6 +277,7 @@ export function ChatView({
           isOperatorPromptRow={chat.isOperatorPromptRow}
           pending={chat.pending}
           restoredQueued={chat.restoredQueued}
+          onRetractQueued={chat.retractQueuedMessage}
           overlay={chat.headless ? chat.headlessTurn.overlay : null}
           activity={chat.activity}
           attribution={chat.attribution}

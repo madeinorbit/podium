@@ -80,6 +80,8 @@ export interface SessionLifecycleDeps {
   authorizeQueuedMessage?(messageId: string): { ok: true } | { ok: false; reason: string }
   /** Dead-letter the durable source intent after a drain-time refusal. */
   rejectQueuedMessage?(messageId: string, reason: string): void
+  /** Advance the source intent only after queued input crosses into the PTY. */
+  confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): void
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
    * `MutationLedger`. Threaded through rather than constructed here — the service

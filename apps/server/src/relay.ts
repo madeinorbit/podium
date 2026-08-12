@@ -777,10 +777,14 @@ export class SessionRegistry {
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
+    const queuedApplyHooks: {
+      applied?: (messageId: string, sessionId: SessionId) => void
+    } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
       events: this.store.events,
       authorize: mail.authorizeAtApply,
+      applied: (messageId, sessionId) => queuedApplyHooks.applied?.(messageId, sessionId),
       bus: this.bus,
       now: () => new Date(this.now()).toISOString(),
     })
@@ -791,6 +795,8 @@ export class SessionRegistry {
       bus: this.bus,
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
       rejectQueuedMessage: (messageId, reason) => queuedMessageApply.reject(messageId, reason),
+      confirmQueuedMessageApplied: (messageId, sessionId) =>
+        queuedMessageApply.applied(messageId, sessionId),
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
@@ -1228,6 +1234,8 @@ export class SessionRegistry {
       machineName: (id) => machines.listMachines().find((m) => m.id === id)?.name ?? id,
       now: () => new Date(this.now()).toISOString(),
     })
+    queuedApplyHooks.applied = (messageId, sessionId) =>
+      messagesSvc.onQueuedInputApplied(messageId, sessionId)
     this.bus.on('message.deadLettered', ({ messageId, reason }) =>
       messagesSvc.notifyQueuedInputRejected(messageId, reason),
     )

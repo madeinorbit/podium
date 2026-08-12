@@ -68,6 +68,7 @@ export interface MessageMailboxDeps {
     | 'listMessagesFor'
     | 'listSettleNotifiable'
     | 'markRead'
+    | 'markCancelled'
     | 'markReminded'
     // The per-reader ledger the nag counts [POD-1379] — distinct from `markRead`,
     // which moves the SHARED delivery status for the message as a whole.
@@ -84,6 +85,7 @@ export interface MessageMailboxDeps {
   /** THE send path. A reply is an ordinary send with a server-computed
    *  recipient, so it goes through the same clamps, brakes and ledger. */
   send(from: MessageSender, input: MessageSendInput): MessageSendResult
+  cancelQueuedInput(message: MessageRow): void
   /** The transition ledger — a read is a status transition like any other. */
   emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void
   /** The rendered sender label, for a reminder's render-ready row. */
@@ -454,6 +456,24 @@ export class MessageMailbox {
     }
     this.retireNotificationFact(message, at)
     return dismissed
+  }
+
+  /** Sender-side retraction while delivery is still pending. The session inbox
+   * performs one final status check at drain time, so this durable transition is
+   * also the cancellation token for the queued PTY input. */
+  cancel(messageId: string): MessageRow {
+    const message = this.deps.messages.getMessage(messageId)
+    if (!message) throw new Error('unknown message ' + messageId)
+    if (message.status !== 'queued' || !this.deps.messages.markCancelled(message.id)) {
+      throw new Error('message is no longer queued')
+    }
+    const cancelled = this.deps.messages.getMessage(message.id) ?? {
+      ...message,
+      status: 'cancelled' as const,
+    }
+    this.deps.cancelQueuedInput(message)
+    this.deps.emitTransition(cancelled, 'message.cancelled')
+    return cancelled
   }
 
   private retireNotificationFact(message: MessageRow, at: string): void {

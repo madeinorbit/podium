@@ -138,6 +138,42 @@ describe('the sender is stamped from the capability, never from the payload (A1)
   })
 })
 
+describe('queued message retraction', () => {
+  it('lets the exact sender cancel a queued row and refuses its recipient', async () => {
+    const h = mailHarness()
+    const target = h.createIssue({ title: 'target' })
+    h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, status: 'hibernated' })
+
+    const sent = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
+      to: 'sTarget',
+      body: 'hold this',
+      lifecycle: 'wake',
+    })) as { id: string }
+
+    await expect(
+      Promise.resolve().then(() =>
+        h.gate.dispatch(
+          h.agentCap(target.id, asSessionId('sTarget')),
+          undefined,
+          'cancel',
+          { id: sent.id },
+          'trpc',
+        ),
+      ),
+    ).rejects.toThrow('only the sender of a message may cancel it')
+
+    const cancelled = (await h.gate.dispatch(
+      OPERATOR,
+      undefined,
+      'cancel',
+      { id: sent.id },
+      'trpc',
+    )) as { status: string }
+    expect(cancelled.status).toBe('cancelled')
+    expect(h.svc.message(sent.id)?.status).toBe('cancelled')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // A2 — TARGET GATING on send: session-addressed goes through the session-target
 // gate; issue-addressed goes through checkIssueAccess(write) against the

@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { EventBus } from '../bus'
 import type { MessageDeliveryDeps } from './service'
@@ -9,6 +10,7 @@ export class QueuedMessageApply {
       messages: MessageDeliveryDeps['messages']
       events: MessageDeliveryDeps['events']
       authorize(message: MessageRow): { ok: true } | { ok: false; reason: string }
+      applied(messageId: string, sessionId: SessionId): void
       bus: EventBus
       now(): string
     },
@@ -17,7 +19,12 @@ export class QueuedMessageApply {
   authorize(messageId: string): { ok: true } | { ok: false; reason: string } {
     const message = this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
+    if (message.status !== 'queued') return { ok: false, reason: `message is ${message.status}` }
     return this.deps.authorize(message)
+  }
+
+  applied(messageId: string, sessionId: SessionId): void {
+    this.deps.applied(messageId, sessionId)
   }
 
   reject(messageId: string, reason: string): void {

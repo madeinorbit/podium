@@ -316,6 +316,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     authorization: {
       authorizeAtDrain: (input) => bag.authorizeQueuedInputAtApply(input),
+      applied: ({ sourceMessageId, sessionId }) =>
+        bag.deps.confirmQueuedMessageApplied?.(sourceMessageId, sessionId),
       rejected: ({ sourceMessageId, reason }) => {
         if (sourceMessageId) bag.deps.rejectQueuedMessage?.(sourceMessageId, reason)
       },
@@ -353,6 +355,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.sendText = (input: any) => bag.inbox.sendText(input)
   bag.interruptText = (input: any) => bag.inbox.interruptText(input)
   bag.queueText = (input: any) => bag.inbox.queueText(input)
+  bag.cancelQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
+    bag.inbox.cancelQueuedMessage(sessionId, sourceMessageId)
+  bag.hasQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
+    bag.inbox.hasQueuedMessage(sessionId, sourceMessageId)
   bag.resumeAndSend = (input: any) => bag.inbox.resumeAndSend(input)
   bag.answerAskUserQuestion = (input: any) =>
     bag.inbox.answerAskUserQuestion({

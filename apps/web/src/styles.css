@@ -4038,6 +4038,21 @@ html[data-density="balanced"] .header-quota-pools {
 .transcript-delivery--error {
   color: var(--destructive);
 }
+.transcript-retract {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+  color: var(--muted-foreground);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  opacity: 0.72;
+}
+.transcript-retract:hover {
+  color: var(--foreground);
+  opacity: 1;
+}
 .transcript-pending {
   transition: none;
 }

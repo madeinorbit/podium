@@ -48,6 +48,7 @@ const fakeTrpc = {
   },
   messages: {
     ledger: { query: vi.fn(async (): Promise<unknown> => []) },
+    cancel: { mutate: vi.fn(async () => ({ status: 'cancelled' })) },
   },
 }
 
@@ -390,10 +391,40 @@ describe('ChatView composer', () => {
 
     const queued = container.querySelector('[data-testid="queued-chat-message"]')
     expect(queued?.textContent).toContain('please do this next')
-    expect(queued?.textContent).toContain('queued')
+    expect(queued?.textContent).toContain('pending')
+    expect(queued?.textContent).toContain('Retract')
     const queueNotice = container.querySelector('[data-notice="queue"]')
     expect(queueNotice?.textContent).toContain('Queued · 1')
     expect(queueNotice?.textContent).toContain('sends after this turn')
+  })
+
+  it('retracts a pending durable message and removes it from the transcript', async () => {
+    fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
+      {
+        id: 'msg_retract',
+        from: 'operator',
+        to: 'session:s1',
+        body: 'do not send this',
+        createdAt: '2026-06-03T00:00:01.000Z',
+        status: 'queued',
+      },
+    ])
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const retract = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Retract pending message"]',
+    )
+    expect(retract).not.toBeNull()
+    await act(async () => {
+      retract?.click()
+      await Promise.resolve()
+    })
+
+    expect(fakeTrpc.messages.cancel.mutate).toHaveBeenCalledWith({ id: 'msg_retract' })
+    expect(container.textContent).not.toContain('do not send this')
   })
 
   it('does not submit Enter during composition and submits after composition ends', async () => {

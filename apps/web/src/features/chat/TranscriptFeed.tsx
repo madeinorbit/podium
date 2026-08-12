@@ -9,7 +9,7 @@ import type {
 } from '@podium/client-core/viewmodels'
 import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
-import { ArrowUp, Image as ImageIcon } from 'lucide-react'
+import { ArrowUp, Image as ImageIcon, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { Fragment, useMemo } from 'react'
 import { type IssueReferenceLookup, renderMarkdown } from '@/lib/markdown'
@@ -132,6 +132,7 @@ export function TranscriptFeed({
   isOperatorPromptRow,
   pending,
   restoredQueued,
+  onRetractQueued,
   overlay,
   activity,
   attribution,
@@ -170,6 +171,7 @@ export function TranscriptFeed({
   isOperatorPromptRow: (row: RenderableRow['row']) => boolean
   pending: readonly PendingItem[]
   restoredQueued: readonly QueuedChatMessage[]
+  onRetractQueued: (id: string) => Promise<void>
   overlay: HeadlessOverlay | null
   activity: ChatActivity | null
   /** The session's three attribution pairs (doc §3.1.3 A3), derived once by the
@@ -366,7 +368,7 @@ export function TranscriptFeed({
             <div className="transcript-you-label">
               You
               {p.state === 'sending' && <span className="transcript-delivery">sending…</span>}
-              {p.state === 'queued' && <span className="transcript-delivery">queued</span>}
+              {p.state === 'queued' && <span className="transcript-delivery">pending</span>}
               {p.state === 'failed' && (
                 <span className="transcript-delivery transcript-delivery--error">
                   not delivered
@@ -400,7 +402,17 @@ export function TranscriptFeed({
           <div className="transcript-body transcript-you">
             <div className="transcript-you-label">
               You
-              <span className="transcript-delivery">queued</span>
+              <span className="transcript-delivery">pending</span>
+              <button
+                type="button"
+                className="transcript-retract"
+                aria-label="Retract pending message"
+                title="Retract pending message"
+                onClick={() => void onRetractQueued(message.id)}
+              >
+                <X size={11} aria-hidden="true" />
+                Retract
+              </button>
             </div>
             <div className="chat-md whitespace-pre-wrap">{message.text}</div>
           </div>

@@ -402,7 +402,7 @@ describe('composer, queue, offer and activity', () => {
       pending: [{ text: 'again', state: 'sending' }],
     })
     expect(state.restored.map((r) => r.text)).toEqual(['again', 'other'])
-    expect(state.total).toBe(5)
+    expect(state.total).toBe(3)
     // A FAILED bubble claims nothing — the durable row must still render.
     expect(
       queuedState({

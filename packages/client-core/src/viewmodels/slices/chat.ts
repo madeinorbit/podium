@@ -608,7 +608,10 @@ export function queuedState<
     optimistic.splice(i, 1)
     return false
   })
-  return { restored, total: (session?.queuedMessageCount ?? 0) + queuedMessages.length }
+  // Both projections describe the same queue at different layers: session
+  // depth is the PTY outbox, queuedMessages is its message-ledger identity.
+  // Summing them double-counts every server-backed pending message.
+  return { restored, total: Math.max(session?.queuedMessageCount ?? 0, queuedMessages.length) }
 }
 
 /** The live offer for this session, unless a button click just consumed it

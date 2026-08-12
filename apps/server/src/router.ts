@@ -454,6 +454,7 @@ export const appRouter = t.router({
     // queued status. The contract says `write`; the verb follows the contract.
     inbox: mailMutation('inbox'),
     dismiss: mailMutation('dismiss'),
+    cancel: mailMutation('cancel'),
     show: mailQuery('show'),
     // Sender-queryable message lifecycle (#834) [POD-834 §04d]: "what happened to
     // msg X" — mayView-gated in the gate (sender/recipient/admin), a pure read.

@@ -63,6 +63,7 @@ function render(
         isOperatorPromptRow={() => false}
         pending={[]}
         restoredQueued={[]}
+        onRetractQueued={async () => {}}
         overlay={overlay}
         activity={null}
         attribution={{} as never}

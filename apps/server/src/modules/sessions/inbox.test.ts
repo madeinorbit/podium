@@ -33,6 +33,7 @@ function harness(options: { owner?: typeof ALICE | null; status?: string; agentK
   const rejected: unknown[] = []
   const answered: unknown[] = []
   let authorized = true
+  const applied = vi.fn()
   const handleInput = vi.fn()
   const session = {
     sessionId: SID,
@@ -80,6 +81,7 @@ function harness(options: { owner?: typeof ALICE | null; status?: string; agentK
     authorization: {
       authorizeAtDrain: () =>
         authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const),
+      applied,
       rejected: (input) => rejected.push(input),
     },
     attention: {
@@ -101,6 +103,7 @@ function harness(options: { owner?: typeof ALICE | null; status?: string; agentK
     sent,
     rejected,
     answered,
+    applied,
     handleInput,
     revoke: () => {
       authorized = false
@@ -141,6 +144,49 @@ describe('SessionInbox authorization and identity', () => {
         reason: 'revoked',
       }),
     ])
+  })
+
+  it('confirms a source message only when its queued input crosses the PTY boundary', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness()
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'deliver after boot',
+      mutationId: 'queued-apply',
+      sourceMessageId: 'msg_pending',
+      principal: agentPrincipal(),
+    })
+    expect(h.applied).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(7_000)
+
+    expect(h.applied).toHaveBeenCalledWith({
+      sourceMessageId: 'msg_pending',
+      sessionId: SID,
+    })
+  })
+
+  it('retracts a source message before the queued input reaches the PTY', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness()
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'changed my mind',
+      mutationId: 'queued-cancel',
+      sourceMessageId: 'msg_cancelled',
+      principal: agentPrincipal(),
+    })
+    expect(h.inbox.cancelQueuedMessage(SID, 'msg_cancelled')).toBe(true)
+
+    vi.advanceTimersByTime(7_000)
+
+    expect(h.sent).toEqual([])
+    expect(h.rows).toEqual([])
+    expect(h.applied).not.toHaveBeenCalled()
   })
 
   it("delivers OpenCode mail through the generic bracketed-paste route", () => {

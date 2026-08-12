@@ -136,6 +136,7 @@ export interface ChatSurface {
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
   /** Decline the offer without answering it — see `useChatSend`. */
   dismissOffer: (offerAt: string) => Promise<void>
+  retractQueuedMessage: (id: string) => Promise<void>
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
 
@@ -569,6 +570,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     offer,
     sendOfferPrompt: send.sendOfferPrompt,
     dismissOffer: send.dismissOffer,
+    retractQueuedMessage: send.retractQueuedMessage,
     answerAsk,
     activity,
 

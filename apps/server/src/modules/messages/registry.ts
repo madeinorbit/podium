@@ -17,6 +17,7 @@ import {
   type AnyCommandContract,
   awaitAgentContract,
   mailAskContract,
+  mailCancelContract,
   mailDismissContract,
   mailInboxConsumeContract,
   mailLedgerContract,
@@ -35,7 +36,7 @@ import type { MailHandlerContext } from './handlers/context'
 import { inboxConsumeHandler } from './handlers/inbox-consume'
 import { ledgerHandler } from './handlers/ledger'
 import { pendingRemindersHandler } from './handlers/pending-reminders'
-import { dismissHandler, showHandler, statusHandler } from './handlers/projections'
+import { cancelHandler, dismissHandler, showHandler, statusHandler } from './handlers/projections'
 import { replyHandler } from './handlers/reply'
 import { sendHandler } from './handlers/send'
 import { spawnAgentHandler } from './handlers/spawn-agent'
@@ -68,6 +69,7 @@ export const MAIL_COMMANDS = {
   ledger: { contract: mailLedgerContract, handler: ledgerHandler },
   show: { contract: mailShowContract, handler: showHandler },
   dismiss: { contract: mailDismissContract, handler: dismissHandler },
+  cancel: { contract: mailCancelContract, handler: cancelHandler },
   status: { contract: mailStatusContract, handler: statusHandler },
   pendingReminders: {
     contract: mailPendingRemindersContract,

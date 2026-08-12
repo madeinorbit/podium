@@ -30,7 +30,7 @@ import {
   SINGLE_USER_CEILING,
 } from '@podium/commands'
 import { asIssueId, asSessionId, type IssueId, isSpawnedBy, type SessionId } from '@podium/model'
-import type { CommandPrincipal } from '../../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
 import { findSessionById } from '../../sessions/session-by-id'
@@ -322,6 +322,18 @@ export class MailAccess {
     return this.callerPrincipals(capability).some(
       (p) => p.kind === m.toKind && (p.kind === 'operator' || p.id === m.toId),
     )
+  }
+
+  /** The exact author of a row. Human/admin visibility is intentionally not a
+   * substitute: retraction belongs to the principal that sent the message. */
+  isSender(caller: MailCaller, m: MessageRow): boolean {
+    const human = onBehalfOfUser(caller.principal)
+    if (human === null || m.attribution?.onBehalfOf !== human) return false
+    if (caller.principal.kind === 'user') return m.fromKind === 'operator'
+    if (caller.principal.kind === 'agent') {
+      return m.fromKind === 'agent' && m.fromSession === caller.principal.agentSessionId
+    }
+    return false
   }
 
   mayView(capability: Capability, m: MessageRow): boolean {

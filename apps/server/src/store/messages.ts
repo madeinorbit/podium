@@ -504,6 +504,16 @@ export class MessagesRepository {
     return r.changes === 1
   }
 
+  /** queued → cancelled: the sender retracted work before it reached the
+   * recipient. The queued-input drain re-reads this status immediately before
+   * touching the PTY, so a cancelled row cannot be applied later. */
+  markCancelled(id: string): boolean {
+    const r = this.db
+      .prepare("UPDATE messages SET status = 'cancelled' WHERE id = ? AND status = 'queued'")
+      .run(id)
+    return r.changes === 1
+  }
+
   /** queued → delivered via the PULL path (an issue-mailbox read/claim) [POD-1420].
    *  Same ledger advance as `markDelivered`, with one difference that matters:
    *  `delivered_to` is COALESCEd, never overwritten. `markInjected` stamps the
