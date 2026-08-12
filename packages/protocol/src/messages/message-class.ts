@@ -120,6 +120,12 @@ export const SERVER_PLANE_CLASS = {
   presenceRoomState: 'stream.live',
   presenceRoomDelta: 'stream.live',
   presenceRoomClosed: 'stream.live',
+  // Operator log-level control (POD-1920). LIVE, and the classification is the
+  // feature's safety property rather than a formality: a raise is scoped to the
+  // connection it lands on and must NEVER be queued or replayed. Delivered to a
+  // client that reconnected an hour later, it is precisely the "stuck at debug
+  // with nobody watching" state the TTL exists to prevent.
+  setLogLevel: 'stream.live',
 } as const satisfies Record<ServerMessage['type'], 'control.entity' | 'stream.live'>
 
 /**

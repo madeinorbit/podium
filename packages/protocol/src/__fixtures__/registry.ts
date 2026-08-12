@@ -46,6 +46,7 @@ import * as host from '../messages/host'
 import * as inventory from '../messages/inventory'
 import * as issues from '../messages/issues'
 import * as localLink from '../messages/local-link'
+import * as logs from '../messages/logs'
 import * as messageClass from '../messages/message-class'
 import * as runtimeState from '../messages/runtime-state'
 import * as search from '../messages/search'
@@ -82,6 +83,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['inventory', inventory],
   ['issues', issues],
   ['local-link', localLink],
+  ['logs', logs],
   ['maintenance', maintenance],
   ['message-class', messageClass],
   ['perf', perf],

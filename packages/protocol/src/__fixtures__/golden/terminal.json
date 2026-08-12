@@ -534,12 +534,17 @@
           "feedId": "feedCursor.feedId",
           "epoch": "feedCursor.epoch",
           "seq": 1
+        },
+        "origin": {
+          "role": "origin.role",
+          "v": "origin.v",
+          "machineId": "origin.machineId"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hello\",\"clientId\":\"clientId\",\"viewport\":{\"cols\":1,\"rows\":1,\"dpr\":1},\"caps\":[\"caps[0]\"],\"wireVersion\":1,\"feedCursor\":{\"feedId\":\"feedCursor.feedId\",\"epoch\":\"feedCursor.epoch\",\"seq\":1}}"
+      "encoded": "{\"type\":\"hello\",\"clientId\":\"clientId\",\"viewport\":{\"cols\":1,\"rows\":1,\"dpr\":1},\"caps\":[\"caps[0]\"],\"wireVersion\":1,\"feedCursor\":{\"feedId\":\"feedCursor.feedId\",\"epoch\":\"feedCursor.epoch\",\"seq\":1},\"origin\":{\"role\":\"origin.role\",\"v\":\"origin.v\",\"machineId\":\"origin.machineId\"}}"
     },
     {
       "schema": "InputMessage",

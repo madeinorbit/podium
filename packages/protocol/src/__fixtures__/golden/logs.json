@@ -1,0 +1,73 @@
+{
+  "family": "logs",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "ClientLogLevel",
+      "variant": "minimal",
+      "wire": "error",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"error\""
+    },
+    {
+      "schema": "ClientLogLevel",
+      "variant": "full",
+      "wire": "error",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"error\""
+    },
+    {
+      "schema": "ClientLogOrigin",
+      "variant": "minimal",
+      "wire": {
+        "role": "role"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"role\":\"role\"}"
+    },
+    {
+      "schema": "ClientLogOrigin",
+      "variant": "full",
+      "wire": {
+        "role": "role",
+        "v": "v",
+        "machineId": "machineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"role\":\"role\",\"v\":\"v\",\"machineId\":\"machineId\"}"
+    },
+    {
+      "schema": "SetLogLevelMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "setLogLevel",
+        "level": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"setLogLevel\",\"level\":null}"
+    },
+    {
+      "schema": "SetLogLevelMessage",
+      "variant": "full",
+      "wire": {
+        "type": "setLogLevel",
+        "level": "error",
+        "ttlMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"setLogLevel\",\"level\":\"error\",\"ttlMs\":1}"
+    }
+  ]
+}

@@ -18,6 +18,7 @@ import headless from './headless.json' with { type: 'json' }
 import host from './host.json' with { type: 'json' }
 import inventory from './inventory.json' with { type: 'json' }
 import issues from './issues.json' with { type: 'json' }
+import logs from './logs.json' with { type: 'json' }
 import maintenance from './maintenance.json' with { type: 'json' }
 import model from './model.json' with { type: 'json' }
 import perf from './perf.json' with { type: 'json' }
@@ -51,6 +52,7 @@ export const GOLDEN: Record<string, unknown> = {
   host: host,
   inventory: inventory,
   issues: issues,
+  logs: logs,
   maintenance: maintenance,
   model: model,
   perf: perf,

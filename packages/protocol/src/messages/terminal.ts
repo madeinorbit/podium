@@ -13,6 +13,7 @@ import {
 import { z } from 'zod'
 import { PresenceIdentity } from '../planes/presence-rooms'
 import { FeedCursorField } from './feed'
+import { ClientLogOrigin } from './logs'
 
 const positiveInt = z.number().int().positive()
 
@@ -103,6 +104,22 @@ export const HelloMessage = z.object({
    * resumable-looking.
    */
   feedCursor: FeedCursorField.optional(),
+  /**
+   * HOW THIS CLIENT DESCRIBES ITSELF, so an operator can address it (POD-1920).
+   *
+   * The same role/version/machine tuple the client stamps on the records it
+   * forwards, which is what the server files them under — so "the mobile client
+   * on machine X" names one thing whether you are reading its log file or
+   * raising its level. Absent from an older build, and absent is a legal answer:
+   * such a connection simply cannot be targeted individually, and a raise
+   * addressed at everything still reaches it.
+   *
+   * SELF-DESCRIPTION, NEVER AUTHORIZATION. It labels a connection for an
+   * operator's benefit; who may call the command that reads it is settled by
+   * that command's own policy, from the transport principal, before any of this
+   * is consulted.
+   */
+  origin: ClientLogOrigin.optional(),
 })
 export const AttachMessage = z.object({
   type: z.literal('attach'),

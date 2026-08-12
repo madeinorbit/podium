@@ -9,6 +9,7 @@ import { ApprovalsChangedMessage } from './approvals'
 import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './automations'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { ConversationsChangedMessage } from './discovery'
+import { SetLogLevelMessage } from './logs'
 import {
   FeedBootstrapMessage,
   FeedDeltaMessage,
@@ -101,5 +102,6 @@ export const ServerMessage = z.discriminatedUnion('type', [
   PresenceRoomStateMessage,
   PresenceRoomDeltaMessage,
   PresenceRoomClosedMessage,
+  SetLogLevelMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
