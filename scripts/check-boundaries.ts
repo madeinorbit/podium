@@ -73,7 +73,15 @@
  *     second authorization surface; a replica that can pick a conflict winner is
  *     arbitrating. Both are forbidden by ADR 1 D1 / ADR 2 Amendment 1 D12.7.
  *
- * Alongside these ten sits the ARCHITECTURE MANIFEST (POD-296,
+ * 11. CONSOLE OWNERSHIP (POD-1905): product source under `apps/` and
+ *     `packages/` logs through `@podium/logger`, not `console.*`. Exempt are
+ *     the places where console output IS the product — CLI stdout, the logger
+ *     package itself, perf harnesses, the logging module's own degrade notices
+ *     — plus tests (by DIRECTORY, not by glob) and the build tier. The full
+ *     reasoning, and what the rule deliberately cannot see, sits with
+ *     {@link checkConsoleOwnership}.
+ *
+ * Alongside these eleven sits the ARCHITECTURE MANIFEST (POD-296,
  * scripts/architecture-manifest.ts): tags per workspace and a dependency matrix
  * derived from them. The two families coexist until POD-335 retires each legacy
  * rule against an equivalent manifest constraint.
@@ -876,6 +884,117 @@ export function checkFile(file: string, source: string): Violation[] {
     ...checkSyncKernelPurity(file, source),
     ...checkSessionBindingFieldAccess(file, source),
     ...checkUiStorageOwnership(file, source),
+    ...checkConsoleOwnership(file, source),
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// Console ownership (POD-1905, chunk 6 of the logging strategy —
+// docs/superpowers/specs/2026-08-11-logging-strategy-plan.md).
+//
+// Diagnostics go through `@podium/logger`; `console.*` is reserved for the
+// places where console output IS the product. Without this rule the sweep is a
+// one-time tidy: every chunk before it converted call sites that nothing stops
+// being re-added, and a diagnostic written to `console` in a detached server or
+// a phone goes nowhere at all — no file, no ring buffer, no forwarding.
+//
+// WHAT IS OUT OF SCOPE, said rather than left to be inferred:
+//   - `scripts/` and `apps/<x>/scripts/**` (both are `workspaceOf` === 'scripts'
+//     via APP_BUILD_TIER_RE). Build and audit tooling prints to a terminal by
+//     definition; there is no sink to route it to.
+//   - RUST. `apps/desktop/src-tauri`'s `println!`/`eprintln!` are not reachable
+//     by this check at all — `walk()` only yields `.ts`/`.tsx`. The desktop
+//     crate's own stderr mirror lives inside its logging module and is that
+//     sink's business; nothing here claims to police it.
+//   - Bare REFERENCES to a console method. The pattern matches a CALL, so
+//     `apps/server/src/migrations/restore.ts`'s `stdout: (s: string) => void =
+//     console.log` — an injected CLI-output default, the plan's first named
+//     exemption — is outside it by construction rather than by listing.
+//     `const c = console; c.log(x)` would evade it too; that is the accepted
+//     ceiling of a source-text rule, not an oversight.
+// ---------------------------------------------------------------------------
+
+/** Trees held to the rule. `scripts` is absent on purpose (see the block above). */
+const CONSOLE_PRODUCT_ROOTS = ['apps/', 'packages/'] as const
+
+/**
+ * Directory-shaped carve-outs, checked as PATH SEGMENTS rather than as a
+ * `*.test.ts` glob — POD-1906's review found the glob would have swept
+ * `apps/server/src/test-support/capture-logs.ts` and the daemon/web fixtures,
+ * which are test infrastructure that simply is not named `.test.ts`.
+ * `isTestFile` already covers `.test.`/`.spec.` and `test/ tests/ __tests__/`;
+ * these are the two segment names it does not know about.
+ */
+const CONSOLE_TEST_DIR_SEGMENTS = ['test-support', 'fixtures'] as const
+
+/**
+ * Workspaces where console output is the product, exempt WHOLESALE:
+ *
+ *  - `apps/cli` — every line it prints is the user's answer. The plan says so
+ *    in as many words ("CLI user-facing output explicitly stays"), and chunk 2
+ *    already routed the CLI's non-user-facing diagnostics (detached spawns, the
+ *    safety net) through the logger, so what is left here is output.
+ *  - `packages/logger` — the console sink cannot log through itself.
+ */
+const CONSOLE_EXEMPT_WORKSPACES: ReadonlySet<string> = new Set(['apps/cli', 'packages/logger'])
+
+/**
+ * Exact files where console output is the feature. Each needs a positive reason
+ * of the same kind as the ones here — "console output IS what this produces" —
+ * never "converting it was awkward".
+ */
+const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
+  // THE IMPORTANT TWO (whole-epic review): the degraded-notice escape hatches
+  // inside the logging module itself. Routing them through the logger builds
+  // the log-about-logging loop they exist to break — the forwarding sink
+  // reporting that forwarding is degraded, through the degraded sink.
+  'packages/client-core/src/logging/forward-sink.ts',
+  'packages/client-core/src/logging/crash.ts',
+  // Perf harnesses: their measurements ARE console output, and this one uses
+  // `console.table`, which the pattern below deliberately covers (any method,
+  // not an enumerated list) — so the exemption has to be explicit rather than
+  // arriving free because nobody thought of `table`.
+  'packages/client-core/src/perf/switch-trace.ts',
+  'apps/web/src/perf/large-state.frontend-perf.tsx',
+  // Console output behind its own enable flag — the diagnostics ARE the feature.
+  'packages/terminal-client/src/terminal-diagnostics.ts',
+  // Build-time stdout (the vendored-abduco build step), i.e. the CLI category.
+  'packages/pty/src/abduco-bin.ts',
+  // Test-fixture BUILD output. Named as well as covered by the `test-support`
+  // segment above, because it is the file the plan called out by path.
+  'apps/server/src/test-support/pre-migrated-store.build.ts',
+])
+
+/**
+ * A console METHOD CALL — any method, `table` and `dir` and `group` included.
+ * `\s*` around the dot so a line-broken call cannot slip past; no leading
+ * boundary guard, so `globalThis.console.warn(...)` is caught too.
+ */
+const CONSOLE_METHOD_CALL = /\bconsole\s*\.\s*[A-Za-z_$][\w$]*\s*\(/
+
+/**
+ * Rule `console-ownership`: product source logs through `@podium/logger`.
+ * Comment-stripped, like every other source-shape rule here, so that
+ * DOCUMENTING the prohibition — which this file and docs/agents/logging.md both
+ * do at length — cannot trip the lint enforcing it.
+ */
+export function checkConsoleOwnership(file: string, source: string): Violation[] {
+  if (isTestFile(file)) return []
+  if (workspaceOf(file) === 'scripts') return []
+  if (!CONSOLE_PRODUCT_ROOTS.some((p) => file.startsWith(p))) return []
+  if (CONSOLE_EXEMPT_WORKSPACES.has(workspaceOf(file))) return []
+  if (CONSOLE_EXEMPT_FILES.has(file)) return []
+  const segments = file.split('/')
+  if (CONSOLE_TEST_DIR_SEGMENTS.some((d) => segments.includes(d))) return []
+  const hit = CONSOLE_METHOD_CALL.exec(stripComments(source))
+  if (!hit) return []
+  return [
+    {
+      file,
+      specifier: hit[0].replace(/\s*\($/, ''),
+      rule: 'console-ownership',
+      message: `${file}: '${hit[0].replace(/\s*\($/, '')}' — product code logs through @podium/logger, not the console (POD-1905). Use \`createLogger('<pkg>:<module>')\` and pass structured fields; see docs/agents/logging.md. If console output IS this file's product (CLI stdout, a perf harness, the logger's own degrade notice), add it to CONSOLE_EXEMPT_FILES here with the reason.`,
+    },
   ]
 }
 

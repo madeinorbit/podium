@@ -51,10 +51,13 @@
  *   poison drop        → overlay dropped + toast (rule (b))
  */
 
+import { createLogger } from '@podium/logger'
 import type { IssueWire, SessionMeta, WorkState } from '@podium/model'
 import type { OutboxEntry } from '../outbox'
 import type { IssueProjectionRow } from '../replica/contract'
 import type { OutboxKinds } from './wiring'
+
+const log = createLogger('client-core:overlay')
 
 /** The two overlaid entity kinds. Conversations carry no optimistic writes. */
 export type OverlayEntity = 'sessions' | 'issues' | 'issueProjections'
@@ -434,10 +437,10 @@ export function pruneAwaiting<T extends object>(
     if (now - a.resolvedAt > AWAITING_TRUTH_TTL_MS) {
       // Covering truth never arrived — bound the mask instead of wedging (see
       // the AWAITING_TRUTH_TTL_MS tradeoff note).
-      console.debug(
-        '[podium] awaiting-truth overlay outlived its TTL without covering truth — retiring',
-        a.overlay.key,
-      )
+      log.debug('awaiting-truth overlay outlived its TTL without covering truth — retiring', {
+        key: a.overlay.key,
+        ageMs: now - a.resolvedAt,
+      })
       return false
     }
     // Row moved past the ENQUEUE baseline WITHOUT covering the mutation: a

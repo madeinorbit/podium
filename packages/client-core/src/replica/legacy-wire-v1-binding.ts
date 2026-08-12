@@ -1,6 +1,9 @@
+import { createLogger } from '@podium/logger'
 import { advanceCursor, identityVerdict } from './feed'
 import type { LegacyMetadataAppliedState } from './legacy-wire-v1-feed'
 import type { Replica } from './replica'
+
+const log = createLogger('client-core:feed')
 
 /**
  * Installs a legacy wire-v1 feed projection into the kernel Replica.
@@ -16,9 +19,15 @@ export function applyLegacyMetadataState(
   const held = replica.getFeedCursor()
   const mismatch = identityVerdict(held, state) === 'mismatch'
   if (mismatch) {
-    console.warn(
-      `[podium] feed identity changed (${held.feedId}/${held.epoch} → ${state.feedId}/${state.epoch}) — ` +
-        'discarding the replica cache and re-bootstrapping; queued writes are kept',
+    log.warn(
+      'feed identity changed — discarding the replica cache and re-bootstrapping; queued writes ' +
+        'are kept',
+      {
+        heldFeedId: held.feedId,
+        heldEpoch: held.epoch,
+        feedId: state.feedId,
+        epoch: state.epoch,
+      },
     )
   }
 

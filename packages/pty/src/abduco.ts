@@ -1,22 +1,25 @@
-import { execFile, spawn, spawnSync, type SpawnOptions } from 'node:child_process'
+import { execFile, type SpawnOptions, spawn, spawnSync } from 'node:child_process'
 import {
   closeSync,
   existsSync,
   mkdtempSync,
   openSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
 } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { createLogger } from '@podium/logger'
 import { resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
 import { shellQuote } from './tmux.js'
+
+const log = createLogger('pty:abduco')
 
 /**
  * abduco-backed durable sessions. abduco is "detach/reattach, nothing else": a
@@ -622,9 +625,10 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     } catch (err) {
       // A direct master would be reaped on the next redeploy, so make the
       // degradation loud rather than silently reintroducing the original bug.
-      console.warn(
-        `[podium] systemd scope unavailable for ${opts.label}; session will NOT survive a podium restart: ${err instanceof Error ? err.message : String(err)}`,
-      )
+      log.warn('systemd scope unavailable; session will NOT survive a podium restart', {
+        label: opts.label,
+        err,
+      })
     }
     // Do not treat an attach/readiness failure as a scope-launch failure: the
     // master is already alive, and creating a second one with the same label
@@ -634,8 +638,9 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     // Same degradation as the catch above, but on the no-user-manager path (system
     // service without lingering). Once per process, not per session.
     scopeWarned = true
-    console.warn(
-      '[podium] no systemd user manager reachable (XDG_RUNTIME_DIR/linger missing?); durable sessions will NOT survive a podium restart — run `loginctl enable-linger <user>`',
+    log.warn(
+      'no systemd user manager reachable (XDG_RUNTIME_DIR/linger missing?); durable sessions ' +
+        'will NOT survive a podium restart — run `loginctl enable-linger <user>`',
     )
   }
   await execCreate(bin, createArgs, execOpts)

@@ -9,10 +9,12 @@ import { execFile } from 'node:child_process'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { declaredValue, type AgentManifest } from '../manifest.js'
-import { AGENT_MANIFESTS } from '../registry.js'
+import { createLogger } from '@podium/logger'
 import type { AgentInventory, Inventory, ToolInventory } from '@podium/model'
+import { type AgentManifest, declaredValue } from '../manifest.js'
+import { AGENT_MANIFESTS } from '../registry.js'
 
+const log = createLogger('harness:inventory')
 const execFileAsync = promisify(execFile)
 
 /** Runs `argv` → stdout. Injectable so tests never shell out. */
@@ -170,9 +172,8 @@ export async function buildInventory(opts: BuildInventoryOptions = {}): Promise<
   const p = platform()
   const a = process.arch
   if (p !== 'linux' && p !== 'darwin')
-    console.warn(`[podium] inventory: unsupported platform '${p}', reporting 'linux'`)
-  if (a !== 'x64' && a !== 'arm64')
-    console.warn(`[podium] inventory: unsupported arch '${a}', reporting 'x64'`)
+    log.warn('unsupported platform, reporting linux', { platform: p })
+  if (a !== 'x64' && a !== 'arm64') log.warn('unsupported arch, reporting x64', { arch: a })
   return {
     os: p === 'darwin' ? 'darwin' : 'linux',
     arch: a === 'arm64' ? 'arm64' : 'x64',

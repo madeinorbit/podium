@@ -7,6 +7,7 @@ import { applyAllowlist, BROWSER_ENTRYPOINTS, partitionAllowlist } from './archi
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import {
   checkBrowserGraphAll,
+  checkConsoleOwnership,
   checkDeclaredDeps,
   checkFile,
   checkHarnessClassifierBoundary,
@@ -19,6 +20,79 @@ import {
   extractImports,
   loadModelExportNames,
 } from './check-boundaries'
+
+describe('console-ownership (POD-1905)', () => {
+  it('flags a raw console call in server product code', () => {
+    const vs = checkConsoleOwnership(
+      'apps/server/src/modules/thing.ts',
+      "export const f = () => { console.log('hi') }",
+    )
+    expect(vs.map((v) => v.rule)).toEqual(['console-ownership'])
+    expect(vs[0]?.specifier).toBe('console.log')
+  })
+
+  it('covers every method, `table` and a globalThis-qualified call included', () => {
+    // `console.table` is named in the plan as the one that must be decided
+    // explicitly; `globalThis.console` is the form a leading-boundary guard
+    // would have missed.
+    expect(
+      checkConsoleOwnership('packages/client-core/src/x.ts', 'console.table(rows)').map(
+        (v) => v.specifier,
+      ),
+    ).toEqual(['console.table'])
+    expect(
+      checkConsoleOwnership('packages/harness/src/x.ts', 'globalThis.console.warn(m)'),
+    ).toHaveLength(1)
+  })
+
+  it('exempts CLI output, the logger package, and the named feature files', () => {
+    for (const file of [
+      'apps/cli/src/cli.ts',
+      'packages/logger/src/sinks.ts',
+      'packages/client-core/src/logging/forward-sink.ts',
+      'packages/client-core/src/logging/crash.ts',
+      'packages/client-core/src/perf/switch-trace.ts',
+      'packages/terminal-client/src/terminal-diagnostics.ts',
+      'packages/pty/src/abduco-bin.ts',
+      'apps/web/src/perf/large-state.frontend-perf.tsx',
+    ]) {
+      expect(checkConsoleOwnership(file, "console.warn('x')")).toEqual([])
+    }
+  })
+
+  it('carves tests out BY DIRECTORY, not by a *.test.ts glob', () => {
+    // The POD-1906 finding: these are test infrastructure that is not named
+    // `.test.ts`, and a glob-shaped carve-out would have swept them.
+    for (const file of [
+      'apps/server/src/test-support/capture-logs.ts',
+      'apps/daemon/test/fixtures/build-report-compiled.ts',
+      'apps/web/src/lib/__tests__/helper.ts',
+      'apps/server/src/store.test.ts',
+    ]) {
+      expect(checkConsoleOwnership(file, "console.log('x')")).toEqual([])
+    }
+  })
+
+  it('leaves build tooling alone — scripts/ and apps/<x>/scripts/**', () => {
+    expect(checkConsoleOwnership('scripts/audit-thing.ts', "console.log('x')")).toEqual([])
+    expect(checkConsoleOwnership('apps/mobile/scripts/patch.ts', "console.log('x')")).toEqual([])
+  })
+
+  it('does not fire on a comment naming the prohibition, or on a bare reference', () => {
+    // Two mutants that must stay silent. The first is this rule documenting
+    // itself; the second is restore.ts's injected stdout default, which is a
+    // reference rather than a call.
+    expect(
+      checkConsoleOwnership('apps/server/src/x.ts', '// never write console.log() here\n'),
+    ).toEqual([])
+    expect(
+      checkConsoleOwnership(
+        'apps/server/src/migrations/restore.ts',
+        'export function m(out: (s: string) => void = console.log): number { return 0 }',
+      ),
+    ).toEqual([])
+  })
+})
 
 describe('ui-storage-ownership (POD-329)', () => {
   it('flags a feature-surface localStorage method call', () => {

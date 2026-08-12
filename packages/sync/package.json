@@ -50,6 +50,7 @@
   },
   "dependencies": {
     "@podium/commands": "workspace:*",
+    "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",

@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
+import { createLogger } from '@podium/logger'
 import {
   contentToText,
   dateField,
@@ -25,6 +26,7 @@ import type {
 } from '../types.js'
 import { AgentConversationLoadError } from '../types.js'
 
+const log = createLogger('harness:discovery')
 const providerId = 'claude-code-jsonl'
 
 export function createClaudeCodeConversationProvider(): ConversationProvider {
@@ -171,9 +173,11 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
     )
   }
   if (parsed.diagnostics.length > 0) {
-    console.warn(
-      `[podium] ${parsed.diagnostics.length} unparseable line(s) in Claude Code conversation ${summary.source.path} — skipped`,
-    )
+    log.warn('unparseable line(s) in conversation — skipped', {
+      agent: 'claude-code',
+      lines: parsed.diagnostics.length,
+      path: summary.source.path,
+    })
   }
 
   const messages = claudeMessages(parsed.records)

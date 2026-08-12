@@ -4,6 +4,7 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type {
   AgentObservation,
@@ -27,6 +28,8 @@ import {
   withStateChannel,
   withStateChannelEvent,
 } from './types.js'
+
+const log = createLogger('harness:codex-state')
 
 const POLL_MS = 700
 // This is a fallback for disabled/untrusted hooks, not the primary binding path.
@@ -1144,7 +1147,8 @@ export function observeCodexState(opts: {
   // With no resumeValue AND no floor at all, discovering by cwd would grab a
   // sibling's rollout, so stay idle instead.
   const canDiscoverByCwd =
-    opts.startedAtMs !== undefined && (!opts.podiumSessionId || (opts.platform ?? process.platform) !== 'linux')
+    opts.startedAtMs !== undefined &&
+    (!opts.podiumSessionId || (opts.platform ?? process.platform) !== 'linux')
   let stopped = false
   let rolloutPath: string | undefined
   let rolloutCreatedMs = 0
@@ -1423,7 +1427,7 @@ export function observeCodexState(opts: {
         // not repeat the corpus walk on the 700 ms state-tail cadence.
         let found:
           | Awaited<ReturnType<typeof resolvePinnedCodexRollout>>
-          | Awaited<ReturnType<typeof findLiveCodexRollout>> = undefined
+          | Awaited<ReturnType<typeof findLiveCodexRollout>>
         if ((opts.resumeValue || canDiscoverByCwd) && now >= nextFilesystemRolloutPollAt) {
           nextFilesystemRolloutPollAt = now + FILESYSTEM_ROLLOUT_POLL_MS
           opts.onFilesystemRolloutScan?.()
@@ -1437,11 +1441,12 @@ export function observeCodexState(opts: {
           unboundTicks++
           if (!warnedUnbound && unboundTicks === 40) {
             warnedUnbound = true
-            console.warn(
-              `[podium] codex state observer unbound after ${unboundTicks} ticks ` +
-                `(cwd=${opts.cwd}, resumeValue=${opts.resumeValue ?? 'none'}, ` +
-                `floor=${opts.startedAtMs ?? 'none'}) — status will read idle until a rollout binds`,
-            )
+            log.warn('codex state observer unbound — status will read idle until a rollout binds', {
+              ticks: unboundTicks,
+              cwd: opts.cwd,
+              resumeValue: opts.resumeValue ?? 'none',
+              floor: opts.startedAtMs ?? 'none',
+            })
           }
           return
         }
@@ -1711,8 +1716,7 @@ async function scanProcessBoundCodexRollouts(
           const identity = await readProcessRolloutIdentity(path)
           if (!identity) continue
           const info = await stat(path)
-          const createdMs =
-            identity.startedAtMs || info.birthtimeMs || info.ctimeMs || info.mtimeMs
+          const createdMs = identity.startedAtMs || info.birthtimeMs || info.ctimeMs || info.mtimeMs
           const prior = byPodiumId.get(podiumSessionId)
           if (!prior || createdMs >= prior.createdMs) {
             byPodiumId.set(podiumSessionId, {

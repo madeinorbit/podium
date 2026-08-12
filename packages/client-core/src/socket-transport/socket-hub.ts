@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type {
   AutomationRunWire,
   AutomationWire,
@@ -42,6 +43,8 @@ import {
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
 import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
+
+const log = createLogger('client-core:socket-hub')
 
 const interactionNow = (): number =>
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -1175,9 +1178,10 @@ export class SocketHub {
       if (result.dropped > 0) {
         // Never silent: a swallowed drop here was what turned a one-row data bug into
         // an invisible, blank-UI outage. Make every quarantine observable.
-        console.warn(
-          `[podium] quarantined ${result.dropped} invalid item(s) in a ${msg?.type ?? '?'} message`,
-        )
+        log.warn('quarantined invalid item(s) in a server message', {
+          dropped: result.dropped,
+          type: msg?.type ?? '?',
+        })
         this.recordSkew({ quarantined: result.dropped })
       }
       if (!msg) return
@@ -1186,8 +1190,10 @@ export class SocketHub {
       // A REFUSED frame — the envelope, not a row. On the bootstrap path this is
       // the whole world, so it goes on the record as well as into the console:
       // POD-1610 is the incident where the console line was the only trace and
-      // the user's evidence was a blank screen.
-      console.warn('[podium] dropped an unparseable server message', err)
+      // the user's evidence was a blank screen. `warn` deliberately: it is the
+      // client console sink's default threshold, so the visibility that incident
+      // bought survives the move off `console`.
+      log.warn('dropped an unparseable server message', { err })
       this.recordSkew({ refusedFrames: 1, error: err })
       return
     }
@@ -1451,7 +1457,7 @@ export class SocketHub {
     const touched = new Set<MetadataChange['entity']>()
     for (const c of changes) {
       if (!isKnownMetadataChange(c)) {
-        console.debug(`[podium] ignoring metadata change with unknown entity kind '${c.entity}'`)
+        log.debug('ignoring metadata change with unknown entity kind', { entity: c.entity })
         continue
       }
       touched.add(c.entity)

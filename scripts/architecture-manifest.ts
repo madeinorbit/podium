@@ -403,7 +403,17 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'neutral',
     features: ['oplog', 'upstream-sync'],
-    deps: ['packages/commands', 'packages/protocol', 'packages/runtime', 'packages/model'],
+    deps: [
+      'packages/commands',
+      'packages/protocol',
+      'packages/runtime',
+      'packages/model',
+      // POD-1905: the ledger, the authority drain and the transcript mirror log
+      // their own degradation. `packages/logger`'s barrel is the L0 leaf, so
+      // this edge is available to the browser half too — the node-only sinks
+      // live behind `@podium/logger/node`, which nothing here imports.
+      'packages/logger',
+    ],
   },
   // Opt-in telemetry [spec:SP-f933]. NEUTRAL for the same reason as runtime,
   // and by the same construction: the barrel and the pure slices (schema,
@@ -428,7 +438,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'node-only',
     features: ['pty-port', 'durable-host'],
-    deps: ['packages/protocol', 'packages/model', 'packages/runtime'],
+    deps: ['packages/protocol', 'packages/model', 'packages/runtime', 'packages/logger'],
     // HOST CAPABILITY (legacy rule 2). Importing this package means spawning
     // PTYs. The machine host and the build tier may; nothing else may, and there
     // is no open entrypoint because every export here drives a process.
@@ -447,7 +457,13 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'node-only',
     features: ['harness-adapters'],
-    deps: ['packages/protocol', 'packages/model', 'packages/runtime', 'packages/transcript'],
+    deps: [
+      'packages/protocol',
+      'packages/model',
+      'packages/runtime',
+      'packages/transcript',
+      'packages/logger',
+    ],
     // HOST CAPABILITY (legacy rule 2), with a declared open surface.
     consumers: ['apps/daemon', 'scripts'],
     openEntrypoints: ['@podium/harness/metadata'],

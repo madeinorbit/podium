@@ -29,6 +29,7 @@
  * no module may cache a principal-derived value across that boundary).
  */
 
+import { createLogger } from '@podium/logger'
 import type { AgentKind, IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId, dedupeSessionsByResume } from '@podium/model'
 import type { PodiumClientApi } from '../api'
@@ -56,6 +57,8 @@ import {
 import type { EngineState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
+
+const log = createLogger('client-core:optimism')
 
 /** How long a FAILED spawn create waits for the session broadcast before it is
  *  treated as definitive (#263 review finding 4): the create can reach the
@@ -480,11 +483,10 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         this.ports.base().sessions.some((row) => row.sessionId === sessionId)
       const settleFailure = (): void => {
         if (arrived()) {
-          console.debug(
-            '[podium] spawn transport failed after the session was created — treating as success',
+          log.debug('spawn transport failed after the session was created — treating as success', {
             sessionId,
-            error,
-          )
+            err: error,
+          })
           return
         }
         this.spawnOverlays = this.spawnOverlays.filter(

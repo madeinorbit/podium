@@ -81,11 +81,17 @@
  * principals.
  */
 
+import { createLogger } from '@podium/logger'
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import { type Principal, principalRoutingId } from '@podium/protocol'
 import { ChangeBaseline, type ChangeLogStore, detectionKey, readChangesSince } from '../change-log'
+import type {
+  FeedScopingGrade,
+  FeedVisibilityPolicy,
+  VisibilityAnchorPort,
+} from '../feed/visibility'
 import { arbitrate } from './arbitration'
-import type { StagedChangeSpec, SequencedChange } from './change-lifecycle'
+import type { SequencedChange, StagedChangeSpec } from './change-lifecycle'
 import type {
   AuthorityClock,
   AuthorityCommit,
@@ -94,18 +100,16 @@ import type {
   ChangeSubscriber,
   TransactPort,
 } from './ports'
-import type {
-  FeedScopingGrade,
-  FeedVisibilityPolicy,
-  VisibilityAnchorPort,
-} from '../feed/visibility'
 import {
   DEFAULT_RESCOPE_THRESHOLD,
-  scopeBatch,
-  scopeBootstrap,
   type ScopedBootstrap,
   type ScopedDelivery,
+  scopeBatch,
+  scopeBootstrap,
 } from './scoping'
+
+/** Both hosts, one namespace — see the note on `sync:ledger`. */
+const log = createLogger('sync:authority')
 
 export interface AuthorityDeps {
   /** The durable change log. Narrow by design — see `ChangeStorePort`. */
@@ -537,7 +541,7 @@ export class Authority implements AuthorityPort {
             // principals see N slices of one batch, and never two orders of it.
             subscription.deliver(this.scope(subscription.principal, batch, throughSeq))
           } catch (err) {
-            console.error('[authority] change subscriber threw', err)
+            log.error('change subscriber threw', { throughSeq, err })
           }
         }
       }

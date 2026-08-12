@@ -16,7 +16,10 @@
  * authored-work data; ThemeProvider must paint before authentication settles.
  */
 
+import { createLogger } from '@podium/logger'
 import type { StorageApi } from './contract'
+
+const log = createLogger('client-core:principal-storage')
 
 export interface PrincipalNamespacePolicy {
   readonly signOut: 'erase'
@@ -86,10 +89,7 @@ export function preparePrincipalNamespace(init: PrincipalNamespaceInit): Princip
     )
   } catch (error) {
     durable = false
-    console.warn(
-      '[podium] principal namespace marker is not durable; using storage fallback',
-      error,
-    )
+    log.warn('principal namespace marker is not durable; using storage fallback', { err: error })
   }
 
   const markers = readMarkers(init)

@@ -54,6 +54,7 @@
  *      cache — a null cursor just means one full snapshot fetch).
  */
 
+import { createLogger } from '@podium/logger'
 import type {
   AutomationRunWire,
   AutomationWire,
@@ -103,6 +104,13 @@ export {
   REPLICA_TRANSCRIPT_ITEM_CAP,
 } from './contract'
 export type { PersistedCollectionPersistence }
+
+/** Storage degradation is this module's whole diagnostic story, and the client
+ *  console sink shows `warn` and above by default, so these keep the visibility
+ *  the `console.warn`s they replaced had. The `role` field (web / desktop /
+ *  mobile) comes from the process context the client composition root sets, so
+ *  the namespace names the module rather than the host. */
+const log = createLogger('client-core:replica')
 
 import type {
   Replica,
@@ -550,7 +558,7 @@ class TanstackReplica implements Replica {
       }
     } catch (err) {
       // Poisoned replica: clear and cold-start rather than wedge boot (invariant 2).
-      console.warn('[podium] replica hydrate failed — clearing and cold-starting', err)
+      log.warn('hydrate failed — clearing and cold-starting', { err })
       this.clearAll()
       return empty
     } finally {
@@ -576,7 +584,7 @@ class TanstackReplica implements Replica {
         this.upsertRows(kind, rows)
       })
     } catch (err) {
-      console.warn(`[podium] replica applySnapshot(${kind}) failed`, err)
+      log.warn('applySnapshot failed', { kind, err })
     }
   }
 
@@ -594,7 +602,7 @@ class TanstackReplica implements Replica {
         this.upsertRows(kind, upserts)
       })
     } catch (err) {
-      console.warn(`[podium] replica applyChanges(${kind}) failed`, err)
+      log.warn('applyChanges failed', { kind, err })
     }
   }
 
@@ -737,7 +745,7 @@ class TanstackReplica implements Replica {
           if (keys.length > 0) this.track(col.delete(keys))
           col.utils.clearStorage()
         } catch (err) {
-          console.warn('[podium] replica resetCache: clearing a collection failed', err)
+          log.warn('resetCache: clearing a collection failed', { err })
         }
       }
     })
@@ -798,7 +806,7 @@ class TanstackReplica implements Replica {
         this.track(col.delete(evict))
       }
     } catch (err) {
-      console.warn('[podium] replica putTranscriptWindow failed', err)
+      log.warn('putTranscriptWindow failed', { err })
     }
   }
 
@@ -901,17 +909,19 @@ class TanstackReplica implements Replica {
       while (this.pendingRowNotify.size > 0) {
         if (++rounds > 100) {
           if (++this.flushDeferrals > 10) {
-            console.error(
-              '[podium] replica row notifications did not converge (a listener writes on every ' +
-                'notification?) — dropping the remainder',
+            log.error(
+              'row notifications did not converge (a listener writes on every notification?) — ' +
+                'dropping the remainder',
+              { deferrals: this.flushDeferrals },
             )
             this.pendingRowNotify.clear()
             this.flushDeferrals = 0
             return
           }
-          console.error(
-            '[podium] replica row notifications did not converge synchronously — deferring ' +
-              'the remainder to a microtask',
+          log.error(
+            'row notifications did not converge synchronously — deferring the remainder to a ' +
+              'microtask',
+            { deferrals: this.flushDeferrals },
           )
           queueMicrotask(() => this.flushRowNotify())
           return
@@ -936,10 +946,10 @@ class TanstackReplica implements Replica {
         try {
           this.storage.setItem(k, v)
         } catch (err) {
-          console.error(
-            '[podium] OUTBOX persistence failed (storage quota?) — queued offline writes may ' +
-              'be LOST on reload',
-            err,
+          log.error(
+            'OUTBOX persistence failed (storage quota?) — queued offline writes may be LOST on ' +
+              'reload',
+            { key: k, err },
           )
           throw err
         }
@@ -966,7 +976,7 @@ class TanstackReplica implements Replica {
     try {
       col.subscribeChanges(() => {})
     } catch (err) {
-      console.warn(`[podium] replica ${name} collection start failed`, err)
+      log.warn('collection start failed', { collection: name, err })
     }
     return col
   }
@@ -1047,7 +1057,7 @@ class TanstackReplica implements Replica {
             )
           }
         } catch (err) {
-          console.warn('[podium] replica outbox save failed', err)
+          log.warn('outbox save failed', { err })
         }
       },
     }
@@ -1075,7 +1085,7 @@ class TanstackReplica implements Replica {
         this.storage.removeItem(OUTBOX_LS_KEY)
       }
     } catch (err) {
-      console.warn('[podium] replica outbox migration failed', err)
+      log.warn('outbox migration failed', { err })
     }
     this.outboxBacking = this.outboxCollectionBacking(col)
     return this.outboxBacking
@@ -1119,9 +1129,10 @@ class TanstackReplica implements Replica {
       if (raw === null) return
       const parsed = parseLocalStorageCollectionBlob(raw)
       if (parsed === undefined) {
-        console.error(
-          `[podium] replica outbox migration: corrupt localStorage blob ${storageKey} — ` +
-            'its queued entries (if any) cannot be recovered',
+        log.error(
+          'outbox migration: corrupt localStorage blob — its queued entries (if any) cannot be ' +
+            'recovered',
+          { storageKey },
         )
         this.storage.removeItem(storageKey)
         return
@@ -1156,7 +1167,7 @@ class TanstackReplica implements Replica {
       if (missing.length > 0) this.track(col.insert(missing), 'outbox')
       this.storage.removeItem(storageKey)
     } catch (err) {
-      console.warn(`[podium] replica outbox blob migration (${storageKey}) failed`, err)
+      log.warn('outbox blob migration failed', { storageKey, err })
     }
   }
 
@@ -1271,7 +1282,7 @@ class TanstackReplica implements Replica {
         }
       }
     } catch (err) {
-      console.warn('[podium] ui-state migration failed', err)
+      log.warn('ui-state migration failed', { err })
     }
     this.uiBacking = {
       get: (key) => {
@@ -1296,7 +1307,7 @@ class TanstackReplica implements Replica {
             this.track(col.insert({ key, value }), 'ui')
           }
         } catch (err) {
-          console.warn('[podium] ui-state set failed', err)
+          log.warn('ui-state set failed', { key, err })
         }
       },
       subscribe: (cb) => {
@@ -1339,10 +1350,10 @@ class TanstackReplica implements Replica {
       return false
     }
     if (Number(raw) === REPLICA_SCHEMA_VERSION) return false
-    console.warn(
-      `[podium] replica cache is schema v${raw}, this build is v${REPLICA_SCHEMA_VERSION} — ` +
-        'discarding the cache and re-bootstrapping (the outbox is kept)',
-    )
+    log.warn('cache schema mismatch — discarding the cache and re-bootstrapping (outbox kept)', {
+      cachedVersion: Number(raw),
+      buildVersion: REPLICA_SCHEMA_VERSION,
+    })
     return true
   }
 
@@ -1436,11 +1447,10 @@ class TanstackReplica implements Replica {
   private degradeEntityWrites(err: unknown): void {
     if (this.entityWritesDegraded) return
     this.entityWritesDegraded = true
-    console.warn(
-      '[podium] replica entity write failed (storage quota?) — persisting in memory only for ' +
-        'this session and clearing the stored entity data + cursor so the next load does a ' +
-        'full resync',
-      err,
+    log.warn(
+      'entity write failed (storage quota?) — persisting in memory only for this session and ' +
+        'clearing the stored entity data + cursor so the next load does a full resync',
+      { backend: 'localStorage', err },
     )
     for (const kind of ENTITY_STORE_KINDS) {
       try {
@@ -1550,14 +1560,17 @@ class TanstackReplica implements Replica {
         // them would make "rows never persist" undiagnosable, POD-789).
         if (this.entityWritesDegraded && this.entityPersistFailureLogs < 3) {
           this.entityPersistFailureLogs++
-          console.warn('[podium] replica sqlite entity write failed (still degraded)', err)
+          log.warn('sqlite entity write failed (still degraded)', {
+            failures: this.entityPersistFailureLogs,
+            err,
+          })
         }
         this.degradePersistedEntityWrites(err)
       } else if (family === 'outbox') {
-        console.error(
-          '[podium] OUTBOX persistence failed (sqlite write error?) — queued offline writes ' +
-            'may be LOST on reload',
-          err,
+        log.error(
+          'OUTBOX persistence failed (sqlite write error?) — queued offline writes may be LOST ' +
+            'on reload',
+          { err },
         )
       }
     })
@@ -1577,11 +1590,11 @@ class TanstackReplica implements Replica {
   private degradePersistedEntityWrites(err: unknown): void {
     if (this.entityWritesDegraded) return
     this.entityWritesDegraded = true
-    console.warn(
-      '[podium] replica sqlite entity write failed — freezing the persisted cursor so the ' +
-        'next load resyncs from it (live data keeps flowing; this batch rolled back in ' +
-        'memory and re-applies from the hub)',
-      err,
+    log.warn(
+      'sqlite entity write failed — freezing the persisted cursor so the next load resyncs from ' +
+        'it (live data keeps flowing; this batch rolled back in memory and re-applies from the ' +
+        'hub)',
+      { backend: 'sqlite', err },
     )
   }
 
@@ -1600,7 +1613,7 @@ class TanstackReplica implements Replica {
       // the schema, further writes may fail — the entity degrade path keeps
       // the cursor honest meanwhile.
       void this.persistedInit.clearPersisted?.().catch((err) => {
-        console.warn('[podium] replica sqlite clear failed', err)
+        log.warn('sqlite clear failed', { err })
       })
       return
     }

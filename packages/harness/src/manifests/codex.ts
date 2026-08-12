@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
+import { createLogger } from '@podium/logger'
 import { codexRecordToItems, codexRuntime } from '@podium/transcript'
 import {
   codexStateProvider,
@@ -25,6 +26,8 @@ import {
   supported,
   type TranscriptSourceInput,
 } from '../manifest.js'
+
+const log = createLogger('harness:codex')
 
 interface CodexAuthFile {
   tokens?: {
@@ -102,7 +105,7 @@ function codexMcpArgs(
     servers = (JSON.parse(mcpConfig) as { mcpServers?: typeof servers }).mcpServers ?? {}
   } catch {
     if (context === 'harness') {
-      console.warn('[podium:superagent] malformed MCP config for codex — refusing a tool-less run')
+      log.warn('malformed MCP config for codex — refusing a tool-less run', { context })
       throw new Error('malformed MCP config for codex — refusing a tool-less harness run')
     }
     throw new Error('malformed MCP config for codex — refusing a tool-less headless turn')

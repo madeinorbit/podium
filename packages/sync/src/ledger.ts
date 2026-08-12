@@ -1,24 +1,29 @@
-import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
-import { type Principal } from '@podium/protocol'
-import { Authority } from './authority/authority'
-import type { AuthorityCommit } from './authority/ports'
+import { createLogger } from '@podium/logger'
+import type { MetadataChange, MetadataEntityKind, Principal } from '@podium/protocol'
 import type { ArbitrationRejection } from './authority/arbitration'
-import {
-  DeviceGradeNoAnchors,
-  DeviceGradeUnscopedPolicy,
-  DEVICE_GRADE_PRINCIPAL,
-} from './feed/visibility'
-import type { FeedVisibilityPolicy, VisibilityAnchorPort } from './feed/visibility'
+import { Authority } from './authority/authority'
 import type {
   StagedChangeSpec as KernelChangeSpec,
   ScopedChange,
 } from './authority/change-lifecycle'
+import type { AuthorityCommit } from './authority/ports'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
   type ChangeLogStore,
   pruneChangeLog,
 } from './change-log'
+import type { FeedVisibilityPolicy, VisibilityAnchorPort } from './feed/visibility'
+import {
+  DEVICE_GRADE_PRINCIPAL,
+  DeviceGradeNoAnchors,
+  DeviceGradeUnscopedPolicy,
+} from './feed/visibility'
+
+/** This package runs on BOTH hosts (server and client), so the namespace names
+ *  the module and the `role` field on every record names the host — no
+ *  host-specific import, and no second logger per platform. */
+const log = createLogger('sync:ledger')
 
 /**
  * Ledger — now a FACADE over the Authority role (POD-305).
@@ -220,7 +225,7 @@ export class Ledger {
         try {
           listener(wire)
         } catch (err) {
-          console.error('[ledger] onAppended listener threw', err)
+          log.error('onAppended listener threw', { err })
         }
       }
     })
@@ -322,7 +327,7 @@ export class Ledger {
     }
     void flight.then(clear, (err) => {
       clear()
-      console.error('[ledger] retention prune failed (writes remain durable)', err)
+      log.error('retention prune failed (writes remain durable)', { err })
     })
   }
 
@@ -341,10 +346,9 @@ export class Ledger {
           onMetrics: this.deps.onPruneMetrics,
         })
         if (metrics.exceededPlacementThreshold) {
-          console.warn(
-            `[ledger] retention job took ${metrics.totalDurationMs.toFixed(1)}ms; ` +
-              'candidate for janitor placement',
-          )
+          log.warn('retention job is a candidate for janitor placement', {
+            durationMs: Number(metrics.totalDurationMs.toFixed(1)),
+          })
         }
       } catch (err) {
         if (!failed) failure = err

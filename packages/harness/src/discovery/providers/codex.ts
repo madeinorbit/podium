@@ -1,5 +1,6 @@
 import { readFile, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { createLogger } from '@podium/logger'
 import {
   contentToText,
   dateField,
@@ -30,6 +31,7 @@ import {
   createTimedCodexStateMetadataReader,
 } from './codex-state.js'
 
+const log = createLogger('harness:discovery')
 const providerId = 'codex-jsonl'
 const readDiscoveryState = createTimedCodexStateMetadataReader()
 
@@ -181,9 +183,11 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
     )
   }
   if (parsed.diagnostics.length > 0) {
-    console.warn(
-      `[podium] ${parsed.diagnostics.length} unparseable line(s) in Codex conversation ${summary.source.path} — skipped`,
-    )
+    log.warn('unparseable line(s) in conversation — skipped', {
+      agent: 'codex',
+      lines: parsed.diagnostics.length,
+      path: summary.source.path,
+    })
   }
 
   const messages = codexMessages(parsed.records)

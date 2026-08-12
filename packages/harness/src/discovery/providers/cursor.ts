@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
+import { createLogger } from '@podium/logger'
 import { cursorProjectPathFromSlug, cursorRoot } from '../../cursor/paths.js'
 import {
   contentToText,
@@ -25,6 +26,7 @@ import type {
 } from '../types.js'
 import { AgentConversationLoadError } from '../types.js'
 
+const log = createLogger('harness:discovery')
 const providerId = 'cursor-agent-transcripts'
 
 export function createCursorConversationProvider(): ConversationProvider {
@@ -166,9 +168,11 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
   // the JSONL reader (good records survive) — don't re-escalate them into a
   // whole-conversation throw; keep the records and surface them non-fatally.
   if (parsed.diagnostics.length > 0) {
-    console.warn(
-      `[podium] ${parsed.diagnostics.length} unparseable line(s) in Cursor conversation ${summary.source.path} — skipped`,
-    )
+    log.warn('unparseable line(s) in conversation — skipped', {
+      agent: 'cursor',
+      lines: parsed.diagnostics.length,
+      path: summary.source.path,
+    })
   }
 
   const messages = cursorMessages(parsed.records)

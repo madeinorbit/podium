@@ -1,7 +1,11 @@
-import { machineScopedKey } from '@podium/model'
 import { mkdirSync } from 'node:fs'
 import { open, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { createLogger } from '@podium/logger'
+import { machineScopedKey } from '@podium/model'
+
+/** Node-only half of this package; same namespace convention as `sync:ledger`. */
+const log = createLogger('sync:mirror')
 
 /** The conversation-segment surface MirrorService needs — narrow on purpose so
  *  this package depends on neither apps/server's full ConversationsRepository
@@ -249,14 +253,19 @@ export class MirrorService {
               item.nativeId,
               this.store.mirrorCursor(machineId, item.nativeId),
             )
-            console.info(
-              `[podium] transcript mirror: source gone for ${item.nativeId} — lake copy is now the only copy`,
-            )
+            log.info('source gone — the lake copy is now the only copy', {
+              machineId,
+              nativeId: item.nativeId,
+            })
           } else {
             // Unreadable/timeout: back off this segment, cursor untouched — the
             // next scan/attach after the window retries from where we stopped.
             this.backoffUntil.set(key, this.now() + MirrorService.ERROR_BACKOFF_MS)
-            console.warn(`[podium] transcript mirror failed for ${item.nativeId}:`, err)
+            log.warn('mirror failed — backing this segment off, cursor untouched', {
+              machineId,
+              nativeId: item.nativeId,
+              err,
+            })
           }
         } finally {
           if (!preserveQueued) this.queued.delete(key)

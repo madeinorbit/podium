@@ -31,6 +31,7 @@
  * width is a worse trade than losing the sidebar width.
  */
 
+import { createLogger } from '@podium/logger'
 import type { TranscriptItem } from '@podium/model'
 import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage } from '../../outbox'
 import {
@@ -45,6 +46,8 @@ import {
   type TranscriptWindow,
   type UiState,
 } from '../contract'
+
+const log = createLogger('client-core:side-cache')
 
 export interface SideCacheInit {
   storage: StorageApi
@@ -190,7 +193,7 @@ function writeQueued(
     storage.setItem(key, JSON.stringify(entries))
   } catch (error) {
     const failure = new OutboxNotDurableError(key, entries, storage, error)
-    console.error(failure.message, error)
+    log.error(failure.message, { key, err: error })
     onDegraded(failure)
     throw failure
   }

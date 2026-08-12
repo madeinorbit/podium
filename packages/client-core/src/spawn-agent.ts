@@ -1,5 +1,8 @@
+import { createLogger } from '@podium/logger'
 import type { AgentKind, IssueId, RepoId, SessionId } from '@podium/model'
 import type { PodiumClientApi } from './api'
+
+const log = createLogger('client-core:spawn')
 
 /** Where a new agent lands: a worktree path + its owning repo (+ machine). */
 export interface SpawnTarget {
@@ -97,11 +100,10 @@ export async function createDraftAgent(args: {
         'ok' in result &&
         (result as { ok: unknown }).ok === false
       ) {
-        console.debug(
-          '[podium] first prompt refused after spawn',
-          args.sessionId,
-          (result as { reason?: string }).reason,
-        )
+        log.debug('first prompt refused after spawn', {
+          sessionId: args.sessionId,
+          reason: (result as { reason?: string }).reason,
+        })
       }
     } catch {
       // transport blip — session is up; retype from the composer
