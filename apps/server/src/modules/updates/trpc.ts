@@ -1,7 +1,7 @@
 import type { ConvergenceState } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
-import { type Context, t } from '../../trpc'
 import { serverBuildVersion } from '../../build-version'
+import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import type { UpdatesService } from './service'
 
@@ -196,6 +196,16 @@ export function startUpdate(
 export function updateProcedures() {
   return {
     fleet: t.procedure.query(({ ctx }) => updateFleet(ctx)),
+    repairCompatibility: t.procedure.mutation(({ ctx }) => {
+      if (!ctx.requestCoordinatorRestart) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'This Podium installation cannot rebuild its web app automatically.',
+        })
+      }
+      ctx.requestCoordinatorRestart()
+      return { state: 'in-progress' as const, version: serverBuildVersion() }
+    }),
     converge: t.procedure.mutation(({ ctx }) =>
       startUpdate(
         familyState(ctx).modules.updates,

@@ -281,7 +281,8 @@ describe('checkServerVersion — schema digest', () => {
     // The whole point: 'blocked' used to be a console.error and nothing else.
     const notice = currentSkew()
     expect(notice?.source).toBe('boot-digest')
-    expect(notice?.message).toContain('does not match the server')
-    expect(notice?.message).toContain('bun run build')
+    expect(notice?.message).toContain('different app builds')
+    expect(notice?.message).toContain('Repair and reload')
+    expect(notice?.message).not.toContain('bun run build')
   })
 })

@@ -48,7 +48,7 @@ async function capture(
   const text = await dialog.innerText()
   expect(text).not.toMatch(/\b(headless|bundle|daemon|artifact|tarball)\b/i)
   expect(text).not.toContain('—')
-  expect(dialog.getByRole('button', { name: 'Reload' })).toHaveCount(0)
+  expect(dialog.getByRole('button', { name: 'Reload', exact: true })).toHaveCount(0)
   if (expectServer) {
     await expect(dialog).toContainText('Your server')
   } else {
@@ -123,21 +123,37 @@ test('development update names the browser with its source server', async ({ pag
   await page.route('**/trpc/updates.fleet*', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify([{
-        result: {
-          data: {
-            total: 2,
-            behind: 2,
-            converging: 0,
-            failed: 0,
-            targetVersion: devTarget.version,
-            machines: [
-              { id: 'flatblock', name: 'flatblock', version: 'dev+old1234', state: 'current', online: true, busy: false },
-              { id: 'ludovico', name: 'ludovico', version: 'dev+old1234', state: 'current', online: true, busy: false },
-            ],
+      body: JSON.stringify([
+        {
+          result: {
+            data: {
+              total: 2,
+              behind: 2,
+              converging: 0,
+              failed: 0,
+              targetVersion: devTarget.version,
+              machines: [
+                {
+                  id: 'flatblock',
+                  name: 'flatblock',
+                  version: 'dev+old1234',
+                  state: 'current',
+                  online: true,
+                  busy: false,
+                },
+                {
+                  id: 'ludovico',
+                  name: 'ludovico',
+                  version: 'dev+old1234',
+                  state: 'current',
+                  online: true,
+                  busy: false,
+                },
+              ],
+            },
           },
         },
-      }]),
+      ]),
     })
   })
 
@@ -152,25 +168,61 @@ test('development update names the browser with its source server', async ({ pag
   await expect(dialog).toContainText('flatblock, ludovico')
 })
 
-test('required compatibility update can be hidden', async ({ page }) => {
+test('required compatibility update repairs the web build and reloads', async ({ page }) => {
+  let repaired = false
+  let repairedVersionReads = 0
   await page.route('**/version', async (route) => {
+    if (repaired) repairedVersionReads += 1
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         appVersion: 'dev+old1234',
-        wireSchemaDigest: 'different',
+        ...(repairedVersionReads === 1
+          ? { wireSchemaDigest: 'repaired-schema' }
+          : repaired
+            ? {}
+            : { wireSchemaDigest: 'different' }),
         target: { version: 'dev+abc1234', critical: false, artifacts: {} },
+      }),
+    })
+  })
+  await page.route('**/podium-build.json', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        appVersion: 'dev+abc1234',
+        wireSchemaDigest: repaired ? 'repaired-schema' : 'older-web-schema',
       }),
     })
   })
   await page.route('**/trpc/updates.fleet*', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify([{
-        result: {
-          data: { total: 0, behind: 0, converging: 0, failed: 0, targetVersion: 'dev+abc1234', machines: [] },
+      body: JSON.stringify([
+        {
+          result: {
+            data: {
+              total: 0,
+              behind: 0,
+              converging: 0,
+              failed: 0,
+              targetVersion: 'dev+abc1234',
+              machines: [],
+            },
+          },
         },
-      }]),
+      ]),
+    })
+  })
+  let repairCalls = 0
+  await page.route('**/trpc/updates.repairCompatibility*', async (route) => {
+    repairCalls += 1
+    repaired = true
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { result: { data: { state: 'in-progress', version: 'dev+abc1234' } } },
+      ]),
     })
   })
 
@@ -181,8 +233,12 @@ test('required compatibility update can be hidden', async ({ page }) => {
 
   const dialog = page.getByTestId('update-dialog')
   await expect(dialog).toContainText('Podium dev+abc1234 is required', { timeout: 30_000 })
-  await dialog.getByRole('button', { name: 'Hide' }).click()
-  await expect(dialog).toHaveCount(0)
+  await expect(dialog).toContainText('This app and your server')
+  await expect(dialog.getByRole('button', { name: 'Reload', exact: true })).toHaveCount(0)
+  const reloaded = page.waitForEvent('framenavigated')
+  await dialog.getByRole('button', { name: 'Repair and reload' }).click()
+  await reloaded
+  expect(repairCalls).toBe(1)
 })
 
 test('failed update explains recovery, dismisses, and retries', async ({ page }) => {

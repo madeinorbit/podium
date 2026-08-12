@@ -117,8 +117,6 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
 
   const serverWire = server.wireVersion
   const serverMin = server.minSupportedVersion
-  const serverSchema = server.wireSchemaDigest
-  const schemaSkew = verdict === 'schema-skew'
 
   const reloads = readReloadCounter()
   if (reloads >= MAX_RELOADS) {
@@ -135,14 +133,9 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
     reportSkew({
       source: 'boot-digest',
       severe: false,
-      message: schemaSkew
-        ? 'This app build does not match the server it is talking to ' +
-          `(schema ${wireSchemaDigest().slice(0, 8)} vs ${(serverSchema ?? '').slice(0, 8)}). ` +
-          'Reloading did not fix it, so the build being served is out of date and needs ' +
-          'rebuilding: `bun run build`.'
-        : `This app speaks wire version ${WIRE_VERSION} and the server speaks ${serverWire}. ` +
-          'Reloading did not fix it, so the build being served is out of date and needs ' +
-          'rebuilding: `bun run build`.',
+      message:
+        'Podium’s server and this page are using different app builds. ' +
+        'Some information may be missing. Use “Repair and reload” in the update panel.',
     })
     return 'blocked'
   }

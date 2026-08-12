@@ -68,16 +68,11 @@ export interface BundleStatus {
  */
 export function describeBundle(status: BundleStatus): string | null {
   if (status.grade === 'ok' || status.grade === 'absent') return null
-  const built = status.builtAt ? ` (built ${status.builtAt})` : ''
   return status.grade === 'stale'
-    ? `The web app being served${built} and this server are using different protocol schemas ` +
-        `(bundle ${status.bundleDigest}, server ${status.serverDigest}). The older side may drop ` +
-        'messages it cannot read and show incomplete or empty views. Rebuild the web app with ' +
-        '`bun run build` (or `bun run --filter @podium/web build`), then restart Podium so the ' +
-        'server loads the same source.'
-    : 'The web app being served carries no build stamp, so it cannot be checked against this ' +
-        'server. It predates the check or was not produced by the build. Rebuild it: ' +
-        '`bun run build`.'
+    ? 'Podium’s server and this page are using different app builds. Some ' +
+        'information may be missing. Use “Repair and reload” in the update panel to finish.'
+    : 'This page is using an app build that Podium cannot verify. Some information may be ' +
+        'missing. Use “Repair and reload” in the update panel to finish.'
 }
 
 interface CacheEntry {
@@ -155,7 +150,7 @@ function escapeHtml(text: string): string {
 export function injectBundleWarning(html: string, status: BundleStatus): string {
   const message = describeBundle(status)
   if (!message) return html
-  const title = status.grade === 'stale' ? 'Podium: build mismatch. ' : 'Podium: stale web build. '
+  const title = 'Podium needs to finish updating. '
   const banner =
     '<div role="alert" style="position:fixed;inset:0 0 auto 0;z-index:2147483647;' +
     'background:#f5c518;color:#1a1a1a;padding:10px 16px;font:600 13px/1.5 ui-sans-serif,system-ui,sans-serif;' +

@@ -202,7 +202,7 @@ function skewReason(skew: SkewVerdict): string | undefined {
     case 'client-too-old':
       return 'This app needs an update to continue.'
     case 'schema-skew':
-      return 'This app and your server need compatible builds.'
+      return 'This page and your server are out of sync.'
     default:
       return undefined
   }

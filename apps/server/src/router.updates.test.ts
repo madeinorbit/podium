@@ -87,7 +87,7 @@ describe('fleet default update channel', () => {
     registry.dispose()
   })
 
-  it('moves an unpinned machine\'s resolved channel and target the moment the fleet default changes, and leaves a pinned one alone', () => {
+  it("moves an unpinned machine's resolved channel and target the moment the fleet default changes, and leaves a pinned one alone", () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'stable'
     const { registry } = harness()
     addMachine(registry, 'follower')
@@ -161,6 +161,30 @@ describe('updates tRPC', () => {
     await expect(caller.updates.converge()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: 'Podium is already at this version everywhere.',
+    })
+    registry.dispose()
+  })
+
+  it('can rebuild a source web app even when the server is already on target', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    const requestCoordinatorRestart = vi.fn()
+    const { registry, caller } = harness(requestCoordinatorRestart)
+    registry.modules.updates.setTarget(target())
+
+    await expect(caller.updates.repairCompatibility()).resolves.toEqual({
+      state: 'in-progress',
+      version: '0.4.2',
+    })
+    expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
+    registry.dispose()
+  })
+
+  it('explains when this installation cannot rebuild its web app', async () => {
+    const { registry, caller } = harness()
+
+    await expect(caller.updates.repairCompatibility()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'This Podium installation cannot rebuild its web app automatically.',
     })
     registry.dispose()
   })

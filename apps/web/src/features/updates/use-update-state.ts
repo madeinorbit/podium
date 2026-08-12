@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from 'react'
 import {
   classifySkew,
   parseServerVersion,
@@ -6,15 +5,16 @@ import {
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { useEffect, useMemo, useState } from 'react'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import { makeTrpc } from '@/app/trpc'
-import type { UpdateActions } from './UpdateDialog'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { computeTouched } from './touched'
+import type { UpdateActions } from './UpdateDialog'
 import {
+  type DesktopUpdateInfo,
   describeUpdate,
   describeUpdateFailure,
-  type DesktopUpdateInfo,
   type UpdateInput,
   type UpdateView,
 } from './update-view'
@@ -102,6 +102,29 @@ async function readJson(url: string): Promise<unknown> {
   } catch {
     return undefined
   }
+}
+
+async function waitForCompatibleWebBuild(
+  httpOrigin: string,
+  attempts = 120,
+  delayMs = 1_000,
+): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const [serverRaw, buildRaw] = await Promise.all([
+      readJson(`${httpOrigin}/version`),
+      readJson(`${httpOrigin}/${BUILD_STAMP_FILE}`),
+    ])
+    const serverVersion = parseServerVersion(serverRaw)
+    const build = localBuildFrom(buildRaw)
+    if (
+      serverVersion.wireSchemaDigest !== undefined &&
+      build.appDigest === serverVersion.wireSchemaDigest
+    ) {
+      return
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
+  }
+  throw new Error('Podium rebuilt the server, but the matching app did not become ready.')
 }
 
 function localBuildFrom(raw: unknown): LocalBuild {
@@ -291,6 +314,12 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
   const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
+  const repairableMismatch =
+    skew !== 'ok' && target?.version.startsWith('dev+') === true && options.reload !== undefined
+  if (repairableMismatch) {
+    touched.app = true
+    touched.server = true
+  }
   const input: UpdateInput = {
     localVersion,
     server,
@@ -348,17 +377,48 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     trpc,
   ])
 
+  const repairCompatibility = useMemo<UpdateActions['repairCompatibility']>(() => {
+    if (!repairableMismatch || !options.reload) return undefined
+    const version = target?.version ?? server.appVersion ?? localVersion
+    return async () => {
+      setUpdateAction({ state: 'in-progress', version, done: 0, total: 1, includesServer: true })
+      try {
+        await trpc.updates.repairCompatibility.mutate()
+        await waitForCompatibleWebBuild(options.httpOrigin)
+        await options.reload?.()
+      } catch (error) {
+        setUpdateAction({ state: 'failed', detail: updateErrorDetail(error) })
+      }
+    }
+  }, [
+    localVersion,
+    options.httpOrigin,
+    options.reload,
+    repairableMismatch,
+    server.appVersion,
+    target?.version,
+    trpc,
+  ])
+
   const actions = useMemo<UpdateActions>(() => {
     const install = nativeDesktopBridge()?.installUpdate
     const canInstallDesktop = desktopUpdate !== undefined || desktopTargeted
     const installApp =
       typeof install === 'function' && canInstallDesktop ? () => install() : undefined
     return {
-      ...(options.reload && touched.app ? { reload: options.reload } : {}),
+      ...(options.reload && touched.app && !repairableMismatch ? { reload: options.reload } : {}),
       ...(installApp ? { installApp } : {}),
+      ...(repairCompatibility ? { repairCompatibility } : {}),
       ...(startUpdate ? { startUpdate } : {}),
     }
-  }, [desktopTargeted, desktopUpdate, options.reload, touched.app, startUpdate])
+  }, [
+    desktopTargeted,
+    desktopUpdate,
+    options.reload,
+    repairCompatibility,
+    touched.app,
+    startUpdate,
+  ])
 
   const view: UpdateView =
     updateAction.state === 'in-progress'

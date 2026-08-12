@@ -39,7 +39,7 @@ describe('grading a served dist', () => {
     )
   })
 
-  it('calls a mismatched pair STALE, and names both halves of the remedy', () => {
+  it('calls a mismatched pair stale and gives the user a recovery action', () => {
     buildDist()
     stamp({ wireSchemaDigest: 'deadbeefdeadbeef', builtAt: '2026-07-31T23:17:00Z' })
     const status = gradeWebBundle(dir)
@@ -47,11 +47,10 @@ describe('grading a served dist', () => {
     expect(status.bundleDigest).toBe('deadbeefdeadbeef')
     expect(status.serverDigest).toBe(wireSchemaDigest())
     const message = describeBundle(status) ?? ''
-    // The date is in the message because "built 2026-07-31" is what makes a person
-    // believe it — the incident's dist was three days old and nothing said so.
-    expect(message).toContain('2026-07-31T23:17:00Z')
-    expect(message).toContain('bun run build')
-    expect(message).toContain('restart Podium')
+    expect(message).toContain('different app builds')
+    expect(message).toContain('Repair and reload')
+    expect(message).not.toContain('bun run')
+    expect(message).not.toContain('deadbeef')
   })
 
   it('refuses to certify a dist with NO stamp — the pre-fix artefact', () => {
@@ -59,7 +58,7 @@ describe('grading a served dist', () => {
     // cannot be checked, and "cannot be checked" must not read as "fine".
     buildDist()
     expect(gradeWebBundle(dir).grade).toBe('unstamped')
-    expect(describeBundle(gradeWebBundle(dir))).toContain('no build stamp')
+    expect(describeBundle(gradeWebBundle(dir))).toContain('cannot verify')
   })
 
   it('treats a corrupt stamp as unstamped, never as ok', () => {
@@ -100,7 +99,7 @@ describe('the warning reaches a bundle that cannot warn about itself', () => {
   it('injects visible markup before </body>', () => {
     const html = injectBundleWarning('<html><body><div id="root"></div></body></html>', stale)
     expect(html).toContain('role="alert"')
-    expect(html).toContain('build mismatch')
+    expect(html).toContain('needs to finish updating')
     expect(html.indexOf('role="alert"')).toBeLessThan(html.indexOf('</body>'))
   })
 
@@ -114,6 +113,6 @@ describe('the warning reaches a bundle that cannot warn about itself', () => {
       bundleDigest: '<script>alert(1)</script>',
     })
     expect(html).not.toContain('<script>')
-    expect(html).toContain('&lt;script&gt;')
+    expect(html).not.toContain('alert(1)')
   })
 })

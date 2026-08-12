@@ -10,6 +10,7 @@ export interface UpdateActions {
   reload?: Action
   installApp?: Action
   startUpdate?: Action
+  repairCompatibility?: Action
 }
 
 interface UpdateDialogProps {
@@ -18,7 +19,7 @@ interface UpdateDialogProps {
   onDismiss?: () => void
 }
 
-type ActionName = 'reload' | 'installApp' | 'startUpdate'
+type ActionName = 'reload' | 'installApp' | 'startUpdate' | 'repairCompatibility'
 
 function viewKey(view: UpdateView): string {
   if (view.state === 'none') return 'none'
@@ -136,6 +137,17 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
                   onClick={() => void runAction('reload', actions.reload)}
                 >
                   Reload
+                </Button>
+              )}
+              {actions.repairCompatibility && (
+                <Button
+                  type="button"
+                  size="sm"
+                  pending={pendingAction === 'repairCompatibility'}
+                  pendingLabel="Repairing…"
+                  onClick={() => void runAction('repairCompatibility', actions.repairCompatibility)}
+                >
+                  Repair and reload
                 </Button>
               )}
               {actions.installApp && (

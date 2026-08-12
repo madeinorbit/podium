@@ -1,11 +1,12 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useUpdateState, type UpdateFleetState, type UpdateStateResult } from './use-update-state'
+import { type UpdateFleetState, type UpdateStateResult, useUpdateState } from './use-update-state'
 
 const mocks = vi.hoisted(() => ({
   makeTrpc: vi.fn(),
   mutate: vi.fn(),
+  repair: vi.fn(),
   query: vi.fn(),
 }))
 
@@ -43,6 +44,11 @@ function Probe({
           update Podium
         </button>
       )}
+      {result.actions.repairCompatibility && (
+        <button type="button" onClick={() => void result.actions.repairCompatibility?.()}>
+          repair and reload
+        </button>
+      )}
       <output data-testid="view-state">
         {result.view.state === 'failed'
           ? [result.view.message, result.view.guidance, result.view.diagnostic].join('|')
@@ -69,6 +75,7 @@ function setupTransport(version = { appVersion: '0.4.1', target }): void {
     updates: {
       fleet: { query: mocks.query },
       converge: { mutate: mocks.mutate },
+      repairCompatibility: { mutate: mocks.repair },
     },
   })
   vi.stubGlobal(
@@ -107,6 +114,53 @@ describe('useUpdateState update action', () => {
       done: 0,
       total: 2,
     })
+  })
+
+  it('repairs and reloads when the source server is current but its web build is incompatible', async () => {
+    let rebuilt = false
+    mocks.repair.mockImplementation(async () => {
+      rebuilt = true
+      return { state: 'in-progress', version: 'dev+abc1234' }
+    })
+    mocks.makeTrpc.mockReturnValue({
+      setup: { channel: { query: vi.fn(async () => ({ channel: 'dev' })) } },
+      updates: {
+        fleet: {
+          query: vi.fn(async () => ({
+            total: 0,
+            behind: 0,
+            converging: 0,
+            failed: 0,
+            machines: [],
+          })),
+        },
+        converge: { mutate: mocks.mutate },
+        repairCompatibility: { mutate: mocks.repair },
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith('/version')
+            ? {
+                appVersion: 'dev+abc1234',
+                wireSchemaDigest: 'server-schema',
+                target: { version: 'dev+abc1234', critical: false, artifacts: {} },
+              }
+            : {
+                appVersion: 'dev+abc1234',
+                wireSchemaDigest: rebuilt ? 'server-schema' : 'older-web-schema',
+              },
+      })),
+    )
+
+    render(<Probe onResult={() => {}} withReload liveFleet />)
+    const repair = await screen.findByRole('button', { name: /repair and reload/i })
+    repair.click()
+    await waitFor(() => expect(mocks.repair).toHaveBeenCalledOnce())
+    await waitFor(() => expect(reloadAction).toHaveBeenCalledOnce())
   })
 
   it('polls fleet state so progress advances beyond the initial zero', async () => {
