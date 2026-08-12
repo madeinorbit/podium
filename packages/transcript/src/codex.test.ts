@@ -128,6 +128,46 @@ describe('codexRecordToItems', () => {
     })
   })
 
+  it('maps request_user_input to the structured question card shape', () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'function_call',
+        name: 'request_user_input',
+        call_id: 'call_question',
+        arguments: JSON.stringify({
+          questions: [
+            {
+              id: 'main_commit',
+              header: 'Main commit',
+              question: 'What should happen to main?',
+              options: [
+                {
+                  label: 'Leave main as is (Recommended)',
+                  description: 'Duplicate but harmless.',
+                },
+                { label: 'Rewind main by one commit', description: 'Move the shared branch.' },
+              ],
+            },
+          ],
+        }),
+      }),
+    )
+
+    expect(items[0]).toMatchObject({
+      role: 'tool',
+      toolName: 'AskUserQuestion',
+      toolInput: 'What should happen to main?',
+      toolUseId: 'call_question',
+    })
+    expect(JSON.parse(items[0]?.toolInputJson ?? '{}').questions[0]).toMatchObject({
+      header: 'Main commit',
+      options: [
+        { label: 'Leave main as is (Recommended)' },
+        { label: 'Rewind main by one commit' },
+      ],
+    })
+  })
+
   it('unwraps unified exec calls into the command the reader cares about', () => {
     const items = codexRecordToItems(
       env('response_item', {

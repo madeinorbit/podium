@@ -336,7 +336,7 @@ function assistantItems(
         toolName: b.name,
         toolInput: isAsk ? askQuestionPreview(b.input) : toolInputPreview(b.input),
         ...(title ? { toolTitle: title } : {}),
-        ...(isAsk ? { toolInputJson: safeJsonString(b.input) } : {}),
+        ...(isAsk ? { toolInputJson: safeAskQuestionInputJson(b.input) } : {}),
         ...(toolUseId ? { toolUseId } : {}),
         ...(paths.length ? { toolPaths: paths } : {}),
       })
@@ -417,7 +417,7 @@ export function toolInputPreview(input: unknown): string {
 
 /** Preview for an AskUserQuestion tool: the first question's text (collapsed-row
  *  fallback when the card can't render). */
-function askQuestionPreview(input: unknown): string {
+export function askQuestionPreview(input: unknown): string {
   if (typeof input !== 'object' || input === null) return 'AskUserQuestion'
   const qs = (input as Record<string, unknown>).questions
   const first = Array.isArray(qs) ? (qs[0] as Record<string, unknown> | undefined) : undefined
@@ -444,7 +444,7 @@ const PREVIEW_BUDGETS = [4000, 1200, 300, 0]
  * (then removed) first, and only a payload whose questions alone overflow gives
  * up. Returns undefined on failure.
  */
-function safeJsonString(input: unknown): string | undefined {
+export function safeAskQuestionInputJson(input: unknown): string | undefined {
   try {
     const s = JSON.stringify(input)
     if (s === undefined) return undefined

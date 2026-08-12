@@ -1,5 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
-import { toolInputPreview } from './claude'
+import { askQuestionPreview, safeAskQuestionInputJson, toolInputPreview } from './claude'
 import { contentToText, isRecord, stringField } from './json-util'
 
 /**
@@ -111,6 +111,7 @@ function toolCallItem(payload: Record<string, unknown>, ts: string | undefined):
     toolName: display.toolName,
     ...(display.toolInput ? { toolInput: display.toolInput } : {}),
     ...(display.toolTitle ? { toolTitle: display.toolTitle } : {}),
+    ...(display.toolInputJson ? { toolInputJson: display.toolInputJson } : {}),
     ...(display.toolPaths?.length ? { toolPaths: display.toolPaths } : {}),
     ...(callId ? { toolUseId: callId } : {}),
   }
@@ -119,6 +120,7 @@ function toolCallItem(payload: Record<string, unknown>, ts: string | undefined):
 interface CodexToolDisplay {
   toolName: string
   toolInput?: string
+  toolInputJson?: string
   toolTitle?: string
   toolPaths?: string[]
 }
@@ -155,6 +157,17 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
   }
 
   const input = parseArgs(rawInput)
+  // Codex calls this request_user_input; normalize it to the same render-facing
+  // shape as Claude's AskUserQuestion so chat gets the full decision card and
+  // its existing answer route instead of a generic interactive-tool row.
+  if (wireName === 'request_user_input') {
+    const toolInputJson = safeAskQuestionInputJson(input)
+    return {
+      toolName: 'AskUserQuestion',
+      toolInput: askQuestionPreview(input),
+      ...(toolInputJson ? { toolInputJson } : {}),
+    }
+  }
   if (wireName === 'exec_command') {
     return {
       toolName: 'Bash',
