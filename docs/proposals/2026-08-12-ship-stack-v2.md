@@ -27,9 +27,9 @@ From that point, Shipping is one deterministic hand-off:
    durable human-attention alert, and turns the Shipping rail icon red. Otherwise
    it eventually verifies the destination and closes the issue.
 
-The existing right-side Queues dock becomes the optional **Shipping** peek. It
-offers confidence and recovery controls, but it is not part of the happy path
-and never becomes another list of work for the user to manage.
+The existing right-side Queues dock stays unchanged. A new adjacent
+**Shipping** dock offers confidence and recovery controls, but it is not part of
+the happy path and never becomes another list of work for the user to manage.
 
 Sub-issues never become separate parcels. They integrate into the top-level
 delivery root; a child agent that wants to hand off the whole approved result
@@ -40,7 +40,7 @@ can watch it move, but does not have to carry it.
 
 A production-shaped interactive prototype accompanies this proposal. It draws
 only Podium's existing 316px right dock and 46px rail, copies the current
-`RightDock`/`MergeQueuePanel` density and Dark Ink tokens, and storyboards the
+`RightDock` density and Dark Ink tokens, and storyboards the
 complete post-approval flow without inventing another app shell:
 [Shipping right-sidebar flow](../design/POD-775-ship-stack-prototype.html).
 
@@ -54,7 +54,7 @@ It should be implemented after the following corrections.
 | A durable ship request is separate from issue details. | Add one lifecycle stage, `shipping`, as the issue-level custody projection; keep attempts and machine state in a normalized aggregate. |
 | Deterministic work handles most traffic. | The server is the control plane; daemon workers execute filesystem, git, tests, and accepted-preview teardown. |
 | A bounded headless agent handles exceptions. | Route by live model traits, quota, risk, and task; never grant the model merge or push authority. |
-| An optional status peek replaces invisible polling. | Project durable orders into a simple Shipping dock; keep advisory lock waiters as diagnostic resource lanes. |
+| An optional status peek replaces invisible polling. | Add a separate Shipping dock; keep Queues and its merge/test resource lanes unchanged. |
 | Batching can remove repeated validation. | Validate immutable merge-group refs first; mutate real issue refs only after a green result and compare-and-swap checks. |
 | A dedicated landing checkout removes hazards. | It requires an explicit one-time adoption because a target branch cannot safely be checked out in two worktrees. |
 | Accepted review input should be typed. | Shipping freezes its base/head and evidence reference; normal review and live-preview UX stay outside this service. |
@@ -309,7 +309,7 @@ type ShipOrder = {
   policyId: string                  // resolved from trusted repo policy
   closeMode: 'after-destination' | 'leave-open'
   state:
-    | 'queued' | 'preflight' | 'composing' | 'validating'
+    | 'queued' | 'preflight' | 'composing' | 'validating' | 'repairing'
     | 'landing' | 'publishing' | 'verifying'
     | 'shipped' | 'held' | 'cancelled'
   holdCode?: ShipHoldCode
@@ -362,9 +362,20 @@ type ShipHold = {
 Step runs are append-only rows keyed by an idempotency key. Large stdout/stderr
 is redacted, size-capped, and stored as a durable log artifact; rows carry the
 summary and artifact reference. `IssueWire` gets a derived `shipSummary` with
-order id, the four human states, destination, last meaningful progress, and an
-optional compact hold—not a nested copy of all shipping entities. Detailed
-phase and queue position are Shipping-dock diagnostics, not issue lifecycle.
+order id, one of four human states, destination, a stable plain-language
+activity code, server-computed queue rank, queued/state-change timestamps,
+receipt availability, and an optional compact hold—not a nested copy of all
+shipping entities. The four states are `waiting`, `in_progress`, `needs_you`,
+and `shipped`; detailed phases never become issue lifecycle. Queue rank is a
+scheduler snapshot within one repository/destination lane, never a position
+inferred by the client or a global order across independent lanes.
+
+A `DeliveryReceipt` belongs to one verified `ShipOrder`, not to the Shipping
+panel. It records approved source, tested integration tip, landed/provider ref
+tip, verified destination tip, validation profile/result, destination, and
+completion time. Active orders can show proof-so-far but cannot call it a
+delivery receipt. Completed rows link to their own receipt; older receipts stay
+on issue/activity history after they leave the small recent window.
 
 The issue row carries only `stage='shipping'` plus that compact projection. The
 server enforces a one-to-one invariant between a shipping-stage issue and its
@@ -638,11 +649,19 @@ held for review even when tests pass.
 ## UX: confidence without supervision
 
 Shipping is a service, not a destination. It gets no primary navigation item,
-full-width workspace, task board, or second working-task metaphor. The existing
-right-rail **Queues** cell and `MergeQueuePanel` evolve in place into
-**Shipping**, the one optional operational surface. Its current developer-
-oriented merge/test lease lanes remain available under a collapsed **Resource
-lanes** disclosure.
+full-width workspace, task board, or second working-task metaphor. It gets a
+new **Shipping** cell in the existing right rail, immediately beside the
+unchanged **Queues** cell. Queues continues to own merge locks, heavy-test
+leases, and other developer resource lanes; Shipping shows only delivery
+orders.
+
+Shipping uses a Lucide-compatible perspective-road glyph: converging road edges
+and a broken center line, rendered with the same 17px rail and 16px dock-header
+metrics as its siblings. A small neutral-grey badge shows the number of
+unfinished deliveries in the active repository scope—waiting, in progress, and
+held—and is hidden at zero. It excludes retained shipped history. This count
+describes the Shipping panel's own visible inventory, unlike a portfolio badge
+placed on an unrelated tool.
 
 ### The handoff receipt
 
@@ -660,36 +679,62 @@ states the one condition that must be fixed.
 
 ### Right dock: calm progress on demand
 
-The Shipping dock remains collapsed after handoff. When opened, it starts with
-one confidence sentence—**Everything is handled** or **One shipment needs
-you**—then groups compact rows by repository and destination. The default row
-uses only four human states: **Waiting**, **On its way**, **Shipped**, and
-**Needs you**. It answers: what is Podium carrying, where is it going, and is
-there anything for me to do?
+The Shipping dock remains collapsed after handoff. When opened, its sections
+are, in order: conditional **Needs you**, **In progress**, ordered **Waiting**,
+and bounded **Recently shipped** at the bottom. Rows are grouped or scoped by
+repository and destination because independent lanes have no honest global
+rank. A Waiting row shows position and elapsed wait—**Next · waiting 8 min** or
+**#2 · waiting 5 min**—but never invents an ETA or a reorder control.
 
-Exact phases, SHAs, logs, model attempts, batching, and resource lanes are one
-**Details** disclosure deeper. They exist for diagnosis, not reassurance. The
-only everyday controls are **Cancel shipping** while still safe and **Return to
-issue** after a hold; administrators configure budgets and pause policy in
-settings rather than managing the live list.
+The four visible states have one visual grammar: neutral hollow marker for
+Waiting, one blue active marker for In progress, destructive red attention for
+Needs you, and a success check for Shipped. Shape, section, and visible words
+carry the meaning, not color alone. Two active rows may both be blue: blue means
+exactly “Podium is actively handling this,” while plain activity text says
+which step.
 
-The normal rail glyph is neutral: no count, spinner, progress ring, or completion
-badge. Slow is not failure. The dock may say what Podium is currently trying and
-that it will keep retrying, but it does not promise a fake ETA.
+Raw engine phases do not leak into the overview. The stable mapping is:
 
-The interactive prototype walks the intended surface through seven moments:
-quiet handoff with the dock closed; optional overview; one-order inspection;
-the existing alert with a red rail glyph; focused hold resolution; automatic
-resumption; and verified completion. The workspace never changes in any of
-them. Opening a delivery row replaces the dock body and provides **All
-shipping** as the way back; it does not open a nested panel or second sidebar.
+| Engine state | Human activity |
+|---|---|
+| `queued` | Waiting for its turn, with lane rank and elapsed wait |
+| `preflight` | Checking the approved changes |
+| `composing` | Combining related changes |
+| `validating` | Running checks |
+| `repairing` | Trying a safe fix |
+| `landing` | Applying the checked changes |
+| `publishing` | Sending to the configured destination |
+| `verifying` | Confirming the configured destination |
+| `held` | Needs your decision |
+| `shipped` | Shipped |
+
+Exact SHAs, logs, model attempts, and batching are one **Technical details**
+disclosure inside an individual shipment. They exist for diagnosis, not
+reassurance. The only everyday controls are **Cancel shipping** while still
+safe and **Return to issue** after a hold; administrators configure budgets and
+pause policy in settings rather than managing the live list.
+
+The normal road glyph is neutral; its grey unfinished count is informational,
+not an alert. It has no spinner, progress ring, or completion badge. Slow is not
+failure. The dock says what Podium is doing and how long a queued item has
+waited, but it does not promise a fake ETA.
+
+The interactive prototype walks the intended surface through nine moments:
+quiet handoff with the dock closed; optional overview; ordered waiting detail;
+active-order inspection; the existing alert with a red rail glyph; focused hold
+resolution; automatic resumption; verified completion; and the completed
+item's delivery receipt. The workspace never changes in any of them. Opening a
+delivery row replaces the dock body and provides **All shipping** as the way
+back; it does not open a nested panel or second sidebar.
 
 ### Alerts: existing Podium machinery
 
 Only a terminal-for-now hold changes the rail glyph to destructive red. This is
 a binary fact about the Shipping panel—not an ambiguous portfolio count—and it
 stays red until the hold is resolved. Its accessible label becomes **Shipping ·
-action required**.
+action required**, including both unfinished and decision counts. The inventory
+badge remains grey; the existing alert transport, not the changing count,
+announces the hold.
 
 The shipping service does not invent another alert center. It sets the issue's
 existing `needsHuman` state, emits the normal `issue.needs_human` event, and uses
@@ -820,7 +865,7 @@ The independently shippable implementation work is tracked as proposals:
 - POD-833 (Bounded shipwright repairs) — slice 4, blocked by POD-831;
 - POD-834 (Supervised preview proofs) — related normal review UX, explicitly
   outside the Shipping critical path;
-- POD-835 (Quiet ship sidebar) — the production UI/UX, blocked by POD-830.
+- POD-835 (Shipping sidebar panel) — the production UI/UX, blocked by POD-830.
 
 ## Acceptance story
 
@@ -833,10 +878,12 @@ A convincing end-to-end demonstration begins only after review:
    the delivery root. Then prove that another authorized agent can deliberately
    nominate that approved root with `podium issue ship POD-900 --outside-scope`;
    the flag is recorded and does not bypass admission.
-3. The agent exits. The human continues elsewhere and the Shipping rail glyph
-   remains neutral—no count, spinner, or routine notification.
+3. The agent exits. The human continues elsewhere. The perspective-road glyph
+   remains neutral while its grey count reflects unfinished deliveries; there
+   is no spinner or routine notification.
 4. Much later, the human optionally opens Shipping and sees **Everything is
-   handled**, the destination, and a few simple **On its way** rows.
+   handled**, plain **In progress** activities, a destination-scoped ordered
+   **Waiting** stack with elapsed waits, and **Recently shipped** at the bottom.
 5. Stop and restart the server and daemon mid-delivery. Orders recover without
    reviving the original sessions or changing the user-facing contract.
 6. Inject a mechanical conflict. A bounded shipwright repairs it, deterministic
@@ -847,7 +894,10 @@ A convincing end-to-end demonstration begins only after review:
 8. Resolve that one alert. Independent shipments have continued; the held order
    recomposes, publishes, verifies the configured destination, and moves to
    `done`.
-9. Confirm every transition is attributable and replay-safe, the exact local
+9. Open the completed row and confirm its own Delivery receipt contains the
+   approved, tested, landed, and verified destination references; no global
+   receipt appears on the overview.
+10. Confirm every transition is attributable and replay-safe, the exact local
    destination proof or provider receipt is recorded, and no forcing operation
    was used.
 

@@ -77,7 +77,7 @@
   .icon-button:hover { color:var(--strong); background:var(--active); }
   .dock-content { min-height:0; flex:1; overflow:auto; scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent; }
   .view { display:none; min-height:100%; }
-  [data-state="peek"] .view-peek,[data-state="inspect"] .view-inspect,[data-state="resolve"] .view-resolve,[data-state="resumed"] .view-resumed,[data-state="shipped"] .view-shipped { display:block; }
+  [data-state="peek"] .view-peek,[data-state="waiting"] .view-waiting,[data-state="inspect"] .view-inspect,[data-state="resolve"] .view-resolve,[data-state="resumed"] .view-resumed,[data-state="shipped"] .view-shipped,[data-state="receipt"] .view-receipt { display:block; }
 
   .utility-bar { display:flex; height:36px; align-items:center; gap:8px; padding:0 14px; border-bottom:1px solid var(--hairline); }
   .utility-bar b,.section-label { color:var(--label); font:600 8.5px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; }
@@ -101,7 +101,7 @@
   .ship-row { display:grid; min-height:54px; width:100%; grid-template-columns:10px minmax(0,1fr) auto; align-items:center; gap:8px; border:0; border-bottom:1px solid var(--hairline); padding:7px 12px 7px 14px; background:transparent; text-align:left; cursor:pointer; }
   .ship-row:hover { background:color-mix(in srgb,var(--active) 58%,transparent); }
   .signal { width:6px; height:6px; border-radius:50%; background:var(--info); }
-  .signal.wait { background:var(--dim); }
+  .signal.wait { border:1px solid var(--dim); background:transparent; }
   .signal.done { position:relative; width:10px; height:10px; background:transparent; color:var(--green); }
   .signal.done::after { content:"✓"; position:absolute; inset:-4px 0 0 -1px; font:700 11px/1 var(--mono); }
   .ship-main { min-width:0; }
@@ -110,6 +110,7 @@
   .ship-state { color:var(--label); font:600 8px/1 var(--mono); letter-spacing:.045em; text-transform:uppercase; }
   .ship-state.live { color:#79a5ff; }
   .ship-state.done { color:var(--green); }
+  .queue-rank { display:grid; width:18px; height:18px; place-items:center; border:1px solid var(--border-strong); border-radius:50%; color:var(--label); font:600 8px/1 var(--mono); }
   .empty { margin:0 11px 11px; padding:10px; border:1px dashed color-mix(in srgb,var(--border-strong) 65%,transparent); border-radius:6px; color:var(--dim); font-size:10.5px; line-height:1.45; }
   .quiet-foot { padding:13px 14px; color:var(--dim); font-size:10px; line-height:1.5; }
 
@@ -129,6 +130,7 @@
   .subject p { margin:7px 0 0; color:var(--muted); font-size:10.5px; line-height:1.5; }
   .phase { display:flex; align-items:center; gap:7px; margin-top:10px; color:#79a5ff; font:600 8.5px/1 var(--mono); letter-spacing:.05em; text-transform:uppercase; }
   .phase .signal { width:6px; height:6px; }
+  .phase.success { color:var(--green); }
   .timeline { margin:0; padding:10px 14px 8px; list-style:none; }
   .timeline li { position:relative; display:grid; min-height:43px; grid-template-columns:16px minmax(0,1fr) auto; gap:7px; color:var(--dim); }
   .timeline li::after { content:""; position:absolute; top:14px; bottom:-3px; left:4px; width:1px; background:var(--border-strong); }
@@ -169,9 +171,13 @@
   .rail-cell { display:grid; width:30px; height:30px; flex:none; place-items:center; border:0; border-radius:6px; background:transparent; color:var(--dim); cursor:pointer; }
   .rail-cell:hover { color:var(--strong); background:var(--active); }
   .rail-cell .icon { width:17px; height:17px; }
-  [data-state="peek"] .shipping-cell,[data-state="inspect"] .shipping-cell,[data-state="resumed"] .shipping-cell,[data-state="shipped"] .shipping-cell { color:var(--info); background:var(--panel); box-shadow:0 1px 2px #0008,inset 0 0 0 1px color-mix(in srgb,var(--info) 35%,transparent); }
+  [data-state="peek"] .shipping-cell,[data-state="waiting"] .shipping-cell,[data-state="inspect"] .shipping-cell,[data-state="resumed"] .shipping-cell,[data-state="shipped"] .shipping-cell,[data-state="receipt"] .shipping-cell { color:var(--info); background:var(--panel); box-shadow:0 1px 2px #0008,inset 0 0 0 1px color-mix(in srgb,var(--info) 35%,transparent); }
   [data-state="alert"] .shipping-cell { color:var(--red); }
   [data-state="resolve"] .shipping-cell { color:var(--red); background:var(--panel); box-shadow:0 1px 2px #0008,inset 0 0 0 1px color-mix(in srgb,var(--red) 52%,transparent); }
+  .shipping-cell { position:relative; }
+  [data-state="alert"] .shipping-cell::before,[data-state="resolve"] .shipping-cell::before { content:""; position:absolute; top:8px; bottom:8px; left:-7px; width:2px; border-radius:2px; background:var(--red); }
+  .rail-count { position:absolute; top:-4px; right:-5px; display:grid; min-width:15px; height:15px; place-items:center; border:2px solid var(--rail); border-radius:8px; padding:0 3px; color:var(--rail); background:var(--label); font:700 8px/1 var(--mono); }
+  .rail-count[hidden] { display:none; }
 
   .alert-popover { display:none; position:absolute; z-index:4; top:90px; right:58px; width:306px; overflow:hidden; border:1px solid color-mix(in srgb,var(--red) 42%,var(--border)); border-radius:9px; background:var(--panel); box-shadow:0 14px 34px #0009,0 2px 8px #0008; }
   [data-state="alert"] .alert-popover { display:block; }
@@ -212,7 +218,8 @@
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5h6l2 2h10v10H3z"/></symbol>
   <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
   <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
-  <symbol id="i-shipping" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="m3 6 1 1 2-2m-3 7 1 1 2-2m-3 7 1 1 2-2"/></symbol>
+  <symbol id="i-queues" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-shipping" viewBox="0 0 24 24"><path d="M10 3 4 21M14 3l6 18M12 5v3M12 12v4M12 20v1"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M18.5 9A7 7 0 0 0 6 6.5L4 9m2 6a7 7 0 0 0 12 2.5L20 15"/></symbol>
   <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M18 9c0 5-12 2-12 7"/></symbol>
@@ -223,16 +230,18 @@
 <main class="page">
   <div class="eyebrow">POD-775 · production-shaped prototype</div>
   <h1>The whole product is one dock.</h1>
-  <p class="lede">Only Podium’s existing right sidebar is drawn below: the current 316px Queues dock evolving into Shipping, beside the real 46px rail. No workspace, work list, review UI, or invented app chrome.</p>
+  <p class="lede">Only Podium’s existing right sidebar is drawn below. Shipping is a new 316px dock beside the unchanged Queues panel, with its own perspective-road cell in the real 46px rail. No workspace, work list, review UI, or invented app chrome.</p>
 
   <nav class="story-nav" aria-label="Shipping flow">
     <button class="story-step" data-state-button="handoff" data-number="1" aria-pressed="false">Handoff</button><i class="story-link"></i>
     <button class="story-step" data-state-button="peek" data-number="2" aria-pressed="true">Peek</button><i class="story-link"></i>
-    <button class="story-step" data-state-button="inspect" data-number="3" aria-pressed="false">Inspect</button><i class="story-link"></i>
-    <button class="story-step" data-state-button="alert" data-number="4" aria-pressed="false">Alert</button><i class="story-link"></i>
-    <button class="story-step" data-state-button="resolve" data-number="5" aria-pressed="false">Resolve</button><i class="story-link"></i>
-    <button class="story-step" data-state-button="resumed" data-number="6" aria-pressed="false">Resumed</button><i class="story-link"></i>
-    <button class="story-step" data-state-button="shipped" data-number="7" aria-pressed="false">Shipped</button>
+    <button class="story-step" data-state-button="waiting" data-number="3" aria-pressed="false">Waiting</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="inspect" data-number="4" aria-pressed="false">Active</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="alert" data-number="5" aria-pressed="false">Alert</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="resolve" data-number="6" aria-pressed="false">Resolve</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="resumed" data-number="7" aria-pressed="false">Resumed</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="shipped" data-number="8" aria-pressed="false">Shipped</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="receipt" data-number="9" aria-pressed="false">Receipt</button>
   </nav>
 
   <section class="prototype">
@@ -257,30 +266,41 @@
           </header>
           <div class="dock-content">
             <section class="view view-peek" aria-label="Shipping overview">
-              <div class="utility-bar"><b>Deliveries</b><span>3 active</span><button class="icon-button" type="button" title="Refresh shipping" aria-label="Refresh shipping"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
               <div class="intro"><strong>Everything is handled</strong><p>Podium will keep going and alert you only if it cannot finish safely.</p></div>
               <div class="target-head"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg><strong>podium</strong><code>origin/main</code></div>
-              <div class="section-head"><span class="section-label">On the way</span><span class="count">3</span></div>
+              <div class="section-head"><span class="section-label">In progress</span><span class="count">2</span></div>
               <ul class="ship-list">
-                <li><button class="ship-row" type="button" data-inspect><i class="signal"></i><span class="ship-main"><b>Ship stack</b><small>POD-775 · approved root c071d86</small></span><span class="ship-state live">Validating</span></button></li>
-                <li><button class="ship-row" type="button"><i class="signal wait"></i><span class="ship-main"><b>Durable ship orders</b><small>POD-830 · Podium owns the wait</small></span><span class="ship-state">Waiting</span></button></li>
-                <li><button class="ship-row" type="button"><i class="signal"></i><span class="ship-main"><b>Offer dismissal</b><small>POD-771 · composing</small></span><span class="ship-state live">On its way</span></button></li>
+                <li><button class="ship-row" type="button" data-inspect><i class="signal"></i><span class="ship-main"><b>Ship stack</b><small>POD-775 → origin/main</small></span><span class="ship-state live">Running checks</span></button></li>
+                <li><button class="ship-row" type="button"><i class="signal"></i><span class="ship-main"><b>Offer dismissal</b><small>POD-771 → origin/main</small></span><span class="ship-state live">Combining changes</span></button></li>
               </ul>
+              <div class="section-head"><span class="section-label">Waiting · podium → main</span><span class="count">2</span></div>
+              <ol class="ship-list">
+                <li><button class="ship-row" type="button" data-waiting><i class="queue-rank">1</i><span class="ship-main"><b>Durable ship orders</b><small>POD-830 → origin/main</small></span><span class="ship-state">Next · <time datetime="PT8M">8 min</time></span></button></li>
+                <li><button class="ship-row" type="button"><i class="queue-rank">2</i><span class="ship-main"><b>Exact landing executor</b><small>POD-831 → origin/main</small></span><span class="ship-state">Waiting <time datetime="PT5M">5 min</time></span></button></li>
+              </ol>
               <div class="section-head"><span class="section-label">Recently shipped</span><span class="count">1</span></div>
-              <ul class="ship-list"><li><button class="ship-row" type="button"><i class="signal done"></i><span class="ship-main"><b>Mobile evidence</b><small>POD-790 · origin/main verified</small></span><span class="ship-state done">Shipped</span></button></li></ul>
-              <details class="resource"><summary>Resource lanes</summary><div class="resource-body">merge:main · free<br>heavy-test · held 3m 12s<br>shipwright · idle</div></details>
-              <p class="quiet-foot">No queue management is required. Rows are here for confidence and diagnosis.</p>
+              <ul class="ship-list"><li><button class="ship-row" type="button" data-receipt><i class="signal done"></i><span class="ship-main"><b>Mobile evidence</b><small>POD-790 → origin/main</small></span><span class="ship-state done">Shipped 14:02</span></button></li></ul>
+              <p class="quiet-foot">The Waiting order is scoped to this repository and destination. Queues keeps the separate merge and test resource lanes.</p>
+            </section>
+
+            <section class="view view-waiting" aria-label="Waiting shipment details">
+              <button class="back" type="button" data-back><svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>All shipping</button>
+              <div class="subject"><span class="ref">POD-830 · WAITING</span><h3>Durable ship orders</h3><p>Another shipment to origin/main is ahead of this one. Podium will start it automatically.</p><div class="phase"><i class="signal wait"></i>Next · waiting 8 minutes</div></div>
+              <div class="section-head"><span class="section-label">Waiting · podium → main</span></div>
+              <ol class="ship-list"><li><div class="ship-row"><i class="queue-rank">1</i><span class="ship-main"><b>Durable ship orders</b><small>POD-830 → origin/main</small></span><span class="ship-state">Next · <time datetime="PT8M">8 min</time></span></div></li><li><div class="ship-row"><i class="queue-rank">2</i><span class="ship-main"><b>Exact landing executor</b><small>POD-831 → origin/main</small></span><span class="ship-state">Waiting <time datetime="PT5M">5 min</time></span></div></li></ol>
+              <p class="quiet-foot">This is queue order, not an ETA. Independent destinations may run at the same time.</p>
+              <div class="safe-actions"><button class="button danger" type="button" data-cancel>Cancel shipping</button></div>
             </section>
 
             <section class="view view-inspect" aria-label="Shipment details">
               <button class="back" type="button" data-back><svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>All shipping</button>
-              <div class="subject"><span class="ref">POD-775 · SHIPPING</span><h3>Ship stack</h3><p>Podium is validating the exact composed tip. You can leave this panel.</p><div class="phase"><i class="signal"></i>Validating</div></div>
+              <div class="subject"><span class="ref">POD-775 · IN PROGRESS</span><h3>Ship stack</h3><p>Podium is running the required checks. You can leave this panel.</p><div class="phase"><i class="signal"></i>Running checks</div></div>
               <ol class="timeline">
                 <li class="done"><i class="dot"></i><span><b>Accepted</b><small>Approved root and descendants frozen</small></span><time>14:08</time></li>
-                <li class="done"><i class="dot"></i><span><b>Composed</b><small>Integration tip 7cc12ea</small></span><time>14:10</time></li>
-                <li class="live"><i class="dot"></i><span><b>Validating</b><small>Repository profile · daemon vm13431366</small></span><time>now</time></li>
-                <li><i class="dot"></i><span><b>Publish</b><small>Waiting for green proof</small></span></li>
-                <li><i class="dot"></i><span><b>Verify destination</b><small>Then the issue becomes done</small></span></li>
+                <li class="done"><i class="dot"></i><span><b>Combined related changes</b><small>Prepared the exact candidate</small></span><time>14:10</time></li>
+                <li class="live"><i class="dot"></i><span><b>Running checks</b><small>Required repository checks</small></span><time>now</time></li>
+                <li><i class="dot"></i><span><b>Apply checked changes</b><small>Only after checks pass</small></span></li>
+                <li><i class="dot"></i><span><b>Confirm origin/main</b><small>Then the issue becomes done</small></span></li>
               </ol>
               <div class="section-head"><span class="section-label">Proof</span></div>
               <div class="proof"><div class="proof-row"><span>Approved</span><code>c071d86</code></div><div class="proof-row"><span>Tested</span><code>pending</code></div><div class="proof-row"><span>Destination</span><code>origin/main</code></div></div>
@@ -300,29 +320,37 @@
             </section>
 
             <section class="view view-resumed" aria-label="Shipping resumed">
-              <div class="utility-bar"><b>Deliveries</b><span>3 active</span><button class="icon-button" type="button" title="Refresh shipping" aria-label="Refresh shipping"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
               <div class="resume-line"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span>Decision received. Podium is handling it again.</span></div>
               <div class="intro"><strong>Everything is handled</strong><p>The alert cleared only after the hold resolution committed.</p></div>
               <div class="target-head"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg><strong>podium</strong><code>origin/main</code></div>
-              <div class="section-head"><span class="section-label">On the way</span><span class="count">3</span></div>
+              <div class="section-head"><span class="section-label">In progress</span><span class="count">2</span></div>
               <ul class="ship-list">
-                <li><button class="ship-row" type="button" data-inspect><i class="signal"></i><span class="ship-main"><b>Ship stack</b><small>POD-775 · generation 2</small></span><span class="ship-state live">Revalidating</span></button></li>
-                <li><button class="ship-row" type="button"><i class="signal wait"></i><span class="ship-main"><b>Durable ship orders</b><small>POD-830 · Podium owns the wait</small></span><span class="ship-state">Waiting</span></button></li>
-                <li><button class="ship-row" type="button"><i class="signal"></i><span class="ship-main"><b>Offer dismissal</b><small>POD-771 · publishing</small></span><span class="ship-state live">On its way</span></button></li>
+                <li><button class="ship-row" type="button" data-inspect><i class="signal"></i><span class="ship-main"><b>Ship stack</b><small>POD-775 → origin/main</small></span><span class="ship-state live">Running checks again</span></button></li>
+                <li><button class="ship-row" type="button"><i class="signal"></i><span class="ship-main"><b>Offer dismissal</b><small>POD-771 → origin/main</small></span><span class="ship-state live">Sending to origin</span></button></li>
               </ul>
+              <div class="section-head"><span class="section-label">Waiting · podium → main</span><span class="count">2</span></div>
+              <ol class="ship-list"><li><button class="ship-row" type="button" data-waiting><i class="queue-rank">1</i><span class="ship-main"><b>Durable ship orders</b><small>POD-830 → origin/main</small></span><span class="ship-state">Next · <time datetime="PT9M">9 min</time></span></button></li><li><button class="ship-row" type="button"><i class="queue-rank">2</i><span class="ship-main"><b>Exact landing executor</b><small>POD-831 → origin/main</small></span><span class="ship-state">Waiting <time datetime="PT6M">6 min</time></span></button></li></ol>
               <p class="quiet-foot">No session was revived. The server resumed the durable order and the daemon is revalidating it.</p>
             </section>
 
             <section class="view view-shipped" aria-label="Shipment completed">
-              <div class="utility-bar"><b>Deliveries</b><span>0 active</span><button class="icon-button" type="button" title="Refresh shipping" aria-label="Refresh shipping"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
               <div class="intro success"><strong>Everything is handled</strong><p>There is nothing waiting on you and nothing still moving.</p></div>
               <div class="target-head"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg><strong>podium</strong><code>origin/main</code></div>
-              <div class="section-head"><span class="section-label">On the way</span><span class="count">0</span></div>
+              <div class="section-head"><span class="section-label">In progress</span><span class="count">0</span></div>
               <p class="empty">Nothing is shipping right now.</p>
+              <div class="section-head"><span class="section-label">Waiting · podium → main</span><span class="count">0</span></div>
+              <p class="empty">Nothing is waiting.</p>
               <div class="section-head"><span class="section-label">Recently shipped</span><span class="count">1</span></div>
-              <ul class="ship-list"><li><button class="ship-row" type="button"><i class="signal done"></i><span class="ship-main"><b>Ship stack</b><small>POD-775 · origin/main verified 14:32</small></span><span class="ship-state done">Shipped</span></button></li></ul>
-              <details class="resource" open><summary>Delivery receipt</summary><div class="resource-body">approved · c071d86<br>tested · 7cc12ea<br>landed ref · 7cc12ea<br>destination · 7cc12ea<br>issue · done</div></details>
-              <p class="quiet-foot">Completion did not create a notification. The receipt remains available for audit.</p>
+              <ul class="ship-list"><li><button class="ship-row" type="button" data-receipt><i class="signal done"></i><span class="ship-main"><b>Ship stack</b><small>POD-775 → origin/main</small></span><span class="ship-state done">Shipped 14:32</span></button></li></ul>
+              <p class="quiet-foot">Completion did not create a notification. Select the shipment for its receipt.</p>
+            </section>
+
+            <section class="view view-receipt" aria-label="Delivery receipt">
+              <button class="back" type="button" data-shipped-back><svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>All shipping</button>
+              <div class="subject"><span class="ref">POD-775 · SHIPPED</span><h3>Ship stack</h3><p>Delivered to origin/main at 14:32. The configured destination was verified.</p><div class="phase success"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Shipped</div></div>
+              <div class="section-head"><span class="section-label">Delivery receipt</span></div>
+              <div class="proof"><div class="proof-row"><span>Approved</span><code>c071d86</code></div><div class="proof-row"><span>Tested</span><code>7cc12ea</code></div><div class="proof-row"><span>Landed ref</span><code>7cc12ea</code></div><div class="proof-row"><span>Destination</span><code>7cc12ea</code></div><div class="proof-row"><span>Branch</span><code>origin/main</code></div><div class="proof-row"><span>Checks</span><code>repository profile · passed</code></div></div>
+              <p class="quiet-foot">The receipt belongs to this shipment and remains available from the issue history.</p>
             </section>
           </div>
         </aside>
@@ -334,7 +362,8 @@
           <button class="rail-cell" type="button" title="Files" aria-label="Files"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg></button>
           <button class="rail-cell" type="button" title="Shell" aria-label="Shell"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></button>
           <button class="rail-cell" type="button" title="Messages" aria-label="Messages"><svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg></button>
-          <button class="rail-cell shipping-cell" type="button" title="Shipping" aria-label="Shipping" data-shipping-cell><svg class="icon" aria-hidden="true"><use href="#i-shipping"/></svg></button>
+          <button class="rail-cell" type="button" title="Queues" aria-label="Queues"><svg class="icon" aria-hidden="true"><use href="#i-queues"/></svg></button>
+          <button class="rail-cell shipping-cell" type="button" title="Shipping, 4 unfinished deliveries" aria-label="Shipping, 4 unfinished deliveries" data-shipping-cell><svg class="icon" aria-hidden="true"><use href="#i-shipping"/></svg><span class="rail-count" aria-hidden="true">4</span></button>
         </nav>
 
         <aside class="alert-popover" role="alert">
@@ -345,7 +374,7 @@
     </div>
   </section>
 
-  <p class="footnote">Production mapping: <code>RightDock</code> header metrics · <code>right-dock-shell</code> engraved surface · <code>right-rail</code> 46px rail · current <code>MergeQueuePanel</code> section and row density. Shipping replaces Queues in place; resource leases move behind the disclosure.</p>
+  <p class="footnote">Production mapping: <code>RightDock</code> header metrics · <code>right-dock-shell</code> engraved surface · <code>right-rail</code> 46px rail · current compact row density. Queues stays unchanged; Shipping is a new adjacent panel. The grey badge counts unfinished shipments in the active repository scope.</p>
 </main>
 
 <div class="toast" id="toast" role="status"></div>
@@ -353,7 +382,7 @@
   const stories = {
     handoff: {
       kicker:'1 · after “ship it”', title:'Nothing opens.',
-      body:'The normal review surface hands off an approved delivery root. The Shipping dock stays closed and its rail icon stays neutral—no progress ceremony and no new task for the user.',
+      body:'The normal review surface hands off an approved delivery root. The Shipping dock stays closed; its road icon remains neutral and a small grey badge now says four deliveries are unfinished.',
       effort:'None. The user leaves; the finishing agent may exit.',
       system:'The server commits the durable order and shipping stage. The repository daemon takes over; no agent polls.'
     },
@@ -361,37 +390,49 @@
       kicker:'2 · optional confidence check', title:'Everything is handled.',
       body:'Hours later, the user may open Shipping from the existing rail. The first screen answers only what is moving, where it is going, and whether Podium needs anything.',
       effort:'Optional glance. No queue ordering or workflow management.',
-      system:'Rows are a projection of durable orders. Slow work remains neutral; diagnostic resource lanes stay collapsed.'
+      system:'Rows are a projection of durable orders. Queues remains a separate panel for merge, test, and resource lanes.'
+    },
+    waiting: {
+      kicker:'3 · ordered waiting stack', title:'Next is a real position, not an ETA.',
+      body:'Waiting shipments form an explicit stack within one repository and destination. Each row shows its order and elapsed wait; independent destinations can still move in parallel.',
+      effort:'None. There is no reorder control and no queue management job.',
+      system:'The server scheduler publishes queue rank and queued time. The client never derives order from timestamps.'
     },
     inspect: {
-      kicker:'3 · optional detail', title:'Proof, not theater.',
+      kicker:'4 · active shipment', title:'Plain words say what is happening.',
       body:'Selecting one row reveals its real milestones, immutable references, executor, and safe controls. The detail explains what Podium is doing without asking the user to supervise it.',
       effort:'Optional diagnosis; cancel remains available before destination effects.',
       system:'Submitted, tested, landed, and destination tips remain separate. The merge lock is not held during long validation.'
     },
     alert: {
-      kicker:'4 · automation is exhausted', title:'Only then does Shipping ask.',
+      kicker:'5 · automation is exhausted', title:'Only then does Shipping ask.',
       body:'A semantic decision exceeds deterministic repair and bounded model authority. The existing Podium alert appears and only the Shipping glyph turns red; the dock still does not hijack focus.',
       effort:'Notice one actionable exception—not routine progress.',
       system:'The issue stays shipping with needsHuman. Other delivery roots continue independently.'
     },
     resolve: {
-      kicker:'5 · focused recovery', title:'One decision, with context.',
+      kicker:'6 · focused recovery', title:'One decision, with context.',
       body:'Opening the alert lands directly on the held shipment. Podium says why it stopped, what deterministic and model-assisted repair tried, and offers only safe next actions.',
       effort:'Open the normal issue for product judgment, retry after context changed, or return it to review.',
       system:'A typed ShipHold is resolved with a generation fence. A model can propose patches but cannot merge or publish.'
     },
     resumed: {
-      kicker:'6 · answer accepted', title:'Podium owns it again.',
+      kicker:'7 · answer accepted', title:'Podium owns it again.',
       body:'The red signal clears only after the resolution commits. The order recomposes and revalidates in the background; no original session is revived.',
       effort:'None after the decision.',
       system:'The server advances the durable order; the daemon executes the next fenced attempt from current repository state.'
     },
     shipped: {
-      kicker:'7 · destination verified', title:'Done means arrived.',
-      body:'The active row quietly moves to Recently shipped after Podium proves the configured destination. There is no completion badge demanding acknowledgement.',
-      effort:'None. The receipt is there only if the user wants it.',
+      kicker:'8 · destination verified', title:'Done means arrived.',
+      body:'The active row quietly moves to Recently shipped after Podium proves the configured destination. The unfinished count decrements and disappears at zero.',
+      effort:'None. Selecting the completed row opens its own receipt.',
       system:'Destination proof moves the delivery root from shipping to done. Audit data remains; routine UI returns to neutral.'
+    },
+    receipt: {
+      kicker:'9 · shipment evidence', title:'The receipt belongs to the item.',
+      body:'A completed shipment owns its delivery receipt. The overview stays a list; opening the item reveals the approved, tested, landed, and verified destination references.',
+      effort:'Optional audit only.',
+      system:'Receipt identity is attached to the ShipOrder after destination proof and retained with the issue history.'
     }
   }
   const product = document.getElementById('product')
@@ -402,6 +443,7 @@
   const storyEffort = document.getElementById('story-effort')
   const storySystem = document.getElementById('story-system')
   const shippingCell = document.querySelector('[data-shipping-cell]')
+  const railCount = document.querySelector('.rail-count')
 
   function show(state) {
     const story = stories[state] || stories.peek
@@ -413,7 +455,10 @@
     storyEffort.textContent = story.effort
     storySystem.textContent = story.system
     const attention = state === 'alert' || state === 'resolve'
-    shippingCell.title = attention ? 'Shipping · action required' : 'Shipping'
+    const count = state === 'shipped' || state === 'receipt' ? 0 : 4
+    railCount.textContent = String(count)
+    railCount.hidden = count === 0
+    shippingCell.title = attention ? `Shipping, ${count} unfinished deliveries, 1 needs your decision` : count > 0 ? `Shipping, ${count} unfinished deliveries` : 'Shipping, no unfinished deliveries'
     shippingCell.setAttribute('aria-label', shippingCell.title)
   }
   function toast(title, detail) {
@@ -424,8 +469,11 @@
   }
   buttons.forEach((button) => button.addEventListener('click', () => show(button.dataset.stateButton)))
   document.querySelector('[data-close]').addEventListener('click', () => show('handoff'))
-  document.querySelector('[data-back]').addEventListener('click', () => show('peek'))
+  document.querySelectorAll('[data-back]').forEach((button) => button.addEventListener('click', () => show('peek')))
+  document.querySelector('[data-shipped-back]').addEventListener('click', () => show('shipped'))
   document.querySelectorAll('[data-inspect]').forEach((button) => button.addEventListener('click', () => show('inspect')))
+  document.querySelectorAll('[data-waiting]').forEach((button) => button.addEventListener('click', () => show('waiting')))
+  document.querySelectorAll('[data-receipt]').forEach((button) => button.addEventListener('click', () => show('receipt')))
   document.querySelector('[data-open-shipping]').addEventListener('click', () => show('resolve'))
   document.querySelector('[data-dismiss]').addEventListener('click', () => toast('Alert kept for later','The red Shipping glyph remains until the hold is resolved.'))
   document.querySelector('[data-retry]').addEventListener('click', () => show('resumed'))
