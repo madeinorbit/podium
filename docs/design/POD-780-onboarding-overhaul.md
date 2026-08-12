@@ -99,3 +99,24 @@ draft throughout detection and authentication.
 - Mobile clients fail safely until server readiness is established.
 - The integrated epic branch passes the repository-selected validation gates and is the artifact and
   runtime review target.
+
+## Integrated review evidence
+
+The complete product is integrated in this issue worktree as one test target. The implemented
+journey now includes trusted local all-in-one defaults, the revealed and resumable activation
+shell, local and GitHub CLI project intake, truthful agent readiness, the production model and
+effort controls, real `issues.create({ startNow: true })` first-task creation, existing-Podium
+client and joined-machine routes, guided VPS pairing and server transfer, and server-enforced
+mobile readiness gating.
+
+The final combined `bun run test` gate passed on 2026-08-12: 24 of 24 workspace typecheck tasks
+and 72 of 72 configured smoke tests passed. The required multi-instance lane was also attempted by
+the local and mobile boundary workstreams. It reached independent runtimes but then failed at
+unrelated runner infrastructure points (a Bun 1.3.14/node-pty panic and non-deterministic lifecycle
+request resets), tracked separately as POD-893 and POD-894; no workaround or weakened readiness
+boundary was folded into this feature.
+
+No browser-driving pass was added: the changed UI is ordinary component behavior covered by
+hermetic tests, while the server, transfer, and lifecycle boundaries have focused contract tests.
+This follows the repository rule that browser driving is reserved for effects only a real external
+interaction can establish.
