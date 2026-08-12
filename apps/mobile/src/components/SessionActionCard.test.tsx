@@ -11,7 +11,7 @@ vi.mock('expo-haptics', () => ({
 }))
 // Ships untranspiled Flow, which this environment cannot parse — the same stub
 // Composer.test.tsx uses. The dismiss control is found by its label, not its glyph.
-vi.mock('lucide-react-native', () => ({ X: () => null }))
+vi.mock('lucide-react-native', () => ({ X: () => null, Lightbulb: () => null }))
 
 const { composeOfferPrompt, SessionActionCard } = await import('./SessionActionCard')
 
@@ -81,7 +81,7 @@ describe('SessionActionCard', () => {
 
     fireEvent.click(screen.getByLabelText('Dismiss offer'))
     await waitFor(() =>
-      expect(screen.getByTestId('session-action-card').textContent).toContain('not dismissed'),
+      expect(screen.getByTestId('session-action-card').textContent).toContain('Not dismissed'),
     )
     // The control comes back rather than staying spent — the offer is still
     // standing on the server, so the operator must be able to try again.

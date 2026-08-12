@@ -1,5 +1,5 @@
 import type { SessionOffer } from '@podium/model'
-import { X } from 'lucide-react-native'
+import { Lightbulb, X } from 'lucide-react-native'
 import { useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
@@ -14,6 +14,15 @@ export const composeOfferPrompt = (prompt: string, feedback: string): string =>
  * A session-owned offer, kept in the transcript flow. This is deliberately a
  * compact action block rather than a Tray card or persistent bottom accessory:
  * the session is both the source of the decision and where its answer goes.
+ *
+ * A BLOCK IN THE DOCUMENT, NOT A CARD — the same move the desktop bar made
+ * [POD-725], arrived at here for the same reason. This was a yellow-rimmed,
+ * yellow-washed, rounded panel: a 3pt yellow edge, a yellow wash and a yellow
+ * button, three signals for one request, in an app whose whole palette spends
+ * yellow exactly once. The block now earns its weight typographically — a rule
+ * marking where the answer ended and the question began, an ochre eyebrow, and a
+ * headline set larger than the transcript prose above it — and the single yellow
+ * object left on screen is the button the operator is meant to press.
  *
  * `onDismiss` is the THIRD answer, matching the web bar's x [POD-771]: none of
  * these. Without it the phone could only answer an offer or wait for the
@@ -74,24 +83,23 @@ export function SessionActionCard({
   }
 
   return (
-    <View style={styles.card} testID="session-action-card">
+    <View style={styles.block} testID="session-action-card">
       <View style={styles.headingRow}>
-        <Text style={styles.label}>ACTION</Text>
+        <Icon as={Lightbulb} size={11} color={color.needsYou} />
+        <Text style={styles.label}>Offer · needs you</Text>
         {/* An explicit spacer rather than `marginLeft: 'auto'` on each status
             text: the x below needs the far end unconditionally, and two auto
             margins in one row split the slack between them instead. */}
         <View style={styles.headingSpacer} />
         {sending ? <Text style={styles.meta}>sending…</Text> : null}
-        {failed ? <Text style={styles.error}>not sent — try again</Text> : null}
-        {dismissFailed ? <Text style={styles.error}>not dismissed — try again</Text> : null}
         {/* THE DECLINE, AT THE LABEL ROW'S FAR END — same place the web bar puts
             it. It sits with the eyebrow and not among the buttons because the
             buttons are answers to the question and this is the control that says
-            the question needs none. Faint, and it takes no accent: the card
+            the question needs none. Faint, and it takes no accent: the block
             spends its one attention colour on the action meant to be pressed.
             NOT gated on `sending`'s disabled treatment the way the buttons are —
             an offer on a session that cannot take a turn is exactly the one that
-            needs its way out. 10pt of ink, 30pt of thumb once hitSlop counts. */}
+            needs its way out. 13pt of ink, 33pt of thumb once hitSlop counts. */}
         {onDismiss ? (
           <PressableScale
             accessibilityRole="button"
@@ -113,6 +121,11 @@ export function SessionActionCard({
           {body}
         </Text>
       ) : null}
+      {/* Failures get their own line rather than a slot in the eyebrow: at 390pt
+          "not dismissed — try again" beside the label wrapped the eyebrow onto
+          two lines, and an error is not a thing to truncate. */}
+      {failed ? <Text style={styles.error}>Not sent — try again.</Text> : null}
+      {dismissFailed ? <Text style={styles.error}>Not dismissed — try again.</Text> : null}
       {pending ? (
         <View style={styles.inputBlock}>
           <TextInput
@@ -159,8 +172,7 @@ export function SessionActionCard({
               accessibilityLabel={action.label}
               disabled={sending}
               style={[
-                styles.button,
-                index === 0 ? styles.primary : styles.secondary,
+                index === 0 ? [styles.button, styles.primary] : styles.textAction,
                 sending && styles.muted,
               ]}
               onPress={() => {
@@ -175,6 +187,9 @@ export function SessionActionCard({
               <Text style={index === 0 ? styles.primaryText : styles.secondaryText}>
                 {action.label}
               </Text>
+              {/* This one opens a field rather than sending — say so before the
+                  press, not after it. */}
+              {action.input ? <Text style={styles.inputMark}>✎</Text> : null}
             </PressableScale>
           ))}
           {evidenceCount > 0 && onOpenEvidence ? (
@@ -196,19 +211,18 @@ export function SessionActionCard({
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderLeftWidth: 3,
-    borderLeftColor: color.needsYou,
-    borderRadius: radius.md,
-    backgroundColor: color.needsYouSoft,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm + 2,
-    gap: 6,
+  block: {
+    // The rule IS the container. It marks where the answer ended and the
+    // question began; no fill, no radius, and no horizontal padding, so the
+    // offer keeps the transcript's own column instead of floating above it.
+    borderTopWidth: 1,
+    borderTopColor: color.hairline,
+    paddingTop: space.md,
   },
   headingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: 6,
   },
   label: {
     ...monoLabel(),
@@ -224,9 +238,11 @@ const styles = StyleSheet.create({
   error: {
     color: color.danger,
     fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
+    marginTop: 6,
   },
   dismiss: {
-    // Negative vertical margin keeps the 10pt glyph from growing the eyebrow row.
+    // Negative vertical margin keeps the 13pt glyph from growing the eyebrow row.
     marginVertical: -space.xs,
     padding: space.xs,
     alignItems: 'center',
@@ -235,34 +251,51 @@ const styles = StyleSheet.create({
   headline: {
     ...sans(600),
     color: color.text,
-    fontSize: font.small,
-    lineHeight: leading(font.small, 'prose'),
+    // Set ABOVE the transcript prose it follows: with the yellow wash gone, the
+    // question's weight is what marks it as the thing that needs you.
+    fontSize: font.body,
+    lineHeight: leading(font.body, 'prose'),
+    marginTop: space.sm + 2,
   },
   body: {
     color: color.textDim,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny, 'prose'),
+    fontSize: font.small,
+    lineHeight: leading(font.small, 'prose'),
+    marginTop: 5,
   },
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: space.sm,
+    // Runners-up are text, so they need real space around them to read as
+    // separate targets rather than as one run of words.
+    columnGap: space.lg,
+    rowGap: space.xs,
+    marginTop: space.md,
   },
   button: {
-    minHeight: 36,
+    // 44pt is the platform floor, and this is the one control meant to be hit
+    // without looking.
+    minHeight: 44,
     borderRadius: radius.sm,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.lg,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 5,
   },
   primary: {
     backgroundColor: color.accent,
   },
-  secondary: {
-    backgroundColor: color.elevated,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
+  /** ONE BUTTON, THEN ALTERNATIVES. An outlined runner-up beside a filled
+   *  primary makes a row of near-equal objects, which is the "which do I press"
+   *  the recommendation exists to answer. */
+  textAction: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
   },
   primaryText: {
     ...sans(600),
@@ -271,31 +304,40 @@ const styles = StyleSheet.create({
   },
   secondaryText: {
     ...sans(500),
-    color: color.body,
+    color: color.textDim,
     fontSize: font.small,
+  },
+  inputMark: {
+    color: color.textDim,
+    fontSize: font.micro,
   },
   muted: {
     opacity: 0.5,
   },
   linkButton: {
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: 'center',
-    paddingHorizontal: space.xs,
   },
   linkText: {
     ...sans(500),
-    color: color.accentTint,
+    // Neutral, not accentTint: the yellow is spent on the eyebrow and the
+    // primary button, and a third one would argue with both. textDim, not
+    // textFaint — this is a control, and faint lands under 4.5:1 on `bg`.
+    color: color.textDim,
     fontSize: font.tiny,
   },
   inputBlock: {
     gap: space.sm,
+    marginTop: space.md,
   },
   input: {
     minHeight: 58,
     borderWidth: 1,
-    borderColor: color.borderStrong,
+    borderColor: color.border,
     borderRadius: radius.sm,
-    backgroundColor: color.bg,
+    // A raised fill, not the page colour: with the block's own surface gone,
+    // `bg` would leave the field indistinguishable from the transcript behind it.
+    backgroundColor: color.surface,
     color: color.text,
     fontSize: font.small,
     paddingHorizontal: space.md,
