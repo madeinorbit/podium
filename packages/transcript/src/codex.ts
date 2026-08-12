@@ -6,9 +6,11 @@ import { contentToText, isRecord, stringField } from './json-util'
  * Normalize one Codex rollout JSONL record (envelope `{ timestamp, type, payload }`)
  * into Podium chat items.
  *
- * User text: taken from `event_msg.user_message` — the canonical, typed prompt.
- * `response_item` role=user records are ALWAYS duplicates of the paired event_msg
- * (Codex injects them into the model context) or system preamble; either way, skip.
+ * User text: taken from Codex's canonical typed events. Current rollouts emit
+ * `event_msg.item_completed` with a `UserMessage` item; older rollouts used
+ * `event_msg.user_message` directly. `response_item` role=user records are ALWAYS
+ * duplicates of one of those typed events (Codex injects them into the model
+ * context) or system preamble; either way, skip.
  * `response_item` role=developer is always a permissions/AGENTS preamble; skip.
  * `response_item` role=assistant → assistant message.
  *
@@ -28,12 +30,23 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
   const ts = stringField(record, 'timestamp') ?? stringField(payload, 'timestamp')
 
   if (type === 'event_msg') {
-    if (ptype !== 'user_message') return []
-    const text = userMessageText(payload)
+    const completedItem = isRecord(payload.item) ? payload.item : undefined
+    const currentUserMessage =
+      ptype === 'item_completed' && stringField(completedItem ?? {}, 'type') === 'UserMessage'
+        ? completedItem
+        : undefined
+    const text =
+      ptype === 'user_message'
+        ? userMessageText(payload)
+        : currentUserMessage
+          ? contentToText(currentUserMessage.content).trim()
+          : ''
     return text
       ? [
           {
-            id: stableId('codex-user', `${ts ?? ''}:${text}`),
+            id:
+              stringField(currentUserMessage ?? {}, 'id') ??
+              stableId('codex-user', `${ts ?? ''}:${text}`),
             role: 'user',
             ...(ts ? { ts } : {}),
             text,
@@ -47,9 +60,8 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
   switch (ptype) {
     case 'message': {
       const role = stringField(payload, 'role')
-      // developer = permissions/AGENTS preamble; user = event_msg duplicate or env preamble.
+      // developer = permissions/AGENTS preamble; user = typed-event duplicate or env preamble.
       // Both are always covered by a canonical event_msg or are internal-only, so skip.
-      // Note: skipping user-role response_item relies on event_msg covering the user turn.
       if (role !== 'assistant') return []
       const text = contentToText(payload.content).trim()
       return text

@@ -16,6 +16,69 @@ describe('codexRecordToItems', () => {
     expect(items[0]).toMatchObject({ role: 'user', text: 'fix the chat view' })
   })
 
+  it('takes the clean user prompt from event_msg.item_completed UserMessage', () => {
+    const items = codexRecordToItems(
+      env('event_msg', {
+        type: 'item_completed',
+        item: {
+          type: 'UserMessage',
+          id: 'user-message-1',
+          content: [{ type: 'text', text: 'please quickly push the pending commits' }],
+        },
+      }),
+    )
+    expect(items).toEqual([
+      {
+        id: 'user-message-1',
+        role: 'user',
+        ts: '2026-06-16T16:11:00.000Z',
+        text: 'please quickly push the pending commits',
+      },
+    ])
+  })
+
+  it('skips item_completed events that are not user messages', () => {
+    expect(
+      codexRecordToItems(
+        env('event_msg', {
+          type: 'item_completed',
+          item: {
+            type: 'AgentMessage',
+            content: [{ type: 'text', text: 'internal duplicate' }],
+          },
+        }),
+      ),
+    ).toEqual([])
+  })
+
+  it('keeps a current-format opening prompt before the assistant turn', () => {
+    const records = [
+      env('response_item', {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'please quickly push the pending commits' }],
+      }),
+      env('event_msg', {
+        type: 'item_completed',
+        item: {
+          type: 'UserMessage',
+          id: 'opening-prompt',
+          content: [{ type: 'text', text: 'please quickly push the pending commits' }],
+        },
+      }),
+      env('response_item', {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'I will push the pending commits.' }],
+      }),
+    ]
+
+    expect(records.flatMap(codexRecordToItems).map(({ role, text }) => ({ role, text }))).toEqual([
+      { role: 'user', text: 'please quickly push the pending commits' },
+      { role: 'assistant', text: 'I will push the pending commits.' },
+    ])
+  })
+
   it('skips the injected response_item user/developer preamble', () => {
     expect(
       codexRecordToItems(
