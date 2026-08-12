@@ -493,7 +493,7 @@ export async function openKernelAssembly(
   }
 
   return {
-    principal: asClientPrincipal(options.principal),
+    principal: asClientPrincipal(asUserId(options.principal)),
     createReplicaFn: (principal: ClientPrincipal) => {
       if (principal.userId !== options.principal) {
         throw new Error(

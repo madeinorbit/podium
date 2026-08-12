@@ -1,4 +1,4 @@
-import { asClientPrincipal } from '@podium/client-core/principal'
+import { asUserId, asClientPrincipal } from '@podium/client-core/principal'
 import { asSessionId, type SessionId } from '@podium/model'
 import { createReplica } from '@podium/client-core/replica'
 import { act } from 'react'
@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /** These suites predate multi-user; they exercise ONE signed-in operator, which
  *  is what the shipped single-admin install is. */
-const TEST_PRINCIPAL = asClientPrincipal('operator')
+const TEST_PRINCIPAL = asClientPrincipal(asUserId('operator'))
 
 // react-dom/client's createRoot+act path checks this global.
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true

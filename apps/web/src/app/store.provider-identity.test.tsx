@@ -1,3 +1,4 @@
+import { asUserId } from '@podium/model'
 // @vitest-environment happy-dom
 // (the ROOT vitest run executes web tests under node; client-core/react pulls
 // terminal-client → xterm addons that need a browser-ish global at import time)
@@ -90,7 +91,7 @@ const settle = () =>
 
 type Config = { httpOrigin: string; wsClientUrl: string }
 
-const OPERATOR = asClientPrincipal('operator')
+const OPERATOR = asClientPrincipal(asUserId('operator'))
 
 async function render(config: Config, api: PodiumClientApi): Promise<void> {
   act(() => {
@@ -169,8 +170,8 @@ describe('provider runtime identity (#262 review)', () => {
 // decoration riding on another one's failure.
 // ---------------------------------------------------------------------------
 
-const ALICE = asClientPrincipal('alice')
-const BOB = asClientPrincipal('bob')
+const ALICE = asClientPrincipal(asUserId('alice'))
+const BOB = asClientPrincipal(asUserId('bob'))
 
 /** What the mounted subtree can see, so the assertions read the RENDERED value
  *  rather than the runtime's internals. */
@@ -393,7 +394,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     const api = makeApi()
     await renderAs(ALICE, api)
     const hubA = seen.hub
-    await renderAs({ userId: 'alice' }, api)
+    await renderAs({ userId: asUserId('alice') }, api)
     expect(seen.hub).toBe(hubA)
   })
 })
@@ -461,7 +462,7 @@ describe('no principal, no client (POD-404)', () => {
     }
     await renderWith(null)
     expect(lastHub).toBeNull()
-    await renderWith(asClientPrincipal('carol'))
+    await renderWith(asClientPrincipal(asUserId('carol')))
     expect(lastHub).not.toBeNull()
   })
 })

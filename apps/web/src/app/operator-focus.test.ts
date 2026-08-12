@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveFocus } from './operator-focus'
 
@@ -12,13 +13,13 @@ describe('resolveFocus', () => {
   const mission = new Set(['root', 'child', 'grandchild'])
 
   it('keeps a focus that belongs to the mission', () => {
-    expect(resolveFocus('child', mission, 'root')).toBe('child')
-    expect(resolveFocus('grandchild', mission, 'root')).toBe('grandchild')
-    expect(resolveFocus('root', mission, 'root')).toBe('root')
+    expect(resolveFocus(asIssueId('child'), mission, 'root')).toBe('child')
+    expect(resolveFocus(asIssueId('grandchild'), mission, 'root')).toBe('grandchild')
+    expect(resolveFocus(asIssueId('root'), mission, 'root')).toBe('root')
   })
 
   it('falls back to the root for a focus left over from another mission', () => {
-    expect(resolveFocus('stranger', mission, 'root')).toBe('root')
+    expect(resolveFocus(asIssueId('stranger'), mission, 'root')).toBe('root')
   })
 
   it('falls back to the root when nothing is focused', () => {
@@ -27,14 +28,14 @@ describe('resolveFocus', () => {
 
   it('resolves to nothing when there is no mission to fall back to', () => {
     expect(resolveFocus(null, new Set(), null)).toBeNull()
-    expect(resolveFocus('stranger', new Set(), undefined)).toBeNull()
+    expect(resolveFocus(asIssueId('stranger'), new Set(), undefined)).toBeNull()
   })
 
   // The bug this exists to prevent: a mission switch must not silently retarget
   // the inspector at a task the operator did not click.
   it('never invents a focus outside the mission it is resolved against', () => {
     for (const candidate of ['stranger', 'archived', '']) {
-      expect(mission.has(resolveFocus(candidate, mission, 'root') as string)).toBe(true)
+      expect(mission.has(resolveFocus(asIssueId(candidate), mission, 'root') as string)).toBe(true)
     }
   })
 })
@@ -63,28 +64,28 @@ describe('deck / dock focus agreement', () => {
 
   it('keeps a focus that a filter has scrolled out of view', () => {
     // c2 is filtered out of the deck. It is still the inspected task.
-    expect(resolveFocus('c2', needsYouRows, 'root')).toBe('root')
-    expect(resolveFocus('c2', missionMembers, 'root')).toBe('c2')
+    expect(resolveFocus(asIssueId('c2'), needsYouRows, 'root')).toBe('root')
+    expect(resolveFocus(asIssueId('c2'), missionMembers, 'root')).toBe('c2')
   })
 
   it('agrees with itself for every member of the mission, in either column', () => {
     for (const id of missionMembers) {
-      const deck = resolveFocus(id, missionMembers, 'root')
-      const dock = resolveFocus(id, missionMembers, 'root')
+      const deck = resolveFocus(asIssueId(id), missionMembers, 'root')
+      const dock = resolveFocus(asIssueId(id), missionMembers, 'root')
       expect(deck).toBe(dock)
       expect(deck).toBe(id)
     }
   })
 
   it('agrees on the fallback when the focus belongs to no mission at all', () => {
-    expect(resolveFocus('other-mission', missionMembers, 'root')).toBe('root')
+    expect(resolveFocus(asIssueId('other-mission'), missionMembers, 'root')).toBe('root')
   })
 
   // The dock's own former bug: with a CHILD selected, resolving against that
   // child's subtree loses every sibling the deck still shows.
   it('does not shrink the set when the selection is a child rather than the root', () => {
     const childSubtreeOnly = new Set(['c1', 'g1'])
-    expect(resolveFocus('c2', childSubtreeOnly, 'c1')).toBe('c1')
-    expect(resolveFocus('c2', missionMembers, 'root')).toBe('c2')
+    expect(resolveFocus(asIssueId('c2'), childSubtreeOnly, 'c1')).toBe('c1')
+    expect(resolveFocus(asIssueId('c2'), missionMembers, 'root')).toBe('c2')
   })
 })

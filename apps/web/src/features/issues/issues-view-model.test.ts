@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { DEFAULT_DISPLAY } from './issues-display'
@@ -44,7 +45,7 @@ describe('deriveIssuesViewModel', () => {
       filter: {},
       expanded: new Set(),
       isMobile: false,
-      openIssueId: 'child',
+      openIssueId: asIssueId('child'),
     })
 
     expect(model.boardIssues.map((issue) => issue.id)).toEqual(['root', 'other'])

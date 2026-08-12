@@ -1,4 +1,5 @@
 import {
+  asMachineId,
   artifactKind,
   artifactUrl,
   basename,
@@ -71,7 +72,7 @@ describe('resolveActiveWorktree', () => {
   it('uses a file tab worktreePath when paneA is a file tab', () => {
     const tab: FileTab = {
       id: 'file:x:/wt/c/readme.md',
-      scope: { kind: 'worktree', machineId: 'm2', root: '/wt/c' },
+      scope: { kind: 'worktree', machineId: asMachineId('m2'), root: '/wt/c' },
       path: '/wt/c/readme.md',
       worktreePath: '/wt/c',
     }
@@ -297,7 +298,7 @@ describe('artifact helpers', () => {
         httpOrigin: 'http://x/',
         root: '/wt a',
         path: 'img 1.png',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       }),
     ).toBe('http://x/files/asset?root=%2Fwt+a&path=img+1.png&machineId=m1')
     expect(worktreeAssetUrl({ httpOrigin: 'http://x', root: '/w', path: 'p.png' })).not.toContain(
@@ -328,7 +329,7 @@ describe('artifact helpers', () => {
         issueId: asIssueId('iss_1'),
         artifact: { path: 'p.png' },
         root: '/w',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       }),
     ).toBe('http://x/files/asset?root=%2Fw&path=p.png&machineId=m1')
     expect(

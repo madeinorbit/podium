@@ -1,4 +1,4 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { asMachineId, shallowEqual } from '@podium/client-core/store'
 import {
   lastUsedMaps,
   machineViewsFromWire,
@@ -160,7 +160,10 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
    * `spawnTargetForRepo` turns into the repo's own main checkout as it always
    * has. That split is what keeps single-user parity while closing the hole.
    */
-  function resolveSpawnMachine(repo: RepoNavView, machineId?: MachineId): string | undefined | null {
+  function resolveSpawnMachine(
+    repo: RepoNavView,
+    machineId?: MachineId,
+  ): string | undefined | null {
     // An explicit pick is honoured only if it is still a machine this principal
     // may USE. The menu never offers an unauthorized one, but the views can go
     // stale between render and click (a grant revoked mid-menu).
@@ -174,7 +177,10 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
   function spawn(agentKind: AgentKind, repo: RepoNavView, machineId?: MachineId): void {
     const targetMachine = resolveSpawnMachine(repo, machineId)
     if (targetMachine === null) return
-    const { worktree: wt } = spawnTargetForRepo(repo, targetMachine)
+    const { worktree: wt } = spawnTargetForRepo(
+      repo,
+      targetMachine === undefined ? undefined : asMachineId(targetMachine),
+    )
     const { sessionId, issueId } = spawnDraftAgent({ target: wt, agentKind })
     setSelectedIssueId(issueId)
     setSelectedWorktree(wt.path)

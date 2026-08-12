@@ -565,9 +565,13 @@ describe('RefCard escalations (POD-786)', () => {
 
   it('offers the task’s own session and hands back its id', () => {
     const onGoToSession = vi.fn()
-    renderWith(rich, [session({ sessionId: 's_own', issueId: 'iss_1', displayRef: 'POD-517-A' })], {
-      onGoToSession,
-    })
+    renderWith(
+      rich,
+      [session({ sessionId: 's_own', issueId: asIssueId('iss_1'), displayRef: 'POD-517-A' })],
+      {
+        onGoToSession,
+      },
+    )
     const go = button('Go to session')
     expect(go).toBeDefined()
     act(() => go?.click())
@@ -579,7 +583,13 @@ describe('RefCard escalations (POD-786)', () => {
     // `rich` is parented on iss_parent (POD-500); only the parent has run.
     renderWith(
       rich,
-      [session({ sessionId: 's_parent', issueId: 'iss_parent', displayRef: 'POD-500-A' })],
+      [
+        session({
+          sessionId: 's_parent',
+          issueId: asIssueId('iss_parent'),
+          displayRef: 'POD-500-A',
+        }),
+      ],
       { onGoToSession },
     )
     // The label must not claim this task's own session, and the ref it lands on

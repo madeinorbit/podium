@@ -26,6 +26,8 @@
  * explanation IS the M5 defect restated.
  */
 import {
+  asAccountId,
+  asMachineId,
   machineViewsFromWire,
   placementOptions,
   profilePlacement,
@@ -182,7 +184,14 @@ export function ExecutionProfiles({
               rights={rights}
               dispatch={source.dispatch}
               disabled={!canSave}
-              input={() => ({ name, accountId, harness, model, effort, machineId })}
+              input={() => ({
+                name,
+                accountId: asAccountId(accountId),
+                harness,
+                model,
+                effort,
+                machineId: machineId === null ? null : asMachineId(machineId),
+              })}
             />
           </div>
         </div>

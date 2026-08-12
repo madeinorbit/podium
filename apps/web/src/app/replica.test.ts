@@ -1,4 +1,5 @@
 import {
+  asMutationId,
   COLD_CURSOR,
   createReplica,
   REPLICA_TRANSCRIPT_CONVERSATION_CAP,
@@ -423,7 +424,7 @@ describe('replica adapter', () => {
 
 function entry(mutationId: string, queuedAt = 1): OutboxEntry {
   return {
-    mutationId,
+    mutationId: asMutationId(mutationId),
     kind: 'rename',
     input: { sessionId: asSessionId('s1'), name: mutationId },
     queuedAt,

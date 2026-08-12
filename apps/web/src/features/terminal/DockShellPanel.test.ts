@@ -13,16 +13,20 @@ describe('resolveShellMachineLabel', () => {
       resolveShellMachineLabel(
         { machineId: asMachineId('machine-remote'), machineName: 'remote.example' },
         machines,
-        'machine-local',
+        asMachineId('machine-local'),
       ),
     ).toBe('remote.example')
   })
 
   it('shows the requested machine name while session metadata is arriving', () => {
-    expect(resolveShellMachineLabel(undefined, machines, 'machine-local')).toBe('podium-host')
+    expect(resolveShellMachineLabel(undefined, machines, asMachineId('machine-local'))).toBe(
+      'podium-host',
+    )
   })
 
   it('falls back to the stable machine id when no display name is known', () => {
-    expect(resolveShellMachineLabel({ machineId: asMachineId('unlisted') }, machines)).toBe('unlisted')
+    expect(resolveShellMachineLabel({ machineId: asMachineId('unlisted') }, machines)).toBe(
+      'unlisted',
+    )
   })
 })

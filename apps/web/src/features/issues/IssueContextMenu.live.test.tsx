@@ -80,10 +80,14 @@ const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'
   }) as unknown as SessionMeta
 
 function open(issue: IssueWire & { memberSessionIds?: string[] }): void {
+  const viewIssue = {
+    ...issue,
+    memberSessionIds: issue.memberSessionIds?.map(asSessionId),
+  }
   render(
     <IssueContextMenu
-      issues={[issue]}
-      allIssues={[issue]}
+      issues={[viewIssue]}
+      allIssues={[viewIssue]}
       anchor={{ x: 10, y: 10 }}
       onClose={vi.fn()}
       onOpen={vi.fn()}

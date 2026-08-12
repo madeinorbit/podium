@@ -388,7 +388,7 @@ describe('MachinesPanel server transfer', () => {
     overrides: Partial<ServerTransferStatusSnapshot> = {},
   ): ServerTransferStatusSnapshot {
     return {
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       targetEligibility: [{ targetMachineId: 'target', eligible: true }],
       transfer: null,
       ...overrides,

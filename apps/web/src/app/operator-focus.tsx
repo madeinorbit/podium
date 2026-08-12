@@ -1,4 +1,4 @@
-import type { IssueId } from '@podium/model'
+import { asIssueId, type IssueId } from '@podium/model'
 import {
   createContext,
   type ReactElement,
@@ -42,8 +42,17 @@ export function OperatorFocusProvider({
   missionId: string | null
   children: ReactNode
 }): ReactElement {
-  const [focusedIssueId, setFocusedIssueId] = useState<string | null>(missionId)
-  const value = useMemo(() => ({ focusedIssueId, setFocusedIssueId }), [focusedIssueId])
+  const [focusedIssueId, setFocusedIssueId] = useState<IssueId | null>(
+    missionId === null ? null : asIssueId(missionId),
+  )
+  const value = useMemo(
+    () => ({
+      focusedIssueId,
+      setFocusedIssueId: (id: string | null) =>
+        setFocusedIssueId(id === null ? null : asIssueId(id)),
+    }),
+    [focusedIssueId],
+  )
   return <OperatorFocusContext.Provider value={value}>{children}</OperatorFocusContext.Provider>
 }
 

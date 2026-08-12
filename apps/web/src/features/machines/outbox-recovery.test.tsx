@@ -1,3 +1,4 @@
+import { asMutationId } from '@podium/model'
 // @vitest-environment happy-dom
 /**
  * POD-316 — the dead-letter recovery surface, driven at RUNTIME.
@@ -40,9 +41,9 @@ let refusalCode = 'UNAUTHORIZED'
 const storeState = () => ({
   outboxDeadLetters: outbox.deadLetters(),
   recoverOutbox: {
-    retry: (id: string, s: never) => outbox.retry(id, s),
-    edit: (id: string, input: unknown) => outbox.edit(id, input),
-    discard: (id: string) => outbox.discard(id),
+    retry: (id: string, s: never) => outbox.retry(asMutationId(id), s),
+    edit: (id: string, input: unknown) => outbox.edit(asMutationId(id), input),
+    discard: (id: string) => outbox.discard(asMutationId(id)),
   },
 })
 

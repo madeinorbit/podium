@@ -1,4 +1,6 @@
 import {
+  asIssueId,
+  asMachineId,
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
   branchRollup,
@@ -146,15 +148,15 @@ describe('spawnTargetForRepo', () => {
   it('uses the selected machine main checkout when one is provided', () => {
     const hostMain = navWt('/home/podium-host/podium', {
       repoPath: '/home/podium-host/podium',
-      machineId: 'podium-host',
+      machineId: asMachineId('podium-host'),
     })
     const vmi = navWt('/home/vmi34/podium', {
       repoPath: '/home/vmi34/podium',
-      machineId: 'vmi34',
+      machineId: asMachineId('vmi34'),
     })
     const t = spawnTargetForRepo(
       { path: '/home/podium-host/podium', name: 'podium', worktrees: [hostMain, vmi] },
-      'vmi34',
+      asMachineId('vmi34'),
     )
     expect(t.worktree).toMatchObject({
       path: '/home/vmi34/podium',
@@ -802,7 +804,7 @@ describe('groupUnifiedWorkRows', () => {
     // stay in the live list (not tucked, selected, awaiting, needs-human…).
     // Working sessions no longer block tuck/fold eligibility. Untucked selection
     // stays open (lane stickiness); tucked selection folds.
-    const [group] = groupUnifiedWorkRows(rows, 'selected', false, NOW)
+    const [group] = groupUnifiedWorkRows(rows, asIssueId('selected'), false, NOW)
     expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['settled'])
     expect(
       group?.rows.map((row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)),
@@ -813,7 +815,12 @@ describe('groupUnifiedWorkRows', () => {
         ? { ...row, issue: { ...row.issue, tuckedAt: TUCKED } }
         : row,
     )
-    const [groupTuckedSelected] = groupUnifiedWorkRows(alsoTucked, 'selected', false, NOW)
+    const [groupTuckedSelected] = groupUnifiedWorkRows(
+      alsoTucked,
+      asIssueId('selected'),
+      false,
+      NOW,
+    )
     expect(groupTuckedSelected?.closedRows.map((row) => row.issue.id)).toEqual([
       'settled',
       'selected',
@@ -843,7 +850,7 @@ describe('groupUnifiedWorkRows', () => {
 
     const [group] = groupUnifiedWorkRows(
       [closedRow('oldest', 3), closedRow('selected', 2), closedRow('newest', 1)],
-      'selected',
+      asIssueId('selected'),
       true,
       NOW,
     )

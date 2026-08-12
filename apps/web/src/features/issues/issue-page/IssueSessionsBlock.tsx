@@ -18,7 +18,7 @@
  *     other one, instead of the `byId.get()` that rendered invisible and deleted
  *     alike as "another issue".
  */
-import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
+import { asMachineId, motionPhase, motionTiming } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
@@ -237,7 +237,7 @@ export function IssueSessionsBlock({
                 label: m.online ? m.name : `${m.name} (offline)`,
               })),
             ]}
-            onSelect={(v) => commands.setMachine(v === 'auto' ? null : v)}
+            onSelect={(v) => commands.setMachine(v === 'auto' ? null : asMachineId(v))}
             trigger={
               <Button
                 type="button"

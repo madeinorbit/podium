@@ -1,4 +1,5 @@
 import {
+  asThreadId,
   asSessionId,
   type SessionId,
   type SessionMeta,
@@ -148,7 +149,7 @@ function push(event: HeadlessActivityEvent): void {
   })
 }
 
-function mount(superThread = { threadId: 'global', kind: 'global' as const }): void {
+function mount(superThread = { threadId: asThreadId('global'), kind: 'global' as const }): void {
   act(() => {
     root.render(<ChatView sessionId={asSessionId('h1')} superThread={superThread} compact />)
   })
@@ -204,7 +205,7 @@ describe('ChatView headless mode', () => {
       root.render(
         <ChatView
           sessionId={asSessionId('h1')}
-          superThread={{ threadId: 'global', kind: 'global' }}
+          superThread={{ threadId: asThreadId('global'), kind: 'global' }}
           compact
           initialTurnRunning
         />,
@@ -222,7 +223,7 @@ describe('ChatView headless mode', () => {
       root.render(
         <ChatView
           sessionId={asSessionId('h1')}
-          superThread={{ threadId: 'global', kind: 'global' }}
+          superThread={{ threadId: asThreadId('global'), kind: 'global' }}
           compact
           initialTurnRunning
           initialPendingText="Plan the release"

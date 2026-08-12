@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import type { JSX, ReactNode } from 'react'
@@ -59,7 +60,7 @@ export function RepoScanFlow({
   }, [machines, selectedMachineId])
 
   function repoMachineInput(): { machineId?: MachineId } {
-    return selectedMachineId ? { machineId: selectedMachineId } : {}
+    return selectedMachineId ? { machineId: asMachineId(selectedMachineId) } : {}
   }
 
   // "Scan for repos": the tiered discovery rooted at the browsed folder plus this
@@ -139,7 +140,9 @@ export function RepoScanFlow({
       onPick={addThisFolder}
       onScan={scanFrom}
       machines={machines}
-      selectedMachineId={selectedMachineId}
+      selectedMachineId={
+        selectedMachineId === undefined ? undefined : asMachineId(selectedMachineId)
+      }
       onMachineChange={setSelectedMachineId}
       {...(intro ? { intro } : {})}
     />

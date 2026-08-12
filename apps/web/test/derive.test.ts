@@ -1,4 +1,5 @@
 import {
+  asSessionId,
   agentBadge,
   chatActivity,
   defaultChatCapable,
@@ -309,7 +310,7 @@ describe('orderTabs', () => {
 
   it('elevates the coordinator over a stale manual order', () => {
     const sessions = [named('a'), named('b'), named('c')]
-    expect(orderTabs(sessions, ['b', 'a', 'c'], 'c').map((s) => s.sessionId)).toEqual([
+    expect(orderTabs(sessions, ['b', 'a', 'c'], asSessionId('c')).map((s) => s.sessionId)).toEqual([
       'c',
       'b',
       'a',
@@ -381,11 +382,13 @@ describe('agentBadge', () => {
     ).toBe('plan ready')
     // POD-415: visible on the row, and quiet — the same tone as 'interrupted',
     // so the dot stays blue and the session never reads as needing you.
-    expect(agentBadge(sessionWithState(stateAt('idle', { idle: { kind: 'open_todos' } })))).toEqual({
-      label: 'todos open',
-      tone: 'idle',
-      showContinue: false,
-    })
+    expect(agentBadge(sessionWithState(stateAt('idle', { idle: { kind: 'open_todos' } })))).toEqual(
+      {
+        label: 'todos open',
+        tone: 'idle',
+        showContinue: false,
+      },
+    )
   })
 
   it('needs_user is attention with the need spelled out', () => {

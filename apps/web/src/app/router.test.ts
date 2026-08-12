@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import {
   createRouter,
   parseRoute,
@@ -50,7 +51,7 @@ describe('routePath', () => {
     const routes: RouteState[] = [
       routeDefaults('issues'),
       { ...routeDefaults('workspace'), worktree: '/w/x', pane: 's9' },
-      { ...routeDefaults('issues'), issueId: 'iss_1' },
+      { ...routeDefaults('issues'), issueId: asIssueId('iss_1') },
       { ...routeDefaults('settings'), settingsTab: 'notifications' },
       routeDefaults('usage'),
       routeDefaults('automations'),
@@ -128,7 +129,7 @@ describe('createRouter', () => {
     router.subscribe((r) => seen.push(r.view))
 
     router.navigate(routeDefaults('issues'))
-    router.navigate({ ...routeDefaults('issues'), issueId: 'iss_7' })
+    router.navigate({ ...routeDefaults('issues'), issueId: asIssueId('iss_7') })
     expect(win.url()).toBe('/issues/iss_7')
 
     win.back()

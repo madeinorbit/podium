@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 // @vitest-environment happy-dom
 import type { IssueEvent } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
@@ -440,7 +441,7 @@ describe('IssuePanelView inspector', () => {
 describe('IssuePanelView with no task', () => {
   it('takes shape instead of reporting a missing task', () => {
     mockSessions = [session({ sessionId: 'fresh', issueId: undefined, name: 'New Codex' })]
-    render(<IssuePanelView cwd="/elsewhere" sessionId="fresh" />)
+    render(<IssuePanelView cwd="/elsewhere" sessionId={asSessionId('fresh')} />)
 
     expect(screen.getByTestId('dock-intake')).toBeTruthy()
     expect(screen.getByText('Conversation workspace')).toBeTruthy()

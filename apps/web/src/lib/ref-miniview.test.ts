@@ -21,7 +21,7 @@ const sessions: RefSessionLike[] = [
     sessionId: asSessionId('s1'),
     displayRef: 'POD-13-A',
     cwd: '/repo',
-    issueId: 'iss_1',
+    issueId: asIssueId('iss_1'),
     name: 'agent a',
   },
   { sessionId: asSessionId('s2'), displayRef: 'POD-DRAFT-3', cwd: '/repo', name: 'draft agent' },
@@ -110,25 +110,27 @@ describe('collectRefPrefixes', () => {
 
 describe('sessionWorkingIssueRef', () => {
   it('returns the current issue ref when the session re-homed off its birth issue', () => {
-    const s = { displayRef: 'POD-13-A', issueId: 'iss_2' } // now working POD-27
+    const s = { displayRef: 'POD-13-A', issueId: asIssueId('iss_2') } // now working POD-27
     expect(sessionWorkingIssueRef(s, issues)).toBe('POD-27')
   })
 
   it('returns null when the current issue IS the birth issue', () => {
-    const s = { displayRef: 'POD-13-A', issueId: 'iss_1' }
+    const s = { displayRef: 'POD-13-A', issueId: asIssueId('iss_1') }
     expect(sessionWorkingIssueRef(s, issues)).toBeNull()
   })
 
   it('returns the current issue ref for a draft-born session', () => {
-    const s = { displayRef: 'POD-DRAFT-3', issueId: 'iss_3' }
+    const s = { displayRef: 'POD-DRAFT-3', issueId: asIssueId('iss_3') }
     expect(sessionWorkingIssueRef(s, issues)).toBe('WEB-4')
   })
 
   it('returns null without a current issue, an unknown issue, or a ref-less issue', () => {
     expect(sessionWorkingIssueRef({ displayRef: 'POD-13-A' }, issues)).toBeNull()
-    expect(sessionWorkingIssueRef({ displayRef: 'POD-13-A', issueId: 'nope' }, issues)).toBeNull()
     expect(
-      sessionWorkingIssueRef({ displayRef: 'POD-13-A', issueId: 'iss_9' }, [
+      sessionWorkingIssueRef({ displayRef: 'POD-13-A', issueId: asIssueId('nope') }, issues),
+    ).toBeNull()
+    expect(
+      sessionWorkingIssueRef({ displayRef: 'POD-13-A', issueId: asIssueId('iss_9') }, [
         { id: asIssueId('iss_9'), seq: 9, title: 'legacy, no displayRef' },
       ]),
     ).toBeNull()
@@ -162,7 +164,11 @@ describe('sessionForIssue (POD-786)', () => {
   })
 
   it('lands on the task’s own session, and says so by naming the task itself', () => {
-    const own = live({ sessionId: 's_child', issueId: 'iss_child', displayRef: 'POD-517-A' })
+    const own = live({
+      sessionId: 's_child',
+      issueId: asIssueId('iss_child'),
+      displayRef: 'POD-517-A',
+    })
     const target = sessionForIssue(child, tree, [own])
     expect(target?.session.sessionId).toBe('s_child')
     expect(target?.via.id).toBe('iss_child')
@@ -171,7 +177,7 @@ describe('sessionForIssue (POD-786)', () => {
   it('falls back to the ancestor that HAS a session for a sessionless subtask', () => {
     const parentSession = live({
       sessionId: 's_epic',
-      issueId: 'iss_epic',
+      issueId: asIssueId('iss_epic'),
       displayRef: 'POD-500-A',
     })
     const target = sessionForIssue(child, tree, [parentSession])
@@ -188,10 +194,14 @@ describe('sessionForIssue (POD-786)', () => {
       [
         live({
           sessionId: 's_coord',
-          issueId: 'iss_epic',
+          issueId: asIssueId('iss_epic'),
           lastActiveAt: '2026-07-01T00:00:00.000Z',
         }),
-        live({ sessionId: 's_new', issueId: 'iss_epic', lastActiveAt: '2026-08-09T00:00:00.000Z' }),
+        live({
+          sessionId: 's_new',
+          issueId: asIssueId('iss_epic'),
+          lastActiveAt: '2026-08-09T00:00:00.000Z',
+        }),
       ],
     )
     expect(target?.session.sessionId).toBe('s_coord')
@@ -202,8 +212,16 @@ describe('sessionForIssue (POD-786)', () => {
       epic,
       [epic],
       [
-        live({ sessionId: 's_old', issueId: 'iss_epic', lastActiveAt: '2026-07-01T00:00:00.000Z' }),
-        live({ sessionId: 's_new', issueId: 'iss_epic', lastActiveAt: '2026-08-09T00:00:00.000Z' }),
+        live({
+          sessionId: 's_old',
+          issueId: asIssueId('iss_epic'),
+          lastActiveAt: '2026-07-01T00:00:00.000Z',
+        }),
+        live({
+          sessionId: 's_new',
+          issueId: asIssueId('iss_epic'),
+          lastActiveAt: '2026-08-09T00:00:00.000Z',
+        }),
       ],
     )
     expect(target?.session.sessionId).toBe('s_new')
@@ -211,9 +229,9 @@ describe('sessionForIssue (POD-786)', () => {
 
   it('ignores exited, archived and shell sessions — they promise an agent that is not there', () => {
     const dead = [
-      live({ sessionId: 's_exit', issueId: 'iss_epic', status: 'exited' }),
-      live({ sessionId: 's_arch', issueId: 'iss_epic', archived: true }),
-      live({ sessionId: 's_shell', issueId: 'iss_epic', agentKind: 'shell' }),
+      live({ sessionId: 's_exit', issueId: asIssueId('iss_epic'), status: 'exited' }),
+      live({ sessionId: 's_arch', issueId: asIssueId('iss_epic'), archived: true }),
+      live({ sessionId: 's_shell', issueId: asIssueId('iss_epic'), agentKind: 'shell' }),
     ]
     expect(sessionForIssue(epic, [epic], dead)).toBeNull()
   })
