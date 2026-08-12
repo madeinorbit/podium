@@ -42,6 +42,7 @@
 import type {
   AccountId,
   AutomationId,
+  AutomationRunId,
   ConversationId,
   IssueId,
   MachineId,
@@ -68,7 +69,7 @@ import {
 export const sessions = sqliteTable(
   'sessions',
   {
-    id: text().primaryKey(),
+    id: text().$type<SessionId>().primaryKey(),
     ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     agentKind: text('agent_kind').notNull(),
     // Resolved launch placement, captured once at spawn [spec:SP-dae6].
@@ -513,6 +514,9 @@ export const userReadPosition = sqliteTable(
 export const conversations = sqliteTable(
   'conversations',
   {
+    /** UNBRANDED: the harness-NATIVE transcript id, matching
+     * `ConversationSummaryWire.id`; the Podium-stable identity is
+     * `conversation_registry.podium_id`, which carries ConversationId. */
     id: text().primaryKey(),
     agentKind: text('agent_kind').notNull(),
     providerId: text('provider_id').notNull(),
@@ -549,7 +553,7 @@ export const superagentMessages = sqliteTable('superagent_messages', {
 })
 
 export const superagentThreads = sqliteTable('superagent_threads', {
-  id: text().primaryKey(),
+  id: text().$type<ThreadId>().primaryKey(),
   ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
   kind: text().notNull(),
   originSessionId: text('origin_session_id').$type<SessionId>(),
@@ -586,7 +590,7 @@ export const superagentThreads = sqliteTable('superagent_threads', {
 })
 
 export const machines = sqliteTable('machines', {
-  id: text().primaryKey(),
+  id: text().$type<MachineId>().primaryKey(),
   name: text().notNull(),
   hostname: text().notNull(),
   tokenHash: text('token_hash').notNull(),
@@ -694,7 +698,7 @@ export const offers = sqliteTable('offers', {
 // deletion, but OWNED entities need a transfer story, which is ADR 9 lifecycle
 // territory and not this migration's.
 export const users = sqliteTable('users', {
-  id: text().primaryKey(),
+  id: text().$type<UserId>().primaryKey(),
   displayName: text('display_name').notNull(),
   role: text().notNull(),
   createdAt: text('created_at').notNull(),
@@ -1049,7 +1053,7 @@ export const issueMessages = sqliteTable(
 export const issues = sqliteTable(
   'issues',
   {
-    id: text().primaryKey(),
+    id: text().$type<IssueId>().primaryKey(),
     ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     visibility: text().default('personal').notNull(),
     createdByActor: text('created_by_actor').default('user:sole').notNull(),
@@ -1627,7 +1631,7 @@ export const workflowEvents = sqliteTable(
 )
 
 export const accounts = sqliteTable('accounts', {
-  id: text().primaryKey(),
+  id: text().$type<AccountId>().primaryKey(),
   provider: text().notNull(),
   kind: text().notNull(),
   credential: text().notNull(),
@@ -1639,7 +1643,7 @@ export const accounts = sqliteTable('accounts', {
 export const automations = sqliteTable(
   'automations',
   {
-    id: text().primaryKey(),
+    id: text().$type<AutomationId>().primaryKey(),
     ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
     createdByActor: text('created_by_actor').default('user:sole').notNull(),
     createdByOnBehalfOf: text('created_by_on_behalf_of').default('user:sole').notNull(),
@@ -1668,7 +1672,7 @@ export const automations = sqliteTable(
 export const automationRuns = sqliteTable(
   'automation_runs',
   {
-    id: text().primaryKey(),
+    id: text().$type<AutomationRunId>().primaryKey(),
     actor: text().default('system:automation-migration').notNull(),
     onBehalfOf: text('on_behalf_of').default('user:sole').notNull(),
     automationId: text('automation_id')

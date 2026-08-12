@@ -234,6 +234,40 @@ table is the defect.** The rule the rows apply:
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
 
+### 2026-08-12 — POD-1938 brands the table PKs: `unbranded-db-columns` 9 → 0, `unbranded-by-decision-ids` 24 → 25
+
+Eight Podium-owned table identities now carry their existing model brands:
+
+| Primary key | Brand |
+|---|---|
+| `sessions.id` | `SessionId` |
+| `issues.id` | `IssueId` |
+| `machines.id` | `MachineId` |
+| `users.id` | `UserId` |
+| `accounts.id` | `AccountId` |
+| `automations.id` | `AutomationId` |
+| `automation_runs.id` | `AutomationRunId` |
+| `superagent_threads.id` | `ThreadId` |
+
+`conversations.id` remains raw by design: it is the harness-native transcript
+id matching `ConversationSummaryWire.id`, not Podium's stable `ConversationId`.
+Its attached `UNBRANDED` rationale raises the existing shared excuse ratchet by
+one rather than laundering the native value or making it invisible.
+
+The flip is SQL-neutral. All brands arrive through `import type`, and
+`bunx drizzle-kit generate` reported **“No schema changes, nothing to migrate”**;
+the migration tree stayed untouched. The installed-tree detector fixtures,
+rewrite-audit suite, and repository typecheck/lean gate are green. The full
+deletion audit reports only main's inherited `issue-shapes` growth (9 → 10) and
+unbanked `session-shapes` win (37 → 36); neither entity-ID row regressed.
+
+**Reference-brand equality is NOT part of that guarantee.** A deliberate
+mutation typed `automation_runs.automation_id` as `SessionId` while its target
+`automations.id` remained `AutomationId`; the server typecheck still exited 0.
+The PK brands strengthen inferred row/column types, but Drizzle's `references()`
+generic does not compare those brands. POD-1958 records the independently
+shippable guard/helper work rather than overstating this flip.
+
 ### 2026-08-12 — POD-1938 extends `unbranded-db-columns` to table PKs: 0 → 9
 
 **A ratchet EXTENSION in a commit with no product change.** The entity-id
@@ -292,10 +326,11 @@ migration journal is untouched. Typecheck is green tree-wide.
 **One thing this does NOT yet buy, stated so the number is not over-read.** No
 runtime code imports these schemas — they are read by `drizzle-kit` for
 authoring, and the applier is `drizzle-runner.ts` — so the brands bind inside
-the schema (defaults, references) rather than at call sites today. What the item
-now guarantees is that a NEW entity-id column cannot be added raw without
-raising a committed number. Where the brands will bite immediately is the
-tables' own primary keys, which is the gap below.
+the schema rather than at call sites today. What the item now guarantees is that
+a NEW entity-id column cannot be added raw without raising a committed number.
+POD-1938 later gave the table primary keys inferred branded types, but its
+mutation check found Drizzle does not enforce brand equality in `references()`;
+POD-1958 owns that separate guard.
 
 **A GAP THIS DID NOT CLOSE, filed rather than swept.** Every foreign key is now
 branded and every table's own `id` primary key is still raw — `sessions.id`,
