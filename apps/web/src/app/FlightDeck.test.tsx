@@ -19,6 +19,8 @@ const harness = vi.hoisted(() => ({
   sessions: [] as unknown[],
   openSessionTab: vi.fn(),
   setPanelMode: vi.fn(),
+  setSelectedIssueId: vi.fn(),
+  setIssueTucked: vi.fn(async () => undefined),
   ui: new Map<string, string>(),
   listeners: new Set<() => void>(),
   setPlacement: vi.fn(async (_input: unknown) => undefined),
@@ -58,12 +60,14 @@ vi.mock('./store', () => ({
       coarseNow: Date.parse('2026-01-01T00:10:00.000Z'),
       uiState,
       setSelectedWorktree: vi.fn(),
+      setSelectedIssueId: harness.setSelectedIssueId,
       openSessionTab: harness.openSessionTab,
       setPanelMode: harness.setPanelMode,
       setView: vi.fn(),
       markIssueRead: vi.fn(async () => undefined),
       markIssueUnread: vi.fn(async () => undefined),
       markSessionRead: vi.fn(async () => undefined),
+      setIssueTucked: harness.setIssueTucked,
       renameSession: vi.fn(async () => undefined),
       // The shared task menu reads these; the deck itself never does.
       machines: [],
@@ -129,6 +133,8 @@ beforeEach(() => {
   harness.listeners.clear()
   harness.openSessionTab.mockClear()
   harness.setPanelMode.mockClear()
+  harness.setSelectedIssueId.mockClear()
+  harness.setIssueTucked.mockClear()
   harness.issues = [
     issue('root', { title: 'Mission' }),
     // One session, no children — the strip that should arrive CLOSED.
@@ -266,6 +272,34 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 })
 
 describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
+  it('turns a superseded empty mission into a forward signpost with a tuck choice', () => {
+    harness.issues = [
+      issue('root', {
+        seq: 813,
+        displayRef: 'POD-813',
+        title: 'Old task',
+        stage: 'done',
+        closedReason: 'superseded',
+        supersededBy: 'next',
+      }),
+      issue('next', { seq: 815, displayRef: 'POD-815', title: 'Archived exact-ref search' }),
+    ]
+    harness.sessions = []
+
+    deck()
+
+    const card = screen.getByTestId('flight-continuation')
+    expect(card.textContent).toContain('Work continued in POD-815')
+    expect(card.textContent).toContain('Archived exact-ref search')
+    expect(screen.queryByText('Nothing here in this view.')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open POD-815' }))
+    expect(harness.setSelectedIssueId).toHaveBeenCalledWith('next')
+
+    fireEvent.click(screen.getByRole('button', { name: /Tuck away/ }))
+    expect(harness.setIssueTucked).toHaveBeenCalledWith('root', true)
+  })
+
   it('sinks proposals into their own tail, with no tree guide', () => {
     deck()
     const proposed = screen.getByTestId('flight-proposed')

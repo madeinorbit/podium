@@ -11,9 +11,11 @@ import {
   deckSessions,
   type FlightDeckMode,
   type FlightDeckRow,
+  type IssueContinuation,
   type IssueNavigationModel,
   type IssueNote,
   isCoordinatorSession,
+  issueContinuation,
   issueNote,
   type MissionDeparture,
   missionDepartures,
@@ -353,7 +355,9 @@ function IssueNoteChip({ note }: { note: IssueNote }): JSX.Element {
         ? ArrowDown
         : note.kind === 'shape-own'
           ? ArrowUpRight
-          : CornerDownRight
+          : note.kind === 'continued'
+            ? ArrowRight
+            : CornerDownRight
   return (
     <span
       className="shell-type-micro deck-drop-relation flex max-w-[8rem] flex-none items-center gap-1 font-mono text-text-faint"
@@ -1568,6 +1572,56 @@ export function DepartureTicks({
 }
 
 /**
+ * A resolved empty task is not an empty mission. It is a signpost.
+ *
+ * This stays in the spine instead of becoming a toast: the destination must
+ * still be understandable after reload, from another device, and when the
+ * operator opens the old task hours later. Tucking is offered here because it
+ * is the only remaining lifecycle choice; leaving the card alone keeps the
+ * closed task in the sidebar.
+ */
+export function ContinuationCard({
+  continuation,
+  onOpen,
+  onTuck,
+}: {
+  continuation: IssueContinuation
+  onOpen: (issue: IssueNavigationModel) => void
+  onTuck: () => void
+}): JSX.Element {
+  const target = continuation.target
+  return (
+    <div
+      className="mx-3 mt-2 rounded-[8px] border border-border bg-card/55 p-3"
+      data-testid="flight-continuation"
+    >
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex size-6 flex-none items-center justify-center rounded-full bg-muted text-text-dim">
+          <ArrowRight size={12} aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="shell-type-secondary font-semibold text-text-strong">{continuation.full}</p>
+          <p className="shell-type-micro mt-1 text-text-dim">
+            No session remains on this closed task.
+            {target ? ` Continue with ${target.title}.` : ''}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2 pl-[34px]">
+        {target && (
+          <Button type="button" size="sm" className="h-7" onClick={() => onOpen(target)}>
+            Open {issueDisplayRef(target)}
+          </Button>
+        )}
+        <Button type="button" variant="outline" size="sm" className="h-7" onClick={onTuck}>
+          <ArrowDown size={12} aria-hidden="true" /> Tuck away
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/**
  * The empty deck: a canvas that fills as the conversation does, never an error
  * and never a demand for a task. A fresh Codex keeps its ordinary chat and
  * composer; this column simply shows what it has learned so far.
@@ -1655,6 +1709,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     setView,
     markIssueRead,
     markSessionRead,
+    setIssueTucked,
     drafts,
     coarseNow,
   } = useStoreSelector(
@@ -1679,6 +1734,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       setView: store.setView,
       markIssueRead: store.markIssueRead,
       markSessionRead: store.markSessionRead,
+      setIssueTucked: store.setIssueTucked,
       drafts: store.drafts,
       // The shared coarse clock, not one interval per row: the "N ago" stamp on
       // a stopped session must not disagree with the ordering derived from the
@@ -1782,6 +1838,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * hiding what that view had just promised to show.
    */
   const rootRow = rows[0]
+  const rootContinuation = root ? issueContinuation(root, byId) : null
   const rootNote = root ? issueNote(root, byId) : null
   const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
   const rootSeat = rootRow ? seatFor(presenceNote(rootRow.issue, rootRow.sessions, byId)) : null
@@ -2037,6 +2094,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   }, [])
   const menuIssue = issueMenu ? issues.find((issue) => issue.id === issueMenu.id) : undefined
 
+  const tuckResolvedRoot = (): void => {
+    if (!root || (!root.closedReason && root.stage !== 'done')) return
+    void setIssueTucked(root.id, true)
+  }
   const selectSession = (
     issueId: string | null,
     session: SessionMeta,
@@ -2360,15 +2421,26 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 onMenu={(event) => openIssueMenu(row.issue.id, event)}
               />
             ))}
-            {visibleRows.length === 0 && proposedRows.length === 0 && (
-              <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                {query
-                  ? 'Nothing in this mission matches that.'
-                  : rootRow && rootRow.sessions.length > 0
+            {visibleRows.length === 0 &&
+              proposedRows.length === 0 &&
+              (query ? (
+                <p className="shell-type-secondary px-4 py-6 text-text-dim">
+                  Nothing in this mission matches that.
+                </p>
+              ) : rootContinuation ? (
+                <ContinuationCard
+                  continuation={rootContinuation}
+                  onOpen={openDeparture}
+                  onTuck={tuckResolvedRoot}
+                />
+              ) : (
+                <p className="shell-type-secondary px-4 py-6 text-text-dim">
+                  {rootRow && rootRow.sessions.length > 0
                     ? 'No sub-tasks yet — this mission is the whole of it.'
-                    : 'Nothing here in this view.'}
-              </p>
-            )}
+                    : presenceNote(root, rootRow?.sessions ?? [], byId)?.text ||
+                      'No sessions or sub-tasks are attached.'}
+                </p>
+              ))}
             {/* THE SECTIONS BELOW THE TREE. Siblings, in a flat stack, so the
                 next one (POD-679's departure ticks) sits here beside these two
                 rather than being threaded through the spine. */}

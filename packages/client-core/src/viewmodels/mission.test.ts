@@ -1368,6 +1368,20 @@ describe('presenceNote', () => {
     expect(presenceNote(subject, [], index([blocker, subject]))?.text).toMatch(/^Blocked by /)
   })
 
+  it('names the forward continuation instead of calling a superseded task retired', () => {
+    const replacement = issue('next', { seq: 15 })
+    const subject = issue('a', {
+      stage: 'done',
+      closedReason: 'superseded',
+      supersededBy: 'next',
+    })
+    expect(presenceNote(subject, [], index([subject, replacement]))).toEqual({
+      kind: 'moved',
+      text: 'Work continued in #15',
+      attention: false,
+    })
+  })
+
   // Total over the stage vocabulary: an unhandled stage used to fall through to
   // null, which pushed the fallback line into every caller and let two columns
   // describe one task differently.
@@ -1553,6 +1567,21 @@ describe('issueNote', () => {
       expect(note?.full).toMatch(full)
     })
   }
+
+  it('puts the forward continuation ahead of backward provenance', () => {
+    const replacement = issue('next', { seq: 15 })
+    const subject = issue('a', {
+      stage: 'done',
+      closedReason: 'superseded',
+      supersededBy: 'next',
+      deps: [{ id: 'origin', type: 'discovered-from' }],
+    })
+    expect(issueNote(subject, index([origin, subject, replacement]))).toEqual({
+      kind: 'continued',
+      short: '#15',
+      full: 'Work continued in #15',
+    })
+  })
 
   it('outranks provenance with the dependency the operator can act on', () => {
     const subject = issue('a', {

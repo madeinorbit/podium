@@ -911,6 +911,48 @@ export interface PresenceNote {
 }
 
 /**
+ * The forward lifecycle edge of work that no longer belongs on this issue.
+ *
+ * `discovered-from` explains where an issue came FROM; this explains where the
+ * operator should go NEXT. Keeping those directions separate matters on an
+ * empty superseded task: the backward provenance is true, but it is not the
+ * answer to "where did the agent go?".
+ *
+ * The target is optional because a scoped replica may know that the issue was
+ * replaced without being allowed to see its replacement. In that case the UI
+ * still explains the lifecycle without leaking an internal id.
+ */
+export interface IssueContinuation {
+  kind: 'superseded' | 'duplicate'
+  target?: IssueNavigationModel
+  short: string
+  full: string
+}
+
+export function issueContinuation(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): IssueContinuation | null {
+  const targetId = issue.supersededBy ?? issue.duplicateOf
+  if (!targetId) return null
+  const target = byId?.get(targetId)
+  const ref = target ? issueDisplayRef(target) : 'another task'
+  return issue.supersededBy
+    ? {
+        kind: 'superseded',
+        ...(target ? { target } : {}),
+        short: ref,
+        full: `Work continued in ${ref}`,
+      }
+    : {
+        kind: 'duplicate',
+        ...(target ? { target } : {}),
+        short: ref,
+        full: `The same work is tracked in ${ref}`,
+      }
+}
+
+/**
  * Why this issue has nobody on it — the artifact's `presenceNote`.
  *
  * A blank where an agent row would be is the one thing the deck must never do:
@@ -936,6 +978,10 @@ export function presenceNote(
   const moved = sessions.find((session) => session.handoffTarget)
   if (moved) {
     return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
+  }
+  const continuation = issueContinuation(issue, byId)
+  if (continuation) {
+    return { kind: 'moved', text: continuation.full, attention: false }
   }
   if (issue.blocked) {
     return { kind: 'blocked', text: blockedByLabel(issue, byId), attention: false }
@@ -1073,7 +1119,7 @@ export function discoveredPlacement(
 }
 
 export interface IssueNote {
-  kind: 'blocked' | 'waiting' | 'relation' | 'shape-own' | 'shape-mission'
+  kind: 'blocked' | 'waiting' | 'continued' | 'relation' | 'shape-own' | 'shape-mission'
   /** What the strip prints: a display ref, a count, or the authored prose. */
   short: string
   /** The sentence, for the hover title and the accessible name. */
@@ -1084,6 +1130,10 @@ export function issueNote(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): IssueNote | null {
+  const continuation = issueContinuation(issue, byId)
+  if (continuation) {
+    return { kind: 'continued', short: continuation.short, full: continuation.full }
+  }
   const refs = waitingRefs(issue, byId)
   const many = (): string => `${refs.length} tasks`
   if (issue.blocked) {

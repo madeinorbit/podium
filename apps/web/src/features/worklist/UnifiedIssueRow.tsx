@@ -2,6 +2,7 @@ import {
   draftIssueLabel,
   type IssueNavigationModel,
   isDraftAgentVessel,
+  issueContinuation,
   missionProgress,
   pendingDecisionLabel,
   pendingDecisionTitle,
@@ -139,6 +140,10 @@ export function UnifiedIssueRow({
     () => missionProgress(issues, allSessions, issue.id),
     [issues, allSessions, issue.id],
   )
+  const issueById = useMemo(
+    () => new Map(issues.map((candidate) => [candidate.id as string, candidate])),
+    [issues],
+  )
   const hex = issueColorHex(issue.color)
   const square = (
     <IdSquare
@@ -162,6 +167,13 @@ export function UnifiedIssueRow({
   // the row flashes the origin.
   const originDep = issue.deps.find((d) => d.type === 'discovered-from')
   const origin = originDep ? issues.find((i) => i.id === originDep.id) : undefined
+  // A closed handoff points FORWARD. That answer outranks the provenance tick:
+  // an old row saying only "done ⤷ 766" explains its ancestry but gives no
+  // route to the task where the work actually continued.
+  const continuation = issueContinuation(issue, issueById)
+  const continuationStatus = continuation
+    ? continuation.full.charAt(0).toLowerCase() + continuation.full.slice(1)
+    : null
   // Draft vessel whose only content is agents → clicking opens the session.
   // Shared with the nesting rule so structure and rendering agree (POD-282).
   const draftAgentOnly = isDraftAgentVessel(issue, mine)
@@ -234,7 +246,7 @@ export function UnifiedIssueRow({
               // Deck's), so the status line reports at visible depth 0: an ask
               // buried three levels down names its source instead of a bare
               // "needs you" with no visible row to explain it.
-              rowStatusLine(row, now, 0)
+              (continuationStatus ?? rowStatusLine(row, now, 0))
             )}
           </>
         }
@@ -297,7 +309,8 @@ export function UnifiedIssueRow({
           onGripDown && !isIssueDeferred(issue, now) ? (e) => onGripDown(e, issue.id) : undefined
         }
         statusExtra={
-          origin && (
+          origin &&
+          !continuation && (
             <span
               className="shell-type-micro flex-none font-mono tabular-nums"
               data-testid="spinoff-origin-tick"
