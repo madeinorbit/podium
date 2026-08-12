@@ -1,6 +1,6 @@
 import type { MachineWire } from '@podium/model'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 
 export interface MachinePairingProps {
@@ -119,14 +119,52 @@ export function PairingCodeDisplay({
   onReviewPairedMachine,
   busy = false,
 }: PairingCodeDisplayProps): JSX.Element {
-  const [copied, setCopied] = useState(false)
+  const [copyFeedback, setCopyFeedback] = useState<'copied' | 'failed' | null>(null)
+  const copyAttempt = useRef(0)
+  const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    copyAttempt.current += 1
+    if (copyFeedbackTimer.current) clearTimeout(copyFeedbackTimer.current)
+    copyFeedbackTimer.current = null
+    setCopyFeedback(null)
+
+    return () => {
+      copyAttempt.current += 1
+      if (copyFeedbackTimer.current) clearTimeout(copyFeedbackTimer.current)
+    }
+  }, [code, joinCommand])
 
   const copy = (): void => {
     if (!joinCommand) return
-    void navigator.clipboard.writeText(joinCommand).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2_000)
-    })
+    const attempt = ++copyAttempt.current
+    if (copyFeedbackTimer.current) clearTimeout(copyFeedbackTimer.current)
+    copyFeedbackTimer.current = null
+    setCopyFeedback(null)
+
+    const clipboard = navigator.clipboard
+    if (!clipboard) {
+      setCopyFeedback('failed')
+      return
+    }
+
+    try {
+      void clipboard.writeText(joinCommand).then(
+        () => {
+          if (attempt !== copyAttempt.current) return
+          setCopyFeedback('copied')
+          copyFeedbackTimer.current = setTimeout(() => {
+            if (attempt === copyAttempt.current) setCopyFeedback(null)
+            copyFeedbackTimer.current = null
+          }, 2_000)
+        },
+        () => {
+          if (attempt === copyAttempt.current) setCopyFeedback('failed')
+        },
+      )
+    } catch {
+      if (attempt === copyAttempt.current) setCopyFeedback('failed')
+    }
   }
 
   return (
@@ -221,10 +259,21 @@ export function PairingCodeDisplay({
           </span>
           {joinCommand && (
             <Button type="button" size="sm" className="flex-none" disabled={busy} onClick={copy}>
-              {copied ? 'Copied' : 'Copy command'}
+              {copyFeedback === 'copied'
+                ? 'Copied'
+                : copyFeedback === 'failed'
+                  ? 'Try copy again'
+                  : 'Copy command'}
             </Button>
           )}
         </div>
+        <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {copyFeedback === 'copied'
+            ? 'Command copied to clipboard.'
+            : copyFeedback === 'failed'
+              ? 'Could not copy command. Select and copy it manually.'
+              : ''}
+        </span>
         {joinCommand ? (
           <code
             className="block max-w-full overflow-x-auto whitespace-nowrap rounded-md border bg-muted px-2.5 py-2 font-mono text-[12px] leading-relaxed text-muted-foreground [scrollbar-width:thin]"

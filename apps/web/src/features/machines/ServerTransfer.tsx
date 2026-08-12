@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -47,9 +48,10 @@ export function ServerTransferProgress({
         role="alert"
       >
         <p className="settings-label text-warning">Connection could not be confirmed</p>
+        {detail && <p className="settings-prose">{detail}</p>}
         <p className="settings-prose">
-          {detail ??
-            `${targetName} may already be serving. Keep the old server stopped, check the target, and do not retry the transfer.`}
+          {targetName} may already be serving. Keep the old server stopped until target proof is
+          confirmed. Checking the target does not restart or roll back the transfer; do not retry.
         </p>
       </div>
     )
@@ -59,9 +61,10 @@ export function ServerTransferProgress({
     return (
       <div className="space-y-1 rounded-md border border-destructive/30 px-3 py-2" role="alert">
         <p className="settings-label text-destructive">Transfer stopped safely</p>
+        {detail && <p className="settings-prose">{detail}</p>}
         <p className="settings-prose">
-          {detail ??
-            `The current server is still active. Resolve the reported problem before trying ${targetName} again.`}
+          The current server is still active. Resolve the reported problem before starting a new
+          transfer to {targetName}.
         </p>
       </div>
     )
@@ -69,31 +72,35 @@ export function ServerTransferProgress({
 
   return (
     <div className="space-y-2" role="status" aria-live="polite">
-      <ol
-        className="grid grid-cols-5 gap-1"
-        aria-label={`Server transfer progress for ${targetName}`}
-      >
-        {SERVER_TRANSFER_PHASES.map((phase, index) => {
-          const complete = index < current || state === 'connected'
-          const active = index === current
-          return (
-            <li
-              key={phase.key}
-              className={cn(
-                'rounded border px-1.5 py-2 text-center text-[11px]',
-                complete && 'border-success/30 bg-success/5 text-foreground',
-                active && state !== 'connected' && 'border-primary/40 bg-primary/5 text-foreground',
-                !complete && !active && 'border-border text-muted-foreground',
-              )}
-              aria-current={active ? 'step' : undefined}
-              data-transfer-phase={phase.key}
-              data-transfer-state={complete ? 'complete' : active ? 'active' : 'pending'}
-            >
-              {phase.label}
-            </li>
-          )
-        })}
-      </ol>
+      <div className="-mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
+        <ol
+          className="grid min-w-[26rem] grid-cols-5 gap-1 sm:min-w-0"
+          aria-label={`Server transfer phases for ${targetName}`}
+        >
+          {SERVER_TRANSFER_PHASES.map((phase, index) => {
+            const complete = index < current || state === 'connected'
+            const active = index === current
+            return (
+              <li
+                key={phase.key}
+                className={cn(
+                  'rounded border px-1.5 py-2 text-center text-[11px]',
+                  complete && 'border-success/30 bg-success/5 text-foreground',
+                  active &&
+                    state !== 'connected' &&
+                    'border-primary/40 bg-primary/5 text-foreground',
+                  !complete && !active && 'border-border text-muted-foreground',
+                )}
+                aria-current={active ? 'step' : undefined}
+                data-transfer-phase={phase.key}
+                data-transfer-state={complete ? 'complete' : active ? 'active' : 'pending'}
+              >
+                {phase.label}
+              </li>
+            )
+          })}
+        </ol>
+      </div>
       <p className="settings-prose">
         {state === 'connected'
           ? `${targetName} proved it is serving and the previous server reconnected as a daemon.`
@@ -149,12 +156,18 @@ export function ServerTransfer({
   onStart,
   onCheckTarget,
 }: ServerTransferProps): JSX.Element {
+  const progressFocusRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (open && showProgress) progressFocusRef.current?.focus()
+  }, [open, showProgress])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton
         className="sm:max-w-lg"
-        aria-busy={awaitingStatus || undefined}
+        aria-busy={awaitingStatus && displayState === null}
       >
         <DialogHeader>
           <DialogTitle>
@@ -168,11 +181,19 @@ export function ServerTransfer({
         </DialogHeader>
 
         {showProgress ? (
-          <ServerTransferProgress
-            state={displayState ?? 'preparing'}
-            targetName={targetName}
-            detail={detail}
-          />
+          <div
+            ref={progressFocusRef}
+            role="region"
+            aria-label={`Server transfer progress for ${targetName}`}
+            tabIndex={-1}
+            className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ServerTransferProgress
+              state={displayState ?? 'preparing'}
+              targetName={targetName}
+              detail={detail}
+            />
+          </div>
         ) : (
           <div className="flex flex-col gap-3 text-[13px]">
             {displayState === 'aborted' && (
@@ -202,7 +223,7 @@ export function ServerTransfer({
                 id="server-transfer-confirmation"
                 value={confirmation}
                 onChange={(event) => onConfirmationChange(event.currentTarget.value)}
-                aria-label="Server transfer confirmation"
+                aria-label={`Type ${SERVER_TRANSFER_CONFIRMATION} to confirm server transfer`}
                 autoComplete="off"
               />
             </label>
@@ -211,6 +232,13 @@ export function ServerTransfer({
                 Enter a complete HTTP or HTTPS public URL.
               </p>
             )}
+            <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+              <p className="settings-label text-warning">This changes the active server</p>
+              <p className="settings-prose mt-1">
+                After cutover, {sourceName} stops serving shared Podium state and reconnects to{' '}
+                {targetName}. Reversing this requires another validated server transfer.
+              </p>
+            </div>
           </div>
         )}
         {error && (
@@ -223,7 +251,7 @@ export function ServerTransfer({
           {!showProgress && (
             <Button
               type="button"
-              variant="default"
+              variant="destructive"
               size="sm"
               disabled={!canStart}
               onClick={onStart}

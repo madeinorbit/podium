@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   SERVER_TRANSFER_CONFIRMATION,
@@ -72,9 +72,12 @@ describe('ServerTransfer', () => {
     fireEvent.change(screen.getByLabelText('New public URL'), {
       target: { value: 'https://podium.example' },
     })
-    fireEvent.change(screen.getByLabelText('Server transfer confirmation'), {
-      target: { value: SERVER_TRANSFER_CONFIRMATION },
-    })
+    fireEvent.change(
+      screen.getByLabelText(`Type ${SERVER_TRANSFER_CONFIRMATION} to confirm server transfer`),
+      {
+        target: { value: SERVER_TRANSFER_CONFIRMATION },
+      },
+    )
 
     expect(onPublicUrlChange).toHaveBeenCalledWith('https://podium.example')
     expect(onConfirmationChange).toHaveBeenCalledWith(SERVER_TRANSFER_CONFIRMATION)
@@ -129,6 +132,35 @@ describe('ServerTransfer', () => {
     expect(screen.queryByText(/proved it is serving/i)).toBeNull()
   })
 
+  it('marks only acknowledgement waiting as busy and focuses the progress region', async () => {
+    const view = render(<ServerTransfer {...props()} />)
+
+    view.rerender(<ServerTransfer {...props({ awaitingStatus: true, showProgress: true })} />)
+    const progress = screen.getByRole('region', { name: /server transfer progress for vps/i })
+    expect(screen.getByRole('dialog').getAttribute('aria-busy')).toBe('true')
+    await waitFor(() => expect(document.activeElement).toBe(progress))
+
+    view.rerender(
+      <ServerTransfer
+        {...props({
+          awaitingStatus: true,
+          displayState: 'copying',
+          showProgress: true,
+        })}
+      />,
+    )
+    expect(screen.getByRole('dialog').getAttribute('aria-busy')).toBe('false')
+  })
+
+  it('keeps the phase strip readable on narrow surfaces without destructive progress styling', () => {
+    render(<ServerTransferProgress state="copying" targetName="VPS" />)
+
+    const phases = screen.getByRole('list', { name: /server transfer phases for vps/i })
+    expect(phases.className).toMatch(/min-w-\[26rem\]/)
+    expect(phases.parentElement?.className).toMatch(/overflow-x-auto/)
+    expect(screen.getByText('Copying').className).not.toMatch(/destructive/)
+  })
+
   it('shows connected only when supplied by the durable controller', () => {
     render(<ServerTransfer {...props({ displayState: 'connected', showProgress: true })} />)
 
@@ -151,6 +183,8 @@ describe('ServerTransfer', () => {
     )
 
     expect(screen.getAllByRole('alert')[0]?.textContent).toMatch(/promotion reply was lost/i)
+    expect(screen.getAllByRole('alert')[0]?.textContent).toMatch(/does not restart or roll back/i)
+    expect(screen.getAllByRole('alert')[0]?.textContent).toMatch(/do not retry/i)
     expect(screen.getByText(/target inspection unavailable/i)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /check target/i }))
     expect(onCheckTarget).toHaveBeenCalledTimes(1)
@@ -172,5 +206,27 @@ describe('ServerTransfer', () => {
       'disabled',
       true,
     )
+  })
+
+  it('makes irreversible cutover consequences explicit and reserves destructive styling for it', () => {
+    render(
+      <ServerTransfer
+        {...props({
+          publicUrl: 'https://podium.example',
+          confirmation: SERVER_TRANSFER_CONFIRMATION,
+          urlIsValid: true,
+          canStart: true,
+        })}
+      />,
+    )
+
+    expect(
+      screen.getByText(/reversing this requires another validated server transfer/i),
+    ).toBeTruthy()
+    const transfer = screen.getByRole('button', { name: /transfer server/i })
+    expect(transfer.className).toMatch(/bg-destructive/)
+    expect(
+      screen.getByLabelText(`Type ${SERVER_TRANSFER_CONFIRMATION} to confirm server transfer`),
+    ).toBeTruthy()
   })
 })

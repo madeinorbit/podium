@@ -1,9 +1,23 @@
 import { asMachineId } from '@podium/model'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MachinePairing, type MachinePairingProps } from './MachinePairing'
 
-afterEach(cleanup)
+const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+  if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard)
+  else Reflect.deleteProperty(navigator, 'clipboard')
+})
+
+function stubClipboard(writeText: (value: string) => Promise<void>): void {
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  })
+}
 
 function props(overrides: Partial<MachinePairingProps> = {}): MachinePairingProps {
   return {
@@ -83,7 +97,9 @@ describe('MachinePairing', () => {
       />,
     )
 
-    expect(screen.getByRole('status').textContent).toMatch(/server url needed/i)
+    expect(screen.getByText('Server URL needed').parentElement?.textContent).toMatch(
+      /finish network setup/i,
+    )
     fireEvent.click(screen.getByRole('button', { name: /set server url/i }))
     expect(onChangeUrl).toHaveBeenCalledTimes(1)
   })
@@ -101,8 +117,9 @@ describe('MachinePairing', () => {
       />,
     )
 
-    expect(screen.getByRole('status').textContent).toMatch(/production vps.*ready for transfer/i)
-    fireEvent.click(screen.getByRole('button', { name: /review transfer/i }))
+    const review = screen.getByRole('button', { name: /review transfer/i })
+    expect(review.parentElement?.textContent).toMatch(/production vps.*ready for transfer/i)
+    fireEvent.click(review)
     expect(onReviewPairedMachine).toHaveBeenCalledTimes(1)
   })
 
@@ -127,5 +144,66 @@ describe('MachinePairing', () => {
       'disabled',
       true,
     )
+  })
+
+  it('announces successful copy feedback to assistive technology', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    stubClipboard(writeText)
+    render(
+      <MachinePairing
+        {...props({ pairingCode: 'ABCD-EFGH', joinCommand: 'podium join ABCD-EFGH' })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /copy command/i }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe('Command copied to clipboard.'),
+    )
+    expect(writeText).toHaveBeenCalledWith('podium join ABCD-EFGH')
+  })
+
+  it('handles clipboard rejection and offers a retry without an unhandled promise', async () => {
+    stubClipboard(vi.fn().mockRejectedValue(new Error('clipboard permission denied')))
+    render(
+      <MachinePairing
+        {...props({ pairingCode: 'ABCD-EFGH', joinCommand: 'podium join ABCD-EFGH' })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /copy command/i }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toMatch(/select and copy it manually/i),
+    )
+    expect(screen.getByRole('button', { name: /try copy again/i })).toBeTruthy()
+  })
+
+  it('clears copy feedback timers across remints and unmount', async () => {
+    vi.useFakeTimers()
+    stubClipboard(vi.fn().mockResolvedValue(undefined))
+    const view = render(
+      <MachinePairing {...props({ pairingCode: 'FIRST', joinCommand: 'podium join FIRST' })} />,
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /copy command/i }))
+      await Promise.resolve()
+    })
+    expect(vi.getTimerCount()).toBe(1)
+
+    view.rerender(
+      <MachinePairing {...props({ pairingCode: 'SECOND', joinCommand: 'podium join SECOND' })} />,
+    )
+    expect(vi.getTimerCount()).toBe(0)
+    expect(screen.queryByText('Command copied to clipboard.')).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /copy command/i }))
+      await Promise.resolve()
+    })
+    expect(vi.getTimerCount()).toBe(1)
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
