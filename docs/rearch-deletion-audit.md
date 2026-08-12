@@ -292,6 +292,35 @@ The planted fixture proves both halves of the mechanism:
 `id: text().$type<SessionId>().primaryKey()` leaves it. A detector that matched
 both as one form would make the key reportable but impossible to discharge—the
 exact defect POD-1199 found in the original drizzle-column classifier.
+### 2026-08-12 — POD-1937 adds `unbranded-ts-id-members` (+1 item, baseline 1,229)
+
+**A ratchet EXTENSION, in a commit that touches no product code.** The
+entity-id detector has reported hand-written TypeScript members under
+`--form ts-string` since POD-301, but no baseline key held the class. It measured
+725 sites at that issue's close, 1,227 during POD-1199, 1,214 at `165f8625b`,
+and **1,229** on the installed `90eadedf4` tree here. The movement is expected:
+an unratcheted class is free to drift.
+
+The form is already drivable and does **not** need drizzle's second-form fix.
+`classifyRhs('string')` returns `ts-string`, while
+`classifyRhs('SessionId')` and `classifyRhs('SessionId | null')` return `other`.
+The planted item test asserts the full transition from
+`sessionId: string` (one site) to `sessionId: SessionId` (zero), so writing the
+brand moves the committed number and the key can reach zero.
+
+| Key | Baseline | Phase | What one count is |
+|---|---:|---|---|
+| `unbranded-ts-id-members` | 1,229 | POD-1937 | a TypeScript member whose key names a branded entity id and whose declared type is a bare string |
+
+This is a separate key from the zod and drizzle items because it is a third
+mechanism with different fallout: branded members constrain their call sites,
+including typed production characterization/support doubles. The detector's
+established population excludes `.test.ts` and captured `.fixtures.ts` files;
+the planted item test pins that boundary so this key cannot claim to hold sites
+the scanner never counts. Provider- and harness-native ids whose names look like
+Podium entities use the existing counted `UNBRANDED` hatch: that moves a
+site from this key to `unbranded-by-decision-ids` rather than making a foreign id
+assignable as a Podium principal or hiding the decision from the baseline.
 
 ### 2026-08-12 — POD-1199 brands the columns: `unbranded-db-columns` 90 → 0, `unbranded-by-decision-ids` 18 → 24
 
