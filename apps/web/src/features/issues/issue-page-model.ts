@@ -97,9 +97,8 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   // a new comment — ours or an agent's — pulls the fresh thread). Best-effort:
   // a fetch error keeps whatever is shown. The wrapping Promise.resolve() also
   // absorbs a missing proc on the client seam instead of crashing the render.
-  // Legacy fallback: a pre-#175 hub-mirrored wire may still EMBED comments and
-  // lack the proc's data locally (the node returns [] for viaHub issues) — use
-  // the embedded thread when the fetch comes back empty.
+  // Legacy fallback: a pre-#175 wire may still EMBED comments and lack the proc's
+  // data locally — use the embedded thread when the fetch comes back empty.
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on issue switch / count change only; trpc is a stable store singleton
   useEffect(() => {
     let cancelled = false

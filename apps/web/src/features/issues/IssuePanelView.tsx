@@ -324,9 +324,8 @@ function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null 
  *
  *  Comment bodies no longer ride IssueWire (#175): the thread is fetched lazily
  *  via the issues.comments proc, re-fetched whenever the issue's updatedAt
- *  moves. Legacy fallback: a pre-#175 payload may still embed `comments` (and a
- *  viaHub issue's thread lives on the hub, where the proc returns []) — use the
- *  embedded thread when the fetch comes back empty. */
+ *  moves. Legacy fallback: a pre-#175 payload may still embed `comments` — use
+ *  the embedded thread when the fetch comes back empty. */
 function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const [comments, setComments] = useState<IssueComment[]>(issue.comments ?? [])

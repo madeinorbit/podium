@@ -5,7 +5,6 @@
  */
 
 import { relativeTime } from '@podium/client-core/focus'
-import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { ChevronRight, Pin, Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -202,24 +201,13 @@ export function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
           internal
         </StatusChip>
       )}
-      {/* Replica PROVENANCE, read through the envelope accessors rather than off
-          the entity (POD-304). Identical rendering — the point is that when
-          POD-308 nests the carrier under an `envelope` key, this indicator does
-          not have to be found and changed again. */}
-      {isViaHub(issue) && (
-        <StatusChip
-          tone={isUpstreamStale(issue) ? 'amber' : 'sky'}
-          title={
-            isUpstreamStale(issue)
-              ? 'Mirrored from an unreachable hub — last-known state'
-              : isPendingSync(issue)
-                ? 'Edit queued for the hub — shown optimistically'
-                : 'Mirrored from this node’s upstream hub'
-          }
-        >
-          {isUpstreamStale(issue) ? 'hub · stale' : isPendingSync(issue) ? 'hub · syncing' : 'hub'}
-        </StatusChip>
-      )}
+      {/* NO hub-provenance chip (`hub` / `hub · stale` / `hub · syncing`) — POD-309
+          retired UpstreamSync/UpstreamForwarder and every hub-mirror apply path, so
+          nothing sets viaHub/upstreamStale/pendingSync and the chip could never
+          render (POD-1202). The FIELDS and the `isViaHub`/`isUpstreamStale`/
+          `isPendingSync` accessors survive as the federation seam (ADR 5 D4 row 4);
+          only this dead rendering went. A future node peer redesigns the indicator
+          under POD-353 rather than restoring this one. */}
     </div>
   )
 }
