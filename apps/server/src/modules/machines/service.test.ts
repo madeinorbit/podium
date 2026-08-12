@@ -531,8 +531,8 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
  * `machines.owner_user_id` projection (D19.4d).
  */
 describe('adoption of an unowned machine (POD-1494)', () => {
-  const ALICE = 'user:alice'
-  const BOB = 'user:bob'
+  const ALICE = asUserId('user:alice')
+  const BOB = asUserId('user:bob')
 
   function adoptWorld(opts: { rowOwner?: UserId | null; known?: UserId[] } = {}): {
     svc: MachinesService
@@ -701,7 +701,9 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown machine is refused before anything is read', () => {
     const { svc, dir } = adoptWorld()
     try {
-      expect(() => svc.adoptMachine('ghost', asUserId(ALICE))).toThrow("unknown machine 'ghost'")
+      expect(() => svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE))).toThrow(
+        "unknown machine 'ghost'",
+      )
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

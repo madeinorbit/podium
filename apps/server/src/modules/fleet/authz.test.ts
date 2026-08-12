@@ -512,14 +512,14 @@ describe('the machine verb is read from the contract, per command', () => {
  * refusing case were missing. The refusal is produced by an unowned row.
  */
 describe('the derived fleet router actually calls the gate', () => {
-  function caller(ownerUserId: UserId | null, opts: { stateDir?: string } = {}) {
+  function caller(ownerUserId: string | null, opts: { stateDir?: string } = {}) {
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
       name: 'machine-one',
       hostname: 'host-one',
       tokenHash: 'h1',
-      ownerUserId,
+      ownerUserId: ownerUserId === null ? null : asUserId(ownerUserId),
     })
     const registry = new SessionRegistry(store, undefined, {
       instanceId: 'default',

@@ -7,7 +7,7 @@
  * tip is a sound base once the source independently proves it has that object.
  */
 
-import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asRepoId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
 import { Session } from '../session'
@@ -48,7 +48,7 @@ function placement(): HandoffPlacement {
       machineId: SOURCE_MACHINE,
       path: SOURCE_REPO,
       originUrl: 'git@github.com:madeinorbit/podium.git',
-      repoId: 'repo-podium',
+      repoId: asRepoId('repo-podium'),
       prefix: 'POD',
     },
     issue: undefined,
