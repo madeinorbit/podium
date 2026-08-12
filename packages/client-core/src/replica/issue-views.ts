@@ -370,15 +370,18 @@ export function buildIssueBoard(
  * change — only their SOURCE did — which is the whole reason the cutover is this
  * one function.
  *
- * An empty projection collection (the cap not yet flipped) yields empty views,
- * not wrong ones: no durable issue content in, no views out. The retained issue
- * collection remains the cursor source until its broader wire cutover.
+ * Empty normalized collections yield empty views, not guessed legacy views: no
+ * durable issue content in, no views out. Compatibility rows may still coexist,
+ * but this read path intentionally depends only on normalized inputs. The
+ * retained issue collection remains the per-user cursor source.
  */
-export function readViewInputs(replica: Replica): {
+export function readViewInputs(
+  replica: Replica,
+  projections: readonly IssueProjection[] = replica.rows('issueProjections'),
+): {
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
 } {
-  const projections = replica.rows('issueProjections')
   const readAtByIssueId = new Map(replica.rows('issues').map((issue) => [issue.id, issue.readAt]))
   const prefixByRepoId = new Map<string, string | null>()
   for (const repo of replica.rows('repos')) prefixByRepoId.set(repo.id, repo.prefix ?? null)

@@ -5,8 +5,16 @@ import {
   createSideCache,
   type KernelCacheRead,
   memoryStorage,
+  type Replica,
 } from '@podium/client-core/replica'
-import { asSessionId, type SessionMeta } from '@podium/model'
+import {
+  issueViewModelProjectionStats,
+  type IssueViewModel,
+  useAllIssueViewModels,
+  useIssueViewModel,
+  useIssueViewModels,
+} from '@podium/client-core/react'
+import { asSessionId, type IssueProjection, type SessionMeta } from '@podium/model'
 import type { EntityRecord, ReplicaEvent } from '@podium/sync/replica'
 import { Profiler, act, type JSX } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -217,6 +225,9 @@ let root: Root
 let container: HTMLDivElement
 let realWebSocket: typeof WebSocket
 let latestStore: ReturnType<typeof useStore> | null
+const issueArrays = new Map<number, unknown>()
+const issueIndexes = new Map<number, unknown>()
+const addressedIssues = new Map<string, IssueViewModel | undefined>()
 
 function StoreCapture(): null {
   latestStore = useStore()
@@ -235,6 +246,43 @@ function CoarseSessionProbe(): null {
   return null
 }
 
+function SharedIssueProjectionProbe({
+  reader,
+  replica,
+}: {
+  reader: number
+  replica: Replica
+}): null {
+  issueArrays.set(reader, useAllIssueViewModels(replica))
+  issueIndexes.set(reader, useIssueViewModels(replica))
+  return null
+}
+
+function AddressedIssueProbe({ issueId, replica }: { issueId: string; replica: Replica }): null {
+  addressedIssues.set(issueId, useIssueViewModel(replica, issueId))
+  return null
+}
+
+const issueProjection = (index: number): IssueProjection =>
+  ({
+    id: `i${index}`,
+    seq: index + 1,
+    repoId: 'repo-1',
+    stage: 'in_progress',
+    title: `Issue ${index}`,
+    description: { value: '' },
+    readAt: '2026-08-12T12:10:00.000Z',
+    createdAt: '2026-08-12T12:00:00.000Z',
+    updatedAt: '2026-08-12T12:00:00.000Z',
+  }) as unknown as IssueProjection
+
+const issueSession = (index: number): SessionMeta =>
+  ({
+    ...session(index),
+    issueId: `i${index}`,
+    phase: 'working',
+  }) as unknown as SessionMeta
+
 const flush = async (): Promise<void> => {
   await act(async () => {
     await Promise.resolve()
@@ -248,6 +296,9 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-08-12T12:05:00.000Z'))
   localStorage.clear()
   renderCommits.clear()
+  issueArrays.clear()
+  issueIndexes.clear()
+  addressedIssues.clear()
   latestStore = null
   realWebSocket = globalThis.WebSocket
   globalThis.WebSocket = FakeWS as unknown as typeof WebSocket
@@ -354,5 +405,100 @@ describe('scoped session render subscriptions', () => {
     expect(renderCommits.get('chat:s7') ?? 0).toBeGreaterThan(0)
     expect(renderCommits.get('coarse-drafts') ?? 0).toBe(0)
     expect(renderCommits.get('coarse-sessions') ?? 0).toBe(1)
+  })
+
+  it('shares one 674-issue projection and keeps by-id readers entity-scoped', async () => {
+    const cache = new RenderProbeCache()
+    const issueCount = 674
+    const sessionCount = 530
+    for (let index = 0; index < issueCount; index++) {
+      const issue = issueProjection(index)
+      cache.put('issueProjection', issue.id, issue)
+    }
+    cache.put('issue', 'i0', { id: 'i0', pinned: false })
+    cache.put('repo', 'repo-1', { id: 'repo-1', prefix: 'POD' })
+    for (let index = 0; index < sessionCount; index++) {
+      const row = issueSession(index)
+      cache.put('session', row.sessionId, row)
+    }
+    const replica = createKernelReplica({
+      cache,
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+
+    act(() => {
+      root.render(
+        <StoreProvider
+          principal={asClientPrincipal('operator')}
+          createReplicaFn={() => replica}
+          config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
+          onFatalError={() => {}}
+        >
+          {Array.from({ length: 12 }, (_, reader) => (
+            <SharedIssueProjectionProbe key={reader} reader={reader} replica={replica} />
+          ))}
+          <Profiler id="issue:i0" onRender={() => recordCommit('issue:i0')}>
+            <AddressedIssueProbe issueId="i0" replica={replica} />
+          </Profiler>
+          <Profiler id="issue:i529" onRender={() => recordCommit('issue:i529')}>
+            <AddressedIssueProbe issueId="i529" replica={replica} />
+          </Profiler>
+        </StoreProvider>,
+      )
+    })
+    await flush()
+
+    expect(new Set(issueArrays.values()).size).toBe(1)
+    expect(new Set(issueIndexes.values()).size).toBe(1)
+    expect((issueArrays.get(0) as unknown[]).length).toBe(issueCount)
+    expect((issueIndexes.get(0) as Map<string, unknown>).size).toBe(issueCount)
+    const buildsBeforeDelta = issueViewModelProjectionStats(replica).builds
+
+    renderCommits.clear()
+    const changed = { ...issueSession(529), phase: 'waiting' } as unknown as SessionMeta
+    act(() => {
+      replica.onKernelEvent(upserted(cache.put('session', changed.sessionId, changed)))
+    })
+    await flush()
+
+    expect(issueViewModelProjectionStats(replica).builds - buildsBeforeDelta).toBe(1)
+    expect(renderCommits.get('issue:i0') ?? 0).toBe(0)
+    expect(renderCommits.get('issue:i529') ?? 0).toBe(1)
+    expect(new Set(issueArrays.values()).size).toBe(1)
+    expect(new Set(issueIndexes.values()).size).toBe(1)
+
+    renderCommits.clear()
+    const unrelated = { ...issueProjection(528), title: 'Unrelated changed issue' }
+    const buildsBeforeUnrelated = issueViewModelProjectionStats(replica).builds
+    act(() => {
+      replica.onKernelEvent(upserted(cache.put('issueProjection', unrelated.id, unrelated)))
+    })
+    await flush()
+
+    expect(issueViewModelProjectionStats(replica).builds - buildsBeforeUnrelated).toBe(1)
+    expect(renderCommits.get('issue:i0') ?? 0).toBe(0)
+    expect(renderCommits.get('issue:i529') ?? 0).toBe(0)
+
+    renderCommits.clear()
+    const addressed = { ...issueProjection(529), title: 'Addressed changed issue' }
+    act(() => {
+      replica.onKernelEvent(upserted(cache.put('issueProjection', addressed.id, addressed)))
+    })
+    await flush()
+
+    expect(renderCommits.get('issue:i0') ?? 0).toBe(0)
+    expect(renderCommits.get('issue:i529') ?? 0).toBe(1)
+
+    renderCommits.clear()
+    const buildsBeforeLegacy = issueViewModelProjectionStats(replica).builds
+    act(() => {
+      replica.onKernelEvent(upserted(cache.put('issue', 'i0', { id: 'i0', pinned: true })))
+    })
+    await flush()
+
+    expect(issueViewModelProjectionStats(replica).builds - buildsBeforeLegacy).toBe(1)
+    expect(addressedIssues.get('i0')?.pinned).toBe(true)
+    expect(renderCommits.get('issue:i0') ?? 0).toBe(1)
+    expect(renderCommits.get('issue:i529') ?? 0).toBe(0)
   })
 })

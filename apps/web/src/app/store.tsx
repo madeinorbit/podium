@@ -18,7 +18,7 @@ import {
   useStore as useCoreStore,
   useSlice as useCoreSlice,
   useStoreSelector as useCoreStoreSelector,
-  useIssueViewModels,
+  useAllIssueViewModels,
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
 import type { SessionId, SessionMeta } from '@podium/model'
@@ -142,15 +142,20 @@ export function useSlice<T>(def: SliceDefinition<Store, T>): T {
   return useCoreSlice<T, Trpc>(def)
 }
 
-/** Issues rendered from normalized replica projections plus local D7.3 views. */
-export function useReplicaIssues(): IssueViewModel[] {
-  const { replica, issueProjections, legacyIssues } = useStoreSelector(
+function useReplicaIssueSources(): Pick<Store, 'replica' | 'issueProjections'> & {
+  legacyIssues: Store['issues']
+} {
+  return useStoreSelector(
     (s) => ({ replica: s.replica, issueProjections: s.issueProjections, legacyIssues: s.issues }),
     (a, b) =>
       a.replica === b.replica &&
       a.issueProjections === b.issueProjections &&
       a.legacyIssues === b.legacyIssues,
   )
-  const models = useIssueViewModels(replica, issueProjections, legacyIssues)
-  return useMemo(() => [...models.values()], [models])
+}
+
+/** Issues rendered from normalized replica projections plus local D7.3 views. */
+export function useReplicaIssues(): IssueViewModel[] {
+  const { replica, issueProjections, legacyIssues } = useReplicaIssueSources()
+  return useAllIssueViewModels(replica, issueProjections, legacyIssues)
 }

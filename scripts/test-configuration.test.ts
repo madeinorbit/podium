@@ -353,6 +353,7 @@ describe('test lane configuration', () => {
   it('keeps the frontend performance lane deterministic and explicit', () => {
     expect(config(frontendPerfConfig).test?.include).toEqual([
       'src/perf/large-state.frontend-perf.tsx',
+      'src/perf/scoped-session-render.test.tsx',
     ])
     expect(config(frontendPerfConfig).test?.retry).toBe(0)
     expect(config(frontendPerfConfig).test?.maxWorkers).toBe(1)

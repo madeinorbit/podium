@@ -1,31 +1,10 @@
 /**
  * React bindings for the replica-side issue views [ADR 4 D7.3].
  *
- * `useSyncExternalStore` over the replica's own change seam rather than
- * `useLiveQuery`, for one reason that is not stylistic: **a nested-collection
- * change emits ZERO events on the parent row** (POD-794). A binding built on a
- * single live query over the issue tree would therefore never re-render when a
- * SESSION changes — the issue's `unread` and `sessionSummary` would sit frozen,
- * silently, with no error to notice and a demo that looks perfect. So these
- * bindings subscribe to the issues AND sessions collections and derive across
- * both. `subscribeRows` already coalesces per application, so a whole
- * bootstrap/heal/delta wakes each of them at most once, against the final state.
- *
- * ## The snapshot is invalidated by NOTIFICATION, not by row identity
- *
- * The obvious memo key — "did the row arrays change identity?" — does not work
- * and fails loudly if you try it: `replica.rows()` reads the collection's
- * `toArray`, which materialises a FRESH array on every call, so identity is
- * never stable and every `getSnapshot` returns a new object. React calls
- * `getSnapshot` on each render and demands a stable reference for unchanged
- * state; hand it a new one each time and it does not merely re-derive too often,
- * it throws "Maximum update depth exceeded" and the view never mounts.
- *
- * So invalidation is driven by the replica's own change notification — the same
- * signal that already coalesces a whole application into one wake — and the
- * derived snapshot is cached per REPLICA rather than per component: every issue
- * surface on screen shares one derivation of each settled state, which is the
- * point of deriving at the replica rather than in each view.
+ * The replica is the notification boundary and this module is the shared
+ * projection cache. Every issue surface reads the same snapshot and, after a
+ * notification, the same flat model map/array. That keeps a session update from
+ * rebuilding one O(world) model per mounted surface.
  */
 
 import type { IssueProjection, IssueWire, IssueId } from '@podium/model'
@@ -45,71 +24,89 @@ import type { Replica } from './replica'
 
 export type { IssueViewModel, IssueViewsSnapshot } from './issue-view-models'
 
-/** The derived state of ONE replica, shared by every component reading it. */
+type CachedIssueViewsSnapshot = IssueViewsSnapshot & {
+  projectionRows: readonly IssueProjection[]
+  legacyRows: readonly IssueWire[]
+}
+
+interface IssueModelsProjection {
+  snapshot: CachedIssueViewsSnapshot
+  projectionRows: readonly IssueProjection[]
+  legacyRows: readonly IssueWire[]
+  index: Map<string, IssueViewModel>
+  all: IssueViewModel[]
+}
+
 interface IssueViewsStore {
-  /** Cleared on every replica change; rebuilt on the next read. */
-  snapshot: IssueViewsSnapshot | null
+  /** Cleared on every relevant replica notification. */
+  snapshot: CachedIssueViewsSnapshot | null
+  /** Retained across snapshots so unchanged issue models keep their identity. */
+  models: IssueModelsProjection | null
+  modelBuilds: number
   listeners: Set<() => void>
 }
 
-/**
- * One store per replica, keyed weakly so a discarded replica takes its store
- * with it.
- *
- * The two `subscribeRows` here are never unsubscribed, which is deliberate and
- * matches what the replica already does for its own collections: a replica is an
- * app-lifetime singleton, and a subscription that came and went with the first
- * component would drop the shared cache the moment the last issue view unmounted
- * — re-deriving the world on the next mount instead of on the next change.
- */
 const stores = new WeakMap<Replica, IssueViewsStore>()
 
 function storeFor(replica: Replica): IssueViewsStore {
   const existing = stores.get(replica)
   if (existing) return existing
-  const store: IssueViewsStore = { snapshot: null, listeners: new Set() }
+  const store: IssueViewsStore = { snapshot: null, models: null, modelBuilds: 0, listeners: new Set() }
   stores.set(replica, store)
+
   const invalidate = (): void => {
     store.snapshot = null
     for (const listener of [...store.listeners]) listener()
   }
-  // EVERY collection `readViewInputs` reads [POD-822], not just two: the views
-  // now join `issueProjections` (durable issue content) against `issues`
-  // (per-user readAt), `issueDeps` (blocked/ready/dependents), `repos`
-  // (displayRef prefix), plus `sessions` for the membership rollups. A cursor,
-  // dep-edge, or prefix change lands only in its own
-  // collection, so a binding that did not subscribe to it would render a stale
-  // `blocked` or `#13` with no error — the same silent-staleness failure the
-  // module note describes for sessions. `subscribeRows` coalesces per
-  // application, so a whole bootstrap/heal/delta still wakes each at most once.
-  replica.subscribeRows('issueProjections', invalidate)
-  replica.subscribeRows('issues', invalidate)
-  replica.subscribeRows('issueDeps', invalidate)
-  replica.subscribeRows('repos', invalidate)
-  replica.subscribeRows('sessions', invalidate)
+  // The view joins all of these kinds. Prefer the kernel's one batch seam so a
+  // multi-kind delta wakes the projection once; older replicas fall back to
+  // their already-coalesced per-kind subscriptions.
+  const relevantKinds = new Set(['issues', 'issueProjections', 'issueDeps', 'repos', 'sessions'])
+  if (replica.subscribeRowBatch) {
+    replica.subscribeRowBatch((changed) => {
+      for (const kind of changed) {
+        if (relevantKinds.has(kind)) {
+          invalidate()
+          break
+        }
+      }
+    })
+  } else {
+    replica.subscribeRows('issues', invalidate)
+    replica.subscribeRows('issueProjections', invalidate)
+    replica.subscribeRows('issueDeps', invalidate)
+    replica.subscribeRows('repos', invalidate)
+    replica.subscribeRows('sessions', invalidate)
+  }
   return store
 }
 
-function deriveSnapshot(replica: Replica): IssueViewsSnapshot {
-  return deriveIssueViewsSnapshot(replica)
+function deriveSnapshot(replica: Replica): CachedIssueViewsSnapshot {
+  const snapshot = deriveIssueViewsSnapshot(replica)
+  return {
+    ...snapshot,
+    projectionRows: replica.rows('issueProjections'),
+    legacyRows: replica.rows('issues'),
+  }
 }
 
-/** The derived issue world. Re-derived once per settled replica state, shared. */
-export function useIssueViews(replica: Replica): IssueViewsSnapshot {
-  const getSnapshot = useCallback((): IssueViewsSnapshot => {
-    const store = storeFor(replica)
-    // Stable between notifications — which is the contract useSyncExternalStore
-    // enforces, loudly. See the module note.
-    store.snapshot ??= deriveSnapshot(replica)
-    return store.snapshot
-  }, [replica])
+function snapshotFor(replica: Replica): CachedIssueViewsSnapshot {
+  const store = storeFor(replica)
+  store.snapshot ??= deriveSnapshot(replica)
+  return store.snapshot
+}
 
+function subscribeToIssueViews(replica: Replica, onChange: () => void): () => void {
+  const store = storeFor(replica)
+  store.listeners.add(onChange)
+  return () => store.listeners.delete(onChange)
+}
+
+/** The derived issue world, shared and cached between relevant notifications. */
+export function useIssueViews(replica: Replica): IssueViewsSnapshot {
+  const getSnapshot = useCallback(() => snapshotFor(replica), [replica])
   const subscribe = useCallback(
-    (onChange: () => void) => {
-      const store = storeFor(replica)
-      store.listeners.add(onChange)
-      return () => store.listeners.delete(onChange)
-    },
+    (onChange: () => void) => subscribeToIssueViews(replica, onChange),
     [replica],
   )
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
@@ -136,33 +133,158 @@ export function useIssueBoard(
   return useMemo(() => buildIssueBoard(snapshot.views, snapshot.issues, stages), [snapshot, stages])
 }
 
-/**
- * One issue as a flat render model [POD-856]: its own durable projection row
- * MERGED with the replica-derived view (`blocked`/`ready`/`childCount`/
- * `displayRef`/`dependents`/`memberSessionIds`, …) and the session rollups
- * (`unread`/`sessionSummary`). This is the shape issue surfaces render from once
- * the cap flips — the successor to `IssueWire` for the UI, minus the fields D7.1
- * deleted from the wire:
- *  - member SESSIONS are NOT embedded (D7.3): the model carries
- *    `memberSessionIds`, and a consumer that needs a session resolves it by id
- *    against the sessions the client already holds. Re-embedding them here would
- *    put the O(world) rebuild back on the client.
- *  - `commentCount` is gone (a comment write must not touch the issue row, D7.2):
- *    consumers key comment refetches on `updatedAt` instead.
- */
-export function useIssueViewModels(
-  replica: Replica,
-  projectionRows: readonly IssueProjection[] = replica.rows('issueProjections'),
-  legacyRows: readonly IssueWire[] = replica.rows('issues'),
-): Map<string, IssueViewModel> {
-  const snapshot = useIssueViews(replica)
-  return useMemo(
-    () => buildIssueViewModels(snapshot, projectionRows, legacyRows),
-    [snapshot, projectionRows, legacyRows],
+/** JSON-like comparison used to retain unchanged model objects across a world rebuild. */
+function sameVisibleValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((value, index) => sameVisibleValue(value, b[index]))
+  }
+  const aKeys = Object.keys(a)
+  const bKeys = Object.keys(b)
+  if (aKeys.length !== bKeys.length) return false
+  const bRecord = b as Record<string, unknown>
+  return aKeys.every(
+    (key) =>
+      Object.hasOwn(bRecord, key) &&
+      sameVisibleValue((a as Record<string, unknown>)[key], bRecord[key]),
   )
 }
 
-/** One issue's flat render model, or undefined if the replica does not hold it. */
-export function useIssueViewModel(replica: Replica, issueId: IssueId): IssueViewModel | undefined {
-  return useIssueViewModels(replica).get(issueId)
+function sameIndex(
+  previous: Map<string, IssueViewModel>,
+  next: Map<string, IssueViewModel>,
+): boolean {
+  if (previous.size !== next.size) return false
+  const previousEntries = previous.entries()
+  for (const [nextId, nextModel] of next) {
+    const previousEntry = previousEntries.next()
+    if (previousEntry.done) return false
+    const [previousId, previousModel] = previousEntry.value
+    if (previousId !== nextId || previousModel !== nextModel) return false
+  }
+  return true
+}
+
+function modelsFor(
+  replica: Replica,
+  suppliedProjectionRows?: readonly IssueProjection[],
+  suppliedLegacyRows?: readonly IssueWire[],
+): IssueModelsProjection {
+  const store = storeFor(replica)
+  const snapshot = snapshotFor(replica)
+  const projectionRows = suppliedProjectionRows ?? snapshot.projectionRows
+  const legacyRows = suppliedLegacyRows ?? snapshot.legacyRows
+  const current = store.models
+  if (
+    current?.snapshot === snapshot &&
+    current.projectionRows === projectionRows &&
+    current.legacyRows === legacyRows
+  ) {
+    return current
+  }
+
+  store.modelBuilds++
+  const built = buildIssueViewModels(snapshot, projectionRows, legacyRows)
+  const models = new Map<string, IssueViewModel>()
+  for (const [id, next] of built) {
+    const previous = current?.index.get(id)
+    models.set(id, previous && sameVisibleValue(previous, next) ? previous : next)
+  }
+
+  const unchanged = current !== null && sameIndex(current.index, models)
+  const projection: IssueModelsProjection = {
+    snapshot,
+    projectionRows,
+    legacyRows,
+    index: unchanged ? current.index : models,
+    all: unchanged ? current.all : [...models.values()],
+  }
+  store.models = projection
+  return projection
+}
+
+/** Imperative shared readers for stores that already own the notification boundary. */
+export function issueViewModelIndex(
+  replica: Replica,
+  projectionRows?: readonly IssueProjection[],
+  legacyRows?: readonly IssueWire[],
+): Map<string, IssueViewModel> {
+  return modelsFor(replica, projectionRows, legacyRows).index
+}
+
+export function allIssueViewModels(
+  replica: Replica,
+  projectionRows?: readonly IssueProjection[],
+  legacyRows?: readonly IssueWire[],
+): IssueViewModel[] {
+  return modelsFor(replica, projectionRows, legacyRows).all
+}
+
+export function issueViewModelById(
+  replica: Replica,
+  issueId: string,
+  projectionRows?: readonly IssueProjection[],
+  legacyRows?: readonly IssueWire[],
+): IssueViewModel | undefined {
+  return modelsFor(replica, projectionRows, legacyRows).index.get(issueId)
+}
+
+function useIssueModelsSelection<T>(
+  replica: Replica,
+  select: (projection: IssueModelsProjection) => T,
+  projectionRows?: readonly IssueProjection[],
+  legacyRows?: readonly IssueWire[],
+): T {
+  const getSnapshot = useCallback(
+    () => select(modelsFor(replica, projectionRows, legacyRows)),
+    [legacyRows, projectionRows, replica, select],
+  )
+  const subscribe = useCallback(
+    (onChange: () => void) => subscribeToIssueViews(replica, onChange),
+    [replica],
+  )
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
+const selectIssueModelIndex = (projection: IssueModelsProjection): Map<string, IssueViewModel> =>
+  projection.index
+const selectAllIssueModels = (projection: IssueModelsProjection): IssueViewModel[] => projection.all
+
+/** Every issue's flat render model, keyed by id. The Map is shared by all readers. */
+export function useIssueViewModels(
+  replica: Replica,
+  projectionRows?: readonly IssueProjection[],
+  legacyRows?: readonly IssueWire[],
+): Map<string, IssueViewModel> {
+  return useIssueModelsSelection(replica, selectIssueModelIndex, projectionRows, legacyRows)
+}
+
+/** Every issue's flat render model in replica order. The array is shared too. */
+export function useAllIssueViewModels(
+  replica: Replica,
+  projectionRows?: readonly IssueProjection[],
+  legacyRows?: readonly IssueWire[],
+): IssueViewModel[] {
+  return useIssueModelsSelection(replica, selectAllIssueModels, projectionRows, legacyRows)
+}
+
+/** One issue's flat render model. Unchanged peer models retain identity. */
+export function useIssueViewModel(
+  replica: Replica,
+  issueId: IssueId,
+  projectionRows?: readonly IssueProjection[],
+  legacyRows?: readonly IssueWire[],
+): IssueViewModel | undefined {
+  const select = useCallback(
+    (projection: IssueModelsProjection) => projection.index.get(issueId),
+    [issueId],
+  )
+  return useIssueModelsSelection(replica, select, projectionRows, legacyRows)
+}
+
+/** Bounded diagnostic used by the real-store performance harness. */
+export function issueViewModelProjectionStats(replica: Replica): { builds: number } {
+  return { builds: storeFor(replica).modelBuilds }
 }

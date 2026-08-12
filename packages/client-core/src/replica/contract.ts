@@ -90,9 +90,9 @@ export type StorageEventApi = {
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
   sessions: SessionMeta
-  /** The LEGACY embedded issue wire. Still held through the transition [POD-796]:
-   *  the rich issue UI reads it directly, and it carries `deps`/`prefix`/derived
-   *  fields as columns. POD-797 deletes it once every surface reads the views. */
+  /** The LEGACY embedded issue wire. Still held for compatibility consumers: the
+   *  rich issue UI reads some supplements from it while normalized projections
+   *  become the sole durable source. Its eventual retirement has one merger seam. */
   issues: IssueWire
   /** The NORMALIZED issue projection [POD-796] — the issue's own durable row,
    *  nothing derived. The replica-side issue VIEWS read this, joined against the
