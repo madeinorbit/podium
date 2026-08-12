@@ -52,11 +52,12 @@ import {
   X,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import type { JSX, ReactNode } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
+import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { BrailleSpinner, PhaseTimer, useArrivals } from '@/lib/motion'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
@@ -1132,6 +1133,7 @@ function TaskRow({
   onSelectIssue,
   onSelectSession,
   onSelectNative,
+  onMenu,
 }: {
   row: FlightDeckRow
   byId: ReadonlyMap<string, IssueNavigationModel>
@@ -1161,6 +1163,8 @@ function TaskRow({
   onSelectIssue: (permanent: boolean) => void
   onSelectSession: (session: SessionMeta, permanent: boolean) => void
   onSelectNative: (session: SessionMeta) => void
+  /** Open the shared task menu at the cursor — right-click, or the ⋯ reveal. */
+  onMenu: (event: ReactMouseEvent) => void
 }): JSX.Element {
   const intent = useClickIntent()
   const payload = hasPayload(row)
@@ -1253,6 +1257,13 @@ function TaskRow({
           selected ? 'border-border-strong' : 'border-hairline-soft hover:border-hairline-bar',
         )}
         style={{ marginLeft: bandLeft, minHeight: bandHeight }}
+        // A TASK ANSWERS THE SAME GESTURE ITS AGENTS DO (POD-771). Right-click
+        // on an agent row has opened session lifecycle since POD-710; the task
+        // it hangs under offered nothing, so stage, placement, colour and close
+        // were reachable from the board and the sidebar but not from the column
+        // the operator actually works in. Same menu as those two surfaces —
+        // imported, never forked.
+        onContextMenu={onMenu}
       >
         {payload ? (
           <button
@@ -1318,6 +1329,28 @@ function TaskRow({
           )}
           <StateLabel value={state} label={liveWord} />
         </button>
+        {/* The same pairing the agent rows use: right-click is the fast path,
+            and the ⋯ is how an operator who has never right-clicked a strip
+            finds out these actions exist. It floats over the row's right edge
+            so revealing it never reflows the state column. */}
+        <div
+          data-hover-reveal
+          className="absolute top-0.5 right-1 hidden items-center rounded-md bg-chip group-hover/task:flex"
+        >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-5 text-text-dim"
+            aria-label={`Task actions for ${row.issue.title}`}
+            title="Task actions"
+            onClick={(event) => {
+              event.stopPropagation()
+              onMenu(event)
+            }}
+          >
+            <Ellipsis size={12} aria-hidden="true" />
+          </Button>
+        </div>
       </div>
       {/* THE FOLD GROWS AND SHRINKS (round 3 §7c) — a grid-rows collapse that
           needs no measurement and no mount, so nothing choreographs on first
@@ -1370,12 +1403,15 @@ function ProposalRow({
   author,
   selected,
   onSelect,
+  onMenu,
 }: {
   issue: IssueNavigationModel
   /** The display ref of the session that filed it, when the deck can resolve it. */
   author: string | null
   selected: boolean
   onSelect: (permanent: boolean) => void
+  /** A proposal is still a task: same right-click menu as a strip. */
+  onMenu: (event: ReactMouseEvent) => void
 }): JSX.Element {
   const intent = useClickIntent()
   return (
@@ -1383,6 +1419,7 @@ function ProposalRow({
       <button
         data-pressable
         type="button"
+        onContextMenu={onMenu}
         className={cn(
           'deck-strip flex w-full items-center gap-2 rounded-row border px-2 text-left',
           selected
@@ -1983,6 +2020,23 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     }
     setView('workspace')
   }
+  /**
+   * THE TASK MENU, HOSTED ONCE (POD-771).
+   *
+   * One menu for the whole column rather than one per strip: a spine can carry
+   * fifty rows, and fifty mounted portals to serve the one the cursor is over is
+   * a cost paid on every render of a list that re-renders on every clock tick.
+   * The strips report a cursor and an id; this resolves the id against the
+   * replica's own issues, because `row.issue` is the deck's navigation
+   * projection and the shared menu acts on the full view model.
+   */
+  const [issueMenu, setIssueMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null)
+  const openIssueMenu = useCallback((issueId: string, event: ReactMouseEvent): void => {
+    event.preventDefault()
+    setIssueMenu({ id: issueId, anchor: { x: event.clientX, y: event.clientY } })
+  }, [])
+  const menuIssue = issueMenu ? issues.find((issue) => issue.id === issueMenu.id) : undefined
+
   const selectSession = (
     issueId: string | null,
     session: SessionMeta,
@@ -2026,7 +2080,14 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               own top rule rather than to a border here.
               The `1 / 16` that used to sit after the title is gone (§10) — the
               gauge below says it in words. */}
-          <div className="relative flex-none">
+          {/* The header IS the root's strip (round 3 §4), so it takes the strips'
+              menu as well as their click: right-clicking the mission has to
+              reach the mission's own actions, or the one task in the column with
+              no strip would be the one task with no menu. */}
+          <div
+            className="relative flex-none"
+            onContextMenu={(event) => openIssueMenu(root.id, event)}
+          >
             <div className="shell-type-micro flex h-8 items-center gap-1.5 px-4 pr-11 font-mono text-text-dim">
               <StageGlyph stage={root.stage} size={12} />
               <span>{issueDisplayRef(root)}</span>
@@ -2296,6 +2357,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 onSelectNative={(session) =>
                   selectSession(row.issue.id, session, { permanent: false, native: true })
                 }
+                onMenu={(event) => openIssueMenu(row.issue.id, event)}
               />
             ))}
             {visibleRows.length === 0 && proposedRows.length === 0 && (
@@ -2330,6 +2392,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                       author={authorOf(row.issue)}
                       selected={focused === row.issue.id}
                       onSelect={(permanent) => selectIssue(row, permanent)}
+                      onMenu={(event) => openIssueMenu(row.issue.id, event)}
                     />
                   ))}
                 </div>
@@ -2397,6 +2460,24 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           session={focusedSession}
           draft={focusedSession ? drafts[focusedSession.sessionId] : undefined}
           repoName={repoName}
+        />
+      )}
+      {issueMenu && menuIssue && (
+        <IssueContextMenu
+          issues={[menuIssue]}
+          allIssues={issues}
+          // `sidebar`, not `board`: this is a working column, and the surface
+          // gate exists to keep the board-only triage items ("Duplicate of…")
+          // where POD-100 put them.
+          surface="sidebar"
+          anchor={issueMenu.anchor}
+          onClose={() => setIssueMenu(null)}
+          onOpen={(id) => {
+            setIssueMenu(null)
+            const row = rows.find((candidate) => candidate.issue.id === id)
+            // Open is the strip's own double click — the permanent one.
+            if (row) selectIssue(row, true)
+          }}
         />
       )}
     </aside>

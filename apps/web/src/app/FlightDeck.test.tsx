@@ -21,6 +21,13 @@ const harness = vi.hoisted(() => ({
   setPanelMode: vi.fn(),
   ui: new Map<string, string>(),
   listeners: new Set<() => void>(),
+  setPlacement: vi.fn(async (_input: unknown) => undefined),
+  trpc: {
+    features: { state: { query: async () => null } },
+    issues: {
+      setPlacement: { mutate: (input: unknown) => harness.setPlacement(input) },
+    },
+  } as unknown,
 }))
 
 const uiState = {
@@ -55,8 +62,12 @@ vi.mock('./store', () => ({
       setPanelMode: harness.setPanelMode,
       setView: vi.fn(),
       markIssueRead: vi.fn(async () => undefined),
+      markIssueUnread: vi.fn(async () => undefined),
       markSessionRead: vi.fn(async () => undefined),
       renameSession: vi.fn(async () => undefined),
+      // The shared task menu reads these; the deck itself never does.
+      machines: [],
+      trpc: harness.trpc,
     }),
   useReplicaIssues: () => harness.issues,
 }))
@@ -73,6 +84,10 @@ const issue = (id: string, over: Issue = {}): Issue => ({
   deletedAt: null,
   parentId: null,
   memberSessionIds: [],
+  // Carried because the shared task menu reads them off the view model; the
+  // deck's own projection never looks at either.
+  labels: [],
+  deps: [],
   ...over,
 })
 
@@ -289,6 +304,54 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
   it('offers session lifecycle from the row itself', () => {
     deck()
     expect(screen.getByRole('button', { name: 'Session actions for s2' })).toBeTruthy()
+  })
+})
+
+/**
+ * THE TASK MENU (POD-771). A strip answers the same gesture its agent rows do,
+ * with the menu the board and the sidebar already serve — so what is asserted
+ * here is the JOIN (the deck reaches the shared tree, on the right issue), not
+ * the tree's contents, which `issue-menu-config.test.ts` owns.
+ */
+describe('flight deck task menu (POD-771)', () => {
+  const stripOf = (id: string): HTMLElement => {
+    const row = document.querySelector(`[data-flight-issue="${id}"] .deck-strip`)
+    if (!row) throw new Error(`no strip ${id}`)
+    return row as HTMLElement
+  }
+
+  it('right-clicking a task opens the shared task menu on THAT task', () => {
+    deck()
+    fireEvent.contextMenu(stripOf('t1'))
+    expect(screen.getByText('Set stage')).toBeTruthy()
+    // The menu's header names the task it will act on, not the mission.
+    expect(screen.getByText('Task t1')).toBeTruthy()
+  })
+
+  it('reaches top level from a sub-task, naming where it comes out of', () => {
+    deck()
+    fireEvent.contextMenu(stripOf('t4'))
+    // t4 hangs under t3, so the placement correction is the one that applies —
+    // and it states the OUTCOME, which is the row appearing in the sidebar.
+    fireEvent.click(screen.getByText('Move to top level (out of T3)'))
+    expect(harness.setPlacement).toHaveBeenCalledWith({
+      id: 't4',
+      placement: 'own',
+      originId: 't3',
+    })
+  })
+
+  it('gives a proposal the same menu, from its own tail', () => {
+    deck()
+    const proposal = document.querySelector('[data-flight-issue="p1"] button')
+    expect(proposal).not.toBeNull()
+    fireEvent.contextMenu(proposal as HTMLElement)
+    expect(screen.getByText('Set stage')).toBeTruthy()
+  })
+
+  it('shows the hover affordance for operators who never right-click', () => {
+    deck()
+    expect(screen.getByRole('button', { name: 'Task actions for Task t1' })).toBeTruthy()
   })
 })
 

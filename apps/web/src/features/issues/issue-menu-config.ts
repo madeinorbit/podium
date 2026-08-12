@@ -279,7 +279,13 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
   {
     kind: 'action',
     id: 'placeOnOwn',
-    label: (data) => `Move out of ${menuPlacement(data)?.originRef ?? 'this mission'}`,
+    // NAMES THE OUTCOME, NOT THE EDGE IT CUTS. "Move out of POD-516" says what
+    // stops being true; what the operator is looking for is where the task ENDS
+    // UP — its own row in the sidebar, which is the same sentence the start
+    // control uses for the same decision (PlacementMenu, "Its own row in the
+    // sidebar"). One vocabulary for one move, whichever surface offers it.
+    label: (data) =>
+      `Move to top level (out of ${menuPlacement(data)?.originRef ?? 'this mission'})`,
     icon: 'arrow-right-left',
     section: 'lifecycle',
     when: (data) => menuPlacement(data)?.placement === 'mission',
