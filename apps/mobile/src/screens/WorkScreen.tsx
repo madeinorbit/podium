@@ -299,7 +299,7 @@ export function WorkScreen() {
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => (
               <View style={styles.groupLabel}>
-                {section.pinned ? <Icon as={Pin} size={9} color={color.accent} /> : null}
+                {section.pinned ? <Icon as={Pin} size={9} color={color.accentTint} /> : null}
                 <Text style={styles.groupLabelText} numberOfLines={1}>
                   {section.label}
                 </Text>
@@ -748,7 +748,7 @@ const styles = StyleSheet.create({
   },
   unsnoozed: {
     ...monoLabel(9),
-    color: color.accent,
+    color: color.accentTint,
     paddingHorizontal: 3,
     paddingVertical: 1,
     borderRadius: radius.xs,
@@ -773,7 +773,7 @@ const styles = StyleSheet.create({
   },
   statusDecision: {
     ...mono(600),
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   statusWorking: {
     color: color.working,

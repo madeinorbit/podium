@@ -17,6 +17,7 @@ import {
   splitPodiumRefs,
 } from '../lib/markdown'
 import { selectableProps } from '../lib/selectable'
+import { alpha } from '../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { RefChip } from './RefChip'
 
@@ -264,7 +265,7 @@ function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContex
       {overflow && !atEnd ? (
         <LinearGradient
           pointerEvents="none"
-          colors={['rgba(10,15,28,0)', color.bg]}
+          colors={[alpha(color.bg, 0), color.bg]}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
           style={styles.tableFade}

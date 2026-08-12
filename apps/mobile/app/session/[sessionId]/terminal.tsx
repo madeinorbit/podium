@@ -14,7 +14,7 @@ import {
   type TerminalControlState,
   terminalControlCopy,
 } from '../../../src/terminal/terminal-control'
-import { FLOW_SLATE, flow, issueColorHex } from '../../../src/theme/issueColors'
+import { FLOW_HEX, flow, issueColorHex } from '../../../src/theme/issueColors'
 import { color } from '../../../src/theme/theme'
 
 /**
@@ -38,7 +38,7 @@ export default function TerminalRoute() {
   const issue = useIssue(session?.issueId)
   // The issue colour flows through the chrome; slate when the issue is
   // uncoloured, nothing at all when the session carries no task.
-  const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
+  const accent = issue ? (issueColorHex(issue.color) ?? FLOW_HEX) : undefined
 
   const [active, setActive] = useState(true)
   useFocusEffect(

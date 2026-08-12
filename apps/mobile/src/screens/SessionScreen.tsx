@@ -20,7 +20,7 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { EmptyState } from '../components/ui'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
-import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
+import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { color } from '../theme/theme'
 import { sessionAbsence } from './session-absence'
 
@@ -157,7 +157,7 @@ export function SessionScreen() {
   }
 
   // The issue colour flows through the chrome; slate when the issue is uncoloured.
-  const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
+  const accent = issue ? (issueColorHex(issue.color) ?? FLOW_HEX) : undefined
 
   return (
     <Screen

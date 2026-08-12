@@ -352,7 +352,7 @@ function TranscriptTail({
           onPress={onOpenTodos}
           style={({ pressed }) => [styles.todoNotice, pressed && styles.utilityPressed]}
         >
-          <Icon as={ListChecks} size={13} color={color.accent} />
+          <Icon as={ListChecks} size={13} color={color.accentTint} />
           <Text style={styles.todoNoticeText}>
             {open} of {todos.total} todos still open
           </Text>
@@ -1191,7 +1191,7 @@ const styles = StyleSheet.create({
   envelopeRef: { color: color.accentTint, textDecorationLine: 'underline' },
   envelopeQuestion: {
     ...monoLabel(),
-    color: color.accent,
+    color: color.accentTint,
     backgroundColor: color.accentSoft,
     paddingHorizontal: 5,
     paddingVertical: 2,
@@ -1467,7 +1467,7 @@ const styles = StyleSheet.create({
   },
   answerLabel: {
     ...monoLabel(),
-    color: color.accent,
+    color: color.accentTint,
   },
   answerMeta: {
     ...mono(400),
@@ -1507,7 +1507,7 @@ const styles = StyleSheet.create({
   },
   streamingCaret: {
     ...mono(700),
-    color: color.accent,
+    color: color.accentTint,
     fontSize: font.small,
     marginTop: 2,
   },
@@ -1531,7 +1531,7 @@ const styles = StyleSheet.create({
     color: color.working,
   },
   tailAttention: {
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   tailLabel: {
     ...sans(500),
@@ -1567,7 +1567,7 @@ const styles = StyleSheet.create({
   },
   todoNoticeGo: {
     ...mono(500),
-    color: color.accent,
+    color: color.accentTint,
     fontSize: font.micro,
   },
   readingTools: {
@@ -1596,7 +1596,7 @@ const styles = StyleSheet.create({
   },
   todoFraction: {
     ...mono(600),
-    color: color.accent,
+    color: color.accentTint,
     fontSize: font.micro,
   },
   detailBars: {

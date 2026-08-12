@@ -192,13 +192,13 @@ export function NewWorkButton() {
               style={({ pressed }) => [styles.taskCard, pressed && styles.taskCardPressed]}
             >
               <View style={styles.taskIcon}>
-                <Icon as={GitBranch} size={17} color={color.accent} />
+                <Icon as={GitBranch} size={17} color={color.accentTint} />
               </View>
               <View style={styles.taskText}>
                 <Text style={styles.taskTitle}>New task</Text>
                 <Text style={styles.taskSub}>Tracked work, with its own branch and worktree</Text>
               </View>
-              <Icon as={ChevronRight} size={16} color={alpha(color.accent, 0.75)} />
+              <Icon as={ChevronRight} size={16} color={alpha(color.accentTint, 0.75)} />
             </PressableScale>
 
             <Text style={styles.groupLabel}>START AN AGENT</Text>

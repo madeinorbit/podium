@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
   },
   label: {
     ...monoLabel(),
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   meta: {
     marginLeft: 'auto',

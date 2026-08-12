@@ -12,7 +12,7 @@ import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import { readTranscriptPage, useHub, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
-import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
+import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
 import { color } from '../theme/theme'
 import { Composer } from './Composer'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
@@ -195,7 +195,7 @@ export function SessionConversation({
         ...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {}),
       })
     : []
-  const accent = issue ? flow.paneBg(issueColorHex(issue.color) ?? FLOW_SLATE) : color.bg
+  const accent = issue ? flow.paneBg(issueColorHex(issue.color) ?? FLOW_HEX) : color.bg
   const activity = chatActivity(session, false)
   // A parked or ended session is present but has no process. It gets the
   // recovery banner; when there is also no conversation to show, the banner is

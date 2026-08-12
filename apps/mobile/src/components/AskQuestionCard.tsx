@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
   },
   badge: {
     ...monoLabel(),
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   meta: {
     ...sans(400),
@@ -309,7 +309,7 @@ const styles = StyleSheet.create({
     fontSize: font.small,
   },
   optionLabelPicked: {
-    color: color.accent,
+    color: color.accentTint,
   },
   optionDesc: {
     ...sans(400),

@@ -14,7 +14,7 @@ import { Check, ChevronDown, ChevronRight } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../client/hooks'
-import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
+import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { STAGE_LABEL } from '../theme/stage'
 import {
@@ -82,7 +82,7 @@ export function TaskSheet({
 }) {
   const store = useMobileStore()
   const router = useRouter()
-  const hex = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : FLOW_SLATE
+  const hex = issue ? (issueColorHex(issue.color) ?? FLOW_HEX) : FLOW_HEX
 
   const post = (body: string) => {
     if (!issue) return
@@ -510,7 +510,7 @@ const styles = StyleSheet.create({
     borderColor: color.accentBorder,
   },
   askingText: { ...sans(400), fontSize: font.tiny, lineHeight: 18, color: color.accentTint },
-  askingLead: { ...sans(600), color: color.accent },
+  askingLead: { ...sans(600), color: color.accentTint },
   blocked: { backgroundColor: color.dangerSoft, borderColor: alpha(color.danger, 0.4) },
   blockedText: { color: '#f0a0a6' },
   presence: { ...mono(400), fontSize: font.micro, color: color.textMicro, marginTop: 10 },

@@ -85,7 +85,7 @@ export function SessionActionCard({
   return (
     <View style={styles.block} testID="session-action-card">
       <View style={styles.headingRow}>
-        <Icon as={Lightbulb} size={11} color={color.needsYou} />
+        <Icon as={Lightbulb} size={11} color={color.needsYouText} />
         <Text style={styles.label}>Offer · needs you</Text>
         {/* An explicit spacer rather than `marginLeft: 'auto'` on each status
             text: the x below needs the far end unconditionally, and two auto
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
   },
   label: {
     ...monoLabel(),
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   headingSpacer: {
     flex: 1,

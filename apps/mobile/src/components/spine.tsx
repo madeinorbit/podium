@@ -8,7 +8,7 @@ import type { AgentKind } from '@podium/model'
 import { Check, ChevronDown, CircleSlash, Clock, CornerDownRight } from 'lucide-react-native'
 import type { ReactNode } from 'react'
 import { Animated, StyleSheet, Text, View } from 'react-native'
-import { FLOW_SLATE } from '../theme/issueColors'
+import { FLOW_HEX } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, sans, space, tracking } from '../theme/theme'
 import { Icon } from './Icon'
@@ -152,7 +152,7 @@ export function TaskStrip({
 }) {
   const proposed = state.state === 'proposed'
   const glyphX = GLYPH_X(depth)
-  const tint = colorHex ?? FLOW_SLATE
+  const tint = colorHex ?? FLOW_HEX
   return (
     <PressableScale
       onPress={onPress}
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
   role: { ...mono(400), fontSize: 10, color: color.textMicro, marginTop: 1 },
   bandRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   bandStamp: { ...mono(400), fontSize: font.micro, color: color.textFaint },
-  asking: { ...mono(500), fontSize: font.micro, color: color.accent },
+  asking: { ...mono(500), fontSize: font.micro, color: color.accentTint },
 
   payload: {
     flexDirection: 'row',

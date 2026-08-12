@@ -1,5 +1,6 @@
-import { ISSUE_COLOR_HEX, ISSUE_COLOR_SLATE, type IssueColorSlot } from '@podium/model'
+import { ISSUE_COLOR_HEX, type IssueColorSlot } from '@podium/model'
 import { mix } from './mix'
+import { color } from './theme'
 
 /**
  * The issue-accent "colour flow" for native surfaces. [spec:SP-b4d1]
@@ -8,16 +9,21 @@ import { mix } from './mix'
  * shell uses); this module adds the native-side derivations the web gets from
  * CSS `color-mix()` — see ./mix.ts. Tint percentages mirror the web's
  * issue-mix-* utilities so a surface recipe produces identical pixels on both
- * renderers.
+ * renderers, and the bases they mix over are the Dark Ink tiers (POD-784).
  *
  * RESERVED COLOURS — never pickable, never reused as issue accents, never used
  * for status: Superade Yellow #f5c518 (attention/signal), terracotta #d97757
- * (Claude), Accent Blue #2f6bff (working). Slate #94a3b8 is the default
- * no-colour flow accent — a state, not a choice.
+ * (Claude), blue #6f9dff/#2a62f0 (working/settled). The neutral grey below is
+ * the default no-colour flow accent — a state, not a choice.
  */
 
-/** The neutral no-colour flow slate — same value as the web --flow token. */
-export const FLOW_SLATE = ISSUE_COLOR_SLATE
+/**
+ * The neutral no-colour flow, as a hex the native mixer can read — the `flow`
+ * token, not @podium/model's slate. A flow that reads as "no colour chosen"
+ * has to match its ground, and on Dark Ink's neutral chassis the palette's
+ * blue-grey slate reads as a blue somebody picked (web: FLOW_CSS/`--flow`).
+ */
+export const FLOW_HEX = color.flow
 
 /** Slot name → hex; undefined for unknown/absent names (= no colour assigned). */
 export function issueColorHex(name: string | null | undefined): string | undefined {
@@ -62,25 +68,45 @@ export function issueSquareFg(hex: string): string {
 /**
  * The per-surface tint recipes of the colour flow (colour-flow spec §2 — the
  * same percentages the web's issue-mix utilities use). `c` is the flowing
- * colour; pass {@link FLOW_SLATE} when the issue has none.
+ * colour; pass {@link FLOW_HEX} when the issue has none.
+ *
+ * A DOSE IS CAPPED BY THE NEXT SURFACE UP (POD-748, and POD-784 is where it bit
+ * here). A mix always walks toward a lighter colour, so a tint that carries its
+ * surface past the one above it inverts the ramp. That was survivable on navy,
+ * where the ground was #0a0f1c and everything had room above it; Dark Ink lifts
+ * the ground to #16171a and leaves only ~10 L-points for the whole eight-tier
+ * stack, so the SURFACES UNDER CONTENT — the pane the cards sit on and its
+ * chrome bars — are re-dosed to stay under the card tier. Verbatim 10/24/16
+ * would put the pane at #232428, level with the #23262d card on top of it, and
+ * the cards would simply disappear.
+ *
+ * The row recipes below keep the handoff's numbers: a row is SUPPOSED to lift
+ * off the card it sits on, and that is measured against the card, not the
+ * ground.
  */
 export const flow = {
-  /** Workspace pane behind content: 10% over the app bg. */
-  paneBg: (c: string) => mix(c, 10, '#0a0f1c'),
-  /** Tinted chrome bar (session header): 16% over the card surface. */
-  headerBg: (c: string) => mix(c, 16, '#121b30'),
-  /** Stronger pane-chrome bar: 24% over the app bg. */
-  paneHeaderBg: (c: string) => mix(c, 24, '#0a0f1c'),
+  /** Workspace pane behind content — must stay under the tab-strip tier so a
+   *  card still reads above it: 4% over the app bg (was the handoff's 10). */
+  paneBg: (c: string) => mix(c, 4, color.bg),
+  /** Tinted chrome bar (session header), capped at the raised-cell tier:
+   *  8% over the card surface (was 16). */
+  headerBg: (c: string) => mix(c, 8, color.card),
+  /** Stronger pane-chrome bar, capped at the tab-strip tier: 6% over the app
+   *  bg (was 24). The cap is set by the BRIGHTEST palette slot rather than by
+   *  the neutral flow — lime is the one that reaches the sheet first (it clears
+   *  it at 8% while slate is still clear), and a bar may not out-rank the sheet
+   *  for SOME issues and not others. */
+  paneHeaderBg: (c: string) => mix(c, 6, color.bg),
   /** Unselected coloured list row: ~12% over the card surface. */
-  rowBg: (c: string) => mix(c, 12, '#121b30'),
+  rowBg: (c: string) => mix(c, 12, color.card),
   /** Selected list row: 28% over the card surface (+ .8-alpha border). */
-  rowSelectedBg: (c: string) => mix(c, 28, '#121b30'),
+  rowSelectedBg: (c: string) => mix(c, 28, color.card),
   /** Active row inside a panel menu: 18% over the card surface. */
-  rowActiveBg: (c: string) => mix(c, 18, '#121b30'),
+  rowActiveBg: (c: string) => mix(c, 18, color.card),
   /** Near-white tinted title text (ctxText). */
-  text: (c: string) => mix(c, 8, '#f3f3f8'),
+  text: (c: string) => mix(c, 8, color.text),
   /** Tinted body text. */
-  body: (c: string) => mix(c, 22, '#d7d7e0'),
+  body: (c: string) => mix(c, 22, color.body),
   /** Tinted muted text (ctxMuted). */
-  muted: (c: string) => mix(c, 18, '#9a9aa8'),
+  muted: (c: string) => mix(c, 18, color.textDim),
 } as const

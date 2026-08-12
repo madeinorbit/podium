@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
     color: color.working,
   },
   attention: {
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   row: {
     minHeight: 44,

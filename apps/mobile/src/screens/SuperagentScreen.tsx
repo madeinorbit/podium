@@ -456,7 +456,7 @@ const styles = StyleSheet.create({
     paddingBottom: 7,
   },
   glyph: {
-    color: color.accent,
+    color: color.accentTint,
     fontSize: 12,
   },
   title: {

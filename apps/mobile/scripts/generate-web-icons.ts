@@ -30,9 +30,9 @@ writeFileSync(ICON_PNG, await sharp(SRC, { density: 384 }).resize(1024, 1024).pn
 console.log('assets/icon.png 1024')
 
 /**
- * Native launch chrome is the same bare Race Navy as the PWA launch images.
- * The transparent pixel replaces Expo's target-grid template without creating
- * a second static logo before BootSplash's one animated brand moment.
+ * Native launch chrome is the same bare Dark Ink ground as the PWA launch
+ * images. The transparent pixel replaces Expo's target-grid template without
+ * creating a second static logo before BootSplash's one animated brand moment.
  */
 const SPLASH_PNG = join(ROOT, 'assets', 'splash-icon.png')
 writeFileSync(
@@ -45,8 +45,8 @@ writeFileSync(
 )
 console.log('assets/splash-icon.png transparent')
 
-/** Race Navy — color.bg. The launch screen must be this, not white. */
-const BG = { r: 0x0a, g: 0x0f, b: 0x1c, alpha: 1 }
+/** Dark Ink #16171a — color.bg. The launch screen must be this, not white. */
+const BG = { r: 0x16, g: 0x17, b: 0x1a, alpha: 1 }
 
 mkdirSync(OUT, { recursive: true })
 
@@ -64,7 +64,7 @@ for (const [name, size] of SQUARES) {
 
 /**
  * Maskable icon: Android crops to a circle inscribed in the middle 80%, so the
- * artwork is inset onto a navy field rather than filling the frame.
+ * artwork is inset onto the Dark Ink ground rather than filling the frame.
  */
 {
   const inner = Math.round(512 * 0.62)
@@ -83,14 +83,14 @@ for (const [name, size] of SQUARES) {
  * own file; anything unmatched falls back to a white flash. Portrait only —
  * the app is `orientation: portrait`.
  *
- * Bare navy, no mark [POD-420]. They used to centre the P, which made a cold
+ * Bare ground, no mark [POD-420]. They used to centre the P, which made a cold
  * launch play two different logos back to back: iOS held the static P, then the
  * bundle booted and replaced it with BootSplash's animated wordmark. Apple's own
  * guidance is that a launch screen resembles the first screen of the app rather
- * than being a splash of its own — and the first screen here is navy with a
- * wordmark that reveals itself cell by cell FROM empty. Starting from the same
- * empty navy makes the handoff invisible and leaves one brand moment instead of
- * two competing ones.
+ * than being a splash of its own — and the first screen here is the Dark Ink
+ * ground with a wordmark that reveals itself cell by cell FROM empty. Starting
+ * from that same empty ground makes the handoff invisible and leaves one brand
+ * moment instead of two competing ones.
  */
 export const LAUNCH: { w: number; h: number; ratio: number }[] = [
   { w: 750, h: 1334, ratio: 2 }, // SE (2nd/3rd gen), 8
@@ -120,8 +120,8 @@ const manifest = {
   scope: '/mobile',
   display: 'standalone',
   orientation: 'portrait',
-  background_color: '#0a0f1c',
-  theme_color: '#0a0f1c',
+  background_color: '#16171a',
+  theme_color: '#16171a',
   icons: [
     { src: '/mobile/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
     { src: '/mobile/icons/icon-512.png', sizes: '512x512', type: 'image/png' },

@@ -969,7 +969,7 @@ const styles = StyleSheet.create({
   },
   retry: {
     ...sans(600),
-    color: color.accent,
+    color: color.accentTint,
     fontSize: font.small,
   },
 })

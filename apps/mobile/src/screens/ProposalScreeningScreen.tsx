@@ -150,7 +150,7 @@ export function ProposalScreeningScreen() {
     if (booting) {
       return (
         <View style={styles.centered}>
-          <ActivityIndicator color={color.accent} />
+          <ActivityIndicator color={color.accentTint} />
           <Text style={styles.loading}>Loading proposals…</Text>
         </View>
       )
@@ -168,7 +168,7 @@ export function ProposalScreeningScreen() {
       return (
         <View style={styles.summary}>
           <View style={styles.summaryMark}>
-            <Icon as={Check} size={22} color={color.accent} />
+            <Icon as={Check} size={22} color={color.accentTint} />
           </View>
           <Text style={styles.summaryTitle}>Screening done</Text>
           <Text style={styles.summaryBody}>

@@ -212,7 +212,7 @@ function StageSections({
             style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
           >
             <View style={styles.screenIcon}>
-              <Icon as={Layers} size={16} color={color.accent} />
+              <Icon as={Layers} size={16} color={color.accentTint} />
             </View>
             <View style={styles.screenText}>
               <Text style={styles.screenTitle}>Screen proposed</Text>

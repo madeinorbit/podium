@@ -9,8 +9,9 @@ import { font, mono, monoLabel } from '../theme/theme'
  * The web login screen (LoginGate spec 2b) ported 1:1 [POD-131]: ASCII
  * wordmark with the idle shimmer, mono host label, fused input bar with the
  * terracotta submit square, and the mono status line underneath. The screen
- * is intentionally THEME-INDEPENDENT — same fixed near-black tokens as the
- * web, not the Superade navy.
+ * is intentionally THEME-INDEPENDENT — the same fixed near-black tokens the
+ * web login gate uses, not the app's Superade surface ramp. It renders before
+ * there is a session, so it deliberately owns its colours outright.
  */
 const C = {
   bg: '#0a0a0e',

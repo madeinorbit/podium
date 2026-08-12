@@ -353,7 +353,7 @@ const styles = StyleSheet.create({
     // Opaque enough that a coloured row passing underneath reads as a soft
     // shape rather than as colour inside the composer — a yellow action card
     // sliding past used to tint the capsule itself.
-    backgroundColor: 'rgba(10, 15, 28, 0.88)',
+    backgroundColor: alpha(color.bg, 0.88),
   },
   caption: {
     ...sans(500),
@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
     paddingBottom: space.xs + 1,
   },
   captionAttention: {
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   /**
    * `flex-end` is what makes the control row stable: the field grows upward off

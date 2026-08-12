@@ -9,7 +9,7 @@ import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
 /**
- * Screen scaffold on the flat near-black canvas (#0e0e12).
+ * Screen scaffold on the flat Dark Ink canvas (`color.bg`, #16171a).
  *
  * Two header modes:
  *  - `large` (tab roots): title block with the actions row on the same line.
@@ -17,7 +17,7 @@ import { PressableScale } from './PressableScale'
  *
  * `accent` runs the issue colour flow through the chrome (colour-flow §2.8):
  * header 16% tint over the card surface with a .45-alpha bottom hairline, body
- * 10% over the canvas. Pass FLOW_SLATE for issues without a colour.
+ * 10% over the canvas. Pass FLOW_HEX for issues without a colour.
  */
 export function Screen({
   title,
@@ -129,7 +129,7 @@ export function Screen({
   )
 }
 
-/** Square chip icon button for header action rows (28px, #16161c on #2e2e38). */
+/** Square chip icon button for header action rows (28px `color.surface`). */
 export function HeaderButton({
   label,
   onPress,

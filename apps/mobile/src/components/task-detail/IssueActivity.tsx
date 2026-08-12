@@ -67,7 +67,7 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }) {
             <Icon
               as={Mail}
               size={12}
-              color={m.status === 'unread' ? color.needsYou : color.textFaint}
+              color={m.status === 'unread' ? color.needsYouText : color.textFaint}
             />
             <Text style={styles.mailFrom} numberOfLines={1}>
               {m.fromAuthor}
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
   },
   unread: {
     ...mono(600),
-    color: color.needsYou,
+    color: color.needsYouText,
     fontSize: 9,
     letterSpacing: 0.5,
     paddingHorizontal: 5,

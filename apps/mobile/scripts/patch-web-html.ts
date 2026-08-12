@@ -11,7 +11,7 @@
  *  - install metadata: manifest, apple-touch-icon, standalone capability and
  *    the per-device launch images, all produced by ./generate-web-icons.ts.
  *    Without these, Add to Home Screen produces a Safari bookmark.
- *  - first-paint background: the navy is painted by the document itself so a
+ *  - first-paint background: the Dark Ink ground is painted by the document so a
  *    cold launch never flashes white before the bundle boots.
  *  - browser tells: long-press selection, the callout menu and Safari's
  *    rubber-band are disabled at the root. Selection is handed back to
@@ -61,12 +61,12 @@ const head = `
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Podium" />
-    <meta name="theme-color" content="#0a0f1c" />
+    <meta name="theme-color" content="#16171a" />
     <meta name="color-scheme" content="dark" />
 ${startupImages}
     <style id="podium-shell">
       /* Painted before the bundle boots — a cold launch must not flash white. */
-      html, body { background-color: #0a0f1c; }
+      html, body { background-color: #16171a; }
       /* Safari rubber-bands the document behind an app whose root is
          overflow:hidden, which reads as "the page is loose". */
       html, body { overscroll-behavior: none; }

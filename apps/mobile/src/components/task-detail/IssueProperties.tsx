@@ -454,7 +454,7 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   chipNeedsYouText: {
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   chipBlocked: {
     borderColor: alpha(color.danger, 0.4),

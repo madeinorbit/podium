@@ -306,7 +306,7 @@ const styles = StyleSheet.create({
     paddingBottom: space.xxl,
   },
   issueNote: {
-    color: color.accent,
+    color: color.accentTint,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingTop: space.md,

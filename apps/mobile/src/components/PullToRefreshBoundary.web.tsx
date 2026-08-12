@@ -274,7 +274,7 @@ const indicatorStyle = {
 } satisfies CSSProperties
 
 const glyphStyle = {
-  color: color.accent,
+  color: color.accentTint,
   fontSize: font.tiny,
   lineHeight: 1,
 } satisfies CSSProperties

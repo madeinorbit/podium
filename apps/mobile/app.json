@@ -9,7 +9,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0a0f1c"
+      "backgroundColor": "#16171a"
     },
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -23,7 +23,7 @@
     "android": {
       "package": "dev.podium.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#0a0f1c",
+        "backgroundColor": "#16171a",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -31,12 +31,12 @@
       "predictiveBackGestureEnabled": false
     },
     "androidStatusBar": {
-      "backgroundColor": "#0a0f1c",
+      "backgroundColor": "#16171a",
       "barStyle": "light-content",
       "translucent": true
     },
     "androidNavigationBar": {
-      "backgroundColor": "#0a0f1c",
+      "backgroundColor": "#16171a",
       "barStyle": "light-content"
     },
     "web": {

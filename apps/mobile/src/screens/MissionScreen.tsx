@@ -31,7 +31,7 @@ import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { mostRelevantSession } from '../lib/mission-session'
-import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
+import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, space, spring } from '../theme/theme'
 
@@ -122,7 +122,7 @@ export function MissionScreen() {
   const attention = missionSessions.filter(sessionNeedsHuman).length
   const live = missionSessions.filter((s) => !s.archived && s.status !== 'exited').length
 
-  const accent = root ? (issueColorHex(root.color) ?? FLOW_SLATE) : undefined
+  const accent = root ? (issueColorHex(root.color) ?? FLOW_HEX) : undefined
 
   const openSession = useCallback((session: SessionMeta) => {
     setPinnedSessionId(session.sessionId)
@@ -233,7 +233,7 @@ export function MissionScreen() {
             progress={progress}
             live={live}
             attention={attention}
-            accent={accent ?? FLOW_SLATE}
+            accent={accent ?? FLOW_HEX}
             reduceMotion={reduceMotion}
             onOpenSession={openSession}
             onOpenTask={setPeek}
@@ -572,7 +572,7 @@ const styles = StyleSheet.create({
   },
   barAsk: {
     ...mono(600),
-    color: color.needsYou,
+    color: color.needsYouText,
     fontSize: font.micro,
   },
   barSpacer: {

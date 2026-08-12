@@ -3,7 +3,7 @@ import type { IssueWire } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useRef } from 'react'
 import { Animated, PanResponder, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
+import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import {
   color,
@@ -105,7 +105,7 @@ export function ScreeningCard({
     }),
   ).current
 
-  const hex = issueColorHex(issue.color) ?? FLOW_SLATE
+  const hex = issueColorHex(issue.color) ?? FLOW_HEX
   const now = Date.now()
   const rotate = pan.x.interpolate({
     inputRange: [-width, 0, width],
@@ -145,7 +145,7 @@ export function ScreeningCard({
         pointerEvents="none"
         style={[styles.stamp, styles.stampLeft, styles.stampAccept, { opacity: acceptOpacity }]}
       >
-        <Text style={[styles.stampText, { color: color.accent }]}>START</Text>
+        <Text style={[styles.stampText, { color: color.accentTint }]}>START</Text>
       </Animated.View>
       <Animated.View
         pointerEvents="none"

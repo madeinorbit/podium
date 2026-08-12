@@ -12,6 +12,7 @@ import {
   subscribeTabBarMinimized,
 } from '../lib/tab-bar-minimize'
 import { emitTabReselect } from '../lib/tab-reselect'
+import { alpha } from '../theme/mix'
 import { color, font, sans } from '../theme/theme'
 import { Icon } from './Icon'
 
@@ -74,8 +75,8 @@ interface TabBarProps {
  *
  *  - the dock is absolutely positioned and `box-none`, so it neither takes
  *    space nor swallows taps aimed at the content beside the capsule;
- *  - the capsule is a BlurView (backdrop-filter in Safari) over a navy scrim,
- *    rather than the flat #050912 that made content vanish at its edge;
+ *  - the capsule is a BlurView (backdrop-filter in Safari) over a scrim in the
+ *    bar tier, rather than a flat slab that made content vanish at its edge;
  *  - its measured height goes back to the navigator through
  *    `BottomTabBarHeightCallbackContext`, which is how react-navigation feeds
  *    `useBottomTabBarHeight()`. Screens pad their scrollers by it (see
@@ -129,8 +130,9 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
       pointerEvents="box-none"
     >
       <BlurView intensity={32} tint="dark" style={styles.capsule}>
-        {/* Navy over the blur: Safari's backdrop-filter alone barely reads on a
-            near-black canvas, and the tabs need a stable ground to sit on. */}
+        {/* The bar tier over the blur: Safari's backdrop-filter alone barely
+            reads on the Dark Ink ground, and the tabs need a stable surface to
+            sit on — one that LIFTS off the canvas rather than sinking into it. */}
         <View style={styles.scrim} pointerEvents="none" />
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key]
@@ -161,7 +163,7 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
               style={styles.tab}
             >
               <View style={[styles.chip, focused && styles.chipActive]}>
-                <Icon as={IconCmp} size={20} color={focused ? color.accent : color.textDim} />
+                <Icon as={IconCmp} size={20} color={focused ? color.accentTint : color.textDim} />
                 <Animated.View
                   style={[
                     styles.labelRow,
@@ -212,7 +214,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(5, 9, 18, 0.6)',
+    backgroundColor: alpha(color.bar, 0.6),
   },
   tab: {
     flex: 1,
@@ -253,6 +255,6 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
   },
   labelActive: {
-    color: color.accent,
+    color: color.accentTint,
   },
 })

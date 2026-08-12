@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   },
   check: {
     ...mono(600),
-    color: color.accent,
+    color: color.accentTint,
     fontSize: font.small,
   },
   destructive: {

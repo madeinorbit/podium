@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
     color: color.label,
   },
   needsYouLabel: {
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   sectionRule: {
     flex: 1,
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
   },
   queued: {
     ...mono(600),
-    color: color.needsYou,
+    color: color.needsYouText,
     fontSize: font.tiny,
   },
   error: {

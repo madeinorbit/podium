@@ -1,100 +1,129 @@
 import { Platform } from 'react-native'
 
 /**
- * Podium mobile design language — Superade. [POD-131, mirrors apps/web/DESIGN.md]
+ * Podium mobile design language — Superade "Dark Ink". [POD-784, mirrors
+ * apps/web/DESIGN.md and the `[data-theme="superade"].dark` block of
+ * apps/web/src/index.css]
  *
- * Token values mirror the web's Superade theme: deep race-navy chassis with
- * darker engraved tiers below it, a three-tier seam/hairline system, a
- * six-step ink ramp, and STRICT status semantics — Superade Yellow #f5c518
- * means "waiting on you" and marks the primary action (The Signal Rule),
- * Accent Blue #2f6bff is calm liveness (working spinner/timer, success,
- * info — Superade has no green), Alert Red #e5303f is destructive/alerts
- * only, terracotta #d97757 is Claude. Issue accents come from the 10-colour
- * palette in ./issueColors.ts and are always tinted via ./mix.ts, never flat.
+ * The chassis is NEUTRAL INK, not navy. It was a deep race navy (#0a0f1c
+ * ground, #121b30 card) because the first Superade mock painted the chrome in
+ * the brand's blue; POD-737 took the hue out of the web's neutrals and this
+ * file follows it, value for value. Three rules carry over:
+ *
+ * 1. NEUTRAL, NOT NAVY. Every surface and every seam is a cool-neutral ink.
+ *    A tinted ground competes with the issue-accent channel — the point of
+ *    that channel is that a hue on a surface MEANS something, and navy chrome
+ *    meant nothing while looking like it did.
+ * 2. THE FRAME LIFTS. The tier order inverts the old navy ramp: `bg` #16171a
+ *    is the darkest thing on screen and every surface steps UP from it, so the
+ *    tab bar and section bars sit ABOVE the ground rather than below it.
+ * 3. YELLOW FILLS, GOLD WRITES. `accent` #f5c518 is the fill (buttons, dots,
+ *    spines, the active tab glyph); `accentTint` #e3ba52 does every yellow
+ *    `color:`. Pure yellow as running text against neutral ink reads as a
+ *    highlighter smear.
+ *
+ * Status semantics are unchanged and still strict: Superade Yellow means
+ * "waiting on you" and marks the primary action (The Signal Rule); blue keeps
+ * its two jobs — `working` #6f9dff is what is MOVING (spinners, live rings)
+ * and `success`/`info` #2a62f0 the settled fill behind them, because Superade
+ * has no green; Alert Red #e5303f is destructive/alerts only; terracotta
+ * #d97757 is Claude. Issue accents come from the 10-colour palette in
+ * ./issueColors.ts and are always tinted via ./mix.ts, never flat.
  */
 export const color = {
-  // Canvas tiers (darker = deeper)
-  bg: '#0a0f1c',
-  bgGradientTop: '#0a0f1c',
-  bgSunken: '#070b16',
-  /** Sunken conversation field. */
-  engraved: '#070b16',
-  /** Compact section bars, key-bar strip — the darkest tier. */
-  bar: '#050912',
-  /** Agent-roster band tier (POD-100 rail-navy). */
-  rail: '#0e1626',
+  // Canvas tiers — the ground is the DARKEST; every surface steps up (rule 2)
+  bg: '#16171a',
+  bgGradientTop: '#16171a',
+  bgSunken: '#191a1e',
+  /** The work list and the conversation field — a flat surface that steps
+   *  AWAY from the work. The name outlived the groove. */
+  engraved: '#191a1e',
+  /** Compact section bars, key-bar strip — lifted just above the ground. */
+  bar: '#1b1d21',
+  /** Agent-roster band tier. */
+  rail: '#1e2024',
   // Legacy alias used by older components; same as surface.
-  bgRaised: '#121b30',
+  bgRaised: '#23262d',
 
   // Surfaces
-  surface: '#121b30',
-  surfaceHigh: '#16223c',
-  surfacePressed: '#1c2a4a',
+  surface: '#23262d',
+  surfaceHigh: '#252830',
+  surfacePressed: '#2c3038',
   /** Raised chips ("New Claude in podium"), neutral ID-square fill. */
-  elevated: '#16223c',
-  glass: 'rgba(5, 9, 18, 0.78)',
+  elevated: '#252830',
+  glass: 'rgba(27, 29, 33, 0.78)',
   // Legacy aliases
-  card: '#121b30',
-  cardPressed: '#1c2a4a',
+  card: '#23262d',
+  cardPressed: '#2c3038',
 
-  // Seam / hairline tiers
-  border: '#243356',
-  borderStrong: '#364a78',
-  hairline: '#1e2a4c',
-  /** Hairlines on the darkest #050912 bars. */
-  hairlineBar: '#283a66',
+  // Seam / hairline tiers — row rules → panel/bar seams → chip rims
+  border: '#26292f',
+  borderStrong: '#3a3f48',
+  hairline: '#24272d',
+  /** Hairlines on the #1b1d21 bars. */
+  hairlineBar: '#26292f',
 
-  // Ink — six-step ramp
-  text: '#f3f3f8',
-  body: '#d7d7e0',
-  textDim: '#9a9aa8',
-  textFaint: '#6c7690',
+  // Ink — six steps, the web's whole ramp. By LIGHTNESS (contrast vs `bg`):
+  // text 16.5 · body 13.1 · textDim 8.1 · label 6.5 · textFaint 5.3 ·
+  // textMicro 3.9. The bottom two land LIGHTER than the navy theme's did:
+  // metadata has to hold above 5:1 on a ground that is itself lighter now.
+  text: '#f2f3f5',
+  body: '#d7dae0',
+  textDim: '#a8adb6',
+  textFaint: '#848a94',
   /** Micro labels, hints. */
-  textMicro: '#525c78',
+  textMicro: '#6f7580',
   /** Mono section labels (project names). */
-  label: '#7a84a0',
+  label: '#949aa4',
 
   // Accent = Superade Yellow. One signal everywhere (The Signal Rule).
   accent: '#f5c518',
   accentSoft: 'rgba(245, 197, 24, 0.13)',
   accentBorder: 'rgba(245, 197, 24, 0.45)',
   accentGradient: ['#f7d031', '#e3b40e'] as const,
-  /** Ink on yellow is always Race Navy — never white. */
-  onAccent: '#0a0f1c',
-  /** Yellow-tinted text (the lit ⏎ key, tinted labels). */
-  accentTint: '#ecd679',
+  /** Ink on yellow is always Dark Ink — never white. */
+  onAccent: '#16171a',
+  /** Gold WRITES (rule 3): every yellow `color:` — tinted labels, the lit ⏎
+   *  key, attention text. #f5c518 stays the fill. */
+  accentTint: '#e3ba52',
   // Legacy alias
-  accentText: '#0a0f1c',
+  accentText: '#16171a',
 
   // Attention semantics — reserved hues, never issue colours
   needsYou: '#f5c518',
   needsYouSoft: 'rgba(245, 197, 24, 0.12)',
   needsYouBorder: 'rgba(245, 197, 24, 0.4)',
   needsYouBg: 'rgba(245, 197, 24, 0.12)',
-  /** Calm liveness — Superade has no green; blue is "agent working". */
-  working: '#2f6bff',
-  workingSoft: 'rgba(47, 107, 255, 0.13)',
-  workingBg: 'rgba(47, 107, 255, 0.13)',
-  /** Host/health dots, quota bars, done ✓ — blue is the calm "all good". */
-  success: '#2f6bff',
-  idle: '#7a84a0',
-  idleSoft: 'rgba(122, 132, 160, 0.12)',
-  idleBg: 'rgba(122, 132, 160, 0.12)',
+  /** "Waiting on you" as a `color:` — the gold write of {@link accentTint},
+   *  kept under its own name so the SIGNAL stays legible at the call site.
+   *  `needsYou` above remains the fill (dots, spines, bars). */
+  needsYouText: '#e3ba52',
+  /** What is MOVING — spinners, live rings, meters. Superade has no green. */
+  working: '#6f9dff',
+  workingSoft: 'rgba(111, 157, 255, 0.13)',
+  workingBg: 'rgba(111, 157, 255, 0.13)',
+  /** Host/health dots, quota bars, done ✓ — the settled blue behind the
+   *  moving one; blue is the calm "all good". */
+  success: '#2a62f0',
+  idle: '#949aa4',
+  idleSoft: 'rgba(148, 154, 164, 0.12)',
+  idleBg: 'rgba(148, 154, 164, 0.12)',
   danger: '#e5303f',
   dangerSoft: 'rgba(229, 48, 63, 0.12)',
   dangerBg: 'rgba(229, 48, 63, 0.12)',
   /** User / YOU rail blue. */
-  info: '#2f6bff',
+  info: '#2a62f0',
   /** Claude brand terracotta. */
   claude: '#d97757',
-  /** Neutral no-colour issue flow. */
-  flow: '#94a3b8',
+  /** Neutral no-colour issue flow — a TRUE grey, not slate: a blue-grey
+   *  default tint over neutral ink reads as an issue colour nobody chose. */
+  flow: '#949aa4',
 
   // Chat
-  userBubbleGradient: ['#2450b8', '#1d4ed8'] as const,
-  userBubble: '#1d47a8',
-  assistantBubble: '#121b30',
-  toolText: '#525c78',
+  userBubbleGradient: ['#2452c9', '#1c41a4'] as const,
+  userBubble: '#1f47b0',
+  assistantBubble: '#23262d',
+  toolText: '#6f7580',
 } as const
 
 export const space = {
@@ -240,8 +269,8 @@ export type AttentionTone = 'needsYou' | 'working' | 'idle' | 'danger' | 'accent
 
 export const tone: Record<AttentionTone, { fg: string; bg: string; border: string }> = {
   needsYou: { fg: color.needsYou, bg: color.needsYouSoft, border: color.needsYouBorder },
-  working: { fg: color.working, bg: color.workingSoft, border: 'rgba(47, 107, 255, 0.35)' },
-  idle: { fg: color.idle, bg: color.idleSoft, border: 'rgba(122, 132, 160, 0.3)' },
+  working: { fg: color.working, bg: color.workingSoft, border: 'rgba(111, 157, 255, 0.35)' },
+  idle: { fg: color.idle, bg: color.idleSoft, border: 'rgba(148, 154, 164, 0.3)' },
   danger: { fg: color.danger, bg: color.dangerSoft, border: 'rgba(229, 48, 63, 0.4)' },
   accent: { fg: color.accent, bg: color.accentSoft, border: color.accentBorder },
 }

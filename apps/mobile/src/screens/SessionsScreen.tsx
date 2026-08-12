@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     color: color.label,
   },
   needsYouLabel: {
-    color: color.needsYou,
+    color: color.needsYouText,
   },
   workingLabel: {
     color: color.working,
