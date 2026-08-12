@@ -53,6 +53,11 @@ const log = createLogger('client-core:socket-hub')
  * all: `origin: undefined` and a missing key are the same on the wire, but only
  * the second is what an older build would have sent, and the server's reading of
  * "absent means not individually addressable" is written against that.
+ *
+ * `v` can legitimately be missing here while appearing on the same client's
+ * records: the browser resolves its build stamp asynchronously after boot, and
+ * hello is sent once per connection. Role and machine — the two an operator
+ * selects on — are set before the socket opens.
  */
 function clientLogOrigin(): { origin: { role: string; v?: string; machineId?: string } } | null {
   const { role, v, machineId } = getProcessContext()
