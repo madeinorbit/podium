@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type { AdvanceIdempotencyPort } from '@podium/commands'
-import { AgentKind, type IssueId, type MachineId, type SessionId } from '@podium/model'
+import {
+  asUserId,
+  asIssueId,
+  AgentKind,
+  type IssueId,
+  type MachineId,
+  type SessionId,
+} from '@podium/model'
 import type {
   ExecutionProfileWire,
   WorkflowGitObservation as GitObservation,
@@ -441,7 +448,7 @@ export class WorkflowService implements WorkflowEngine {
       supersedesRunId: input.supersedesRunId ?? null,
       startedAt: now,
       completedAt: null,
-      ownerUserId,
+      ownerUserId: asUserId(ownerUserId),
     }
     this.deps.store.insertRun({
       run,
@@ -602,7 +609,7 @@ export class WorkflowService implements WorkflowEngine {
       warnings.push('step completed with uncommitted worktree changes')
     }
     if (run.subjectKind === 'issue') {
-      const issue = this.deps.issue(run.subjectId)
+      const issue = this.deps.issue(asIssueId(run.subjectId))
       if (
         issue?.worktreePath &&
         observation?.worktree &&

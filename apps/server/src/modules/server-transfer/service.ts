@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { MachineId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
@@ -219,7 +220,7 @@ export class ServerTransferService {
         if (id === this.deps.sourceMachineId) {
           return { targetMachineId: id, eligible: false, reason: 'current-server' } as const
         }
-        const target = this.deps.targetState(id)
+        const target = this.deps.targetState(asMachineId(id))
         if (!target.online) {
           return { targetMachineId: id, eligible: false, reason: 'offline' } as const
         }

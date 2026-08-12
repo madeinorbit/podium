@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { MachineId } from '@podium/model'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -52,14 +53,14 @@ function parse(raw: string): PromotedTargetMetadata | undefined {
     candidate.servingProof,
     candidate.transferId,
     candidate.manifestDigest,
-    candidate.targetMachineId,
+    asMachineId(candidate.targetMachineId),
     candidate.publicUrl,
   )
   if (!validated) return undefined
   return {
     transferId: candidate.transferId,
-    sourceMachineId: candidate.sourceMachineId,
-    targetMachineId: candidate.targetMachineId,
+    sourceMachineId: asMachineId(candidate.sourceMachineId),
+    targetMachineId: asMachineId(candidate.targetMachineId),
     publicUrl: candidate.publicUrl,
     manifestDigest: candidate.manifestDigest,
     state: 'promoted',

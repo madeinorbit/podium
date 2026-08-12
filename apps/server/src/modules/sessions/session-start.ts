@@ -132,7 +132,11 @@ export interface SessionStartPorts {
     agentKind: AgentKind,
     use?: MachineUseResolver,
   ): MachineId
-  onSpawnTargetLogin?(input: { machineId: MachineId; agentKind: AgentKind; ownerUserId: UserId }): void
+  onSpawnTargetLogin?(input: {
+    machineId: MachineId
+    agentKind: AgentKind
+    ownerUserId: UserId
+  }): void
   toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
@@ -384,7 +388,7 @@ export class SessionStart {
       // Bind the route to the LIVE machineId (tracks the local-adoption
       // reassignment), falling back to the birth machine before the row exists.
       toDaemon: (msg) =>
-        this.ports.toMachine(this.ports.sessionMachineId(sessionId) ?? machineId, msg),
+        this.ports.toMachine(asMachineId(this.ports.sessionMachineId(sessionId) ?? machineId), msg),
       onActivity: () => {
         // Shell busy transitions advance lastActiveAt (their only activity
         // signal); persist so recency is durable across a restart, then

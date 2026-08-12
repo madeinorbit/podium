@@ -8,7 +8,7 @@
  * authorization question goes to `ctx.access`; none is decided here.
  */
 
-import { asSessionId } from '@podium/model'
+import { asUserId, asIssueId, asSessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import type {
   ContractInput,
@@ -37,7 +37,7 @@ export function createHandler(
     scope: input.scope,
     scopeRef,
     actor: engine.actor(caller),
-    ownerUserId: access.owner(caller),
+    ownerUserId: asUserId(access.owner(caller)),
     now,
   })
   const revision = deps.store.insertRevision({
@@ -172,7 +172,7 @@ export function assignHandler(
   ) {
     throw new Error('shared workflow defaults require a published revision')
   }
-  if (input.targetKind === 'issue') access.assertIssueScope(caller, input.targetId)
+  if (input.targetKind === 'issue') access.assertIssueScope(caller, asIssueId(input.targetId))
   if (
     input.targetKind === 'session' &&
     caller.actor.kind === 'session' &&
@@ -195,7 +195,7 @@ export function assignHandler(
   const binding = deps.store.setBinding({
     ...input,
     actor: engine.actor(caller),
-    ownerUserId: access.owner(caller),
+    ownerUserId: asUserId(access.owner(caller)),
     now,
   })
   deps.store.appendEvent({
@@ -230,7 +230,7 @@ export function profileSaveHandler(
     model: input.model,
     effort: input.effort,
     actor: engine.actor(caller),
-    ownerUserId: access.owner(caller),
+    ownerUserId: asUserId(access.owner(caller)),
     now,
   })
 }

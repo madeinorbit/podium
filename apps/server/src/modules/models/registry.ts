@@ -19,6 +19,7 @@
  * default machine rather than an instance-global singleton.
  */
 
+import type { MachineId } from '@podium/model'
 import {
   type AnyCommandContract,
   MODEL_CONTRACT_NAMES,
@@ -35,7 +36,7 @@ import type { SettingsService } from '../settings/service'
 export interface ModelState {
   readonly settings: SettingsService
   /** `machines.defaultMachine()` — resolved lazily when the client omits machineId. */
-  readonly defaultMachine: () => string
+  readonly defaultMachine: () => MachineId
 }
 
 export type ModelHandler<In, Out> = (state: ModelState, input: In) => Out
@@ -53,10 +54,7 @@ export const MODEL_COMMANDS_TRPC = {
     handler: ((state, input) =>
       state.settings.refreshModelCatalog(
         input?.machineId ?? state.defaultMachine(),
-      )) satisfies ModelHandler<
-      z.infer<(typeof MODEL_CONTRACTS)['refresh']['input']>,
-      unknown
-    >,
+      )) satisfies ModelHandler<z.infer<(typeof MODEL_CONTRACTS)['refresh']['input']>, unknown>,
   },
 } as const satisfies Record<ModelContractName, ModelCommand>
 

@@ -387,7 +387,7 @@ function assertSurfaceMatchesDeclarations(
  * these things drift — one gains a member and the other does not, and the reads
  * and the writes of the same family start seeing different state.
  */
-const callerUserId = (ctx: Context): string => {
+const callerUserId = (ctx: Context): UserId => {
   if (ctx.principal?.kind === 'user') return ctx.principal.user
   if (ctx.principal?.kind === 'agent' && ctx.principal.onBehalfOf) return ctx.principal.onBehalfOf
   throw new Error('authenticated human principal is required')

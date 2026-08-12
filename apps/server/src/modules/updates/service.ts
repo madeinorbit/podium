@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { UpdateChannel, MachineId } from '@podium/model'
 import type {
   ConvergenceState,
@@ -351,7 +352,7 @@ export class UpdatesService {
       if (!currentState) return { ...machine }
       // A silent daemon must not converge forever. Once the grant outlives its
       // deadline the row becomes a failure the operator can see and retry.
-      if (IN_FLIGHT_STATES.has(currentState.state) && this.grantExpired(machine.id)) {
+      if (IN_FLIGHT_STATES.has(currentState.state) && this.grantExpired(asMachineId(machine.id))) {
         this.pendingGrants.delete(machine.id)
         const timedOut: MachineConvergenceState = {
           channel,
@@ -434,7 +435,7 @@ export class UpdatesService {
         grantId: this.deps.nextGrantId(),
         target,
       }
-      this.deps.send(machineId, grant)
+      this.deps.send(asMachineId(machineId), grant)
       const machine = machines.find((candidate) => candidate.id === machineId)
       const issuedAt = this.deps.now()
       this.pendingGrants.set(machineId, {

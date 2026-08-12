@@ -3,6 +3,7 @@
  * ↔ superagent thread for the messaging bridge across restarts.
  */
 
+import { asIssueId, asThreadId } from '@podium/model'
 import type { IssueId, ThreadId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
@@ -63,10 +64,10 @@ export class MessagingTopicsRepository {
 
   private map(r: Record<string, unknown>): MessagingIssueTopicRow {
     return {
-      issueId: r.issue_id as string,
+      issueId: asIssueId(r.issue_id as string),
       chatId: r.chat_id as string,
       threadRef: r.thread_ref as string,
-      superagentThreadId: r.superagent_thread_id as string,
+      superagentThreadId: asThreadId(r.superagent_thread_id as string),
       updatedAt: r.updated_at as string,
     }
   }

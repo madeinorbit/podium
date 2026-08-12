@@ -357,9 +357,9 @@ export class MessagingService implements TelegramNoticePort {
 
   /** Map a chat location to a superagent thread. Main chat → global; a forum
    *  topic → the btw/concierge thread bound when the issue button was opened. */
-  private resolveThreadId(msg: InboundChatMessage): string {
+  private resolveThreadId(msg: InboundChatMessage): ThreadId {
     const ref = msg.source.threadRef
-    if (!ref) return 'global'
+    if (!ref) return asThreadId('global')
     const cached = this.topicThreadByRef.get(topicKey(msg.source.chatId, ref))
     if (cached) return cached
     const row = this.deps.topics?.getByThreadRef(msg.source.chatId, ref)
@@ -368,10 +368,10 @@ export class MessagingService implements TelegramNoticePort {
       this.topicRefByIssue.set(topicKey(msg.source.chatId, row.issueId), ref)
       return row.superagentThreadId
     }
-    return 'global'
+    return asThreadId('global')
   }
 
-  private resolveIssueThread(issue: IssueWire, ownerUserId: UserId): string {
+  private resolveIssueThread(issue: IssueWire, ownerUserId: UserId): ThreadId {
     const session = pickIssueSession(issue, this.deps.sessions?.listSessions() ?? [])
     if (session) {
       return this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId })

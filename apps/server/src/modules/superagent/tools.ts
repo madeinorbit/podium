@@ -4,7 +4,7 @@
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
 
-import { spawnedByTag, type ThreadId } from '@podium/model'
+import { asIssueId, spawnedByTag, type ThreadId } from '@podium/model'
 import {
   asSessionId,
   isAgentKind,
@@ -868,7 +868,7 @@ export function buildSuperagentTools(
         run: async (args) =>
           JSON.stringify(
             await moveIssue(linearKey, {
-              issueId: str(args.issueId) ?? '',
+              issueId: asIssueId(str(args.issueId) ?? ''),
               stateName: str(args.stateName) ?? '',
             }),
           ),

@@ -1,4 +1,5 @@
 import { isAbsolute, join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import type {
   AgentKind,
   AgentQuotaWire,
@@ -458,7 +459,7 @@ export class DaemonRpcService {
       35_000,
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
-      machineId ?? this.deps.resolveMachine(undefined, cwd),
+      asMachineId(machineId ?? this.deps.resolveMachine(undefined, cwd)),
     )
   }
 

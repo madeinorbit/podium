@@ -86,7 +86,7 @@ export class IssueStore {
    * resolve to an operator identity (readiness §3.1.6 S4). POD-1077 replaces the
    * body with the request's principal; every caller already asks the question.
    */
-  broadcastViewer(): string {
+  broadcastViewer(): UserId {
     return FIRST_ADMIN_USER_ID
   }
 

@@ -20,7 +20,7 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
-import { asUserId, type UserId } from '@podium/model'
+import { asAccountId, asUserId, type UserId } from '@podium/model'
 import type { z } from 'zod'
 import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
@@ -62,7 +62,7 @@ export const ACCOUNT_COMMANDS_TRPC = {
       // `callerSuppliedTargetId: false` true rather than aspirational.
       const id = input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`
       state.accounts.upsert({
-        id,
+        id: asAccountId(id),
         provider: input.provider,
         kind: input.kind,
         credential: input.credential,

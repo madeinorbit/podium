@@ -248,7 +248,7 @@ function reEnrolMachine(
  * Ledger owner → row owner. Unresolvable account → quarantine (`null`), never
  * first-admin auto-assign (D19.4b).
  */
-function resolveOwnerForRecovery(host: EnrollmentHost, recorded: string | null): string | null {
+function resolveOwnerForRecovery(host: EnrollmentHost, recorded: UserId | null): UserId | null {
   if (recorded === null) return null
   if (host.deps.userExists && !host.deps.userExists(recorded)) return null
   return recorded
@@ -362,9 +362,9 @@ export function transferOwnership(
  */
 export function transferMachineOwnership(
   host: EnrollmentHost,
-  id: string,
+  id: MachineId,
   newOwnerUserId: UserId,
-  currentOwner: string,
+  currentOwner: UserId,
 ): void {
   const machine = host.deps.store.machines.getMachine(id)
   if (!machine?.ownerUserId || machine.ownerUserId !== currentOwner) {
@@ -412,7 +412,7 @@ export function transferMachineOwnership(
  * reachable from more than one transport must not depend on every one of them
  * remembering.
  */
-export function adoptMachine(host: EnrollmentHost, id: string, newOwnerUserId: UserId): void {
+export function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId: UserId): void {
   const machine = host.deps.store.machines.getMachine(id)
   if (!machine) throw new Error(`unknown machine '${id}'`)
   // THE LEDGER DECIDES, not `machine.ownerUserId`. The row is a projection
@@ -452,7 +452,10 @@ export function adoptMachine(host: EnrollmentHost, id: string, newOwnerUserId: U
  * when a ledger is present; {@link reconcileOwnersFromLedger} keeps the row
  * in sync, but a concurrent transfer can land between reconcile and check.
  */
-export function effectiveOwner(host: EnrollmentHost, machineId: MachineId): string | null | undefined {
+export function effectiveOwner(
+  host: EnrollmentHost,
+  machineId: MachineId,
+): UserId | null | undefined {
   const ledger = host.deps.enrollment
   if (ledger) {
     const recorded = ledger.recordedOwner(machineId)

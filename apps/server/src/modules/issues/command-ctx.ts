@@ -23,6 +23,7 @@
  * signature), so the table contributes no runtime edge back to this module.
  */
 
+import { asSessionId } from '@podium/model'
 import type { SessionId, SessionMeta, IssueId, MutationId } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -359,7 +360,7 @@ export class IssueCommandCtx {
     }
     // session source: the caller's own session, or one bound to an in-subtree issue.
     if (source.ref === this.caller.capability.actorSessionId) return
-    const bound = findSessionById(this.deps, source.ref)?.issueId
+    const bound = findSessionById(this.deps, asSessionId(source.ref))?.issueId
     const ok =
       bound != null &&
       authorize(this.caller.capability, 'write', {

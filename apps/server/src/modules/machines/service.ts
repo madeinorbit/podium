@@ -343,7 +343,7 @@ export class MachinesService {
 
   /** Owner-only ownership transfer (POD-1480) — the product surface behind
    *  `machines.transferOwnership`. See {@link credentials.transferMachineOwnership}. */
-  transferMachineOwnership(id: string, newOwnerUserId: UserId, currentOwner: string): void {
+  transferMachineOwnership(id: MachineId, newOwnerUserId: UserId, currentOwner: UserId): void {
     credentials.transferMachineOwnership(this.enrollmentHost, id, newOwnerUserId, currentOwner)
   }
 
@@ -448,8 +448,9 @@ export class MachinesService {
     use?: MachineUseResolver,
   ): MachineId {
     if (requested) {
-      this.requireAgent(requested, agentKind, use)
-      return asMachineId(requested)
+      const requestedMachineId = asMachineId(requested)
+      this.requireAgent(requestedMachineId, agentKind, use)
+      return requestedMachineId
     }
 
     const legacy = this.resolveMachine(undefined, cwd)
@@ -636,7 +637,7 @@ export class MachinesService {
    * not need to be told who owns it in order to be refused. Served from the same
    * cache, which every write to the table invalidates.
    */
-  ownershipRows(): { id: string; name: string; ownerUserId: UserId | null }[] {
+  ownershipRows(): { id: MachineId; name: string; ownerUserId: UserId | null }[] {
     // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
     // row when the durable append has already committed a transition.
     return this.machineRecords().map((m) => ({
@@ -684,7 +685,7 @@ export class MachinesService {
     this.deps.bus?.emit('machine.diagnostic', { machineId, ...detail })
   }
 
-  renameMachine(id: string, name: string): void {
+  renameMachine(id: MachineId, name: string): void {
     this.deps.store.machines.renameMachine(id, name)
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
@@ -705,7 +706,7 @@ export class MachinesService {
 
   /** Persist the selected source independently for every Podium-managed machine.
    *  `null` removes the pin and hands the machine back to the fleet default. */
-  setUpdateChannel(id: string, channel: UpdateChannel | null): void {
+  setUpdateChannel(id: MachineId, channel: UpdateChannel | null): void {
     const machine = this.deps.store.machines.getMachine(id)
     if (!machine) throw new Error(`unknown machine '${id}'`)
     if (!machine.podiumManaged) {
@@ -719,7 +720,7 @@ export class MachinesService {
   }
 
   shareMachine(
-    id: string,
+    id: MachineId,
     grantee: string,
     verb: MachineVerb,
     attribution: { actor: string; onBehalfOf: string },
@@ -751,7 +752,7 @@ export class MachinesService {
     this.broadcastMachines()
   }
 
-  unshareMachine(id: string, grantee: string, verb: MachineVerb, owner: string): void {
+  unshareMachine(id: MachineId, grantee: string, verb: MachineVerb, owner: string): void {
     const machine = this.deps.store.machines.getMachine(id)
     if (!machine?.ownerUserId || machine.ownerUserId !== owner) {
       throw new Error('only the machine owner may change sharing')
@@ -769,7 +770,7 @@ export class MachinesService {
    * `skipRowUpdate`; production callers never pass it.
    */
   revokeMachine(
-    id: string,
+    id: MachineId,
     opts: { by?: string | null; skipRowDelete?: boolean; txnId?: string } = {},
   ): void {
     const ledger = this.deps.enrollment

@@ -1,4 +1,14 @@
-import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf, type MachineId, type UserId, type IssueId, type SessionId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  ROW,
+  type VisibilityClass,
+  visibilityClassOf,
+  type MachineId,
+  type UserId,
+  type IssueId,
+  type SessionId,
+} from '@podium/model'
 import { mayReadOwned } from '../../issue-authz'
 import type { IssueRow, SessionRow, SessionStore } from '../../store'
 import type { GrantRow } from '../../store/grants'
@@ -169,7 +179,7 @@ export class MemoryVisibilityPolicy {
     const userId = reader.kind === 'user' ? reader.id : reader.onBehalfOf
     switch (ref.class) {
       case 'session': {
-        const row = 'id' in ref ? this.sessionById(String(ref.id)) : undefined
+        const row = 'id' in ref ? this.sessionById(asSessionId(String(ref.id))) : undefined
         return row ? this.mayReadSessionRow(userId, row) : false
       }
       case 'issue': {
@@ -233,7 +243,11 @@ export class MemoryVisibilityPolicy {
     })
   }
 
-  private mayReadNativeConversation(userId: UserId, machineId: MachineId, nativeId: string): boolean {
+  private mayReadNativeConversation(
+    userId: UserId,
+    machineId: MachineId,
+    nativeId: string,
+  ): boolean {
     const siblings = this.store.conversations.registry.siblingSegments(machineId, nativeId)
     const evidence = siblings.length > 0 ? siblings : [{ machineId, nativeId }]
     const keys = new Set(evidence.map((segment) => nativeKey(segment.machineId, segment.nativeId)))

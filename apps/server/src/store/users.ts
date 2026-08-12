@@ -15,7 +15,7 @@
  */
 
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
-import { CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
+import { asUserId, CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 export interface UserAccountRow {
@@ -125,7 +125,7 @@ export class UsersRepository {
       id: string
     }[]
     return rows.flatMap((row) => {
-      const account = this.get(row.id)
+      const account = this.get(asUserId(row.id))
       return account ? [account] : []
     })
   }

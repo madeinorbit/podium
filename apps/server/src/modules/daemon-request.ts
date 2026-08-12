@@ -109,7 +109,7 @@ export interface DaemonRequestPort {
 
 export interface DaemonRequestBrokerDeps {
   toMachine(machineId: MachineId, msg: ControlMessage): void
-  defaultMachine(): string
+  defaultMachine(): MachineId
 }
 
 /** One in-flight request: who may answer it, and what happens when they do. */

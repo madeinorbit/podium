@@ -7,6 +7,7 @@ import {
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
+import { asIssueId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
@@ -1101,7 +1102,7 @@ const defs = {
       // WHICH session is reading [POD-1379]: the mailbox is shared by every
       // agent on the issue, so the read is consumed per reader. Server-stamped
       // from the caller (mailIdentity pattern); client input never contributes.
-      return ctx.commentsMail.mailInbox(id, {
+      return ctx.commentsMail.mailInbox(asIssueId(id), {
         markRead,
         ...(ctx.caller.capability.actorSessionId
           ? { sessionId: ctx.caller.capability.actorSessionId }
@@ -1139,7 +1140,7 @@ const defs = {
   mailPending: def('mailPending', {
     kind: 'query',
     handler: (ctx, input) =>
-      ctx.commentsMail.mailPending(ctx.mailOwnIssue(input?.id), {
+      ctx.commentsMail.mailPending(asIssueId(ctx.mailOwnIssue(input?.id)), {
         // The stop-hook nag is per READER [POD-1379]: each session on the issue
         // is told once, and none of them can clear a peer's count.
         ...(ctx.caller.capability.actorSessionId

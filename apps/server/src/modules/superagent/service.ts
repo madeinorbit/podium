@@ -13,6 +13,8 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { SuperagentUserFocus } from '@podium/commands'
 import {
+  asSessionId,
+  asIssueId,
   asThreadId,
   FIRST_ADMIN_USER_ID,
   HarnessAgent,
@@ -1188,7 +1190,7 @@ export class SuperagentService {
    *  from its own default; home is that, made explicit). */
   private threadCwd(thread: SuperagentThreadRow): string {
     if (thread.kind === 'concierge') {
-      return thread.repoPath ?? conciergeRepoPath(thread.id) ?? homedir()
+      return thread.repoPath ?? conciergeRepoPath(asThreadId(thread.id)) ?? homedir()
     }
     if (thread.kind === 'btw' && thread.originSessionId) {
       const origin = this.sessionById(thread.originSessionId)
@@ -1202,7 +1204,7 @@ export class SuperagentService {
    *  lock lazily right here. Returns the rejection message, or undefined. */
   private terminalLockError(thread: SuperagentThreadRow): string | undefined {
     if (!thread.terminalSessionId) return undefined
-    const s = this.sessionById(thread.terminalSessionId)
+    const s = this.sessionById(asSessionId(thread.terminalSessionId))
     if (s && (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting')) {
       return 'this thread is open in a terminal session — close it to chat here'
     }
@@ -1244,7 +1246,7 @@ export class SuperagentService {
   ): Promise<string | undefined> {
     const now = () => new Date().toISOString()
     if (thread.kind === 'concierge') {
-      const repoPath = thread.repoPath ?? conciergeRepoPath(thread.id)
+      const repoPath = thread.repoPath ?? conciergeRepoPath(asThreadId(thread.id))
       if (!repoPath) return undefined
       const maxEventId = this.store.events.maxEventId()
       if (firstTurn) {
@@ -1401,7 +1403,7 @@ export class SuperagentService {
   private focusBlock(focus: SuperagentUserFocus | undefined): string | undefined {
     if (!focus) return undefined
     const issueInfo = (id: string | undefined): FocusIssueInfo | undefined => {
-      const issue = id ? this.issueById(id) : undefined
+      const issue = id ? this.issueById(asIssueId(id)) : undefined
       if (!issue) return undefined
       return {
         seq: issue.seq,

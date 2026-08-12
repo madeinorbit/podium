@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type {
   ConversationDiagnosticWire,
   ConversationId,
@@ -292,7 +293,7 @@ export class MemoryService {
     reader: MemoryReader,
     session: { id: string; machineId: MachineId; resume?: { value: string } },
   ): { pathHint: string } | undefined {
-    if (!this.canReadSession(reader, session.id)) return undefined
+    if (!this.canReadSession(reader, asSessionId(session.id))) return undefined
     const nativeId = session.resume?.value
     return nativeId ? this.lake.pathHint(session.machineId, nativeId) : undefined
   }

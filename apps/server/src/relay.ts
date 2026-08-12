@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { AgentKind, IssueEventWire, SessionId, SessionMeta, MachineId } from '@podium/model'
 import {
+  asIssueId,
+  asMutationId,
   asMachineId,
   asSessionId,
   asUserId,
@@ -757,7 +759,8 @@ export class SessionRegistry {
             canSee: (ref) => {
               if (principal.kind === 'system') return true
               if (userId === null) return false
-              if (ref.kind === 'issue') return feedVisibility.mayReadIssue(userId, ref.id)
+              if (ref.kind === 'issue')
+                return feedVisibility.mayReadIssue(userId, asIssueId(ref.id))
               if (ref.kind === 'session') {
                 const owner = liveSessionOwnership(asSessionId(ref.id))
                 return owner?.owner === userId || owner?.grants.includes(userId) === true
@@ -1348,9 +1351,14 @@ export class SessionRegistry {
           }
         },
         ledger: {
-          recall: (key) => this.store.sync.getAppliedMutation(key),
+          recall: (key) => this.store.sync.getAppliedMutation(asMutationId(key)),
           record: (key, result) =>
-            this.store.sync.recordAppliedMutation(key, 'workflows', result, this.now()),
+            this.store.sync.recordAppliedMutation(
+              asMutationId(key),
+              'workflows',
+              result,
+              this.now(),
+            ),
         },
       },
     )

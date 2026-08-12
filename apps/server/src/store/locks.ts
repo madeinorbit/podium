@@ -5,6 +5,7 @@
  * modules/lock/service.ts.
  */
 
+import { asRepoId } from '@podium/model'
 import type { IssueId, SessionId, RepoId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
@@ -65,7 +66,7 @@ export class LocksRepository {
 
   private mapLock(r: Record<string, unknown>): LockRow {
     return {
-      repoId: r.repo_id as string,
+      repoId: asRepoId(r.repo_id as string),
       name: r.name as string,
       // SERIALIZATION EDGE: untyped columns re-entering their id spaces.
       holderSessionId: (r.holder_session_id as LockSessionKey | null) ?? null,
@@ -80,7 +81,7 @@ export class LocksRepository {
   private mapWaiter(r: Record<string, unknown>): LockWaiterRow {
     return {
       id: r.id as number,
-      repoId: r.repo_id as string,
+      repoId: asRepoId(r.repo_id as string),
       name: r.name as string,
       // SERIALIZATION EDGE: untyped columns re-entering their id spaces.
       sessionId: r.session_id as LockSessionKey,
