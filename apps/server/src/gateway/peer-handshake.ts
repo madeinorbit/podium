@@ -152,11 +152,12 @@ export const receiveDaemonFrame = (
     }
     case 'deliver': {
       const principal = step.peer.principal
+      if (principal.kind !== 'machine') return { kind: 'ignored' }
       return {
         kind: 'deliver',
         // Every delivered frame is stamped with the authenticated machine — the
         // transport principal, never anything in the frame.
-        machineId: principal.kind === 'machine' ? principal.machine : '',
+        machineId: principal.machine,
         raw: step.raw,
       }
     }

@@ -222,11 +222,11 @@ export function openEnrollmentLedger(
   let pairingRoot: Buffer
   const seenIds = new Set<string>()
   /** machineId → max enroll serial */
-  const serials = new Map<string, number>()
+  const serials = new Map<MachineId, number>()
   /** machineId → max revoke serial */
-  const revokes = new Map<string, number>()
+  const revokes = new Map<MachineId, number>()
   /** machineId → latest owner (null means explicitly unowned) */
-  const owners = new Map<string, string | null>()
+  const owners = new Map<MachineId, UserId | null>()
 
   const applyEvent = (event: LedgerEvent): void => {
     if (seenIds.has(event.id)) return

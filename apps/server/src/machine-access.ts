@@ -66,8 +66,8 @@
  * this principal is concerned there is nothing at all.
  */
 
-import type { MachineId, MachineUseDecision, UserId, SessionId } from '@podium/model'
-import type { MachineGrant, MachineVerb, ResolvedMachine, UserId } from '@podium/protocol'
+import type { MachineId, MachineUseDecision, SessionId, UserId } from '@podium/model'
+import type { MachineGrant, MachineVerb, ResolvedMachine } from '@podium/protocol'
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
 import { onBehalfOfUser } from './command-principal'
@@ -143,7 +143,7 @@ export interface MachineGrantSource {
  * simply forgot to thread it.
  */
 export interface MachineRowSource extends MachineGrantSource {
-  ownershipRows(): { id: string; name?: string; ownerUserId: UserId | null }[]
+  ownershipRows(): { id: MachineId; name?: string; ownerUserId: UserId | null }[]
 }
 
 /** The verbs a machine grant can carry, as a runtime membership test. A stored
@@ -172,8 +172,8 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
         .filter((edge) => MACHINE_VERBS.includes(edge.verb))
         .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb }))
       return {
-        machine: row.id as MachineId,
-        owner: row.ownerUserId === null ? null : (row.ownerUserId as UserId),
+        machine: row.id,
+        owner: row.ownerUserId,
         grants: edges,
         ...(row.name === undefined ? {} : { name: row.name }),
       }
