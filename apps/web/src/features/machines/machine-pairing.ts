@@ -67,6 +67,12 @@ export function useMachinePairing({
       const copyAgentCredentials = options.copyAgentCredentials ?? true
       const currentRequest = ++requestId.current
       setPodiumManaged(managed)
+      // The command embeds both the bearer credential and its management
+      // semantics. Never leave the previous command copyable while a remint is
+      // pending or after that remint fails under a newly selected mode.
+      setPairingCode(null)
+      setJoinCommand(null)
+      setSetupInfo(null)
       setLoading(true)
       setError(null)
       try {

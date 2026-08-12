@@ -1,5 +1,5 @@
 import type { MachineWire } from '@podium/model'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 
 export const SERVER_TRANSFER_CONFIRMATION = 'TRANSFER SERVER'
@@ -59,6 +59,28 @@ export function transferErrorMessage(transfer: ServerTransfer): string | undefin
   return transfer && 'error' in transfer ? transfer.error?.message : undefined
 }
 
+/**
+ * True only when a target has a new journal entry or the existing entry has
+ * durably moved. A freshly allocated transfer id is the strongest signal; the
+ * remaining fields cover recovery transitions within one journal entry.
+ */
+export function isNewOrAdvancedTransfer(
+  previous: ServerTransfer,
+  latest: ServerTransfer,
+  targetMachineId: MachineWire['id'],
+): boolean {
+  if (!latest || latest.targetMachineId !== targetMachineId) return false
+  if (!previous || previous.targetMachineId !== targetMachineId) return true
+  return (
+    latest.transferId !== previous.transferId ||
+    latest.state !== previous.state ||
+    latest.phase !== previous.phase ||
+    latest.sourceFenced !== previous.sourceFenced ||
+    latest.targetProof !== previous.targetProof ||
+    latest.sourceConnected !== previous.sourceConnected
+  )
+}
+
 export function isValidServerTransferUrl(value: string): boolean {
   try {
     const parsed = new URL(value.trim())
@@ -89,16 +111,60 @@ function serverTransferPollDelay(
 export function useServerTransferStatus(trpc: Store['trpc']): ServerTransferStatusController {
   const [snapshot, setSnapshot] = useState<ServerTransferStatusSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const reads = useRef({
+    trpc,
+    generation: 0,
+    sequence: 0,
+    mounted: true,
+  })
+
+  // Invalidate the previous transport during render, before either tree can
+  // start effects. Its in-flight reads may finish, but cannot publish here.
+  if (reads.current.trpc !== trpc) {
+    reads.current.trpc = trpc
+    reads.current.generation += 1
+    reads.current.mounted = true
+  }
 
   const refresh = useCallback(async (): Promise<ServerTransferStatusSnapshot | null> => {
+    const generation = reads.current.generation
+    if (!reads.current.mounted) return null
+    const sequence = ++reads.current.sequence
     try {
       const next = await trpc.machines.serverTransferStatus.query()
+      if (
+        !reads.current.mounted ||
+        reads.current.generation !== generation ||
+        reads.current.sequence !== sequence
+      ) {
+        return null
+      }
       setSnapshot(next)
       setError(null)
       return next
     } catch (cause) {
+      if (
+        !reads.current.mounted ||
+        reads.current.generation !== generation ||
+        reads.current.sequence !== sequence
+      ) {
+        return null
+      }
       setError(cause instanceof Error ? cause.message : String(cause))
       return null
+    }
+  }, [trpc])
+
+  useEffect(() => {
+    const generation = reads.current.generation
+    reads.current.mounted = true
+    setSnapshot(null)
+    setError(null)
+    return () => {
+      if (reads.current.generation === generation) {
+        reads.current.mounted = false
+        reads.current.generation += 1
+      }
     }
   }, [trpc])
 
@@ -143,6 +209,19 @@ export function useServerTransfer({
   const [awaitingStatus, setAwaitingStatus] = useState(false)
   const [checkingTarget, setCheckingTarget] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const targetLifecycle = useRef({ targetMachineId, generation: 0, mounted: true })
+  const errorContext = useRef<
+    { kind: 'start' | 'check'; baseline: ServerTransfer } | undefined
+  >(undefined)
+
+  // Invalidate callbacks from the old target during render. The effect below
+  // resets visible state after React commits the new target.
+  if (targetLifecycle.current.targetMachineId !== targetMachineId) {
+    targetLifecycle.current.targetMachineId = targetMachineId
+    targetLifecycle.current.generation += 1
+    targetLifecycle.current.mounted = true
+  }
+
   const transfer =
     status.snapshot?.transfer?.targetMachineId === targetMachineId
       ? status.snapshot.transfer
@@ -152,42 +231,106 @@ export function useServerTransfer({
   const showProgress = (displayState !== null && displayState !== 'aborted') || awaitingStatus
   const urlIsValid = isValidServerTransferUrl(publicUrl)
 
-  useEffect(() => {
-    if (!active || (transferState && transferState !== 'aborted')) return
+  const resetTransientState = useCallback((): void => {
     setPublicUrl('')
     setConfirmation('')
     setAwaitingStatus(false)
     setError(null)
     setCheckingTarget(false)
-  }, [active, transferState])
+    errorContext.current = undefined
+  }, [])
+
+  useEffect(() => {
+    const generation = targetLifecycle.current.generation
+    targetLifecycle.current.mounted = true
+    resetTransientState()
+    return () => {
+      if (targetLifecycle.current.generation === generation) {
+        targetLifecycle.current.mounted = false
+        targetLifecycle.current.generation += 1
+      }
+    }
+  }, [resetTransientState, targetMachineId])
+
+  useEffect(() => {
+    if (!active || (transferState && transferState !== 'aborted')) return
+    resetTransientState()
+  }, [active, resetTransientState, transferState])
+
+  // Once the journal has a matching entry it replaces the optimistic waiting
+  // marker. It also clears mutation-reply errors when durable state proves that
+  // the operation actually started or that an uncertain check resolved.
+  useEffect(() => {
+    if (transfer) setAwaitingStatus(false)
+    const context = errorContext.current
+    if (!context || !isNewOrAdvancedTransfer(context.baseline, transfer, targetMachineId)) return
+    if (context.kind === 'check' && transferDisplayState(transfer) === 'commit-uncertain') return
+    errorContext.current = undefined
+    setError(null)
+  }, [targetMachineId, transfer])
 
   const start = useCallback(async (): Promise<void> => {
     const url = publicUrl.trim()
     if (!urlIsValid || confirmation !== SERVER_TRANSFER_CONFIRMATION) return
+    const generation = targetLifecycle.current.generation
+    const baseline = transfer
     setAwaitingStatus(true)
     setError(null)
+    errorContext.current = undefined
     try {
       await trpc.machines.transferServer.mutate({
         targetMachineId,
         publicUrl: url,
         confirmation: SERVER_TRANSFER_CONFIRMATION,
       })
-      await status.refresh()
-    } catch (cause) {
+      if (
+        !targetLifecycle.current.mounted ||
+        targetLifecycle.current.generation !== generation
+      ) {
+        return
+      }
       const latest = await status.refresh()
-      const durable =
-        latest?.transfer?.targetMachineId === targetMachineId ? latest.transfer : null
-      if (!durable) {
+      if (
+        targetLifecycle.current.mounted &&
+        targetLifecycle.current.generation === generation &&
+        latest?.transfer?.targetMachineId === targetMachineId
+      ) {
         setAwaitingStatus(false)
+      }
+    } catch (cause) {
+      if (
+        !targetLifecycle.current.mounted ||
+        targetLifecycle.current.generation !== generation
+      ) {
+        return
+      }
+      const latest = await status.refresh()
+      if (
+        !targetLifecycle.current.mounted ||
+        targetLifecycle.current.generation !== generation
+      ) {
+        return
+      }
+      const latestTransfer =
+        latest?.transfer?.targetMachineId === targetMachineId ? latest.transfer : null
+      setAwaitingStatus(false)
+      if (isNewOrAdvancedTransfer(baseline, latestTransfer, targetMachineId)) {
+        errorContext.current = undefined
+      } else {
         setError(cause instanceof Error ? cause.message : String(cause))
+        errorContext.current = { kind: 'start', baseline }
       }
     }
-  }, [confirmation, publicUrl, status, targetMachineId, trpc, urlIsValid])
+  }, [confirmation, publicUrl, status, targetMachineId, transfer, trpc, urlIsValid])
 
   const checkTarget = useCallback(async (): Promise<void> => {
     if (!transfer || displayState !== 'commit-uncertain' || checkingTarget) return
+    const generation = targetLifecycle.current.generation
+    const baseline = transfer
+    let failure: unknown
     setCheckingTarget(true)
     setError(null)
+    errorContext.current = undefined
     try {
       await trpc.machines.transferServer.mutate({
         targetMachineId,
@@ -195,11 +338,34 @@ export function useServerTransfer({
         confirmation: SERVER_TRANSFER_CONFIRMATION,
       })
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      await status.refresh()
-      setCheckingTarget(false)
+      failure = cause
     }
+    if (
+      !targetLifecycle.current.mounted ||
+      targetLifecycle.current.generation !== generation
+    ) {
+      return
+    }
+    const latest = await status.refresh()
+    if (
+      !targetLifecycle.current.mounted ||
+      targetLifecycle.current.generation !== generation
+    ) {
+      return
+    }
+    const latestTransfer =
+      latest?.transfer?.targetMachineId === targetMachineId ? latest.transfer : null
+    const resolved =
+      isNewOrAdvancedTransfer(baseline, latestTransfer, targetMachineId) &&
+      transferDisplayState(latestTransfer) !== 'commit-uncertain'
+    if (failure && !resolved) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+      errorContext.current = { kind: 'check', baseline }
+    } else {
+      setError(null)
+      errorContext.current = undefined
+    }
+    setCheckingTarget(false)
   }, [checkingTarget, displayState, status, targetMachineId, transfer, trpc])
 
   return {

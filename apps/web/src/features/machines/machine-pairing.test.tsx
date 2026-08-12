@@ -72,6 +72,30 @@ describe('machine pairing controller', () => {
     await waitFor(() => expect(result.current.newMachine?.id).toBe(target.id))
   })
 
+  it('never exposes an old command after a remint under new management semantics fails', async () => {
+    const pairingCode = vi
+      .fn()
+      .mockResolvedValueOnce({ code: 'OLD-CODE', joinCommand: 'podium join --old' })
+      .mockRejectedValueOnce(new Error('could not mint shared code'))
+    const { result } = renderHook(() =>
+      useMachinePairing({ trpc: trpcWithPairing(pairingCode), machines: [] }),
+    )
+
+    await act(() => result.current.mint())
+    expect(result.current.joinCommand).toBe('podium join --old')
+
+    await act(() => result.current.mint({ podiumManaged: false }))
+
+    expect(result.current).toMatchObject({
+      pairingCode: null,
+      joinCommand: null,
+      setupInfo: null,
+      podiumManaged: false,
+      loading: false,
+      error: 'could not mint shared code',
+    })
+  })
+
   it('selects the first new machine accepted by the caller policy', () => {
     const baseline = new Set(['source'])
     expect(
