@@ -1,4 +1,4 @@
-import { setProcessContext } from '@podium/logger'
+import { createLogger, setProcessContext } from '@podium/logger'
 import { serverConfig } from '@/app/trpc'
 import { installWebLogging } from './install'
 import { pageLogTransport } from './transport'
@@ -21,6 +21,14 @@ const BUILD_STAMP_FILE = 'podium-build.json'
  */
 export function startWebLogging(): () => void {
   const dispose = installWebLogging({ transport: pageLogTransport() })
+  // THE FIRST LINE OF THE FLIGHT RECORDER (POD-1935). `info`, so it is ring
+  // buffer context rather than forwarded traffic: a crash five minutes from now
+  // ships a buffer that begins by saying which page this was and when it
+  // started, which is what tells a reader whether the run-up is even complete.
+  createLogger('web:boot').info('web client booted', {
+    path: window.location.pathname,
+    ...(document.referrer ? { referrer: document.referrer } : {}),
+  })
   void resolveBuildVersion()
   return dispose
 }

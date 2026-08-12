@@ -1,68 +1,95 @@
-import { WIRE_VERSION } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
-import { makeTrpc, serverConfig } from './trpc'
+import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { reportingFetch, trpcProcedurePath } from './trpc'
 
-const V = `?v=${WIRE_VERSION}`
+/**
+ * THE FAILURE SEAM every tRPC call in the web client passes through (POD-1935).
+ *
+ * The bug this covers was not a broken transport: it was a client with nothing
+ * to say. Hundreds of `issues.markRead` 500s and a run of 502s across a restart
+ * reached the browser console and the logger never heard about any of them, so
+ * the forwarding sink had an empty queue and the operator's per-origin log file
+ * was never even created.
+ */
 
-const loc = (over: Partial<Location>): Location =>
-  ({
-    protocol: 'http:',
-    host: 'localhost:5173',
-    origin: 'http://localhost:5173',
-    search: '',
-    ...over,
-  }) as Location
+let logged: LogRecord[]
 
-describe('serverConfig backend resolution', () => {
-  afterEach(() => {
-    ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ = undefined
+beforeEach(() => {
+  resetLogging()
+  logged = []
+  addSink({ name: 'capture', write: (record) => logged.push(record) })
+  setLogLevel('warn')
+})
+
+afterEach(() => {
+  resetLogging()
+})
+
+describe('trpcProcedurePath', () => {
+  it('names the procedures a batched call carried', () => {
+    expect(trpcProcedurePath('https://relay.test/trpc/issues.markRead?batch=1')).toBe(
+      'issues.markRead',
+    )
+    expect(trpcProcedurePath('https://relay.test/trpc/updates.fleet,quota.summary?batch=1')).toBe(
+      'updates.fleet,quota.summary',
+    )
   })
 
-  it('prefers the injected global over location', () => {
-    ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ = 'ws://remote:18787'
-    const cfg = serverConfig(loc({}))
-    expect(cfg.wsClientUrl).toBe(`ws://remote:18787/client${V}`)
-    expect(cfg.httpOrigin).toBe('http://remote:18787')
-    expect(cfg.override).toBe(true)
-  })
-  it('falls back to ?server= when no global', () => {
-    const cfg = serverConfig(loc({ search: '?server=wss://q:443' }))
-    expect(cfg.wsClientUrl).toBe(`wss://q:443/client${V}`)
-    expect(cfg.httpOrigin).toBe('https://q:443')
-    expect(cfg.override).toBe(true)
-  })
-  it('falls back to same-origin from location', () => {
-    const cfg = serverConfig(loc({ protocol: 'https:', host: 'h:1', origin: 'https://h:1' }))
-    expect(cfg.wsClientUrl).toBe(`wss://h:1/client${V}`)
-    expect(cfg.httpOrigin).toBe('https://h:1')
-    expect(cfg.override).toBe(false)
-  })
-  it('normalizes an injected https:// server to wss:// (Machines-tab URL)', () => {
-    // The Machines tab + `npx @podium/daemon --server …` hand out an https:// origin; the
-    // desktop injects it verbatim. It must resolve, not fall back to same-origin (the freeze).
-    ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ =
-      'https://podium-host.example.com:55555'
-    const cfg = serverConfig(loc({}))
-    expect(cfg.wsClientUrl).toBe(`wss://podium-host.example.com:55555/client${V}`)
-    expect(cfg.httpOrigin).toBe('https://podium-host.example.com:55555')
-    expect(cfg.override).toBe(true)
-  })
-  it('normalizes an injected http:// server to ws://', () => {
-    ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ = 'http://host:18787'
-    const cfg = serverConfig(loc({}))
-    expect(cfg.wsClientUrl).toBe(`ws://host:18787/client${V}`)
-    expect(cfg.httpOrigin).toBe('http://host:18787')
-    expect(cfg.override).toBe(true)
-  })
-  it('ignores a malformed injected global and falls through', () => {
-    ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ = 'not-a-url'
-    const cfg = serverConfig(loc({}))
-    expect(cfg.override).toBe(false)
+  it('degrades to the raw path rather than throwing on anything unexpected', () => {
+    expect(trpcProcedurePath('not a url')).toBe('not a url')
   })
 })
 
-describe('makeTrpc', () => {
-  it('constructs a client', () => {
-    expect(makeTrpc('http://localhost:1')).toBeDefined()
+describe('reportingFetch', () => {
+  it('logs a warn naming the procedure and status when the server refuses', async () => {
+    const base = vi.fn().mockResolvedValue(new Response('boom', { status: 500 }))
+    const response = await reportingFetch(base)('https://relay.test/trpc/issues.markRead?batch=1', {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(500)
+    expect(logged).toHaveLength(1)
+    expect(logged[0]?.level).toBe('warn')
+    expect(logged[0]?.ns).toBe('web:trpc')
+    expect(logged[0]).toMatchObject({ path: 'issues.markRead', status: 500 })
+  })
+
+  it('logs a warn and rethrows when the call never reaches the server', async () => {
+    const base = vi.fn().mockRejectedValue(new Error('Failed to fetch'))
+
+    await expect(
+      reportingFetch(base)('https://relay.test/trpc/updates.fleet?batch=1', { method: 'POST' }),
+    ).rejects.toThrow('Failed to fetch')
+    expect(logged).toHaveLength(1)
+    expect(logged[0]?.level).toBe('warn')
+    expect(logged[0]).toMatchObject({ path: 'updates.fleet' })
+  })
+
+  it('says nothing about a call that succeeded', async () => {
+    const base = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    await reportingFetch(base)('https://relay.test/trpc/issues.list?batch=1', { method: 'POST' })
+    expect(logged).toEqual([])
+  })
+
+  it('carries the login cookie', async () => {
+    const base = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    await reportingFetch(base)('https://relay.test/trpc/issues.list?batch=1', { method: 'POST' })
+    expect(base.mock.calls[0]?.[1]).toMatchObject({ method: 'POST', credentials: 'include' })
+  })
+
+  it('stays silent for the logging transport, whose failures would feed themselves', async () => {
+    const base = vi.fn().mockResolvedValue(new Response('nope', { status: 500 }))
+    await reportingFetch(base, { report: false })('https://relay.test/trpc/logs.forward?batch=1', {
+      method: 'POST',
+    })
+    expect(logged).toEqual([])
+  })
+
+  it('never reports a logs.* failure even on a reporting client', async () => {
+    // Belt and braces: the log transport builds its own client with reporting
+    // off, and a caller that forgets still cannot start the loop.
+    const base = vi.fn().mockResolvedValue(new Response('nope', { status: 500 }))
+    await reportingFetch(base)('https://relay.test/trpc/logs.crash?batch=1', { method: 'POST' })
+    expect(logged).toEqual([])
   })
 })

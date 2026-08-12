@@ -498,6 +498,7 @@ export class SocketHub {
     } catch (err) {
       // A constructor throw before first contact is a config problem (bad URL) —
       // surface it; once we have connected successfully, retry like any other drop.
+      log.warn('socket could not be opened', { err, everConnected: this.everConnected })
       if (this.everConnected) this.scheduleReconnect()
       else this.opts.onError?.(errorMessage(err, 'WebSocket connection failed'), err)
       return
@@ -509,6 +510,10 @@ export class SocketHub {
     this.socket = socket
     socket.onopen = () => {
       opened = true
+      // BEFORE `everConnected` moves, so the record says whether this was the
+      // first connection or a recovery — which is the difference between "the
+      // client started" and "the client survived something".
+      log.info('socket connected', { reconnect: this.everConnected })
       this.connectedFlag = true
       this.everConnected = true
       this.reconnectDelay = RECONNECT_MIN_MS
@@ -611,6 +616,12 @@ export class SocketHub {
 
   /** Common teardown for any socket end: from onclose or a heartbeat force-close. */
   private onSocketClosed(): void {
+    if (!this.intentionalClose) {
+      // `warn`, so it forwards at the client's default threshold: a client that
+      // keeps losing its socket is the thing an operator most wants to see from
+      // the outside, and it is invisible in the server's own logs.
+      log.warn('socket closed — reconnecting', { retryInMs: this.reconnectDelay })
+    }
     this.stopHeartbeat()
     this.connectedFlag = false
     this.socket = undefined
@@ -628,6 +639,9 @@ export class SocketHub {
     if (this.reconnectTimer !== undefined) return
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined
+      // `debug`: one line per attempt is flight-recorder context, not something
+      // an operator wants forwarded during an hour-long outage.
+      log.debug('reconnecting', { afterMs: this.reconnectDelay })
       this.connect()
     }, this.reconnectDelay)
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS)

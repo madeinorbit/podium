@@ -28,5 +28,9 @@ export function trpcLogTransport(trpc: Trpc): LogTransport {
 
 /** The transport for the page's own server, resolved from `window.location`. */
 export function pageLogTransport(): LogTransport {
-  return trpcLogTransport(makeTrpc(serverConfig(window.location).httpOrigin))
+  // `report: false`: every OTHER client logs its failed calls at `warn`
+  // (POD-1935), and this one must not — a failed `logs.forward` that produced a
+  // warn record would hand that record to the sink whose send just failed, and
+  // mint another on every retry.
+  return trpcLogTransport(makeTrpc(serverConfig(window.location).httpOrigin, { report: false }))
 }
