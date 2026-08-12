@@ -12,7 +12,9 @@
  *  The `discovered-from` edge carries the provenance instead, and the sidebar
  *  renders it as the quiet ⤷ origin tick. */
 
-/** Full form — rides the prime rules. */
+/** Full form — committed guide. The always-on system pointer carries
+ *  SPINOFF_RULE_TERSE; the bound-issue prime header restates the litmus once.
+ *  The static prime tail does not (POD-789). */
 export const SPINOFF_RULE =
   'Filing new work while attached to an issue, apply the litmus test: could your CURRENT issue close honestly, today, with the new work untouched? ' +
   'If YES it is a SPIN-OFF, not a subtask — when the human moves you onto it, `podium issue attach --spinoff "<title>" --confirm-rehome` ' +

@@ -9,7 +9,9 @@
  *  this is only length. Used by setAgentName, createSession, and spawn gate. */
 export const MAX_AGENT_TITLE_LENGTH = 120
 
-/** How an agent must title an issue. Injected into the prime rules verbatim. */
+/** How an agent must title an issue. The full form lives here and in the
+ *  committed guide; the always-on system pointer carries TITLE_RULE_TERSE.
+ *  Prime does not restate this (POD-789). */
 export const TITLE_RULE =
   'Issue titles: 3–5 words naming the thing or the outcome, not the activity. ' +
   'Do not open with a generic descriptor such as "Implement", "Complete", "Investigate", "Add" or "Update" — ' +

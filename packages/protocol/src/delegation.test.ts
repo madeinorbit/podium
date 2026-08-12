@@ -59,3 +59,10 @@ describe('LOCK_RULE', () => {
     expect(MERGE_LANDING_RULE.length).toBeGreaterThan(200)
   })
 })
+
+describe('prime-bound procedure length (POD-789)', () => {
+  it('keeps the three always-loaded procedures under 4 KB combined', () => {
+    const combined = MERGE_LANDING_RULE.length + LOCK_RULE.length + DELEGATION_RULE.length
+    expect(combined).toBeLessThan(4000)
+  })
+})

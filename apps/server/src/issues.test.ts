@@ -3197,6 +3197,18 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('docs/agents/delegating.md')
   })
 
+  it('prime does not restate always-on system-pointer policy (POD-789)', () => {
+    const { svc } = harness()
+    const out = svc.prime({ repoPath: '/r', boundIssueId: null })
+    const policy = out.slice(out.lastIndexOf('\n\n') + 2)
+    // Stages, titles, offers, artifacts, and the discovered-from essay already
+    // ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the unique procedures.
+    expect(policy).not.toContain('podium offer')
+    expect(policy).not.toContain('Bug: duplicate session rows')
+    expect(policy).not.toContain('lands in Proposed automatically')
+    expect(policy.length).toBeLessThan(7000)
+  })
+
   it('prime renders structural blockers and parent as ref (title) (open only)', () => {
     const { svc } = harness()
     const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })

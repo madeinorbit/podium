@@ -42,15 +42,15 @@
  * after your own push (the push moved it), stale later until you fetch.
  */
 export const MERGE_LANDING_RULE =
-  'Landing an issue on a shared branch (e.g. main) — HARD procedure, not a preference: ' +
-  '(1) `podium merge-lock acquire --wait` (you alone may move main while you hold it). ' +
-  '(2) Refresh LOCAL `main` from origin (`git fetch` then `git merge --ff-only origin/main` on the main checkout — use `git -C <main-checkout>` from an issue worktree; never `cd` into it). ' +
-  'NEVER `git reset --hard origin/main` (or any reset on main) — not as this step, not as a repair: local main legitimately carries landings origin does not, and a reset discards them SILENTLY, whereas `--ff-only` refuses and shows you the divergence. ' +
-  '(3) On the ISSUE branch, `git rebase` onto that local `main`. Diverged history is NOT an alternate land path — if rebase fails or foreign commits appear, STOP and ask; do not invent another route. ' +
-  '(4) On LOCAL `main`, `git merge --ff-only <issue-branch>` so the issue tip becomes an ancestor of main. If it aborts because untracked files in the main checkout would be overwritten, do NOT `merge -f`/`checkout --force`/`rm` your way past it — an untracked file has no reflog. Compare bytes first (`git hash-object <path>` vs `git rev-parse HEAD:<path>`); identical means it is a duplicate of committed content and is safe to back up and remove, different means uncommitted work — STOP and ask. ' +
+  'Landing on a shared branch (e.g. main) — HARD procedure: ' +
+  '(1) `podium merge-lock acquire --wait`. ' +
+  '(2) Refresh LOCAL `main` (`git fetch` then `git merge --ff-only origin/main` on the main checkout via `git -C <main-checkout>`; never `cd` into it). ' +
+  'NEVER `git reset --hard origin/main` (or any reset on main): local main may already carry landings origin does not, and a reset discards them SILENTLY, whereas `--ff-only` refuses. ' +
+  '(3) On the ISSUE branch, `git rebase` onto that local `main`. If rebase fails or foreign commits appear, STOP and ask. ' +
+  '(4) On LOCAL `main`, `git merge --ff-only <issue-branch>`. If untracked files would be overwritten, do NOT `merge -f`/`checkout --force`/`rm` — an untracked file has no reflog. Compare bytes (`git hash-object <path>` vs `git rev-parse HEAD:<path>`); identical = back up and remove; different = STOP and ask. ' +
   '(5) `git push origin main`, then `podium merge-lock release` IMMEDIATELY. ' +
-  'NEVER cherry-pick the issue commit onto main. NEVER push a temp branch tip to main. NEVER "land the unique content under a new SHA" and leave the issue branch behind. ' +
-  'Done when `git -C <main-checkout> merge-base --is-ancestor <issue-tip> origin/main` (or `gitState.merged` is true) — not merely when `gitState.ahead` is 0: ahead is measured against parentBranch, which for a stacked issue can be a landed sibling that never moves again, and closed + wrong ahead keeps "ready to merge" in the sidebar forever. merge-base reads the LOCAL origin/main ref (current right after your push; fetch first if checking later). Full guide: docs/agents/podium-issues.md#landing-on-main.'
+  'NEVER cherry-pick onto main. NEVER push a temp branch tip. NEVER land unique content under a new SHA and leave the issue branch behind. ' +
+  'Done when `git -C <main-checkout> merge-base --is-ancestor <issue-tip> origin/main` (or `gitState.merged`) — not when `gitState.ahead` is 0: ahead is measured against parentBranch, and a stacked sibling can keep "ready to merge" in the sidebar forever. merge-base reads the LOCAL origin/main ref (fetch first if checking later). Guide: docs/agents/podium-issues.md#landing-on-main.'
 
 /** Advisory named leases [spec:SP-85d1]. Injected into the prime rules verbatim,
  *  next to the merge-lock rule.
@@ -61,24 +61,22 @@ export const MERGE_LANDING_RULE =
  *  sharing a workspace had no coordination primitive they knew about. */
 export const LOCK_RULE =
   'Locks are not just for merging: `podium lock acquire <name> [--ttl 10m] [--wait]` takes an advisory lease on ANY name ' +
-  '(`release`/`renew`/`cancel`/`status`/`steal`; `podium merge-lock` is only sugar for the lock named `merge:<branch>`). ' +
-  'The `merge` namespace is RESERVED to exactly that canonical name — `podium lock acquire merge` and other near-misses are REFUSED, because leases key on the exact name and a second spelling serialises against nothing. Take the merge mutex through `podium merge-lock`. ' +
-  'Use one whenever two sessions could touch the same thing — shared files, a migration number, a dev server, a deploy. ' +
-  'Leases are ADVISORY: nothing enforces them, they expire (default 2m — pass `--ttl` or `renew`), and they only work if BOTH sides agree to take them. ' +
-  '`acquire` REFUSES when a sibling — another session on your issue, or any session sharing your worktree — already holds or is queued for that lock: coordinate with the session it names, or pass `--allow-sibling` when serialised multi-session access is what you actually want. Re-acquiring a lock you already hold renews it.'
+  '(`release`/`renew`/`cancel`/`status`/`steal`; `podium merge-lock` is sugar for `merge:<branch>`). ' +
+  'The `merge` namespace is RESERVED to that canonical name — `podium lock acquire merge` and near-misses are REFUSED. Take the merge mutex through `podium merge-lock`. ' +
+  'Use a lock whenever two sessions could touch the same thing. ' +
+  'Leases are ADVISORY: nothing enforces them, they expire (default 2m), and they only work if BOTH sides take them. ' +
+  '`acquire` REFUSES when a sibling — another session on your issue, or any session sharing your worktree — already holds or is queued: coordinate, or pass `--allow-sibling`. Re-acquiring a lock you hold renews it.'
 
 /** How an agent must delegate. Compact by design: this rides the prime, which is
  *  injected into every session, and most sessions never delegate — so this states
  *  the four things that are wrong-by-default and points at the full guide. */
 export const DELEGATION_RULE =
-  'Delegating (`podium agent spawn --prompt "…" --issue <ref>`): the system infers NOTHING about your delegate — no roles, no write-claim, no auto-isolation. ' +
-  'What you TELL it is the only lever, so every spawn prompt must carry four things: ' +
-  '(1) PLACEMENT — `agent spawn --issue <ref>` adds a delegate to an ALREADY-STARTED issue, sharing its workspace and files; that is the default and it is right for a reviewer or researcher. Issues own branches and sessions never do, so a delegate that must implement CONCURRENTLY needs its own issue — one command: `podium issue create --parent-id <id> --description "<its brief>" --start`, which creates the branch+worktree AND spawns exactly one agent with the description as its first prompt. Do NOT also `agent spawn --issue <sub>` after `--start`: that puts a SECOND agent in the same worktree and they clobber each other. `--worktree` does NOT isolate — it only asserts the issue has a worktree, so pass it to fail loudly instead of silently landing in the repo root. ' +
-  '(2) NAMING — name it at spawn with `agent spawn --title "Reviewer: auth flow"` (names the SESSION; `--new "title"` names an ISSUE) so the human\'s board reads like a team instead of a row of anonymous sessions. The isolated path has no such flag — `issue create --start` names the issue, so tell that delegate to self-title as its first action in the `--description`. You cannot retitle a delegate later: `podium session title` only renames the calling session. ' +
-  '(3) CONCURRENCY — if it may edit files another live session edits, prescribe the arrangement: who owns which files, or a lease. Never assume the system serializes it; it does not. ' +
-  '(4) TEAM — who else is on the issue, which machine they are on, and that `podium issue mail send <id>` is how to reach them. ' +
-  'Full guide: docs/agents/delegating.md'
+  'Delegating (`podium agent spawn --prompt "…" --issue <ref>`): the system infers nothing — no roles, no write-claim, no auto-isolation. Every spawn prompt must carry: ' +
+  '(1) PLACEMENT — `--issue <ref>` adds a delegate to an already-started issue (right for a reviewer). Concurrent implementation needs its own issue: `podium issue create --parent-id <id> --description "<its brief>" --start` (branch+worktree and exactly one agent). Do NOT also `agent spawn --issue <sub>` after `--start`. `--worktree` does not isolate — it only asserts a worktree exists. ' +
+  '(2) NAMING — `agent spawn --title "Reviewer: auth flow"` names the SESSION (`--new "title"` names an ISSUE). The isolated path has no title flag; tell that delegate to `podium session title` in the `--description`. You cannot retitle a delegate later. ' +
+  '(3) CONCURRENCY — if it may edit files another live session edits, say who owns which files or take a lease. The system does not serialize. ' +
+  '(4) TEAM — who else is on the issue, which machine, and that `podium issue mail send <id>` reaches them. ' +
+  'Guide: docs/agents/delegating.md'
 
-// No TERSE variant here, unlike ./titles: the prime is hook-injected into every
-// session already, so a second compressed copy in the always-on system pointer would
-// buy nothing and cost tokens in the sessions that never delegate — which is most.
+// These ride prime (not the always-on system pointer). Keep them operational and
+// short: the "why" lives in the file comment and docs/agents/*.md.
