@@ -1,7 +1,7 @@
 {
-  "id": "7c1d8e06-1e63-4591-987f-cfdb68fea5bf",
+  "id": "a9e98240-12ba-4815-8f9b-605b95a64656",
   "prevIds": [
-    "3e5e0960-5f10-4157-b2da-b31cf6e09a00"
+    "cdbdc62a-197f-448a-aca1-8ca6d4556ee0"
   ],
   "version": "7",
   "dialect": "sqlite",
@@ -28,6 +28,10 @@
     },
     {
       "name": "conversation_identities",
+      "entityType": "tables"
+    },
+    {
+      "name": "conversation_segment_incarnations",
       "entityType": "tables"
     },
     {
@@ -839,6 +843,86 @@
       "name": "created_at",
       "entityType": "columns",
       "table": "conversation_identities"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "machine_id",
+      "entityType": "columns",
+      "table": "conversation_segment_incarnations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "native_id",
+      "entityType": "columns",
+      "table": "conversation_segment_incarnations"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sequence",
+      "entityType": "columns",
+      "table": "conversation_segment_incarnations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "device",
+      "entityType": "columns",
+      "table": "conversation_segment_incarnations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "inode",
+      "entityType": "columns",
+      "table": "conversation_segment_incarnations"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "mirrored_bytes",
+      "entityType": "columns",
+      "table": "conversation_segment_incarnations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "conversation_segment_incarnations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "retired_at",
+      "entityType": "columns",
+      "table": "conversation_segment_incarnations"
     },
     {
       "type": "text",
@@ -2517,6 +2601,26 @@
       "default": "1",
       "generated": null,
       "name": "podium_managed",
+      "entityType": "columns",
+      "table": "machines"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'stable'",
+      "generated": null,
+      "name": "update_channel",
+      "entityType": "columns",
+      "table": "machines"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "update_channel_override",
       "entityType": "columns",
       "table": "machines"
     },
@@ -6613,6 +6717,17 @@
     {
       "columns": [
         "machine_id",
+        "native_id",
+        "sequence"
+      ],
+      "nameExplicit": true,
+      "name": "conversation_segment_incarnations_pk",
+      "entityType": "pks",
+      "table": "conversation_segment_incarnations"
+    },
+    {
+      "columns": [
+        "machine_id",
         "native_id"
       ],
       "nameExplicit": true,
@@ -7312,6 +7427,28 @@
       "name": "idx_automation_runs_automation",
       "entityType": "indexes",
       "table": "automation_runs"
+    },
+    {
+      "columns": [
+        {
+          "value": "machine_id",
+          "isExpression": false
+        },
+        {
+          "value": "native_id",
+          "isExpression": false
+        },
+        {
+          "value": "sequence",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "conversation_segment_incarnations_native",
+      "entityType": "indexes",
+      "table": "conversation_segment_incarnations"
     },
     {
       "columns": [
