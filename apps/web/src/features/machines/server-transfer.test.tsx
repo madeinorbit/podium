@@ -54,9 +54,7 @@ function snapshot(
   }
 }
 
-function statusTrpc(
-  query: () => Promise<ServerTransferStatusSnapshot>,
-): Store['trpc'] {
+function statusTrpc(query: () => Promise<ServerTransferStatusSnapshot>): Store['trpc'] {
   return {
     machines: { serverTransferStatus: { query } },
   } as unknown as Store['trpc']
@@ -66,10 +64,7 @@ describe('server transfer durable status', () => {
   it('lets the newest overlapping read publish and ignores the stale result', async () => {
     const older = deferred<ServerTransferStatusSnapshot>()
     const newer = deferred<ServerTransferStatusSnapshot>()
-    const query = vi
-      .fn()
-      .mockReturnValueOnce(older.promise)
-      .mockReturnValueOnce(newer.promise)
+    const query = vi.fn().mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise)
     const trpc = statusTrpc(query)
     const { result, unmount } = renderHook(() => useServerTransferStatus(trpc))
     let newerRead!: Promise<ServerTransferStatusSnapshot | null>
@@ -212,6 +207,64 @@ describe('server transfer controller', () => {
     expect(result.current.displayState).toBe('commit-uncertain')
   })
 
+  it('keeps a successful retry busy while refreshes and polls repeat the old aborted journal', async () => {
+    const aborted = transfer({
+      transferId: 'old-aborted',
+      state: 'aborted',
+      phase: 'aborted',
+      sourceFenced: false,
+    })
+    const firstStatus: ServerTransferStatusController = {
+      snapshot: snapshot(aborted),
+      error: null,
+      refresh: vi.fn().mockResolvedValue(snapshot(aborted)),
+    }
+    const trpc = {
+      machines: { transferServer: { mutate: vi.fn().mockResolvedValue({ state: 'committed' }) } },
+    } as unknown as Store['trpc']
+    const { result, rerender } = renderHook(
+      ({ status }: { status: ServerTransferStatusController }) =>
+        useServerTransfer({ trpc, targetMachineId: asMachineId('target'), status }),
+      { initialProps: { status: firstStatus } },
+    )
+
+    act(() => {
+      result.current.setPublicUrl('https://retry.example.com')
+      result.current.setConfirmation(SERVER_TRANSFER_CONFIRMATION)
+    })
+    await act(() => result.current.start())
+
+    expect(result.current.awaitingStatus).toBe(true)
+    expect(result.current.showProgress).toBe(true)
+    expect(result.current.transfer).toBeNull()
+    expect(result.current.displayState).toBeNull()
+
+    rerender({
+      status: {
+        ...firstStatus,
+        snapshot: snapshot({ ...aborted }),
+      },
+    })
+    expect(result.current.awaitingStatus).toBe(true)
+    expect(result.current.displayState).toBeNull()
+
+    rerender({
+      status: {
+        ...firstStatus,
+        snapshot: snapshot(
+          transfer({
+            transferId: 'new-retry',
+            state: 'preparing',
+            phase: 'preparing',
+            sourceFenced: false,
+          }),
+        ),
+      },
+    })
+    expect(result.current.awaitingStatus).toBe(false)
+    expect(result.current.displayState).toBe('preparing')
+  })
+
   it('resets state and ignores an old target operation after retargeting', async () => {
     const mutation = deferred<unknown>()
     const refresh = vi
@@ -306,8 +359,10 @@ describe('server transfer controller', () => {
     const trpc = {
       machines: { transferServer: { mutate: vi.fn().mockRejectedValue(new Error('reply lost')) } },
     } as unknown as Store['trpc']
-    const { result } = renderHook(() =>
-      useServerTransfer({ trpc, targetMachineId: asMachineId('target'), status }),
+    const { result, rerender } = renderHook(
+      ({ status }: { status: ServerTransferStatusController }) =>
+        useServerTransfer({ trpc, targetMachineId: asMachineId('target'), status }),
+      { initialProps: { status } },
     )
 
     act(() => {
@@ -317,13 +372,99 @@ describe('server transfer controller', () => {
     await act(() => result.current.start())
 
     expect(result.current.error).toBeNull()
+    expect(result.current.awaitingStatus).toBe(true)
+    expect(result.current.displayState).toBeNull()
+
+    rerender({ status: { ...status, snapshot: recovered } })
+
     expect(result.current.awaitingStatus).toBe(false)
+    expect(result.current.displayState).toBe('preparing')
+  })
+
+  it('invalidates an in-flight start when the surface closes', async () => {
+    const mutation = deferred<unknown>()
+    const refresh = vi.fn().mockResolvedValue(null)
+    const status: ServerTransferStatusController = { snapshot: null, error: null, refresh }
+    const trpc = {
+      machines: { transferServer: { mutate: vi.fn(() => mutation.promise) } },
+    } as unknown as Store['trpc']
+    const { result, rerender } = renderHook(
+      ({ active }: { active: boolean }) =>
+        useServerTransfer({ trpc, targetMachineId: asMachineId('target'), status, active }),
+      { initialProps: { active: true } },
+    )
+
+    act(() => {
+      result.current.setPublicUrl('https://new-target.example.com')
+      result.current.setConfirmation(SERVER_TRANSFER_CONFIRMATION)
+    })
+    let pendingStart!: Promise<void>
+    act(() => {
+      pendingStart = result.current.start()
+    })
+    rerender({ active: false })
+    expect(result.current.awaitingStatus).toBe(false)
+
+    await act(async () => {
+      mutation.resolve({ state: 'committed' })
+      await pendingStart
+    })
+    expect(refresh).not.toHaveBeenCalled()
+
+    rerender({ active: true })
+    expect(result.current).toMatchObject({
+      publicUrl: '',
+      confirmation: '',
+      awaitingStatus: false,
+      error: null,
+    })
+  })
+
+  it('invalidates an in-flight target check when the surface closes', async () => {
+    const uncertain = transfer({ state: 'commit-uncertain', phase: 'commit-uncertain' })
+    const mutation = deferred<unknown>()
+    const refresh = vi.fn().mockResolvedValue(snapshot(uncertain))
+    const status: ServerTransferStatusController = {
+      snapshot: snapshot(uncertain),
+      error: null,
+      refresh,
+    }
+    const trpc = {
+      machines: { transferServer: { mutate: vi.fn(() => mutation.promise) } },
+    } as unknown as Store['trpc']
+    const { result, rerender } = renderHook(
+      ({ active }: { active: boolean }) =>
+        useServerTransfer({ trpc, targetMachineId: asMachineId('target'), status, active }),
+      { initialProps: { active: true } },
+    )
+
+    let pendingCheck!: Promise<void>
+    act(() => {
+      pendingCheck = result.current.checkTarget()
+    })
+    rerender({ active: false })
+    expect(result.current.checkingTarget).toBe(false)
+
+    await act(async () => {
+      mutation.reject(new Error('closed check failed'))
+      await pendingCheck
+    })
+    expect(refresh).not.toHaveBeenCalled()
+
+    rerender({ active: true })
+    expect(result.current.checkingTarget).toBe(false)
+    expect(result.current.error).toBeNull()
   })
 
   it('clears a failed target check when refreshed durable status proves resolution', async () => {
     const uncertain = transfer({ state: 'commit-uncertain', phase: 'commit-uncertain' })
     const resolved = snapshot(
-      transfer({ state: 'committed', phase: 'connected', targetProof: true, sourceConnected: true }),
+      transfer({
+        state: 'committed',
+        phase: 'connected',
+        targetProof: true,
+        sourceConnected: true,
+      }),
     )
     const status: ServerTransferStatusController = {
       snapshot: snapshot(uncertain),

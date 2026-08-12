@@ -209,26 +209,38 @@ export function useServerTransfer({
   const [awaitingStatus, setAwaitingStatus] = useState(false)
   const [checkingTarget, setCheckingTarget] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const targetLifecycle = useRef({ targetMachineId, generation: 0, mounted: true })
-  const errorContext = useRef<
-    { kind: 'start' | 'check'; baseline: ServerTransfer } | undefined
-  >(undefined)
+  const targetLifecycle = useRef({ targetMachineId, active, generation: 0, mounted: active })
+  const pendingStart = useRef<{ baseline: ServerTransfer } | undefined>(undefined)
+  const errorContext = useRef<{ kind: 'start' | 'check'; baseline: ServerTransfer } | undefined>(
+    undefined,
+  )
 
-  // Invalidate callbacks from the old target during render. The effect below
-  // resets visible state after React commits the new target.
+  // Invalidate callbacks from the old target or a closed surface during render.
+  // They may finish, but cannot refresh or publish into a later reopen.
   if (targetLifecycle.current.targetMachineId !== targetMachineId) {
     targetLifecycle.current.targetMachineId = targetMachineId
     targetLifecycle.current.generation += 1
-    targetLifecycle.current.mounted = true
+    targetLifecycle.current.mounted = active
+  }
+  if (targetLifecycle.current.active !== active) {
+    targetLifecycle.current.active = active
+    if (!active) targetLifecycle.current.generation += 1
+    targetLifecycle.current.mounted = active
   }
 
-  const transfer =
-    status.snapshot?.transfer?.targetMachineId === targetMachineId
-      ? status.snapshot.transfer
-      : null
-  const transferState = transfer?.state
+  const durableTransfer =
+    status.snapshot?.transfer?.targetMachineId === targetMachineId ? status.snapshot.transfer : null
+  const pendingStartHasAdvanced = pendingStart.current
+    ? isNewOrAdvancedTransfer(pendingStart.current.baseline, durableTransfer, targetMachineId)
+    : true
+  // During an aborted retry, the previous journal entry is a baseline rather
+  // than the current attempt. Mask it until a new id or durable field proves
+  // progress so presentation cannot show "aborted" beneath an active retry.
+  const transfer = pendingStartHasAdvanced ? durableTransfer : null
   const displayState = transferDisplayState(transfer)
-  const showProgress = (displayState !== null && displayState !== 'aborted') || awaitingStatus
+  const effectiveAwaitingStatus = active && awaitingStatus && !pendingStartHasAdvanced
+  const showProgress =
+    (displayState !== null && displayState !== 'aborted') || effectiveAwaitingStatus
   const urlIsValid = isValidServerTransferUrl(publicUrl)
 
   const resetTransientState = useCallback((): void => {
@@ -237,12 +249,13 @@ export function useServerTransfer({
     setAwaitingStatus(false)
     setError(null)
     setCheckingTarget(false)
+    pendingStart.current = undefined
     errorContext.current = undefined
   }, [])
 
   useEffect(() => {
     const generation = targetLifecycle.current.generation
-    targetLifecycle.current.mounted = true
+    targetLifecycle.current.mounted = active
     resetTransientState()
     return () => {
       if (targetLifecycle.current.generation === generation) {
@@ -250,30 +263,42 @@ export function useServerTransfer({
         targetLifecycle.current.generation += 1
       }
     }
-  }, [resetTransientState, targetMachineId])
+  }, [active, resetTransientState, targetMachineId])
 
   useEffect(() => {
-    if (!active || (transferState && transferState !== 'aborted')) return
+    if (!active || pendingStart.current || durableTransfer?.state !== 'aborted') return
     resetTransientState()
-  }, [active, resetTransientState, transferState])
+  }, [active, durableTransfer?.state, resetTransientState])
 
-  // Once the journal has a matching entry it replaces the optimistic waiting
-  // marker. It also clears mutation-reply errors when durable state proves that
-  // the operation actually started or that an uncertain check resolved.
+  // Only a genuinely new or advanced journal entry replaces a retry's baseline
+  // and clears its optimistic waiting marker. It also clears mutation-reply
+  // errors when durable state proves progress or resolution.
   useEffect(() => {
-    if (transfer) setAwaitingStatus(false)
+    if (pendingStart.current && pendingStartHasAdvanced) {
+      if (durableTransfer?.state === 'aborted') {
+        resetTransientState()
+      } else {
+        pendingStart.current = undefined
+        setAwaitingStatus(false)
+      }
+    }
     const context = errorContext.current
-    if (!context || !isNewOrAdvancedTransfer(context.baseline, transfer, targetMachineId)) return
-    if (context.kind === 'check' && transferDisplayState(transfer) === 'commit-uncertain') return
+    if (!context || !isNewOrAdvancedTransfer(context.baseline, durableTransfer, targetMachineId)) {
+      return
+    }
+    if (context.kind === 'check' && transferDisplayState(durableTransfer) === 'commit-uncertain') {
+      return
+    }
     errorContext.current = undefined
     setError(null)
-  }, [targetMachineId, transfer])
+  }, [durableTransfer, pendingStartHasAdvanced, resetTransientState, targetMachineId])
 
   const start = useCallback(async (): Promise<void> => {
     const url = publicUrl.trim()
     if (!urlIsValid || confirmation !== SERVER_TRANSFER_CONFIRMATION) return
     const generation = targetLifecycle.current.generation
-    const baseline = transfer
+    const baseline = durableTransfer
+    pendingStart.current = { baseline }
     setAwaitingStatus(true)
     setError(null)
     errorContext.current = undefined
@@ -283,45 +308,30 @@ export function useServerTransfer({
         publicUrl: url,
         confirmation: SERVER_TRANSFER_CONFIRMATION,
       })
-      if (
-        !targetLifecycle.current.mounted ||
-        targetLifecycle.current.generation !== generation
-      ) {
+      if (!targetLifecycle.current.mounted || targetLifecycle.current.generation !== generation) {
         return
       }
-      const latest = await status.refresh()
-      if (
-        targetLifecycle.current.mounted &&
-        targetLifecycle.current.generation === generation &&
-        latest?.transfer?.targetMachineId === targetMachineId
-      ) {
-        setAwaitingStatus(false)
-      }
+      await status.refresh()
     } catch (cause) {
-      if (
-        !targetLifecycle.current.mounted ||
-        targetLifecycle.current.generation !== generation
-      ) {
+      if (!targetLifecycle.current.mounted || targetLifecycle.current.generation !== generation) {
         return
       }
       const latest = await status.refresh()
-      if (
-        !targetLifecycle.current.mounted ||
-        targetLifecycle.current.generation !== generation
-      ) {
+      if (!targetLifecycle.current.mounted || targetLifecycle.current.generation !== generation) {
         return
       }
       const latestTransfer =
         latest?.transfer?.targetMachineId === targetMachineId ? latest.transfer : null
-      setAwaitingStatus(false)
       if (isNewOrAdvancedTransfer(baseline, latestTransfer, targetMachineId)) {
         errorContext.current = undefined
       } else {
+        pendingStart.current = undefined
+        setAwaitingStatus(false)
         setError(cause instanceof Error ? cause.message : String(cause))
         errorContext.current = { kind: 'start', baseline }
       }
     }
-  }, [confirmation, publicUrl, status, targetMachineId, transfer, trpc, urlIsValid])
+  }, [confirmation, durableTransfer, publicUrl, status, targetMachineId, trpc, urlIsValid])
 
   const checkTarget = useCallback(async (): Promise<void> => {
     if (!transfer || displayState !== 'commit-uncertain' || checkingTarget) return
@@ -340,17 +350,11 @@ export function useServerTransfer({
     } catch (cause) {
       failure = cause
     }
-    if (
-      !targetLifecycle.current.mounted ||
-      targetLifecycle.current.generation !== generation
-    ) {
+    if (!targetLifecycle.current.mounted || targetLifecycle.current.generation !== generation) {
       return
     }
     const latest = await status.refresh()
-    if (
-      !targetLifecycle.current.mounted ||
-      targetLifecycle.current.generation !== generation
-    ) {
+    if (!targetLifecycle.current.mounted || targetLifecycle.current.generation !== generation) {
       return
     }
     const latestTransfer =
@@ -373,8 +377,8 @@ export function useServerTransfer({
     setPublicUrl,
     confirmation,
     setConfirmation,
-    awaitingStatus,
-    checkingTarget,
+    awaitingStatus: effectiveAwaitingStatus,
+    checkingTarget: active && checkingTarget,
     error,
     transfer,
     displayState,
