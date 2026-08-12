@@ -120,6 +120,7 @@ export const COMMAND_ACTIONS = [
   'resumeAndSend',
   'renameSession',
   'archiveSession',
+  'dismissOffer',
   'setWorkState',
   'setSnooze',
   'clearSnooze',
@@ -705,6 +706,14 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         rt.apply({ pins: { ...pins, panels: pins.panels.filter((id) => id !== sessionId) } })
         await rt.outbox.enqueue('pinSet', { kind: 'panel', id: sessionId, pinned: false })
       }
+    },
+    // NOT `enqueueOverlayed`, unlike its neighbours here: the contract is
+    // `offline: 'direct-only'`, so this goes straight at the server and the
+    // cleared session broadcast is what takes the offer off the surfaces. The
+    // error is left to propagate — a caller that has hidden its offer bar
+    // optimistically needs to hear that the server still holds it.
+    dismissOffer: async (sessionId: SessionId, offerCreatedAt: string) => {
+      await api.sessions.dismissOffer.mutate({ sessionId, offerCreatedAt })
     },
     setWorkState: async (sessionId: SessionId, workState: WorkState | null) =>
       rt.enqueueOverlayed('setWorkState', { sessionId, workState }),

@@ -288,6 +288,9 @@ export function SessionConversation({
                     offer={session.offer}
                     evidenceCount={offerArtifacts.length}
                     onAction={(prompt) => store.resumeAndSend(sessionId, prompt)}
+                    // The same write the web x makes: the offer leaves every
+                    // surface and every viewer, not just this phone.
+                    onDismiss={(offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt)}
                     onOpenEvidence={issue ? () => setPeekIssue(issue) : undefined}
                   />
                 ) : undefined

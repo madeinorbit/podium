@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>POD-777 — offer dismissal on mobile</title>
+<style>[stylesheet-group="0"] {  }
+html { -ms-text-size-adjust: 100%; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: rgba(0,0,0,0); }
+body { margin: 0px; }
+button::-moz-focus-inner,input::-moz-focus-inner { border: 0px; padding: 0px; }
+input::-webkit-search-cancel-button,input::-webkit-search-decoration,input::-webkit-search-results-button,input::-webkit-search-results-decoration { display: none; }
+[stylesheet-group="1"] {  }
+.css-view-g5y9jx { align-content: flex-start; align-items: stretch; background-color: rgba(0, 0, 0, 0.00); border: 0px solid black; box-sizing: border-box; display: flex; flex-basis: auto; flex-direction: column; flex-shrink: 0; list-style: none; margin: 0px; min-height: 0px; min-width: 0px; padding: 0px; position: relative; text-decoration: none; z-index: 0; }
+.css-accessibilityImage-9pa8cd { bottom: 0px; height: 100%; left: 0px; opacity: 0; position: absolute; right: 0px; top: 0px; width: 100%; z-index: -1; }
+.css-text-146c3p1 { background-color: rgba(0, 0, 0, 0.00); border: 0px solid black; box-sizing: border-box; color: rgba(0, 0, 0, 1.00); display: inline; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; list-style: none; margin: 0px; padding: 0px; position: relative; text-align: start; text-decoration: none; white-space: pre-wrap; word-wrap: break-word; }
+.css-textHasAncestor-1jxf684 { background-color: rgba(0, 0, 0, 0.00); border: 0px solid black; box-sizing: border-box; color: inherit; display: inline; font: inherit; list-style: none; margin: 0px; padding: 0px; position: relative; text-align: inherit; text-decoration: none; white-space: inherit; word-wrap: break-word; }
+.css-textinput-11aywtz { -moz-appearance: textfield; -webkit-appearance: none; background-color: rgba(0, 0, 0, 0.00); border: 0px solid black; box-sizing: border-box; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0px; padding: 0px; resize: none; border-radius: 0px; }
+[stylesheet-group="2"] {  }
+.r-display-xoduu5 { display: inline-flex; }
+.r-flex-13awgt0 { flex-grow: 1; flex-shrink: 1; flex-basis: 0%; }
+.r-borderColor-fx7oqy { border-color: rgba(0, 0, 255, 1.00); }
+.r-borderWidth-rs99b7 { border-width: 1px; }
+.r-borderColor-60ke3l { border-color: rgba(0, 128, 0, 1.00); }
+.r-borderWidth-d045u9 { border-width: 2px; }
+.r-borderColor-4a18lf { border-color: rgba(255, 0, 0, 1.00); }
+.r-overflow-1udh08x { overflow-x: hidden; overflow-y: hidden; }
+.r-display-krxsd3 {  }
+.r-overflow-1qsk4np { overflow-x: clip; overflow-y: clip; }
+.r-borderRadius-1jkafct { border-radius: 2px; }
+.r-padding-edyy15 { padding: 8px; }
+.r-borderColor-1awa8pu { border-color: rgba(101, 119, 134, 1.00); }
+.r-borderStyle-1phboty { border-style: solid; }
+.r-borderColor-1jyn79y { border-color: rgba(0, 150, 136, 1.00); }
+.r-borderColor-9x6qib { border-color: rgba(204, 214, 221, 1.00); }
+.r-borderColor-1d4xg89 { border-color: rgba(170, 184, 194, 1.00); }
+.r-margin-crgep1 { margin: 0px; }
+.r-padding-t60dpp { padding: 0px; }
+.r-margin-ywje51 { margin: auto; }
+.r-borderRadius-1j16mh1 { border-radius: 100%; }
+.r-borderRadius-1px6drs { border-radius: 7px; }
+.r-padding-tuq35u { padding: 4px; }
+.r-borderRadius-kdyh1x { border-radius: 6px; }
+.r-borderColor-10c4m5v { border-color: rgba(54, 74, 120, 1.00); }
+[stylesheet-group="2.1"] {  }
+.r-paddingBlock-ytbthy { padding-bottom: 10px; padding-top: 10px; }
+.r-paddingInline-3o4zer { padding-left: 12px; padding-right: 12px; }
+.r-marginBlock-1261m1d { margin-bottom: -4px; margin-top: -4px; }
+.r-paddingInline-n7gxbd { padding-left: 4px; padding-right: 4px; }
+.r-paddingBlock-11f147o { padding-bottom: 8px; padding-top: 8px; }
+[stylesheet-group="2.2"] {  }
+.r-insetInlineStart-10s2tm5 { left: 0%; }
+.r-insetInlineStart-dqe1q { right: 0%; }
+.r-insetInlineStart-rci37q { left: 100%; }
+.r-insetInlineStart-16o8guy { right: 100%; }
+[stylesheet-group="3"] {  }
+.r-bottom-1p0dtai { bottom: 0px; }
+.r-left-1d2f490 { left: 0px; }
+.r-position-u8s1d { position: absolute; }
+.r-right-zchlnj { right: 0px; }
+.r-top-ipm5af { top: 0px; }
+.r-pointerEvents-105ug2t { pointer-events: auto !important; }
+.r-pointerEvents-12vffkv>* { pointer-events: auto; }
+.r-pointerEvents-12vffkv { pointer-events: none !important; }
+.r-pointerEvents-ah5dr5>* { pointer-events: none; }
+.r-pointerEvents-ah5dr5 { pointer-events: auto !important; }
+.r-pointerEvents-633pao>* { pointer-events: none; }
+.r-pointerEvents-633pao { pointer-events: none !important; }
+.r-overflowX-11yh6sk { overflow-x: hidden; }
+.r-overflowY-buy8e9 { overflow-y: hidden; }
+.r-touchAction-19z077z { touch-action: none; }
+.r-scrollbarWidth-2eszeu::-webkit-scrollbar { display: none; }
+.r-scrollbarWidth-2eszeu { scrollbar-width: none; }
+.r-WebkitOverflowScrolling-150rngu { -webkit-overflow-scrolling: touch; }
+.r-flexDirection-eqz5dr { flex-direction: column; }
+.r-flexGrow-16y2uox { flex-grow: 1; }
+.r-flexShrink-1wbh5a2 { flex-shrink: 1; }
+.r-overflowY-1rnoaur { overflow-y: auto; }
+.r-transform-agouwx { transform: translateZ(0); }
+.r-flexDirection-18u37iz { flex-direction: row; }
+.r-overflowX-lltvgl { overflow-x: auto; }
+.r-justifyContent-1777fci { justify-content: center; }
+.r-position-gtdqiz { position: sticky; }
+.r-zIndex-mhe3cw { z-index: 10; }
+.r-scrollSnapType-mfh4gg { scroll-snap-type: x mandatory; }
+.r-scrollSnapType-1ocf4r9 { scroll-snap-type: y mandatory; }
+.r-scrollSnapAlign-cpa5s6 { scroll-snap-align: start; }
+.r-flexDirection-1euycsn { flex-direction: row-reverse; }
+.r-flexDirection-1d5kdc7 { flex-direction: column-reverse; }
+.r-transform-173mzie { transform: scaleY(-1); }
+.r-transform-10v3vxq { transform: scaleX(-1); }
+.r-width-19wmn03 { width: 20px; }
+.r-backgroundColor-u92y06 { background-color: rgba(255, 165, 0, 1.00); }
+.r-flexBasis-1mlwlqe { flex-basis: auto; }
+.r-zIndex-417010 { z-index: 0; }
+.r-backgroundColor-1niwhzg { background-color: rgba(0, 0, 0, 0.00); }
+.r-backgroundPosition-vvn4in { background-position: center center; }
+.r-backgroundRepeat-u6sd8q { background-repeat: no-repeat; }
+.r-backgroundSize-4gszlv { background-size: cover; }
+.r-height-1pi2tsx { height: 100%; }
+.r-width-13qz1uu { width: 100%; }
+.r-zIndex-1wyyakw { z-index: -1; }
+.r-backgroundSize-1sxrcry { background-size: auto; }
+.r-backgroundSize-ehq7j7 { background-size: contain; }
+.r-backgroundPosition-1mrlafo {  }
+.r-backgroundRepeat-17leim2 { background-repeat: repeat; }
+.r-backgroundSize-x3cy2q { background-size: 100% 100%; }
+.r-maxWidth-dnmrzs { max-width: 100%; }
+.r-textOverflow-1udbk01 { text-overflow: ellipsis; }
+.r-whiteSpace-3s2u2q { white-space: nowrap; }
+.r-wordWrap-1iln25a { word-wrap: normal; }
+.r-WebkitBoxOrient-8akbws { -webkit-box-orient: vertical; }
+.r-userSelect-lrvibr { -moz-user-select: none; -webkit-user-select: none; user-select: none; }
+.r-userSelect-1xnzce8 { -moz-user-select: text; -webkit-user-select: text; user-select: text; }
+.r-cursor-1loqt21 { cursor: pointer; }
+.r-alignItems-1awozwy { align-items: center; }
+.r-visibility-11j9u27 { visibility: hidden; }
+.r-animationDuration-17bb2tj { animation-duration: 0.75s; }
+.r-animationIterationCount-1muvv40 { animation-iteration-count: infinite; }
+.r-animationKeyframes-1yef0xd { animation-name: r-animation-11cv4x; }
+@-webkit-keyframes r-animation-11cv4x { 
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes r-animation-11cv4x { 
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.r-animationTimingFunction-1ldzwu0 { animation-timing-function: linear; }
+.r-animationPlayState-1abnn5w { animation-play-state: paused; }
+.r-height-z80fyv { height: 20px; }
+.r-height-1r8g8re { height: 36px; }
+.r-width-1acpoxo { width: 36px; }
+.r-transitionDuration-eafdt9 { transition-duration: 0.15s; }
+.r-transitionProperty-1i6wzkk { -moz-transition-property: opacity; -webkit-transition-property: opacity; transition-property: opacity; }
+.r-touchAction-1otgn73 { touch-action: manipulation; }
+.r-backgroundColor-14sbq61 { background-color: rgba(33, 150, 243, 1.00); }
+.r-color-jwli3a { color: rgba(255, 255, 255, 1.00); }
+.r-fontWeight-majxgm { font-weight: 500; }
+.r-textAlign-fdjqy7 { text-align: left; }
+.r-textAlign-1ff274t { text-align: right; }
+.r-textAlign-q4m81j { text-align: center; }
+.r-textTransform-tsynxw { text-transform: uppercase; }
+.r-backgroundColor-11mpjr4 { background-color: rgba(223, 223, 223, 1.00); }
+.r-color-c68hjy { color: rgba(161, 161, 161, 1.00); }
+.r-height-10ptun7 { height: 16px; }
+.r-width-1janqcz { width: 16px; }
+.r-cursor-7q8q6z { cursor: default; }
+.r-cursor-1ei5mc7 { cursor: inherit; }
+.r-backgroundColor-14lw9ot { background-color: rgba(255, 255, 255, 1.00); }
+.r-backgroundColor-11udlyb { background-color: rgba(0, 150, 136, 1.00); }
+.r-backgroundImage-rs94m5 { background-image: url("data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjxzdmcKICAgeG1sbnM6ZGM9Imh0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvIgogICB4bWxuczpjYz0iaHR0cDovL2NyZWF0aXZlY29tbW9ucy5vcmcvbnMjIgogICB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiCiAgIHhtbG5zOnN2Zz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciCiAgIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICAgdmVyc2lvbj0iMS4xIgogICB2aWV3Qm94PSIwIDAgMSAxIgogICBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJ4TWluWU1pbiBtZWV0Ij4KICA8cGF0aAogICAgIGQ9Ik0gMC4wNDAzODA1OSwwLjYyNjc3NjcgMC4xNDY0NDY2MSwwLjUyMDcxMDY4IDAuNDI5Mjg5MzIsMC44MDM1NTMzOSAwLjMyMzIyMzMsMC45MDk2MTk0MSB6IE0gMC4yMTcxNTcyOSwwLjgwMzU1MzM5IDAuODUzNTUzMzksMC4xNjcxNTcyOSAwLjk1OTYxOTQxLDAuMjczMjIzMyAwLjMyMzIyMzMsMC45MDk2MTk0MSB6IgogICAgIGlkPSJyZWN0Mzc4MCIKICAgICBzdHlsZT0iZmlsbDojZmZmZmZmO2ZpbGwtb3BhY2l0eToxO3N0cm9rZTpub25lIiAvPgo8L3N2Zz4K"); }
+.r-backgroundColor-dkge59 { background-color: rgba(170, 184, 194, 1.00); }
+.r-appearance-30o5oe { -moz-appearance: none; -ms-appearance: none; -webkit-appearance: none; appearance: none; }
+.r-position-1xcajam { position: fixed; }
+.r-zIndex-sfbmgh { z-index: 9999; }
+.r-animationDuration-9daxd3 { animation-duration: 250ms; }
+.r-animationTimingFunction-leqjx2 { animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1); }
+.r-animationTimingFunction-s62m2j { animation-timing-function: cubic-bezier(0.47, 0, 0.745, 0.715); }
+.r-animationKeyframes-xx3c9p { animation-name: r-animation-imtty0; }
+@-webkit-keyframes r-animation-imtty0 { 
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes r-animation-imtty0 { 
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.r-opacity-6dt33c { opacity: 1; }
+.r-animationKeyframes-g3mlsw { animation-name: r-animation-t2lo5v; }
+@-webkit-keyframes r-animation-t2lo5v { 
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes r-animation-t2lo5v { 
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.r-opacity-orgf3d { opacity: 0; }
+.r-animationKeyframes-1qulhi1 { animation-name: r-animation-1pzkwqh; }
+@-webkit-keyframes r-animation-1pzkwqh { 
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0%); }
+}
+@keyframes r-animation-1pzkwqh { 
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0%); }
+}
+.r-transform-ghxds0 { transform: translateY(0%); }
+.r-animationKeyframes-13aq9py { animation-name: r-animation-1iq689l; }
+@-webkit-keyframes r-animation-1iq689l { 
+  0% { transform: translateY(0%); }
+  100% { transform: translateY(100%); }
+}
+@keyframes r-animation-1iq689l { 
+  0% { transform: translateY(0%); }
+  100% { transform: translateY(100%); }
+}
+.r-transform-bi4vy9 { transform: translateY(100%); }
+.r-outlineStyle-1ny4l3l { outline-style: none; }
+.r-fontFamily-1qd0xha { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.r-fontSize-7cikom { font-size: inherit; }
+.r-forcedColorAdjust-1c6unfx { forced-color-adjust: none; }
+.r-height-4v7adb { height: 5px; }
+.r-animationDuration-1ay1djp { animation-duration: 1s; }
+.r-animationKeyframes-ebwn4k { animation-name: r-animation-q67da2; }
+@-webkit-keyframes r-animation-q67da2 { 
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+@keyframes r-animation-q67da2 { 
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.r-paddingBottom-lyj8nz {  }
+.r-paddingLeft-hd2s2b {  }
+.r-paddingRight-4n7guw {  }
+.r-paddingTop-1sg6ori {  }
+.r-height-1dernwh { height: 70%; }
+.r-transitionDuration-13tjlyg { transition-duration: 0.1s; }
+.r-alignSelf-k200y { align-self: flex-start; }
+.r-boxShadow-1ewcgjf { box-shadow: 0px 1px 3px rgba(0,0,0,0.5); }
+.r-placeholderTextColor-6taxm2::-webkit-input-placeholder { color: var(--placeholderTextColor); opacity: 1; }
+.r-placeholderTextColor-6taxm2::-moz-placeholder { color: var(--placeholderTextColor); opacity: 1; }
+.r-placeholderTextColor-6taxm2:-ms-input-placeholder { color: var(--placeholderTextColor); opacity: 1; }
+.r-placeholderTextColor-6taxm2::placeholder { color: var(--placeholderTextColor); opacity: 1; }
+.r-caretColor-van48c { caret-color: transparent; }
+.r-backgroundColor-1jb007x { background-color: rgba(245, 197, 24, 0.12); }
+.r-borderLeftColor-8s84zm { border-left-color: rgba(245, 197, 24, 1.00); }
+.r-borderLeftWidth-ms8t9i { border-left-width: 3px; }
+.r-gap-ojf8lh { gap: 6px; }
+.r-gap-1cmwbt1 { gap: 8px; }
+.r-color-7yp52b { color: rgba(245, 197, 24, 1.00); }
+.r-fontFamily-hdfpnq { font-family: GeistMono_600SemiBold; }
+.r-fontSize-1gkfh8e { font-size: 11px; }
+.r-letterSpacing-1gw5qj8 { letter-spacing: 1.32px; }
+.r-color-e06x05 { color: rgba(154, 154, 168, 1.00); }
+.r-fontSize-n6v787 { font-size: 13px; }
+.r-color-vanh1d { color: rgba(229, 48, 63, 1.00); }
+.r-color-qdwjiz { color: rgba(243, 243, 248, 1.00); }
+.r-fontFamily-wqpy3u { font-family: Geist_600SemiBold; }
+.r-fontSize-a023e6 { font-size: 15px; }
+.r-lineHeight-hbpseb { line-height: 22px; }
+.r-lineHeight-hjklzo { line-height: 19px; }
+.r-flexWrap-1w6e6rj { flex-wrap: wrap; }
+.r-minHeight-2yi16 { min-height: 36px; }
+.r-backgroundColor-1tg80ga { background-color: rgba(245, 197, 24, 1.00); }
+.r-backgroundColor-1nvgi8z { background-color: rgba(22, 34, 60, 1.00); }
+.r-color-1ebdi5r { color: rgba(10, 15, 28, 1.00); }
+.r-color-1t7a53m { color: rgba(215, 215, 224, 1.00); }
+.r-opacity-icoktb { opacity: 0.5; }
+.r-color-oitzsp { color: rgba(236, 214, 121, 1.00); }
+.r-backgroundColor-1w6mvak { background-color: rgba(10, 15, 28, 1.00); }
+.r-minHeight-mipnz4 { min-height: 58px; }
+.r-verticalAlign-ad9o1y { vertical-align: top; }</style>
+<style>
+  body { margin:0; background:#0d0f14; color:#e7e9ee;
+         font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 40px 24px 64px; }
+  h1 { font-size: 19px; font-weight: 650; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color:#9a9aa8; font-size: 13px; line-height:1.6; margin: 0 0 32px; max-width: 72ch; }
+  .grid { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .pane { min-width: 0; }
+  .cap { font: 600 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+         letter-spacing: .16em; text-transform: uppercase; color:#6c7690; margin-bottom: 9px; }
+  .note { color:#9a9aa8; font-size: 12px; line-height:1.6; margin-top: 10px; }
+  .phone { background:#12141a; border:1px solid #23262f; border-radius: 14px; padding: 14px; }
+  .foot { color:#6c7690; font-size: 11.5px; line-height:1.7; margin-top: 34px;
+          border-top:1px solid #23262f; padding-top: 14px; max-width: 78ch; }
+</style>
+</head><body><main>
+<h1>Offer dismissal on the phone</h1>
+<p class="sub">The real <code>SessionActionCard</code>, rendered through react-native-web — not a mockup.
+The x writes <code>sessions.dismissOffer</code>, the same command the web bar's x writes, carrying the
+offer's <code>createdAt</code> so a replacement posted between render and press survives.</p>
+<div class="grid">
+<section class="pane">
+  <div class="cap">Before</div>
+  <div class="phone"><div><div class="css-view-g5y9jx r-backgroundColor-1jb007x r-borderLeftColor-8s84zm r-borderLeftWidth-ms8t9i r-borderRadius-1px6drs r-gap-ojf8lh r-paddingBlock-ytbthy r-paddingInline-3o4zer" data-testid="session-action-card"><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-gap-1cmwbt1"><div dir="auto" class="css-text-146c3p1 r-color-7yp52b r-fontFamily-hdfpnq r-fontSize-1gkfh8e r-letterSpacing-1gw5qj8 r-textTransform-tsynxw">ACTION</div><div class="css-view-g5y9jx r-flex-13awgt0"></div></div><div dir="auto" class="css-text-146c3p1 r-color-qdwjiz r-fontFamily-wqpy3u r-fontSize-a023e6 r-lineHeight-hbpseb">Ready to merge</div><div dir="auto" class="css-text-146c3p1 r-WebkitBoxOrient-8akbws r-display-krxsd3 r-maxWidth-dnmrzs r-overflow-1qsk4np r-textOverflow-1udbk01 r-color-e06x05 r-fontSize-n6v787 r-lineHeight-hjklzo">All focused checks are green. The branch is stacked on POD-771.</div><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-flexWrap-1w6e6rj r-gap-1cmwbt1"><button aria-label="Merge" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-kdyh1x r-justifyContent-1777fci r-minHeight-2yi16 r-paddingInline-3o4zer r-backgroundColor-1tg80ga" style="transform: scale(1);" type="button"><div dir="auto" class="css-text-146c3p1 r-color-1ebdi5r r-fontFamily-wqpy3u r-fontSize-a023e6">Merge</div></button><button aria-label="Send back" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-kdyh1x r-justifyContent-1777fci r-minHeight-2yi16 r-paddingInline-3o4zer r-backgroundColor-1nvgi8z r-borderColor-10c4m5v r-borderWidth-rs99b7" style="transform: scale(1);" type="button"><div dir="auto" class="css-text-146c3p1 r-color-1t7a53m r-fontFamily-wqpy3u r-fontSize-a023e6">Send back</div></button></div></div></div></div>
+  <p class="note">Today: two exits, both of them answers to the question.</p>
+</section>
+<section class="pane">
+  <div class="cap">After</div>
+  <div class="phone"><div><div class="css-view-g5y9jx r-backgroundColor-1jb007x r-borderLeftColor-8s84zm r-borderLeftWidth-ms8t9i r-borderRadius-1px6drs r-gap-ojf8lh r-paddingBlock-ytbthy r-paddingInline-3o4zer" data-testid="session-action-card"><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-gap-1cmwbt1"><div dir="auto" class="css-text-146c3p1 r-color-7yp52b r-fontFamily-hdfpnq r-fontSize-1gkfh8e r-letterSpacing-1gw5qj8 r-textTransform-tsynxw">ACTION</div><div class="css-view-g5y9jx r-flex-13awgt0"></div><button aria-label="Dismiss offer" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-justifyContent-1777fci r-marginBlock-1261m1d r-padding-tuq35u" style="transform: scale(1);" data-testid="offer-dismiss" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6c7690" stroke-width="2.5" stroke-linecap="round"><title>Dismiss</title><path d="M18 6 6 18M6 6l12 12"></path></svg></button></div><div dir="auto" class="css-text-146c3p1 r-color-qdwjiz r-fontFamily-wqpy3u r-fontSize-a023e6 r-lineHeight-hbpseb">Ready to merge</div><div dir="auto" class="css-text-146c3p1 r-WebkitBoxOrient-8akbws r-display-krxsd3 r-maxWidth-dnmrzs r-overflow-1qsk4np r-textOverflow-1udbk01 r-color-e06x05 r-fontSize-n6v787 r-lineHeight-hjklzo">All focused checks are green. The branch is stacked on POD-771.</div><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-flexWrap-1w6e6rj r-gap-1cmwbt1"><button aria-label="Merge" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-kdyh1x r-justifyContent-1777fci r-minHeight-2yi16 r-paddingInline-3o4zer r-backgroundColor-1tg80ga" style="transform: scale(1);" type="button"><div dir="auto" class="css-text-146c3p1 r-color-1ebdi5r r-fontFamily-wqpy3u r-fontSize-a023e6">Merge</div></button><button aria-label="Send back" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-kdyh1x r-justifyContent-1777fci r-minHeight-2yi16 r-paddingInline-3o4zer r-backgroundColor-1nvgi8z r-borderColor-10c4m5v r-borderWidth-rs99b7" style="transform: scale(1);" type="button"><div dir="auto" class="css-text-146c3p1 r-color-1t7a53m r-fontFamily-wqpy3u r-fontSize-a023e6">Send back</div></button></div></div></div></div>
+  <p class="note">The x sits at the far end of the ACTION eyebrow — faint, and it takes no accent.</p>
+</section>
+<section class="pane">
+  <div class="cap">Dismissal failed</div>
+  <div class="phone"><div><div class="css-view-g5y9jx r-backgroundColor-1jb007x r-borderLeftColor-8s84zm r-borderLeftWidth-ms8t9i r-borderRadius-1px6drs r-gap-ojf8lh r-paddingBlock-ytbthy r-paddingInline-3o4zer" data-testid="session-action-card"><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-gap-1cmwbt1"><div dir="auto" class="css-text-146c3p1 r-color-7yp52b r-fontFamily-hdfpnq r-fontSize-1gkfh8e r-letterSpacing-1gw5qj8 r-textTransform-tsynxw">ACTION</div><div class="css-view-g5y9jx r-flex-13awgt0"></div><div dir="auto" class="css-text-146c3p1 r-color-vanh1d r-fontSize-n6v787">not dismissed — try again</div><button aria-label="Dismiss offer" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-justifyContent-1777fci r-marginBlock-1261m1d r-padding-tuq35u" style="transform: scale(1);" data-testid="offer-dismiss" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6c7690" stroke-width="2.5" stroke-linecap="round"><title>Dismiss</title><path d="M18 6 6 18M6 6l12 12"></path></svg></button></div><div dir="auto" class="css-text-146c3p1 r-color-qdwjiz r-fontFamily-wqpy3u r-fontSize-a023e6 r-lineHeight-hbpseb">Ready to merge</div><div dir="auto" class="css-text-146c3p1 r-WebkitBoxOrient-8akbws r-display-krxsd3 r-maxWidth-dnmrzs r-overflow-1qsk4np r-textOverflow-1udbk01 r-color-e06x05 r-fontSize-n6v787 r-lineHeight-hjklzo">All focused checks are green. The branch is stacked on POD-771.</div><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-flexWrap-1w6e6rj r-gap-1cmwbt1"><button aria-label="Merge" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-kdyh1x r-justifyContent-1777fci r-minHeight-2yi16 r-paddingInline-3o4zer r-backgroundColor-1tg80ga" style="transform: scale(1);" type="button"><div dir="auto" class="css-text-146c3p1 r-color-1ebdi5r r-fontFamily-wqpy3u r-fontSize-a023e6">Merge</div></button><button aria-label="Send back" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-kdyh1x r-justifyContent-1777fci r-minHeight-2yi16 r-paddingInline-3o4zer r-backgroundColor-1nvgi8z r-borderColor-10c4m5v r-borderWidth-rs99b7" style="transform: scale(1);" type="button"><div dir="auto" class="css-text-146c3p1 r-color-1t7a53m r-fontFamily-wqpy3u r-fontSize-a023e6">Send back</div></button></div></div></div></div>
+  <p class="note">The offer stays and the control comes back — the server still holds it.</p>
+</section>
+</div>
+<p class="foot">Generated from the component under test. The dismissal is shared session state:
+it clears the offer for every surface and every viewer, not just this phone.</p>
+</main></body></html>

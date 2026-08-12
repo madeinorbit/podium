@@ -71,6 +71,7 @@ function harness() {
     return entry
   })
   const refreshSuperThreads = vi.fn(async () => {})
+  const dismissOffer = vi.fn(async (_input: unknown) => ({}))
   const router = {
     current: () => ({
       view: 'tasks',
@@ -85,7 +86,10 @@ function harness() {
     api: {
       layout: { get: { query: async () => ({}) } },
       superagent: { startBtw: { mutate: vi.fn(async () => ({})) } },
-      sessions: { kill: { mutate: vi.fn(async () => ({})) } },
+      sessions: {
+        kill: { mutate: vi.fn(async () => ({})) },
+        dismissOffer: { mutate: dismissOffer },
+      },
     } as unknown as PodiumClientApi,
     hub: {} as SocketHub,
     outbox: {
@@ -111,6 +115,7 @@ function harness() {
   return {
     actions: createEngineActions(runtime),
     refreshSuperThreads,
+    dismissOffer,
     enqueue,
     pending,
     awaiting,
@@ -130,6 +135,32 @@ describe('engine action ownership boundary', () => {
   it('keeps command and device-local classifications disjoint', () => {
     expect(new Set([...COMMAND_ACTIONS, ...UI_LOCAL_ACTIONS]).size).toBe(
       COMMAND_ACTIONS.length + UI_LOCAL_ACTIONS.length,
+    )
+  })
+
+  it('sends an offer dismissal straight at the server, never through the Outbox', async () => {
+    const h = harness()
+
+    await h.actions.dismissOffer(sessionId, '2026-08-06T12:00:00.000Z')
+
+    // `offline: 'direct-only'` by contract. A queued dismissal draining hours
+    // later would aim at whatever offer is standing by then, and the stamp guard
+    // would turn that into a silent no-op rather than a correct write.
+    expect(h.dismissOffer).toHaveBeenCalledWith({
+      sessionId,
+      offerCreatedAt: '2026-08-06T12:00:00.000Z',
+    })
+    expect(h.queued).toEqual([])
+  })
+
+  it('lets an offer dismissal failure reach the caller', async () => {
+    const h = harness()
+    h.dismissOffer.mockRejectedValueOnce(new Error('offline'))
+
+    // Swallowing it would leave the surface claiming the offer is gone while the
+    // server still holds it — the caller un-hides its control on this rejection.
+    await expect(h.actions.dismissOffer(sessionId, '2026-08-06T12:00:00.000Z')).rejects.toThrow(
+      'offline',
     )
   })
 

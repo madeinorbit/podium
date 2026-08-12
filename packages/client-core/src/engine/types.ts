@@ -361,6 +361,18 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  when the session is already live. */
   resumeAndSend: (sessionId: SessionId, text: string) => Promise<void>
   archiveSession: (sessionId: SessionId, archived: boolean) => Promise<void>
+  /** Decline the standing offer without answering it [spec:SP-c7f1] — the third
+   *  exit, next to pressing a button and letting the next turn clear it.
+   *
+   *  SHARED state, not a local hide: the offer is a fact about the session, so
+   *  the dismissal leaves every surface and every viewer. DIRECT, not outboxed
+   *  (`offline: 'direct-only'`) — a queued dismissal draining hours later would
+   *  aim at whatever offer is standing by then, and the `offerCreatedAt` guard
+   *  would turn that into a silent no-op rather than a correct write.
+   *
+   *  Rejects if the write fails, so the caller can put its control back rather
+   *  than telling the operator an offer is gone while the server still holds it. */
+  dismissOffer: (sessionId: SessionId, offerCreatedAt: string) => Promise<void>
   setWorkState: (sessionId: SessionId, workState: WorkState | null) => Promise<void>
   /** Snooze a session out of the attention surface. `until` = null → until next
    *  message; ISO string → timed. Orthogonal to agent state. */

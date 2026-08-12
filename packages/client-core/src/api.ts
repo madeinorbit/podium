@@ -122,6 +122,10 @@ export interface PodiumClientApi {
     setWorkState: ApiMutation<WithMutationId<{ sessionId: SessionId; workState: WorkState | null }>>
     markRead: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
     markUnread: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
+    /** Decline one named offer [spec:SP-c7f1]. `offerCreatedAt` is the guard, not
+     *  a courtesy: it names the offer the user was looking at, so a replacement
+     *  posted between render and press survives instead of being swallowed. */
+    dismissOffer: ApiMutation<WithMutationId<{ sessionId: SessionId; offerCreatedAt: string }>>
     kill: ApiMutation<{ sessionId: SessionId }>
     continue: ApiMutation<{ sessionId: SessionId }>
     hibernate: ApiMutation<{ sessionId: SessionId }>
