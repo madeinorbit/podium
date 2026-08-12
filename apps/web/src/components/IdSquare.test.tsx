@@ -94,18 +94,22 @@ describe('IdSquare identity', () => {
     expect(el.getAttribute('style')).toContain('border-radius: 7px')
     expect(el.className).toContain('font-mono')
     expect(el.className).toContain('font-semibold')
-    // The number sets the square's size and the prefix recedes to ~65% of it
-    // (POD-725), so the part you cite reads first at every square size.
-    expect(el.style.fontSize).toBe('8.7px')
+    // The number sets the square's size; the prefix matches it and recedes by
+    // ink alone (POD-783). Sub-30px squares stay proportional to the 10.5px
+    // desktop pair rather than to a second, smaller ratio.
+    expect(el.style.fontSize).toBe('9.1px')
     const prefix = el.firstElementChild as HTMLElement
     expect(prefix.textContent).toBe('POD')
-    expect(prefix.style.fontSize).toBe('5.7px')
+    expect(prefix.style.fontSize).toBe('9.1px')
   })
 
-  it('runs the desktop row square at the design’s 10px / 6.5px pair', () => {
+  it('sets the desktop row square on the shell’s 10.5px micro floor, prefix included', () => {
+    // POD-783: the prefix used to be two thirds of the number — 6.5px on a 30px
+    // square, below anything the shell can legibly render. Both marks now sit on
+    // the floor and prefixColor is what separates them.
     render(<IdSquare issue={issue({ linearIdentifier: 'POD-9' })} state="working" size={30} onColorChange={vi.fn()} />)
-    expect(square().style.fontSize).toBe('10px')
-    expect((square().firstElementChild as HTMLElement).style.fontSize).toBe('6.5px')
+    expect(square().style.fontSize).toBe('10.5px')
+    expect((square().firstElementChild as HTMLElement).style.fontSize).toBe('10.5px')
   })
 })
 

@@ -31,7 +31,11 @@ export const BRIDGE_NOTCH_W = 10
 function statusInk(phase: MotionPhase): string | undefined {
   if (phase === 'working') return 'var(--live)'
   if (phase === 'done') return 'var(--muted-foreground)'
-  if (phase === 'queued') return 'var(--text-faint)'
+  // --text-dim, not --text-faint: faint is 3.87:1 on the dark ground, and a
+  // queued row's status word is persistent copy the reader is meant to be able
+  // to read, not a hint. Dim clears AA (5.16:1) and still sits a step under the
+  // done row's --muted-foreground (POD-783).
+  if (phase === 'queued') return 'var(--text-dim)'
   return undefined
 }
 
@@ -289,7 +293,7 @@ export function WorkRowShell({
                 baseline-aligned so the right-side facts ("22 uncommitted", the
                 spin-off tick) sit level with the status word, not lifted toward
                 the agent tiles on the line above. */}
-            <span className="shell-type-micro flex min-w-0 items-baseline gap-1.5 font-mono text-muted-foreground">
+            <span className="shell-type-secondary flex min-w-0 items-baseline gap-1.5 font-mono text-muted-foreground">
               {/* One lifecycle lockup is the row's first-glance answer. Agent
                   tiles remain identity-only; git renders only exceptions. */}
               <span
@@ -340,7 +344,7 @@ export function WorkRowShell({
             // rather than the full-height slab it used to be. The rim is an inset
             // shadow, not a border, so the 20px is 20px of readable inside — and
             // the chip can never add a pixel to the row it rides on.
-            className="group/tuck flex h-5 flex-none items-center gap-1.5 self-center rounded-[6px] px-[7px] font-mono text-[9.5px] leading-none tracking-[0.02em] text-muted-foreground shadow-[inset_0_0_0_1px_var(--border-strong)] transition-colors hover:bg-accent hover:text-text-strong"
+            className="shell-type-micro group/tuck flex h-5 flex-none items-center gap-1.5 self-center rounded-[6px] px-[7px] font-mono leading-none tracking-[0.02em] text-muted-foreground shadow-[inset_0_0_0_1px_var(--border-strong)] transition-colors hover:bg-accent hover:text-text-strong"
             title="Tuck this finished task down into Closed — it stays reachable there (click to reopen, or start an agent to pick it back up). Nothing is killed or closed."
             aria-label={`Tuck ${label} into Closed`}
             onClick={(event) => {

@@ -1,0 +1,400 @@
+<title>Sidebar Type Scale Regression</title>
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --card: #ffffff;
+    --ink: #1d1c19;
+    --ink-2: #55524c;
+    --ink-3: #85817a;
+    --rule: #e6e2db;
+    --rule-2: #d3cec5;
+    --bad: #b0442e;
+    --good: #2f7d4f;
+    --warn: #a67a12;
+    --accent: #2b5fa8;
+    --mono: ui-monospace, "SF Mono", "Geist Mono", Menlo, monospace;
+  }
+  :root:not([data-theme="light"]) {
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16171a;
+      --card: #1b1d21;
+      --ink: #f2f3f5;
+      --ink-2: #a8adb6;
+      --ink-3: #848a94;
+      --rule: #26292f;
+      --rule-2: #3a3f48;
+      --bad: #e08b74;
+      --good: #7fc79b;
+      --warn: #e3ba52;
+      --accent: #8fb3e8;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16171a;
+    --card: #1b1d21;
+    --ink: #f2f3f5;
+    --ink-2: #a8adb6;
+    --ink-3: #848a94;
+    --rule: #26292f;
+    --rule-2: #3a3f48;
+    --bad: #e08b74;
+    --good: #7fc79b;
+    --warn: #e3ba52;
+    --accent: #8fb3e8;
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 62rem; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+
+  header { border-bottom: 1px solid var(--rule-2); padding-bottom: 2rem; margin-bottom: 3rem; }
+  h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 0.6rem; }
+  .dek { color: var(--ink-2); font-size: 1.05rem; margin: 0; max-width: 46rem; }
+  .stamp { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 1.2rem; }
+
+  h2 { font-size: 1.4rem; letter-spacing: -0.01em; margin: 3.5rem 0 1rem; padding-top: 2rem; border-top: 1px solid var(--rule); }
+  h2:first-of-type { border-top: none; padding-top: 0; }
+  h3 { font-size: 1.05rem; margin: 2rem 0 0.6rem; }
+  p { margin: 0 0 1rem; max-width: 46rem; }
+  ul, ol { max-width: 46rem; padding-left: 1.2rem; }
+  li { margin-bottom: 0.5rem; }
+  code { font-family: var(--mono); font-size: 0.87em; background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 0.12em 0.36em; border-radius: 4px; }
+  strong { font-weight: 650; }
+
+  .verdict {
+    background: var(--card);
+    border: 1px solid var(--rule-2);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 1.4rem 1.6rem;
+    margin: 2rem 0;
+  }
+  .verdict p:last-child { margin-bottom: 0; }
+
+  .tablewrap { overflow-x: auto; margin: 1.5rem 0; border: 1px solid var(--rule); border-radius: 10px; background: var(--card); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; min-width: 34rem; }
+  th, td { text-align: left; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-size: 0.72rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .good { color: var(--good); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+
+  figure { margin: 2rem 0; }
+  figure img { max-width: 100%; height: auto; display: block; border: 1px solid var(--rule-2); border-radius: 10px; }
+  figcaption { font-size: 0.82rem; color: var(--ink-3); margin-top: 0.6rem; }
+
+  .specimen {
+    background: #16171a;
+    border: 1px solid #26292f;
+    border-radius: 10px;
+    padding: 1.4rem 1.6rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .specimen-row { display: flex; align-items: baseline; gap: 1rem; padding: 0.5rem 0; border-bottom: 1px solid #26292f; }
+  .specimen-row:last-child { border-bottom: none; }
+  .specimen-tag { font-family: var(--mono); font-size: 10px; color: #848a94; width: 9rem; flex: none; letter-spacing: 0.04em; }
+  .specimen-sample { font-family: ui-sans-serif, system-ui, sans-serif; color: #f2f3f5; }
+  .specimen-sample.mono { font-family: var(--mono); }
+  .specimen-note { margin-left: auto; font-family: var(--mono); font-size: 10px; flex: none; padding-left: 1rem; }
+
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.2rem; margin: 1.5rem 0; }
+  .col { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 1.1rem 1.2rem; }
+  .col h4 { margin: 0 0 0.5rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); }
+  .col .big { font-family: var(--mono); font-size: 1.7rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .col .sub { font-size: 0.82rem; color: var(--ink-3); margin-top: 0.3rem; }
+
+  .fix { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 1.2rem 1.4rem; margin: 1rem 0; }
+  .fix-head { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+  .fix-id { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; color: var(--ink-3); }
+  .fix-title { font-weight: 650; font-size: 1rem; }
+  .fix p { margin-bottom: 0.5rem; font-size: 0.93rem; }
+  .fix p:last-child { margin-bottom: 0; }
+  .cost { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-3); }
+  .caveat { font-size: 0.88rem; color: var(--ink-3); border-left: 2px solid var(--rule-2); padding-left: 1rem; margin: 1.5rem 0; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="stamp">Podium · type scale audit · 12 August 2026</div>
+  <h1>The sidebar's second line lost a rung</h1>
+  <p class="dek">You were right. The macOS polish work from POD-450 was not reverted — its type system survived and grew. What eroded is the discipline around it: the work list's status line dropped from 12px to 10.5px, the issue-ID prefix fell to 6.5px, and sub-floor type tripled across the app. All of it inside one commit that never mentions typography.</p>
+</header>
+
+<div class="verdict" style="border-left-color: var(--good);">
+  <p><strong>Fixed and verified.</strong> The work list now has <em>no</em> text below the 10.5px floor — down from 43.4% of its visible text. The status line is back at 12px, the ID square reads at 10.5px including its prefix, and the whole shell's sub-floor share fell from 41.2% to 18.4%. A test now fails the build if any of it drifts again.</p>
+  <p>Two things I found while fixing and did <em>not</em> silently absorb: the stylesheets carry a further 68 sub-floor rules my original count missed (it only scanned TSX), and the Balanced/Compact question is deferred for your call. Both are itemised below.</p>
+</div>
+
+<h2>0 · What changed</h2>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Sidebar role</th><th class="num">Before</th><th class="num">After</th><th>Change</th></tr></thead>
+  <tbody>
+    <tr><td>Issue title</td><td class="num">13px</td><td class="num good">13px</td><td>Untouched — it was already on benchmark</td></tr>
+    <tr><td>Status word + time</td><td class="num bad">10.5px</td><td class="num good">12px</td><td><code>shell-type-micro</code> → <code>shell-type-secondary</code>, and the timer beside it now matches instead of setting its own 10px</td></tr>
+    <tr><td>Queued status ink</td><td class="num bad">3.87:1</td><td class="num good">5.16:1</td><td><code>--text-faint</code> → <code>--text-dim</code>; clears AA</td></tr>
+    <tr><td>ID number</td><td class="num bad">10px</td><td class="num good">10.5px</td><td>On the floor</td></tr>
+    <tr><td>ID prefix</td><td class="num bad">6.5px</td><td class="num good">10.5px</td><td>Recedes by ink now, not by size</td></tr>
+    <tr><td>Section label (<code>PODIUM</code>)</td><td class="num bad">8.5px</td><td class="num good">10.5px</td><td><code>label-mono</code> reads the token, so it follows density too</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="cols">
+  <div class="col">
+    <h4>Work list below floor</h4>
+    <div class="big good">43.4% → 0%</div>
+    <div class="sub">Measured live, same harness as the audit.</div>
+  </div>
+  <div class="col">
+    <h4>Whole shell below floor</h4>
+    <div class="big good">41.2% → 18.4%</div>
+    <div class="sub">Remainder is the stylesheet debt below.</div>
+  </div>
+  <div class="col">
+    <h4>Distinct sizes on screen</h4>
+    <div class="big good">11 → 8</div>
+    <div class="sub">Fewer local sizes, which was the root finding.</div>
+  </div>
+  <div class="col">
+    <h4>Regression guard</h4>
+    <div class="big good">5 tests</div>
+    <div class="sub">Fails the build on new sub-floor type in TSX or CSS.</div>
+  </div>
+</div>
+
+<figure>
+  <img src="POD-783-sidebar-fixed.png" alt="The Podium work list after the fix, with 12px status lines and 10.5px ID squares">
+  <figcaption>After. <code>needs review · 23m ago</code> reads as one 12px phrase, the ID square is legible including its prefix, and <code>PODIUM</code> is a section label rather than a smudge. Compare with the before capture further down.</figcaption>
+</figure>
+
+<h3>Two things I did not absorb quietly</h3>
+
+<p><strong>The stylesheet debt is larger than I first reported.</strong> My original count of 90 sub-floor call sites scanned only <code>.tsx</code> arbitrary values. <code>styles.css</code> carries a further <strong>68</strong> sub-10.5px <code>font-size</code> rules — that is how <code>label-mono</code> sat at 8.5px without appearing in any count. The real total was 158, not 90. The new test ratchets the CSS number so it can only go down, but the sweep itself is still outstanding.</p>
+
+<p><strong>Balanced density is deferred, not done.</strong> Step 5 of the plan — making Balanced meaningfully more generous than Compact — touches 79 <code>shell-type-*</code> call sites and would reverse POD-450's deliberate "the floor is the same in both modes" decision. That is a design change wanting its own visual review, not something to ride along in a regression fix, so it is on the issue's deferred list for you to call.</p>
+
+<div class="verdict">
+  <p><strong>Question 1 — did POD-450 get lost?</strong> No, and yes. The <em>machinery</em> is intact and better than it was: four semantic roles, a fifth added, a density switch, a wider sidebar. The <em>compliance</em> is what regressed. Two specific sidebar values that POD-450 pinned in its own metrics file have moved back down, and 90 call sites app-wide now sit below the 10.5px floor it established.</p>
+  <p><strong>Question 2 — how does Podium compare?</strong> The issue title at 13px is exactly on benchmark with Cursor/VS Code and Orca. Everything <em>under</em> the title is a rung or two below what any reference app uses for the same job. 41% of visible shell text is below 10.5px; the comparable figure in Orca — a denser, more IDE-like peer — is about 10%.</p>
+</div>
+
+<h2>1 · What POD-450 actually delivered, and what survived</h2>
+
+<p>POD-446 audited the shell on 6 August and found microtype was the largest polish gap. POD-450 implemented the fix and landed as <code>0e3a597</code>, pinning its results in <code>.design/POD-450-balanced-shell-metrics.json</code>. That commit is an ancestor of today's <code>main</code> — nothing was reverted.</p>
+
+<div class="tablewrap">
+<table>
+  <thead>
+    <tr><th>POD-450 deliverable</th><th>Status today</th><th>Evidence</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Four semantic type roles as CSS custom properties</td><td class="good">Intact — and extended</td><td>A fifth role, <code>--shell-type-column-title</code> (17px), was added since</td></tr>
+    <tr><td>Balanced / Compact density switch, balanced by default</td><td class="good">Intact</td><td><code>readStoredDensity</code> defaults to <code>balanced</code>; live root carries <code>data-density="balanced"</code></td></tr>
+    <tr><td>Consolidated topbar instrumentation under balanced</td><td class="good">Intact</td><td><code>html[data-density="balanced"]</code> rules still present in <code>styles.css</code></td></tr>
+    <tr><td>Wider sidebar (292px)</td><td class="good">Improved — now 306px</td><td>Measured live at 306px; rows 54px (was 52px)</td></tr>
+    <tr><td>Reading tier at 14.5px</td><td class="good">Improved — now 15px / 25px</td><td>Transcript reads as a document</td></tr>
+    <tr><td>Row title at 13px</td><td class="good">Intact</td><td>Measured live: 13px / 18px</td></tr>
+    <tr><td><strong>Row status line at 12px</strong></td><td class="bad">Regressed to 10.5px</td><td><code>shell-type-secondary</code> → <code>shell-type-micro</code></td></tr>
+    <tr><td><strong>Issue-ID label at 10.5px</strong></td><td class="bad">Regressed — 10px number, 6.5px prefix</td><td>Prefix was a same-size span at 72% opacity; now its own 6.5px span</td></tr>
+    <tr><td><strong>10.5px floor for ordinary text</strong></td><td class="bad">Eroded — 90 sub-floor call sites</td><td>Sub-10px hardcoded sizes went 27 → 90 since POD-450</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Both sidebar regressions came from one commit</h3>
+
+<p><code>git blame</code> points both at <code>9837bfd</code> — <em>"make the light theme warm paper, and the stage a sheet on it."</em> That commit is a 44-file theme and geometry rewrite. Its message describes the sheet, the tabs, the spine, the transcript and the mission gauge in detail. It says nothing about shrinking the work list's secondary line or re-sizing the ID square. These were collateral drift inside a large refactor, not a decision anyone recorded.</p>
+
+<p>The same commit is where the erosion happened more broadly: it systematically replaced <code>shell-type-*</code> role classes with hardcoded <code>text-[Npx]</code> values in the dock, the tray and the issue panels — reintroducing exactly the "many local sizes" entropy POD-446 named as the root problem.</p>
+
+<h2>2 · What a sidebar row is set in today</h2>
+
+<p>Measured from the running app — Chromium at 1440×1000, DPR 3, Superade dark theme, balanced density, from a build of current <code>main</code>.</p>
+
+<div class="specimen">
+  <div class="specimen-row">
+    <span class="specimen-tag">ID prefix</span>
+    <span class="specimen-sample mono" style="font-size:6.5px;color:#6f7580;">POD</span>
+    <span class="specimen-note bad">6.5px · 3.9:1 · was 10.5px</span>
+  </div>
+  <div class="specimen-row">
+    <span class="specimen-tag">ID number</span>
+    <span class="specimen-sample mono" style="font-size:10px;color:#a8adb6;">783</span>
+    <span class="specimen-note warn">10px · was 10.5px</span>
+  </div>
+  <div class="specimen-row">
+    <span class="specimen-tag">Issue title</span>
+    <span class="specimen-sample" style="font-size:13px;line-height:18px;color:#d7dae0;">Sidebar type scale regression</span>
+    <span class="specimen-note good">13px · on benchmark</span>
+  </div>
+  <div class="specimen-row">
+    <span class="specimen-tag">Status + time</span>
+    <span class="specimen-sample mono" style="font-size:10.5px;color:#6f7580;">needs review · 8h ago</span>
+    <span class="specimen-note bad">10.5px · 3.9:1 · was 12px</span>
+  </div>
+  <div class="specimen-row">
+    <span class="specimen-tag">Status, as POD-450 set it</span>
+    <span class="specimen-sample mono" style="font-size:12px;color:#949aa4;">needs review · 8h ago</span>
+    <span class="specimen-note good">12px · 6.3:1</span>
+  </div>
+</div>
+
+<p>The last two rows are the whole complaint. <code>needs review</code> is the single most operational word in the work list — it is the app telling you it is waiting on you — and it is set one rung below the app's own secondary role, in the only colour on the ramp that fails WCAG AA for normal text.</p>
+
+<div class="cols">
+  <div class="col">
+    <h4>Below 10.5px</h4>
+    <div class="big bad">41.2%</div>
+    <div class="sub">of visible shell text. POD-450 set 10.5px as the floor.</div>
+  </div>
+  <div class="col">
+    <h4>Below 10px</h4>
+    <div class="big bad">18.6%</div>
+    <div class="sub">Orca, a denser peer, is at roughly 1%.</div>
+  </div>
+  <div class="col">
+    <h4>At 13px or larger</h4>
+    <div class="big warn">15.4%</div>
+    <div class="sub">Almost entirely issue titles.</div>
+  </div>
+  <div class="col">
+    <h4>--text-faint contrast</h4>
+    <div class="big bad">3.87:1</div>
+    <div class="sub">Below AA (4.5:1). Carries the 6.5px prefix and the status word.</div>
+  </div>
+</div>
+
+<figure>
+  <img src="POD-783-sidebar-today.png" alt="The Podium work list sidebar captured at DPR 3, showing issue rows with 13px titles and 10.5px status lines">
+  <figcaption>The work list <strong>before</strong> the fix, DPR 3. Titles hold their weight. Every second line — <code>idle</code>, <code>needs review · 8h ago</code> — sits at 10.5px in a 3.87:1 grey, and the <code>POD</code> above each number is a 6.5px smudge.</figcaption>
+</figure>
+
+<h2>3 · How the reference apps set the same things</h2>
+
+<p>The comparison that matters is not "is Podium dense" — it is dense on purpose and that is fine. It is <strong>how far the secondary rung sits below the primary one</strong>, and where the floor is.</p>
+
+<div class="tablewrap">
+<table>
+  <thead>
+    <tr><th>Product</th><th class="num">Primary nav / row title</th><th class="num">Secondary / metadata</th><th class="num">Practical floor</th><th>How that was established</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Cursor</strong> (VS Code fork)</td>
+      <td class="num">13px</td>
+      <td class="num">13px</td>
+      <td class="num good">13px</td>
+      <td>Explorer/sidebar type is hardcoded at 13px in the workbench CSS; list rows 22px. There is no smaller UI tier — metadata dims rather than shrinks.</td>
+    </tr>
+    <tr>
+      <td><strong>Orca</strong> (open source)</td>
+      <td class="num">13px</td>
+      <td class="num">11–12px</td>
+      <td class="num good">10px</td>
+      <td>Measured across ~3,900 size declarations in current <code>main</code>: 12px is the modal size, 11px is heavy, 10px is reserved for badges. Sub-10px is ~1%.</td>
+    </tr>
+    <tr>
+      <td><strong>Linear</strong></td>
+      <td class="num">~13px</td>
+      <td class="num">12px</td>
+      <td class="num good">12px</td>
+      <td>Published scale bottoms out at <code>caption</code> 12px/400. The 2026 refresh <em>dimmed</em> the sidebar and <em>added</em> vertical padding — it made navigation quieter without making it smaller.</td>
+    </tr>
+    <tr>
+      <td><strong>Conductor</strong></td>
+      <td class="num">—</td>
+      <td class="num">—</td>
+      <td class="num">—</td>
+      <td>Native SwiftUI Mac app; no published tokens and no source to inspect, so I have no measured numbers. It inherits macOS control conventions, where 13pt is the standard control size and 11pt the small one.</td>
+    </tr>
+    <tr>
+      <td><strong>Podium</strong> today</td>
+      <td class="num">13px</td>
+      <td class="num bad">10.5px</td>
+      <td class="num bad">6.5px</td>
+      <td>Measured live. Title on benchmark; secondary a rung and a half below every peer; floor far below all of them.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>Two things fall out of this table.</p>
+
+<p><strong>Podium's titles are fine.</strong> 13px is precisely where Cursor, Orca and Linear put the equivalent line. No peer sets primary navigation larger. Do not raise it.</p>
+
+<p><strong>The gap between rungs is the defect.</strong> Every reference app puts its secondary tier <em>one small step</em> below primary — 13→12, or 13→11, or no step at all. Podium steps 13→10.5, a 19% drop, and then colours the smaller line at 3.87:1. Size and contrast compound, which is why it reads as haze rather than as hierarchy. Linear's refresh is the direct counter-example: faced with the same "the sidebar is too loud" problem, they dimmed it and gave it more air, and left the type size alone.</p>
+
+<div class="caveat">
+  <strong>On the whole-shell percentages.</strong> The 41.2% / 18.6% / 15.4% figures come from 221 visible text nodes in a workspace with no transcript open, so the 15px reading tier is under-represented compared with POD-446's 431-node sample of a full Work view. Treat those three numbers as directional. The sidebar measurements and the per-role table above are unaffected — they were read directly off the rendered rows.
+</div>
+
+<h2>4 · Fix plan</h2>
+
+<p>Steps 1–3 are <span class="good">done and verified</span>; step 4 is filed as follow-up work and step 5 is deferred for your call. The plan is kept below as written so the reasoning behind each step stays readable.</p>
+
+<div class="fix">
+  <div class="fix-head"><span class="fix-id good">P0 · 1 · DONE</span><span class="fix-title">Put the status line back on the secondary rung</span><span class="cost">one line</span></div>
+  <p><code>WorkRowShell.tsx:285</code> — <code>shell-type-micro</code> → <code>shell-type-secondary</code>. That restores 12px in balanced and 11px in compact, and re-satisfies the metric POD-450 pinned.</p>
+  <p>While there: the status word uses <code>--text-faint</code> (3.87:1). Move persistent row state to <code>--label</code> (6.33:1), keeping the amber attention tint where it already applies.</p>
+</div>
+
+<div class="fix">
+  <div class="fix-head"><span class="fix-id good">P0 · 2 · DONE</span><span class="fix-title">Stop rendering the ID prefix at 6.5px</span><span class="cost">a few lines</span></div>
+  <p><code>IdSquare.tsx</code> — <code>prefixSize</code> is currently <code>numberSize × 0.65</code>, which is 6.5px on a 30px desktop square. POD-450's treatment was better and simpler: render the prefix at the number's size and let opacity recede it. Restore that, and return <code>numberSize</code> to 10.5px on squares ≥30px.</p>
+  <p>POD-446 called the ID at 8.1px "engraved rather than readable". 6.5px is well under the size it condemned.</p>
+</div>
+
+<div class="fix">
+  <div class="fix-head"><span class="fix-id good">P1 · 3 · DONE</span><span class="fix-title">Make the floor a tripwire, not a habit</span><span class="cost">one test</span></div>
+  <p>POD-450 established a 10.5px floor and nothing enforced it, so a large unrelated refactor walked straight through it and no one noticed for six days. Add a unit test that scans <code>apps/web/src/**/*.tsx</code> for <code>text-[&lt;10.5px]</code> and fails with the offending file and line, seeded with an explicit allowlist for the handful of genuinely decorative marks.</p>
+  <p>This is the step that answers "will it drift again". Without it, the other three are temporary.</p>
+</div>
+
+<div class="fix">
+  <div class="fix-head"><span class="fix-id warn">P1 · 4 · FILED</span><span class="fix-title">Sweep the 90 sub-floor call sites onto the roles</span><span class="cost">staged</span></div>
+  <p>Ranked by how often you look at them: <code>AskUserQuestionCard</code> (13 sites), <code>IssueCard</code> (11), <code>MergeQueuePanel</code> (10), <code>IssueActivity</code> (8), <code>MessageLedgerView</code> (5). Each one becomes a <code>shell-type-*</code> class rather than a new local size.</p>
+  <p>This is also where the allowlist from step 3 gets emptied out — the test starts permissive and tightens as the sweep lands.</p>
+</div>
+
+<div class="fix">
+  <div class="fix-head"><span class="fix-id warn">P2 · 5 · DEFERRED</span><span class="fix-title">Make Balanced actually balanced</span><span class="cost">token edit</span></div>
+  <p>Balanced and Compact currently differ by 1px of reading, 0.5px of primary, 1px of secondary and nothing at all at micro. A user who picks Balanced gets almost the same shell. If the density switch is meant to be the answer to "it's too small for me", Balanced should move — secondary to 12.5px and micro to 11px would give it something to be.</p>
+</div>
+
+<h3>What I am deliberately not proposing</h3>
+
+<ul>
+  <li><strong>Raising the 13px title.</strong> It matches every peer. The problem is below it.</li>
+  <li><strong>Switching off Geist.</strong> POD-446 tested this reasoning and it still holds — the hierarchy is the problem, not the typeface.</li>
+  <li><strong>Reverting <code>9837bfd</code>.</strong> The Paper theme and sheet geometry are good work and the rest of that commit should stay. Only the type values it moved need correcting.</li>
+</ul>
+
+<h2>Evidence</h2>
+
+<ul>
+  <li><code>.design/POD-783-live-metrics.json</code> — full computed-style distribution, tokens, contrast and geometry from the running app.</li>
+  <li><code>.design/POD-783-sidebar-today.png</code>, <code>.design/POD-783-shell-today.png</code> — DPR 3 captures of current <code>main</code>.</li>
+  <li><code>.design/POD-450-balanced-shell-metrics.json</code> (in git at <code>0e3a597</code>) — the baseline these are compared against.</li>
+  <li><code>e2e/pod783-prepare.ts</code>, <code>e2e/pod783-measure.ts</code>, <code>e2e/pod783-sidebar-crop.ts</code> — the harness, re-runnable against any build.</li>
+  <li>Orca figures measured from a fresh clone of <code>stablyai/orca</code> <code>main</code> on 12 August 2026.</li>
+</ul>
+
+</div>

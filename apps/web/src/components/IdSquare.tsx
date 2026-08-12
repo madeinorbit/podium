@@ -212,11 +212,14 @@ export function IdSquare({
   // An uncoloured square only borrows the flow accent while it is the selected
   // one — the mock's selected row tints its square and rims it in `--issue`.
   const tinted = hex !== undefined || selected
-  // The number is what you cite, so it sets the square's type size; the prefix
-  // recedes to roughly two thirds of it. 30px desktop rows land on the design's
-  // 10px/6.5px pair, and the smaller rail/mobile squares stay proportional.
-  const numberSize = size >= 30 ? 10 : Math.round((size / 30) * 100) / 10
-  const prefixSize = Math.round(numberSize * 6.5) / 10
+  // The number is what you cite, so it sets the square's type size. The prefix
+  // recedes by INK, not by size (POD-783): a 30px desktop square used to set it
+  // at two thirds of the number — 6.5px — which is below anything the shell can
+  // legibly render and well under the 8.1px POD-446 already called unreadable.
+  // Both marks now sit on the shell's 10.5px micro floor and the prefix is told
+  // apart by prefixColor alone. Smaller rail/mobile squares stay proportional.
+  const numberSize = size >= 30 ? 10.5 : Math.round((size / 30) * 105) / 10
+  const prefixSize = numberSize
   // Written as longhands, not a `border` shorthand: a `var()` inside a shorthand
   // is only resolved at computed-value time, so the shorthand can't be read back.
   const squareStyle: CSSProperties = {
@@ -294,9 +297,9 @@ export function IdSquare({
         }}
       >
         {/* The prefix recedes so the number — the part you cite — reads first.
-            It carries its own size and ink rather than a blanket opacity: on a
-            tinted ground an opacity fade greys the hue out, and the design wants
-            a MUTED tint of the colour over the number's strong one. */}
+            It recedes by INK rather than a blanket opacity: on a tinted ground an
+            opacity fade greys the hue out, and the design wants a MUTED tint of
+            the colour over the number's strong one. */}
         <span style={{ fontSize: prefixSize, lineHeight: 1, color: prefixColor }}>
           {label.prefix}
         </span>

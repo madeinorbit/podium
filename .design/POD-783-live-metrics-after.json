@@ -1,0 +1,58 @@
+{
+  "density": "balanced",
+  "theme": "superade",
+  "tokens": {
+    "reading": "15px",
+    "primary": "13px",
+    "secondary": "12px",
+    "micro": "10.5px",
+    "columnTitle": "17px"
+  },
+  "colors": {
+    "background": "#16171a",
+    "textStrong": "#f2f3f5",
+    "textDim": "#848a94",
+    "textFaint": "#6f7580",
+    "label": "#949aa4",
+    "mutedForeground": "#a8adb6"
+  },
+  "geometry": {
+    "sidebar": {
+      "width": 306
+    },
+    "row": {
+      "height": 56
+    }
+  },
+  "rowType": {
+    "title": "13px",
+    "status": "10.5px"
+  },
+  "distribution": {
+    "total": 309,
+    "below10": "18.4%",
+    "below10_5": "18.4%",
+    "below11_5": "59.2%",
+    "atLeast13": "12.3%",
+    "distinctSizes": 8,
+    "histogram": {
+      "8.00": 3,
+      "9.00": 7,
+      "9.50": 47,
+      "10.50": 126,
+      "12.00": 86,
+      "12.50": 2,
+      "13.00": 37,
+      "17.00": 1
+    }
+  },
+  "sidebar": {
+    "total": 216,
+    "histogram": {
+      "12.00": 59,
+      "10.50": 120,
+      "13.00": 37
+    },
+    "subFloorExamples": []
+  }
+}

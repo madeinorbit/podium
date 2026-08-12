@@ -246,7 +246,11 @@ export function UnifiedIssueRow({
             sinceMs={timing.sinceMs}
             baseMs={timing.baseMs ?? 0}
             totalMs={timing.totalMs}
-            size={10}
+            // One phrase, one size (POD-783). "needs review · 8h ago" is a single
+            // mono sentence on line 2, so the timer matches the status word it
+            // follows rather than setting its own — it was 11px when POD-450
+            // pinned the row, then drifted to 10px against a 12px status line.
+            size={12}
             showSpinner={false}
             plainLanguage
             leadingSeparator

@@ -351,7 +351,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
       )}
       {commandPaletteEnabled && (
         <span
-          className="mono-timer ml-auto flex-none text-[9.5px] text-text-faint"
+          className="shell-type-micro mono-timer ml-auto flex-none text-text-faint"
           aria-hidden="true"
           data-testid="palette-hint"
         >

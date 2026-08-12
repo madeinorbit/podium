@@ -843,19 +843,19 @@
    row titles 11.5–12px/500 (selected 600) · section headers 12px/600 strong ·
    sub-lines 10px · chat body 11.5px/1.5 · role labels 9px/600/.07em · timers
    Geist Mono 9px · terminal Geist Mono 10.5px/1.7 · badge counts 9px/700. */
+/* The section label rides the shell's micro role rather than a size of its own
+   (POD-783). It was 8.5px, which is a rung and a half under the 10.5px floor
+   POD-450 set and — uppercase, tracked to .12em, in mono — is the hardest
+   combination on the ramp to read small. Reading it from the token also means
+   it follows the density switch, which a hardcoded size never did.
+   `label-mono-micro` (8px) went with it: nothing used it, and leaving a
+   sub-floor utility lying around is an invitation. */
 @utility label-mono {
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--label);
-}
-@utility label-mono-micro {
-  font-family: var(--font-mono);
-  font-size: 8px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-faint);
 }
 /* Timers / counters: mono digits that never shift width as they tick. */
 @utility mono-timer {
