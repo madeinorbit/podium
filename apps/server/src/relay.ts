@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
-import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
+import type { AgentKind, IssueEventWire, SessionId, SessionMeta } from '@podium/model'
 import {
   asMachineId,
   asSessionId,
@@ -55,6 +55,7 @@ import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
+import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
@@ -459,7 +460,15 @@ export class SessionRegistry {
     // AND conversation writes append their change rows ATOMICALLY with the
     // entity write (one transact span on the shared connection). One changes
     // table + one seq sequence — changesSince consumers see one unified feed.
-    const feedVisibility = makeFeedVisibility({ store: this.store })
+    // The issue-event feed publisher is constructed AFTER the ledger it captures
+    // through, and the visibility policy is constructed BEFORE it — the anchor
+    // reads the publisher's window through this box rather than the two being
+    // ordered, which they cannot be (POD-1772).
+    let issueEventFeed: IssueEventFeedPublisher | undefined
+    const feedVisibility = makeFeedVisibility({
+      store: this.store,
+      issueEventSubjects: (issueId) => issueEventFeed?.subjectsFor(issueId) ?? [],
+    })
     const visibility = new GrantEdgeVisibilityPolicy(
       feedVisibility.state,
       new NoDelegationsGranted(),
@@ -477,6 +486,15 @@ export class SessionRegistry {
       },
     })
     this.ledger = ledger
+    // ONE HOOK ON THE ONE APPEND (POD-1772): every orchestrator event write in
+    // the server goes through `store.events.appendEvent`, so the curated
+    // feed-kind subset reaches the metadata feed from the write path rather than
+    // from a list of call sites somebody has to keep complete.
+    issueEventFeed = new IssueEventFeedPublisher({
+      ledger,
+      seed: () => ledger.authority.snapshot('issueEvent') as IssueEventWire[],
+    })
+    this.store.events.onAppend((id, event) => issueEventFeed?.publish(id, event))
     const issueArbitration = new IssueAuthorityArbitration(ledger)
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered

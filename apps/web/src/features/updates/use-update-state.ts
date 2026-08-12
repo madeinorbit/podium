@@ -7,6 +7,7 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { usePolledQuery } from '@/lib/use-polled-query'
 import { makeTrpc } from '@/app/trpc'
 import type { UpdateActions } from './UpdateDialog'
 import { computeTouched } from './touched'
@@ -181,85 +182,93 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     }
   }, [options.httpOrigin])
 
+  // Fleet convergence is host telemetry, not a row: "which machines are on which
+  // build, right now" is measured across daemons at the moment of asking and is
+  // meaningless offline. So it still polls — but through the ONE polling utility
+  // (POD-1772), which owns the timer, the in-flight guard and the tab-visibility
+  // gate this effect used to spell for itself.
+  //
+  // TWO SPEEDS, ONE UTILITY. `active` is "an update is actually converging", and
+  // only then is a 1 s sweep worth a machine's time; otherwise the dialog wants
+  // ONE reading and no timer at all. That is an interval (0 = read once), not a
+  // second code path.
+  const active = updateAction.state === 'in-progress' || fleetState.converging > 0
+  const fleetQuery = usePolledQuery<{ fleet: UpdateFleetState | null; serverRaw: unknown }>({
+    key: `updates.fleet:${options.httpOrigin}`,
+    // Idle still refreshes, slowly. A single read at mount was the whole fleet
+    // story, so one failed call — the session not established yet, a transient
+    // disconnect — left the snapshot empty for the life of the page and the
+    // dialog could only ever name "this app".
+    intervalMs: active ? FLEET_POLL_MS : FLEET_IDLE_POLL_MS,
+    enabled: options.fleet === undefined,
+    // HALF AN ANSWER IS STILL AN ANSWER. An unreachable fleet must not cost the
+    // dialog the server version it could read, so the fleet arm resolves to null
+    // rather than rejecting the pair.
+    read: async () => {
+      const [fleet, serverRaw] = await Promise.all([
+        trpc.updates.fleet.query().then(
+          (value) => value,
+          () => null,
+        ),
+        readJson(options.httpOrigin + '/version'),
+      ])
+      return { fleet, serverRaw }
+    },
+  })
+
+  // A CHANGE IS ITS OWN TRIGGER. During a convergence the interval is the floor,
+  // not the cadence: every answer that moves the count is a reason to ask again
+  // at once, so the progress bar tracks the fleet instead of sampling it once a
+  // second. This is what the effect's `converging` dependency used to do.
+  const converging = fleetState.converging
+  const refreshFleet = fleetQuery.refresh
   useEffect(() => {
-    if (options.fleet !== undefined) return
+    if (active) refreshFleet()
+  }, [converging, active, refreshFleet])
 
-    const active = updateAction.state === 'in-progress' || fleetState.converging > 0
-    let cancelled = false
-    let inFlight = false
-    const load = async (): Promise<void> => {
-      if (inFlight) return
-      inFlight = true
-      try {
-        const [fleetRead, serverRaw] = await Promise.all([
-          trpc.updates.fleet.query().then(
-            (value) => ({ ok: true as const, value }),
-            () => ({ ok: false as const }),
-          ),
-          readJson(options.httpOrigin + '/version'),
-        ])
-        if (cancelled) return
-
-        const nextServer = parseServerVersion(serverRaw)
-        if (serverRaw !== undefined) setServer(nextServer)
-        if (!fleetRead.ok) return
-
-        const next = fleetRead.value
-        setFleetState(next)
-
-        if (active) {
-          setUpdateAction((current) => {
-            if (current.state !== 'in-progress') return current
-            if (next.failed > 0) {
-              const failure = next.machines?.find(
-                (machine) => machine.state === 'rejected' || machine.state === 'stuck',
-              )
-              return {
-                state: 'failed',
-                ...(failure?.name ? { machineName: failure.name } : {}),
-                detail:
-                  failure?.detail ??
-                  (next.failed === 1 ? 'A machine' : String(next.failed) + ' machines') +
-                    ' could not finish this update.',
-              }
-            }
-            const serverDone =
-              next.targetVersion !== null && nextServer.appVersion === next.targetVersion
-            const serverRemaining = current.includesServer && !serverDone ? 1 : 0
-            const remaining = serverRemaining + next.behind
-            if (next.converging === 0 && remaining === 0) return { state: 'idle' }
-            const done = Math.max(0, Math.min(current.total, current.total - remaining))
-            return {
-              state: 'in-progress',
-              version: next.targetVersion ?? current.version,
-              done,
-              total: current.total,
-              includesServer: current.includesServer,
-            }
-          })
+  // The reading, folded into the dialog's own state. A failed read leaves the
+  // last known snapshot intact: the version dialog still has useful app/server
+  // information when the fleet is unreachable.
+  const reading = fleetQuery.data
+  useEffect(() => {
+    if (options.fleet !== undefined || reading === null) return
+    // HALF AN ANSWER FIRST. The server version is applied even when the fleet
+    // arm came back null, so an unreachable fleet does not also cost the dialog
+    // the version it could read.
+    const nextServer = parseServerVersion(reading.serverRaw)
+    if (reading.serverRaw !== undefined) setServer(nextServer)
+    const next = reading.fleet
+    if (next === null) return
+    setFleetState(next)
+    setUpdateAction((current) => {
+      if (current.state !== 'in-progress') return current
+      if (next.failed > 0) {
+        const failure = next.machines?.find(
+          (machine) => machine.state === 'rejected' || machine.state === 'stuck',
+        )
+        return {
+          state: 'failed',
+          ...(failure?.name ? { machineName: failure.name } : {}),
+          detail:
+            failure?.detail ??
+            (next.failed === 1 ? 'A machine' : String(next.failed) + ' machines') +
+              ' could not finish this update.',
         }
-      } catch {
-        // The version dialog still has useful app/server information when the
-        // fleet read is unavailable, so leave its last known snapshot intact.
-      } finally {
-        inFlight = false
       }
-    }
-    void load()
-    // A single read at mount was the whole fleet story. If that one call failed
-    // — the session not established yet, a transient disconnect — the snapshot
-    // stayed empty for the life of the page, so `behind` was 0 and the dialog
-    // could only ever name "this app". Keep a slow refresh so the server and
-    // machine places appear once the read succeeds.
-    const interval = window.setInterval(
-      () => void load(),
-      active ? FLEET_POLL_MS : FLEET_IDLE_POLL_MS,
-    )
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-    }
-  }, [fleetState.converging, options.fleet, options.httpOrigin, updateAction.state, trpc])
+      const serverDone = next.targetVersion !== null && nextServer.appVersion === next.targetVersion
+      const serverRemaining = current.includesServer && !serverDone ? 1 : 0
+      const remaining = serverRemaining + next.behind
+      if (next.converging === 0 && remaining === 0) return { state: 'idle' }
+      const done = Math.max(0, Math.min(current.total, current.total - remaining))
+      return {
+        state: 'in-progress',
+        version: next.targetVersion ?? current.version,
+        done,
+        total: current.total,
+        includesServer: current.includesServer,
+      }
+    })
+  }, [reading, options.fleet])
 
   const fleet = options.fleet ?? fleetState
   const localVersion = localBuild.appVersion

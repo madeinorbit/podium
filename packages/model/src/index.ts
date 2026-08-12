@@ -36,6 +36,7 @@ export * from './entities/issue-color'
 // the LOGICAL repo keyed by `RepoId`; `GitRepositoryWire` in `./machine` is the
 // per-checkout machine fact and a different grain of the same English word.
 export * from './entities/issue-dep'
+export * from './entities/issue-event'
 export * from './entities/repo'
 // The per-machine fact group: MachineWire, inventory, host metrics + memory,
 // usage + quota, and the repo/worktree/directory wires. One named group because

@@ -8,6 +8,7 @@ import {
   ReadPositionWire,
   GlobalChangeOpField,
   IssueDepProjection,
+  IssueEventWire,
   IssueProjection,
   IssueWire,
   LayoutWire,
@@ -28,7 +29,7 @@ import { changeRowArm } from './change-row'
  * keeps the vocabulary single-sourced in model while letting protocol's
  * consumers stay on protocol.
  */
-export { IssueDepProjection, IssueProjection, RepoProjection }
+export { IssueDepProjection, IssueEventWire, IssueProjection, RepoProjection }
 
 // ---- Metadata oplog (docs/spec/oplog-read-path.md) ----
 // One row of the server's metadata change log. `seq` is server-assigned and
@@ -178,6 +179,24 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  cursor. Additive on the wire; older clients ignore it via
    *  UnknownMetadataChange and advance the cursor. */
   metadataChangeArm(z.literal('userReadPosition'), ReadPositionWire),
+  /** One curated issue event (POD-1772) — `podium_events` rows as first-class
+   *  entities, keyed by `issueEventRowId(eventId, subject)`.
+   *
+   *  The chat feed's content, moved off a 15 s RPC timer and onto the one data
+   *  path the rest of the app uses. Visibility class `personal`, decided by the
+   *  SUBJECT issue: an event is readable by whoever may read the issue it is
+   *  about, which is why the subject rides the row id.
+   *
+   *  The log is unbounded and the replica is not, so the publisher holds a
+   *  bounded WINDOW: an event entering the window is an upsert, an event leaving
+   *  it is a `delete`. Bootstrap therefore carries a capped tail, not the whole
+   *  history of the installation.
+   *
+   *  Same additive contract as the kinds above: emitted unconditionally and
+   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
+   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
+   *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
+  metadataChangeArm(z.literal('issueEvent'), IssueEventWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -191,6 +210,7 @@ export const MetadataEntityKind = z.enum([
   'automationRun',
   'userLayout',
   'userReadPosition',
+  'issueEvent',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

@@ -61,6 +61,7 @@ import type {
   AutomationWire,
   ConversationSummaryWire,
   IssueDepProjection,
+  IssueEventWire,
   IssueProjection,
   IssueWire,
   RepoProjection,
@@ -124,6 +125,11 @@ export interface ReplicaRows {
    *  repo.prefix` for `displayRef`; a prefix change moves every `POD-13` in the
    *  repo without rewriting an issue (D7.2). */
   repos: RepoProjection
+  /** Curated issue events [POD-1772] — the chat feed's content, held as rows
+   *  rather than re-queried on a timer. A BOUNDED window: the server publishes a
+   *  capped tail and evicts by `delete`, so this collection does not grow with
+   *  the installation's history. */
+  issueEvents: IssueEventWire
   conversations: ConversationSummaryWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
@@ -139,6 +145,7 @@ export interface ReplicaHydrateResult {
   issueProjections: IssueProjectionRow[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
+  issueEvents: IssueEventWire[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]

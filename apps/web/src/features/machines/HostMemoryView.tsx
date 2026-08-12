@@ -19,6 +19,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { ReclaimConfirmDialog } from './reclaim-lifecycle'
@@ -197,32 +198,16 @@ function MemoryPanel({
     shallowEqual,
   )
   const hibernation = useHibernationSetting()
-  const [data, setData] = useState<Breakdown | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    // Reset when switching machines so we never show one machine's breakdown
-    // under another machine's headline during the first refresh.
-    setData(null)
-    setError(null)
-    const refresh = async (): Promise<void> => {
-      try {
-        const r = await trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined)
-        if (!alive) return
-        setData(r)
-        setError(null)
-      } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : String(e))
-      }
-    }
-    void refresh()
-    const timer = setInterval(() => void refresh(), REFRESH_MS)
-    return () => {
-      alive = false
-      clearInterval(timer)
-    }
-  }, [trpc, machineId])
+  // Host telemetry, not a row: a `/proc` walk on the daemon host, taken at the
+  // moment of asking. It polls — through the ONE polling utility (POD-1772),
+  // which gates on tab visibility (a hidden pane must not keep a machine walking
+  // `/proc` every 5 s) and keys its cache on the machine, so switching chips can
+  // never paint one host's breakdown under another host's headline.
+  const { data, error } = usePolledQuery<Breakdown>({
+    key: `hosts.memoryBreakdown:${machineId ?? ''}`,
+    intervalMs: REFRESH_MS,
+    read: () => trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined),
+  })
 
   const sessionLabel = (sessionId: SessionId): string => {
     const s = sessions.find((s) => s.sessionId === sessionId)

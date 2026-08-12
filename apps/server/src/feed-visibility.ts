@@ -28,6 +28,7 @@
 import {
   asSessionId,
   parseIssueDepId,
+  parseIssueEventRowId,
   parseLayoutRowId,
   parseReadPositionRowId,
 } from '@podium/model'
@@ -89,6 +90,18 @@ type BootstrapReadCache = {
 /** The store surface this policy reads. Nothing here writes. */
 export interface FeedVisibilityDeps {
   readonly store: SessionStore
+  /**
+   * The `issueEvent` rows the feed currently carries for one issue (POD-1772).
+   *
+   * An issue's audience changes by a grant, and every row that rides that
+   * audience has to be re-scoped with it — otherwise a new reader gets the issue
+   * and none of its history. The publisher answers this from its in-memory
+   * window, so the anchor costs no query; it is a FUNCTION because the publisher
+   * needs the ledger this policy is constructed before.
+   *
+   * Omitted in tests that predate the kind: no rows, no subjects.
+   */
+  readonly issueEventSubjects?: (issueId: string) => { entity: 'issueEvent'; entityId: string }[]
 }
 
 /** What the composition root names: two ports plus the tracing bracket. */
@@ -203,6 +216,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         entity === 'issue' ||
         entity === 'issueProjection' ||
         entity === 'issueDep' ||
+        // A curated issue event (POD-1772). `personal` and NOT a class of its
+        // own: it is readable by exactly the audience of the issue it is about,
+        // which is what `personal` + `mayRead` already spells.
+        entity === 'issueEvent' ||
         entity === 'conversation' ||
         entity === 'automation' ||
         entity === 'automationRun'
@@ -218,6 +235,17 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)
         return dep !== null && mayReadIssue(userId, dep.fromId, prefetch)
+      }
+      if (ref.entity === 'issueEvent') {
+        // THE SUBJECT IS IN THE ID (POD-1772), so this decision needs no read of
+        // the event itself — which is what lets a `delete` be scoped after the
+        // row is gone, exactly like the tombstone arms below.
+        try {
+          return mayReadIssue(userId, parseIssueEventRowId(ref.entityId).subject, prefetch)
+        } catch {
+          // An unparseable id is not a row anyone may read.
+          return false
+        }
       }
       if (ref.entity === 'session') {
         const row = readSession(ref.entityId, prefetch)
@@ -295,6 +323,15 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         } else if (ref.entity === 'issueDep') {
           const dep = parseIssueDepId(ref.entityId)
           if (dep !== null) issueIds.add(dep.fromId)
+        } else if (ref.entity === 'issueEvent') {
+          // Same prefetch as its subject issue: a bootstrap carrying a window of
+          // events must not become one `getIssue` per event (POD-1614's lesson,
+          // applied before the kind can repeat it).
+          try {
+            issueIds.add(parseIssueEventRowId(ref.entityId).subject)
+          } catch {
+            // Unparseable ids are refused by `mayRead`; nothing to prefetch.
+          }
         } else if (ref.entity === 'session') {
           sessionIds.add(ref.entityId)
         } else if (ref.entity === 'conversation') {
@@ -388,6 +425,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             : [],
         ),
         ...(cache.issueDepsByFromId.get(ref.entityId) ?? []),
+        // The issue's feed history rides its audience (POD-1772): a grant that
+        // hands somebody the issue and none of its events would give them a
+        // chat pane that starts at the moment they were let in.
+        ...(deps.issueEventSubjects?.(ref.entityId) ?? []),
       ]
       return { audience, subjects }
     },

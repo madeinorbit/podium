@@ -54,8 +54,26 @@ export interface EventPrunePlan {
   capThroughId: number
 }
 
+/** What an appended event is announced to, after it is durable (POD-1772). */
+export type EventAppendListener = (
+  id: number,
+  event: { ts: string; kind: string; subject: string; repoPath: string | null; payload: unknown },
+) => void
+
 export class EventsRepository {
+  /** The feed publisher, installed by the composition root once the ledger
+   *  exists. Absent in the storage-only unit tests, and absent for the window
+   *  between store construction and wiring — an event appended in that window is
+   *  boot bookkeeping nobody is connected to see. */
+  private appendListener: EventAppendListener | undefined
+
   constructor(private readonly db: SqlDatabase) {}
+
+  /** Install the post-append announcement. One listener: this is the feed's
+   *  seam, not a general event bus (the orchestrator already has one). */
+  onAppend(listener: EventAppendListener): void {
+    this.appendListener = listener
+  }
 
   // ---- event log ----
 
@@ -71,7 +89,19 @@ export class EventsRepository {
         'INSERT INTO podium_events (ts, kind, subject, repo_path, payload) VALUES (?, ?, ?, ?, ?)',
       )
       .run(e.ts, e.kind, e.subject, e.repoPath ?? null, JSON.stringify(e.payload ?? {}))
-    return Number(r.lastInsertRowid)
+    const id = Number(r.lastInsertRowid)
+    // AFTER the insert, never before: the feed must not carry a row the log does
+    // not have. The listener is documented as non-throwing, and this call is not
+    // guarded here on purpose — a swallow at both ends hides a wiring fault
+    // behind a pane that simply never updates.
+    this.appendListener?.(id, {
+      ts: e.ts,
+      kind: e.kind,
+      subject: e.subject,
+      repoPath: e.repoPath ?? null,
+      payload: e.payload ?? {},
+    })
+    return id
   }
 
   /**

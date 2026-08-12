@@ -1,5 +1,5 @@
-import type { SessionId } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import type { IssueEventWire, SessionId } from '@podium/model'
+import { asSessionId, issueEventRowId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -52,6 +52,19 @@ let isMobile = false
 let storeSessions: Array<{ sessionId: SessionId; cwd: string }> = []
 let storeIssues: ReturnType<typeof makeIssue>[] = []
 let storeSelectedIssueId: string | null = null
+/** The chat feed's rows are REPLICATED now (POD-1772) — store state, not an RPC
+ *  the view polls. Seeded per test the same way sessions and issues are. */
+let storeIssueEvents: IssueEventWire[] = []
+const issueEvent = (eventId: number, over: Partial<IssueEventWire> = {}): IssueEventWire => ({
+  id: issueEventRowId(eventId, 'p'),
+  eventId,
+  ts: '2026-07-22T14:07:00Z',
+  kind: 'issue.closed',
+  subject: 'p',
+  repoPath: null,
+  payload: null,
+  ...over,
+})
 const uiStateMap = new Map<string, string>()
 const uiState = {
   get: (key: string): string | null => uiStateMap.get(key) ?? null,
@@ -122,6 +135,7 @@ vi.mock('@/app/store', () => {
     repos: [],
     sessions: [...storeSessions, ...embeddedSessions()],
     issues: normalizedIssues(),
+    issueEvents: storeIssueEvents,
     selectedIssueId: storeSelectedIssueId,
     // POD-330: the thread list is STORE state now, not a view-local mirror
     // refetched off a `superRefreshKey` bump.
@@ -185,6 +199,7 @@ beforeEach(() => {
   chatProps.length = 0
   storeSessions = []
   storeIssues = []
+  storeIssueEvents = []
   storeSelectedIssueId = null
   uiStateMap.clear()
   readPositionValue = { lastEventId: 0, seenAt: null }
@@ -352,16 +367,7 @@ describe('Superagent pane structure (POD-516 §1.2)', () => {
 
 describe('standing event feed removal (POD-113)', () => {
   it('renders NO cross-issue changelog even when issue events exist', async () => {
-    fakeTrpc.issues.events.query.mockResolvedValue([
-      {
-        id: 4,
-        ts: '2026-07-22T14:07:00Z',
-        kind: 'issue.closed',
-        subject: 'p',
-        repoPath: null,
-        payload: null,
-      },
-    ] as never)
+    storeIssueEvents = [issueEvent(4)]
     storeIssues = [makeIssue({ id: 'p', seq: 7, title: 'Some task' })]
     await mount()
     expect(container.querySelector('[data-testid="super-event-feed"]')).toBeNull()
@@ -370,16 +376,7 @@ describe('standing event feed removal (POD-113)', () => {
 
   it('keeps the YOU-WERE-HERE divider when events landed since the frozen cursor', async () => {
     readPositionValue = { lastEventId: 2, seenAt: '2026-07-22T14:20:00Z' }
-    fakeTrpc.issues.events.query.mockResolvedValue([
-      {
-        id: 5,
-        ts: '2026-07-22T14:30:00Z',
-        kind: 'issue.closed',
-        subject: 'p',
-        repoPath: null,
-        payload: null,
-      },
-    ] as never)
+    storeIssueEvents = [issueEvent(5, { ts: '2026-07-22T14:30:00Z' })]
     await mount()
     const divider = container.querySelector('[data-testid="you-were-here"]')
     expect(divider?.textContent).toContain('YOU WERE HERE')

@@ -109,7 +109,7 @@ export function SuperagentView(): JSX.Element {
   // The pane is one surface now — no sections, so no per-section collapse and
   // no split handle. The dock-top's close chevron is the only fold left, and
   // the shell owns it.
-  const feed = useIssueEvents(trpc, readPosition, true, true)
+  const feed = useIssueEvents(readPosition, true)
 
   const refreshThreads = () => refreshSuperThreads().catch(() => {})
 

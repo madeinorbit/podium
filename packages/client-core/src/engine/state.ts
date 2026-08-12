@@ -24,6 +24,7 @@ import type {
   GitRepositoryWire,
   HostMetricsWire,
   IssueId,
+  IssueEventWire,
   IssueWire,
   MachineWire,
   SessionId,
@@ -65,6 +66,9 @@ export interface EngineState {
   sessions: SessionMeta[]
   issues: IssueWire[]
   issueProjections: IssueProjectionRow[]
+  /** The curated cross-project issue-event window (POD-1772) — replicated rows,
+   *  not a timer's answer. Newest last, as the feed renders them. */
+  issueEvents: IssueEventWire[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
@@ -463,6 +467,7 @@ export interface EngineStateSeed {
   readonly sessions: SessionMeta[]
   readonly issues: IssueWire[]
   readonly issueProjections: IssueProjectionRow[]
+  readonly issueEvents: IssueEventWire[]
   readonly conversations: ConversationSummaryWire[]
   readonly automations: AutomationWire[]
   readonly automationRuns: AutomationRunWire[]
@@ -496,6 +501,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     sessions: seed.sessions,
     issues: seed.issues,
     issueProjections: seed.issueProjections,
+    issueEvents: seed.issueEvents,
     conversations: seed.conversations,
     automations: seed.automations,
     automationRuns: seed.automationRuns,

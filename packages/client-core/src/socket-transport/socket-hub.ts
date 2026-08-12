@@ -5,6 +5,7 @@ import type {
   ConversationSummaryWire,
   HostMetricsWire,
   IssueDepProjection,
+  IssueEventWire,
   IssueProjection,
   IssueWire,
   LayoutWire,
@@ -335,6 +336,10 @@ export interface HubEvents {
   issueDeps: [deps: IssueDepProjection[]]
   /** Full logical-repo list after any change [POD-822] — the `displayRef` prefix join. */
   repos: [repos: RepoProjection[]]
+  /** The curated issue-event window after any change (POD-1772, entity kind
+   *  `issueEvent`) — the chat feed's content, which used to arrive on a 15 s
+   *  RPC timer of its own. Bounded server-side; evictions arrive as deletes. */
+  issueEvents: [events: IssueEventWire[]]
   /**
    * Per-user layout rows after any change (POD-1350, entity kind `userLayout`).
    * Feed demux only — POD-403's ui-state module is the hydrate/write owner; this
@@ -406,6 +411,8 @@ export class SocketHub {
    *  authority's flag is on. */
   private issueDepList: IssueDepProjection[] = []
   private repoList: RepoProjection[] = []
+  /** The curated issue-event window (POD-1772). Empty until the feed carries it. */
+  private issueEventList: IssueEventWire[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
   /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
@@ -1572,6 +1579,17 @@ export class SocketHub {
             (x) => x.id === c.id,
           )
           break
+        case 'issueEvent':
+          // POD-1772. Matched on the composite id the Authority logs
+          // (`issueEventRowId`), which is also the row's own `id` field — an
+          // eviction arrives as a `delete` carrying only that id.
+          this.issueEventList = applyChange(
+            this.issueEventList,
+            c.op,
+            c.value,
+            (x) => x.id === c.id,
+          )
+          break
         case 'userLayout':
           // Feed demux for POD-1350's per-user layout rows. Match on the same
           // composite id the Authority logs (layoutRowId), not payload equality.
@@ -1600,6 +1618,7 @@ export class SocketHub {
     if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)
     if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
     if (touched.has('repo')) this.emit('repos', this.repoList)
+    if (touched.has('issueEvent')) this.emit('issueEvents', this.issueEventList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)

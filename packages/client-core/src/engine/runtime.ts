@@ -360,6 +360,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       sessions: seededSessionFold.rows,
       issues: seededIssueFold.rows,
       issueProjections: seededProjectionFold.rows,
+      issueEvents: replicaSeed.issueEvents,
       conversations: replicaSeed.conversations,
       automations: replicaSeed.automations,
       automationRuns: replicaSeed.automationRuns,
@@ -882,6 +883,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.optimism.recomputeIssueProjections()
       }
       const patch: Partial<EngineState> = {}
+      if (changed.has('issueEvents')) patch.issueEvents = snapshot.issueEvents
       if (changed.has('conversations')) patch.conversations = snapshot.conversations
       if (changed.has('automations')) patch.automations = snapshot.automations
       if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns
