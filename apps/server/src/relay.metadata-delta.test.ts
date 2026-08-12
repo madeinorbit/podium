@@ -72,7 +72,15 @@ describe('SessionRegistry metadata deltas', () => {
     const deltaNew = delta.inbox.slice(deltaBefore)
     expect(deltaNew.some((m) => m.type === 'issuesChanged')).toBe(false)
     const changes = deltas(deltaNew)
-    expect(changes.map((change) => change.entity).sort()).toEqual(['issue', 'issueProjection'])
+    // `issueEvent` rides along because creating an issue APPENDS an event, and
+    // that event is a feed row now (POD-1772) rather than something the pane
+    // re-asks for on a timer. The `issues.update` case below is unchanged on
+    // purpose: its kind is not one the feed carries.
+    expect(changes.map((change) => change.entity).sort()).toEqual([
+      'issue',
+      'issueEvent',
+      'issueProjection',
+    ])
     const residue = changes.find((change) => change.entity === 'issue')
     expect(residue).toMatchObject({ entity: 'issue', op: 'upsert' })
     expect((residue?.value as IssueWire).title).toBe('first')
