@@ -9,6 +9,7 @@
 
 import type { UserId, UserRole } from '@podium/model'
 import { versionSupport } from '@podium/protocol'
+import { measureTask } from '@podium/runtime/task-attribution'
 
 export interface NativeServer<T> {
   readonly port: number
@@ -206,7 +207,17 @@ export function attachWebSockets(
       if (id === undefined) clients.delete(socket)
     },
     message(native, message) {
-      native.data.socket?.emit('message', message)
+      // THE I/O-COMPLETION SEAM [POD-1931]. Every inbound frame's handling runs
+      // synchronously under this call, and it reaches JS without passing through
+      // any scheduler — so neither the statement counters nor the patched timers
+      // could see it. Measured before this line existed: 62% of blocked event
+      // loop was own-CPU that no instrument could name, and this is the only
+      // door that much CPU can come through. Split client from daemon because
+      // they carry completely different traffic (RPC vs PTY frames) and the
+      // answer "which one" is the first thing the number has to settle.
+      measureTask(`ws.message.${native.data.kind ?? 'unknown'}`, () =>
+        native.data.socket?.emit('message', message),
+      )
     },
     pong(native) {
       const socket = native.data.socket

@@ -93,6 +93,29 @@ export function recordTask(label: string, wallMs: number): void {
   totals.set(label, total)
 }
 
+/**
+ * Time one named region and attribute it like a scheduled callback.
+ *
+ * The patched schedulers cover work that ARRIVES on a timer or a microtask. Work
+ * that arrives on an I/O completion — a socket frame, an fs callback — enters JS
+ * without passing through any of them, and on this server that turned out to be
+ * where the majority of the stall lived: 62% of blocked time was own-CPU that
+ * neither the statement counters nor the scheduler patch could see.
+ *
+ * Wrapping such a seam by hand is the cheap half of `async_hooks`: it needs one
+ * call site per seam and knows the name already, where async_hooks would pay a
+ * per-resource cost across the whole process to rediscover it.
+ */
+export function measureTask<T>(label: string, fn: () => T): T {
+  if (!ENABLED) return fn()
+  const startedAt = performance.now()
+  try {
+    return fn()
+  } finally {
+    recordTask(label, performance.now() - startedAt)
+  }
+}
+
 /** Lifetime per-callsite totals since process start. Never reset. */
 export function taskAttributionTotals(): ReadonlyMap<string, TaskCost> {
   return new Map(totals)
