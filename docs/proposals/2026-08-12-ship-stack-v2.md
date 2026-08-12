@@ -38,9 +38,11 @@ names that root explicitly with `podium issue ship <root-id> --outside-scope`.
 The result should feel like handing a parcel to a very good courier: the user
 can watch it move, but does not have to carry it.
 
-A deliberately schematic prototype accompanies this proposal. It uses Podium's
-actual shell regions without inventing a competing visual design:
-[Shipping interaction schematics](../design/POD-775-ship-stack-prototype.html).
+A production-shaped interactive prototype accompanies this proposal. It draws
+only Podium's existing 316px right dock and 46px rail, copies the current
+`RightDock`/`MergeQueuePanel` density and Dark Ink tokens, and storyboards the
+complete post-approval flow without inventing another app shell:
+[Shipping right-sidebar flow](../design/POD-775-ship-stack-prototype.html).
 
 ## Review verdict on the first proposal
 
@@ -674,6 +676,13 @@ settings rather than managing the live list.
 The normal rail glyph is neutral: no count, spinner, progress ring, or completion
 badge. Slow is not failure. The dock may say what Podium is currently trying and
 that it will keep retrying, but it does not promise a fake ETA.
+
+The interactive prototype walks the intended surface through seven moments:
+quiet handoff with the dock closed; optional overview; one-order inspection;
+the existing alert with a red rail glyph; focused hold resolution; automatic
+resumption; and verified completion. The workspace never changes in any of
+them. Opening a delivery row replaces the dock body and provides **All
+shipping** as the way back; it does not open a nested panel or second sidebar.
 
 ### Alerts: existing Podium machinery
 

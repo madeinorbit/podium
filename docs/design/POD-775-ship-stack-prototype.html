@@ -3,194 +3,442 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Podium Shipping — interaction schematics</title>
+<title>Podium Shipping — right-sidebar flow</title>
 <style>
-  :root { color-scheme:dark; --bg:#151619; --panel:#1b1d21; --stage:#23262d; --line:#3a3f48; --soft:#2c3038; --ink:#d7dae0; --muted:#9298a3; --blue:#6f9dff; --red:#e5303f; --yellow:#f5c518; --green:#75c99a; --sans:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; --mono:"SFMono-Regular",Consolas,monospace; }
+  :root {
+    color-scheme: dark;
+    --ground:#16171a;
+    --dock:#191a1e;
+    --rail:#1e2024;
+    --panel:#23262d;
+    --chip:#252830;
+    --active:#2c3038;
+    --border:#26292f;
+    --border-strong:#3a3f48;
+    --hairline:#24272d;
+    --strong:#f2f3f5;
+    --ink:#d7dae0;
+    --muted:#a8adb6;
+    --dim:#848a94;
+    --label:#949aa4;
+    --info:#2a62f0;
+    --green:#57c58b;
+    --yellow:#f5c518;
+    --red:#e5303f;
+    --sans:Geist,Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    --mono:"Geist Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans); }
-  button { font:inherit; }
-  .page { width:min(1180px,calc(100% - 28px)); margin:auto; padding:42px 0 64px; }
-  .eyebrow { color:var(--yellow); font:700 10px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; }
-  h1 { margin:10px 0 8px; font-size:clamp(29px,4vw,46px); letter-spacing:-.04em; line-height:1; }
-  .lede { max-width:800px; margin:0 0 25px; color:var(--muted); font-size:15px; line-height:1.55; }
-  .tabs { display:flex; gap:5px; flex-wrap:wrap; padding:5px; margin-bottom:9px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
-  .tabs button { border:0; border-radius:5px; padding:8px 10px; color:var(--muted); background:transparent; cursor:pointer; font-size:11px; }
-  .tabs button[aria-pressed="true"] { color:var(--ink); background:var(--soft); }
-  .shell { height:650px; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
-  .titlebar { height:44px; display:flex; align-items:center; gap:9px; padding:0 12px; border-bottom:1px solid var(--line); }
-  .brand { display:grid; place-items:center; width:23px; height:23px; border-radius:5px; color:#151619; background:var(--yellow); font-weight:850; font-size:12px; }
-  .titlebar b { font-size:12px; }
-  .titlebar code,.host { color:var(--muted); font:9px/1 var(--mono); }
-  .host { margin-left:auto; }
-  .body { height:calc(100% - 44px); display:grid; grid-template-columns:190px minmax(0,1fr) 44px; }
-  [data-view="peek"] .body,[data-view="alert-open"] .body { grid-template-columns:190px minmax(0,1fr) 340px 44px; }
-  .worklist { padding:12px 9px; border-right:1px solid var(--line); }
-  .section-label { margin:9px 8px 7px; color:var(--muted); font:700 8px/1 var(--mono); letter-spacing:.1em; }
-  .work-row { min-height:32px; display:flex; align-items:center; gap:8px; padding:0 8px; border-radius:5px; font-size:10.5px; }
-  .work-row.selected { background:var(--soft); }
-  .square { width:8px; height:8px; border-radius:2px; background:var(--blue); }
-  .work-row .stage { margin-left:auto; color:var(--muted); font:8px/1 var(--mono); text-transform:uppercase; }
-  .work-row .stage.shipping { color:var(--blue); }
-  .workspace { position:relative; min-width:0; overflow:auto; background:var(--stage); }
-  .workspace-head { height:64px; display:flex; align-items:center; gap:10px; padding:0 18px; border-bottom:1px solid var(--line); }
-  .workspace-head h2 { margin:0; font-size:14px; }
-  .workspace-head span { color:var(--blue); font:9px/1 var(--mono); text-transform:uppercase; }
-  .schematic { max-width:600px; margin:52px auto; padding:0 22px; }
-  .schematic h3 { margin:0 0 10px; font-size:20px; letter-spacing:-.025em; }
-  .schematic > p { max-width:520px; margin:0 0 22px; color:var(--muted); font-size:12px; line-height:1.6; }
-  .receipt { padding:14px; border:1px solid color-mix(in srgb,var(--blue) 55%,var(--line)); border-radius:7px; background:color-mix(in srgb,var(--blue) 6%,var(--panel)); }
-  .receipt b { display:block; margin-bottom:4px; font-size:12px; }
-  .receipt span { color:var(--muted); font-size:10px; line-height:1.45; }
-  .cli { margin-top:18px; padding:12px; border:1px solid var(--line); border-radius:6px; color:var(--muted); background:#111215; font:10px/1.6 var(--mono); }
-  .cli .prompt { color:var(--blue); } .cli .ok { color:var(--green); }
-  .callout { margin-top:16px; padding-left:10px; border-left:2px solid var(--yellow); color:var(--muted); font-size:10px; line-height:1.55; }
-  .flow { display:grid; grid-template-columns:1fr 38px 1fr 38px 1fr; align-items:center; margin-top:28px; }
-  .node { min-height:98px; display:grid; place-items:center; padding:12px; border:1px solid var(--line); border-radius:7px; text-align:center; background:var(--panel); }
-  .node b { display:block; margin-bottom:5px; font-size:11px; }
-  .node span { color:var(--muted); font-size:9px; line-height:1.45; }
-  .node.owned { border-color:var(--blue); } .node.done { border-color:var(--green); }
-  .arrow { color:var(--muted); text-align:center; }
-  .dock { display:none; border-left:1px solid var(--line); overflow:hidden; }
-  [data-view="peek"] .dock,[data-view="alert-open"] .dock { display:block; }
-  .dock-panel { display:none; height:100%; flex-direction:column; }
-  .dock-panel.active { display:flex; }
-  .dock-head { height:44px; flex:none; display:flex; align-items:center; gap:8px; padding:0 13px; border-bottom:1px solid var(--line); font-size:12px; font-weight:650; }
-  .close { margin-left:auto; color:var(--muted); }
-  .dock-body { overflow:auto; padding:13px 11px; }
-  .confidence { margin-bottom:14px; padding:11px; border:1px solid var(--line); border-radius:6px; }
-  .confidence b { display:block; margin-bottom:4px; font-size:11px; }
-  .confidence span { color:var(--muted); font-size:9px; }
-  .confidence.alert { border-color:var(--red); background:color-mix(in srgb,var(--red) 5%,var(--panel)); }
-  .confidence.alert b { color:var(--red); }
-  .repo { display:flex; justify-content:space-between; margin:13px 2px 7px; color:var(--muted); font:700 8px/1 var(--mono); letter-spacing:.07em; text-transform:uppercase; }
-  .ship-row { display:grid; grid-template-columns:8px minmax(0,1fr) auto; gap:9px; align-items:center; padding:10px 8px; border-top:1px solid var(--line); }
-  .ship-row i { width:6px; height:6px; border-radius:50%; background:var(--blue); }
-  .ship-row i.wait { background:var(--muted); } .ship-row i.done { background:var(--green); }
-  .ship-row b { display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:10px; }
-  .ship-row small { color:var(--muted); font:8px/1.5 var(--mono); }
-  .state { color:var(--muted); font:700 8px/1 var(--mono); text-transform:uppercase; }
-  details { margin:15px 2px 0; color:var(--muted); font-size:9px; }
-  details summary { cursor:pointer; }
-  details pre { padding:8px; border-radius:5px; background:#111215; font:8px/1.55 var(--mono); white-space:pre-wrap; }
-  .alert-card { padding:12px; border:1px solid var(--red); border-radius:7px; background:color-mix(in srgb,var(--red) 5%,var(--panel)); }
-  .alert-card .label { color:var(--red); font:700 8px/1 var(--mono); letter-spacing:.08em; }
-  .alert-card h3 { margin:9px 0 6px; font-size:13px; }
-  .alert-card p { margin:0 0 11px; color:var(--muted); font-size:9.5px; line-height:1.5; }
-  .actions { display:flex; gap:6px; flex-wrap:wrap; }
-  .button { border:1px solid var(--line); border-radius:5px; padding:6px 8px; color:var(--ink); background:var(--soft); cursor:pointer; font-size:9px; }
-  .button.primary { color:white; border-color:var(--red); background:var(--red); }
-  .popup { display:none; position:absolute; right:18px; bottom:18px; width:min(310px,calc(100% - 36px)); padding:11px; border:1px solid var(--red); border-radius:7px; background:var(--panel); box-shadow:0 15px 40px rgba(0,0,0,.38); }
-  .popup b { display:block; color:var(--red); font-size:10px; }
-  .popup span { display:block; margin:4px 0 9px; color:var(--muted); font-size:9px; line-height:1.45; }
-  [data-view="alert"] .popup { display:block; }
-  .rail { display:flex; flex-direction:column; align-items:center; gap:5px; padding:6px 0; border-left:1px solid var(--line); }
-  .rail button { width:32px; height:32px; display:grid; place-items:center; border:0; border-radius:5px; color:var(--muted); background:transparent; cursor:pointer; font-size:14px; }
-  .rail button.active { color:var(--ink); background:var(--soft); }
-  [data-view="alert"] .rail .shipping-icon,[data-view="alert-open"] .rail .shipping-icon { color:white; background:var(--red); }
-  .caption { margin-top:18px; display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-  .caption article { padding:12px; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
-  .caption b { display:block; margin-bottom:5px; color:var(--yellow); font:700 8px/1 var(--mono); }
-  .caption p { margin:0; color:var(--muted); font-size:10px; line-height:1.5; }
-  .toast { position:fixed; left:50%; bottom:22px; translate:-50% 15px; opacity:0; padding:10px 12px; border:1px solid var(--line); border-radius:6px; background:var(--panel); font-size:10px; transition:.16s; }
-  .toast.show { translate:-50% 0; opacity:1; } .toast span { display:block; margin-top:3px; color:var(--muted); }
-  @media (max-width:820px) { .body { grid-template-columns:minmax(0,1fr) 44px; } [data-view="peek"] .body,[data-view="alert-open"] .body { grid-template-columns:minmax(0,1fr) 310px 44px; } .worklist { display:none; } .flow { grid-template-columns:1fr; gap:7px; } .arrow { rotate:90deg; } .caption { grid-template-columns:1fr; } }
-  @media (max-width:620px) { .page { width:calc(100% - 14px); padding-top:22px; } .shell { height:620px; } .body,[data-view="peek"] .body,[data-view="alert-open"] .body { grid-template-columns:minmax(0,1fr) 42px; } .dock,[data-view="peek"] .dock,[data-view="alert-open"] .dock { display:none; } .workspace { grid-column:1; } .rail { grid-column:2; } }
+  html { min-width:320px; background:#111215; }
+  body { margin:0; color:var(--ink); background:radial-gradient(circle at 68% 35%,#1b1d22 0,transparent 34%),#111215; font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  button { color:inherit; font:inherit; }
+  button:focus-visible { outline:2px solid var(--yellow); outline-offset:2px; }
+  code { font-family:var(--mono); }
+  .svg-defs { position:absolute; width:0; height:0; overflow:hidden; }
+  .icon { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+
+  .page { width:min(1040px,calc(100% - 30px)); margin:auto; padding:38px 0 58px; }
+  .eyebrow { color:var(--label); font:600 9px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; }
+  h1 { margin:10px 0 8px; color:var(--strong); font-size:clamp(28px,4vw,44px); line-height:1.03; letter-spacing:-.038em; }
+  .lede { max-width:740px; margin:0; color:var(--muted); font-size:14px; line-height:1.6; }
+  .measure { color:var(--dim); font:9px/1.55 var(--mono); }
+
+  .story-nav { display:flex; align-items:center; gap:0; margin:26px 0 30px; overflow-x:auto; scrollbar-width:none; }
+  .story-nav::-webkit-scrollbar { display:none; }
+  .story-step { display:flex; flex:none; align-items:center; gap:7px; border:0; padding:7px 8px; border-radius:6px; background:transparent; color:var(--dim); cursor:pointer; font-size:10.5px; white-space:nowrap; }
+  .story-step::before { content:attr(data-number); display:grid; width:20px; height:20px; place-items:center; border:1px solid var(--border-strong); border-radius:50%; color:var(--label); font:600 8.5px/1 var(--mono); }
+  .story-step[aria-pressed="true"] { color:var(--strong); background:var(--chip); }
+  .story-step[aria-pressed="true"]::before { border-color:var(--info); color:#fff; background:var(--info); }
+  .story-link { width:14px; height:1px; flex:none; background:var(--border-strong); }
+
+  .prototype { display:grid; grid-template-columns:minmax(240px,320px) minmax(390px,1fr); gap:54px; align-items:center; min-height:680px; }
+  .story-copy { align-self:center; }
+  .story-kicker { color:var(--info); font:600 9px/1 var(--mono); letter-spacing:.11em; text-transform:uppercase; }
+  .story-copy h2 { margin:11px 0 10px; color:var(--strong); font-size:24px; line-height:1.08; letter-spacing:-.025em; }
+  .story-copy > p { margin:0; color:var(--muted); font-size:13px; line-height:1.62; }
+  .rules { margin:25px 0 0; padding:0; }
+  .rules div { padding:10px 0; border-top:1px solid var(--hairline); }
+  .rules dt { color:var(--label); font:600 8px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase; }
+  .rules dd { margin:6px 0 0; color:var(--dim); font-size:10.5px; line-height:1.5; }
+
+  .prototype-stage { position:relative; display:flex; min-height:650px; align-items:stretch; justify-content:flex-end; }
+  .actual-size { position:absolute; right:0; top:-23px; color:var(--dim); font:8px/1 var(--mono); letter-spacing:.07em; text-transform:uppercase; }
+  .product { position:relative; display:flex; width:362px; height:650px; overflow:visible; }
+  .product[data-state="handoff"],.product[data-state="alert"] { width:46px; }
+
+  /* The actual Podium right dock: 316px default, engraved surface, no seam or shadow. */
+  .dock { display:flex; width:316px; min-width:0; flex-direction:column; overflow:hidden; background:var(--dock); }
+  [data-state="handoff"] .dock,[data-state="alert"] .dock { display:none; }
+  .dock-header { display:flex; height:44px; flex:none; align-items:center; gap:9px; padding:0 14px; border-bottom:1px solid var(--border); }
+  .dock-header > .icon { color:var(--dim); }
+  [data-state="resolve"] .dock-header > .icon { color:var(--red); }
+  .dock-title { min-width:0; flex:1; color:var(--strong); font-size:13.5px; line-height:1; font-weight:650; }
+  .icon-button { display:grid; width:28px; height:28px; flex:none; place-items:center; border:0; border-radius:6px; background:transparent; color:var(--dim); cursor:pointer; }
+  .icon-button:hover { color:var(--strong); background:var(--active); }
+  .dock-content { min-height:0; flex:1; overflow:auto; scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent; }
+  .view { display:none; min-height:100%; }
+  [data-state="peek"] .view-peek,[data-state="inspect"] .view-inspect,[data-state="resolve"] .view-resolve,[data-state="resumed"] .view-resumed,[data-state="shipped"] .view-shipped { display:block; }
+
+  .utility-bar { display:flex; height:36px; align-items:center; gap:8px; padding:0 14px; border-bottom:1px solid var(--hairline); }
+  .utility-bar b,.section-label { color:var(--label); font:600 8.5px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; }
+  .utility-bar span { color:var(--dim); font:9px/1 var(--mono); }
+  .utility-bar .icon-button { width:24px; height:24px; margin-left:auto; }
+  .utility-bar .icon { width:12px; height:12px; }
+  .intro { padding:15px 14px 13px; border-bottom:1px solid var(--hairline); }
+  .intro strong { display:block; color:var(--strong); font-size:13px; font-weight:600; }
+  .intro p { margin:5px 0 0; color:var(--muted); font-size:10.5px; line-height:1.5; }
+  .intro.success strong { color:var(--green); }
+  .intro.attention { background:color-mix(in srgb,var(--red) 5%,transparent); }
+  .intro.attention strong { color:#ff929a; }
+
+  .target-head { display:flex; height:40px; align-items:center; gap:8px; padding:0 14px; border-bottom:1px solid var(--hairline); }
+  .target-head > .icon { width:13px; height:13px; color:var(--info); }
+  .target-head strong { min-width:0; flex:1; overflow:hidden; color:var(--strong); font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+  .target-head code { max-width:48%; overflow:hidden; color:var(--dim); font-size:8.5px; text-overflow:ellipsis; white-space:nowrap; }
+  .section-head { display:flex; height:32px; align-items:center; gap:8px; padding:0 14px; border-bottom:1px solid var(--hairline); }
+  .section-head .count { color:var(--dim); font:9px/1 var(--mono); }
+  .ship-list { margin:0; padding:0; list-style:none; }
+  .ship-row { display:grid; min-height:54px; width:100%; grid-template-columns:10px minmax(0,1fr) auto; align-items:center; gap:8px; border:0; border-bottom:1px solid var(--hairline); padding:7px 12px 7px 14px; background:transparent; text-align:left; cursor:pointer; }
+  .ship-row:hover { background:color-mix(in srgb,var(--active) 58%,transparent); }
+  .signal { width:6px; height:6px; border-radius:50%; background:var(--info); }
+  .signal.wait { background:var(--dim); }
+  .signal.done { position:relative; width:10px; height:10px; background:transparent; color:var(--green); }
+  .signal.done::after { content:"✓"; position:absolute; inset:-4px 0 0 -1px; font:700 11px/1 var(--mono); }
+  .ship-main { min-width:0; }
+  .ship-main b { display:block; overflow:hidden; color:var(--ink); font-size:11.5px; font-weight:550; text-overflow:ellipsis; white-space:nowrap; }
+  .ship-main small { display:block; margin-top:4px; overflow:hidden; color:var(--dim); font:9px/1.25 var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+  .ship-state { color:var(--label); font:600 8px/1 var(--mono); letter-spacing:.045em; text-transform:uppercase; }
+  .ship-state.live { color:#79a5ff; }
+  .ship-state.done { color:var(--green); }
+  .empty { margin:0 11px 11px; padding:10px; border:1px dashed color-mix(in srgb,var(--border-strong) 65%,transparent); border-radius:6px; color:var(--dim); font-size:10.5px; line-height:1.45; }
+  .quiet-foot { padding:13px 14px; color:var(--dim); font-size:10px; line-height:1.5; }
+
+  details.resource { margin:0; border-top:1px solid var(--hairline); }
+  details.resource summary { display:flex; min-height:36px; cursor:pointer; align-items:center; padding:0 14px; color:var(--label); font:600 8.5px/1 var(--mono); letter-spacing:.1em; list-style:none; text-transform:uppercase; }
+  details.resource summary::-webkit-details-marker { display:none; }
+  details.resource summary::after { content:"›"; margin-left:auto; color:var(--dim); font-size:14px; transition:transform .15s; }
+  details.resource[open] summary::after { transform:rotate(90deg); }
+  .resource-body { padding:0 14px 12px; color:var(--dim); font:9px/1.7 var(--mono); }
+
+  .back { display:flex; width:100%; min-height:34px; align-items:center; gap:6px; border:0; border-bottom:1px solid var(--hairline); padding:0 12px; background:transparent; color:var(--muted); cursor:pointer; font-size:10.5px; text-align:left; }
+  .back:hover { color:var(--strong); background:color-mix(in srgb,var(--active) 50%,transparent); }
+  .back .icon { width:13px; height:13px; }
+  .subject { padding:14px; border-bottom:1px solid var(--hairline); }
+  .ref { color:#79a5ff; font:600 9px/1 var(--mono); }
+  .subject h3 { margin:7px 0 0; color:var(--strong); font-size:15px; line-height:1.2; font-weight:600; }
+  .subject p { margin:7px 0 0; color:var(--muted); font-size:10.5px; line-height:1.5; }
+  .phase { display:flex; align-items:center; gap:7px; margin-top:10px; color:#79a5ff; font:600 8.5px/1 var(--mono); letter-spacing:.05em; text-transform:uppercase; }
+  .phase .signal { width:6px; height:6px; }
+  .timeline { margin:0; padding:10px 14px 8px; list-style:none; }
+  .timeline li { position:relative; display:grid; min-height:43px; grid-template-columns:16px minmax(0,1fr) auto; gap:7px; color:var(--dim); }
+  .timeline li::after { content:""; position:absolute; top:14px; bottom:-3px; left:4px; width:1px; background:var(--border-strong); }
+  .timeline li:last-child::after { display:none; }
+  .timeline .dot { position:relative; z-index:1; width:9px; height:9px; margin-top:3px; border:1px solid var(--border-strong); border-radius:50%; background:var(--dock); }
+  .timeline li.done .dot { border-color:var(--green); background:var(--green); box-shadow:inset 0 0 0 2px var(--dock); }
+  .timeline li.live .dot { border-color:var(--info); background:var(--info); box-shadow:0 0 0 3px color-mix(in srgb,var(--info) 16%,transparent); }
+  .timeline b { display:block; color:var(--ink); font-size:10.5px; font-weight:550; }
+  .timeline small { display:block; margin-top:3px; color:var(--dim); font:8.5px/1.35 var(--mono); }
+  .timeline time { color:var(--dim); font:8px/1.3 var(--mono); }
+  .proof { border-top:1px solid var(--hairline); }
+  .proof-row { display:grid; min-height:30px; grid-template-columns:72px minmax(0,1fr); align-items:center; gap:10px; padding:0 14px; border-bottom:1px solid var(--hairline); font-size:9.5px; }
+  .proof-row span { color:var(--dim); }
+  .proof-row code { overflow:hidden; color:var(--muted); font-size:8.5px; text-align:right; text-overflow:ellipsis; white-space:nowrap; }
+  .safe-actions { display:flex; align-items:center; gap:8px; padding:12px 14px; }
+  .button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:6px; border:1px solid var(--border-strong); border-radius:6px; padding:0 9px; background:var(--chip); color:var(--ink); cursor:pointer; font-size:10px; font-weight:500; }
+  .button:hover { filter:brightness(1.08); }
+  .button.primary { border-color:var(--yellow); background:var(--yellow); color:#191711; }
+  .button.ghost { border-color:transparent; background:transparent; color:var(--muted); }
+  .button.danger { color:#ff929a; }
+
+  .hold-card { margin:11px; overflow:hidden; border:1px solid color-mix(in srgb,var(--red) 38%,var(--border)); border-radius:8px; background:color-mix(in srgb,var(--red) 4%,transparent); }
+  .hold-main { padding:13px; }
+  .hold-main .ref { color:#ff929a; }
+  .hold-main h3 { margin:8px 0 7px; color:var(--strong); font-size:14px; line-height:1.25; font-weight:600; }
+  .hold-main p { margin:0; color:var(--muted); font-size:10.5px; line-height:1.5; }
+  .attempts { margin-top:12px; border-top:1px solid color-mix(in srgb,var(--red) 18%,var(--hairline)); }
+  .attempt { display:grid; min-height:37px; grid-template-columns:64px minmax(0,1fr); align-items:center; gap:8px; border-bottom:1px solid color-mix(in srgb,var(--red) 13%,var(--hairline)); padding:0 13px; }
+  .attempt b { color:var(--label); font:600 8px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; }
+  .attempt span { color:var(--dim); font-size:9.5px; line-height:1.35; }
+  .hold-actions { display:flex; flex-wrap:wrap; gap:7px; padding:12px 13px; }
+  .continue-note { margin:0 11px; padding:10px 0; border-top:1px solid var(--hairline); color:var(--dim); font-size:10px; line-height:1.5; }
+  .resume-line { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid color-mix(in srgb,var(--green) 24%,var(--hairline)); background:color-mix(in srgb,var(--green) 5%,transparent); color:var(--muted); font-size:10px; line-height:1.4; }
+  .resume-line .icon { width:13px; height:13px; flex:none; color:var(--green); }
+
+  /* The actual 46px rail: neutral until the panel is open or action is required. */
+  .rail { display:flex; width:46px; min-height:0; flex:none; flex-direction:column; align-items:center; gap:14px; padding:16px 0; background:var(--rail); }
+  .rail-cell { display:grid; width:30px; height:30px; flex:none; place-items:center; border:0; border-radius:6px; background:transparent; color:var(--dim); cursor:pointer; }
+  .rail-cell:hover { color:var(--strong); background:var(--active); }
+  .rail-cell .icon { width:17px; height:17px; }
+  [data-state="peek"] .shipping-cell,[data-state="inspect"] .shipping-cell,[data-state="resumed"] .shipping-cell,[data-state="shipped"] .shipping-cell { color:var(--info); background:var(--panel); box-shadow:0 1px 2px #0008,inset 0 0 0 1px color-mix(in srgb,var(--info) 35%,transparent); }
+  [data-state="alert"] .shipping-cell { color:var(--red); }
+  [data-state="resolve"] .shipping-cell { color:var(--red); background:var(--panel); box-shadow:0 1px 2px #0008,inset 0 0 0 1px color-mix(in srgb,var(--red) 52%,transparent); }
+
+  .alert-popover { display:none; position:absolute; z-index:4; top:90px; right:58px; width:306px; overflow:hidden; border:1px solid color-mix(in srgb,var(--red) 42%,var(--border)); border-radius:9px; background:var(--panel); box-shadow:0 14px 34px #0009,0 2px 8px #0008; }
+  [data-state="alert"] .alert-popover { display:block; }
+  .alert-copy { padding:13px 13px 11px; }
+  .alert-copy .label { color:#ff929a; font:600 8px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase; }
+  .alert-copy strong { display:block; margin-top:8px; color:var(--strong); font-size:13px; font-weight:600; }
+  .alert-copy p { margin:6px 0 0; color:var(--muted); font-size:10.5px; line-height:1.5; }
+  .alert-actions { display:flex; justify-content:flex-end; gap:7px; padding:10px 12px; border-top:1px solid var(--hairline); }
+
+  .footnote { margin-top:30px; padding-top:14px; border-top:1px solid var(--hairline); color:var(--dim); font:9px/1.6 var(--mono); }
+  .toast { position:fixed; z-index:10; right:22px; bottom:20px; max-width:300px; padding:10px 12px; border:1px solid var(--border-strong); border-radius:7px; background:var(--panel); box-shadow:0 14px 34px #0009; color:var(--strong); font-size:10.5px; opacity:0; transform:translateY(8px); pointer-events:none; transition:.16s ease; }
+  .toast.show { opacity:1; transform:translateY(0); }
+  .toast span { display:block; margin-top:4px; color:var(--dim); font-size:9.5px; }
+
+  @media (max-width:820px) {
+    .prototype { grid-template-columns:1fr; gap:34px; }
+    .story-copy { max-width:560px; }
+    .prototype-stage { min-height:650px; justify-content:center; }
+    .actual-size { right:50%; transform:translateX(181px); }
+    .product { margin:0 auto; }
+  }
+  @media (max-width:440px) {
+    .page { width:calc(100% - 18px); padding-top:24px; }
+    .prototype-stage { min-height:620px; }
+    .product { height:620px; }
+    .product:not([data-state="handoff"]):not([data-state="alert"]) { width:min(362px,100%); }
+    .dock { width:calc(100% - 46px); }
+    .alert-popover { right:52px; width:min(290px,calc(100vw - 70px)); }
+    .actual-size { display:none; }
+  }
 </style>
 </head>
 <body>
+<svg class="svg-defs" aria-hidden="true">
+  <symbol id="i-tasks" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.2 3.3L7.5 7.5l3.3 1.2L12 12l1.2-3.3 3.3-1.2-3.3-1.2L12 3ZM5 14l-.8 2.2L2 17l2.2.8L5 20l.8-2.2L8 17l-2.2-.8L5 14Zm12-1 1.1 2.9L21 17l-2.9 1.1L17 21l-1.1-2.9L13 17l2.9-1.1L17 13Z"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="4" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="20" r="2"/><path d="M6 6v12M18 8c0 6-12 2-12 8"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5h6l2 2h10v10H3z"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+  <symbol id="i-shipping" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="m3 6 1 1 2-2m-3 7 1 1 2-2m-3 7 1 1 2-2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M18.5 9A7 7 0 0 0 6 6.5L4 9m2 6a7 7 0 0 0 12 2.5L20 15"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M18 9c0 5-12 2-12 7"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+</svg>
+
 <main class="page">
-  <div class="eyebrow">Schematic · Podium shell geometry</div>
-  <h1>“I like it. Make it happen.”</h1>
-  <p class="lede">This starts after approval. Shipping is one system-owned issue stage, a neutral sidebar peek for confidence, and Podium's existing alert path only when automation cannot finish safely.</p>
-  <nav class="tabs" aria-label="Shipping states">
-    <button data-tab="accepted" aria-pressed="true">1 · Accepted</button>
-    <button data-tab="background" aria-pressed="false">2 · Hours later</button>
-    <button data-tab="peek" aria-pressed="false">3 · Optional peek</button>
-    <button data-tab="alert" aria-pressed="false">4 · Podium needs you</button>
+  <div class="eyebrow">POD-775 · production-shaped prototype</div>
+  <h1>The whole product is one dock.</h1>
+  <p class="lede">Only Podium’s existing right sidebar is drawn below: the current 316px Queues dock evolving into Shipping, beside the real 46px rail. No workspace, work list, review UI, or invented app chrome.</p>
+
+  <nav class="story-nav" aria-label="Shipping flow">
+    <button class="story-step" data-state-button="handoff" data-number="1" aria-pressed="false">Handoff</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="peek" data-number="2" aria-pressed="true">Peek</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="inspect" data-number="3" aria-pressed="false">Inspect</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="alert" data-number="4" aria-pressed="false">Alert</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="resolve" data-number="5" aria-pressed="false">Resolve</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="resumed" data-number="6" aria-pressed="false">Resumed</button><i class="story-link"></i>
+    <button class="story-step" data-state-button="shipped" data-number="7" aria-pressed="false">Shipped</button>
   </nav>
-  <section class="shell" id="shell" data-view="accepted">
-    <header class="titlebar"><span class="brand">P</span><b>Podium</b><code>/ podium / issue-775</code><span class="host">daemon ready</span></header>
-    <div class="body">
-      <aside class="worklist">
-        <div class="section-label">WORK</div>
-        <div class="work-row selected current"><span class="square"></span><span>Ship stack</span><span class="stage shipping">shipping</span></div>
-        <div class="work-row"><span class="square"></span><span>Exact landing</span><span class="stage">review</span></div>
-        <div class="work-row"><span class="square"></span><span>Preview proofs</span><span class="stage">planning</span></div>
-        <div class="section-label">SESSIONS</div><div class="work-row"><span>⌁</span><span>Architecture review</span></div>
-      </aside>
-      <section class="workspace">
-        <header class="workspace-head"><h2>Ship stack</h2><span>shipping</span></header>
-        <div class="schematic accepted-copy">
-          <h3>Podium owns it now.</h3>
-          <p>The user has already approved the work. Nothing else is asked, no Shipping view opens, and the finishing agent can exit.</p>
-          <div class="receipt"><b>Shipping → origin/main</b><span>Accepted source <code>c071d86</code> · Podium will keep trying safely and alert you only if it cannot finish.</span></div>
-          <div class="cli"><span class="prompt">$</span> podium issue ship<br /><span class="ok">shipping POD-775 → origin/main<br />Podium owns it now.</span></div>
-          <div class="callout"><b>Delivery-root guard.</b> Top-level issues ship; nested sub-issues compose into them. Another authorized agent can deliberately nominate an approved root with <code>podium issue ship POD-775 --outside-scope</code>. The flag acknowledges the crossing—it never bypasses readiness or permission checks.</div>
-        </div>
-        <div class="schematic flow-copy" hidden>
-          <h3>One visible status; machinery stays underneath.</h3>
-          <p>The issue remains <b>shipping</b> for as long as necessary. Internal phases produce no user notifications.</p>
-          <div class="flow"><div class="node"><div><b>review</b><span>User approved</span></div></div><div class="arrow">→</div><div class="node owned"><div><b>shipping</b><span>Podium owns waiting, tests, repair, and publish</span></div></div><div class="arrow">→</div><div class="node done"><div><b>done</b><span>Destination verified</span></div></div></div>
-        </div>
-        <aside class="popup"><b>Podium alert · shipping needs you</b><span>Automation stopped before making an unsafe product decision. Other shipments continue.</span><button class="button primary" onclick="openShipping()">Open shipping</button></aside>
+
+  <section class="prototype">
+    <aside class="story-copy" aria-live="polite">
+      <div class="story-kicker" id="story-kicker"></div>
+      <h2 id="story-title"></h2>
+      <p id="story-body"></p>
+      <dl class="rules">
+        <div><dt>User effort</dt><dd id="story-effort"></dd></div>
+        <div><dt>System contract</dt><dd id="story-system"></dd></div>
+      </dl>
+    </aside>
+
+    <div class="prototype-stage">
+      <span class="actual-size">actual default footprint · 316px dock + 46px rail</span>
+      <section class="product" id="product" data-state="peek" aria-label="Podium right sidebar prototype">
+        <aside class="dock" aria-label="Shipping panel">
+          <header class="dock-header">
+            <svg class="icon" aria-hidden="true"><use href="#i-shipping"/></svg>
+            <span class="dock-title">Shipping</span>
+            <button class="icon-button" type="button" title="Close shipping panel" aria-label="Close shipping panel" data-close><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+          </header>
+          <div class="dock-content">
+            <section class="view view-peek" aria-label="Shipping overview">
+              <div class="utility-bar"><b>Deliveries</b><span>3 active</span><button class="icon-button" type="button" title="Refresh shipping" aria-label="Refresh shipping"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
+              <div class="intro"><strong>Everything is handled</strong><p>Podium will keep going and alert you only if it cannot finish safely.</p></div>
+              <div class="target-head"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg><strong>podium</strong><code>origin/main</code></div>
+              <div class="section-head"><span class="section-label">On the way</span><span class="count">3</span></div>
+              <ul class="ship-list">
+                <li><button class="ship-row" type="button" data-inspect><i class="signal"></i><span class="ship-main"><b>Ship stack</b><small>POD-775 · approved root c071d86</small></span><span class="ship-state live">Validating</span></button></li>
+                <li><button class="ship-row" type="button"><i class="signal wait"></i><span class="ship-main"><b>Durable ship orders</b><small>POD-830 · Podium owns the wait</small></span><span class="ship-state">Waiting</span></button></li>
+                <li><button class="ship-row" type="button"><i class="signal"></i><span class="ship-main"><b>Offer dismissal</b><small>POD-771 · composing</small></span><span class="ship-state live">On its way</span></button></li>
+              </ul>
+              <div class="section-head"><span class="section-label">Recently shipped</span><span class="count">1</span></div>
+              <ul class="ship-list"><li><button class="ship-row" type="button"><i class="signal done"></i><span class="ship-main"><b>Mobile evidence</b><small>POD-790 · origin/main verified</small></span><span class="ship-state done">Shipped</span></button></li></ul>
+              <details class="resource"><summary>Resource lanes</summary><div class="resource-body">merge:main · free<br>heavy-test · held 3m 12s<br>shipwright · idle</div></details>
+              <p class="quiet-foot">No queue management is required. Rows are here for confidence and diagnosis.</p>
+            </section>
+
+            <section class="view view-inspect" aria-label="Shipment details">
+              <button class="back" type="button" data-back><svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>All shipping</button>
+              <div class="subject"><span class="ref">POD-775 · SHIPPING</span><h3>Ship stack</h3><p>Podium is validating the exact composed tip. You can leave this panel.</p><div class="phase"><i class="signal"></i>Validating</div></div>
+              <ol class="timeline">
+                <li class="done"><i class="dot"></i><span><b>Accepted</b><small>Approved root and descendants frozen</small></span><time>14:08</time></li>
+                <li class="done"><i class="dot"></i><span><b>Composed</b><small>Integration tip 7cc12ea</small></span><time>14:10</time></li>
+                <li class="live"><i class="dot"></i><span><b>Validating</b><small>Repository profile · daemon vm13431366</small></span><time>now</time></li>
+                <li><i class="dot"></i><span><b>Publish</b><small>Waiting for green proof</small></span></li>
+                <li><i class="dot"></i><span><b>Verify destination</b><small>Then the issue becomes done</small></span></li>
+              </ol>
+              <div class="section-head"><span class="section-label">Proof</span></div>
+              <div class="proof"><div class="proof-row"><span>Approved</span><code>c071d86</code></div><div class="proof-row"><span>Tested</span><code>pending</code></div><div class="proof-row"><span>Destination</span><code>origin/main</code></div></div>
+              <details class="resource" open><summary>Technical details</summary><div class="resource-body">control · server<br>executor · repository daemon<br>merge lock · not held during validation<br>shipwright · not needed<br>attempt · generation 1</div></details>
+              <div class="safe-actions"><button class="button danger" type="button" data-cancel>Cancel shipping</button></div>
+            </section>
+
+            <section class="view view-resolve" aria-label="Shipping hold">
+              <div class="utility-bar"><b>Needs you</b><span>1</span></div>
+              <div class="intro attention"><strong>One shipment needs a decision</strong><p>Independent deliveries are still moving.</p></div>
+              <article class="hold-card">
+                <div class="hold-main"><span class="ref">POD-775 · SHIP HOLD</span><h3>Podium cannot choose the intended behavior</h3><p>The conflict has two test-passing outcomes. Picking either automatically could change the product.</p></div>
+                <div class="attempts"><div class="attempt"><b>Mechanic</b><span>Resolved the textual conflict</span></div><div class="attempt"><b>Solver</b><span>Found two valid behaviors</span></div><div class="attempt"><b>Inspector</b><span>Confirmed the brief does not decide</span></div></div>
+                <div class="hold-actions"><button class="button primary" type="button" data-open-issue>Open issue</button><button class="button" type="button" data-retry>Retry shipping</button><button class="button ghost" type="button" data-return>Return to review</button></div>
+              </article>
+              <p class="continue-note">Podium stopped before the unsafe decision. It kept the tested evidence and will recompose after your answer.</p>
+            </section>
+
+            <section class="view view-resumed" aria-label="Shipping resumed">
+              <div class="utility-bar"><b>Deliveries</b><span>3 active</span><button class="icon-button" type="button" title="Refresh shipping" aria-label="Refresh shipping"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
+              <div class="resume-line"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span>Decision received. Podium is handling it again.</span></div>
+              <div class="intro"><strong>Everything is handled</strong><p>The alert cleared only after the hold resolution committed.</p></div>
+              <div class="target-head"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg><strong>podium</strong><code>origin/main</code></div>
+              <div class="section-head"><span class="section-label">On the way</span><span class="count">3</span></div>
+              <ul class="ship-list">
+                <li><button class="ship-row" type="button" data-inspect><i class="signal"></i><span class="ship-main"><b>Ship stack</b><small>POD-775 · generation 2</small></span><span class="ship-state live">Revalidating</span></button></li>
+                <li><button class="ship-row" type="button"><i class="signal wait"></i><span class="ship-main"><b>Durable ship orders</b><small>POD-830 · Podium owns the wait</small></span><span class="ship-state">Waiting</span></button></li>
+                <li><button class="ship-row" type="button"><i class="signal"></i><span class="ship-main"><b>Offer dismissal</b><small>POD-771 · publishing</small></span><span class="ship-state live">On its way</span></button></li>
+              </ul>
+              <p class="quiet-foot">No session was revived. The server resumed the durable order and the daemon is revalidating it.</p>
+            </section>
+
+            <section class="view view-shipped" aria-label="Shipment completed">
+              <div class="utility-bar"><b>Deliveries</b><span>0 active</span><button class="icon-button" type="button" title="Refresh shipping" aria-label="Refresh shipping"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
+              <div class="intro success"><strong>Everything is handled</strong><p>There is nothing waiting on you and nothing still moving.</p></div>
+              <div class="target-head"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg><strong>podium</strong><code>origin/main</code></div>
+              <div class="section-head"><span class="section-label">On the way</span><span class="count">0</span></div>
+              <p class="empty">Nothing is shipping right now.</p>
+              <div class="section-head"><span class="section-label">Recently shipped</span><span class="count">1</span></div>
+              <ul class="ship-list"><li><button class="ship-row" type="button"><i class="signal done"></i><span class="ship-main"><b>Ship stack</b><small>POD-775 · origin/main verified 14:32</small></span><span class="ship-state done">Shipped</span></button></li></ul>
+              <details class="resource" open><summary>Delivery receipt</summary><div class="resource-body">approved · c071d86<br>tested · 7cc12ea<br>landed ref · 7cc12ea<br>destination · 7cc12ea<br>issue · done</div></details>
+              <p class="quiet-foot">Completion did not create a notification. The receipt remains available for audit.</p>
+            </section>
+          </div>
+        </aside>
+
+        <nav class="rail" aria-label="Podium panels">
+          <button class="rail-cell" type="button" title="Tasks" aria-label="Tasks"><svg class="icon" aria-hidden="true"><use href="#i-tasks"/></svg></button>
+          <button class="rail-cell" type="button" title="Superagent" aria-label="Superagent"><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg></button>
+          <button class="rail-cell" type="button" title="Git" aria-label="Git"><svg class="icon" aria-hidden="true"><use href="#i-git"/></svg></button>
+          <button class="rail-cell" type="button" title="Files" aria-label="Files"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg></button>
+          <button class="rail-cell" type="button" title="Shell" aria-label="Shell"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></button>
+          <button class="rail-cell" type="button" title="Messages" aria-label="Messages"><svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg></button>
+          <button class="rail-cell shipping-cell" type="button" title="Shipping" aria-label="Shipping" data-shipping-cell><svg class="icon" aria-hidden="true"><use href="#i-shipping"/></svg></button>
+        </nav>
+
+        <aside class="alert-popover" role="alert">
+          <div class="alert-copy"><span class="label">Podium alert · POD-775</span><strong>Shipping needs one decision</strong><p>Automation stopped before choosing product behavior. Other shipments continue.</p></div>
+          <div class="alert-actions"><button class="button ghost" type="button" data-dismiss>Later</button><button class="button primary" type="button" data-open-shipping>Open Shipping</button></div>
+        </aside>
       </section>
-      <aside class="dock">
-        <section class="dock-panel active" data-panel="quiet">
-          <div class="dock-head">⇥ <span>Shipping</span><span class="close">×</span></div>
-          <div class="dock-body">
-            <div class="confidence"><b>Everything is handled</b><span>4 shipments · Podium will alert you if that changes</span></div>
-            <div class="repo"><span>podium → origin/main</span><span>4</span></div>
-            <div class="ship-row"><i></i><div><b>Ship stack</b><small>POD-775 · background delivery</small></div><span class="state">On its way</span></div>
-            <div class="ship-row"><i></i><div><b>Offer dismissal</b><small>POD-771 · background delivery</small></div><span class="state">On its way</span></div>
-            <div class="ship-row"><i class="wait"></i><div><b>Preview route auth</b><small>POD-782 · Podium keeps waiting</small></div><span class="state">Waiting</span></div>
-            <div class="ship-row"><i class="done"></i><div><b>Mobile evidence</b><small>POD-790 · origin/main verified</small></div><span class="state">Shipped</span></div>
-            <details><summary>Details and safe controls</summary><pre>phase: validating · source: c071d86 · integration: 7cc12ea · merge lock: not held · repair agent: none</pre><button class="button">Cancel shipping</button></details>
-          </div>
-        </section>
-        <section class="dock-panel" data-panel="alert">
-          <div class="dock-head">⇥ <span>Shipping</span><span class="close">×</span></div>
-          <div class="dock-body">
-            <div class="confidence alert"><b>One shipment needs you</b><span>Independent shipping is continuing</span></div>
-            <div class="alert-card"><div class="label">PODIUM ALERT · POD-775</div><h3>Shipping cannot choose the intended behavior</h3><p>Deterministic repair and the bounded shipwright both stopped safely. Choosing automatically could change the product.</p><div class="actions"><button class="button primary" onclick="notify('Issue opened','Existing needsHuman is the source of truth.')">Open issue</button><button class="button">Let Podium retry</button><button class="button">Return to issue</button></div></div>
-            <details><summary>What Podium tried</summary><pre>mechanic: stopped on behavior change · solver: prepared options · inspector: ambiguity confirmed · model authority: no merge or push</pre></details>
-          </div>
-        </section>
-      </aside>
-      <nav class="rail" aria-label="Right panels">
-        <button title="Tasks">▤</button><button title="Superagent">✦</button><button title="Git">⑂</button><button title="Files">□</button><button title="Shell">›_</button><button title="Messages">✉</button><button class="shipping-icon" title="Shipping" aria-label="Shipping" onclick="openShipping()">⇥</button>
-      </nav>
     </div>
   </section>
-  <section class="caption">
-    <article><b>ONE DELIVERY ROOT</b><p><code>podium issue ship</code> accepts a top-level issue only. Sub-issues integrate upward; explicit <code>--outside-scope</code> lets another authorized agent nominate the root.</p></article>
-    <article><b>ZERO SUPERVISION</b><p>The sidebar stays neutral during waiting, retries, validation, model repair, publication, and completion.</p></article>
-    <article><b>ONE EXCEPTION PATH</b><p>An exhausted hold uses existing <code>needsHuman</code>, Tray, notifications, and a red Shipping glyph. No second alert system.</p></article>
-  </section>
+
+  <p class="footnote">Production mapping: <code>RightDock</code> header metrics · <code>right-dock-shell</code> engraved surface · <code>right-rail</code> 46px rail · current <code>MergeQueuePanel</code> section and row density. Shipping replaces Queues in place; resource leases move behind the disclosure.</p>
 </main>
-<div class="toast" id="toast"></div>
+
+<div class="toast" id="toast" role="status"></div>
 <script>
-  const shell = document.getElementById('shell')
-  const tabs = [...document.querySelectorAll('[data-tab]')]
-  const quiet = document.querySelector('[data-panel="quiet"]')
-  const alertPanel = document.querySelector('[data-panel="alert"]')
-  const accepted = document.querySelector('.accepted-copy')
-  const flow = document.querySelector('.flow-copy')
-  const icon = document.querySelector('.shipping-icon')
-  function show(name) {
-    shell.dataset.view = name
-    tabs.forEach((tab) => tab.setAttribute('aria-pressed', String(tab.dataset.tab === (name === 'alert-open' ? 'alert' : name))))
-    accepted.hidden = name === 'background'
-    flow.hidden = name !== 'background'
-    quiet.classList.toggle('active', name !== 'alert' && name !== 'alert-open')
-    alertPanel.classList.toggle('active', name === 'alert' || name === 'alert-open')
-    icon.classList.toggle('active', name === 'peek')
-    icon.title = name === 'alert' || name === 'alert-open' ? 'Shipping · action required' : 'Shipping'
-    icon.setAttribute('aria-label', icon.title)
+  const stories = {
+    handoff: {
+      kicker:'1 · after “ship it”', title:'Nothing opens.',
+      body:'The normal review surface hands off an approved delivery root. The Shipping dock stays closed and its rail icon stays neutral—no progress ceremony and no new task for the user.',
+      effort:'None. The user leaves; the finishing agent may exit.',
+      system:'The server commits the durable order and shipping stage. The repository daemon takes over; no agent polls.'
+    },
+    peek: {
+      kicker:'2 · optional confidence check', title:'Everything is handled.',
+      body:'Hours later, the user may open Shipping from the existing rail. The first screen answers only what is moving, where it is going, and whether Podium needs anything.',
+      effort:'Optional glance. No queue ordering or workflow management.',
+      system:'Rows are a projection of durable orders. Slow work remains neutral; diagnostic resource lanes stay collapsed.'
+    },
+    inspect: {
+      kicker:'3 · optional detail', title:'Proof, not theater.',
+      body:'Selecting one row reveals its real milestones, immutable references, executor, and safe controls. The detail explains what Podium is doing without asking the user to supervise it.',
+      effort:'Optional diagnosis; cancel remains available before destination effects.',
+      system:'Submitted, tested, landed, and destination tips remain separate. The merge lock is not held during long validation.'
+    },
+    alert: {
+      kicker:'4 · automation is exhausted', title:'Only then does Shipping ask.',
+      body:'A semantic decision exceeds deterministic repair and bounded model authority. The existing Podium alert appears and only the Shipping glyph turns red; the dock still does not hijack focus.',
+      effort:'Notice one actionable exception—not routine progress.',
+      system:'The issue stays shipping with needsHuman. Other delivery roots continue independently.'
+    },
+    resolve: {
+      kicker:'5 · focused recovery', title:'One decision, with context.',
+      body:'Opening the alert lands directly on the held shipment. Podium says why it stopped, what deterministic and model-assisted repair tried, and offers only safe next actions.',
+      effort:'Open the normal issue for product judgment, retry after context changed, or return it to review.',
+      system:'A typed ShipHold is resolved with a generation fence. A model can propose patches but cannot merge or publish.'
+    },
+    resumed: {
+      kicker:'6 · answer accepted', title:'Podium owns it again.',
+      body:'The red signal clears only after the resolution commits. The order recomposes and revalidates in the background; no original session is revived.',
+      effort:'None after the decision.',
+      system:'The server advances the durable order; the daemon executes the next fenced attempt from current repository state.'
+    },
+    shipped: {
+      kicker:'7 · destination verified', title:'Done means arrived.',
+      body:'The active row quietly moves to Recently shipped after Podium proves the configured destination. There is no completion badge demanding acknowledgement.',
+      effort:'None. The receipt is there only if the user wants it.',
+      system:'Destination proof moves the delivery root from shipping to done. Audit data remains; routine UI returns to neutral.'
+    }
   }
-  function openShipping() { show(shell.dataset.view === 'alert' || shell.dataset.view === 'alert-open' ? 'alert-open' : 'peek') }
-  tabs.forEach((tab) => tab.addEventListener('click', () => show(tab.dataset.tab)))
-  function notify(title, detail) { const node=document.getElementById('toast'); node.innerHTML=`${title}<span>${detail}</span>`; node.classList.add('show'); setTimeout(()=>node.classList.remove('show'),3000) }
-  show('accepted')
+  const product = document.getElementById('product')
+  const buttons = [...document.querySelectorAll('[data-state-button]')]
+  const storyKicker = document.getElementById('story-kicker')
+  const storyTitle = document.getElementById('story-title')
+  const storyBody = document.getElementById('story-body')
+  const storyEffort = document.getElementById('story-effort')
+  const storySystem = document.getElementById('story-system')
+  const shippingCell = document.querySelector('[data-shipping-cell]')
+
+  function show(state) {
+    const story = stories[state] || stories.peek
+    product.dataset.state = state
+    buttons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.stateButton === state)))
+    storyKicker.textContent = story.kicker
+    storyTitle.textContent = story.title
+    storyBody.textContent = story.body
+    storyEffort.textContent = story.effort
+    storySystem.textContent = story.system
+    const attention = state === 'alert' || state === 'resolve'
+    shippingCell.title = attention ? 'Shipping · action required' : 'Shipping'
+    shippingCell.setAttribute('aria-label', shippingCell.title)
+  }
+  function toast(title, detail) {
+    const node = document.getElementById('toast')
+    node.innerHTML = `${title}<span>${detail}</span>`
+    node.classList.add('show')
+    window.setTimeout(() => node.classList.remove('show'), 2600)
+  }
+  buttons.forEach((button) => button.addEventListener('click', () => show(button.dataset.stateButton)))
+  document.querySelector('[data-close]').addEventListener('click', () => show('handoff'))
+  document.querySelector('[data-back]').addEventListener('click', () => show('peek'))
+  document.querySelectorAll('[data-inspect]').forEach((button) => button.addEventListener('click', () => show('inspect')))
+  document.querySelector('[data-open-shipping]').addEventListener('click', () => show('resolve'))
+  document.querySelector('[data-dismiss]').addEventListener('click', () => toast('Alert kept for later','The red Shipping glyph remains until the hold is resolved.'))
+  document.querySelector('[data-retry]').addEventListener('click', () => show('resumed'))
+  document.querySelector('[data-open-issue]').addEventListener('click', () => toast('Normal issue opened','Product judgment returns to Podium’s ordinary issue UX.'))
+  document.querySelector('[data-return]').addEventListener('click', () => toast('Returning to review','Shipping will release custody before the issue changes stage.'))
+  document.querySelector('[data-cancel]').addEventListener('click', () => toast('Safe to cancel','The destination ref has not changed; cancellation returns the issue to review.'))
+  shippingCell.addEventListener('click', () => {
+    const state = product.dataset.state
+    if (state === 'alert') show('resolve')
+    else if (state === 'handoff') show('peek')
+    else show('handoff')
+  })
+  show('peek')
 </script>
 </body>
 </html>
