@@ -1,4 +1,5 @@
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
+import { parseAnyRef } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -102,6 +103,14 @@ describe('RefMiniviewHost issue resolution', () => {
 
 function issueTarget(issue: RefIssueLike): ResolvedRef {
   return { kind: 'issue', ref: { kind: 'issue', prefix: 'POD', seq: issue.seq }, issue }
+}
+
+function sessionTarget(session: RefSessionLike): ResolvedRef {
+  const ref = session.displayRef ? parseAnyRef(session.displayRef) : null
+  if (ref?.kind !== 'session') {
+    throw new Error(`session fixture needs a session displayRef, got ${session.displayRef}`)
+  }
+  return { kind: 'session', ref, session }
 }
 
 function renderCard(root: Root, issue: RefIssueLike): void {
@@ -454,17 +463,15 @@ describe('RefCard is not draggable (POD-799)', () => {
   })
 
   it('keeps the session card where it opened when dragged by its title bar', () => {
-    const card = renderCard({
-      kind: 'session',
-      ref: 'POD-13-A',
-      session: {
+    const card = renderCard(
+      sessionTarget({
         sessionId: asSessionId('sess-1'),
         displayRef: 'POD-13-A',
         name: 'POD-13-A',
         title: 'Session',
         cwd: '/home/dev/podium',
-      },
-    } as unknown as ResolvedRef)
+      }),
+    )
     const { left, top } = card.style
     dragAcross(card)
     expect(card.style.left).toBe(left)
