@@ -62,6 +62,7 @@ import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContext
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
+import { useClickIntent } from './click-intent'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useReplicaIssues, useStoreSelector } from './store'
@@ -294,57 +295,6 @@ function matchesQuery(row: FlightDeckRow, needle: string): boolean {
     row.issue.title.toLowerCase().includes(needle) ||
     issueDisplayRef(row.issue).toLowerCase().includes(needle) ||
     row.sessions.some((session) => sessionDisplayName(session).toLowerCase().includes(needle))
-  )
-}
-
-/**
- * SINGLE CLICK AND DOUBLE CLICK ON ONE TARGET, resolved without a race.
- *
- * A preview open and a permanent open are the same gesture repeated, so the
- * first click cannot act immediately — it would leave a stray fold toggle (and a
- * second navigation) behind every double click. The first click schedules; a
- * second click inside the window cancels the schedule and promotes instead,
- * which is the "promote on the second click" arm the contract allows and the one
- * that needs no `dblclick` event to be delivered.
- *
- * One instance per row, so a fast click on one row followed by another row is
- * two singles rather than a double.
- */
-const DOUBLE_CLICK_MS = 260
-
-interface ClickIntent {
-  press: (single: () => void, double: () => void) => void
-  /** Enter is the keyboard's double click; it also drops anything pending. */
-  commit: (double: () => void) => void
-}
-
-function useClickIntent(): ClickIntent {
-  const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const cancel = useCallback((): boolean => {
-    if (pending.current === null) return false
-    clearTimeout(pending.current)
-    pending.current = null
-    return true
-  }, [])
-  useEffect(() => () => void cancel(), [cancel])
-  return useMemo(
-    () => ({
-      press: (single, double) => {
-        if (cancel()) {
-          double()
-          return
-        }
-        pending.current = setTimeout(() => {
-          pending.current = null
-          single()
-        }, DOUBLE_CLICK_MS)
-      },
-      commit: (double) => {
-        cancel()
-        double()
-      },
-    }),
-    [cancel],
   )
 }
 

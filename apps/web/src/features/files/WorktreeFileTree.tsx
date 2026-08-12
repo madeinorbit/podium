@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw } from 'lucide
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
+import { useClickIntent } from '@/app/click-intent'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { FileTypeIcon } from './file-icon'
@@ -17,6 +18,87 @@ function joinPath(dir: string, name: string): string {
 function sortEntries(entries: Entry[]): Entry[] {
   return [...entries].sort((a, b) =>
     a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name),
+  )
+}
+
+/**
+ * ONE ROW OF THE TREE, on the flight deck's open contract (POD-788).
+ *
+ * A file opens the way a session does: one click is a GLANCE — a temporary tab
+ * the next glance replaces — and a double click (or Enter) keeps it. The dock's
+ * file tree is the same kind of surface as the deck's spine, a list you walk
+ * looking for the thing you actually want, and before this every step of that
+ * walk left a permanent tab behind. Editing the file promotes it too, via the
+ * deck-wide `usePreviewPromotion` — nothing you have typed into can be a glance.
+ *
+ * A directory has no second gesture: the click toggles it immediately, because a
+ * fold that waits 260ms for a double click that never comes reads as lag.
+ */
+function EntryRow({
+  entry,
+  depth,
+  open,
+  onToggle,
+  onOpen,
+}: {
+  entry: Entry
+  depth: number
+  open: boolean
+  onToggle: () => void
+  onOpen: (permanent: boolean) => void
+}): JSX.Element {
+  const intent = useClickIntent()
+  const dot = entry.name.startsWith('.')
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={`h-7 w-full justify-start gap-1.5 px-2 text-left font-normal ${
+        dot ? 'text-muted-foreground/60' : 'text-foreground'
+      }`}
+      style={{ paddingLeft: `${depth * 14 + 8}px` }}
+      title={entry.isDir ? entry.name : `${entry.name} — double-click to keep the tab open`}
+      // One click previews, two keep it (see `useClickIntent`). Enter is the
+      // keyboard's double click and must not go through the click path, so it
+      // cancels the browser's synthesised click first.
+      onClick={() => {
+        if (entry.isDir) {
+          onToggle()
+          return
+        }
+        intent.press(
+          () => onOpen(false),
+          () => onOpen(true),
+        )
+      }}
+      onKeyDown={(event) => {
+        if (entry.isDir || event.key !== 'Enter') return
+        event.preventDefault()
+        intent.commit(() => onOpen(true))
+      }}
+    >
+      {entry.isDir ? (
+        open ? (
+          <ChevronDown size={13} className="flex-none" />
+        ) : (
+          <ChevronRight size={13} className="flex-none" />
+        )
+      ) : (
+        <span className="w-[13px] flex-none" />
+      )}
+      {entry.isDir ? (
+        open ? (
+          <FolderOpen size={14} className="flex-none text-amber-300/80" />
+        ) : (
+          <Folder size={14} className="flex-none text-amber-300/80" />
+        )
+      ) : (
+        <FileTypeIcon name={entry.name} />
+      )}
+      <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]">
+        {entry.name}
+      </span>
+    </Button>
   )
 }
 
@@ -113,47 +195,16 @@ export function WorktreeFileTree({
     }
     return entries.map((entry) => {
       const abs = joinPath(dir, entry.name)
-      const dot = entry.name.startsWith('.')
       const open = expanded.has(abs)
       return (
         <div key={abs}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`h-7 w-full justify-start gap-1.5 px-2 text-left font-normal ${
-              dot ? 'text-muted-foreground/60' : 'text-foreground'
-            }`}
-            style={{ paddingLeft: `${depth * 14 + 8}px` }}
-            onClick={() => {
-              if (entry.isDir) {
-                toggleDir(abs)
-              } else {
-                openFileInWorktree({ machineId, root, path: abs })
-              }
-            }}
-          >
-            {entry.isDir ? (
-              open ? (
-                <ChevronDown size={13} className="flex-none" />
-              ) : (
-                <ChevronRight size={13} className="flex-none" />
-              )
-            ) : (
-              <span className="w-[13px] flex-none" />
-            )}
-            {entry.isDir ? (
-              open ? (
-                <FolderOpen size={14} className="flex-none text-amber-300/80" />
-              ) : (
-                <Folder size={14} className="flex-none text-amber-300/80" />
-              )
-            ) : (
-              <FileTypeIcon name={entry.name} />
-            )}
-            <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]">
-              {entry.name}
-            </span>
-          </Button>
+          <EntryRow
+            entry={entry}
+            depth={depth}
+            open={open}
+            onToggle={() => toggleDir(abs)}
+            onOpen={(permanent) => openFileInWorktree({ machineId, root, path: abs, permanent })}
+          />
           {entry.isDir && open && renderDir(abs, depth + 1)}
         </div>
       )

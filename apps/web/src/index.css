@@ -684,6 +684,76 @@
   --issue-line-scale: 1%;
 }
 
+/* ── Syntax channel — the code editor's ink [POD-788] ────────────────────────
+   ONE palette per MODE, not per preset. Syntax colour is not chrome: it is a
+   set of ~10 hues that have to stay distinguishable from each other while
+   sitting on whatever ground the preset paints, and the three presets differ
+   only in their ground and their brand accent — near-black in every dark
+   variant, white-to-warm-stone in every light one. Forking this by preset would
+   be thirty values maintained in three places to say the same thing, and it is
+   how a preset ends up with a keyword nobody can read.
+
+   The palette is built the way the rest of the theme is: MEANING FIRST, and no
+   more colour than the meaning needs. Structure (punctuation, operators,
+   brackets) is neutral ink and stays out of the way; the four things you
+   actually scan for — a keyword, a string, a name being called, a literal —
+   each take one hue and keep it everywhere. Comments sit one tier below body
+   ink and lean italic, so prose in a code file reads as prose.
+
+   Hues are the shell's own vocabulary, desaturated to document strength: the
+   brand yellow becomes ochre/sand for literals, the activity blue carries call
+   sites, --claude's terracotta carries markup tags, and violet — the one hue
+   the chrome never spends — is free to mean "keyword" without colliding with
+   any state the surrounding UI can be in.
+
+   Contrast floor: every token measures at least 4.5:1 against its own mode's
+   ground (near-black #0e0e12–#16171a in dark, #f2f1ed–#ffffff in light), except
+   --syntax-punct, which is deliberately quieter because a comma is not
+   information. */
+:root {
+  --syntax-ink: #38362f;
+  --syntax-comment: #6f6d64;
+  --syntax-punct: #8a8880;
+  --syntax-operator: #5f5d55;
+  --syntax-keyword: #7132d4;
+  --syntax-string: #12704a;
+  --syntax-number: #8a5a00;
+  --syntax-function: #1d4ed8;
+  --syntax-type: #0c6f86;
+  --syntax-property: #2451a8;
+  --syntax-tag: #b8532e;
+  --syntax-invalid: #c81e2b;
+  /* Editor chrome. The gutter is a number column, not a border: it carries no
+     rule and no fill, only dimmer ink, so the code starts at the left edge of
+     the eye's line rather than after a second panel. */
+  --syntax-gutter: #a3a199;
+  --syntax-gutter-active: #38362f;
+  --syntax-selection: rgb(29 28 25 / 0.11);
+  --syntax-active-line: rgb(29 28 25 / 0.035);
+  --syntax-cursor: #1d1c19;
+  --syntax-match: rgb(42 98 240 / 0.18);
+}
+.dark {
+  --syntax-ink: #d5d7de;
+  --syntax-comment: #7c8494;
+  --syntax-punct: #8a91a0;
+  --syntax-operator: #a7aebd;
+  --syntax-keyword: #bb9af7;
+  --syntax-string: #8fd0a8;
+  --syntax-number: #e8b071;
+  --syntax-function: #7fb0ff;
+  --syntax-type: #6fcfd0;
+  --syntax-property: #a8c8f5;
+  --syntax-tag: #f0937a;
+  --syntax-invalid: #ff7b72;
+  --syntax-gutter: #5d6473;
+  --syntax-gutter-active: #d5d7de;
+  --syntax-selection: rgb(127 176 255 / 0.22);
+  --syntax-active-line: rgb(255 255 255 / 0.035);
+  --syntax-cursor: #f5c518;
+  --syntax-match: rgb(127 176 255 / 0.22);
+}
+
 /* ── Issue-accent channel [spec:SP-b4d1] ─────────────────────────────────────
    Every issue-coloured surface is a color-mix TINT over a base surface — never
    a flat fill. A shell subtree sets `--issue` (style={{ '--issue': hex }}) from

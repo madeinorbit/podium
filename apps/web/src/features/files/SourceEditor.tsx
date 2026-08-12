@@ -1,9 +1,11 @@
 // apps/web/src/SourceEditor.tsx
-import type { EditorView as EditorViewType } from '@codemirror/view'
+
 import { EditorState } from '@codemirror/state'
-import { EditorView, basicSetup } from 'codemirror'
+import type { EditorView as EditorViewType } from '@codemirror/view'
+import { basicSetup, EditorView } from 'codemirror'
 import { type JSX, useEffect, useRef } from 'react'
 import { langIdForPath, loadLanguage } from './editor-lang'
+import { editorTheme } from './editor-theme'
 
 /** CodeMirror source view over a document. Seeds from `initialContent` at mount;
  *  give it a stable `key` so a reload remounts with fresh content. Edits flow out
@@ -43,6 +45,9 @@ export function SourceEditor({
           doc: seedRef.current,
           extensions: [
             basicSetup,
+            // AFTER basicSetup, so the shell's theme and highlighting win over
+            // its stock light-background defaults.
+            ...editorTheme,
             ...ext,
             EditorView.editable.of(editable),
             EditorView.updateListener.of((u) => {
@@ -69,5 +74,9 @@ export function SourceEditor({
     // initialContent intentionally excluded: seed once per mount (keyed remount on reload).
   }, [path, editable, viewRef])
 
-  return <div ref={hostRef} className="min-h-0 flex-1 overflow-auto text-[13px]" />
+  // `overflow-hidden`, not `overflow-auto`: the editor owns a real height (see
+  // `editorTheme`) and scrolls INSIDE itself, which is what keeps the line-number
+  // gutter pinned while the document moves. Scrolling the host instead took the
+  // gutter with it.
+  return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
 }
