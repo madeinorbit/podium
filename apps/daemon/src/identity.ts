@@ -1,4 +1,4 @@
-import type { MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -35,12 +35,13 @@ export function loadIdentity(opts: { dir?: string } = {}): DaemonIdentity {
     // First run (or unreadable/corrupt) — start fresh and rewrite below.
   }
   if (!data.machineId) {
-    data.machineId = randomUUID()
+    data.machineId = asMachineId(randomUUID())
     mkdirSync(base, { recursive: true })
     writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
   }
+  const machineId = data.machineId
   return {
-    machineId: data.machineId,
+    machineId,
     ...(data.token ? { token: data.token } : {}),
     ...(data.updatePubkey ? { updatePubkey: data.updatePubkey } : {}),
   }
@@ -95,10 +96,7 @@ export function savePairingToken(
  * manufacturing a pairing token. Later bootstrap reconnects compare this pin
  * rather than replacing it.
  */
-export function savePinnedUpdatePubkey(
-  updatePubkey: string,
-  opts: { dir?: string } = {},
-): void {
+export function savePinnedUpdatePubkey(updatePubkey: string, opts: { dir?: string } = {}): void {
   const base = dirFor(opts.dir)
   const path = join(base, 'daemon.json')
   let data: Record<string, unknown> = {}

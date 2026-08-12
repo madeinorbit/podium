@@ -1,4 +1,4 @@
-import type { MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
 import {
@@ -497,7 +497,7 @@ async function prepare(
       received: Object.fromEntries(msg.manifest.files.map((entry) => [entry.path, 0])),
       state: 'staging',
       targetMachineId: ctx.machineId,
-      sourceMachineId: msg.manifest.sourceMachineId,
+      sourceMachineId: asMachineId(msg.manifest.sourceMachineId),
     }
     await writeJson(metaPath(msg.transferId), meta)
     return result(msg.requestId, msg.transferId, 'prepare', {
