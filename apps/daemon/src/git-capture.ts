@@ -6,10 +6,13 @@ import { hookEventName, hookString } from './hook-payload'
  * Per-session git attribution capture [POD-98] — the daemon half of "did THIS
  * task commit?". The hook ingest sees every PreToolUse/PostToolUse; this module
  * brackets each Bash call with `rev-parse HEAD` and reports the delta's shas as
- * commits ATTRIBUTED to that session — exact however many sessions share the
- * checkout, because each delta is measured around one session's own call (and
- * git's index lock serializes the commits themselves). Edit-tool file paths are
- * reported as the session's touched set (feeds gitState.dirtyOwn).
+ * commits attributed to that session. The bracket is sound in a session-owned
+ * worktree, but only advisory in a shared checkout: another session can advance
+ * HEAD between its reads because Git's index lock serializes commits, not the
+ * surrounding reads. The server therefore ignores this commit ledger for
+ * shared-checkout counts and uses issue markers from commit history there.
+ * Edit-tool file paths are reported as the session's touched set (feeds
+ * gitState.dirtyOwn).
  *
  * All git calls are read-only ref lookups (no index, no lock) and run OFF the
  * hook response path — capture can never delay the agent.

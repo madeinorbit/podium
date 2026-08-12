@@ -77,9 +77,10 @@ export function deriveGitStamp(
     }
   }
 
-  // Commit attribution (ledger or message markers) and dirty attribution
-  // (touched-file set) arrive independently — marker-derived commits without a
-  // touched set must NOT relabel the checkout-wide dirty count as "yours".
+  // Commit attribution (message markers on shared checkouts) and dirty
+  // attribution (touched-file set) arrive independently — marker-derived
+  // commits without a touched set must NOT relabel checkout-wide dirt as
+  // "yours".
   const attributedDirty = git.shared && git.dirtyOwn !== undefined && !git.fallback
   const commits = git.shared ? (git.commits?.length ?? 0) : 0
   const ahead = git.shared ? 0 : (git.ahead ?? 0)

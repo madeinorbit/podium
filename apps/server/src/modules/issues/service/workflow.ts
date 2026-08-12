@@ -1063,10 +1063,10 @@ export class IssueGitWorkflowModule {
   // ── git-state probes [POD-98] ─────────────────────────────────────────────
   // "Has this task committed, and on which branch?" — probed on the working→idle
   // edge (the only moment commits appear), joined into the wire as an ephemeral
-  // field (core.gitStates). Attribution (which commits/files are THIS task's)
-  // comes from the daemon's hook-ingest HEAD-delta capture, recorded per session
-  // here and unioned per issue at probe time; without it a shared checkout runs
-  // in disclosed fallback mode.
+  // field (core.gitStates). File attribution comes from the daemon's hook-ingest
+  // touched-path capture. Commit attribution uses that daemon HEAD-delta ledger
+  // only for private worktrees; shared checkout counts come from issue markers
+  // in history because another session can advance HEAD inside the bracket.
   private gitRefreshes = new Map<
     string,
     { promise: Promise<void>; rerun: boolean; fallbackCwd?: string }
@@ -1080,9 +1080,10 @@ export class IssueGitWorkflowModule {
   private parentTips = new Map<string, string>()
 
   /** Daemon-captured git activity for a session: commit shas from the HEAD
-   *  delta around the session's own tool call, and/or files its Edit/Write
-   *  tools touched. Registers the session as attribution-capable even when
-   *  both lists are empty (SessionStart baseline). */
+   *  delta around the session's own tool call (trusted only in private
+   *  worktrees), and/or files its Edit/Write tools touched. Registers the
+   *  session as attribution-capable even when both lists are empty
+   *  (SessionStart baseline). */
   recordSessionGitActivity(
     sessionId: SessionId,
     activity: { commits?: string[]; touched?: string[] },

@@ -235,7 +235,7 @@ describe('probeGitState', () => {
     expect(state.dirtyFiles).toBe(1)
   })
 
-  test('marker commits from history union with the ledger and defeat fallback', async () => {
+  test('shared checkout trusts marker commits and ignores the racy HEAD-delta ledger', async () => {
     const state = await probeGitState(
       io({
         statusProbe: { ok: true, output: '## main\n M x.ts' },
@@ -246,12 +246,12 @@ describe('probeGitState', () => {
         shared: true,
         parentBranch: 'main',
         branch: null,
-        commits: ['sha2', 'sha3'], // overlaps history; union dedupes
+        commits: ['sha2', 'sha3'], // sha3 may belong to another shared session
         refsPattern: issueRefsPattern('POD-98'),
       },
       now,
     )
-    expect(state.commits).toEqual(['sha2', 'sha3', 'sha1'])
+    expect(state.commits).toEqual(['sha1', 'sha2'])
     expect(state.fallback).toBeUndefined()
   })
 

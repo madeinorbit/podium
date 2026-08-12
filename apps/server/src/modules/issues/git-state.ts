@@ -48,7 +48,8 @@ export interface GitProbeTarget
    * merge-axis ancestry target [POD-576].
    */
   landingBranch?: string
-  /** Harness-attributed commit shas for this task's sessions. */
+  /** HEAD-delta commit shas observed around this task's shell calls. Exact in
+   *  an issue-owned worktree; shared checkouts use message markers instead. */
   commits?: string[]
   /** Harness-observed files this task's sessions touched (repo-relative). */
   touched?: ReadonlySet<string>
@@ -173,10 +174,14 @@ export async function probeGitState(
   }
 
   const lastCommitAt = head.ok ? head.output.split('\t')[1]?.trim() : undefined
-  // Task-axis commits: the live ledger unioned with message-marker matches from
-  // history (dedup preserves ledger-first order; marker finds are appended).
+  // Task-axis commits: a HEAD delta is exact in an issue-owned worktree, but a
+  // shared checkout lets another session advance HEAD inside this session's
+  // shell-call bracket. Shared counts therefore come only from authoritative
+  // issue markers in history. Keep the ledger for private worktrees.
   const markerShas = refCommitsRes.ok ? refCommitsRes.output.split('\n').filter(Boolean) : []
-  const commits = [...new Set([...(target.commits ?? []), ...markerShas])]
+  const commits = [
+    ...new Set(target.shared ? markerShas : [...(target.commits ?? []), ...markerShas]),
+  ]
   const attributed =
     target.commits !== undefined || target.touched !== undefined || markerShas.length > 0
 

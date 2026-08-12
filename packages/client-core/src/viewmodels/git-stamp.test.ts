@@ -106,6 +106,19 @@ describe('deriveGitStamp', () => {
     expect(m.note).toBe('no changes')
   })
 
+  test('shared checkout with an explicitly empty authoritative commit list stays neutral', () => {
+    const m = deriveGitStamp(null, {
+      ...base,
+      branch: 'main',
+      shared: true,
+      commits: [],
+    })
+    expect(m.commits).toBeUndefined()
+    expect(m.dot).toBe('none')
+    expect(m.note).toBe('no changes')
+    expect(m.title).not.toContain('commits by this task')
+  })
+
   test('marker-only attribution never shows checkout dirt as issue-owned', () => {
     const m = deriveGitStamp(null, {
       ...base,

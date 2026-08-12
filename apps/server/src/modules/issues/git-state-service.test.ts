@@ -9,7 +9,7 @@ import { issueTestPlumbing } from './service/test-plumbing'
 
 // POD-98: the git-state service wiring end-to-end at the service layer —
 // turn-end trigger → coalesced probe (via repoOp) → targeted gitState update,
-// with attribution unioned from recorded session activity.
+// with shared-checkout commits attributed from issue markers in history.
 function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) {
   const store = new SessionStore(':memory:')
   const broadcast = vi.fn()
@@ -71,6 +71,7 @@ describe('POD-98 git-state service wiring', () => {
     const { svc } = harness(sessions, {
       statusProbe: '## main',
       logHead: 'sha-bound\t2026-07-20T11:30:00Z',
+      logIssueCommits: 'sha-bound',
     })
     const id = svc.create({ repoPath: '/repo', title: 'bound receiver', startNow: false }).id
     sessions.push(member(asSessionId('sess-bound'), id))
@@ -123,6 +124,7 @@ describe('POD-98 git-state service wiring', () => {
     const { svc } = harness(sessions, {
       statusProbe: '## main',
       logHead: 'sha9\t2026-07-20T11:30:00Z',
+      logIssueCommits: 'sha9',
     })
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     sessions.push(member(asSessionId('sess-1'), id))
@@ -136,6 +138,26 @@ describe('POD-98 git-state service wiring', () => {
       commits = svc.allWire().find((w) => w.id === id)?.gitState?.commits
     }
     expect(commits).toEqual(['sha9'])
+  })
+
+  it('shared checkout excludes another session commit from the HEAD-delta ledger', async () => {
+    const sessions: SessionMeta[] = []
+    const { svc } = harness(sessions, {
+      statusProbe: '## main',
+      logHead: 'sha-foreign\t2026-07-20T11:30:00Z',
+      logIssueCommits: 'sha-owned',
+    })
+    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    sessions.push(member(asSessionId('sess-1'), id))
+
+    // Both SHAs crossed this session's shell-call bracket, but only the marker
+    // proves which one belongs to this issue on the shared checkout.
+    svc.recordSessionGitActivity(asSessionId('sess-1'), {
+      commits: ['sha-owned', 'sha-foreign'],
+    })
+    await svc.refreshGitState(id, '/repo')
+
+    expect(svc.get(id)?.gitState?.commits).toEqual(['sha-owned'])
   })
 
   it('without any attribution the shared probe discloses fallback', async () => {
@@ -236,6 +258,11 @@ describe('POD-98 git-state service wiring', () => {
         if (statusCalls === 1) await statusGate
         return { ok: true, output: '## main' }
       }
+      if (op === 'logIssueCommits') {
+        return statusCalls >= 2
+          ? { ok: true, output: 'late-sha' }
+          : { ok: true, output: '' }
+      }
       return { ok: false, output: '' }
     })
     broadcast.mockClear()
@@ -257,10 +284,11 @@ describe('POD-98 git-state service wiring', () => {
     expect(broadcast.mock.calls.map(([row]) => [row.id, row.op])).toEqual([[id, 'upsert']])
   })
 
-  it('drops archived or removed sessions from file and commit attribution', async () => {
+  it('drops archived sessions from file attribution but retains marked commits', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = harness(sessions, {
       statusProbe: '## main\n M apps/a.ts\n M apps/b.ts',
+      logIssueCommits: 'sha-1\nsha-2',
     })
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     sessions.push(member(asSessionId('sess-1'), id), member(asSessionId('sess-2'), id))
@@ -280,12 +308,12 @@ describe('POD-98 git-state service wiring', () => {
 
     svc.onSessionRemovedOrArchived(asSessionId('sess-1'))
     await svc.refreshGitState(id, '/repo')
-    expect(svc.get(id)?.gitState).toMatchObject({ commits: ['sha-2'], dirtyOwn: 1 })
+    expect(svc.get(id)?.gitState).toMatchObject({ commits: ['sha-1', 'sha-2'], dirtyOwn: 1 })
 
     svc.onSessionRemovedOrArchived(asSessionId('sess-2'))
     await svc.refreshGitState(id, '/repo')
-    expect(svc.get(id)?.gitState).toMatchObject({ fallback: true })
-    expect(svc.get(id)?.gitState?.commits).toBeUndefined()
+    expect(svc.get(id)?.gitState?.commits).toEqual(['sha-1', 'sha-2'])
+    expect(svc.get(id)?.gitState?.fallback).toBeUndefined()
     expect(svc.get(id)?.gitState?.dirtyOwn).toBeUndefined()
   })
 
