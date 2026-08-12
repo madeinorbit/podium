@@ -1,0 +1,203 @@
+{
+  "family": "github",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "GitHubCliRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "githubCliRequest",
+        "requestId": "requestId",
+        "action": "status"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"githubCliRequest\",\"requestId\":\"requestId\",\"action\":\"status\"}"
+    },
+    {
+      "schema": "GitHubCliRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "githubCliRequest",
+        "requestId": "requestId",
+        "action": "status",
+        "repository": "repository",
+        "destination": "destination"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"githubCliRequest\",\"requestId\":\"requestId\",\"action\":\"status\",\"repository\":\"repository\",\"destination\":\"destination\"}"
+    },
+    {
+      "schema": "GitHubCliResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "githubCliResult",
+        "requestId": "requestId",
+        "status": {
+          "state": "missing"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"githubCliResult\",\"requestId\":\"requestId\",\"status\":{\"state\":\"missing\"}}"
+    },
+    {
+      "schema": "GitHubCliResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "githubCliResult",
+        "requestId": "requestId",
+        "status": {
+          "state": "missing"
+        },
+        "repositories": [
+          {
+            "nameWithOwner": "repositories[0].nameWithOwner",
+            "description": "repositories[0].description",
+            "isPrivate": true,
+            "url": "https://example.test/repositories%5B0%5D.url",
+            "pushedAt": "2026-01-02T03:04:05.000Z"
+          }
+        ],
+        "path": "path",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"githubCliResult\",\"requestId\":\"requestId\",\"status\":{\"state\":\"missing\"},\"repositories\":[{\"nameWithOwner\":\"repositories[0].nameWithOwner\",\"description\":\"repositories[0].description\",\"isPrivate\":true,\"url\":\"https://example.test/repositories%5B0%5D.url\",\"pushedAt\":\"2026-01-02T03:04:05.000Z\"}],\"path\":\"path\",\"error\":\"error\"}"
+    },
+    {
+      "schema": "GitHubCliResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "githubCliResult",
+        "requestId": "requestId",
+        "status": {
+          "state": "logged-out"
+        },
+        "repositories": [
+          {
+            "nameWithOwner": "repositories[0].nameWithOwner",
+            "description": "repositories[0].description",
+            "isPrivate": false,
+            "url": "https://example.test/repositories%5B0%5D.url",
+            "pushedAt": "2026-01-02T03:04:05.000Z"
+          }
+        ],
+        "path": "path",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"githubCliResult\",\"requestId\":\"requestId\",\"status\":{\"state\":\"logged-out\"},\"repositories\":[{\"nameWithOwner\":\"repositories[0].nameWithOwner\",\"description\":\"repositories[0].description\",\"isPrivate\":false,\"url\":\"https://example.test/repositories%5B0%5D.url\",\"pushedAt\":\"2026-01-02T03:04:05.000Z\"}],\"path\":\"path\",\"error\":\"error\"}"
+    },
+    {
+      "schema": "GitHubCliResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "githubCliResult",
+        "requestId": "requestId",
+        "status": {
+          "state": "ready",
+          "login": "status.login"
+        },
+        "repositories": [
+          {
+            "nameWithOwner": "repositories[0].nameWithOwner",
+            "description": "repositories[0].description",
+            "isPrivate": true,
+            "url": "https://example.test/repositories%5B0%5D.url",
+            "pushedAt": "2026-01-02T03:04:05.000Z"
+          }
+        ],
+        "path": "path",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"githubCliResult\",\"requestId\":\"requestId\",\"status\":{\"state\":\"ready\",\"login\":\"status.login\"},\"repositories\":[{\"nameWithOwner\":\"repositories[0].nameWithOwner\",\"description\":\"repositories[0].description\",\"isPrivate\":true,\"url\":\"https://example.test/repositories%5B0%5D.url\",\"pushedAt\":\"2026-01-02T03:04:05.000Z\"}],\"path\":\"path\",\"error\":\"error\"}"
+    },
+    {
+      "schema": "GitHubCliStatusWire",
+      "variant": "minimal",
+      "wire": {
+        "state": "missing"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"state\":\"missing\"}"
+    },
+    {
+      "schema": "GitHubCliStatusWire",
+      "variant": "full/arm0",
+      "wire": {
+        "state": "missing"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"state\":\"missing\"}"
+    },
+    {
+      "schema": "GitHubCliStatusWire",
+      "variant": "full/arm1",
+      "wire": {
+        "state": "logged-out"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"state\":\"logged-out\"}"
+    },
+    {
+      "schema": "GitHubCliStatusWire",
+      "variant": "full/arm2",
+      "wire": {
+        "state": "ready",
+        "login": "login"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"state\":\"ready\",\"login\":\"login\"}"
+    },
+    {
+      "schema": "GitHubRepositoryWire",
+      "variant": "minimal",
+      "wire": {
+        "nameWithOwner": "nameWithOwner",
+        "description": null,
+        "isPrivate": true,
+        "url": "https://example.test/url",
+        "pushedAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"nameWithOwner\":\"nameWithOwner\",\"description\":null,\"isPrivate\":true,\"url\":\"https://example.test/url\",\"pushedAt\":null}"
+    },
+    {
+      "schema": "GitHubRepositoryWire",
+      "variant": "full",
+      "wire": {
+        "nameWithOwner": "nameWithOwner",
+        "description": "description",
+        "isPrivate": true,
+        "url": "https://example.test/url",
+        "pushedAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"nameWithOwner\":\"nameWithOwner\",\"description\":\"description\",\"isPrivate\":true,\"url\":\"https://example.test/url\",\"pushedAt\":\"2026-01-02T03:04:05.000Z\"}"
+    }
+  ]
+}

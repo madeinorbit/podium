@@ -245,6 +245,7 @@ describe('machine scope and the writer class', () => {
       'scanReposResult',
       'conversationsChanged',
       'browseDirsResult',
+      'githubCliResult',
       'repoOpResult',
     ]
     for (const type of machineAdjacent) expect(audited.has(type)).toBe(true)

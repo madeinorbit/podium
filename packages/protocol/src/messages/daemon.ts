@@ -17,6 +17,7 @@ import {
   FileWriteResultMessage,
   ImageUploadResultMessage,
 } from './files'
+import { GitHubCliResultMessage } from './github'
 import {
   HandoffBindingFinalizeResultMessage,
   HandoffChunkReadResultMessage,
@@ -153,6 +154,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
+  GitHubCliResultMessage,
   AgentRelayRequestMessage,
   ApprovalExecResultMessage,
   HarnessExecResultMessage,

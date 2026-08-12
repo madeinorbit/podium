@@ -8,6 +8,7 @@ import { harnessMcpConfigTransport, resolveCursorBin, resolveOpencodeBin } from 
 import type { UsageBucketWire } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { bundleStagePath } from '../handoff-package'
+import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
 import { buildHarnessExec } from '../harness-exec.js'
 import { repoOpCommand } from '../repo-op'
 import { scanHostUsage } from '../usage-scan'
@@ -248,9 +249,22 @@ async function runAgentQuotaScan(
   ctx.send({ type: 'agentQuotaResult', requestId: msg.requestId, hostname: hostname(), agents })
 }
 
+async function runGitHubCli(
+  ctx: DaemonContext,
+  msg: Extract<ControlMessage, { type: 'githubCliRequest' }>,
+): Promise<void> {
+  const result =
+    msg.action === 'status'
+      ? { status: await githubCliStatus() }
+      : msg.action === 'list'
+        ? await githubCliList()
+        : await githubCliClone(msg.repository, msg.destination)
+  ctx.send({ type: 'githubCliResult', requestId: msg.requestId, ...result })
+}
+
 export const execHandlers: Pick<
   ControlHandlers,
-  'repoOpRequest' | 'harnessExecRequest' | 'usageRequest' | 'agentQuotaRequest'
+  'repoOpRequest' | 'harnessExecRequest' | 'usageRequest' | 'agentQuotaRequest' | 'githubCliRequest'
 > = {
   repoOpRequest: (ctx, msg) => {
     void runRepoOp(ctx, msg)
@@ -263,5 +277,8 @@ export const execHandlers: Pick<
   },
   agentQuotaRequest: (ctx, msg) => {
     void runAgentQuotaScan(ctx, msg)
+  },
+  githubCliRequest: (ctx, msg) => {
+    void runGitHubCli(ctx, msg)
   },
 }

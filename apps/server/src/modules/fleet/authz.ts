@@ -120,6 +120,7 @@ export const FLEET_TARGETS = {
   'repos.addMany': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
   'repos.remove': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
   'repos.setPrefix': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
+  'repos.cloneGithub': (input: unknown) => named((input as { machineId: MachineId }).machineId),
   // Input is `z.void()`: it refreshes every online machine.
   'discovery.refreshRepos': () => ({ kind: 'fleet-wide' }) as FleetTarget,
   'discovery.scanFolder': (input: unknown) => named((input as { machineId?: MachineId }).machineId),

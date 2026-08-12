@@ -25,6 +25,7 @@ import type {
   FileAssetResultMessage,
   FileReadResultMessage,
   FileWriteResultMessage,
+  GitHubCliResultMessage,
   HandoffBindingExportInstruction,
   HandoffBindingFinalizeResultMessage,
   HandoffBindingImportInstruction,
@@ -153,6 +154,7 @@ type Payload<M extends { type: string; requestId: string }> = Omit<M, 'type' | '
 const SCAN = daemonRequestKind<ScanResult>('r')
 const SCAN_REPOS = daemonRequestKind<ScanReposResult>('rr')
 const BROWSE_DIRS = daemonRequestKind<BrowseDirsResult>('bd')
+const GITHUB_CLI = daemonRequestKind<Payload<GitHubCliResultMessage>>('gh')
 const REPO_OP = daemonRequestKind<OpResult>('ro')
 const HARNESS_EXEC = daemonRequestKind<OpResult>('hx')
 const USAGE = daemonRequestKind<{ hostname: string; buckets: UsageBucketWire[] }>('us')
@@ -219,6 +221,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
       ...(msg.listing === undefined ? {} : { listing: msg.listing }),
       ...(msg.error === undefined ? {} : { error: msg.error }),
     }),
+  githubCliResult: (broker, machineId, msg) =>
+    void broker.settle(GITHUB_CLI, msg.requestId, machineId, payloadOf(msg)),
   repoOpResult: (broker, machineId, msg) =>
     void broker.settle(REPO_OP, msg.requestId, machineId, { ok: msg.ok, output: msg.output }),
   harnessExecResult: (broker, machineId, msg) =>
@@ -381,6 +385,27 @@ export class DaemonRpcService {
         requestId,
         ...(path === undefined ? {} : { path }),
         ...(opts.includeHidden === undefined ? {} : { includeHidden: opts.includeHidden }),
+      }),
+      machineId,
+    )
+  }
+
+  /** Live GitHub CLI readiness/list/clone on one machine. No credential is returned. */
+  githubCli(
+    action: 'status' | 'list' | 'clone',
+    machineId: string,
+    input: { repository?: string; destination?: string } = {},
+  ): Promise<Payload<GitHubCliResultMessage>> {
+    return this.request(
+      GITHUB_CLI,
+      action === 'clone' ? 130_000 : 35_000,
+      () => ({ status: { state: 'logged-out' }, error: 'GitHub CLI request timed out' }),
+      (requestId) => ({
+        type: 'githubCliRequest',
+        requestId,
+        action,
+        ...(input.repository ? { repository: input.repository } : {}),
+        ...(input.destination ? { destination: input.destination } : {}),
       }),
       machineId,
     )

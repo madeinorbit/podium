@@ -86,6 +86,17 @@ export function RepoScanFlow({
     await refreshRepos()
   }
 
+  async function cloneFromGitHub(repository: string, destination: string): Promise<void> {
+    if (!selectedMachineId) return
+    await trpc.repos.cloneGithub.mutate({
+      machineId: selectedMachineId,
+      repository,
+      destination,
+    })
+    await refreshRepos()
+    onDone(1)
+  }
+
   /** Commit the results screen's desired end state: add what was checked, remove
    *  what was unchecked. Removals go one per path — repos.remove is per-repo, and
    *  a failure on one shouldn't abandon the rest. */
@@ -139,6 +150,8 @@ export function RepoScanFlow({
       onClose={onClose}
       onPick={addThisFolder}
       onScan={scanFrom}
+      onCloneGithub={cloneFromGitHub}
+      initialSource={intro ? 'github' : 'local'}
       machines={machines}
       selectedMachineId={
         selectedMachineId === undefined ? undefined : asMachineId(selectedMachineId)

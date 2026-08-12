@@ -518,6 +518,14 @@ describe('ControlMessage (server -> daemon)', () => {
     { type: 'scanReposRequest', requestId: 'rr1', roots: ['/home/u/src'] },
     { type: 'browseDirsRequest', requestId: 'bd1' },
     { type: 'browseDirsRequest', requestId: 'bd2', path: '~/src', includeHidden: true },
+    { type: 'githubCliRequest', requestId: 'gh1', action: 'status' },
+    {
+      type: 'githubCliRequest',
+      requestId: 'gh2',
+      action: 'clone',
+      repository: 'octocat/hello-world',
+      destination: '/home/u/podium-repos/hello-world',
+    },
     { type: 'input', sessionId: asSessionId('s1'), data: 'aGk=' },
     { type: 'resize', sessionId: asSessionId('s1'), cols: 100, rows: 30 },
     { type: 'redraw', sessionId: asSessionId('s1') },
@@ -610,6 +618,20 @@ describe('DaemonMessage (daemon -> server)', () => {
       listing: { path: '/', homePath: '/home/u', parentPath: null, entries: [] },
     },
     { type: 'browseDirsResult', requestId: 'bd3', error: 'Could not open directory /nope' },
+    {
+      type: 'githubCliResult',
+      requestId: 'gh1',
+      status: { state: 'ready', login: 'octocat' },
+      repositories: [
+        {
+          nameWithOwner: 'octocat/hello-world',
+          description: 'Hello',
+          isPrivate: false,
+          url: 'https://github.com/octocat/hello-world',
+          pushedAt: null,
+        },
+      ],
+    },
     {
       type: 'sessionOpenUrl',
       sessionId: asSessionId('s1'),

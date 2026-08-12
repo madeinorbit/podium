@@ -220,6 +220,8 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.echoHud',
   /** Dev diagnostics: switch-latency console trace. */
   'podium.switchTrace',
+  /** In-progress GitHub repository search and clone destination for first-run recovery. */
+  'podium.githubProjectIntake.draft',
 ] as const
 
 export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
@@ -232,6 +234,7 @@ export const TERMINAL_APPEARANCE_KEY = 'podium.terminal.appearance'
 export const SHELL_DENSITY_KEY = 'podium.shell.density'
 export const ECHO_HUD_KEY = 'podium.echoHud'
 export const SWITCH_TRACE_KEY = 'podium.switchTrace'
+export const GITHUB_PROJECT_INTAKE_DRAFT_KEY = 'podium.githubProjectIntake.draft'
 
 export type ShellDensity = 'balanced' | 'compact'
 

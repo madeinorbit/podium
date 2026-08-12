@@ -10,6 +10,7 @@
  */
 
 import { MachineIdField } from '@podium/model'
+import { GitHubCliResultMessage } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { browseDirectories } from '../../repo-registry'
@@ -70,6 +71,15 @@ export const REPO_QUERIES = {
       }
     },
   ),
+  /** Live CLI/auth readiness. The response contains identity labels, never credentials. */
+  githubStatus: q(z.object({ machineId: MachineIdField }), (s, input) =>
+    s.modules.rpc.githubCli('status', input.machineId),
+  ),
+  /** Accessible repositories for the selected machine's current `gh` account. */
+  githubList: q(z.object({ machineId: MachineIdField }), async (s, input) => {
+    const result = await s.modules.rpc.githubCli('list', input.machineId)
+    return GitHubCliResultMessage.omit({ type: true, requestId: true }).parse(result)
+  }),
 } as const
 
 export const serverTransferStatusQuery = (ctx: Context) =>

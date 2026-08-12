@@ -116,6 +116,15 @@ export class RepoRegistry {
     this.publishRepos()
   }
 
+  /** Register a checkout whose origin was established by a machine-side clone. */
+  async addKnownOrigin(path: string, machineId: string, originUrl: string): Promise<void> {
+    const p = normalizeRepoPath(path)
+    if (!p) throw new Error('repo path is empty')
+    if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
+    this.store.repos.addRepo(p, machineId, originUrl)
+    this.publishRepos()
+  }
+
   /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
    *  server-wide; previously written refs stop resolving (the caller warns). */
   setPrefix(path: string, prefix: string, machineId?: MachineId): void {

@@ -228,6 +228,12 @@ export const repoSetPrefixInput = z.object({
   machineId: machineSelector,
 })
 
+export const repoCloneGithubInput = z.object({
+  machineId: MachineIdField,
+  repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u),
+  destination: z.string().min(1),
+})
+
 /** The shipped `discovery.refreshRepos` takes no input at all. `z.void()` is how
  *  that is SAID rather than left off — the contract must carry a schema, and a
  *  permissive one would accept a payload the command has never read. */
@@ -1102,6 +1108,36 @@ const USE_ERRORS = {
     '`nonexistent` — the two rules are decided separately and both apply, in that order.',
 } as const
 
+/** Clone through the selected machine's existing GitHub CLI authentication. */
+export const repoCloneGithubContract = {
+  name: 'repos.cloneGithub',
+  version: 1,
+  visibility: 'owned-compute',
+  input: repoCloneGithubInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'use',
+    confirmation: 'none',
+    rationale:
+      'Runs `gh repo clone` on the named machine and registers the resulting checkout. This both ' +
+      'executes on owned compute and writes its filesystem, so `use` is the operative machine verb; ' +
+      'the registered repository inherits that machine’s scope.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: REPO_ROW_OWNERSHIP(`Registers the cloned checkout. ${REPO_ROW_NOTE}`),
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: USE_ERRORS,
+  serverRole: 'core',
+  cli: { summary: 'Clone a GitHub repository on a machine' },
+  conflict: 'cmd',
+  conflictRule:
+    'The destination path is the arbitration key; GitHub CLI refuses an occupied checkout and registration is idempotent per (machineId, path)',
+} as const satisfies FleetCommandContract<typeof repoCloneGithubInput>
+
 export const discoveryRefreshReposContract = {
   name: 'discovery.refreshRepos',
   version: 1,
@@ -1232,6 +1268,7 @@ export const FLEET_CONTRACTS = {
   'repos.addMany': repoAddManyContract,
   'repos.remove': repoRemoveContract,
   'repos.setPrefix': repoSetPrefixContract,
+  'repos.cloneGithub': repoCloneGithubContract,
   'discovery.refreshRepos': discoveryRefreshReposContract,
   'discovery.scanFolder': discoveryScanFolderContract,
   'discovery.scanMachine': discoveryScanMachineContract,

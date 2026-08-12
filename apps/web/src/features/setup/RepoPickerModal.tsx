@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
+import { GitHubProjectIntake } from './GitHubProjectIntake'
 
 type DirectoryEntry = {
   name: string
@@ -38,7 +39,7 @@ type DirectoryListing = {
   originUrl?: string
 }
 
-type RepoPickerMachine = Pick<MachineWire, 'id' | 'name' | 'hostname' | 'online'>
+type RepoPickerMachine = Pick<MachineWire, 'id' | 'name' | 'hostname' | 'online' | 'inventory'>
 
 function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
@@ -58,6 +59,8 @@ export function RepoPickerModal({
   onClose,
   onPick,
   onScan,
+  onCloneGithub,
+  initialSource = 'local',
   intro,
   machines = [],
   selectedMachineId,
@@ -69,6 +72,10 @@ export function RepoPickerModal({
   /** Scan from the browsed folder (plus this machine's known repo locations) and
    *  hand the parent the ranked, grouped candidates. */
   onScan?: (path: string) => Promise<void>
+  /** Clone through this machine's existing GitHub CLI login, then register it. */
+  onCloneGithub?: (repository: string, destination: string) => Promise<void>
+  /** First-run enters through GitHub; ordinary add-repo flows retain local browsing. */
+  initialSource?: 'github' | 'local'
   /** Optional header content (used by the onboarding wizard for a welcome line). */
   intro?: ReactNode
   /** Machines that can own a repo. Offline ones are listed but not selectable. */
@@ -86,6 +93,7 @@ export function RepoPickerModal({
   const [showHidden, setShowHidden] = useState(false)
   const [manualPath, setManualPath] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [source, setSource] = useState<'github' | 'local'>(initialSource)
 
   const selectedMachine = selectedMachineId
     ? machines.find((machine) => machine.id === selectedMachineId)
@@ -227,8 +235,12 @@ export function RepoPickerModal({
             <div className="mb-1 mt-0.5 max-w-[54ch] text-[13px] text-foreground">{intro}</div>
           )}
           <div className="mt-1 flex items-center gap-1.5 break-words text-[13px] font-medium text-foreground">
-            {listing?.isRepo && <FolderGit2 size={14} className="flex-none text-primary" />}
-            <span className="min-w-0 break-all">{headerPath}</span>
+            {source === 'local' && listing?.isRepo && (
+              <FolderGit2 size={14} className="flex-none text-primary" />
+            )}
+            <span className="min-w-0 break-all">
+              {source === 'github' ? 'Clone a GitHub repository' : headerPath}
+            </span>
           </div>
         </DialogHeader>
         <div className="flex flex-wrap items-end gap-2 border-b border-border px-3.5 py-2.5">
@@ -262,78 +274,117 @@ export function RepoPickerModal({
               </select>
             </div>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={!listing || busy}
-            onClick={() => listing && void load(listing.homePath)}
-            aria-label="Home"
-            title="Home"
-          >
-            <Home size={16} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={!listing?.parentPath || busy}
-            onClick={() => listing?.parentPath && void load(listing.parentPath)}
-            aria-label="Up"
-            title="Up"
-          >
-            <ChevronUp size={16} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={!listing || busy}
-            onClick={() => listing && void load(listing.path)}
-            aria-label="Refresh"
-            title="Refresh"
-          >
-            <RefreshCw size={16} />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className={cn('max-md:w-full', showHidden && 'border-primary text-foreground')}
-            disabled={!machineReady || busy}
-            onClick={toggleHidden}
-            aria-pressed={showHidden}
-          >
-            {showHidden ? <Eye size={16} /> : <EyeOff size={16} />}
-            Show hidden
-          </Button>
-          <Button
-            variant={onScan ? 'secondary' : 'default'}
-            size="sm"
-            className="md:ml-auto max-md:w-full"
-            disabled={!addRepoName || busy}
-            onClick={() => void pickCurrent()}
-            title={
-              addRepoName
-                ? `Add ${addRepoName} as a repo`
-                : 'This folder is not a git repository — open a repo folder or scan for repos'
-            }
-          >
-            <Check size={16} />
-            {addRepoName ? `Add repo '${addRepoName}'` : 'Add repo'}
-          </Button>
-          {onScan && (
-            <Button
-              size="sm"
-              className="max-md:w-full"
-              disabled={!listing || busy}
-              onClick={() => void scanCurrent()}
+          {onCloneGithub && (
+            <div
+              className="flex rounded-md border border-input p-0.5 max-md:w-full"
+              aria-label="Repository source"
             >
-              <Search size={16} />
-              {scanning ? 'Scanning...' : 'Scan for repos'}
-            </Button>
+              <Button
+                variant={source === 'github' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="flex-1"
+                aria-pressed={source === 'github'}
+                onClick={() => setSource('github')}
+              >
+                GitHub
+              </Button>
+              <Button
+                variant={source === 'local' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="flex-1"
+                aria-pressed={source === 'local'}
+                onClick={() => setSource('local')}
+              >
+                This machine
+              </Button>
+            </div>
+          )}
+          {source === 'local' && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={!listing || busy}
+                onClick={() => listing && void load(listing.homePath)}
+                aria-label="Home"
+                title="Home"
+              >
+                <Home size={16} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={!listing?.parentPath || busy}
+                onClick={() => listing?.parentPath && void load(listing.parentPath)}
+                aria-label="Up"
+                title="Up"
+              >
+                <ChevronUp size={16} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={!listing || busy}
+                onClick={() => listing && void load(listing.path)}
+                aria-label="Refresh"
+                title="Refresh"
+              >
+                <RefreshCw size={16} />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn('max-md:w-full', showHidden && 'border-primary text-foreground')}
+                disabled={!machineReady || busy}
+                onClick={toggleHidden}
+                aria-pressed={showHidden}
+              >
+                {showHidden ? <Eye size={16} /> : <EyeOff size={16} />}
+                Show hidden
+              </Button>
+              <Button
+                variant={onScan ? 'secondary' : 'default'}
+                size="sm"
+                className="md:ml-auto max-md:w-full"
+                disabled={!addRepoName || busy}
+                onClick={() => void pickCurrent()}
+                title={
+                  addRepoName
+                    ? `Add ${addRepoName} as a repo`
+                    : 'This folder is not a git repository — open a repo folder or scan for repos'
+                }
+              >
+                <Check size={16} />
+                {addRepoName ? `Add repo '${addRepoName}'` : 'Add repo'}
+              </Button>
+              {onScan && (
+                <Button
+                  size="sm"
+                  className="max-md:w-full"
+                  disabled={!listing || busy}
+                  onClick={() => void scanCurrent()}
+                >
+                  <Search size={16} />
+                  {scanning ? 'Scanning...' : 'Scan for repos'}
+                </Button>
+              )}
+            </>
           )}
         </div>
-        {error && (
+        {source === 'local' && error && (
           <div className="border-b border-border px-3.5 py-2 text-xs text-destructive">{error}</div>
         )}
-        <div className="flex min-h-0 flex-1 flex-col">
+        {source === 'github' && onCloneGithub && (
+          <GitHubProjectIntake
+            machine={selectedMachine}
+            homePath={listing?.homePath}
+            onClone={async (repository, destination) => {
+              await onCloneGithub(repository, destination)
+              onClose()
+            }}
+          />
+        )}
+        <div hidden={source === 'github'} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-[160px] flex-1 overflow-y-auto p-1.5" aria-busy={loading}>
             {!selectedMachine && (
               <div className="p-3 text-xs text-muted-foreground/70">

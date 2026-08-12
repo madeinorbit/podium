@@ -287,6 +287,31 @@ export const repoSetPrefixHandler = ({
   return ctx.registry.sessionStore.repos.listRepos()
 }
 
+export const repoCloneGithubHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{ machineId: string; repository: string; destination: string }>) => {
+  const result = await mods(ctx).rpc.githubCli('clone', input.machineId, {
+    repository: input.repository,
+    destination: input.destination,
+  })
+  if (!result.path) {
+    const fallback =
+      result.status.state === 'missing'
+        ? 'GitHub CLI is not installed on this machine'
+        : result.status.state === 'logged-out'
+          ? 'GitHub CLI is not signed in on this machine'
+          : 'GitHub clone failed'
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: result.error ?? fallback })
+  }
+  await ctx.repos.addKnownOrigin(
+    result.path,
+    input.machineId,
+    `https://github.com/${input.repository}.git`,
+  )
+  return { path: result.path, repos: ctx.repos.list() }
+}
+
 // ---------------------------------------------------------------------------
 // discovery.* — the `use` family
 // ---------------------------------------------------------------------------

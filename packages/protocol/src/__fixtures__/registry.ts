@@ -39,6 +39,7 @@ import * as discovery from '../messages/discovery'
 import * as dispatch from '../messages/dispatch'
 import * as feed from '../messages/feed'
 import * as files from '../messages/files'
+import * as github from '../messages/github'
 import * as handoff from '../messages/handoff'
 import * as harness from '../messages/harness'
 import * as headless from '../messages/headless'
@@ -77,6 +78,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['dispatch', dispatch],
   ['feed', feed],
   ['files', files],
+  ['github', github],
   ['handoff', handoff],
   ['harness', harness],
   ['headless', headless],

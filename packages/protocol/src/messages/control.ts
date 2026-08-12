@@ -15,6 +15,7 @@ import {
   FileWriteRequestMessage,
   ImageUploadRequestMessage,
 } from './files'
+import { GitHubCliRequestMessage } from './github'
 import {
   HandoffBindingFinalizeRequestMessage,
   HandoffChunkReadRequestMessage,
@@ -77,6 +78,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ApprovalExecRequestMessage,
   CredentialExportRequestMessage,
   CredentialInstallRequestMessage,
+  GitHubCliRequestMessage,
   RepoOpRequestMessage,
   AgentRelayResultMessage,
   HarnessExecRequestMessage,

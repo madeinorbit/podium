@@ -36,6 +36,7 @@ import {
   machineUnshareHandler,
   repoAddHandler,
   repoAddManyHandler,
+  repoCloneGithubHandler,
   repoRemoveHandler,
   repoSetPrefixHandler,
 } from './handlers'
@@ -103,6 +104,10 @@ export const FLEET_COMMANDS = {
   'repos.setPrefix': {
     contract: FLEET_CONTRACTS['repos.setPrefix'],
     handler: repoSetPrefixHandler,
+  },
+  'repos.cloneGithub': {
+    contract: FLEET_CONTRACTS['repos.cloneGithub'],
+    handler: repoCloneGithubHandler,
   },
   'discovery.refreshRepos': {
     contract: FLEET_CONTRACTS['discovery.refreshRepos'],
