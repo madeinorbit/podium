@@ -22,7 +22,7 @@
  * pane that shows forty rows.
  *
  * So the publisher owns a WINDOW of the most recent {@link FEED_WINDOW} events:
- * entering it is an `upsert`, leaving it is a `delete`. Both ops travel on the
+ * entering it is an `upsert`, leaving it is a `remove`. Both ops travel on the
  * same ordered pipe as one capture, so a replica can never observe the window's
  * top without its bottom. The window is a fact about what the FEED carries, not
  * about what the log retains — `issues.events` still reads the full table, and

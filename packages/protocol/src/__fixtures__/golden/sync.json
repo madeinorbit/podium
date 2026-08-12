@@ -31,6 +31,44 @@
       "encoded": "{\"id\":\"id\",\"fromId\":\"fromId\",\"toId\":\"toId\",\"type\":\"type\"}"
     },
     {
+      "schema": "IssueEventWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "eventId": 1,
+        "ts": "ts",
+        "kind": "kind",
+        "subject": "subject",
+        "repoPath": null,
+        "payload": {
+          "unknownFixture": "payload"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"eventId\":1,\"ts\":\"ts\",\"kind\":\"kind\",\"subject\":\"subject\",\"repoPath\":null,\"payload\":{\"unknownFixture\":\"payload\"}}"
+    },
+    {
+      "schema": "IssueEventWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "eventId": 1,
+        "ts": "ts",
+        "kind": "kind",
+        "subject": "subject",
+        "repoPath": "repoPath",
+        "payload": {
+          "unknownFixture": "payload"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"eventId\":1,\"ts\":\"ts\",\"kind\":\"kind\",\"subject\":\"subject\",\"repoPath\":\"repoPath\",\"payload\":{\"unknownFixture\":\"payload\"}}"
+    },
+    {
       "schema": "IssueProjection",
       "variant": "minimal",
       "wire": {

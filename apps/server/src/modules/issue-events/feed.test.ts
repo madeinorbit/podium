@@ -73,7 +73,7 @@ describe('IssueEventFeedPublisher', () => {
     expect(captures).toEqual([])
   })
 
-  it('evicts by delete in the SAME capture as the arrival that overflowed it', () => {
+  it('evicts by removal in the SAME capture as the arrival that overflowed it', () => {
     const { captures, publisher } = harness(2)
     publisher.publish(1, event())
     publisher.publish(2, event())
@@ -82,7 +82,7 @@ describe('IssueEventFeedPublisher', () => {
     // The third arrival carries the first row's eviction with it.
     expect(captures[2]).toEqual([
       expect.objectContaining({ op: 'upsert', id: issueEventRowId(3, 'POD-13') }),
-      { entity: 'issueEvent', id: issueEventRowId(1, 'POD-13'), op: 'delete' },
+      { entity: 'issueEvent', id: issueEventRowId(1, 'POD-13'), op: 'remove' },
     ])
   })
 
@@ -135,7 +135,7 @@ describe('IssueEventFeedPublisher', () => {
     expect(captures[0]?.[1]).toEqual({
       entity: 'issueEvent',
       id: issueEventRowId(4, 'POD-13'),
-      op: 'delete',
+      op: 'remove',
     })
   })
 
