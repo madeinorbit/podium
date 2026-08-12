@@ -333,7 +333,14 @@ describe('the mobile replica composition root', () => {
 
     replica
       .outboxStorage()
-      .save([{ mutationId: 'm-new', kind: 'snoozeClear', input: { sessionId: 's9' }, queuedAt: 5 }])
+      .save([
+        {
+          mutationId: asMutationId('m-new'),
+          kind: 'snoozeClear',
+          input: { sessionId: 's9' },
+          queuedAt: 5,
+        },
+      ])
 
     // Read through a separate connection with NOTHING awaited in between: the
     // adapter's commit is synchronous, and that is the property the whole

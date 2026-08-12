@@ -417,7 +417,7 @@ function DemoProvider({ children }: { children: ReactNode }) {
 
 /** The demo principal. Named rather than borrowed from a real id so nothing in
  *  a demo run can land under a person's namespace. */
-const DEMO_PRINCIPAL = 'demo'
+const DEMO_PRINCIPAL = asUserId('demo')
 
 const DEMO_SHELL: MobileShell = {
   error: null,
@@ -690,7 +690,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // it. The factory REFUSES any other principal rather than handing back
       // the store it happens to hold: on a shared device that would give one
       // account another's slice and cursor (POD-404).
-      principal={asClientPrincipal(openedReplica.principal)}
+      principal={asClientPrincipal(asUserId(openedReplica.principal))}
       createReplicaFn={(principal) => {
         if (principal.userId !== openedReplica.principal) {
           throw new Error(

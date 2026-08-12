@@ -4,7 +4,7 @@ import {
   prependTranscriptItems,
   superagentSlice,
 } from '@podium/client-core/viewmodels'
-import type { SessionId, TranscriptItem } from '@podium/model'
+import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -43,7 +43,7 @@ import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
  *  - Laid out like every other tab: safe-area header, one scroller, composer
  *    docked directly above the tab bar — no hand-tuned lift leaving dead space.
  */
-const THREAD_ID = 'global'
+const THREAD_ID = asThreadId('global')
 
 export function SuperagentScreen() {
   const store = useMobileStore()

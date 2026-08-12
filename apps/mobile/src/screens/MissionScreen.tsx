@@ -10,7 +10,13 @@ import {
   sessionTitle,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueWire, SessionId, SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  type AgentKind,
+  type IssueWire,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -74,7 +80,7 @@ const FLICK_VELOCITY = 450
 export function MissionScreen() {
   const params = useLocalSearchParams<{ missionId: string | string[] }>()
   const raw = Array.isArray(params.missionId) ? params.missionId[0] : (params.missionId ?? '')
-  const selectedId = decodeURIComponent(raw)
+  const selectedId = asIssueId(decodeURIComponent(raw))
   const router = useRouter()
   const store = useMobileStore()
   const booting = useBooting()

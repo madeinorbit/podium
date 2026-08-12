@@ -186,7 +186,7 @@ export function MissionDeck({
    * OWN descent, which is the line its agents hang on.
    */
   const rails = useMemo(() => {
-    const trail: (string | undefined)[] = [root.id]
+    const trail: (IssueId | undefined)[] = [root.id]
     return spineRows.map((row) => {
       trail.length = row.depth
       trail[row.depth] = row.issue.id
