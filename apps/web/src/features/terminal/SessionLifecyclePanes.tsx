@@ -158,8 +158,13 @@ export function ExitedPane(props: ExitedProps): JSX.Element {
  *  reporting two versions of the same fact, and used to be two differently
  *  tinted slabs (POD-747). Only the tone differs, and it is carried by the glyph
  *  and the state's own word, never by a fill. */
-export function ExitedBanner(props: ExitedProps): JSX.Element {
+export function ExitedBanner(props: ExitedProps & { waking?: boolean }): JSX.Element {
   const { detail, action } = exitedAction(props)
+  // Same rule as the hibernated bar (POD-762): a wake already in flight is
+  // reported, not offered again. It also stops being a FAULT while it runs —
+  // the process is on its way back, which is the parked tone, not the warning
+  // ink an exit earns.
+  if (props.waking) return <WakingBar mark={<RotateCcw size={13} strokeWidth={1.7} />} />
   return (
     <div className="pane-state-bar" data-tone="fault">
       <span className="pane-state-bar-mark" aria-hidden="true">
@@ -178,10 +183,52 @@ export function ExitedBanner(props: ExitedProps): JSX.Element {
   )
 }
 
-/** Thin bar over a hibernated session's (read-only) transcript: explains the
- *  state and offers one-click resume, without hiding the conversation. */
-export function HibernatedBanner({ sessionId }: { sessionId: SessionId }): JSX.Element {
+/**
+ * The state bar while a wake is in flight — the SAME object as the two below,
+ * in the parked tone, with the state's own word in strong ink and the glyph
+ * pulsing because this state is the one that ends by itself (POD-762).
+ *
+ * It is a live region: unlike "Hibernated" or "Exited", which are true when you
+ * arrive, this one appears in answer to a key the operator just pressed.
+ */
+function WakingBar({ mark, queuedCount = 0 }: { mark: JSX.Element; queuedCount?: number }) {
+  return (
+    <div className="pane-state-bar" data-tone="parked" role="status">
+      <span className="pane-state-bar-mark animate-pulse" aria-hidden="true">
+        {mark}
+      </span>
+      <span className="pane-state-bar-copy">
+        <span className="pane-state-bar-word">Waking</span> the agent — your{' '}
+        {queuedCount > 1 ? `${queuedCount} messages send` : 'message sends'} as soon as it&apos;s
+        ready.
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Thin bar over a hibernated session's (read-only) transcript: explains the
+ * state and offers one-click resume, without hiding the conversation.
+ *
+ * ONCE A MESSAGE IS WAITING THE BAR STOPS OFFERING THE WAKE (POD-762) and
+ * reports it instead. The offer would be a lie — the wake is already running,
+ * the button would queue nothing, and the operator who just pressed Enter is
+ * looking here for confirmation that something happened. `waking` is the
+ * server's own queue depth, so the bar reads the same after a reload and after
+ * a trip through three other issues.
+ */
+export function HibernatedBanner({
+  sessionId,
+  waking = false,
+  queuedCount = 0,
+}: {
+  sessionId: SessionId
+  waking?: boolean
+  queuedCount?: number
+}): JSX.Element {
   const action = recoveryAction('parked', 'resume')
+  if (waking)
+    return <WakingBar mark={<Moon size={13} strokeWidth={1.7} />} queuedCount={queuedCount} />
   return (
     <div className="pane-state-bar" data-tone="parked">
       <span className="pane-state-bar-mark" aria-hidden="true">

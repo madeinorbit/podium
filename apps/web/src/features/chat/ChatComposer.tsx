@@ -1,3 +1,4 @@
+import { sessionWaking } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, Clock, CloudOff, Paperclip, Square } from 'lucide-react'
@@ -267,7 +268,13 @@ export function ChatComposer({
             <div className="composer-notice" data-notice="queue">
               <Clock size={12} aria-hidden="true" />
               <strong>Queued · {queuedTotal}</strong>
-              <span>sends after this turn</span>
+              {/* A parked session has no turn to send after — it has a process
+                  to start first (POD-762). Saying "after this turn" there names
+                  a turn that does not exist and is not what the operator is
+                  waiting on. */}
+              <span>
+                {sessionWaking(session) ? 'sends once the agent is up' : 'sends after this turn'}
+              </span>
             </div>
           )}
           {turnError !== null && (

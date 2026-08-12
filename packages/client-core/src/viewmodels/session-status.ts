@@ -151,6 +151,29 @@ export interface ChatActivity {
 }
 
 /**
+ * A parked session with a message waiting on it — the window between "you sent
+ * into a hibernated agent" and "the resumed CLI typed it".
+ *
+ * DERIVED FROM THE SERVER'S OWN FIELDS, deliberately. `queuedMessageCount` is
+ * the durable inbox depth and `status` is the lifecycle, so this answer is the
+ * same on every client, survives a reload, and — the thing POD-762 is actually
+ * about — is still true when you come back from three issues away. A flag set
+ * by the composer that just sent would be none of those.
+ *
+ * `justSent` only covers the optimistic gap before the send's own meta update
+ * lands, and only while the session is still parked.
+ */
+export function sessionWaking(meta: SessionMeta | undefined, justSent = false): boolean {
+  if (!meta) return false
+  const queued = (meta.queuedMessageCount ?? 0) > 0
+  if (meta.status === 'hibernated' || meta.status === 'exited') return queued || justSent
+  // Resurrection has begun: the process is coming up and the queue drains once
+  // the PTY binds. Nothing local is needed to know that.
+  if (meta.status === 'starting') return queued
+  return false
+}
+
+/**
  * The activity row shown pinned to the bottom of the chat view, or null for
  * nothing. Reuses `agentBadge` for instrumented agents; falls back to the PTY
  * `busy` signal for uninstrumented kinds; and shows an optimistic, still
@@ -161,12 +184,19 @@ export interface ChatActivity {
  * preserved `working` phase — the header already says so, and the activity row
  * must not contradict it. Last-state *attention* labels are kept: a parked
  * "needs answer" is still true and worth surfacing. [spec:SP-8b0e]
+ *
+ * WAKING WINS OVER EVERY PRESERVED LABEL (POD-762). Once a message is waiting on
+ * a parked agent, the one thing the operator needs to know is that it is coming
+ * up and their text goes in when it does. A stale "needs answer" from before the
+ * hibernate is true but it is not the answer to the question they just asked by
+ * pressing Enter, and it reads as "nothing happened".
  */
 export function chatActivity(
   meta: SessionMeta | undefined,
   justSent: boolean,
 ): ChatActivity | null {
   if (!meta) return null
+  if (sessionWaking(meta, justSent)) return { label: 'Waking the agent…', tone: 'working' }
   const parked = meta.status === 'hibernated' || meta.status === 'exited'
   const badge = agentBadge(meta)
   if (badge?.tone === 'working' && !parked) {

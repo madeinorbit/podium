@@ -74,6 +74,7 @@ vi.mock('@/app/store', () => {
       drafts = { ...drafts, [id]: text }
     },
     resumeAndSend: vi.fn(async () => {}),
+    setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     tldrSession: vi.fn(),

@@ -270,8 +270,35 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
         (r) => ((r as IssueWire).tuckedAt != null) === i.tucked,
       )
     }
-    case 'resumeAndSend':
-      return null // no row-visible optimism (delivery, not curation)
+    case 'resumeAndSend': {
+      // A WAKE *IS* ROW-VISIBLE (POD-762). This used to project null on the
+      // grounds that it is delivery rather than curation, and the row said
+      // nothing at all between the operator pressing Enter and the resumed CLI
+      // typing their text — a wait that runs from a round trip to a minute,
+      // because the agent has to be spawned before anything can be typed into
+      // it. Every surface therefore went on saying "Hibernated — resume", which
+      // reads as "your message did nothing" and invites a second send.
+      //
+      // The optimism is the queue DEPTH, because that is the fact: their message
+      // is waiting on this session. One field lights the wake up everywhere at
+      // once — the parked bar, the composer placeholder, the activity row, the
+      // sidebar's queue count — with no surface needing to hear about the send.
+      const i = entry.input as OutboxKinds['resumeAndSend']
+      return patchOverlay(
+        'sessions',
+        i.sessionId,
+        entry.mutationId,
+        { queuedMessageCount: 1 },
+        // Covered as soon as the server has an opinion of its own: it reports a
+        // queue, or the session is no longer parked (it woke, and a fast drain
+        // may have emptied the queue before any snapshot showed it non-zero).
+        (r) => {
+          const s = r as SessionMeta
+          const parked = s.status === 'hibernated' || s.status === 'exited'
+          return (s.queuedMessageCount ?? 0) > 0 || !parked
+        },
+      )
+    }
     default:
       return null
   }

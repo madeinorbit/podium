@@ -45,6 +45,8 @@ export interface UseChatSendOptions {
   sessionId: SessionId
   trpc: Store['trpc']
   resumeAndSend: Store['resumeAndSend']
+  /** Pins the panel to chat when a send comes from this view — see `deliver`. */
+  setPanelMode: Store['setPanelMode']
   getUserFocus: Store['getUserFocus']
   issues: Store['issues']
   headless: boolean
@@ -91,6 +93,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     sessionId,
     trpc,
     resumeAndSend,
+    setPanelMode,
     getUserFocus,
     issues,
     headless,
@@ -219,6 +222,22 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   /** Deliver `text` along the decided route. Throws on rejection. */
   const deliver = useCallback(
     async (text: string, onQueued: () => void) => {
+      // THE SURFACE YOU SENT FROM IS THE SURFACE YOU STAY ON (POD-762).
+      //
+      // A parked session shows its transcript no matter which mode is persisted
+      // — `panelSurface` returns `parked/transcript` without consulting the mode
+      // at all, because a stopped process has no PTY to show. The mode is still
+      // sitting there, though, and on a desktop it is `native` by default. So the
+      // moment the wake landed the surface flipped from `parked` to `live` and
+      // the panel swapped the conversation the operator was typing into for a
+      // terminal — a view they never asked for, showing a CLI still booting.
+      //
+      // Sending from the chat composer IS the choice of surface, so record it as
+      // one. It is a no-op whenever the panel is already in chat (`setPanelMode`
+      // returns early on an unchanged value), which makes the live-session case
+      // free; the parked case is the one it exists for. Headless superagent
+      // threads are excluded: their "session id" is a thread, not a panel.
+      if (route.kind === 'session' || route.kind === 'resume') setPanelMode(sessionId, 'chat')
       switch (route.kind) {
         case 'superagent-turn':
         case 'concierge':
@@ -255,6 +274,17 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           // Parked but recoverable → wake it and let the server deliver the text
           // once the resumed CLI is ready.
           await resumeAndSend(sessionId, text)
+          // QUEUED, not "sending…" (POD-762). The wake is the whole reason this
+          // route exists: the text is durably enqueued the moment the mutation is
+          // accepted and drains when the PTY binds, which may be a minute later.
+          // Leaving the bubble in the in-flight state made a send that WORKED
+          // read as one that had stalled, and after the 30s grace it settled to a
+          // plain bubble with nothing said at all.
+          onQueued()
+          // Pull the durable ledger row in now, so the queued message is already
+          // server-backed before the operator navigates away — the local bubble
+          // does not survive a session switch, and the restored row is what does.
+          refreshQueuedMessages()
           return
       }
     },
@@ -268,6 +298,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       sessionId,
       refreshQueuedMessages,
       resumeAndSend,
+      setPanelMode,
     ],
   )
 

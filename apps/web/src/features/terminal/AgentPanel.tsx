@@ -11,6 +11,7 @@ import {
   panelLabel,
   resolveIssueReference,
   resumeCommand,
+  sessionWaking,
 } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { isSnoozed } from '@podium/model'
@@ -50,9 +51,9 @@ import { ChatView } from '@/features/chat/ChatView'
 import { accumulateFileLinkPaths } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { agentBrandDot } from '@/lib/agent-tone'
+import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
-import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { isKnownRefPrefix } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
@@ -887,7 +888,11 @@ export function AgentPanel({
           // still worth reading. Show it (read-only; the composer disables itself
           // when the session isn't live) with a banner to wake it back up.
           <>
-            <HibernatedBanner sessionId={sessionId} />
+            <HibernatedBanner
+              sessionId={sessionId}
+              waking={sessionWaking(session)}
+              queuedCount={session?.queuedMessageCount ?? 0}
+            />
             <ChatView sessionId={sessionId} active={active} />
           </>
         ) : (
@@ -905,6 +910,7 @@ export function AgentPanel({
               spawnFailure={session.spawnFailure}
               isShell={session.agentKind === 'shell'}
               resumable={session.resumable === true}
+              waking={sessionWaking(session)}
             />
             <ChatView sessionId={sessionId} active={active} />
           </>
