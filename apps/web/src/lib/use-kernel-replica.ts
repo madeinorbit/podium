@@ -12,10 +12,13 @@
 
 import type { ClientPrincipal } from '@podium/client-core/principal'
 import { inspectPrincipalNamespaces } from '@podium/client-core/replica'
+import { createLogger } from '@podium/logger'
 import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { KERNEL_SIDE_CACHE_PREFIX, type KernelAssembly, openKernelAssembly } from './kernelReplica'
+
+const log = createLogger('web:replica')
 
 export type KernelReplicaGate =
   /** Still deciding. The caller must render its loading screen. */
@@ -162,7 +165,7 @@ export function useKernelReplica(args: {
         })
       } catch (error) {
         // Fatal and visible: there is no compatibility replica to fall back to.
-        console.error('[podium] private replica unavailable', error)
+        log.error('private replica unavailable', { err: error })
         if (alive) {
           globalThis.__podiumReplicaPath = undefined
           setGate({

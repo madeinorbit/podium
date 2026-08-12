@@ -1,3 +1,4 @@
+import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { currentSkew, resetSkewNotice } from '@/app/skew-notice'
@@ -173,7 +174,12 @@ describe('checkServerVersion', () => {
 
   it('blocks (no further reload) after two reloads in a session, surfacing an error', async () => {
     store.set(COUNTER_KEY, '2') // already reloaded twice this session
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // A REAL sink with no pinned level, per the epic's testing note: the
+    // diagnostic moved from the console to the logger, and a capture pinned at
+    // `trace` would observe records a deployment never emits.
+    const logged: LogRecord[] = []
+    setLogLevel('warn')
+    addSink({ name: 'capture', write: (record) => logged.push(record) })
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -187,7 +193,8 @@ describe('checkServerVersion', () => {
     const result = await checkServerVersion(ORIGIN)
     expect(result).toBe('blocked')
     expect(reload).not.toHaveBeenCalled()
-    expect(errSpy).toHaveBeenCalled()
+    expect(logged.filter((r) => r.level === 'error')).toHaveLength(1)
+    resetLogging()
   })
 
   it('treats a fetch rejection as ok (never blocks on a flaky /version)', async () => {

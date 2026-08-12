@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { createLogger } from '@podium/logger'
 import {
   BarChart3,
   CalendarClock,
@@ -19,6 +20,8 @@ import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { type MainView, useReplicaIssues, useStoreSelector } from './store'
 import { ToolbarSlotTarget, useToolbarSlotFilled } from './ToolbarSlot'
+
+const log = createLogger('web:desktop-window')
 
 /**
  * THE COMMAND BAR (POD-365) — 44px, four zones, left to right:
@@ -173,7 +176,7 @@ function UtilityNavItem({
 function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.Element {
   const run = (action: () => Promise<void>): void => {
     void action().catch((error: unknown) => {
-      console.error('[podium-desktop] window action failed', error)
+      log.error('window action failed', { err: error })
     })
   }
 

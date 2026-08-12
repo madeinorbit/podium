@@ -1,10 +1,6 @@
 import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
-import {
-  classifySkew,
-  parseServerVersion,
-  WIRE_VERSION,
-  wireSchemaDigest,
-} from '@podium/protocol'
+import { createLogger } from '@podium/logger'
+import { classifySkew, parseServerVersion, WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
 
 /**
@@ -20,6 +16,8 @@ import { reportSkew } from '@/app/skew-notice'
  *  — it runs before the store exists and must never depend on it.
  *  Spelling lives in the ui-state routing table (POD-329). */
 const RELOAD_COUNTER_KEY = WIRE_RELOAD_COUNTER_KEY
+
+const log = createLogger('web:version-guard')
 /** After this many reloads without resolving the mismatch, stop looping and surface an error. */
 const MAX_RELOADS = 2
 
@@ -124,10 +122,12 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
 
   const reloads = readReloadCounter()
   if (reloads >= MAX_RELOADS) {
-    console.error(
-      `[podium] wire-version mismatch persists after ${reloads} reload(s) ` +
-        `(bundle=${WIRE_VERSION}, server wire=${serverWire}, min=${serverMin}); not reloading again.`,
-    )
+    log.error('wire-version mismatch persists; not reloading again', {
+      reloads,
+      bundleWire: WIRE_VERSION,
+      serverWire,
+      serverMin,
+    })
     // The loop guard has tripped, so reloading is off the table and this bundle
     // is going to run against a server it does not match. SAY SO — that silence
     // is the whole of POD-1610. The wording avoids "reload": two have already

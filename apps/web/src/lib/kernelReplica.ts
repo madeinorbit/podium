@@ -43,6 +43,7 @@ import {
   preparePrincipalNamespace,
 } from '@podium/client-core/replica'
 import type { FeedServerFrame, FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
+import { createLogger } from '@podium/logger'
 import { actorUser, asUserId } from '@podium/model'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
@@ -58,6 +59,8 @@ import {
 import type { OutboxAttribution } from '@podium/sync/outbox'
 import { Replica as KernelReplica } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
+
+const log = createLogger('web:kernel-replica')
 
 /** The IndexedDB database the web client's kernel replica lives in. */
 export const KERNEL_REPLICA_DB = 'podium-kernel-replica'
@@ -272,7 +275,7 @@ export async function openKernelAssembly(
       options.onDegraded?.(detail)
       const report = detail as { mode?: unknown; error?: unknown }
       if (report?.mode === 'unavailable') unavailableCause = report.error
-      console.warn('[podium] kernel replica storage degraded', detail)
+      log.warn('kernel replica storage degraded', { detail })
     },
   })
   if (store.durability() === 'unavailable') {
@@ -320,9 +323,9 @@ export async function openKernelAssembly(
     // whole privacy model rests on. `discardCache()` structurally cannot reach
     // the outbox (ADR 2 D7), so the user's unsent work survives this.
     view.cache.discardCache()
-    console.warn(
-      `[podium] kernel replica store not adopted (${adoption.reason}) — discarded and re-bootstrapping`,
-    )
+    log.warn('kernel replica store not adopted — discarded and re-bootstrapping', {
+      reason: adoption.reason,
+    })
     options.onDegraded?.({ kind: 'store-not-adopted', reason: adoption.reason })
   }
 
@@ -377,7 +380,7 @@ export async function openKernelAssembly(
   }
   const migration = summarizeMigrations(migrations)
   if (migration.notice !== undefined) {
-    console.warn('[podium] legacy queued writes migrated', migration)
+    log.warn('legacy queued writes migrated', { ...migration })
     options.onDegraded?.({ kind: 'legacy-outbox-migrated', ...migration })
   }
 

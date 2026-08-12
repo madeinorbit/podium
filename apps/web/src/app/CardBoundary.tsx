@@ -1,5 +1,8 @@
+import { createLogger } from '@podium/logger'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { formatAppError } from './AppErrorPage'
+
+const log = createLogger('web:card-boundary')
 
 /**
  * A narrow error boundary for a single repeated item (a session / issue /
@@ -19,8 +22,18 @@ export class CardBoundary extends Component<
     return { failed: true }
   }
 
-  override componentDidCatch(error: unknown, _info: ErrorInfo): void {
-    console.warn(`[podium] ${this.props.label ?? 'card'} failed to render:`, formatAppError(error))
+  /**
+   * `warn`, not `error`: one degraded card is the "degraded but recovering"
+   * row of the level table, and the app around it is fine. It does NOT go to
+   * the crash path for the same reason — a list of a hundred malformed items
+   * would ship a hundred crash reports for a UI that is still usable.
+   */
+  override componentDidCatch(error: unknown, info: ErrorInfo): void {
+    log.warn(`${this.props.label ?? 'card'} failed to render: ${formatAppError(error)}`, {
+      err: error,
+      label: this.props.label ?? 'card',
+      ...(info.componentStack ? { componentStack: info.componentStack } : {}),
+    })
   }
 
   override componentDidUpdate(prev: Readonly<{ resetKey?: string }>): void {

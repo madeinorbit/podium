@@ -1,5 +1,9 @@
+import { createLogger } from '@podium/logger'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { reportCrash } from '@/lib/logging/runtime'
 import { AppErrorPage, formatAppError } from './AppErrorPage'
+
+const log = createLogger('web:boundary')
 
 /**
  * Catches RENDER crashes (a component threw during render/effects) and shows an
@@ -23,7 +27,18 @@ export class ErrorBoundary extends Component<
     return { message: formatAppError(error) }
   }
 
-  override componentDidCatch(error: unknown, _info: ErrorInfo): void {
+  /**
+   * The component stack is the ONLY thing here that the error itself does not
+   * carry, and it is the thing that says WHICH card blew up. It used to be
+   * dropped on the floor with `_info` — a crash report reading "Cannot read
+   * properties of undefined" with a minified JS stack and no component names is
+   * a report you cannot act on
+   * [spec: 2026-08-11-logging-strategy-design, "Crash capture"].
+   */
+  override componentDidCatch(error: unknown, info: ErrorInfo): void {
+    const componentStack = info.componentStack ?? undefined
+    log.error(formatAppError(error), { err: error, componentStack })
+    reportCrash(error, { source: 'error-boundary', ...(componentStack ? { componentStack } : {}) })
     this.props.onError?.(formatAppError(error))
   }
 

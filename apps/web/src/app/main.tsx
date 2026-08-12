@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
 import { SetupGate } from '@/features/setup/SetupGate'
+import { startWebLogging } from '@/lib/logging'
 import { MotionDemo } from '@/lib/motion/MotionDemo'
 import { AppShell } from './AppShell'
 import '@/index.css'
@@ -9,6 +10,11 @@ import '@/styles.css'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
+
+// FIRST, before anything can throw: the global handlers and the flight recorder
+// are what turn a crash during boot into a report on the user's own server
+// [spec: 2026-08-11-logging-strategy-design, "Crash capture (end-to-end)"].
+startWebLogging()
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Podium web root was not found')
