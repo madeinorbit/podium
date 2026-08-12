@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asMachineId } from '../ids/brands'
+import { asMachineId, asRepoId } from '../ids/brands'
 import {
   agentCapabilityRejection,
   agentCapabilityRejectionForSelection,
@@ -15,7 +15,7 @@ import {
 
 const repos = [
   {
-    repoId: 'r1',
+    repoId: asRepoId('r1'),
     machines: [
       { machineId: asMachineId('source'), path: '/a' },
       { machineId: asMachineId('target'), path: '/b' },
