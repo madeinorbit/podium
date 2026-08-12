@@ -203,7 +203,7 @@ export function deriveIssueViews(
   const dependentsByIssue = new Map<IssueId, { id: IssueId; type: string }[]>()
   for (const issue of issues) {
     const issueId = asIssueId(issue.id)
-    const parentId = issue.parentId ? asIssueId(issue.parentId) : issue.parentId
+    const parentId = issue.parentId ? asIssueId(issue.parentId) : undefined
     if (parentId) {
       const kids = childrenByParent.get(parentId)
       if (kids) kids.push(issueId)
