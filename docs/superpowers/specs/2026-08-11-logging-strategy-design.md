@@ -241,6 +241,26 @@ The widening preserves every existing property: the enum stays closed
 (unknown names still fold to `'Other'`, so no new leak surface), stack
 scrubbing is unchanged, and there remains exactly one scrubbing path.
 
+### Known limitation: client crashes do not reach the vendor tier (POD-1915)
+
+Goal 5 is met for **storage** but not yet for the anonymous crash tier. A
+browser or React Native stack frame is a URL into the served bundle
+(`http://host:7777/assets/index-abc.js:1:2`), so `scrubFrame`'s
+install-containment test drops every frame, `frames` comes back empty, and
+`recordCrash` returns early.
+
+So today: a real web or mobile crash **does** reach durable server-side
+storage and `podium logs export-crash` — which is the support path, and the
+one that matters for a user emailing about a problem — but contributes
+nothing to the consent-gated tier that would feed Sentry. Server-origin
+crashes are unaffected.
+
+Resolving it is a **privacy decision on the scrubber's rules**, owned by the
+telemetry spec (SP-f933), not by any chunk of this epic. The two candidate
+answers: map same-origin bundle URLs onto install-relative asset paths, or
+accept client crashes as storage-only and say so in `docs/TELEMETRY.md`.
+Tracked as POD-1915.
+
 ### Migration and enforcement
 
 - Sweep `console.*` → logger per package, in order: server, daemon,
