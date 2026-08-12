@@ -56,7 +56,7 @@
  * O(world) rebuild back, just on the client.
  */
 
-import type { SessionMeta, IssueId, SessionId } from '@podium/model'
+import { asIssueId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import type { IssueProjectionRow } from './contract'
 import type { Replica } from './replica'
 
