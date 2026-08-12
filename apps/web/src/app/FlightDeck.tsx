@@ -1,4 +1,5 @@
-import { asIssueId, relativeTime } from '@podium/client-core/focus'
+import { asIssueId } from '@podium/model'
+import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {

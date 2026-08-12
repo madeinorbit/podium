@@ -1,4 +1,5 @@
-import { asMachineId, shallowEqual } from '@podium/client-core/store'
+import { asMachineId } from '@podium/model'
+import { shallowEqual } from '@podium/client-core/store'
 import {
   lastUsedMaps,
   machineViewsFromWire,

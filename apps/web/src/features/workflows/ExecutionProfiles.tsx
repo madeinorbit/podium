@@ -26,13 +26,11 @@
  * explanation IS the M5 defect restated.
  */
 import {
-  asAccountId,
-  asMachineId,
   machineViewsFromWire,
   placementOptions,
   profilePlacement,
 } from '@podium/client-core/viewmodels'
-import { AgentKind } from '@podium/model'
+import { AgentKind, asAccountId, asMachineId } from '@podium/model'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'

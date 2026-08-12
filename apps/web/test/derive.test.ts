@@ -1,5 +1,5 @@
+import { asSessionId } from '@podium/model'
 import {
-  asSessionId,
   agentBadge,
   chatActivity,
   defaultChatCapable,
