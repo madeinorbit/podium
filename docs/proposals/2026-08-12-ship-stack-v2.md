@@ -290,8 +290,10 @@ server trying to compose a safe transaction out of loosely related git calls.
 ## Durable model
 
 Do not append every attempt to the issue row. Attempts and output are unbounded,
-hot, independently addressable data. Use a normalized aggregate family and put
-only a compact derived summary on the issue projection.
+hot, independently addressable data. Use a normalized aggregate family plus a
+compact replicated `ShipOrderProjection` keyed by order and joined to its issue
+through `issueId`. Do not embed derived shipping state in `IssueAggregate`, the
+issues table, or the normalized issue projection.
 
 ```ts
 type ShipOrder = {
@@ -361,14 +363,16 @@ type ShipHold = {
 
 Step runs are append-only rows keyed by an idempotency key. Large stdout/stderr
 is redacted, size-capped, and stored as a durable log artifact; rows carry the
-summary and artifact reference. `IssueWire` gets a derived `shipSummary` with
-order id, one of four human states, destination, a stable plain-language
-activity code, server-computed queue rank, queued/state-change timestamps,
-receipt availability, and an optional compact hold—not a nested copy of all
-shipping entities. The four states are `waiting`, `in_progress`, `needs_you`,
-and `shipped`; detailed phases never become issue lifecycle. Queue rank is a
-scheduler snapshot within one repository/destination lane, never a position
-inferred by the client or a global order across independent lanes.
+summary and artifact reference. The independently replicated
+`ShipOrderProjection` carries order id, issue id, one of four human states,
+destination, a stable plain-language activity code, server-computed queue rank,
+queued/state-change timestamps, receipt availability, and an optional compact
+hold—not a nested copy of all shipping entities. Issue-specific queries may join
+it by `issueId`; the issue entity remains normalized. The four states are
+`waiting`, `in_progress`, `needs_you`, and `shipped`; detailed phases never
+become issue lifecycle. Queue rank is a scheduler snapshot within one
+repository/destination lane and belongs only to this read projection, never the
+durable order or a position inferred by the client.
 
 A `DeliveryReceipt` belongs to one verified `ShipOrder`, not to the Shipping
 panel. It records approved source, tested integration tip, landed/provider ref
@@ -745,8 +749,8 @@ but the durable issue, Tray, and ship order remain the source of truth.
 Do not fake a waiting asker. Today's generic `needsHuman` question sends an
 answer back to `humanQuestionAskedBy`; Shipping intentionally has no live
 session. The normalized `ShipHold` therefore owns its typed actions and expected
-generation. `shipSummary.hold` lets the Task surface and Tray render a
-`ship-hold` item instead of the generic question, and
+generation. The compact hold on `ShipOrderProjection` lets the Task surface and
+Tray render a `ship-hold` item instead of the generic question, and
 `issues.resolveShipHold(orderId, action, expectedGeneration)` dispatches to the
 shipping service. Only a successful resolution clears `needsHuman`. This reuses
 Podium's attention transport while keeping the reply path deterministic and
@@ -767,9 +771,9 @@ service may include a choice specific to the failure, but it never offers raw
 ### Mobile
 
 The mobile Tray shows holds, not routine progress. A final destination receipt
-may appear in activity/history without becoming attention. The same Shipping
-summary is optional on mobile, and a phone user can answer a hold without
-opening a terminal.
+may appear in activity/history without becoming attention. The same compact
+order projection is optional on mobile, and a phone user can answer a hold
+without opening a terminal.
 
 ## Observability and controls
 
