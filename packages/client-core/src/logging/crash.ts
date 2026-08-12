@@ -26,6 +26,14 @@ import { toForwarded } from './forward-sink'
  * - **Failure here is silent, locally.** Reporting a failed crash-ship through
  *   the logger would put a record into the buffer that the next crash ships,
  *   and hand the forwarding sink something to fail on in turn.
+ *
+ * NOTHING HERE TOUCHES A GLOBAL, and that is the boundary between this package
+ * and the apps: `report` is called BY a producer, it does not go looking for
+ * one. `window.onerror`/`unhandledrejection` live in `apps/web`, React Native's
+ * `ErrorUtils.setGlobalHandler` lives in `apps/mobile`, and both hand their
+ * error to the same reporter. A `Window` in this signature would have made the
+ * shared half unimportable from the Expo bundle, which is the whole reason the
+ * shared half exists.
  */
 
 export interface CrashPayload {
@@ -50,8 +58,6 @@ export interface CrashReporterOptions {
 export interface CrashReporter {
   /** Log and ship one crash. Never throws. */
   report(error: unknown, context?: Record<string, unknown>): void
-  /** Wire `error` + `unhandledrejection`. Returns a disposer. */
-  installGlobalHandlers(target: Window): () => void
 }
 
 const DEFAULT_MAX_CRASHES = 10
@@ -120,34 +126,7 @@ export function createCrashReporter(options: CrashReporterOptions): CrashReporte
     }
   }
 
-  return {
-    report,
-    installGlobalHandlers(target: Window): () => void {
-      const onError = (event: Event): void => {
-        const errorEvent = event as ErrorEvent
-        // `error` is absent for a cross-origin script error ("Script error."),
-        // where the browser withholds the detail. Reporting the message alone
-        // is still worth more than dropping it.
-        report(errorEvent.error ?? new Error(errorEvent.message || 'uncaught error'), {
-          source: 'window.onerror',
-          ...(errorEvent.filename ? { filename: errorEvent.filename } : {}),
-          ...(typeof errorEvent.lineno === 'number' ? { lineno: errorEvent.lineno } : {}),
-        })
-      }
-      const onRejection = (event: Event): void => {
-        const reason: unknown = (event as { reason?: unknown }).reason
-        report(reason ?? new Error('unhandled rejection with no reason'), {
-          source: 'unhandledrejection',
-        })
-      }
-      target.addEventListener('error', onError)
-      target.addEventListener('unhandledrejection', onRejection)
-      return () => {
-        target.removeEventListener('error', onError)
-        target.removeEventListener('unhandledrejection', onRejection)
-      }
-    },
-  }
+  return { report }
 }
 
 function defaultDegradedNotice(message: string): void {

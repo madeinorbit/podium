@@ -3,10 +3,8 @@ import { serverConfig } from '@/app/trpc'
 import { installWebLogging } from './install'
 import { pageLogTransport } from './transport'
 
-export { type CrashPayload, createCrashReporter } from './crash'
-export { createForwardingSink } from './forward-sink'
+export { installGlobalHandlers } from './global-handlers'
 export { installWebLogging, type LogTransport, type WebLoggingOptions } from './install'
-export { reportCrash, setActiveCrashReporter } from './runtime'
 export { pageLogTransport, trpcLogTransport } from './transport'
 
 /** The build stamp `apps/web`'s build writes beside the bundle. */

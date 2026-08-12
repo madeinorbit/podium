@@ -24,14 +24,6 @@ function harness(overrides: { maxCrashes?: number } = {}) {
   return { ring, sent, reporter }
 }
 
-/** happy-dom has no PromiseRejectionEvent constructor; the shape is what the
- *  handler reads, so build that shape. */
-function rejectionEvent(reason: unknown): Event {
-  const event = new Event('unhandledrejection', { cancelable: true })
-  Object.assign(event, { reason, promise: Promise.resolve() })
-  return event
-}
-
 describe('crash reporter', () => {
   beforeEach(() => {
     setLogLevel('warn')
@@ -40,32 +32,18 @@ describe('crash reporter', () => {
     resetLogging()
   })
 
-  it('ships an uncaught window error with the ring buffer that led to it', async () => {
+  it('ships the error with the ring buffer that led to it', async () => {
     const { sent, reporter } = harness()
-    const dispose = reporter.installGlobalHandlers(window)
-    const log = createLogger('web:store')
-    log.warn('replica degraded', { detail: 'quota' })
+    createLogger('web:store').warn('replica degraded', { detail: 'quota' })
 
-    window.dispatchEvent(new ErrorEvent('error', { error: new Error('async boom') }))
+    reporter.report(new Error('async boom'))
     await Promise.resolve()
 
     expect(sent).toHaveLength(1)
     expect(sent[0]?.err).toMatchObject({ name: 'Error', message: 'async boom' })
+    // The crash is the LAST record of the payload it ships: logged first, then
+    // snapshotted, so the buffer reads as a narrative ending where it should.
     expect(sent[0]?.snapshot.map((r) => r.msg)).toEqual(['replica degraded', 'async boom'])
-    dispose()
-  })
-
-  it('ships an unhandled promise rejection — the case window.onerror never sees', async () => {
-    const { sent, reporter } = harness()
-    const dispose = reporter.installGlobalHandlers(window)
-
-    window.dispatchEvent(rejectionEvent(new Error('rejected in a microtask')))
-    await Promise.resolve()
-
-    expect(sent).toHaveLength(1)
-    expect(sent[0]?.err.message).toBe('rejected in a microtask')
-    expect(sent[0]?.context?.source).toBe('unhandledrejection')
-    dispose()
   })
 
   it('carries producer context, such as a React component stack', async () => {
@@ -101,6 +79,18 @@ describe('crash reporter', () => {
     expect(sent[0]?.context?.source).toBe('error-boundary')
   })
 
+  it('reports two distinct failures that happen to share a message', async () => {
+    const { sent, reporter } = harness()
+
+    reporter.report(new Error('same words'))
+    reporter.report(new Error('same words'))
+    await Promise.resolve()
+
+    // Deduplication is by error IDENTITY, not by signature: collapsing these
+    // would hide the second failure.
+    expect(sent).toHaveLength(2)
+  })
+
   it('never throws at the crash site when shipping itself fails, and never logs about it', async () => {
     const ring = createRingBufferSink({ capacity: 50 })
     addSink(ring)
@@ -122,16 +112,5 @@ describe('crash reporter', () => {
     // The failure must not have become a record that a forwarding sink would
     // then try to ship — one crash, one entry in the buffer.
     expect(ring.snapshot().filter((r) => r.msg.includes('unreachable'))).toEqual([])
-  })
-
-  it('stops handling once disposed', async () => {
-    const { sent, reporter } = harness()
-    const dispose = reporter.installGlobalHandlers(window)
-    dispose()
-
-    window.dispatchEvent(new ErrorEvent('error', { error: new Error('after dispose') }))
-    await Promise.resolve()
-
-    expect(sent).toHaveLength(0)
   })
 })

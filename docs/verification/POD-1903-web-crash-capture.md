@@ -65,6 +65,16 @@ first one as history, which is the flight recorder doing exactly the job it
 exists for. The forwarding sink independently appended both records to
 `logs/clients/web.ndjson`, tagged with the same origin.
 
+## Re-run after the client-core extraction
+
+The batching, backoff and crash payload later moved to
+`@podium/client-core/logging` so `apps/mobile` (POD-1904) could reuse them
+rather than reimplement them. That moved the code the browser actually runs, so
+the probe above was re-run against the extracted tree on the same isolated
+setup (`:18791` / `:55572`): same three calls, both crash events stored with
+their buffers, both records appended to `logs/clients/web.ndjson`. A green from
+before the move would not have covered the code that shipped.
+
 ## Two honest notes
 
 - **`origin.v` is absent above.** `podium-build.json` is written by

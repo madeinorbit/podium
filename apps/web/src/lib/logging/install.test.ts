@@ -1,8 +1,8 @@
+import { setActiveCrashReporter } from '@podium/client-core/logging'
 import type { LogsCrashInput, LogsForwardInput } from '@podium/commands'
 import { createLogger, resetLogging, setLogLevel } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installWebLogging, type LogTransport } from './install'
-import { setActiveCrashReporter } from './runtime'
 
 function recorder(): {
   transport: LogTransport

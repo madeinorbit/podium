@@ -1,6 +1,6 @@
 import { createLogger } from '@podium/logger'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { reportCrash } from '@/lib/logging/runtime'
+import { reportCrash } from '@podium/client-core/logging'
 import { AppErrorPage, formatAppError } from './AppErrorPage'
 
 const log = createLogger('web:boundary')

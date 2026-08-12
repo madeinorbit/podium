@@ -1,8 +1,8 @@
+import { setActiveCrashReporter } from '@podium/client-core/logging'
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setActiveCrashReporter } from '@/lib/logging/runtime'
 import { ErrorBoundary } from './ErrorBoundary'
 
 function SessionCard(): never {
@@ -25,10 +25,7 @@ describe('ErrorBoundary', () => {
     // A REAL sink with no pinned level, so the test observes the production
     // mechanism at the level a deployment actually runs it at.
     addSink({ name: 'capture', write: (record) => records.push(record) })
-    setActiveCrashReporter({
-      report: (error, context) => crashes.push({ error, context }),
-      installGlobalHandlers: () => () => {},
-    })
+    setActiveCrashReporter({ report: (error, context) => crashes.push({ error, context }) })
     vi.spyOn(console, 'error').mockImplementation(() => {}) // React's own boundary log
   })
 
