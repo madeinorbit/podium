@@ -1,0 +1,101 @@
+# First-run onboarding overhaul
+
+## Delivery contract
+
+This issue is the integration epic for Podium's complete first-run experience. Its branch and
+worktree are the single review target: child work may be developed in isolated worktrees, but the
+feature is not complete until every required lane is integrated and testable here.
+
+The activation target is the first successful agent task, not merely saving server configuration or
+registering a repository.
+
+## Product decision
+
+Use a revealed-shell activation experience. Keep the real Podium navigation, work sidebar,
+Settings, Help, connection health, and any existing work visible while onboarding occupies the
+main empty stage. A persistent **Explore Podium** action leaves onboarding without marking it
+complete, preserves progress and drafts, and exposes a clear resume affordance.
+
+Reserve blocking setup for genuine safety or runtime prerequisites. Optional topology,
+integrations, telemetry, and education must not stand between a normal local user and useful work.
+
+## Complete journey
+
+### Local macOS and source installs
+
+For a normal all-in-one launch, infer the safe local mode and enter activation directly. Do not ask
+the user to choose among server, daemon, client, or all-in-one topology before they understand the
+product. Keep explicit advanced and headless server paths for users who need them, including their
+reachability and authentication requirements.
+
+The primary activation sequence is:
+
+1. **Project** — ranked local suggestions, folder selection, optional GitHub CLI clone, and an
+   advanced scan route.
+2. **Agent** — show actual installation and authentication readiness; provide a focused recovery
+   action when the chosen harness is not ready.
+3. **First task** — use the production composer contract with project, agent, model, supported
+   effort, context, and safe execution defaults. Complete activation only when the real task starts.
+
+### Existing Podium
+
+Offer a secondary route to connect this client or machine to an installation the user already runs.
+Keep the flow inside activation, explain URL, authentication, and machine-role consequences, and
+preserve the local project and task draft when users go back.
+
+### Always-on VPS
+
+Offer the benefit before the infrastructure: agents can continue when the laptop sleeps and Podium
+can remain available from another device. Guide reachability, one-line pairing, live machine
+detection, role choice, durable server transfer, reconnection, and return to project activation.
+Recommend moving Podium's server to the VPS; retain daemon-only hosting as an advanced choice whose
+dependency on the current server is stated plainly.
+
+Pairing and transfer presentation and controllers must be route-neutral and shared with Settings.
+Do not embed the Settings panel in onboarding. Persist the activation route and selected target with
+server confirmation before starting a server transfer so the transferred database cannot omit the
+continuation state.
+
+### Mobile safety boundary
+
+Mobile clients must not enter the normal operator data plane while a server is unconfigured or
+activation is pending. The server, desktop web, mobile web, and native client must share an explicit
+readiness contract such as `unconfigured`, `activation_pending`, `ready`, and `degraded`, with a
+non-secret reason. Before readiness, expose only the narrow status/bootstrap surface and direct the
+user to finish setup on the host; client-only gating is not a security boundary.
+
+## GitHub decision
+
+Use the existing GitHub CLI before considering a Podium-owned GitHub App. Detect whether `gh` is
+installed and authenticated, list accessible repositories, choose a destination, clone locally, and
+return to activation without Podium storing GitHub tokens.
+
+Keep **Clone from GitHub** visible in missing and logged-out states. A missing-tool control should be
+focusable with `aria-disabled`, explain the dependency, link to installation guidance, offer
+**Check again**, refresh when the window regains focus, and preserve every onboarding selection and
+draft throughout detection and authentication.
+
+## Workstream map
+
+- POD-865: activation shell and guided VPS lane, including shared machine setup primitives.
+- POD-880: local-first setup inference and advanced/headless escape paths.
+- POD-881: GitHub CLI project intake.
+- POD-882: agent readiness and first-task composer.
+- POD-883: existing-Podium connection route.
+- POD-884: server-enforced mobile readiness boundary.
+- POD-878: separate tracker safeguard preventing orphaned coordinators and outside-worktree artifacts.
+
+## Acceptance
+
+- A clean supported local install reaches Project, Agent, and First task without premature topology
+  or remote-access configuration.
+- Explore Podium and reload preserve the exact activation route and drafts.
+- Agent availability is truthful and recovery actions do not discard the prompt.
+- The first task uses production catalogs and starts real work.
+- GitHub CLI missing, logged-out, ready, refresh, and clone states are recoverable and accessible.
+- Existing-Podium and VPS choices remain guided onboarding routes with a reliable return to local
+  activation.
+- VPS continuation survives restart and server-origin transfer without optimistic-write data loss.
+- Mobile clients fail safely until server readiness is established.
+- The integrated epic branch passes the repository-selected validation gates and is the artifact and
+  runtime review target.
