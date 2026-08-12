@@ -344,6 +344,9 @@ export const UsageBucketWire = z.object({
   outputTokens: z.number().int().nonnegative(),
   cacheReadTokens: z.number().int().nonnegative(),
   cacheCreationTokens: z.number().int().nonnegative(),
+  /** Subset of cacheCreationTokens written with Anthropic's 1-hour TTL.
+   * Optional so a new client can still read buckets from an older daemon. */
+  cacheCreation1hTokens: z.number().int().nonnegative().optional(),
   messages: z.number().int().nonnegative(),
 })
 export type UsageBucketWire = z.infer<typeof UsageBucketWire>

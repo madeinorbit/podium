@@ -22,6 +22,10 @@ export interface UsageRecord {
   outputTokens: number
   cacheReadTokens: number
   cacheCreationTokens: number
+  /** Subset of cacheCreationTokens written with Anthropic's 1-hour TTL. */
+  cacheCreation1hTokens: number
+  /** Stable provider response identity; absent when the transcript carries none. */
+  responseId?: string
 }
 
 /**
@@ -46,13 +50,34 @@ export function usageFromRecord(record: unknown): UsageRecord | null {
   const tsMs = typeof r.timestamp === 'string' ? Date.parse(r.timestamp) : Number.NaN
   if (Number.isNaN(tsMs)) return null
   const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  const cacheCreation = usage.cache_creation as Record<string, unknown> | undefined
+  const cacheCreation1hTokens = n(cacheCreation?.ephemeral_1h_input_tokens)
+  const reportedCacheCreationTokens = n(usage.cache_creation_input_tokens)
+  // The aggregate predates the TTL breakdown and remains the fallback for old
+  // Claude Code records. When a partial/future breakdown does not add up to the
+  // aggregate, conservatively assign the unexplained remainder to the default
+  // 5-minute tier instead of losing tokens.
+  const cacheCreation5mTokens = cacheCreation
+    ? Math.max(
+        n(cacheCreation.ephemeral_5m_input_tokens),
+        reportedCacheCreationTokens - cacheCreation1hTokens,
+      )
+    : reportedCacheCreationTokens
+  const requestId = typeof r.requestId === 'string' && r.requestId ? r.requestId : undefined
+  const messageId = typeof message?.id === 'string' && message.id ? message.id : undefined
   return {
     tsMs,
     model: typeof message?.model === 'string' ? (message.model as string) : 'unknown',
     inputTokens: n(usage.input_tokens),
     outputTokens: n(usage.output_tokens),
     cacheReadTokens: n(usage.cache_read_input_tokens),
-    cacheCreationTokens: n(usage.cache_creation_input_tokens),
+    cacheCreationTokens: cacheCreation1hTokens + cacheCreation5mTokens,
+    cacheCreation1hTokens,
+    ...(requestId
+      ? { responseId: `request:${requestId}` }
+      : messageId
+        ? { responseId: `message:${messageId}` }
+        : {}),
   }
 }
 
@@ -89,9 +114,9 @@ export function codexModelOf(record: unknown): string | undefined {
  *     Older builds spell it `cache_read_input_tokens`.
  *   - `reasoning_output_tokens` is a subset of `output_tokens` — dropped, since
  *     the total already contains it.
- * `cache_write_input_tokens` is reported but has been 0 in every rollout seen
- * (OpenAI doesn't bill cache writes); it is carried across unmodified rather
- * than assumed to be nested.
+ * `cache_write_input_tokens` is reported but has been 0 in every rollout seen.
+ * It is carried across unmodified rather than assumed to be nested; current
+ * gpt-5.6 pricing does bill a nonzero write at 1.25x input.
  */
 export function codexUsageFromRecord(record: unknown, model: string): UsageRecord | null {
   if (typeof record !== 'object' || record === null) return null
@@ -117,13 +142,34 @@ export function codexUsageFromRecord(record: unknown, model: string): UsageRecor
     outputTokens: n(usage.output_tokens),
     cacheReadTokens: cacheRead,
     cacheCreationTokens: n(usage.cache_write_input_tokens),
+    cacheCreation1hTokens: 0,
   }
 }
 
-/** Fold records into hour×model buckets. */
+/**
+ * Fold records into hour×model buckets.
+ *
+ * Claude Code can persist the same API assistant response once per streamed
+ * content block. Those rows have different transcript UUIDs/timestamps but the
+ * same requestId/message.id and the same complete usage block. Select the
+ * earliest row for each stable provider response identity before bucketing.
+ * Records without an identity remain distinct: token-shape or timestamp
+ * heuristics would collapse legitimate requests that merely cost the same.
+ */
 export function bucketize(records: UsageRecord[]): UsageBucketWire[] {
-  const buckets = new Map<string, UsageBucketWire>()
+  const identified = new Map<string, UsageRecord>()
+  const distinct: UsageRecord[] = []
   for (const rec of records) {
+    if (!rec.responseId) {
+      distinct.push(rec)
+      continue
+    }
+    const seen = identified.get(rec.responseId)
+    if (!seen || rec.tsMs < seen.tsMs) identified.set(rec.responseId, rec)
+  }
+
+  const buckets = new Map<string, UsageBucketWire>()
+  for (const rec of [...distinct, ...identified.values()]) {
     const hour = new Date(Math.floor(rec.tsMs / 3_600_000) * 3_600_000).toISOString()
     const key = `${hour}|${rec.model}`
     let b = buckets.get(key)
@@ -135,6 +181,7 @@ export function bucketize(records: UsageRecord[]): UsageBucketWire[] {
         outputTokens: 0,
         cacheReadTokens: 0,
         cacheCreationTokens: 0,
+        cacheCreation1hTokens: 0,
         messages: 0,
       }
       buckets.set(key, b)
@@ -143,6 +190,7 @@ export function bucketize(records: UsageRecord[]): UsageBucketWire[] {
     b.outputTokens += rec.outputTokens
     b.cacheReadTokens += rec.cacheReadTokens
     b.cacheCreationTokens += rec.cacheCreationTokens
+    b.cacheCreation1hTokens = (b.cacheCreation1hTokens ?? 0) + rec.cacheCreation1hTokens
     b.messages += 1
   }
   return [...buckets.values()].sort((a, b) => a.hour.localeCompare(b.hour))
@@ -181,6 +229,7 @@ export function mergeBuckets(buckets: UsageBucketWire[]): UsageBucketWire[] {
     seen.outputTokens += b.outputTokens
     seen.cacheReadTokens += b.cacheReadTokens
     seen.cacheCreationTokens += b.cacheCreationTokens
+    seen.cacheCreation1hTokens = (seen.cacheCreation1hTokens ?? 0) + (b.cacheCreation1hTokens ?? 0)
     seen.messages += b.messages
   }
   return [...merged.values()].sort((a, b) => a.hour.localeCompare(b.hour))

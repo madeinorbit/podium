@@ -87,6 +87,8 @@ describe('bucketCostUsd', () => {
     ['claude-opus-5', 5],
     ['claude-opus-4-8', 5],
     ['claude-opus-4-5', 5],
+    // Anthropic made the launch tier permanent; this must precede `sonnet`.
+    ['claude-sonnet-5', 2],
     ['claude-sonnet-4-5', 3],
     // POD-670: fable's id names no family the other rows match, so it used to
     // land on the Sonnet-priced fallback at a third of its real rate.
@@ -94,16 +96,17 @@ describe('bucketCostUsd', () => {
     ['gpt-5', 1.25],
     // Retired, but historical buckets still carry the id and it billed here.
     ['gpt-5-codex', 1.25],
-    // POD-718: the gpt-5.6 family reached the gpt-5 row by substring fallback,
-    // and it spans 25x end to end — no single fallback rate can serve it.
+    // POD-718: the gpt-5.6 family reached the gpt-5 row by substring fallback;
+    // each current tier has its own rate and the narrower ids must win.
     ['gpt-5.6-sol', 5],
-    ['gpt-5.6-terra', 2],
-    ['gpt-5.6-luna', 0.2],
+    ['gpt-5.6-terra', 2.5],
+    ['gpt-5.6-luna', 1],
     // The bare alias routes to Sol, so it prices as Sol.
     ['gpt-5.6', 5],
     ['gpt-5.5', 5],
     ['gpt-5.3-codex', 1.75],
     // Narrower ids precede the family, so these keep their own price.
+    ['gpt-5.4-nano', 0.2],
     ['gpt-5.4-mini', 0.75],
     ['gpt-5.4', 2.5],
     ['gpt-5-mini', 0.25],
@@ -141,6 +144,24 @@ describe('bucketCostUsd', () => {
     expect(bucketCostUsd(bucket('gpt-5.6-sol', written))).toBeCloseTo(6.25, 6)
     expect(bucketCostUsd(bucket('gpt-5', written))).toBeCloseTo(0, 6)
     expect(bucketCostUsd(bucket('gpt-5-mini', written))).toBeCloseTo(0, 6)
+  })
+
+  it('bills Anthropic 5-minute writes at 1.25x and 1-hour writes at 2x input', () => {
+    const fiveMinute = { inputTokens: 0, cacheCreationTokens: 1_000_000 }
+    const oneHour = {
+      inputTokens: 0,
+      cacheCreationTokens: 1_000_000,
+      cacheCreation1hTokens: 1_000_000,
+    }
+    expect(bucketCostUsd(bucket('claude-sonnet-5', fiveMinute))).toBeCloseTo(2.5, 6)
+    expect(bucketCostUsd(bucket('claude-sonnet-5', oneHour))).toBeCloseTo(4, 6)
+    expect(bucketCostUsd(bucket('claude-opus-5', fiveMinute))).toBeCloseTo(6.25, 6)
+    expect(bucketCostUsd(bucket('claude-opus-5', oneHour))).toBeCloseTo(10, 6)
+  })
+
+  it('prices Sonnet 5 output at its permanent $10 tier', () => {
+    const out = { inputTokens: 0, outputTokens: 1_000_000 }
+    expect(bucketCostUsd(bucket('claude-sonnet-5', out))).toBeCloseTo(10, 6)
   })
 
   // The fallback understated fable's output rate by more than its input rate,
@@ -243,7 +264,7 @@ describe('usageSummary', () => {
 
   it('ranks models by cost, not by tokens — the measure the sheet leads with', () => {
     // A cheap model with far more tokens must not outrank an expensive one: 20
-    // MTok of Luna input is $4, 5 MTok of Opus input is $25.
+    // MTok of Luna input is $20, 5 MTok of Opus input is $25.
     const s = usageSummary(
       [
         bucket({ model: 'gpt-5.6-luna', inputTokens: 20_000_000 }),
@@ -274,8 +295,8 @@ describe('usageSummary', () => {
     expect(byKey.output?.costWeightRatio).toBeCloseTo(55 / 6, 6)
     // Every class is present even at zero, so the block holds its four rows —
     // in list-price order, cheapest token first. A cache write bills at 1.25x
-    // input or not at all, so it is the second DEAREST kind, never the second
-    // cheapest (POD-755).
+    // input for 5m or 2x for Anthropic's 1h tier, so it is the second DEAREST
+    // kind, never the second cheapest (POD-755).
     expect(s.composition.map((c) => c.key)).toEqual(['cacheRead', 'input', 'cacheWrite', 'output'])
   })
 
@@ -331,7 +352,7 @@ describe('usageSummary', () => {
   it('groups models by provider and ranks the rollup by cost', () => {
     const s = usageSummary(
       [
-        // Sol at $5 and Luna at $0.20 are 25x apart, so the rollup is also the
+        // Sol at $5 and Luna at $1 are 5x apart, so the rollup is also the
         // check that the two are not being flattened onto one gpt-5.6 rate.
         bucket({ model: 'gpt-5.6-sol', inputTokens: 8_000_000, messages: 2 }),
         bucket({ model: 'gpt-5.6-luna', inputTokens: 4_000_000, messages: 3 }),
@@ -341,7 +362,7 @@ describe('usageSummary', () => {
       now,
     )
 
-    // Anthropic ($50) outranks OpenAI ($40.80) here even though the OpenAI rows
+    // Anthropic ($50) outranks OpenAI ($44) here even though the OpenAI rows
     // came first, so this fails if the rollup ever stops sorting by cost.
     expect(s.providers.map((provider) => provider.provider)).toEqual([
       'anthropic',
@@ -349,7 +370,7 @@ describe('usageSummary', () => {
       'other',
     ])
     expect(s.providers[1]).toMatchObject({ totalTokens: 12_000_000, messages: 5 })
-    expect(s.providers[1]?.estCostUsd).toBeCloseTo(40.8, 6)
+    expect(s.providers[1]?.estCostUsd).toBeCloseTo(44, 6)
     expect(s.unpricedModels).toEqual(['future-vendor'])
   })
 

@@ -31,12 +31,12 @@ export interface UsageWindow {
  * tier, which is the whole point of showing token share and cost share as two
  * rails of the same four segments.
  *
- * `cacheWrite` sat second here and did not belong there (POD-755): every row in
- * `PRICING` bills a cache write at 1.25x input or not at all, so a written cache
- * token is the second most expensive kind, never the second cheapest. The order
- * claimed to be the ramp while stating the opposite of it, and the sheet's
- * cost-per-token column — which reads as a ramp or as noise, nothing in
- * between — printed 0.7x / 9.1x / 6.8x / 38x down the page.
+ * `cacheWrite` sat second here and did not belong there (POD-755): priced cache
+ * writes cost 1.25x input for a 5-minute TTL and 2x for Anthropic's 1-hour TTL,
+ * so a written cache token is the second most expensive kind, never the second
+ * cheapest. The order claimed to be the ramp while stating the opposite of it,
+ * and the sheet's cost-per-token column — which reads as a ramp or as noise,
+ * nothing in between — printed 0.7x / 9.1x / 6.8x / 38x down the page.
  */
 export const TOKEN_CLASSES = ['cacheRead', 'input', 'cacheWrite', 'output'] as const
 export type TokenClass = (typeof TOKEN_CLASSES)[number]
@@ -117,11 +117,10 @@ export interface UsageSummaryView {
  * Per-MTok API list price for one model family — the "what this would have cost
  * off-subscription" equivalence. All four billing classes are carried
  * EXPLICITLY rather than derived from the input rate by multiplier, because the
- * multipliers are not universal: Anthropic bills a cache write at 1.25x input,
- * OpenAI bills it at 1.25x on the gpt-5.6 family and NOT AT ALL on every other
- * gpt-5.x. A single hardcoded 1.25x quietly invented a charge OpenAI does not
- * make, and only stayed invisible because Codex's rollouts report the field as
- * zero. A rate of 0 is now a statement the table makes on purpose.
+ * multipliers are not universal: Anthropic bills 5-minute writes at 1.25x input
+ * and 1-hour writes at 2x, while OpenAI bills writes on the gpt-5.6 family and
+ * NOT AT ALL on every other gpt-5.x. A single hardcoded rate cannot represent
+ * those tiers. A rate of 0 is a statement the table makes on purpose.
  */
 interface ModelPricing {
   match: string
@@ -129,7 +128,9 @@ interface ModelPricing {
   outPerM: number
   cacheReadPerM: number
   /** 0 where the provider does not bill cache writes at all. */
-  cacheWritePerM: number
+  cacheWrite5mPerM: number
+  /** Anthropic's extended-TTL write rate; equal to 5m where TTL is inapplicable. */
+  cacheWrite1hPerM: number
 }
 
 /**
@@ -138,53 +139,192 @@ interface ModelPricing {
  * so a narrower id has to precede the family it belongs to, or `gpt-5-mini`
  * bills as `gpt-5` and `gpt-5.6-sol` bills as neither.
  *
- * VERIFIED AGAINST THE VENDOR PRICE LISTS ON 2026-08-10 (POD-718). Two rows had
- * drifted far enough to invert the sheet's headline reading:
+ * VERIFIED AGAINST THE VENDOR PRICE LISTS ON 2026-08-12. In addition to the
+ * earlier POD-718 corrections below, Anthropic made Sonnet 5's $2/$10 launch
+ * price permanent and OpenAI now lists gpt-5.4-nano at $0.20/$1.25.
  *
  *  - `opus` sat at $15/$75, the retired Opus 4.1 tier. Every Opus this matches
  *    (5, 4.8, 4.7, 4.6, 4.5) lists at $5/$25, so every Anthropic figure on the
  *    sheet read 3x high — and Opus is nearly all of an agent fleet's traffic.
- *  - The whole gpt-5.6 family reached the `gpt-5` row at $1.25/$10 by substring
- *    fallback. Sol is $5/$30 and Luna is $0.20/$1.20: a 25x spread that no
- *    single fallback rate can serve. Sol, the Codex default, was undercharged
- *    4x on input and 3x on output.
+ *  - The whole gpt-5.6 family originally reached the `gpt-5` row at $1.25/$10
+ *    by substring fallback. Its current tiers still span 5x from Sol ($5/$30)
+ *    to Luna ($1/$6), so no single fallback rate can serve the family.
  *
- * gpt-5.6 is priced in two context bands (>272K input tokens roughly doubles
- * every rate). The rows below are the SHORT band, because an hour x model
- * bucket cannot reconstruct the context size of the requests inside it — so
- * long-context Codex work is understated here, and knowingly so.
+ * gpt-5.6 is priced in two context bands: requests above 272K input tokens cost
+ * 2x on input and 1.5x on output. The rows below are the SHORT band, because an
+ * hour x model bucket cannot reconstruct the context size of the requests
+ * inside it — so long-context Codex work is understated here, and knowingly so.
  */
 const PRICING: ModelPricing[] = [
   // Fable's id carries no family name the rows below would catch, so it fell
   // through to the Sonnet-priced fallback — 3.3x under its real rate, on a
   // model that gets reached for precisely on the expensive work.
-  { match: 'fable', inPerM: 10, outPerM: 50, cacheReadPerM: 1, cacheWritePerM: 12.5 },
-  { match: 'mythos', inPerM: 10, outPerM: 50, cacheReadPerM: 1, cacheWritePerM: 12.5 },
-  { match: 'opus', inPerM: 5, outPerM: 25, cacheReadPerM: 0.5, cacheWritePerM: 6.25 },
-  // Sonnet 5 carries a $2/$10 introductory rate through 2026-08-31 that this
-  // row deliberately does not model: `bucketCostUsd` has no clock, and a price
-  // that changes under a pure function is a worse defect than 21 days of a
-  // slightly high Sonnet line. $3/$15 is the standing rate either side of it.
-  { match: 'sonnet', inPerM: 3, outPerM: 15, cacheReadPerM: 0.3, cacheWritePerM: 3.75 },
-  { match: 'haiku', inPerM: 1, outPerM: 5, cacheReadPerM: 0.1, cacheWritePerM: 1.25 },
+  {
+    match: 'fable',
+    inPerM: 10,
+    outPerM: 50,
+    cacheReadPerM: 1,
+    cacheWrite5mPerM: 12.5,
+    cacheWrite1hPerM: 20,
+  },
+  {
+    match: 'mythos',
+    inPerM: 10,
+    outPerM: 50,
+    cacheReadPerM: 1,
+    cacheWrite5mPerM: 12.5,
+    cacheWrite1hPerM: 20,
+  },
+  {
+    match: 'opus',
+    inPerM: 5,
+    outPerM: 25,
+    cacheReadPerM: 0.5,
+    cacheWrite5mPerM: 6.25,
+    cacheWrite1hPerM: 10,
+  },
+  // Anthropic made the $2/$10 Sonnet 5 launch tier permanent on 2026-08-11.
+  {
+    match: 'sonnet-5',
+    inPerM: 2,
+    outPerM: 10,
+    cacheReadPerM: 0.2,
+    cacheWrite5mPerM: 2.5,
+    cacheWrite1hPerM: 4,
+  },
+  {
+    match: 'sonnet',
+    inPerM: 3,
+    outPerM: 15,
+    cacheReadPerM: 0.3,
+    cacheWrite5mPerM: 3.75,
+    cacheWrite1hPerM: 6,
+  },
+  {
+    match: 'haiku',
+    inPerM: 1,
+    outPerM: 5,
+    cacheReadPerM: 0.1,
+    cacheWrite5mPerM: 1.25,
+    cacheWrite1hPerM: 2,
+  },
   // The gpt-5.6 family, narrowest first — and ahead of every `gpt-5` row below,
   // which all of these ids also contain. This is the only OpenAI family that
   // bills for cache writes.
-  { match: 'gpt-5.6-luna', inPerM: 0.2, outPerM: 1.2, cacheReadPerM: 0.02, cacheWritePerM: 0.25 },
-  { match: 'gpt-5.6-terra', inPerM: 2, outPerM: 12, cacheReadPerM: 0.2, cacheWritePerM: 2.5 },
-  { match: 'gpt-5.6-sol', inPerM: 5, outPerM: 30, cacheReadPerM: 0.5, cacheWritePerM: 6.25 },
+  {
+    match: 'gpt-5.6-luna',
+    inPerM: 1,
+    outPerM: 6,
+    cacheReadPerM: 0.1,
+    cacheWrite5mPerM: 1.25,
+    cacheWrite1hPerM: 1.25,
+  },
+  {
+    match: 'gpt-5.6-terra',
+    inPerM: 2.5,
+    outPerM: 15,
+    cacheReadPerM: 0.25,
+    cacheWrite5mPerM: 3.125,
+    cacheWrite1hPerM: 3.125,
+  },
+  {
+    match: 'gpt-5.6-sol',
+    inPerM: 5,
+    outPerM: 30,
+    cacheReadPerM: 0.5,
+    cacheWrite5mPerM: 6.25,
+    cacheWrite1hPerM: 6.25,
+  },
   // The bare `gpt-5.6` alias routes to Sol, so it prices as Sol.
-  { match: 'gpt-5.6', inPerM: 5, outPerM: 30, cacheReadPerM: 0.5, cacheWritePerM: 6.25 },
-  { match: 'gpt-5.5', inPerM: 5, outPerM: 30, cacheReadPerM: 0.5, cacheWritePerM: 0 },
-  { match: 'gpt-5.4-mini', inPerM: 0.75, outPerM: 4.5, cacheReadPerM: 0.075, cacheWritePerM: 0 },
-  { match: 'gpt-5.4', inPerM: 2.5, outPerM: 15, cacheReadPerM: 0.25, cacheWritePerM: 0 },
-  { match: 'gpt-5.3', inPerM: 1.75, outPerM: 14, cacheReadPerM: 0.175, cacheWritePerM: 0 },
-  { match: 'gpt-5.2', inPerM: 1.75, outPerM: 14, cacheReadPerM: 0.175, cacheWritePerM: 0 },
-  { match: 'gpt-5.1', inPerM: 1.25, outPerM: 10, cacheReadPerM: 0.125, cacheWritePerM: 0 },
-  { match: 'gpt-5-nano', inPerM: 0.05, outPerM: 0.4, cacheReadPerM: 0.005, cacheWritePerM: 0 },
-  { match: 'gpt-5-mini', inPerM: 0.25, outPerM: 2, cacheReadPerM: 0.025, cacheWritePerM: 0 },
+  {
+    match: 'gpt-5.6',
+    inPerM: 5,
+    outPerM: 30,
+    cacheReadPerM: 0.5,
+    cacheWrite5mPerM: 6.25,
+    cacheWrite1hPerM: 6.25,
+  },
+  {
+    match: 'gpt-5.5',
+    inPerM: 5,
+    outPerM: 30,
+    cacheReadPerM: 0.5,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'gpt-5.4-nano',
+    inPerM: 0.2,
+    outPerM: 1.25,
+    cacheReadPerM: 0.02,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'gpt-5.4-mini',
+    inPerM: 0.75,
+    outPerM: 4.5,
+    cacheReadPerM: 0.075,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'gpt-5.4',
+    inPerM: 2.5,
+    outPerM: 15,
+    cacheReadPerM: 0.25,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'gpt-5.3',
+    inPerM: 1.75,
+    outPerM: 14,
+    cacheReadPerM: 0.175,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'gpt-5.2',
+    inPerM: 1.75,
+    outPerM: 14,
+    cacheReadPerM: 0.175,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'gpt-5.1',
+    inPerM: 1.25,
+    outPerM: 10,
+    cacheReadPerM: 0.125,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'gpt-5-nano',
+    inPerM: 0.05,
+    outPerM: 0.4,
+    cacheReadPerM: 0.005,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'gpt-5-mini',
+    inPerM: 0.25,
+    outPerM: 2,
+    cacheReadPerM: 0.025,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
   // Also catches the retired `gpt-5-codex`, which billed at this rate.
-  { match: 'gpt-5', inPerM: 1.25, outPerM: 10, cacheReadPerM: 0.125, cacheWritePerM: 0 },
+  {
+    match: 'gpt-5',
+    inPerM: 1.25,
+    outPerM: 10,
+    cacheReadPerM: 0.125,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
   // NO BLANKET `codex` ROW. It existed to keep `codex-auto-review` off the
   // fallback, at a rate nobody could source — and OpenAI publishes no price for
   // that id anywhere. An invented number the sheet presents as list price is
@@ -201,7 +341,8 @@ const DEFAULT_PRICING: Omit<ModelPricing, 'match'> = {
   inPerM: 3,
   outPerM: 15,
   cacheReadPerM: 0.3,
-  cacheWritePerM: 3.75,
+  cacheWrite5mPerM: 3.75,
+  cacheWrite1hPerM: 6,
 }
 
 function pricingForModel(model: string): {
@@ -215,9 +356,13 @@ function pricingForModel(model: string): {
 /** The per-class cost of one bucket, in the order `TOKEN_CLASSES` names. */
 function bucketCostByClass(b: UsageBucketWire): Record<TokenClass, number> {
   const p = pricingForModel(b.model).pricing
+  const cacheCreation1hTokens = Math.min(b.cacheCreation1hTokens ?? 0, b.cacheCreationTokens)
+  const cacheCreation5mTokens = b.cacheCreationTokens - cacheCreation1hTokens
   return {
     cacheRead: (b.cacheReadTokens / 1e6) * p.cacheReadPerM,
-    cacheWrite: (b.cacheCreationTokens / 1e6) * p.cacheWritePerM,
+    cacheWrite:
+      (cacheCreation5mTokens / 1e6) * p.cacheWrite5mPerM +
+      (cacheCreation1hTokens / 1e6) * p.cacheWrite1hPerM,
     input: (b.inputTokens / 1e6) * p.inPerM,
     output: (b.outputTokens / 1e6) * p.outPerM,
   }
@@ -334,9 +479,7 @@ export function usageSummary(all: UsageBucketWire[], nowMs: number): UsageSummar
   // Cutting once here makes the agreement structural rather than a coincidence
   // of when the last agent happened to run.
   const weekSince = nowMs - 7 * 24 * 3_600_000
-  const buckets = all.filter(
-    (b) => !isSyntheticModel(b.model) && Date.parse(b.hour) >= weekSince,
-  )
+  const buckets = all.filter((b) => !isSyntheticModel(b.model) && Date.parse(b.hour) >= weekSince)
   const fiveHour = windowOver(buckets, nowMs - 5 * 3_600_000)
   const week = windowOver(buckets, weekSince)
 

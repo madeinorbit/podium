@@ -10226,12 +10226,13 @@
         "outputTokens": 1,
         "cacheReadTokens": 1,
         "cacheCreationTokens": 1,
+        "cacheCreation1hTokens": 1,
         "messages": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hour\":\"hour\",\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"messages\":1}"
+      "encoded": "{\"hour\":\"hour\",\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}"
     },
     {
       "schema": "UserAccount",

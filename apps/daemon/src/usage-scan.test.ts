@@ -26,12 +26,20 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-const assistantLine = (ts: string, model: string, input: number, output: number) =>
+const assistantLine = (
+  ts: string,
+  model: string,
+  input: number,
+  output: number,
+  ids: { requestId?: string; messageId?: string } = {},
+) =>
   JSON.stringify({
     type: 'assistant',
     timestamp: ts,
+    ...(ids.requestId ? { requestId: ids.requestId } : {}),
     message: {
       model,
+      ...(ids.messageId ? { id: ids.messageId } : {}),
       usage: {
         input_tokens: input,
         output_tokens: output,
@@ -51,6 +59,8 @@ describe('usageFromRecord', () => {
       inputTokens: 10,
       outputTokens: 20,
       cacheReadTokens: 100,
+      cacheCreationTokens: 50,
+      cacheCreation1hTokens: 0,
     })
     expect(usageFromRecord({ type: 'user', message: {} })).toBeNull()
     expect(usageFromRecord({ type: 'assistant', message: {} })).toBeNull()
@@ -71,6 +81,49 @@ describe('usageFromRecord', () => {
     }
     expect(usageFromRecord(record)).toBeNull()
   })
+
+  it('splits Anthropic 5-minute and 1-hour cache creation while retaining the total', () => {
+    const record = {
+      type: 'assistant',
+      timestamp: '2026-08-12T10:01:00.000Z',
+      message: {
+        model: 'claude-sonnet-5',
+        usage: {
+          input_tokens: 2,
+          output_tokens: 3,
+          cache_creation_input_tokens: 150,
+          cache_creation: {
+            ephemeral_1h_input_tokens: 100,
+            ephemeral_5m_input_tokens: 50,
+          },
+        },
+      },
+    }
+    expect(usageFromRecord(record)).toMatchObject({
+      cacheCreationTokens: 150,
+      cacheCreation1hTokens: 100,
+    })
+  })
+
+  it('uses requestId, then message.id, as the stable API response identity', () => {
+    const byRequest = usageFromRecord(
+      JSON.parse(
+        assistantLine('2026-08-12T10:01:00.000Z', 'claude-sonnet-5', 1, 2, {
+          requestId: 'req-1',
+          messageId: 'msg-1',
+        }),
+      ),
+    )
+    const byMessage = usageFromRecord(
+      JSON.parse(
+        assistantLine('2026-08-12T10:02:00.000Z', 'claude-sonnet-5', 1, 2, {
+          messageId: 'msg-2',
+        }),
+      ),
+    )
+    expect(byRequest?.responseId).toBe('request:req-1')
+    expect(byMessage?.responseId).toBe('message:msg-2')
+  })
 })
 
 describe('bucketize', () => {
@@ -82,6 +135,7 @@ describe('bucketize', () => {
       outputTokens: output,
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
+      cacheCreation1hTokens: 0,
     })
     const buckets = bucketize([
       rec('2026-06-12T10:05:00Z', 'a', 1, 2),
@@ -129,6 +183,45 @@ describe('scanClaudeUsage', () => {
       inputTokens: 10,
       outputTokens: 20,
       messages: 1,
+    })
+  })
+
+  it('counts a repeated API response once while preserving distinct requests', async () => {
+    const home = trackTmp('podium-usage-dedupe-')
+    const dir = join(home, '.claude', 'projects', '-src-app')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'conv.jsonl'),
+      [
+        assistantLine('2026-06-12T10:01:00.000Z', 'claude-sonnet-5', 10, 20, {
+          requestId: 'req-repeated',
+          messageId: 'msg-repeated',
+        }),
+        assistantLine('2026-06-12T10:01:01.000Z', 'claude-sonnet-5', 10, 20, {
+          requestId: 'req-repeated',
+          messageId: 'msg-repeated',
+        }),
+        assistantLine('2026-06-12T10:01:02.000Z', 'claude-sonnet-5', 10, 20, {
+          requestId: 'req-distinct',
+          messageId: 'msg-distinct',
+        }),
+        assistantLine('2026-06-12T10:01:03.000Z', 'claude-sonnet-5', 10, 20, {
+          messageId: 'msg-fallback',
+        }),
+        assistantLine('2026-06-12T10:01:04.000Z', 'claude-sonnet-5', 10, 20, {
+          messageId: 'msg-fallback',
+        }),
+      ].join('\n'),
+    )
+
+    const buckets = await scanClaudeUsage({ sinceMs: 0, homeDir: home })
+    expect(buckets).toHaveLength(1)
+    expect(buckets[0]).toMatchObject({
+      hour: '2026-06-12T10:00:00.000Z',
+      model: 'claude-sonnet-5',
+      inputTokens: 30,
+      outputTokens: 60,
+      messages: 3,
     })
   })
 
@@ -199,6 +292,7 @@ describe('codexUsageFromRecord', () => {
       outputTokens: 445,
       cacheReadTokens: 18_176,
       cacheCreationTokens: 0,
+      cacheCreation1hTokens: 0,
     })
   })
 
@@ -308,6 +402,7 @@ describe('mergeBuckets', () => {
       outputTokens: 1,
       cacheReadTokens: 2,
       cacheCreationTokens: 3,
+      cacheCreation1hTokens: 1,
       messages: 1,
     })
     const merged = mergeBuckets([
@@ -317,7 +412,12 @@ describe('mergeBuckets', () => {
     ])
     expect(merged).toHaveLength(2)
     expect(merged[0]).toMatchObject({ hour: '2026-06-12T09:00:00.000Z', inputTokens: 5 })
-    expect(merged[1]).toMatchObject({ inputTokens: 17, messages: 2, cacheCreationTokens: 6 })
+    expect(merged[1]).toMatchObject({
+      inputTokens: 17,
+      messages: 2,
+      cacheCreationTokens: 6,
+      cacheCreation1hTokens: 2,
+    })
   })
 })
 
