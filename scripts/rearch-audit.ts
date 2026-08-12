@@ -1069,9 +1069,17 @@ export const CHECKS: AuditCheck[] = [
     id: 'adoption-backfill-heals',
     title: 'Adoption / backfill heal methods',
     // POD-318 removed the machine-identity adoption paths, but this name-based
-    // inventory also finds four unrelated, still-live repo upgrade heals. They
-    // remain real deletion debt and are owned explicitly rather than being
+    // inventory also found four unrelated, still-live repo upgrade heals. They
+    // were real deletion debt and were owned explicitly rather than being
     // excused alongside the transcript indexer's false positive.
+    //
+    // POD-1360 retired all four — `backfillRepoIds`, `backfillNullRepoIds`,
+    // `healLocalOrigins`, `backfillPrefixes` — into one bounded, marker-gated
+    // upgrade (`SessionStore.migrateLegacyRepoIdentity`), leaving only the
+    // declared transcript-indexer false positive. THE FOUR NAMES STAY IN THE
+    // PATTERN, matching nothing: a detector narrowed to what still exists reads
+    // a relapse as a pass, and the point of these names is that no per-boot heal
+    // may be spelled with them again.
     phase: 'POD-1360',
     unit: 'heal method declaration',
     collect: (ctx) =>

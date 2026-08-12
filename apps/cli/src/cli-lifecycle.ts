@@ -263,11 +263,23 @@ export function parseLogsArgs(argv: string[]): LogsOptions {
  *
  * Rotated archives (`.1` … `.4`) are history and are not tailed; they are plain
  * NDJSON files in the same directory for anyone who wants them.
+ *
+ * `clients/<origin>.ndjson` is searched too (POD-1947). A raised client's records
+ * are the ONE thing in this directory a reader arrives at by name rather than by
+ * role — `podium logs level debug --role web` tells you the origin, and the next
+ * thing anybody types is that origin. Only for a component named explicitly: the
+ * bare `podium logs` still means this host's own processes, and a default that
+ * swept in every client that ever forwarded would bury them.
  */
 export function logFilesFor(components: string[], dir: string = logDir()): string[] {
   const wanted = components.length > 0 ? components : [...LOG_COMPONENTS]
+  const named = components.length > 0
   return wanted
-    .flatMap((role) => [join(dir, `${role}.ndjson`), join(dir, `${role}.log`)])
+    .flatMap((role) => [
+      join(dir, `${role}.ndjson`),
+      join(dir, `${role}.log`),
+      ...(named ? [join(dir, 'clients', `${role}.ndjson`)] : []),
+    ])
     .filter((f) => existsSync(f))
 }
 
@@ -393,13 +405,55 @@ export function exportCrashCommand(argv: string[]): void {
   console.log(`Wrote ${events.length} crash event(s) to ${out}`)
 }
 
-export function logsCommand(argv: string[]): void {
+/**
+ * `podium logs --help`. It exists because `logs` grew verbs (POD-1947): reading
+ * this host's files is still the default and the common case, but "how do I turn
+ * a client up" has to be answerable from the verb that reads what a raised
+ * client produces, not only from a doc.
+ */
+export function logsHelpText(): string {
+  return [
+    'podium logs [component…] [-f] [--pretty]',
+    '',
+    `Tail this host's own NDJSON logs. Components: ${LOG_COMPONENTS.join(', ')}, or a`,
+    'client origin (`web-<machine>`) for records a client forwarded here.',
+    '',
+    '  -f, --follow          Follow the files as they are written (and across rotation)',
+    '  --pretty              Render each record as a readable line instead of NDJSON',
+    '',
+    'Connected clients (these reach the server; the rest is local files):',
+    '  logs clients          List the clients connected right now — and reset them',
+    '  logs level <level|reset> [--role R] [--machine M] [--client C] [--for 30m]',
+    '                        Raise or restore what a connected client records',
+    '                        (`podium logs level --help` for the full selector)',
+    '',
+    'Crash events:',
+    '  logs export-crash [--limit N] [--out FILE]',
+    '                        Bundle recent crash events for a support hand-off',
+  ].join('\n')
+}
+
+export async function logsCommand(argv: string[]): Promise<void> {
   // `export-crash` is a subcommand of `logs` rather than a sibling verb: it is
   // the same data under the same directory, and a support instruction that says
   // "run podium logs export-crash" is easier to give than one more top-level
   // verb to remember.
   if (argv[0] === 'export-crash') {
     exportCrashCommand(argv.slice(1))
+    return
+  }
+  // `clients` / `level` are the SAME reason, one hop further out (POD-1947):
+  // raising a connected client is what fills `logs/clients/<origin>.ndjson`, and
+  // the verb that reads those files is where an operator looks for the verb that
+  // fills them. Unlike everything else here it needs the server — imported
+  // lazily so `podium logs -f` still costs no tRPC client.
+  if (argv[0] === 'clients' || argv[0] === 'level') {
+    const { logsLevelCliMain } = await import('./logs-level-cli')
+    await logsLevelCliMain(argv)
+    return
+  }
+  if (argv[0] === '--help' || argv[0] === '-h' || argv[0] === 'help') {
+    console.log(logsHelpText())
     return
   }
   const config = loadConfig()
