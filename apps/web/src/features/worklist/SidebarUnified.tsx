@@ -463,8 +463,14 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         <motion.div
           initial={arriving && !shouldReduceMotion ? { opacity: 0, y: -8 } : false}
           animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
+          // ARMED ONLY WHILE THE ROW IS ACTUALLY EXITING. `quickArchiveExit`
+          // alone also covers the window between the archive press and the
+          // overlay dropping the row — where this row still animates to its
+          // RESTING target, completes immediately, and would discard an exit
+          // that has not begun. `discardExit` is a read when it matches nothing,
+          // so that was no longer a crash; not arming it is the other half.
           onAnimationComplete={
-            quickArchiveExit ? () => discardExit(item.key, item.placement) : undefined
+            exiting && quickArchiveExit ? () => discardExit(item.key, item.placement) : undefined
           }
           transition={
             shouldReduceMotion

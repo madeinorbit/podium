@@ -9,8 +9,10 @@ afterEach(() => {
 })
 
 let latest: ReturnType<typeof useRowTransitions<string>>
+let renders = 0
 
 function Probe({ targets }: { targets: RowTransitionTarget<string>[] }): JSX.Element {
+  renders += 1
   latest = useRowTransitions(targets)
   return (
     <output>
@@ -87,5 +89,24 @@ describe('useRowTransitions', () => {
 
     act(() => latest.discardExit('a', 'closed'))
     expect(content(container)).toBe('')
+  })
+
+  /**
+   * The sidebar wires `discardExit` to a row's `onAnimationComplete`, which also
+   * fires for a row that is present and NOT exiting — the window between the
+   * archive click and the outbox overlay dropping the row, which a dropped socket
+   * holds open indefinitely. A discard that matches nothing has to be a READ: a
+   * fresh array re-renders the list, which re-runs the animation callback, which
+   * discards again. That loop is what crashed the column with React #185.
+   */
+  it('is a read when the discard matches no exiting row', () => {
+    render(<Probe targets={[{ key: 'a', placement: 'closed', value: 'A' }]} />)
+    const itemsBefore = latest.items
+    renders = 0
+
+    act(() => latest.discardExit('a', 'closed'))
+
+    expect(latest.items).toBe(itemsBefore)
+    expect(renders).toBe(0)
   })
 })

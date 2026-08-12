@@ -110,11 +110,25 @@ export function useRowTransitions<T>(targets: readonly RowTransitionTarget<T>[])
     })
   }
 
+  /**
+   * IDENTITY-PRESERVING WHEN NOTHING MATCHES, exactly like `settle` above.
+   *
+   * The caller is an animation-completion callback, and a completion fires for a
+   * row that is on screen and NOT exiting too. `current.filter(...)` returns a
+   * fresh array whether or not it dropped anything, and a fresh `items` re-renders
+   * the list, which re-arms the callback, which discards again — an unbounded
+   * commit loop that React ends with #185 (maximum update depth). The window that
+   * loop needs is a row marked for the quick archive exit whose removal has not
+   * landed yet, which is precisely what a dropped socket holds open.
+   */
   const discardExit = (key: string, placement: string): void => {
     const discardedSlot = slot({ key, placement })
-    setItems((current) =>
-      current.filter((item) => slot(item) !== discardedSlot || item.phase !== 'exiting'),
-    )
+    setItems((current) => {
+      const next = current.filter(
+        (item) => slot(item) !== discardedSlot || item.phase !== 'exiting',
+      )
+      return next.length === current.length ? current : next
+    })
   }
 
   return { items, settle, discardExit }
