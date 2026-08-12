@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
+import { MENU_HEADER, MENU_HEADER_REF, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
@@ -497,28 +498,42 @@ function PlacementMenu({
           </Button>
         }
       />
-      <DropdownMenuContent align="start" className="max-w-[19rem]">
+      <DropdownMenuContent
+        align="end"
+        sideOffset={6}
+        className={`w-[19rem] max-w-[calc(100vw-24px)] ring-0 ${MENU_PANEL}`}
+      >
+        <div className={`${MENU_HEADER} px-[5px]`}>
+          <span>START WORK</span>
+          <span className={MENU_HEADER_REF}>PLACEMENT</span>
+        </div>
         {options.map((option) => (
           <DropdownMenuItem
             key={option.key}
             data-testid={`task-placement-${option.key}`}
-            className="items-start gap-2"
+            className="group/placement items-start gap-2 rounded-md px-[5px] py-[6px] text-[11.5px] focus:bg-hairline-soft focus:text-text-strong"
             onClick={() => onStart(option.key)}
           >
-            <option.Glyph size={12} aria-hidden="true" className="mt-0.5 flex-none" />
-            <span className="flex min-w-0 flex-col">
-              <span className="flex items-center gap-1.5">
-                {option.label}
+            <span className="mt-0.5 flex size-5 flex-none items-center justify-center rounded-[6px] border border-hairline-soft bg-card text-text-dim group-focus/placement:border-border-strong group-focus/placement:text-text-strong">
+              <option.Glyph size={11} aria-hidden="true" />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="flex items-center gap-1.5 font-medium text-text-strong">
+                <span>{option.label}</span>
                 {option.key === placement.placement && (
-                  <Check size={11} aria-hidden="true" className="flex-none opacity-70" />
+                  <span className="ml-auto inline-flex items-center gap-1 font-mono text-[8px] tracking-[.08em] text-text-faint uppercase">
+                    Current <Check size={10} aria-hidden="true" />
+                  </span>
                 )}
               </span>
-              <span className="text-[10.5px] leading-[1.35] text-muted-foreground">
-                {option.why}
-              </span>
+              <span className="mt-0.5 text-[10.5px] leading-[1.4] text-text-dim">{option.why}</span>
             </span>
           </DropdownMenuItem>
         ))}
+        <div className={MENU_RULE} />
+        <p className="px-[5px] pb-0.5 font-mono text-[8.5px] leading-[1.45] text-text-faint">
+          Choose a placement to start the work immediately.
+        </p>
       </DropdownMenuContent>
     </DropdownMenu>
   )

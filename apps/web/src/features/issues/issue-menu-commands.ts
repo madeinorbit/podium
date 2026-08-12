@@ -49,6 +49,8 @@ export function runIssueMenuCommand(
         deps.setOpenIssueId(id)
         deps.setView('issues')
         return
+      case 'start':
+        return deps.trpc.issues.start.mutate({ id })
       case 'rename':
         return
       case 'markUnread':

@@ -87,6 +87,7 @@ export function IssueContextMenu({
   onRename,
   onRequestClose,
   surface = 'board',
+  primaryStart = false,
 }: {
   issues: IssueViewModel[]
   allIssues: IssueViewModel[]
@@ -96,6 +97,9 @@ export function IssueContextMenu({
   onRename?: (id: string) => void
   onRequestClose?: (reason: IssueCloseReason) => void
   surface?: IssueMenuSurface
+  /** Flight Deck proposals use the sidebar's one-click start action instead of
+   *  asking for an agent choice before the work has even been accepted. */
+  primaryStart?: boolean
 }): JSX.Element | null {
   const {
     trpc,
@@ -277,6 +281,7 @@ export function IssueContextMenu({
     surface,
     renameEnabled: onRename !== undefined,
     handoffEnabled: handoffEnabled && handoff !== null,
+    primaryStart,
     handoff: handoff
       ? {
           sessionId: handoffSession?.sessionId,
@@ -316,6 +321,9 @@ export function IssueContextMenu({
       case 'open':
         onOpen(first.id)
         onClose()
+        return
+      case 'start':
+        assignAgent('')
         return
       case 'rename':
         rename()

@@ -196,6 +196,9 @@ describe('IssueCompactControls', () => {
       render(<IssueCompactControls issue={proposal} />)
 
       fireEvent.click(screen.getByTestId('task-placement-trigger'))
+      expect(await screen.findByText('START WORK')).toBeTruthy()
+      expect(screen.getByText('PLACEMENT')).toBeTruthy()
+      expect(screen.getByText('Current')).toBeTruthy()
       expect((await screen.findByTestId('task-placement-own')).textContent).toContain(
         '#9 can close without it',
       )

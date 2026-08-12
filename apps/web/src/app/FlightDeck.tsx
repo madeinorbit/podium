@@ -68,6 +68,7 @@ import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/
 import { useClickIntent } from './click-intent'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
+import { OPEN_RIGHT_PANEL_EVENT } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
 
 const MODES: Array<{ id: FlightDeckMode; label: string }> = [
@@ -2030,6 +2031,11 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
 
   const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
     setFocusedIssueId(row.issue.id)
+    // A deliberate task pick asks to SEE its inspector, not merely retarget an
+    // inspector that happens to be open. Reopen the Task dock even when the
+    // operator previously dismissed it; the provider follows the focus update
+    // above and retargets the explorer to this issue.
+    window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'issue' }))
     void markIssueRead(row.issue.id)
     if (row.issue.worktreePath) setSelectedWorktree(row.issue.worktreePath)
     const active = row.sessions.filter(
@@ -2542,6 +2548,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           // gate exists to keep the board-only triage items ("Duplicate of…")
           // where POD-100 put them.
           surface="sidebar"
+          primaryStart={menuIssue.stage === 'proposed'}
           anchor={issueMenu.anchor}
           onClose={() => setIssueMenu(null)}
           onOpen={(id) => {

@@ -38,6 +38,7 @@ export type IssueMenuIcon =
 
 export type IssueMenuAction =
   | 'open'
+  | 'start'
   | 'rename'
   | 'markUnread'
   | 'markRead'
@@ -98,6 +99,7 @@ export interface IssueMenuData {
   surface: IssueMenuSurface
   renameEnabled: boolean
   handoffEnabled: boolean
+  primaryStart: boolean
   labels: readonly string[]
   duplicateTargets: readonly IssueMenuTarget[]
   handoff?: IssueHandoffMenuData
@@ -146,6 +148,14 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
     icon: 'external-link',
     section: 'main',
     when: has('canOpen'),
+  },
+  {
+    kind: 'action',
+    id: 'start',
+    label: 'Start issue',
+    icon: 'play',
+    section: 'main',
+    when: (data) => data.primaryStart && isIssueStartable(data.first),
   },
   {
     kind: 'action',
@@ -201,7 +211,8 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
     label: (data) => (isIssueStartable(data.first) ? 'Run now' : 'Assign agent'),
     icon: 'agent',
     section: 'main',
-    when: has('canAssignAgent'),
+    when: (data) =>
+      data.eligibility.canAssignAgent && !(data.primaryStart && isIssueStartable(data.first)),
     options: (data) => {
       const defaultKind = issueDefaultAgentKind(data.first.defaultAgent)
       return [
@@ -395,6 +406,7 @@ export function createIssueMenuData(input: {
   surface?: IssueMenuSurface
   renameEnabled?: boolean
   handoffEnabled?: boolean
+  primaryStart?: boolean
   handoff?: IssueHandoffMenuData
 }): IssueMenuData | null {
   const first = input.issues[0]
@@ -408,6 +420,7 @@ export function createIssueMenuData(input: {
     surface: input.surface ?? 'board',
     renameEnabled: input.renameEnabled ?? false,
     handoffEnabled: input.handoffEnabled ?? false,
+    primaryStart: input.primaryStart ?? false,
     labels: [
       ...new Set([
         ...input.allIssues.flatMap((issue) => issue.labels),

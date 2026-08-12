@@ -24,10 +24,12 @@ const harness = vi.hoisted(() => ({
   ui: new Map<string, string>(),
   listeners: new Set<() => void>(),
   setPlacement: vi.fn(async (_input: unknown) => undefined),
+  startIssue: vi.fn(async (_input: unknown) => undefined),
   trpc: {
     features: { state: { query: async () => null } },
     issues: {
       setPlacement: { mutate: (input: unknown) => harness.setPlacement(input) },
+      start: { mutate: (input: unknown) => harness.startIssue(input) },
     },
   } as unknown,
 }))
@@ -66,6 +68,15 @@ vi.mock('./store', () => ({
       setView: vi.fn(),
       markIssueRead: vi.fn(async () => undefined),
       markIssueUnread: vi.fn(async () => undefined),
+      updateIssue: vi.fn(async () => undefined),
+      deleteIssue: vi.fn(async () => undefined),
+      closeIssue: vi.fn(async () => undefined),
+      deferIssue: vi.fn(async () => undefined),
+      undeferIssue: vi.fn(async () => undefined),
+      setIssueLabels: vi.fn(async () => undefined),
+      setIssuePlacement: (id: string, placement: string, originId: string) =>
+        harness.setPlacement({ id, placement, originId }),
+      restoreIssue: vi.fn(async () => undefined),
       markSessionRead: vi.fn(async () => undefined),
       setIssueTucked: harness.setIssueTucked,
       renameSession: vi.fn(async () => undefined),
@@ -135,6 +146,8 @@ beforeEach(() => {
   harness.setPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
   harness.setIssueTucked.mockClear()
+  harness.startIssue.mockClear()
+  harness.setPlacement.mockClear()
   harness.issues = [
     issue('root', { title: 'Mission' }),
     // One session, no children — the strip that should arrive CLOSED.
@@ -235,6 +248,18 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.openSessionTab).not.toHaveBeenCalled()
     settle()
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
+  })
+
+  it('reopens the Task dock when an issue is picked', () => {
+    const openPanel = vi.fn()
+    window.addEventListener('podium:open-right-panel', openPanel, { once: true })
+    deck()
+
+    fireEvent.click(taskRow('t2'))
+    settle()
+
+    expect(openPanel).toHaveBeenCalledTimes(1)
+    expect((openPanel.mock.calls[0]?.[0] as CustomEvent).detail).toBe('issue')
   })
 
   it('promotes on the second click and never fires the single as well', () => {
@@ -381,6 +406,16 @@ describe('flight deck task menu (POD-771)', () => {
     expect(proposal).not.toBeNull()
     fireEvent.contextMenu(proposal as HTMLElement)
     expect(screen.getByText('Set stage')).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'Start issue' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: /Run now/ })).toBeNull()
+  })
+
+  it('starts a proposed task directly from its Flight Deck menu', () => {
+    deck()
+    const proposal = document.querySelector('[data-flight-issue="p1"] button')
+    fireEvent.contextMenu(proposal as HTMLElement)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Start issue' }))
+    expect(harness.startIssue).toHaveBeenCalledWith({ id: 'p1' })
   })
 
   it('shows the hover affordance for operators who never right-click', () => {
