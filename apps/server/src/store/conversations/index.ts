@@ -33,6 +33,20 @@ export class ConversationIndexRepository {
     }
   }
 
+  /**
+   * Discovery re-offers the WHOLE corpus every sweep, so most rows arrive
+   * identical to what is already stored. The `DO UPDATE ... WHERE` guard is what
+   * makes an unchanged row cost nothing: without it SQLite rewrites the row and
+   * fires the `conversations_au` trigger, which is an fts5 delete AND re-insert
+   * per row. Measured on the live server (2026-08-12, POD-1931): 1786 of these
+   * per 4 minutes writing zero net change, 1650 of them inside a single 757ms
+   * event-loop stall.
+   *
+   * The guard is the exact negation of the SET list — each column compared
+   * against the effective value the SET would assign, `IS NOT` so NULL compares
+   * like any other value. A row that would change still changes; only a write
+   * with nothing to say is skipped.
+   */
   upsert(rows: (ConversationIndexRow & { machineId: string })[]): void {
     if (rows.length === 0) return
     const stmt = this.db.prepare(`INSERT INTO conversations
@@ -47,7 +61,18 @@ export class ConversationIndexRepository {
       created_at=COALESCE(excluded.created_at,conversations.created_at),
       updated_at=COALESCE(excluded.updated_at,conversations.updated_at),
       message_count=COALESCE(excluded.message_count,conversations.message_count),
-      parent_conversation_id=COALESCE(excluded.parent_conversation_id,conversations.parent_conversation_id)`)
+      parent_conversation_id=COALESCE(excluded.parent_conversation_id,conversations.parent_conversation_id)
+      WHERE conversations.agent_kind IS NOT excluded.agent_kind
+         OR conversations.provider_id IS NOT excluded.provider_id
+         OR conversations.machine_id IS NOT excluded.machine_id
+         OR conversations.title IS NOT COALESCE(excluded.title,conversations.title)
+         OR conversations.project_path IS NOT COALESCE(excluded.project_path,conversations.project_path)
+         OR conversations.resume_kind IS NOT COALESCE(excluded.resume_kind,conversations.resume_kind)
+         OR conversations.resume_value IS NOT COALESCE(excluded.resume_value,conversations.resume_value)
+         OR conversations.created_at IS NOT COALESCE(excluded.created_at,conversations.created_at)
+         OR conversations.updated_at IS NOT COALESCE(excluded.updated_at,conversations.updated_at)
+         OR conversations.message_count IS NOT COALESCE(excluded.message_count,conversations.message_count)
+         OR conversations.parent_conversation_id IS NOT COALESCE(excluded.parent_conversation_id,conversations.parent_conversation_id)`)
     transaction(this.db, () => {
       for (const row of rows)
         stmt.run(

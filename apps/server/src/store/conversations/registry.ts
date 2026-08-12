@@ -44,11 +44,26 @@ export class ConversationRegistryRepository {
           .run(opts.parentPodiumId, existing)
       }
       if (opts.path || opts.sizeBytes !== undefined) {
+        // The trailing predicate is what keeps a re-discovery of an UNCHANGED
+        // segment free. Every sweep re-offers the whole corpus, so this matched
+        // its row and rewrote the same two values ~1656 times per 4 minutes on
+        // the live server (2026-08-12, POD-1931). Comparing with `IS NOT`
+        // against the value the SET would assign makes the no-op write vanish
+        // while a real change still lands.
         this.db
           .prepare(
-            'UPDATE conversation_segments SET path=COALESCE(?,path), reported_bytes=COALESCE(?,reported_bytes) WHERE machine_id=? AND native_id=?',
+            `UPDATE conversation_segments SET path=COALESCE(?,path), reported_bytes=COALESCE(?,reported_bytes)
+             WHERE machine_id=? AND native_id=?
+               AND (path IS NOT COALESCE(?,path) OR reported_bytes IS NOT COALESCE(?,reported_bytes))`,
           )
-          .run(opts.path ?? null, opts.sizeBytes ?? null, opts.machineId, opts.nativeId)
+          .run(
+            opts.path ?? null,
+            opts.sizeBytes ?? null,
+            opts.machineId,
+            opts.nativeId,
+            opts.path ?? null,
+            opts.sizeBytes ?? null,
+          )
       }
       return existing
     }

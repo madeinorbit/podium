@@ -822,6 +822,20 @@ export class SessionRegistry {
         ...(event.ownerUserId ? { principalUserId: event.ownerUserId } : {}),
       })
     })
+    // The frame-scoped closed-issue memo behind the `sessions()` projection
+    // below. `queueMicrotask` is the invalidation because a microtask cannot run
+    // inside a synchronous frame — the memo therefore lives exactly as long as
+    // the turn that filled it, and the first `await` anywhere re-reads.
+    let closedIssueIdsMemo: Set<string> | undefined
+    const closedIssueIdsThisFrame = (): Set<string> => {
+      if (closedIssueIdsMemo !== undefined) return closedIssueIdsMemo
+      const closed = this.store.issues.closedIssueIds()
+      closedIssueIdsMemo = closed
+      queueMicrotask(() => {
+        closedIssueIdsMemo = undefined
+      })
+      return closed
+    }
     const hosts = new HostsService(
       {
         getSettings: () => this.store.settings.getSettings(),
@@ -831,7 +845,20 @@ export class SessionRegistry {
           // ONE statement per projection, not one per session (POD-568): the
           // sweep asks for this on every host sample, and the whole point of the
           // narrow query is that a five-second path never materializes issue rows.
-          const closed = this.store.issues.closedIssueIds()
+          //
+          // ONE statement per FRAME, not one per projection [POD-1931]. A single
+          // `sample()` asks for this projection four to six times PER MACHINE —
+          // idle-live counting, shell-idle, backstop, the unobserved report, and
+          // once more per hibernate attempt — and each ask was scanning the whole
+          // `issues` table. Measured live: 280 full scans / 4 minutes, 2.6s of
+          // blocked event loop.
+          //
+          // Only the CLOSED SET is memoized, and only for the current
+          // synchronous turn. The session list itself stays live on every call,
+          // which is what the re-read after a hibernate attempt depends on;
+          // whether an ISSUE is closed cannot change inside a frame that never
+          // yields, so the memo returns the same answer the query would.
+          const closed = closedIssueIdsThisFrame()
           return [...liveSessions.values()].map((session) => ({
             sessionId: session.sessionId,
             machineId: session.machineId,
