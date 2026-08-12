@@ -1,4 +1,4 @@
-import type { MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 export interface TranscriptSearchCandidate {
@@ -74,7 +74,10 @@ export class TranscriptIndexRepository {
     })
   }
 
-  rows(machineId: MachineId, nativeId: string): { content: string; itemUuid?: string; ts?: string }[] {
+  rows(
+    machineId: MachineId,
+    nativeId: string,
+  ): { content: string; itemUuid?: string; ts?: string }[] {
     if (!this.available) return []
     const rows = this.db
       .prepare(`SELECT content,item_uuid,ts FROM transcript_fts
@@ -106,7 +109,7 @@ export class TranscriptIndexRepository {
       WHERE transcript_fts MATCH ? ORDER BY rank`)
       .all(fts) as Record<string, unknown>[]
     return rows.map((row) => ({
-      machineId: row.machine_id as string,
+      machineId: asMachineId(row.machine_id as string),
       nativeId: row.native_id as string,
       itemUuid: (row.item_uuid as string | null) ?? undefined,
       ts: (row.ts as string | null) ?? undefined,

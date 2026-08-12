@@ -209,7 +209,7 @@ function makeService(
 }
 
 const input = {
-  targetMachineId: 'target-1',
+  targetMachineId: asMachineId('target-1'),
   publicUrl: 'https://podium.example.com',
   confirmation: SERVER_TRANSFER_CONFIRMATION,
 }

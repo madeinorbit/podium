@@ -220,7 +220,7 @@ export function fleetViewFor(
  * real fleet.
  */
 export function usableRepos(
-  machines: { id: SessionId; use?: MachineUseDecision }[],
+  machines: { id: MachineId; use?: MachineUseDecision }[],
   allRepos: FleetRepoRow[],
 ): FleetRepoRow[] {
   const usable = new Set(

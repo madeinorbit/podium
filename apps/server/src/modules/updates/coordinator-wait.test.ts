@@ -54,7 +54,7 @@ describe('restartCoordinatorAfterDevelopmentFleet', () => {
   it('restarts once the machine has really booted at the target', async () => {
     const service = build()
     const restart = vi.fn()
-    restartCoordinatorAfterDevelopmentFleet(service, '0.4.2', ['a'], restart, POLL_MS)
+    restartCoordinatorAfterDevelopmentFleet(service, '0.4.2', [asMachineId('a')], restart, POLL_MS)
 
     await advance(1_000)
     expect(restart).not.toHaveBeenCalled()
@@ -69,7 +69,7 @@ describe('restartCoordinatorAfterDevelopmentFleet', () => {
   it('keeps waiting through a slow update that is still reporting progress', async () => {
     const service = build()
     const restart = vi.fn()
-    restartCoordinatorAfterDevelopmentFleet(service, '0.4.2', ['a'], restart, POLL_MS)
+    restartCoordinatorAfterDevelopmentFleet(service, '0.4.2', [asMachineId('a')], restart, POLL_MS)
 
     // Well past the silence deadline in total elapsed time, but never silent.
     for (let round = 0; round < 4; round++) {
@@ -94,7 +94,7 @@ describe('restartCoordinatorAfterDevelopmentFleet', () => {
   it('stops without restarting once silence turns the machine into a visible failure', async () => {
     const service = build()
     const restart = vi.fn()
-    restartCoordinatorAfterDevelopmentFleet(service, '0.4.2', ['a'], restart, POLL_MS)
+    restartCoordinatorAfterDevelopmentFleet(service, '0.4.2', [asMachineId('a')], restart, POLL_MS)
 
     await advance(SILENCE_MS + POLL_MS * 2)
 

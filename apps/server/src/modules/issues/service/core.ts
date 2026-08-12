@@ -6,6 +6,7 @@ import {
   type IssueDepProjection,
   type IssueGitState,
   type IssueId,
+  type UserId,
   type IssuePanel,
   type IssueProjection,
   type IssueUserOverlay,

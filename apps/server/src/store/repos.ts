@@ -7,7 +7,7 @@
  * repository and injected here as `assignRepoIdToIssuesUnder`.
  */
 
-import type { RepoId, MachineId } from '@podium/model'
+import { asMachineId, type MachineId, type RepoId } from '@podium/model'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
@@ -165,7 +165,7 @@ export class ReposRepository {
       // SERIALIZATION EDGE: an untyped column re-entering the repo id space.
       const repoId = (r.repo_id as RepoId | null) ?? null
       return {
-        machineId: r.machine_id as string,
+        machineId: asMachineId(r.machine_id as string),
         path: r.path as string,
         originUrl: (r.origin_url as string | null) ?? null,
         repoId,

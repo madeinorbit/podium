@@ -127,7 +127,7 @@ describe('bind-storm regression', () => {
     const { registry, bound, inbox } = makeStorm({ sessions: 2, issues: 0 })
     for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
     registry.modules.sessions.flushBroadcasts()
-    registry.modules.machines.renameMachine('m1', 'renamed-one')
+    registry.modules.machines.renameMachine(asMachineId('m1'), 'renamed-one')
     registry.modules.sessions.flushBroadcasts()
     expect(
       sessionChanges(inbox).findLast((change) => (change.value as SessionMeta).machineId === 'm1')

@@ -1,4 +1,4 @@
-import type { UnbrandIds } from '@podium/model'
+import { asRepoId, type UnbrandIds } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { IssueRow } from '../../store'
 import { captureLogs } from '../../test-support/capture-logs'
@@ -374,9 +374,9 @@ describe('repo projection [POD-822]', () => {
     // repos.listRepos() returns one row per (machine, path); the entity is the
     // logical repo, so two checkouts of repo_a with the same prefix are ONE row.
     const rows = repoProjectionRows([
-      { repoId: 'repo_a', prefix: 'POD' },
-      { repoId: 'repo_a', prefix: 'POD' },
-      { repoId: 'repo_b', prefix: null },
+      { repoId: asRepoId('repo_a'), prefix: 'POD' },
+      { repoId: asRepoId('repo_a'), prefix: 'POD' },
+      { repoId: asRepoId('repo_b'), prefix: null },
     ])
     expect(rows).toEqual([
       { id: 'repo_a', value: { id: 'repo_a', prefix: 'POD' } },
@@ -389,7 +389,7 @@ describe('repo projection [POD-822]', () => {
   it('drops rows with no repoId — an unidentified repo has no stable id to address', () => {
     const rows = repoProjectionRows([
       { repoId: null, prefix: 'POD' },
-      { repoId: 'repo_a', prefix: 'POD' },
+      { repoId: asRepoId('repo_a'), prefix: 'POD' },
     ])
     expect(rows.map((r) => r.id)).toEqual(['repo_a'])
   })

@@ -218,7 +218,7 @@ const verbsFromRow = (row: MachineOwnershipRow, subject: UserId | null): Set<Mac
  */
 export function machineVerbsFor(
   principal: CommandPrincipal,
-  machineId: MachineId,
+  machineId: MachineId | '',
   ownership: MachineOwnershipIndex,
 ): ReadonlySet<MachineVerb> {
   // NO ROW MEANS NO VERBS, with no arm underneath it. There used to be one: `'local'`

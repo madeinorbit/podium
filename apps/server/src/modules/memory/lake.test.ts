@@ -21,7 +21,7 @@ describe('TranscriptLake mirror fence', () => {
     const sent: { machineId: string; message: ControlMessage }[] = []
     const daemonRequest = new DaemonRequestBroker({
       toMachine: (machineId, message) => sent.push({ machineId, message }),
-      defaultMachine: () => 'm1',
+      defaultMachine: () => asMachineId('m1'),
     })
     const lake = new TranscriptLake(
       {

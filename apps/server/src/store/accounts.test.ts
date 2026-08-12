@@ -26,7 +26,7 @@ it('round-trips a managed account', () => {
 
 it('upsert replaces an existing id rather than duplicating', () => {
   const base = {
-    id: 'managed:anthropic',
+    id: asAccountId('managed:anthropic'),
     provider: 'anthropic',
     kind: 'api-key' as const,
     identity: 'x',

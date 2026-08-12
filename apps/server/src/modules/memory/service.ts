@@ -43,7 +43,7 @@ export interface MemoryServiceDeps {
 export class MemoryService {
   private latestConversations: ConversationSummaryWire[] = []
   private latestDiagnostics: ConversationDiagnosticWire[] = []
-  private readonly machineByConversation = new Map<string, string>()
+  private readonly machineByConversation = new Map<string, MachineId>()
   private lastDiagnosticsBroadcast = JSON.stringify([])
   private readonly visibility: MemoryVisibilityPolicy
   private readonly searcher: MemorySearchService

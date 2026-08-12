@@ -187,7 +187,7 @@ export function issueProjectionRows(
   rows: Iterable<IssueRow>,
   labelsOf: (id: string) => string[],
 ): { id: IssueId; value: IssueProjection }[] | undefined {
-  const out: { id: string; value: IssueProjection }[] = []
+  const out: { id: IssueId; value: IssueProjection }[] = []
   for (const row of rows) {
     try {
       out.push({ id: row.id, value: issueRowToProjection(row, labelsOf(row.id)) })
@@ -255,11 +255,11 @@ export function issueDepToProjection(dep: {
 export function issueDepProjectionRows(
   deps: Iterable<{ fromId: string; toId: string; type: string }>,
 ): { id: IssueId; value: IssueDepProjection }[] | undefined {
-  const out: { id: string; value: IssueDepProjection }[] = []
+  const out: { id: IssueId; value: IssueDepProjection }[] = []
   for (const dep of deps) {
     try {
       const value = issueDepToProjection(dep)
-      out.push({ id: value.id, value })
+      out.push({ id: value.fromId, value })
     } catch (err) {
       log.warn(
         'a dependency could not be projected — skipping the whole issueDep publish so reconcile cannot mistake a partial list for deleted dependencies',
@@ -287,12 +287,12 @@ export function issueDepProjectionRows(
  */
 export function repoProjectionRows(
   repos: Iterable<{ repoId: RepoId | null; prefix: string | null }>,
-): { id: IssueId; value: RepoProjection }[] {
+): { id: RepoId; value: RepoProjection }[] {
   const byId = new Map<string, RepoProjection>()
   for (const repo of repos) {
     if (!repo.repoId) continue
     // `.parse()` brands the RepoId — see issueDepToProjection.
     byId.set(repo.repoId, repoToWire(Repo.parse({ id: repo.repoId, prefix: repo.prefix })))
   }
-  return [...byId].map(([id, value]) => ({ id, value }))
+  return [...byId].map(([id, value]) => ({ id: id as RepoId, value }))
 }

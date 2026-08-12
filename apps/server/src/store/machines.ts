@@ -3,9 +3,9 @@
  * their token hashes).
  */
 
-import { createHash, timingSafeEqual
-} from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import {
+  asUserId,
   Inventory,
   type MachineId,
   UpdateChannel,
@@ -59,7 +59,7 @@ function toRecord(r: Record<string, unknown>): MachineRecord {
     // POD-1079: no `??` fallback. A row whose column is NULL reads back as
     // unowned, and unowned refuses `use` to everyone — substituting an owner
     // here would be the fail-open shape the nullable column exists to avoid.
-    ownerUserId: (r.owner_user_id as string | null | undefined) ?? null,
+    ownerUserId: r.owner_user_id ? asUserId(r.owner_user_id as string) : null,
     appVersion: (r.app_version as string | null | undefined) ?? null,
     wireSchemaDigest: (r.wire_schema_digest as string | null | undefined) ?? null,
     installKind: (r.install_kind as string | null | undefined) ?? null,
@@ -166,9 +166,7 @@ export class MachinesRepository {
   /** Persist the operator-selected update authority for one managed machine.
    *  `null` clears the pin and returns the machine to the fleet default (POD-1882). */
   setUpdateChannel(id: string, channel: UpdateChannelValue | null): void {
-    this.db
-      .prepare('UPDATE machines SET update_channel_override = ? WHERE id = ?')
-      .run(channel, id)
+    this.db.prepare('UPDATE machines SET update_channel_override = ? WHERE id = ?').run(channel, id)
   }
 
   renameMachine(id: string, name: string): void {

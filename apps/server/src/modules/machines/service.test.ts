@@ -428,7 +428,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       expect(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_A)
       expect(broadcasts).toHaveLength(0)
 
-      svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), OWNER_A)
+      svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
       // 1 — THE ROW. Read straight from the store, past every cache.
       expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_B)
@@ -463,7 +463,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       })
       expect(svc.grantsForMachine(MACHINE)).toHaveLength(1)
 
-      svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), OWNER_A)
+      svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
       // Carol's `use` was Alice's deliberate act on Alice's hardware. It is not
       // Bob's, and `use` is a code-execution boundary (readiness M2).
@@ -479,9 +479,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // SECOND PRINCIPAL. The gate refuses this in `fleetAuthzFailure`; the
       // service refuses it again, because a service reachable from more than one
       // transport must not depend on every one of them remembering.
-      expect(() => svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), OWNER_B)).toThrow(
-        'only the machine owner may transfer ownership',
-      )
+      expect(() =>
+        svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_B)),
+      ).toThrow('only the machine owner may transfer ownership')
       expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_A)
       // A refused transfer is SILENT — no ledger append, no broadcast.
       expect(broadcasts).toEqual([])
@@ -494,9 +494,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   test('an unknown recipient is refused rather than quarantining the machine', () => {
     const { svc, store, dir, broadcasts } = transferWorld()
     try {
-      expect(() => svc.transferMachineOwnership(MACHINE, asUserId('user:typo'), OWNER_A)).toThrow(
-        'unknown user: user:typo',
-      )
+      expect(() =>
+        svc.transferMachineOwnership(MACHINE, asUserId('user:typo'), asUserId(OWNER_A)),
+      ).toThrow('unknown user: user:typo')
       // The hazard this closes: an owner the ledger records but `userExists`
       // cannot resolve is quarantined by the next reconcile — owner null, usable
       // by nobody. Nothing was appended, so nothing to reconcile.
@@ -511,9 +511,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   test('transferring to the current owner is refused, not a silent no-op broadcast', () => {
     const { svc, dir, broadcasts } = transferWorld()
     try {
-      expect(() => svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), OWNER_A)).toThrow(
-        'machine is already owned by that user',
-      )
+      expect(() =>
+        svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_A)),
+      ).toThrow('machine is already owned by that user')
       expect(broadcasts).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })
