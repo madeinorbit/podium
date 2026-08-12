@@ -585,6 +585,12 @@ export interface HarnessCapabilities {
   observationProtocol: 'claude-causal' | 'codex-exact' | 'generic'
   /** A submitted CR needs transcript/state verification and bounded retry. */
   submitVerification: boolean
+  /**
+   * The first user turn cannot be started by bracketed-paste into a fresh TUI.
+   * Chat send must type the prompt as raw keystrokes (the native-view path)
+   * until a user turn exists; later turns keep paste. [POD-549, POD-901]
+   */
+  rawFirstTurn: boolean
   /** Interactive native resume ids must be exclusive to one Podium pane. */
   exclusiveInteractiveResume: boolean
   /** First user transcript item may replace the generic launch title. */

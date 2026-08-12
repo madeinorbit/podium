@@ -27,7 +27,14 @@ const agentPrincipal = (): InboxPrincipalReference => ({
   },
 })
 
-function harness(options: { owner?: typeof ALICE | null; status?: string; agentKind?: 'codex' | 'opencode' } = {}) {
+function harness(
+  options: {
+    owner?: typeof ALICE | null
+    status?: string
+    agentKind?: 'codex' | 'opencode' | 'grok'
+    userTurns?: number
+  } = {},
+) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
   const sent: unknown[] = []
   const rejected: unknown[] = []
@@ -45,7 +52,12 @@ function harness(options: { owner?: typeof ALICE | null; status?: string; agentK
     agentState: { phase: 'idle' },
     terminal: {
       lastOutputAtMs: 0,
-      transcriptItems: () => [],
+      transcriptItems: () =>
+        Array.from({ length: options.userTurns ?? 0 }, (_, index) => ({
+          id: `u${index}`,
+          role: 'user' as const,
+          text: `turn ${index}`,
+        })),
       recordInputActivity: vi.fn(),
       // POD-1081 added a live last-input attribution call on the real terminal
       // (terminal.ts). This fixture is `as unknown as Session`, so the compiler
@@ -92,6 +104,7 @@ function harness(options: { owner?: typeof ALICE | null; status?: string; agentK
     persist: vi.fn(),
     broadcast: vi.fn(),
     needsSubmitVerification: (agentKind) => agentKind === 'claude-code',
+    usesRawFirstTurn: (agentKind) => agentKind === 'grok',
     prepareSend: vi.fn(),
     ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
     resurrect: async () => ({ ok: true }),
@@ -187,6 +200,38 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.sent).toEqual([])
     expect(h.rows).toEqual([])
     expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it('types a first Grok chat send as raw keystrokes, not bracketed paste', () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'grok' })
+    expect(h.inbox.sendText({ sessionId: SID, text: 'hello grok' })).toEqual({ ok: true })
+    const decode = (entry: unknown) => Buffer.from((entry as { data: string }).data, 'base64').toString()
+    expect(decode(h.sent[0])).toBe('hello grok')
+    vi.advanceTimersByTime(100)
+    expect(decode(h.sent[1])).toBe('\r')
+  })
+
+  it('keeps bracketed paste for later Grok turns once a user turn exists', () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'grok', userTurns: 1 })
+    expect(h.inbox.sendText({ sessionId: SID, text: 'follow up' })).toEqual({ ok: true })
+    const decode = (entry: unknown) => Buffer.from((entry as { data: string }).data, 'base64').toString()
+    expect(decode(h.sent[0])).toBe('\x1b[200~follow up\x1b[201~')
+    vi.advanceTimersByTime(100)
+    expect(decode(h.sent[1])).toBe('\r')
+  })
+
+  it('queues a first Grok send while the TUI is still starting', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ agentKind: 'grok', status: 'starting' })
+    expect(h.inbox.sendText({ sessionId: SID, text: 'too early' })).toEqual({
+      ok: true,
+      queued: true,
+    })
+    expect(h.sent).toEqual([])
+    expect(h.rows).toHaveLength(1)
   })
 
   it("delivers OpenCode mail through the generic bracketed-paste route", () => {

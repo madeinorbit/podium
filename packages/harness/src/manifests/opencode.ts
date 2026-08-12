@@ -64,6 +64,7 @@ export const opencodeManifest: AgentManifest = {
     observationProvider: 'none',
     observationProtocol: 'generic',
     submitVerification: false,
+    rawFirstTurn: false,
     exclusiveInteractiveResume: false,
     promptTitleFallback: false,
     mcpConfigTransport: 'none',

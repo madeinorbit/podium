@@ -46,6 +46,7 @@ export const cursorManifest: AgentManifest = {
     observationProvider: 'none',
     observationProtocol: 'generic',
     submitVerification: false,
+    rawFirstTurn: false,
     exclusiveInteractiveResume: false,
     promptTitleFallback: false,
     mcpConfigTransport: 'none',

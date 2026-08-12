@@ -174,6 +174,7 @@ export const codexManifest: AgentManifest = {
     observationProvider: 'codex',
     observationProtocol: 'codex-exact',
     submitVerification: false,
+    rawFirstTurn: false,
     exclusiveInteractiveResume: true,
     promptTitleFallback: false,
     mcpConfigTransport: 'inline',

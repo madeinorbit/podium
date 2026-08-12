@@ -59,6 +59,7 @@ export const claudeCodeManifest: AgentManifest = {
     observationProvider: 'claude-code',
     observationProtocol: 'claude-causal',
     submitVerification: true,
+    rawFirstTurn: false,
     exclusiveInteractiveResume: false,
     promptTitleFallback: true,
     mcpConfigTransport: 'path',

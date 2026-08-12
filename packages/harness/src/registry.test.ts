@@ -22,6 +22,7 @@ import {
   harnessShowsPromptModeHints,
   harnessSupportsHandoff,
   harnessSupportsMcp,
+  harnessUsesRawFirstTurn,
   manifestFor,
   transcriptRecordMapperFor,
   transcriptRuntimeReaderFor,
@@ -42,6 +43,7 @@ const CAPABILITY_FIELDS = [
   'observationProvider',
   'observationProtocol',
   'submitVerification',
+  'rawFirstTurn',
   'exclusiveInteractiveResume',
   'promptTitleFallback',
   'mcpConfigTransport',
@@ -293,6 +295,8 @@ describe('agent manifest registry', () => {
     ])
     expect(harnessSupportsHandoff('future-harness')).toBe(false)
     expect(harnessShowsPromptModeHints('future-harness')).toBe(false)
+    expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessUsesRawFirstTurn(kind))).toEqual(['grok'])
+    expect(harnessUsesRawFirstTurn('future-harness')).toBe(false)
     expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessSupportsMcp(kind))).toEqual([
       'claude-code',
       'codex',

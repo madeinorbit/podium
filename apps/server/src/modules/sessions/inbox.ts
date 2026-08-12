@@ -165,6 +165,7 @@ export interface SessionInboxDeps {
   persist(session: Session, options?: { cancelTerminalCandidate?: boolean }): void
   broadcast(): void
   needsSubmitVerification(agentKind: AgentKind): boolean
+  usesRawFirstTurn(agentKind: AgentKind): boolean
   prepareSend(
     sessionId: SessionId,
     attribution: Attribution,
@@ -289,6 +290,11 @@ export class SessionInbox {
   sendText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
     const session = this.deps.getSession(input.sessionId)
     if (session && (session.queuedMessageCount > 0 || this.isDraining(input.sessionId))) {
+      return this.queueText(input)
+    }
+    // A grok process that has bound but not finished its TUI still reports
+    // `starting`. Typing into that PTY is the POD-549 no-op; wait for settle.
+    if (session?.status === 'starting' && this.isRawFirstTurn(session)) {
       return this.queueText(input)
     }
     return this.typeText(input)
@@ -706,9 +712,15 @@ export class SessionInbox {
         input.inputOrigin ?? 'controller',
       )
     const baseline = session.terminal.transcriptItems().filter((item) => item.role === 'user').length
+    // Grok's fresh TUI ignores bracketed paste until a native first turn
+    // (POD-549). Type the first prompt as raw keystrokes so chat-view send
+    // matches what works in the native composer (POD-901).
+    const payload = this.isRawFirstTurn(session)
+      ? input.text
+      : `\x1b[200~${input.text}\x1b[201~`
     this.sendInput(
       session,
-      `\x1b[200~${input.text}\x1b[201~`,
+      payload,
       input.inputOrigin ?? 'controller',
       principal.attribution,
     )
@@ -742,6 +754,11 @@ export class SessionInbox {
         this.scheduleSubmitVerify(sessionId, baselineUserTurns, attribution, attempt + 1)
       }
     }, SUBMIT_VERIFY_DELAY_MS).unref?.()
+  }
+
+  private isRawFirstTurn(session: Session): boolean {
+    if (!this.deps.usesRawFirstTurn(session.agentKind)) return false
+    return session.terminal.transcriptItems().every((item) => item.role !== 'user')
   }
 
   private sendInput(

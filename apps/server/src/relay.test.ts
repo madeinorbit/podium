@@ -2638,6 +2638,28 @@ describe('sendText (chat send path)', () => {
       state: { phase, since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0, ...extra },
     }) as const
 
+  it('POD-901: first Grok chat send types raw keystrokes, not bracketed paste', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'grok',
+        cwd: '/w',
+      })
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'start this chat' })).toEqual({
+        ok: true,
+      })
+      expect(readInputs(daemon)).toEqual(['start this chat'])
+      vi.advanceTimersByTime(100)
+      expect(readInputs(daemon)).toEqual(['start this chat', '\r'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('wraps single-line text in bracketed paste, then submits with a DELAYED CR', () => {
     vi.useFakeTimers()
     try {

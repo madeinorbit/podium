@@ -70,6 +70,7 @@ export {
   harnessDetectLogin,
   harnessDisplayName,
   harnessNeedsSubmitVerification,
+  harnessUsesRawFirstTurn,
   harnessObservationProvider,
   harnessPortableCredential,
   harnessPremintsHeadlessResumeId,

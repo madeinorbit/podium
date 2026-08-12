@@ -11,6 +11,7 @@ export {
   harnessCapabilitiesFor,
   harnessDisplayName,
   harnessNeedsSubmitVerification,
+  harnessUsesRawFirstTurn,
   harnessObservationProvider,
   harnessPremintsHeadlessResumeId,
   harnessRequiresExclusiveInteractiveResume,

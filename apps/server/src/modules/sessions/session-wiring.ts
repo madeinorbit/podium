@@ -22,7 +22,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
-import { harnessNeedsSubmitVerification } from '../../harness-manifest'
+import { harnessNeedsSubmitVerification, harnessUsesRawFirstTurn } from '../../harness-manifest'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
@@ -343,6 +343,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       ),
     broadcast: () => bag.broadcastSessions(),
     needsSubmitVerification: harnessNeedsSubmitVerification,
+    usesRawFirstTurn: harnessUsesRawFirstTurn,
     prepareSend: (sessionId, attribution, kind, origin) =>
       bag.prepareInboxSend(sessionId, attribution, kind, origin),
     ownerOf: (sessionId) => bag.sessionOwner(sessionId)?.owner,

@@ -119,6 +119,10 @@ export function harnessNeedsSubmitVerification(kind: AgentKind | string): boolea
   return harnessCapabilitiesFor(kind)?.submitVerification ?? false
 }
 
+export function harnessUsesRawFirstTurn(kind: AgentKind | string): boolean {
+  return harnessCapabilitiesFor(kind)?.rawFirstTurn ?? false
+}
+
 export function harnessRequiresExclusiveInteractiveResume(kind: AgentKind | string): boolean {
   return harnessCapabilitiesFor(kind)?.exclusiveInteractiveResume ?? false
 }
