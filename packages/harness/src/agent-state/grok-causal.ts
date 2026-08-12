@@ -11,6 +11,7 @@ import { type AgentStateEvent, withStateChannelEvent } from './types.js'
 
 export interface GrokObservationLease {
   podiumSessionId: SessionId
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string
   bindingVersion: number
   observerGeneration: number

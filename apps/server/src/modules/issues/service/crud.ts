@@ -176,7 +176,7 @@ export class IssueCrudModule {
   async panelArtifactAdd(
     id: string,
     input: { path: string; title?: string; extraPaths?: string[] },
-    opts?: { actorSessionId?: string },
+    opts?: { actorSessionId?: SessionId },
   ): Promise<IssueWire> {
     const row = this.store.rowOrThrow(this.store.resolveRef(id))
     const store = this.store.deps.artifacts
@@ -229,7 +229,7 @@ export class IssueCrudModule {
    *  was `closed`): open rows in the same repo with a `blocks` dep on it whose wire
    *  `ready` is now true. Never throws — the close already persisted, and a sqlite
    *  read error in this fanout must not make the succeeded mutation look failed. */
-  private emitReadyAfterClose(closed: IssueRow, actorSessionId?: string): void {
+  private emitReadyAfterClose(closed: IssueRow, actorSessionId?: SessionId): void {
     try {
       const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
       for (const r of this.store.rows.values()) {
@@ -418,7 +418,7 @@ export class IssueCrudModule {
     /** The session that initiated this mutation, when known (agent CLI relay).
      *  Threaded onto the issue.closed / issue.ready events it emits so the steward
      *  can skip nudging the very session that caused them (self-nudge is noise). */
-    opts?: { actorSessionId?: string },
+    opts?: { actorSessionId?: SessionId },
   ): IssueWire {
     const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)

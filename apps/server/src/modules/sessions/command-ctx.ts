@@ -10,7 +10,7 @@
 
 import type { TransportTag   MachineId,
 } from '@podium/commands'
-import type { Capability, MachineUseDecision } from '@podium/model'
+import type { Capability, MachineUseDecision, SessionId } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import {
   canSeeMachine,
@@ -221,7 +221,7 @@ export function fleetViewFor(
  * real fleet.
  */
 export function usableRepos(
-  machines: { id: string; use?: MachineUseDecision }[],
+  machines: { id: SessionId; use?: MachineUseDecision }[],
   allRepos: FleetRepoRow[],
 ): FleetRepoRow[] {
   const usable = new Set(

@@ -7,6 +7,7 @@ import {
   machineByRef,
   type NameableMachine,
   type IssueId,
+  type SessionId,
 } from '@podium/model'
 import {
   bareSelfRefCount,
@@ -242,7 +243,7 @@ function sessionStateLabel(s: {
 /** One compact session line for tree/show [spec:SP-99d3]. */
 function formatSessionLine(
   s: ShowSession & { coordinator?: boolean },
-  opts?: { coordinatorSessionId?: string | null },
+  opts?: { coordinatorSessionId?: SessionId | null },
 ): string {
   const id = s.displayRef ?? s.sessionId
   const label = s.label ?? s.name ?? (s.title && s.title !== s.agentKind ? s.title : undefined)
@@ -790,7 +791,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           : a.clear === true
             ? { sessionId: null }
             : { sessionId: a.set as string }),
-      })) as { seq: number; coordinatorSessionId?: string }
+      })) as { seq: number; coordinatorSessionId?: SessionId }
       const who = i.coordinatorSessionId ? i.coordinatorSessionId : '(cleared)'
       return { text: `coordinator #${i.seq}: ${who}`, data: i }
     },

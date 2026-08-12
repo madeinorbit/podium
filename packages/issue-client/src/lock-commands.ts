@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import {
   type LockAcquireResultWire,
   type LockHolderWire,
@@ -56,7 +57,7 @@ const fmtSeconds = (s: number): string => (s >= 60 ? `${Math.floor(s / 60)}m${s 
  * not prune; advanceQueue does).
  */
 function principalLine(p: {
-  sessionId: string | null
+  sessionId: SessionId | null
   label: string
   alive: boolean
   workspace?: string | null

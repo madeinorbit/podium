@@ -11,6 +11,7 @@ export type CodexThreadMetadata = Readonly<{
   preview?: string
   cwd?: string
   archived?: boolean
+  /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   parentThreadId?: string
   createdAt?: Date
   updatedAt?: Date
@@ -57,6 +58,7 @@ export function createTimedCodexStateMetadataReader(
  */
 export async function readCodexThreadMetadata(
   root: string,
+  /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   threadId: string,
 ): Promise<CodexThreadMetadata | undefined> {
   const statePath = await findLatestStateDatabase(root)

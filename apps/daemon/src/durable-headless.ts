@@ -39,6 +39,7 @@ import {
 interface DurableResult {
   ok: boolean
   error?: string
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   harnessSessionId?: string
   output?: string
 }
@@ -161,6 +162,7 @@ function prepareInvocation(
   cmd: string
   args: string[]
   stdin?: string
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   knownSessionId?: string
   env?: Record<string, string>
 } {
@@ -198,6 +200,7 @@ function writeRunner(
   spec: HeadlessTurnSpec,
   paths: DurablePaths,
   bins: HarnessBins,
+/** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
 ): { knownSessionId?: string; env?: Record<string, string> } {
   mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
   if (!existsSync(paths.createdAt)) writeAtomic(paths.createdAt, String(Date.now()))
@@ -236,6 +239,7 @@ function readResult(paths: DurablePaths): DurableResult | undefined {
 function outcomeFromOutput(
   spec: HeadlessTurnSpec,
   paths: DurablePaths,
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   knownSessionId: string | undefined,
 ): HeadlessTurnOutcome {
   const stdout = existsSync(paths.stdout) ? readFileSync(paths.stdout, 'utf8') : ''
@@ -252,6 +256,7 @@ function outcomeFromOutput(
         const event = JSON.parse(line) as {
           type?: string
           subtype?: string
+          /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
           session_id?: string
           result?: string
           message?: { content?: Array<{ type?: string; text?: string }> }
@@ -272,6 +277,7 @@ function outcomeFromOutput(
       try {
         const event = JSON.parse(line) as {
           type?: string
+          /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
           thread_id?: string
           item?: { type?: string; text?: string }
         }

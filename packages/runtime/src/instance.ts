@@ -6,6 +6,7 @@
  * validated ids so the same value is safe in paths, systemd unit names, and
  * process/runtime labels.
  */
+import type { SessionId } from '@podium/model'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -142,7 +143,7 @@ export function instanceTimerName(
 
 /** Stable durable PTY/scope identity; default keeps pre-instance labels reattachable. */
 export function durableSessionLabel(
-  sessionId: string,
+  sessionId: SessionId,
   instanceId: string = resolveInstanceId(),
 ): string {
   const id = validateInstanceId(instanceId)

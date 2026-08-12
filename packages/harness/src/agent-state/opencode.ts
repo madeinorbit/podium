@@ -42,6 +42,7 @@ async function maybeLoadOpencodeRuntime(): Promise<OpencodeRuntime | undefined> 
 }
 
 export interface OpencodeStateObserver {
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   readonly sessionId: string | undefined
   stop(): void
 }
@@ -61,6 +62,7 @@ export function observeOpencodeState(opts: {
   startedAtMs?: number
   pollMs?: number
   statTick?: StatTick
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   onSession?: (sessionId: string) => void
   onModel?: (model: string, effort?: string) => void
   onEvents: (events: AgentStateEvent[]) => void
@@ -327,6 +329,7 @@ async function opencodeBootEvents(opts: {
 function lastAssistantText(
   rt: OpencodeRuntime,
   db: OpencodeDb,
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string,
 ): { text: string; timeUpdated: number } | undefined {
   if (!db) return undefined

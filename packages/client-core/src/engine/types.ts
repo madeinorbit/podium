@@ -25,6 +25,7 @@ import type {
   SessionId,
   SessionMeta,
   WorkState,
+  ThreadId,
 } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
@@ -162,7 +163,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   settingsTab: string | null
   setSettingsTab: (tab: string | null) => void
   /** Active superagent thread: the 'global' orchestrator or a 'btw_<sessionId>' thread. */
-  superThreadId: string
+  superThreadId: ThreadId
   setSuperThreadId: (id: string) => void
   /** Whether the superagent panel is open — a collapsible right dock on desktop,
    *  a minimizable overlay on mobile (no longer a full-screen view). */

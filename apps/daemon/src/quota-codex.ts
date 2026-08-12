@@ -74,6 +74,7 @@ export async function fetchCodexQuota(
   let accountId: string | undefined
   try {
     const raw = JSON.parse(await readFile(authPath, 'utf8')) as {
+      /** UNBRANDED BY DECISION: a provider account id, not a server-minted Podium AccountId. */
       tokens?: { access_token?: string; account_id?: string }
     }
     accessToken = raw.tokens?.access_token

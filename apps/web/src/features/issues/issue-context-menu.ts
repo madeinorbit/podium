@@ -6,6 +6,7 @@ import {
   handoffAvailability,
   type IssueId,
   type SessionMeta,
+  type SessionId,
 } from '@podium/model'
 import type { IssueViewModel } from '@/app/store'
 import type { IssuesKeyState } from './issues-keys'
@@ -38,7 +39,7 @@ export type IssueHandoff<M> =
 export function issueHandoffAvailability<M extends HandoffMachine>(
   issue: HandoffIssue & {
     memberSessionIds?: readonly string[]
-    sessions?: readonly { sessionId: string }[]
+    sessions?: readonly { sessionId: SessionId }[]
   },
   sessions: readonly SessionMeta[],
   repos: HandoffRepo[],
@@ -67,7 +68,7 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
 export function resolveIssueHandoffSession<M extends HandoffMachine>(
   issue: HandoffIssue & {
     memberSessionIds?: readonly string[]
-    sessions?: readonly { sessionId: string }[]
+    sessions?: readonly { sessionId: SessionId }[]
   },
   sessions: readonly SessionMeta[],
   repos: HandoffRepo[],

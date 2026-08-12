@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 /**
  * Human-facing reference ids for issues and sessions (#474).
  *
@@ -183,7 +184,7 @@ export function parseSessionRef(s: string): SessionRef | null {
  * labels. Keep this lookup shared so server command targets and client
  * navigation cannot drift into supporting different identifier sets.
  */
-export function resolveSessionIdentifier<T extends { sessionId: string; displayRef?: string }>(
+export function resolveSessionIdentifier<T extends { sessionId: SessionId; displayRef?: string }>(
   identifier: string,
   sessions: readonly T[],
 ): T | undefined {

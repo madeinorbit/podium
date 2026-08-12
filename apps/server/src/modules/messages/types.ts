@@ -12,7 +12,7 @@
  * `service.ts` re-exports them, so existing importers are unaffected.
  */
 
-import type { Attribution, IssueId, SessionId } from '@podium/model'
+import type { Attribution, IssueId, SessionId, ThreadId } from '@podium/model'
 import type {
   IssueMessageRow,
   MessageKind,
@@ -61,7 +61,7 @@ export interface MessageSendInput {
   kind?: MessageKind
   urgency?: MessageUrgency
   lifecycle?: MessageLifecycle
-  threadId?: string
+  threadId?: ThreadId
   inReplyTo?: string
   expiresAt?: string
   /** Opt into a reply [POD-835 §04b]: `--expect-response`. Only then does the

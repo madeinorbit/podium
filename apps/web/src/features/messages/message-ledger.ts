@@ -1,3 +1,4 @@
+import type { ThreadId } from '@podium/model'
 /**
  * Message-ledger view model (#237) [spec:SP-34d7 web]: pure helpers over the
  * `messages.ledger` wire — the anti-"mail broke down mysteriously" surface.
@@ -8,7 +9,7 @@
 /** The `messages.ledger` wire row (MessageWire on the server gate). */
 export interface LedgerMessage {
   id: string
-  threadId: string
+  threadId: ThreadId
   inReplyTo: string | null
   from: string
   to: string

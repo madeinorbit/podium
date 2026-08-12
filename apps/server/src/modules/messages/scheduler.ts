@@ -27,7 +27,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { MessagePageCursor, MessagesRepository } from '../../store/messages'
 import {
@@ -185,7 +185,7 @@ export class DeliveryScheduler {
   }
 
   /** Deterministic test/shutdown seam for one bounded coalesced turn. */
-  flushDeliveryTriggers(onlyPreferredSessionId?: string): void {
+  flushDeliveryTriggers(onlyPreferredSessionId?: SessionId): void {
     if (this.deliveryTriggerTimer) {
       clearTimeout(this.deliveryTriggerTimer)
       this.deliveryTriggerTimer = null
@@ -273,7 +273,7 @@ export class DeliveryScheduler {
    * whose preferred work this drain owns; the depth counting, the deferral set
    * and the loop bound stay here, because they are this owner's invariant.
    */
-  runBoundaryDrain(keys: readonly string[], sessionId: string, enqueue: () => void): void {
+  runBoundaryDrain(keys: readonly string[], sessionId: SessionId, enqueue: () => void): void {
     for (const key of keys) {
       this.activeBoundaryTargets.set(key, (this.activeBoundaryTargets.get(key) ?? 0) + 1)
     }

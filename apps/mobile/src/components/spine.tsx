@@ -6,7 +6,7 @@ import {
   type SessionRole,
   sessionSettled,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueStage, SessionMeta } from '@podium/model'
+import type { AgentKind, IssueStage, SessionMeta, SessionId } from '@podium/model'
 import { ChevronDown } from 'lucide-react-native'
 import { Animated, StyleSheet, Text, View } from 'react-native'
 import Svg, { Line } from 'react-native-svg'
@@ -722,7 +722,7 @@ const ROLE_LABEL: Record<Exclude<SessionRole, { kind: 'spawned' }>['kind'], stri
  *  id is not. An unresolvable parent gets no word rather than an id. */
 export function roleLabel(
   role: SessionRole | null,
-  nameOf: (sessionId: string) => string | undefined,
+  nameOf: (sessionId: SessionId) => string | undefined,
 ): string | null {
   if (role === null) return null
   if (role.kind !== 'spawned') return ROLE_LABEL[role.kind]

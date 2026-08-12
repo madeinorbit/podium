@@ -415,7 +415,7 @@ export class MessageDeliveryService {
 
   /** The exact text a receiver would see — the delivery service's own view of
    *  its renderer, kept public because callers ask this service, not its parts. */
-  renderFor(message: MessageRow, receiverSessionId?: string): string {
+  renderFor(message: MessageRow, receiverSessionId?: SessionId): string {
     return this.render.renderFor(message, receiverSessionId)
   }
 
@@ -603,7 +603,7 @@ export class MessageDeliveryService {
   }
 
   /** Deterministic test/shutdown seam for one bounded coalesced turn. */
-  flushDeliveryTriggers(onlyPreferredSessionId?: string): void {
+  flushDeliveryTriggers(onlyPreferredSessionId?: SessionId): void {
     this.scheduler.flushDeliveryTriggers(onlyPreferredSessionId)
   }
 
@@ -1485,7 +1485,7 @@ export class MessageDeliveryService {
   }
 
   /** The per-issue / per-session delivery ledger (#237) — a pure read. */
-  ledger(q: { issueId?: IssueId; sessionId?: string; limit?: number }): MessageRow[] {
+  ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): MessageRow[] {
     return this.mailbox.ledger(q)
   }
 

@@ -43,6 +43,7 @@ export interface HeadlessTurnSpec {
 }
 
 export interface HeadlessTurnOutcome {
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   harnessSessionId: string
   output: string
 }
@@ -56,6 +57,7 @@ export interface HeadlessTurnOutcome {
 export class HeadlessTurnError extends Error {
   constructor(
     message: string,
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     readonly harnessSessionId?: string,
   ) {
     super(message)
@@ -354,6 +356,7 @@ function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnH
       rl.on('line', (line) => {
         let ev: {
           type?: string
+          /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
           thread_id?: string
           item?: { id?: string; type?: string; text?: string }
         }

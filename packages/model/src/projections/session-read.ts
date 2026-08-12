@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 /**
  * Session READ projections (ADR 4 R4) — the tier-1/2/3 session read models, in
  * the one place both the server that produces them and the CLI that renders
@@ -46,12 +47,12 @@
  * status renderer prints, resolved at read time by walking `spawnedBy`.
  */
 export interface SessionStatusSubagent {
-  sessionId: string
+  sessionId: SessionId
   /** Human-facing session ref when known (e.g. POD-966-A). */
   displayRef?: string
   /** The session this one was spawned by — the walk's edge, kept so a reader can
    *  rebuild the tree from a flat list. */
-  parentSessionId: string
+  parentSessionId: SessionId
   harness: string
   model: string | null
   effort: string | null
@@ -63,7 +64,7 @@ export interface SessionStatusSubagent {
 export interface SessionStatusResult {
   /** SCHEMA: SessionIdentity (`sessionId`, `agentKind`). Unbranded here because
    *  it crosses a tRPC boundary as JSON; branding is POD-365/POD-361 territory. */
-  sessionId: string
+  sessionId: SessionId
   agentKind: string
   /** The harness actually running the session. Same value as `agentKind` today;
    *  carried separately because the status renderer labels it "harness" and
@@ -131,7 +132,7 @@ export interface SessionStatusResult {
  * stored — inventory D-5). Those become `Pick`s once POD-365 lands §6.2.
  */
 export interface IssueTreeSession {
-  sessionId: string
+  sessionId: SessionId
   /** Human-facing session ref when known (e.g. POD-966-A). */
   displayRef?: string
   /** Curated name, else live terminal title. */
@@ -208,7 +209,7 @@ function withoutUndefined<T extends object>(o: T): T {
  * name, and `phase` comes off the live agent state.
  */
 export function toIssueTreeSession(src: {
-  sessionId: string
+  sessionId: SessionId
   displayRef?: string | undefined
   name?: string | undefined
   title?: string | undefined
@@ -251,7 +252,7 @@ export function toIssueTreeSession(src: {
 
 /** Tier-2 transcript read model: a page of transcript items plus its cursor. */
 export interface SessionReadResult {
-  sessionId: string
+  sessionId: SessionId
   items: {
     role: string
     text: string
@@ -267,7 +268,7 @@ export interface SessionReadResult {
 
 /** Tier-3 recap read model: the deterministic recap and its watermark. */
 export interface SessionRecapResult {
-  sessionId: string
+  sessionId: SessionId
   /** Deterministic Hermes-style recap of the window since the watermark. */
   recap: string
   /** Pass back as `--since` (also persisted per (reader, target)) — the next

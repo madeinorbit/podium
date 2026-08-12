@@ -58,6 +58,7 @@ function runHeadlessTurnRequest(
   }
   let handle: HeadlessTurnHandle
   let firstTurnBound = false
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   const bindFirstTurn = (harnessSessionId: string): void => {
     if (msg.resumeValue || firstTurnBound) return
     firstTurnBound = true

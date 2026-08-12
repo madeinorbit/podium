@@ -17,7 +17,7 @@ export function conciergeThreadId(repoPath: string): ThreadId {
 
 /** Reverse of {@link conciergeThreadId}; undefined for non-concierge ids or
  *  malformed base64url. */
-export function conciergeRepoPath(threadId: string): string | undefined {
+export function conciergeRepoPath(threadId: ThreadId): string | undefined {
   if (!threadId.startsWith('concierge_')) return undefined
   try {
     const b64 = threadId.slice('concierge_'.length).replace(/-/g, '+').replace(/_/g, '/')

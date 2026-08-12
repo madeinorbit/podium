@@ -6,12 +6,13 @@
  * with a stored credential produces env.
  */
 
+import type { AccountId } from '@podium/model'
 import { credentialEnv } from '@podium/runtime'
 import type { AccountsRepository } from '../../store/accounts'
 
 export function resolveAccountEnv(
   accounts: AccountsRepository,
-  accountId: string,
+  accountId: AccountId,
 ): { env?: Record<string, string> } {
   if (!accountId.startsWith('managed:')) return {}
   const row = accounts.get(accountId)

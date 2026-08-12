@@ -66,7 +66,7 @@
  * this principal is concerned there is nothing at all.
  */
 
-import type { MachineId, MachineUseDecision, UserId } from '@podium/model'
+import type { MachineId, MachineUseDecision, UserId, SessionId } from '@podium/model'
 import type { MachineGrant, MachineVerb, ResolvedMachine, UserId } from '@podium/protocol'
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
@@ -104,7 +104,7 @@ export interface MachineOwnershipIndex {
    * D16.2/D16.3: a sub-agent delegates from its parent and never widens, so
    * every link's narrowing applies to the leaf.
    */
-  delegatedMachines?(agentSessionId: string): ReadonlySet<string> | undefined
+  delegatedMachines?(agentSessionId: SessionId): ReadonlySet<string> | undefined
 }
 
 /**

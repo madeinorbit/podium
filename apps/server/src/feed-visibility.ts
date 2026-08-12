@@ -33,6 +33,7 @@ import {
   parseReadPositionRowId,
   type IssueId,
   type UserId,
+  type SessionId,
 } from '@podium/model'
 import type { Principal } from '@podium/protocol'
 import type {
@@ -160,7 +161,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   }
 
   const readSession = (
-    sessionId: string,
+    sessionId: SessionId,
     prefetch?: BootstrapVisibilityPrefetch,
   ): SessionRow | undefined => {
     if (prefetch?.sessionIds.has(sessionId)) return prefetch.sessions.get(sessionId)

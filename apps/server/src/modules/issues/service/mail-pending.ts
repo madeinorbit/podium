@@ -1,4 +1,4 @@
-import type { IssueId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import type { SessionStore } from '../../../store'
 
 /**
@@ -24,7 +24,7 @@ export function countContextAwarePendingMail(
    *  never includes that session's own sends, never counts what it has already
    *  seen, and — the data-loss half — a peer's read cannot clear it. Absent
    *  (operator / UI peek), the issue-wide queued predicate stands. */
-  sessionId?: string,
+  sessionId?: SessionId,
 ): { unread: number; senders: string[] } {
   const target = { kind: 'issue' as const, id: issueId }
   const queued = sessionId

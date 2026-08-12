@@ -30,7 +30,7 @@
  * into it, or derives from it, so no call site has to change when it goes.
  */
 
-import type { MachineId } from '@podium/model'
+import type { MachineId, SessionId } from '@podium/model'
 import type { IssueTreeSession } from './session-read'
 
 /**
@@ -113,7 +113,7 @@ export interface IssueShowWire<S = IssueTreeSession> {
   machineId?: MachineId | null
   color?: string | null
   /** Designated coordinator session id (bare). */
-  coordinatorSessionId?: string | null
+  coordinatorSessionId?: SessionId | null
   /** Member sessions currently on this issue [spec:SP-99d3]. */
   sessions?: S[]
 }

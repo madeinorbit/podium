@@ -303,6 +303,7 @@ export interface ClaudeCausalObserverOptions {
   podiumSessionId: SessionId
   observerGeneration: number
   bindingVersion: number
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string
   transcriptPath: string
   transcriptSegmentId?: string
@@ -874,6 +875,7 @@ export interface ClaudeTranscriptFileIdentity {
 }
 
 export function claudeTranscriptSegmentId(
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string,
   identity: ClaudeTranscriptFileIdentity,
 ): string {

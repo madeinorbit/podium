@@ -389,7 +389,7 @@ export class StewardService {
    */
   private alreadyCommunicated(
     subjectIssueId: IssueId | undefined,
-    target: { sessionId?: string; issueId?: IssueId },
+    target: { sessionId?: SessionId; issueId?: IssueId },
     changeTs: string,
   ): boolean {
     if (!subjectIssueId) return false
@@ -703,7 +703,7 @@ export class StewardService {
       : (sessions.find((s) => s.sessionId === e.subject)?.issueId ?? undefined)
     let subscriberClaimed = false
     if (sub.deliverNudge) {
-      const causer = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
+      const causer = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
       const text = subscriptionNudge(sub, e)
       const targets = this.subscriberNudgeTargets(sub, sessions).filter(
         (s) =>
@@ -790,7 +790,7 @@ export class StewardService {
       const closedSeq = (e.payload as { unblockedBy?: number } | null)?.unblockedBy
       if (closedSeq == null) continue
       // The session that closed the blocker already knows — skip self-nudge (#116).
-      const causedBy = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
+      const causedBy = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
       const dependent = this.deps.issues.getMeta(e.subject)
       if (!dependent) continue
       // Colon-anchored so '#5' never matches a prior '#55' comment. Single-server
@@ -957,7 +957,7 @@ export class StewardService {
       if (childSeq == null) continue
       lastChildSeq = childSeq
       lastChangeTs = e.ts
-      const causer = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
+      const causer = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
       if (causer) causedBy.add(causer)
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
       // matching note on handleUnblock — same single-server dedup assumption).

@@ -17,7 +17,7 @@
  */
 
 import type { awaitAgentContract, ContractInput } from '@podium/commands'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta, SessionId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import type { Capability } from '../../../issue-authz'
 import { findSessionById } from '../../sessions/session-by-id'
@@ -146,7 +146,7 @@ function finishAwait(
   ctx: MailHandlerContext,
   isParent: boolean,
   caller: { capability: Capability },
-  childSessionId: string,
+  childSessionId: SessionId,
   outcome: { done: boolean; result: string; snapshot: unknown; ack?: unknown },
   phase?: string,
   status?: string,

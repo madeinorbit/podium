@@ -8,6 +8,7 @@ import type {
   TelegramChatBinding,
   TranscriptItem,
   UserId,
+  ThreadId,
 } from '@podium/model'
 import { asThreadId, resolveTelegramPrincipal } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -39,17 +40,17 @@ const log = createLogger('server:messaging')
 export interface SuperagentTurnPort {
   sendTurn(input: {
     ownerUserId: UserId
-    threadId: string
+    threadId: ThreadId
     text: string
-  }): Promise<{ threadId: string; podiumSessionId: string }>
-  interruptTurn(input: { ownerUserId: UserId; threadId: string }): void
-  restartThread(input: { ownerUserId: UserId; threadId: string }): void
+  }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }>
+  interruptTurn(input: { ownerUserId: UserId; threadId: ThreadId }): void
+  restartThread(input: { ownerUserId: UserId; threadId: ThreadId }): void
   startBtwTurn(input: { ownerUserId: UserId; sessionId: SessionId }): {
-    threadId: string
+    threadId: ThreadId
     isNew: boolean
   }
   ensureConciergeThread(input: { ownerUserId: UserId; repoPath: string }): {
-    threadId: string
+    threadId: ThreadId
     isNew: boolean
   }
 }
@@ -70,7 +71,7 @@ export interface MessagingRoutingPort {
 
 /** Transcript source for issue-topic entry recaps [spec:SP-62c3]. */
 export interface TopicRecapPort {
-  getSuperagentThread(threadId: string):
+  getSuperagentThread(threadId: ThreadId):
     | {
         ownerUserId: UserId
         podiumSessionId?: SessionId | null
@@ -127,7 +128,7 @@ export interface MessagingDeps {
 
 interface QueuedInbound {
   ownerUserId: UserId
-  threadId: string
+  threadId: ThreadId
   source: ConversationRef
   text: string
   senderLabel?: string
@@ -154,7 +155,7 @@ function topicKey(chatId: string, id: string): string {
   return `${chatId}\0${id}`
 }
 
-function turnKey(ownerUserId: UserId, threadId: string): string {
+function turnKey(ownerUserId: UserId, threadId: ThreadId): string {
   return `${ownerUserId}\0${threadId}`
 }
 
@@ -463,7 +464,7 @@ export class MessagingService implements TelegramNoticePort {
    * [spec:SP-62c3]. Best-effort: missing deps/session/transcript → silent skip.
    */
   private async buildTopicRecap(
-    superagentThreadId: string,
+    superagentThreadId: ThreadId,
     ownerUserId: UserId,
   ): Promise<string | undefined> {
     const port = this.deps.topicRecap
@@ -487,7 +488,7 @@ export class MessagingService implements TelegramNoticePort {
 
   private async postTopicRecap(
     source: ConversationRef,
-    superagentThreadId: string,
+    superagentThreadId: ThreadId,
     ownerUserId: UserId,
   ): Promise<void> {
     const text = await this.buildTopicRecap(superagentThreadId, ownerUserId)
@@ -563,7 +564,7 @@ export class MessagingService implements TelegramNoticePort {
     this.releaseTyping(ambientTypingOwner(sessionId), lease.source)
   }
 
-  private pump(ownerUserId: UserId, threadId: string): void {
+  private pump(ownerUserId: UserId, threadId: ThreadId): void {
     const key = turnKey(ownerUserId, threadId)
     if (this.awaiting.has(key) || this.dispatching.has(key)) return
     const queue = this.queues.get(key)
@@ -596,7 +597,7 @@ export class MessagingService implements TelegramNoticePort {
 
   private async handleSlash(
     ownerUserId: UserId,
-    threadId: string,
+    threadId: ThreadId,
     source: ConversationRef,
     slash: { command: string; args: string[] },
   ): Promise<void> {
@@ -655,7 +656,7 @@ export class MessagingService implements TelegramNoticePort {
 
   private onTurnEnded(ev: {
     ownerUserId?: UserId
-    threadId: string
+    threadId: ThreadId
     ok: boolean
     output?: string
     error?: string
@@ -733,7 +734,7 @@ export class MessagingService implements TelegramNoticePort {
     issueId: IssueId,
     chatId: string,
     threadRef: string,
-    superagentThreadId: string,
+    superagentThreadId: ThreadId,
   ): void {
     this.topicRefByIssue.set(topicKey(chatId, issueId), threadRef)
     this.topicThreadByRef.set(topicKey(chatId, threadRef), superagentThreadId)
@@ -750,7 +751,7 @@ export class MessagingService implements TelegramNoticePort {
     ownerUserId: UserId,
     chatId: string,
     issue: IssueWire,
-  ): Promise<{ threadRef: string; text: string; reused: boolean; superagentThreadId: string }> {
+  ): Promise<{ threadRef: string; text: string; reused: boolean; superagentThreadId: ThreadId }> {
     const threadId = this.resolveIssueThread(issue, ownerUserId)
     const ref = issueDisplayRef(issue)
     const sessionNote = this.issueThreadNote(issue)
@@ -795,7 +796,7 @@ function isNotAForumError(err: unknown): boolean {
   return err instanceof Error && /not a forum/i.test(err.message)
 }
 
-function turnTypingOwner(threadId: string): string {
+function turnTypingOwner(threadId: ThreadId): string {
   return `turn:${threadId}`
 }
 

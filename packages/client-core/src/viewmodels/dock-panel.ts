@@ -1,4 +1,4 @@
-import type { ArtifactId, IssueId, IssueWire, SessionMeta, MachineId } from '@podium/model'
+import type { ArtifactId, IssueId, IssueWire, SessionMeta, MachineId, SessionId } from '@podium/model'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
@@ -43,7 +43,7 @@ export interface ActiveWorktree {
   /** The session the dock resolved its worktree FROM, when it came from a
    *  session (paneA or the recency fallback) — lets the Issue tab fall back to
    *  that session's explicit issue attachment. Absent for file-tab resolution. */
-  sessionId?: string
+  sessionId?: SessionId
   /** Explicit issue carried from an artifact file tab ([spec:SP-0fc9] #441) —
    *  wins over cwd containment when the Issue tab resolves its issue. */
   issueId?: IssueId
@@ -117,7 +117,7 @@ export function issueForPanel<T extends IssuePanelLike>(args: {
   issues: T[]
   sessions: SessionMeta[]
   cwd: string
-  sessionId?: string
+  sessionId?: SessionId
   /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — beats both the
    *  session attachment and cwd containment when it names a live issue. */
   issueId?: IssueId

@@ -133,7 +133,7 @@ export class CloudService {
    * router had them in exactly this arrangement.
    */
   async moveSession(input: {
-    sessionId: string
+    sessionId: SessionId
     tenantId: string
     size?: 'small' | 'medium' | 'large' | undefined
     repo?: CloudRepoRequest | undefined

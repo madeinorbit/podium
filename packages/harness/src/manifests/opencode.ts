@@ -22,6 +22,7 @@ import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
  * one session's capped part list. We then build the full ordered item list and
  * index-slice it in memory, exactly matching `readTranscriptSlice`'s semantics.
  */
+/** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
 export function opencodeDbSource(input: { sessionId: string; homeDir?: string }): TranscriptSource {
   return {
     readSlice: async (opts) => {

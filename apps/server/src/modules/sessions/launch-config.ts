@@ -32,7 +32,7 @@
  */
 
 import { harnessCapabilitiesFor, harnessSupportsEffort } from '../../harness-manifest'
-import type { AgentKind, UserId } from '@podium/model'
+import type { AgentKind, UserId, AccountId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { SessionStore } from '../../store'
 import { resolveAccountEnv } from './account-env'
@@ -103,7 +103,7 @@ export class SessionLaunchConfig {
     // would skip it for shell: almost certainly harmless, and still a behaviour
     // change made silently during a move, which is the thing this decomposition
     // is under instruction not to do.
-    accountId: string = resolveRole(
+    accountId: AccountId = resolveRole(
       this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
       'coding',
     ).accountId,

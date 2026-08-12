@@ -12,6 +12,7 @@ export interface LoginCatalogMachine {
 export interface LoginCatalogEntry {
   fingerprint: string
   email?: string
+  /** UNBRANDED BY DECISION: a provider account id, not a server-minted Podium AccountId. */
   providerAccountId?: string
   machines: LoginCatalogMachine[]
 }

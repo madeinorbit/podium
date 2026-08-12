@@ -34,6 +34,7 @@ interface CodexAuthFile {
     access_token?: string
     refresh_token?: string
     id_token?: string
+    /** UNBRANDED BY DECISION: a provider account id, not a server-minted Podium AccountId. */
     account_id?: string
   }
 }
@@ -59,6 +60,7 @@ function codexProfile(idToken: string | undefined): string | undefined {
   }
 }
 
+/** UNBRANDED BY DECISION: a provider account id, not a server-minted Podium AccountId. */
 function maskedAccountId(accountId: string): string {
   return accountId.length <= 8 ? '••••' : `${accountId.slice(0, 4)}…${accountId.slice(-4)}`
 }
@@ -359,6 +361,7 @@ export const codexManifest: AgentManifest = {
     const floor = input.startedAtMs ?? input.createdAtMs
     let observationLease = input.observationLease
     let boundThread = observationLease?.providerSessionId ?? input.resumeValue
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     let pendingRebind: { rebindId: string; providerSessionId: string; lastSentAt: number } | null =
       null
     const discovered = new Map<
@@ -366,6 +369,7 @@ export const codexManifest: AgentManifest = {
       { path: string; confidence: 'exact' | 'heuristic' | undefined }
     >()
     const publishSession = (
+      /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
       providerSessionId: string,
       path: string,
       confidence: 'exact' | 'heuristic' | undefined,
@@ -375,6 +379,7 @@ export const codexManifest: AgentManifest = {
       host.tailFile(path)
     }
     const requestExactRebind = (
+      /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
       providerSessionId: string,
       lease: HarnessObservationLease,
     ): void => {

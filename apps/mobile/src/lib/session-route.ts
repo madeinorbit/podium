@@ -1,8 +1,9 @@
+import type { SessionId } from '@podium/model'
 import type { Href } from 'expo-router'
 import { MOBILE_HOME } from './navigation'
 
 /** Build a session link with an explicit return route that survives reloads. */
-export function sessionHref(sessionId: string, backTo: string): Href {
+export function sessionHref(sessionId: SessionId, backTo: string): Href {
   return {
     pathname: '/session/[sessionId]',
     params: { sessionId, backTo: safeSessionBackTarget(backTo) ?? MOBILE_HOME },

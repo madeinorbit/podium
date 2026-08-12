@@ -13,6 +13,7 @@ import type {
   IssueWire,
   SessionId,
   TranscriptItem,
+  ThreadId,
 } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
@@ -67,8 +68,8 @@ interface MobileTrpcExtras {
     // outright rather than re-typed: it is the FROZEN legacy buffer, and this
     // app never called it (see SuperagentScreen's header for why folding it back
     // in is a trap). Only turn control is mobile's own.
-    interruptTurn: MutationProcedure<{ threadId: string }>
-    clear: MutationProcedure<{ threadId: string }>
+    interruptTurn: MutationProcedure<{ threadId: ThreadId }>
+    clear: MutationProcedure<{ threadId: ThreadId }>
   }
   issues: {
     get: QueryProcedure<{ id: string }, IssueWire | undefined>

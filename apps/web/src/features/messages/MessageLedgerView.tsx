@@ -6,7 +6,7 @@
  * lives in the right dock next to the issue panel.
  */
 
-import type { IssueId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
 import { Mail as MailIcon, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
@@ -104,7 +104,7 @@ export function MessageLedgerView({
   sessionId,
 }: {
   issueId?: IssueId
-  sessionId?: string
+  sessionId?: SessionId
 }): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const [rows, setRows] = useState<LedgerMessage[] | null>(null)

@@ -12,7 +12,7 @@ export interface TerminalDiagnosticEntry {
 
 export interface TerminalDiagnosticsApi {
   /** Oldest-to-newest bounded lifecycle events. Omit sessionId for every mount. */
-  snapshot(sessionId?: string): TerminalDiagnosticEntry[]
+  snapshot(sessionId?: SessionId): TerminalDiagnosticEntry[]
   clear(): void
   /** Console tracing is otherwise opt-in via ?terminalDebug=1. */
   setConsoleEnabled(enabled: boolean): void
@@ -63,7 +63,7 @@ function copyEntry(entry: TerminalDiagnosticEntry): TerminalDiagnosticEntry {
   return { ...entry, data: structuredClone(entry.data) }
 }
 
-export function terminalDiagnosticsSnapshot(sessionId?: string): TerminalDiagnosticEntry[] {
+export function terminalDiagnosticsSnapshot(sessionId?: SessionId): TerminalDiagnosticEntry[] {
   return entries.filter((entry) => !sessionId || entry.sessionId === sessionId).map(copyEntry)
 }
 

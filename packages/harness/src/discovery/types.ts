@@ -47,6 +47,7 @@ export type AgentConversationSummary = {
   title?: string
   titleSource?: AgentConversationTitleSource
   projectPath?: string
+  /** UNBRANDED BY DECISION: the harness-native conversation id, not Podium's stable ConversationId. */
   parentConversationId?: string
   statusHint?: AgentConversationStatusHint
   createdAt?: Date
@@ -120,6 +121,7 @@ export type ConversationFileStat = Pick<
 
 export type ConversationProviderFile = {
   path: string
+  /** UNBRANDED BY DECISION: the harness-native conversation id, not Podium's stable ConversationId. */
   parentConversationId?: string
 }
 

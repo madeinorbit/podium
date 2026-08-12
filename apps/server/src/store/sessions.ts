@@ -535,7 +535,7 @@ export class SessionsRepository {
     requireUserId(userId)
     const rows = this.db
       .prepare('SELECT session_id, read_at FROM session_user_state WHERE user_id = ?')
-      .all(userId) as { session_id: string; read_at: string | null }[]
+      .all(userId) as { session_id: SessionId; read_at: string | null }[]
     const out: Record<string, string | null> = {}
     for (const r of rows) out[r.session_id] = r.read_at
     return out
@@ -592,7 +592,7 @@ export class SessionsRepository {
     const rows = this.db
       .prepare('SELECT session_id, snoozed_until FROM snoozes WHERE user_id = ?')
       .all(userId) as {
-      session_id: string
+      session_id: SessionId
       snoozed_until: string | null
     }[]
     const out: SnoozeMap = {}
@@ -653,7 +653,7 @@ export class SessionsRepository {
     const rows = this.db
       .prepare('SELECT session_id, message, actions, artifacts, created_at FROM offers')
       .all() as {
-      session_id: string
+      session_id: SessionId
       message: string
       actions: string
       artifacts: string | null
@@ -803,7 +803,7 @@ export class SessionsRepository {
   // writes here (see relay.ts) so SQLite isn't hit per keystroke.
   loadDrafts(): Record<SessionId, string> {
     const rows = this.db.prepare('SELECT session_id, text FROM session_drafts').all() as {
-      session_id: string
+      session_id: SessionId
       text: string
     }[]
     const out: Record<string, string> = {}
@@ -816,7 +816,7 @@ export class SessionsRepository {
    *  attention ordering after a restart. */
   loadDraftTimes(): Record<string, string> {
     const rows = this.db.prepare('SELECT session_id, updated_at FROM session_drafts').all() as {
-      session_id: string
+      session_id: SessionId
       updated_at: string
     }[]
     const out: Record<string, string> = {}
@@ -886,7 +886,7 @@ export class SessionsRepository {
       ? 'SELECT session_id, text, updated_at, rev, origin, history FROM session_drafts'
       : 'SELECT session_id, text, updated_at FROM session_drafts'
     const rows = this.db.prepare(sql).all() as {
-      session_id: string
+      session_id: SessionId
       text: string
       updated_at: string
       rev?: number | null

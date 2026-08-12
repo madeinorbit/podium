@@ -4,7 +4,7 @@
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
 
-import { spawnedByTag } from '@podium/model'
+import { spawnedByTag, type ThreadId } from '@podium/model'
 import {
   asSessionId,
   isAgentKind,
@@ -90,7 +90,7 @@ export interface SuperagentToolDeps {
 export function buildSuperagentTools(
   deps: SuperagentToolDeps,
   linearKey: string,
-  threadId?: string,
+  threadId?: ThreadId,
   opts?: { issueBelt?: boolean },
 ): SuperagentTool[] {
   const { modules, repos, store, waitPollMs } = deps

@@ -21,7 +21,7 @@
  */
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
-import type { IssueId, SessionId, SessionMeta, UserId, MachineId } from '@podium/model'
+import type { IssueId, SessionId, SessionMeta, UserId, MachineId, AccountId, ThreadId } from '@podium/model'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
 import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
@@ -57,7 +57,7 @@ export interface MessageGateDeps {
     initialPrompt?: string
     model?: string
     effort?: string
-    accountId?: string
+    accountId?: AccountId
     forceUnknownModel?: boolean
     issueId?: IssueId
     spawnedBy?: string
@@ -75,7 +75,7 @@ export interface MessageGateDeps {
     effort?: string | null
     machine?: string
     machineId?: MachineId
-    accountId?: string | null
+    accountId?: AccountId | null
   }
   /** Resolve a named workflow execution profile. When a run + step are present,
    *  the workflow service returns the immutable snapshot pinned to that run. */
@@ -86,7 +86,7 @@ export interface MessageGateDeps {
     caller?: MailCaller
   }): {
     id: string
-    accountId: string
+    accountId: AccountId
     machineId: MachineId | null
     harness: string
     model: string
@@ -121,7 +121,7 @@ export interface MessageGateDeps {
 /** The wire shape `podium mail` renders. */
 export interface MessageWire {
   id: string
-  threadId: string
+  threadId: ThreadId
   inReplyTo: string | null
   from: string
   to: string

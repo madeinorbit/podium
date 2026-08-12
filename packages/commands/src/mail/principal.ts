@@ -20,7 +20,7 @@
  * which a client could name itself.
  */
 
-import type { UserId, IssueId } from '@podium/model'
+import type { UserId, IssueId, SessionId } from '@podium/model'
 
 /**
  * A sender principal as the mail substrate stamps it, with the multi-user half
@@ -36,7 +36,7 @@ export interface MailSenderPrincipal {
   readonly kind: 'operator' | 'superagent' | 'system' | 'agent'
   readonly user: UserId | null
   readonly issueId?: IssueId
-  readonly sessionId?: string
+  readonly sessionId?: SessionId
   readonly name?: string
 }
 

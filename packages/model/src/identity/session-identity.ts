@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { resumeKey } from '../ids/keys'
 /**
  * Pure session-identity predicates: what counts as a "real" (generic-surface)
@@ -26,7 +27,7 @@ export function withoutHeadless<S extends HeadlessFields>(sessions: S[]): S[] {
 }
 
 export interface ResumableSession extends HeadlessFields {
-  sessionId: string
+  sessionId: SessionId
   status: string
   lastActiveAt: string
   resume?: { kind: string; value: string }

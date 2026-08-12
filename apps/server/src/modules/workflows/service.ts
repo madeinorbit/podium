@@ -145,10 +145,10 @@ export interface WorkflowEngine {
   ): string[]
   assertRevisionMatchesStart(
     revision: WorkflowRevisionWire,
-    input: { sessionId: string; cwd: string; issueId?: IssueId },
+    input: { sessionId: SessionId; cwd: string; issueId?: IssueId },
   ): void
   startRun(input: {
-    sessionId: string
+    sessionId: SessionId
     cwd: string
     issueId?: IssueId
     revisionId: string

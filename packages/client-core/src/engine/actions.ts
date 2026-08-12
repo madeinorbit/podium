@@ -16,6 +16,7 @@ import type {
   SessionId,
   SessionMeta,
   WorkState,
+  ThreadId,
 } from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
@@ -158,7 +159,7 @@ type ActionState = {
   sessions: SessionMeta[]
   issues: IssueWire[]
   repos: Store['repos']
-  superThreadId: string
+  superThreadId: ThreadId
   superOpen: boolean
   dockTab: DockTab
   superThreads: SuperThreadView[]

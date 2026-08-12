@@ -10,6 +10,7 @@ import { ACCEPTED_TRANSITION_ID_WINDOW_SIZE } from '@podium/protocol'
 
 export interface ObservationLease {
   provider: ObservationProvider
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string | null
   bindingVersion: number
   observationGeneration: number

@@ -15,14 +15,14 @@ import type { SessionId } from '@podium/model'
  * rather than instead of it — so a fixture that never wired the narrow port is
  * slow, not wrong.
  */
-export interface SessionByIdPort<T extends { sessionId: string }> {
+export interface SessionByIdPort<T extends { sessionId: SessionId }> {
   listSessions(): T[]
   sessionById?(sessionId: SessionId): T | undefined
 }
 
-export function findSessionById<T extends { sessionId: string }>(
+export function findSessionById<T extends { sessionId: SessionId }>(
   deps: SessionByIdPort<T>,
-  sessionId: string,
+  sessionId: SessionId,
 ): T | undefined {
   const narrow = deps.sessionById
   if (narrow) return narrow.call(deps, sessionId as SessionId)
