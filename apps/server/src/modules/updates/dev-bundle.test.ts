@@ -5,9 +5,18 @@ import {
   classifyIgnoredSourceInputs,
   classifySourceIdentity,
   createDevBundlePublisher,
+  DEV_BUNDLE_RETAINED,
+  type DevBundleFs,
   type DevBundleLock,
   decideDevBuild,
+  devBundleFileName,
+  devBundleKeyFingerprint,
+  devBundleStamp,
   devTarget,
+  listDevBundles,
+  parseDevBundleName,
+  selectDevBundleSweep,
+  sweepDevBundles,
 } from './dev-bundle'
 import { createServerDevBundleLock } from './dev-bundle-lock'
 
@@ -168,15 +177,19 @@ describe('classifyIgnoredSourceInputs', () => {
   it('catches an ignored module that a bundler would still resolve', () => {
     // The whole point: git status never mentions this file, but an import of
     // `./local-override` compiles it straight into the bundle.
-    expect(
-      classifyIgnoredSourceInputs(nul('apps/server/src/local-override.ts')),
-    ).toEqual(['apps/server/src/local-override.ts'])
+    expect(classifyIgnoredSourceInputs(nul('apps/server/src/local-override.ts'))).toEqual([
+      'apps/server/src/local-override.ts',
+    ])
   })
 
   it('ignores non-source evidence living in the same trees', () => {
     expect(
       classifyIgnoredSourceInputs(
-        nul('apps/web/screenshot.png', 'packages/harness/notes.md', 'scripts/.podium-update-dev.key'),
+        nul(
+          'apps/web/screenshot.png',
+          'packages/harness/notes.md',
+          'scripts/.podium-update-dev.key',
+        ),
       ),
     ).toEqual([])
   })
@@ -204,9 +217,9 @@ describe('classifyIgnoredSourceInputs', () => {
       ),
     ).toEqual([])
 
-    expect(
-      classifyIgnoredSourceInputs(nul('apps/desktop/src/local-override.ts')),
-    ).toEqual(['apps/desktop/src/local-override.ts'])
+    expect(classifyIgnoredSourceInputs(nul('apps/desktop/src/local-override.ts'))).toEqual([
+      'apps/desktop/src/local-override.ts',
+    ])
   })
 
   it('catches every resolvable extension, once each', () => {
@@ -224,6 +237,98 @@ function signedFixture() {
   const signingKey = privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64')
   const signature = sign(null, bytes, privateKey).toString('base64')
   return { bytes, signature, signingKey }
+}
+
+function digestOf(bytes: Uint8Array): string {
+  return 'sha256-' + createHash('sha256').update(bytes).digest('base64')
+}
+
+/**
+ * A filesystem the tests can inspect. It has no "read the whole file" verb for
+ * the tarball — only a streaming digest — which is the same shape the real one
+ * has, and the reason a bundle cannot end up in the server's heap by accident.
+ */
+function memoryFs(
+  seed: { text?: Record<string, string>; blobs?: Record<string, Uint8Array> } = {},
+) {
+  const text = new Map(Object.entries(seed.text ?? {}))
+  const blobs = new Map(Object.entries(seed.blobs ?? {}))
+  const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/'))
+  const fs: DevBundleFs = {
+    list: async (dir) =>
+      [...text.keys(), ...blobs.keys()]
+        .filter((path) => dirOf(path) === dir)
+        .map((path) => path.slice(path.lastIndexOf('/') + 1)),
+    digest: async (path) => {
+      const blob = blobs.get(path)
+      if (!blob) throw new Error('no such file: ' + path)
+      return { digest: digestOf(blob), size: blob.length }
+    },
+    readText: async (path) => {
+      const value = text.get(path)
+      if (value === undefined) throw new Error('no such file: ' + path)
+      return value
+    },
+    writeText: async (path, contents) => {
+      text.set(path, contents)
+    },
+    remove: async (path) => {
+      text.delete(path)
+      blobs.delete(path)
+    },
+  }
+  return {
+    fs,
+    text,
+    blobs,
+    names: () =>
+      [...text.keys(), ...blobs.keys()].map((path) => path.slice(path.lastIndexOf('/') + 1)).sort(),
+  }
+}
+
+/** A dist-bun holding one bundle published exactly the way the server does it. */
+function published(input: {
+  sha: string
+  stamp: string
+  bytes: Uint8Array
+  signature: string
+  signingKey?: string
+  root?: string
+}) {
+  const path =
+    (input.root ?? '/repo/podium') +
+    '/dist-bun/' +
+    devBundleFileName('dev+' + input.sha, input.stamp)
+  return memoryFs({
+    blobs: { [path]: input.bytes },
+    text: {
+      [path + '.sig']: input.signature + '\n',
+      [path + '.meta.json']: JSON.stringify({
+        version: 'dev+' + input.sha,
+        digest: digestOf(input.bytes),
+        size: input.bytes.length,
+        keyFingerprint: devBundleKeyFingerprint(input.signingKey),
+      }),
+    },
+  })
+}
+
+/** For publisher tests that care about lifecycle, not about what is on disk. */
+function stubFs(): DevBundleFs {
+  const text = new Map<string, string>()
+  return {
+    list: async () => [],
+    digest: async () => ({ digest: digestOf(new Uint8Array([1, 2, 3, 4])), size: 4 }),
+    readText: async (path) => {
+      const value = text.get(path)
+      if (value === undefined) throw new Error('no such file: ' + path)
+      return value
+    },
+    writeText: async (path, contents) => {
+      text.set(path, contents)
+    },
+    remove: async () => {},
+  }
 }
 
 describe('createServerDevBundleLock', () => {
@@ -310,22 +415,179 @@ function lockFixture(events: string[]): DevBundleLock {
   }
 }
 
+describe('development bundle names', () => {
+  it('stamps a build at fixed width, so string order is build order', () => {
+    expect(devBundleStamp(Date.UTC(2026, 7, 12, 18, 20, 15, 903))).toBe('20260812T182015Z')
+    expect(devBundleStamp(Date.UTC(2026, 0, 1, 0, 0, 0))).toBe('20260101T000000Z')
+    expect(devBundleFileName('dev+abc1234', '20260812T182015Z')).toBe(
+      'podium-headless-dev+abc1234-20260812T182015Z.tar.gz',
+    )
+  })
+
+  it('recognises this build’s own artifacts, stamped or not', () => {
+    expect(parseDevBundleName('podium-headless-dev+abc1234-20260812T182015Z.tar.gz')).toEqual({
+      name: 'podium-headless-dev+abc1234-20260812T182015Z.tar.gz',
+      sha: 'abc1234',
+      stamp: '20260812T182015Z',
+    })
+    // The shape that accumulated before builds were stamped is still ours.
+    expect(parseDevBundleName('podium-headless-dev+abc1234.tar.gz')).toMatchObject({
+      sha: 'abc1234',
+      stamp: '',
+    })
+  })
+
+  it('never claims a release artifact, a sidecar, or a stranger', () => {
+    // scripts/release.ts reads dist-bun/podium-headless-<semver>.tar.gz by name.
+    for (const name of [
+      'podium-headless-0.2.0.tar.gz',
+      'podium-headless-linux-x64.tar.gz',
+      'podium-headless-dev+abc1234-20260812T182015Z.tar.gz.sig',
+      'podium-headless-dev+abc1234-20260812T182015Z.tar.gz.meta.json',
+      'podium-headless-dev+NOTHEX.tar.gz',
+      'podium-headless-dev+abc1234-yesterday.tar.gz',
+      'podium',
+      'abduco.bin',
+    ]) {
+      expect(parseDevBundleName(name), name).toBeNull()
+    }
+  })
+
+  it('orders newest first, with an unstamped artifact oldest', () => {
+    const names = [
+      'podium-headless-dev+bbbbbbb-20260812T182015Z.tar.gz',
+      'podium-headless-dev+ccccccc.tar.gz',
+      'podium-headless-dev+aaaaaaa-20260812T193045Z.tar.gz',
+    ]
+    expect(listDevBundles(names).map((entry) => entry.sha)).toEqual([
+      'aaaaaaa',
+      'bbbbbbb',
+      'ccccccc',
+    ])
+  })
+})
+
+describe('selectDevBundleSweep', () => {
+  const stamped = (sha: string, stamp: string) => `podium-headless-dev+${sha}-${stamp}.tar.gz`
+  const newest = stamped('ddddddd', '20260812T190000Z')
+  const previous = stamped('ccccccc', '20260812T180000Z')
+  const older = stamped('bbbbbbb', '20260812T170000Z')
+  const oldest = stamped('aaaaaaa', '20260812T160000Z')
+
+  it('keeps the new bundle and the one before it, and takes the rest with their sidecars', () => {
+    const listing = [
+      oldest,
+      oldest + '.sig',
+      oldest + '.meta.json',
+      older,
+      older + '.sig',
+      previous,
+      newest,
+    ]
+    expect(selectDevBundleSweep(listing).sort()).toEqual(
+      [oldest, oldest + '.sig', oldest + '.meta.json', older, older + '.sig'].sort(),
+    )
+    expect(DEV_BUNDLE_RETAINED).toBe(2)
+  })
+
+  it('sweeps nothing when the directory is already within the window', () => {
+    expect(selectDevBundleSweep([newest, previous, newest + '.sig'])).toEqual([])
+  })
+
+  it('never names a file the listing does not have', () => {
+    // Only sidecars that actually exist — the result is files, not guesses.
+    expect(selectDevBundleSweep([newest, previous, older])).toEqual([older])
+  })
+
+  it('leaves release artifacts and everything else alone', () => {
+    const listing = [
+      'podium-headless-0.2.0.tar.gz',
+      'podium-headless-0.2.0.tar.gz.sig',
+      'podium',
+      'abduco.bin',
+      'headless',
+      oldest,
+    ]
+    expect(selectDevBundleSweep(listing, { keep: 0 })).toEqual([oldest])
+  })
+
+  it('reclaims the unstamped bundles that accumulated before this existed', () => {
+    const legacy = ['podium-headless-dev+1111111.tar.gz', 'podium-headless-dev+2222222.tar.gz']
+    expect(selectDevBundleSweep([newest, previous, ...legacy]).sort()).toEqual([...legacy].sort())
+  })
+
+  it('will not delete the artifact being served, whatever the ordering says', () => {
+    expect(selectDevBundleSweep([newest, previous, older], { keep: 1, protect: [older] })).toEqual([
+      previous,
+    ])
+  })
+})
+
+describe('sweepDevBundles', () => {
+  it('removes what it can and survives what it cannot', async () => {
+    const store = memoryFs({
+      blobs: {
+        '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T160000Z.tar.gz': new Uint8Array(
+          [1],
+        ),
+        '/repo/podium/dist-bun/podium-headless-dev+bbbbbbb-20260812T170000Z.tar.gz': new Uint8Array(
+          [2],
+        ),
+        '/repo/podium/dist-bun/podium-headless-dev+ccccccc-20260812T180000Z.tar.gz': new Uint8Array(
+          [3],
+        ),
+        '/repo/podium/dist-bun/podium-headless-0.2.0.tar.gz': new Uint8Array([4]),
+      },
+      text: {
+        '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T160000Z.tar.gz.sig': 'x',
+      },
+    })
+    const failing: DevBundleFs = {
+      ...store.fs,
+      remove: async (path) => {
+        if (path.endsWith('.sig')) throw new Error('permission denied')
+        await store.fs.remove(path)
+      },
+    }
+
+    // A sidecar that refuses to go is disk to reclaim next time, not a failure.
+    await sweepDevBundles(failing, '/repo/podium/dist-bun')
+
+    expect(store.names()).toEqual([
+      'podium-headless-0.2.0.tar.gz',
+      'podium-headless-dev+aaaaaaa-20260812T160000Z.tar.gz.sig',
+      'podium-headless-dev+bbbbbbb-20260812T170000Z.tar.gz',
+      'podium-headless-dev+ccccccc-20260812T180000Z.tar.gz',
+    ])
+  })
+})
+
 describe('buildDevBundle', () => {
-  it('builds a signed dev target and releases the lease after reading the bytes', async () => {
+  it('builds a signed dev target and releases the lease after describing the artifact', async () => {
     const { bytes, signature } = signedFixture()
+    const store = memoryFs()
     const events: string[] = []
     const built = await buildDevBundle({
+      root: '/repo/podium',
       headSha: '123456789abcdef',
+      fs: store.fs,
       lock: lockFixture(events),
       renewIntervalMs: 60_000,
-      spawnBuild: async ({ version }) => {
+      now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
+      spawnBuild: async ({ version, artifactPath }) => {
         events.push('build:' + version)
-        return { path: '/stage/podium-headless.tar.gz', bytes, signature }
+        store.blobs.set(artifactPath, bytes)
+        store.text.set(artifactPath + '.sig', signature + '\n')
       },
     })
 
     expect(built.version).toBe('dev+1234567')
-    expect(built.digest).toBe('sha256-' + createHash('sha256').update(bytes).digest('base64'))
+    // The version a daemon sees names the commit; the FILE also names the build.
+    expect(built.path).toBe(
+      '/repo/podium/dist-bun/podium-headless-dev+1234567-20260812T182015Z.tar.gz',
+    )
+    expect(built.size).toBe(bytes.length)
+    expect(built.digest).toBe(digestOf(bytes))
     expect(events).toEqual(['acquire', 'build:dev+1234567', 'release'])
     const target = devTarget(built, {
       platform: 'linux-x86_64',
@@ -347,22 +609,161 @@ describe('buildDevBundle', () => {
     ])
   })
 
-  it('retains the exact advertised bytes when the build output is later overwritten', async () => {
-    const mutableBytes = new Uint8Array([1, 2, 3, 4])
+  it('never holds the bundle, and says how big the one on disk is', async () => {
+    const big = new Uint8Array(4096).fill(7)
+    const store = memoryFs()
     const built = await buildDevBundle({
+      root: '/repo/podium',
       headSha: '123456789abcdef',
+      fs: store.fs,
       lock: lockFixture([]),
-      spawnBuild: async () => ({ bytes: mutableBytes, signature: 'signed' }),
+      spawnBuild: async ({ artifactPath }) => {
+        store.blobs.set(artifactPath, big)
+        return { signature: 'signed' }
+      },
     })
-    const advertisedDigest = built.digest
 
-    mutableBytes.set([4, 3, 2, 1])
+    // The descriptor is metadata; there is nowhere for a payload to hide in it.
+    expect(Object.keys(built).sort()).toEqual(['digest', 'path', 'signature', 'size', 'version'])
+    expect(built.size).toBe(4096)
+    expect(built.digest).toBe(digestOf(big))
+  })
 
-    expect(Array.from(built.bytes)).toEqual([1, 2, 3, 4])
-    expect(built.digest).toBe(advertisedDigest)
-    expect(built.digest).toBe(
-      'sha256-' + createHash('sha256').update(built.bytes).digest('base64'),
-    )
+  it('rebuilding one commit writes a new file instead of overwriting the published one', async () => {
+    const store = memoryFs()
+    const built: string[] = []
+    for (const at of [Date.UTC(2026, 7, 12, 18, 20, 15), Date.UTC(2026, 7, 12, 19, 30, 45)]) {
+      const bundle = await buildDevBundle({
+        root: '/repo/podium',
+        headSha: 'aaaaaaa',
+        fs: store.fs,
+        lock: lockFixture([]),
+        now: () => at,
+        spawnBuild: async ({ artifactPath }) => {
+          store.blobs.set(artifactPath, new Uint8Array([1, 2, 3, 4]))
+          return { signature: 'signed' }
+        },
+      })
+      built.push(bundle.path)
+    }
+
+    expect(built[0]).not.toBe(built[1])
+    // Both survive: a request already streaming the first one keeps its file.
+    expect(store.names()).toContain('podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz')
+    expect(store.names()).toContain('podium-headless-dev+aaaaaaa-20260812T193045Z.tar.gz')
+  })
+
+  it('records how it published, so a later restore can check it without the bytes', async () => {
+    const { bytes, signature, signingKey } = signedFixture()
+    const store = memoryFs()
+    const built = await buildDevBundle({
+      root: '/repo/podium',
+      headSha: 'aaaaaaa',
+      signingKey,
+      fs: store.fs,
+      lock: lockFixture([]),
+      now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
+      spawnBuild: async ({ artifactPath }) => {
+        store.blobs.set(artifactPath, bytes)
+        store.text.set(artifactPath + '.sig', signature + '\n')
+      },
+    })
+
+    expect(JSON.parse(store.text.get(built.path + '.meta.json') as string)).toEqual({
+      version: 'dev+aaaaaaa',
+      digest: digestOf(bytes),
+      size: bytes.length,
+      keyFingerprint: devBundleKeyFingerprint(signingKey),
+    })
+  })
+
+  it('a run of merges leaves two bundles on disk, not a run of them', async () => {
+    // The whole point: this is the shape that filled the development host's
+    // disk — one ~264 MB artifact per commit, nothing ever removed.
+    const { bytes, signature, signingKey } = signedFixture()
+    const store = memoryFs()
+    const shas = ['1111111', '2222222', '3333333', '4444444', '5555555', '6666666']
+    let head = shas[0] as string
+    let minute = 0
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      root: '/repo/podium',
+      headSha: () => head,
+      signingKey,
+      fs: store.fs,
+      lock: lockFixture([]),
+      now: () => Date.UTC(2026, 7, 12, 18, minute, 0),
+      spawnBuild: async ({ artifactPath }) => {
+        store.blobs.set(artifactPath, bytes)
+        store.text.set(artifactPath + '.sig', signature + '\n')
+      },
+    })
+
+    for (const sha of shas) {
+      head = sha
+      minute += 10
+      await publisher.requestBuild(true)
+    }
+
+    expect(store.names()).toEqual([
+      'podium-headless-dev+5555555-20260812T185000Z.tar.gz',
+      'podium-headless-dev+5555555-20260812T185000Z.tar.gz.meta.json',
+      'podium-headless-dev+5555555-20260812T185000Z.tar.gz.sig',
+      'podium-headless-dev+6666666-20260812T190000Z.tar.gz',
+      'podium-headless-dev+6666666-20260812T190000Z.tar.gz.meta.json',
+      'podium-headless-dev+6666666-20260812T190000Z.tar.gz.sig',
+    ])
+    expect(publisher.target()?.version).toBe('dev+6666666')
+  })
+
+  it('reclaims a backlog on restart, from the restore path, without compiling', async () => {
+    // Retention that only ran after a successful build would never reach what a
+    // crash, a failed compile or a plain shutdown left behind.
+    const { bytes, signature, signingKey } = signedFixture()
+    const store = published({
+      sha: 'aaaaaaa',
+      stamp: '20260812T190000Z',
+      bytes,
+      signature,
+      signingKey,
+    })
+    for (const [sha, stamp] of [
+      ['1111111', '20260812T160000Z'],
+      ['2222222', '20260812T170000Z'],
+      ['3333333', '20260812T180000Z'],
+    ] as const) {
+      const path = '/repo/podium/dist-bun/' + devBundleFileName('dev+' + sha, stamp)
+      store.blobs.set(path, bytes)
+      store.text.set(path + '.sig', signature + '\n')
+    }
+    let builds = 0
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      root: '/repo/podium',
+      headSha: () => 'aaaaaaa',
+      signingKey,
+      fs: store.fs,
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        builds++
+        return { signature }
+      },
+    })
+
+    await publisher.requestBuild(true)
+
+    expect(builds).toBe(0)
+    expect(store.names()).toEqual([
+      'podium-headless-dev+3333333-20260812T180000Z.tar.gz',
+      'podium-headless-dev+3333333-20260812T180000Z.tar.gz.sig',
+      'podium-headless-dev+aaaaaaa-20260812T190000Z.tar.gz',
+      'podium-headless-dev+aaaaaaa-20260812T190000Z.tar.gz.meta.json',
+      'podium-headless-dev+aaaaaaa-20260812T190000Z.tar.gz.sig',
+    ])
   })
 
   it('releases the lease and keeps a failed build unpublished', async () => {
@@ -370,6 +771,7 @@ describe('buildDevBundle', () => {
     await expect(
       buildDevBundle({
         headSha: '123456789abcdef',
+        fs: stubFs(),
         lock: lockFixture(events),
         spawnBuild: async () => {
           events.push('build')
@@ -380,8 +782,15 @@ describe('buildDevBundle', () => {
     expect(events).toEqual(['acquire', 'build', 'release'])
   })
 
-  it('restores the signed HEAD artifact after a publisher restart without rebuilding', async () => {
+  it('restores the published HEAD artifact after a publisher restart without rebuilding', async () => {
     const { bytes, signature, signingKey } = signedFixture()
+    const store = published({
+      sha: 'aaaaaaa',
+      stamp: '20260812T182015Z',
+      bytes,
+      signature,
+      signingKey,
+    })
     let builds = 0
     const publisher = createDevBundlePublisher({
       isSourceRun: true,
@@ -390,15 +799,11 @@ describe('buildDevBundle', () => {
       root: '/repo/podium',
       headSha: () => 'aaaaaaa',
       signingKey,
-      readFile: async (path) => {
-        if (path.endsWith('.sig')) return Buffer.from(signature + '\n')
-        if (path.endsWith('podium-headless-dev+aaaaaaa.tar.gz')) return bytes
-        throw new Error('not found')
-      },
+      fs: store.fs,
       lock: lockFixture([]),
       spawnBuild: async () => {
         builds++
-        return { bytes, signature }
+        return { signature }
       },
     })
 
@@ -407,11 +812,82 @@ describe('buildDevBundle', () => {
     expect(builds).toBe(0)
     expect(restored).toMatchObject({
       version: 'dev+aaaaaaa',
-      path: '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa.tar.gz',
+      path: '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz',
       signature,
     })
-    expect(restored?.digest).toBe('sha256-' + createHash('sha256').update(bytes).digest('base64'))
+    expect(restored?.digest).toBe(digestOf(bytes))
     expect(publisher.target()?.version).toBe('dev+aaaaaaa')
+  })
+
+  it('rebuilds rather than restore an artifact this server did not publish', async () => {
+    const { bytes, signature, signingKey } = signedFixture()
+    const cases: Array<{ label: string; store: ReturnType<typeof memoryFs> }> = [
+      {
+        label: 'no publication metadata at all',
+        store: (() => {
+          const store = published({
+            sha: 'aaaaaaa',
+            stamp: '20260812T182015Z',
+            bytes,
+            signature,
+            signingKey,
+          })
+          store.text.delete(
+            '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz.meta.json',
+          )
+          return store
+        })(),
+      },
+      {
+        label: 'signed under a key this server no longer holds',
+        store: published({
+          sha: 'aaaaaaa',
+          stamp: '20260812T182015Z',
+          bytes,
+          signature,
+          signingKey: signedFixture().signingKey,
+        }),
+      },
+      {
+        label: 'a truncated tarball',
+        store: (() => {
+          const store = published({
+            sha: 'aaaaaaa',
+            stamp: '20260812T182015Z',
+            bytes,
+            signature,
+            signingKey,
+          })
+          store.blobs.set(
+            '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz',
+            bytes.slice(0, 2),
+          )
+          return store
+        })(),
+      },
+    ]
+
+    for (const { label, store } of cases) {
+      let builds = 0
+      const publisher = createDevBundlePublisher({
+        isSourceRun: true,
+        readSourceStatus: () => '',
+        readIgnoredSourceInputs: () => '',
+        root: '/repo/podium',
+        headSha: () => 'aaaaaaa',
+        signingKey,
+        fs: store.fs,
+        lock: lockFixture([]),
+        spawnBuild: async ({ artifactPath }) => {
+          builds++
+          store.blobs.set(artifactPath, bytes)
+          return { signature }
+        },
+      })
+
+      await publisher.requestBuild(true)
+      expect(builds, label).toBe(1)
+    }
   })
 
   it('keeps the previous bundle but stops advertising it after a later build fails', async () => {
@@ -424,6 +900,7 @@ describe('buildDevBundle', () => {
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       headSha: () => head,
+      fs: stubFs(),
       lock: lockFixture(events),
       now: () => 100_000,
       spawnBuild: async ({ version }) => {
@@ -446,6 +923,13 @@ describe('buildDevBundle', () => {
 
   it('refuses to build or restore anything from a dirty checkout', async () => {
     const { bytes, signature, signingKey } = signedFixture()
+    const store = published({
+      sha: 'aaaaaaa',
+      stamp: '20260812T182015Z',
+      bytes,
+      signature,
+      signingKey,
+    })
     let builds = 0
     let reads = 0
     const publisher = createDevBundlePublisher({
@@ -455,14 +939,17 @@ describe('buildDevBundle', () => {
       signingKey,
       readSourceStatus: () => nul(' M apps/server/src/server.ts', '?? dist-bun/keep.tar.gz'),
       readIgnoredSourceInputs: () => '',
-      readFile: async () => {
-        reads++
-        return bytes
+      fs: {
+        ...store.fs,
+        digest: async (path) => {
+          reads++
+          return store.fs.digest(path)
+        },
       },
       lock: lockFixture([]),
       spawnBuild: async () => {
         builds++
-        return { bytes, signature }
+        return { signature }
       },
     })
 
@@ -475,6 +962,8 @@ describe('buildDevBundle', () => {
     expect(publisher.current()).toBeNull()
     expect(publisher.target()).toBeUndefined()
     expect(publisher.unavailable()).toContain('apps/server/src/server.ts')
+    // And nothing was reclaimed: a refusal is not a licence to touch the disk.
+    expect(store.names()).toContain('podium-headless-dev+aaaaaaa-20260812T182015Z.tar.gz')
   })
 
   it('refuses when the checkout cannot be verified at all', async () => {
@@ -485,6 +974,7 @@ describe('buildDevBundle', () => {
         throw new Error('not a git repository')
       },
       readIgnoredSourceInputs: () => '',
+      fs: stubFs(),
       lock: lockFixture([]),
       spawnBuild: async () => {
         throw new Error('should not build')
@@ -504,8 +994,9 @@ describe('buildDevBundle', () => {
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => porcelain,
       readIgnoredSourceInputs: () => '',
+      fs: stubFs(),
       lock: lockFixture([]),
-      spawnBuild: async ({ version }) => ({ path: '/stage/' + version, bytes, signature }),
+      spawnBuild: async ({ version }) => ({ path: '/stage/' + version, signature }),
     })
 
     await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
@@ -532,6 +1023,7 @@ describe('buildDevBundle', () => {
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
+      fs: stubFs(),
       lock: lockFixture([]),
       spawnBuild: async ({ version }) => {
         builds++
@@ -561,6 +1053,7 @@ describe('development bundle readiness', () => {
       headSha: () => head,
       readSourceStatus: options.porcelain ?? (() => ''),
       readIgnoredSourceInputs: () => '',
+      fs: stubFs(),
       lock: lockFixture([]),
       now: () => 100_000,
       spawnBuild: async ({ version }) => {
@@ -664,6 +1157,7 @@ describe('development bundle readiness', () => {
       headSha: () => 'aaaaaaa',
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
+      fs: stubFs(),
       lock: lockFixture([]),
       spawnBuild: async ({ version }) => {
         await buildDone
@@ -689,10 +1183,11 @@ describe('ignored source inputs gate the build', () => {
       // Clean by git status — the first query sees nothing at all.
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => nul('apps/server/src/local-override.ts'),
+      fs: stubFs(),
       lock: lockFixture([]),
       spawnBuild: async () => {
         builds++
-        return { bytes, signature }
+        return { signature }
       },
     })
 
@@ -716,8 +1211,9 @@ describe('ignored source inputs gate the build', () => {
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () =>
         nul('apps/server/node_modules/left-pad/index.js', 'apps/web/shot.png'),
+      fs: stubFs(),
       lock: lockFixture([]),
-      spawnBuild: async ({ version }) => ({ path: '/stage/' + version, bytes, signature }),
+      spawnBuild: async ({ version }) => ({ path: '/stage/' + version, signature }),
     })
 
     await publisher.requestBuild(true)
@@ -732,6 +1228,7 @@ describe('ignored source inputs gate the build', () => {
       readIgnoredSourceInputs: () => {
         throw new Error('git exploded')
       },
+      fs: stubFs(),
       lock: lockFixture([]),
       spawnBuild: async () => {
         throw new Error('should not build')

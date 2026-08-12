@@ -1,6 +1,9 @@
 import { generateKeyPairSync, sign, verify } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Hono } from 'hono'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { registerDevArtifactRoute } from './artifact-route'
 import type { BuiltDevBundle } from './dev-bundle'
 import {
@@ -12,10 +15,17 @@ import {
 const bytes = new Uint8Array([9, 8, 7, 6])
 const { privateKey, publicKey } = generateKeyPairSync('ed25519')
 const signature = sign(null, bytes, privateKey)
+
+// A real file, because the route's job is now to stream one off disk.
+const stage = mkdtempSync(join(tmpdir(), 'podium-dev-bundle-'))
+const artifact = join(stage, 'podium-headless-dev+abc1234-20260812T182015Z.tar.gz')
+writeFileSync(artifact, bytes)
+afterAll(() => rmSync(stage, { recursive: true, force: true }))
+
 const built: BuiltDevBundle = {
   version: 'dev+abc1234',
-  path: '/stage/dev.tar.gz',
-  bytes,
+  path: artifact,
+  size: bytes.length,
   digest: 'sha256-fixture',
   signature: signature.toString('base64'),
 }
@@ -90,15 +100,51 @@ describe('development artifact route', () => {
     ).toThrow(/requires PODIUM_DEV_ARTIFACT_BASE_URL/)
   })
 
-  it('serves the exact signed bytes to an authenticated machine', async () => {
+  it('streams the exact signed bytes to an authenticated machine', async () => {
     const app = appFor()
     const response = await app.request('/updates/dev-bundle/dev%2Babc1234', {
       headers: { authorization: 'Bearer machine-token' },
     })
     const served = new Uint8Array(await response.arrayBuffer())
     expect(response.status).toBe(200)
+    expect(response.headers.get('content-length')).toBe(String(bytes.length))
     expect(Array.from(served)).toEqual(Array.from(bytes))
     expect(verify(null, served, publicKey, Buffer.from(built.signature, 'base64'))).toBe(true)
+  })
+
+  it('says not found when the published artifact is no longer on disk', async () => {
+    // Retention, a clean checkout, an operator with a shell: the file can go
+    // between publication and a request, and the honest answer is "not here".
+    const app = new Hono()
+    registerDevArtifactRoute(app, {
+      current: () => ({ ...built, path: join(stage, 'never-written.tar.gz') }),
+      authenticate: () => true,
+    })
+    expect((await app.request('/updates/dev-bundle/dev%2Babc1234')).status).toBe(404)
+  })
+
+  it('opens the artifact only after authentication and version agree', async () => {
+    const opened: string[] = []
+    const app = new Hono()
+    registerDevArtifactRoute(app, {
+      current: () => built,
+      authenticate: (request) => request.headers.get('authorization') === 'Bearer machine-token',
+      open: async (path) => {
+        opened.push(path)
+        return { stream: new Blob([bytes]).stream(), size: bytes.length }
+      },
+    })
+
+    await app.request('/updates/dev-bundle/dev%2Babc1234')
+    await app.request('/updates/dev-bundle/dev%2Bold', {
+      headers: { authorization: 'Bearer machine-token' },
+    })
+    expect(opened).toEqual([])
+
+    await app.request('/updates/dev-bundle/dev%2Babc1234', {
+      headers: { authorization: 'Bearer machine-token' },
+    })
+    expect(opened).toEqual([built.path])
   })
 
   it('refuses an unauthenticated request', async () => {
@@ -121,7 +167,7 @@ describe('development artifact route', () => {
       authenticate: () => true,
     })
 
-    current = { ...built, version: 'dev+new1234', path: '/stage/new.tar.gz' }
+    current = { ...built, version: 'dev+new1234' }
     const stale = await app.request('/updates/dev-bundle/dev%2Babc1234')
     const fresh = await app.request('/updates/dev-bundle/dev%2Bnew1234')
     expect(stale.status).toBe(404)

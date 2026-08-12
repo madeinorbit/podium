@@ -1,14 +1,8 @@
 import { execFileSync, spawn } from 'node:child_process'
-import {
-  createHash,
-  createPrivateKey,
-  createPublicKey,
-  sign as cryptoSign,
-  verify as cryptoVerify,
-} from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
-import { readFile as readFileAsync } from 'node:fs/promises'
-import { join } from 'node:path'
+import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
+import { createReadStream, existsSync, readFileSync } from 'node:fs'
+import { readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
@@ -348,12 +342,200 @@ export function assertSourceMatchesHead(
 export const DEV_BUNDLE_LOCK_NAME = 'podium:dev-bundle'
 export const DEV_ARTIFACT_ROUTE = '/updates/dev-bundle'
 
+/**
+ * A DESCRIPTOR, NEVER THE BUNDLE.
+ *
+ * A headless bundle is a quarter of a gigabyte, and the development host is the
+ * live host — it runs this server, its daemon and every agent session. Holding
+ * the tarball in the server's heap for the lifetime of the process (and twice
+ * over for the length of a rebuild) is a cost nothing here needs to pay: the
+ * digest is computed by streaming the file, and the artifact route streams it
+ * again on request. What the process keeps is this descriptor, which is bytes
+ * of metadata, not megabytes of payload.
+ */
 export interface BuiltDevBundle {
   version: string
   path: string
-  bytes: Uint8Array<ArrayBuffer>
+  size: number
   digest: string
   signature: string
+}
+
+/**
+ * NAMING, so that "the previous one" is a fact on disk rather than a guess.
+ *
+ * `dev+<sha>` is the version a daemon sees and must stay exactly that — it is
+ * the claim "compiled from that commit". The FILE, though, also carries the
+ * moment it was built, which buys two things a bare sha cannot: rebuilding the
+ * same commit produces a new file instead of silently overwriting the one a
+ * request may be streaming, and retention can be ordered without stat-ing
+ * anything or trusting mtimes that a copy or a restore would reset.
+ *
+ * The stamp is fixed-width and lexicographically ordered, so sorting the
+ * directory listing IS sorting by build time.
+ */
+export const DEV_BUNDLE_PREFIX = 'podium-headless-dev+'
+export const DEV_BUNDLE_SUFFIX = '.tar.gz'
+export const DEV_BUNDLE_SIGNATURE_SUFFIX = '.sig'
+export const DEV_BUNDLE_METADATA_SUFFIX = '.meta.json'
+
+/**
+ * HOW MANY BUNDLES SURVIVE A SWEEP.
+ *
+ * Only the current HEAD's bundle is reachable — `target()` withholds anything
+ * else and the artifact route refuses it — so one would be enough to serve. The
+ * second is kept deliberately for the human at the checkout: when a build makes
+ * something worse, the bundle it replaced is still on disk to compare against.
+ * Everything older is unreachable by construction and goes.
+ */
+export const DEV_BUNDLE_RETAINED = 2
+
+const DEV_BUNDLE_NAME_PATTERN =
+  /^podium-headless-dev\+([0-9a-f]{7,40})(?:-(\d{8}T\d{6}Z))?\.tar\.gz$/
+
+export interface DevBundleFile {
+  name: string
+  sha: string
+  /** Empty for a bundle built before builds were stamped; sorts oldest. */
+  stamp: string
+}
+
+/** `20260812T182015Z` — fixed width, so string order is time order. */
+export function devBundleStamp(at: number): string {
+  return new Date(at)
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d+Z$/, 'Z')
+}
+
+/**
+ * Recognise this build's own artifacts and NOTHING else.
+ *
+ * The retention sweep deletes whatever this returns a match for, so the pattern
+ * is the safety boundary: `dev+<sha>` only, never a semver name. A release
+ * tarball sits in the same directory and `scripts/release.ts` reads it by that
+ * name.
+ */
+export function parseDevBundleName(name: string): DevBundleFile | null {
+  const match = DEV_BUNDLE_NAME_PATTERN.exec(name)
+  if (!match) return null
+  return { name, sha: match[1] as string, stamp: match[2] ?? '' }
+}
+
+export function devBundleFileName(version: string, stamp: string): string {
+  return `podium-headless-${version}-${stamp}${DEV_BUNDLE_SUFFIX}`
+}
+
+/** Newest first; an unstamped legacy artifact is oldest by definition. */
+function byNewest(a: DevBundleFile, b: DevBundleFile): number {
+  if (a.stamp !== b.stamp) return a.stamp < b.stamp ? 1 : -1
+  return a.name < b.name ? 1 : -1
+}
+
+export function listDevBundles(names: readonly string[]): DevBundleFile[] {
+  const parsed: DevBundleFile[] = []
+  for (const name of names) {
+    const entry = parseDevBundleName(name)
+    if (entry) parsed.push(entry)
+  }
+  return parsed.sort(byNewest)
+}
+
+/**
+ * WHAT A SWEEP DELETES, decided without touching the filesystem.
+ *
+ * Given a directory listing, the names that may go: every development bundle
+ * outside the retention window, plus the sidecars belonging to each — and only
+ * sidecars the listing actually shows, so the result is a list of files that
+ * exist rather than a list of guesses.
+ *
+ * `protect` is belt and braces for the artifact currently being served. It is
+ * always within the window in practice; naming it explicitly means a future
+ * change to the ordering cannot make the sweep delete what it is publishing.
+ */
+export function selectDevBundleSweep(
+  names: readonly string[],
+  options: { keep?: number; protect?: readonly string[] } = {},
+): string[] {
+  const keep = options.keep ?? DEV_BUNDLE_RETAINED
+  const present = new Set(names)
+  const protectedNames = new Set(options.protect ?? [])
+  const doomed: string[] = []
+  listDevBundles(names).forEach((entry, index) => {
+    if (index < keep || protectedNames.has(entry.name)) return
+    doomed.push(entry.name)
+    for (const suffix of [DEV_BUNDLE_SIGNATURE_SUFFIX, DEV_BUNDLE_METADATA_SUFFIX]) {
+      if (present.has(entry.name + suffix)) doomed.push(entry.name + suffix)
+    }
+  })
+  return doomed
+}
+
+/**
+ * The filesystem this module needs, as a seam.
+ *
+ * Every operation is either on a small sidecar or a STREAM over the tarball;
+ * there is deliberately no "read the bundle" verb, because a component that
+ * cannot ask for the bytes cannot accidentally keep them.
+ */
+export interface DevBundleFs {
+  list(dir: string): Promise<string[]>
+  /** Streams the file; never materialises it. */
+  digest(path: string): Promise<{ digest: string; size: number }>
+  readText(path: string): Promise<string>
+  writeText(path: string, contents: string): Promise<void>
+  remove(path: string): Promise<void>
+}
+
+export const nodeDevBundleFs: DevBundleFs = {
+  list: (dir) => readdir(dir).catch(() => []),
+  digest: (path) =>
+    new Promise((resolve, reject) => {
+      const hash = createHash('sha256')
+      let size = 0
+      const stream = createReadStream(path, { highWaterMark: 1 << 16 })
+      stream.on('data', (chunk) => {
+        size += chunk.length
+        hash.update(chunk)
+      })
+      stream.once('error', reject)
+      stream.once('end', () => resolve({ digest: 'sha256-' + hash.digest('base64'), size }))
+    }),
+  readText: (path) => readFileAsync(path, 'utf8'),
+  writeText: (path, contents) => writeFile(path, contents),
+  remove: (path) => rm(path, { force: true }),
+}
+
+/**
+ * PUBLICATION METADATA, written by the server beside the tarball.
+ *
+ * Restoring an artifact after a restart has to establish two things before it
+ * may be advertised: the bytes are whole, and the signature next to them was
+ * made by the key this server is publishing under. The obvious way — verify the
+ * Ed25519 signature — requires the entire message in memory, which is precisely
+ * what this module refuses to do. So publication records the digest it signed
+ * and a fingerprint of the key it signed with; restore re-derives the digest by
+ * streaming and compares both. A truncated tarball fails the digest; a rotated
+ * key fails the fingerprint. Neither check needs the bundle in the heap.
+ */
+export interface DevBundleMetadata {
+  version: string
+  digest: string
+  size: number
+  keyFingerprint: string
+}
+
+export function devBundleKeyFingerprint(signingKey: string | undefined): string {
+  if (!signingKey) return 'unkeyed'
+  try {
+    const publicKey = createPublicKey(
+      createPrivateKey({ key: Buffer.from(signingKey, 'base64'), format: 'der', type: 'pkcs8' }),
+    )
+    const der = publicKey.export({ format: 'der', type: 'spki' })
+    return 'sha256-' + createHash('sha256').update(der).digest('base64')
+  } catch {
+    return 'unkeyed'
+  }
 }
 
 export interface DevBundleLock {
@@ -365,6 +547,8 @@ export interface DevBundleLock {
 export interface DevBuildSpawnContext {
   root: string
   version: string
+  /** Where the build must write the tarball. Carries the build-time stamp. */
+  artifactPath: string
   signingKey?: string
 }
 
@@ -373,7 +557,6 @@ export type DevBuildSpawnResult =
   | string
   | {
       path?: string
-      bytes?: Uint8Array
       signature?: string
     }
 
@@ -383,9 +566,10 @@ export interface DevBundleBuildDeps {
   headSha?: string
   spawnBuild?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
   build?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
-  readFile?: (path: string) => Promise<Uint8Array>
+  fs?: DevBundleFs
   signingKey?: string
   renewIntervalMs?: number
+  retain?: number
   now?: () => number
 }
 
@@ -402,10 +586,6 @@ function shortSha(raw: string): string {
   const sha = raw.trim()
   if (!sha) throw new Error('could not determine the development bundle HEAD sha')
   return sha.slice(0, 7)
-}
-
-function defaultReadFile(path: string): Promise<Uint8Array> {
-  return readFileAsync(path)
 }
 
 function developmentSigningKey(root: string): string {
@@ -425,6 +605,9 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
       env: {
         ...process.env,
         PODIUM_APP_VERSION: ctx.version,
+        // The caller names the artifact, because the caller owns its lifecycle:
+        // the stamp in the name is what retention later sorts on.
+        PODIUM_BUNDLE_ARTIFACT: ctx.artifactPath,
         PODIUM_UPDATE_SIGNING_KEY: signingKey,
       },
       stdio: 'inherit',
@@ -437,73 +620,118 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
   })
 }
 
-function sha256Digest(bytes: Uint8Array): string {
-  return 'sha256-' + createHash('sha256').update(bytes).digest('base64')
+export function devBundleDirectory(root: string): string {
+  return join(root, 'dist-bun')
 }
 
-function devBundlePath(root: string, version: string): string {
-  return join(root, 'dist-bun', 'podium-headless-' + version + '.tar.gz')
-}
-
-async function readOptional(
-  path: string,
-  readFile: (path: string) => Promise<Uint8Array>,
-): Promise<Uint8Array | undefined> {
+async function readOptionalText(fs: DevBundleFs, path: string): Promise<string | undefined> {
   try {
-    return await readFile(path)
+    return await fs.readText(path)
   } catch {
     return undefined
   }
 }
 
-/**
- * Recover the signed bundle already produced for this checkout's HEAD.
- *
- * The publisher itself is process-local, while the tarball is intentionally
- * durable across source-server restarts. Validate it against this server's
- * persisted signing identity before restoring it as the current target; a
- * partial, stale-key, or corrupt artifact is treated as absent and rebuilt.
- */
-async function readExistingDevBundle(
-  deps: Pick<DevBundleBuildDeps, 'root' | 'readFile' | 'signingKey'> & { headSha: string },
-): Promise<BuiltDevBundle | null> {
-  const root = deps.root ?? SOURCE_ROOT
-  const version = 'dev+' + shortSha(deps.headSha)
-  const path = devBundlePath(root, version)
-  const readFile = deps.readFile ?? defaultReadFile
-  if (!deps.readFile && (!existsSync(path) || !existsSync(path + '.sig'))) return null
-  const bytes = await readOptional(path, readFile)
-  const signatureBytes = await readOptional(path + '.sig', readFile)
-  if (!bytes || !signatureBytes) return null
-
-  const signature = Buffer.from(signatureBytes).toString('utf8').trim()
-  if (!signature) return null
-  if (deps.signingKey) {
-    try {
-      const privateKey = createPrivateKey({
-        key: Buffer.from(deps.signingKey, 'base64'),
-        format: 'der',
-        type: 'pkcs8',
-      })
-      const publicKey = createPublicKey(privateKey)
-      if (!cryptoVerify(null, Buffer.from(bytes), publicKey, Buffer.from(signature, 'base64'))) {
-        return null
-      }
-    } catch {
+async function readMetadata(fs: DevBundleFs, path: string): Promise<DevBundleMetadata | null> {
+  const raw = await readOptionalText(fs, path + DEV_BUNDLE_METADATA_SUFFIX)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<DevBundleMetadata>
+    if (
+      typeof parsed.version !== 'string' ||
+      typeof parsed.digest !== 'string' ||
+      typeof parsed.size !== 'number' ||
+      typeof parsed.keyFingerprint !== 'string'
+    ) {
       return null
     }
+    return parsed as DevBundleMetadata
+  } catch {
+    return null
   }
-
-  return { version, path, bytes: new Uint8Array(bytes), digest: sha256Digest(bytes), signature }
 }
 
 /**
- * Builds the bundle and reads the exact signed tarball bytes before returning.
- * The advisory lease covers the complete operation and is renewed while the
- * asynchronous compile runs.
+ * Reclaim every development bundle outside the retention window.
+ *
+ * Never fatal, per file and as a whole: a bundle that could not be deleted is
+ * disk to reclaim next time, not a reason to fail a build or refuse to publish
+ * one. The next sweep sees it again.
+ */
+export async function sweepDevBundles(
+  fs: DevBundleFs,
+  dir: string,
+  options: { keep?: number; protect?: readonly string[] } = {},
+): Promise<string[]> {
+  const removed: string[] = []
+  try {
+    const doomed = selectDevBundleSweep(await fs.list(dir), options)
+    for (const name of doomed) {
+      try {
+        await fs.remove(join(dir, name))
+        removed.push(name)
+      } catch (error) {
+        log.warn('could not remove a stale development bundle', { name, err: error })
+      }
+    }
+    if (removed.length > 0) log.info('reclaimed stale development bundles', { removed })
+  } catch (error) {
+    log.warn('development bundle sweep failed', { dir, err: error })
+  }
+  return removed
+}
+
+/**
+ * Recover the bundle already produced for this checkout's HEAD.
+ *
+ * The publisher itself is process-local, while the tarball is intentionally
+ * durable across source-server restarts. The newest artifact stamped for HEAD
+ * is a candidate; it becomes the current target only if its recorded metadata
+ * says it was published by this server's signing identity AND the file still
+ * hashes to what was signed. Anything else — no metadata, a rotated key, a
+ * short or corrupt file — is treated as absent and rebuilt.
+ */
+async function readExistingDevBundle(
+  deps: Pick<DevBundleBuildDeps, 'root' | 'signingKey'> & { headSha: string; fs: DevBundleFs },
+): Promise<BuiltDevBundle | null> {
+  const root = deps.root ?? SOURCE_ROOT
+  const sha = shortSha(deps.headSha)
+  const version = 'dev+' + sha
+  const dir = devBundleDirectory(root)
+  const candidate = listDevBundles(await deps.fs.list(dir)).find((entry) => entry.sha === sha)
+  if (!candidate) return null
+
+  const path = join(dir, candidate.name)
+  const metadata = await readMetadata(deps.fs, path)
+  if (!metadata || metadata.version !== version) return null
+  if (metadata.keyFingerprint !== devBundleKeyFingerprint(deps.signingKey)) return null
+
+  const signature = (await readOptionalText(deps.fs, path + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
+  if (!signature) return null
+
+  let actual: { digest: string; size: number }
+  try {
+    actual = await deps.fs.digest(path)
+  } catch {
+    return null
+  }
+  if (actual.digest !== metadata.digest || actual.size !== metadata.size) return null
+
+  return { version, path, size: actual.size, digest: actual.digest, signature }
+}
+
+/**
+ * Builds the bundle, describes the exact signed tarball, records how it was
+ * published, and reclaims what the build superseded — all under one advisory
+ * lease, renewed while the asynchronous compile runs.
+ *
+ * The sweep belongs here rather than at a call site because this is where the
+ * garbage is created and where the lock is held: a concurrent build in the same
+ * checkout cannot have its half-written output deleted from under it.
  */
 export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDevBundle> {
   const root = deps.root ?? SOURCE_ROOT
+  const fs = deps.fs ?? nodeDevBundleFs
   const sha = shortSha(
     deps.headSha ??
       execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
@@ -530,39 +758,40 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
   let buildError: unknown
   try {
     const spawnBuild = deps.spawnBuild ?? deps.build ?? defaultSpawnBuild
+    const stamp = devBundleStamp((deps.now ?? Date.now)())
+    const requestedPath = join(devBundleDirectory(root), devBundleFileName(version, stamp))
     const result = await spawnBuild({
       root,
       version,
+      artifactPath: requestedPath,
       ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
     })
     await renewal
     if (renewalError) throw renewalError
 
     const resultObject = typeof result === 'object' && result !== null ? result : undefined
-    const artifactPath =
-      (typeof result === 'string' ? result : resultObject?.path) ?? devBundlePath(root, version)
-    const readFile = deps.readFile ?? defaultReadFile
-    const bytes = resultObject?.bytes ?? (await readFile(artifactPath))
-    let signature = resultObject?.signature
-    if (!signature) {
-      const signatureBytes = await readOptional(artifactPath + '.sig', readFile)
-      signature = signatureBytes ? Buffer.from(signatureBytes).toString('utf8').trim() : undefined
-    }
-    if (!signature && deps.signingKey && resultObject?.bytes) {
-      signature = cryptoSign(null, Buffer.from(bytes), {
-        key: Buffer.from(deps.signingKey, 'base64'),
-        format: 'der',
-        type: 'pkcs8',
-      }).toString('base64')
-    }
+    const artifactPath = (typeof result === 'string' ? result : resultObject?.path) ?? requestedPath
+    const signature =
+      resultObject?.signature ??
+      (await readOptionalText(fs, artifactPath + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
     if (!signature) throw new Error('development bundle is unsigned; refusing to publish it')
-    return {
+
+    const { digest, size } = await fs.digest(artifactPath)
+    const metadata: DevBundleMetadata = {
       version,
-      path: artifactPath,
-      bytes: new Uint8Array(bytes),
-      digest: sha256Digest(bytes),
-      signature,
+      digest,
+      size,
+      keyFingerprint: devBundleKeyFingerprint(deps.signingKey),
     }
+    await fs.writeText(
+      artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
+      JSON.stringify(metadata, null, 2) + '\n',
+    )
+    await sweepDevBundles(fs, dirname(artifactPath), {
+      ...(deps.retain !== undefined ? { keep: deps.retain } : {}),
+      protect: [basename(artifactPath)],
+    })
+    return { version, path: artifactPath, size, digest, signature }
   } catch (error) {
     buildError = error
     throw error
@@ -666,6 +895,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   let failure: { sha: string | null; reason: string; publicReason: string } | undefined
   const now = deps.now ?? Date.now
   const debounceMs = deps.debounceMs ?? 60_000
+  const fs = deps.fs ?? nodeDevBundleFs
 
   const currentHeadSha = (): string | null => {
     try {
@@ -711,11 +941,21 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         // A restart loses only the in-memory descriptor, not the signed bytes.
         // Restore an exact-HEAD artifact first; compile only when it is absent
         // or no longer verifies under this server's persisted update key.
+        //
+        // A restore sweeps too. Retention that only ran on a successful build
+        // would leave whatever a crash, a failed compile or a plain shutdown
+        // left behind — and residue that only accumulates when something went
+        // wrong is exactly the kind that grows unnoticed for months.
         const requested = (
           current === null
-            ? readExistingDevBundle({ ...deps, headSha }).then(
-                (existing) => existing ?? buildDevBundle({ ...deps, headSha }),
-              )
+            ? readExistingDevBundle({ ...deps, fs, headSha }).then(async (existing) => {
+                if (!existing) return buildDevBundle({ ...deps, headSha })
+                await sweepDevBundles(fs, dirname(existing.path), {
+                  ...(deps.retain !== undefined ? { keep: deps.retain } : {}),
+                  protect: [basename(existing.path)],
+                })
+                return existing
+              })
             : buildDevBundle({ ...deps, headSha })
         ).then(
           (built) => {

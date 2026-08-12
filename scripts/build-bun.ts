@@ -64,6 +64,27 @@ export function bundleNames(platform: NodeJS.Platform = process.platform): {
 }
 
 /**
+ * Where the self-update tarball goes.
+ *
+ * By default the plain versioned name in dist-bun/, which is what `scripts/release.ts` reads
+ * and what a human running this script expects to find.
+ *
+ * `PODIUM_BUNDLE_ARTIFACT` lets a caller that OWNS the artifact's lifecycle name the file
+ * instead. The development publisher does: it stamps the build time into the name so its
+ * retention sweep can order bundles without trusting mtimes, and so rebuilding one commit
+ * never overwrites a tarball a download may still be streaming. Blank is not a name — an
+ * empty or whitespace-only value falls back rather than writing to a path called "".
+ */
+export function updateArtifactPath(
+  out: string,
+  version: string,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const requested = env.PODIUM_BUNDLE_ARTIFACT?.trim()
+  return requested ? requested : `${out}/podium-headless-${version}.tar.gz`
+}
+
+/**
  * The Windows launcher: same job as {@link launcherShim} (export PODIUM_HOME +
  * PODIUM_WEB_DIR relative to the bundle root, then run the compiled CLI) as a batch
  * file. `%~dp0` is the batch file's own directory (trailing backslash stripped so
@@ -252,7 +273,7 @@ function main(): void {
 
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).
-  const tarball = `${out}/podium-headless-${version}.tar.gz`
+  const tarball = updateArtifactPath(out, version, process.env)
   execFileSync('tar', ['-czf', tarball, '-C', out, 'headless'], { cwd: root, stdio: 'inherit' })
 
   // Sign the tarball bytes (Ed25519) so the feed can serve `signature` and `podium update`
