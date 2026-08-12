@@ -1079,6 +1079,24 @@ export const issues = sqliteTable(
   },
   (table) => [
     index('idx_issues_deleted_at').on(table.deletedAt),
+    // COVERS the finished-work projection [POD-1931]. `closedIssueIds()` reads
+    // four narrow columns off every issue and has no WHERE to narrow with — the
+    // predicate is `isIssueClosed`'s and stays in TypeScript so there is one
+    // definition of finished. Without this the scan still walks the full row,
+    // dragging description/design/acceptance/notes through the page cache:
+    // 6.5MB of table pages against 123KB of index, a 53x difference in bytes
+    // read. It only became the top line when the box lost its page cache and
+    // each scan started costing ~694ms instead of ~60ms — the query was always
+    // this shape, the machine stopped hiding it.
+    //
+    // Column order follows the SELECT so the index is genuinely covering;
+    // nothing seeks on it, so no other order would be better.
+    index('idx_issues_closed_projection').on(
+      table.id,
+      table.stage,
+      table.closedReason,
+      table.deletedAt,
+    ),
     uniqueIndex('idx_issues_repo_id_seq').on(table.repoId, table.seq),
     index('idx_issues_parent').on(table.parentId),
     index('idx_issues_repo').on(table.repoPath),

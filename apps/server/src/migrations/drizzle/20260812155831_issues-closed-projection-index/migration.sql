@@ -1,0 +1,1 @@
+CREATE INDEX `idx_issues_closed_projection` ON `issues` (`id`,`stage`,`closed_reason`,`deleted_at`);
