@@ -41,20 +41,38 @@ test('native offer keeps terminal contained and expands feedback fluidly', async
 
   const containment = await page.evaluate(() => {
     const surface = document.querySelector<HTMLElement>('[data-testid="terminal-surface"]')
-    const term = surface?.querySelector<HTMLElement>('.term')
-    const screen = term?.querySelector<HTMLElement>('.xterm-screen')
-    if (!surface || !term || !screen) return null
+    const xterm = surface?.querySelector<HTMLElement>('.term > .xterm')
+    const screen = xterm?.querySelector<HTMLElement>('.xterm-screen')
+    if (!surface || !xterm || !screen) return null
     const surfaceBox = surface.getBoundingClientRect()
     const screenBox = screen.getBoundingClientRect()
+    const padding = getComputedStyle(xterm)
     return {
-      paddingBottom: getComputedStyle(term).paddingBottom,
-      screenBottom: screenBox.bottom,
-      surfaceBottom: surfaceBox.bottom,
+      padding: {
+        top: padding.paddingTop,
+        right: padding.paddingRight,
+        bottom: padding.paddingBottom,
+        left: padding.paddingLeft,
+      },
+      inset: {
+        top: screenBox.top - surfaceBox.top,
+        right: surfaceBox.right - screenBox.right,
+        bottom: surfaceBox.bottom - screenBox.bottom,
+        left: screenBox.left - surfaceBox.left,
+      },
     }
   })
   expect(containment).not.toBeNull()
-  expect(containment?.paddingBottom).toBe('20px')
-  expect(containment?.screenBottom).toBeLessThanOrEqual((containment?.surfaceBottom ?? 0) + 0.5)
+  expect(containment?.padding).toEqual({
+    top: '12px',
+    right: '13px',
+    bottom: '20px',
+    left: '13px',
+  })
+  expect(containment?.inset.top).toBeGreaterThanOrEqual(11.5)
+  expect(containment?.inset.right).toBeGreaterThanOrEqual(12.5)
+  expect(containment?.inset.bottom).toBeGreaterThanOrEqual(19.5)
+  expect(containment?.inset.left).toBeGreaterThanOrEqual(12.5)
 
   const dockHeightBefore = await dock.evaluate((el) => el.getBoundingClientRect().height)
   await page.evaluate(() => {

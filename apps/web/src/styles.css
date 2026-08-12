@@ -4444,6 +4444,14 @@ html[data-density="balanced"] .header-quota-pools {
   letter-spacing: 0;
 }
 
+/* The native CLI is inset on xterm's generated root, not on Podium's host.
+   FitAddon reads the HOST's dimensions but only subtracts padding from `.xterm`;
+   putting these values on `.term` therefore shifted the canvas without shrinking
+   its grid, clipping the last row and rightmost column at the sheet edge. */
+.term > .xterm {
+  padding: 12px 13px 20px;
+}
+
 /* Native-pane offer dock (POD-178): the offer sits BELOW the terminal on its
    own surface — never painted on the PTY background — and animates in by
    reclaiming height from the terminal (grid-rows) with a slight rise. The
