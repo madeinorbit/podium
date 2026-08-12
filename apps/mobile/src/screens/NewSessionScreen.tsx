@@ -7,7 +7,7 @@ import {
   spawnTargetForRepo,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueId } from '@podium/model'
+import type { AgentKind, IssueId, MachineId } from '@podium/model'
 import { asIssueId, machinesWithRepo } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
@@ -57,7 +57,7 @@ export function NewSessionScreen() {
   const repos = useMemo(() => [...sections.pinnedRepos, ...sections.repos], [sections])
   const [cwd, setCwd] = useState(presetCwd ?? '')
   const [agentKind, setAgentKind] = useState<AgentKind | undefined>(undefined)
-  const [machineId, setMachineId] = useState<string | undefined>(undefined)
+  const [machineId, setMachineId] = useState<MachineId | undefined>(undefined)
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)

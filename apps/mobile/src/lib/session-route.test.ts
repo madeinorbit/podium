@@ -1,13 +1,14 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from './session-route'
 
 describe('session routes', () => {
   it('carries the in-app return route in session links', () => {
-    expect(sessionHref('session/a', '/issue/issue-1')).toEqual({
+    expect(sessionHref(asSessionId('session/a'), '/issue/issue-1')).toEqual({
       pathname: '/session/[sessionId]',
       params: { sessionId: 'session/a', backTo: '/issue/issue-1' },
     })
-    expect(sessionHref('session/a', '/')).toEqual({
+    expect(sessionHref(asSessionId('session/a'), '/')).toEqual({
       pathname: '/session/[sessionId]',
       params: { sessionId: 'session/a', backTo: '/work' },
     })

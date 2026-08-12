@@ -21,7 +21,13 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStore } from '@podium/client-core/react'
 import { createReplica, memoryStorage } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import type { GitRepositoryWire, IssueWire, MachineWire, SessionMeta } from '@podium/model'
+import {
+  asUserId,
+  type GitRepositoryWire,
+  type IssueWire,
+  type MachineWire,
+  type SessionMeta,
+} from '@podium/model'
 import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
@@ -130,7 +136,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
       config={CONFIG}
       api={api}
       onFatalError={() => {}}
-      principal={asClientPrincipal(fixture.principal ?? 'user:test')}
+      principal={asClientPrincipal(asUserId(fixture.principal ?? 'user:test'))}
       createReplicaFn={() => replica}
       routerWindow={createMemoryRouterWindow()}
     >

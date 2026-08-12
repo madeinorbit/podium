@@ -99,7 +99,7 @@ export function NewWorkButton() {
   const resolveSpawnMachine = (
     repo: RepoNavView,
     machineId?: MachineId,
-  ): string | undefined | null => {
+  ): MachineId | undefined | null => {
     if (machineId !== undefined)
       return usableMachines(machineViews).some((m) => m.id === machineId) ? machineId : null
     const { machineId: resolved, refusal } = resolveSpawnTargetMachine(repo, sessions, machineViews)

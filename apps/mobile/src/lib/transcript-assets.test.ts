@@ -1,10 +1,11 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { pathBasename, sessionAssetUrl } from './transcript-assets'
 
 describe('sessionAssetUrl', () => {
   const context = {
     httpOrigin: 'https://podium.test/',
-    sessionId: 'ses 1',
+    sessionId: asSessionId('ses 1'),
     cwd: '/work/repo/',
   }
 
