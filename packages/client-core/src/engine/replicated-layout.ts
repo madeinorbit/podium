@@ -7,7 +7,12 @@
  * reconciliation seam for authoritative snapshots.
  */
 
-import { isLayoutKey, type LayoutSnapshot, layoutKeyFromLegacy, type MutationId } from '@podium/model'
+import {
+  isLayoutKey,
+  type LayoutSnapshot,
+  layoutKeyFromLegacy,
+  type MutationId,
+} from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import type { StoreNotices } from './types'
@@ -137,7 +142,7 @@ export function createReplicatedLayoutController(init: {
   let base: LayoutSnapshot = onlyLayoutKeys(init.seed ?? {})
   let nextToken = 1
   let temporary: TemporaryOperation[] = []
-  const ignoredAwaiting = new Set<string>()
+  const ignoredAwaiting = new Set<MutationId>()
   const accepted = new Map<string, AcceptedLayoutValue>()
   const listeners = new Set<() => void>()
 
@@ -186,7 +191,8 @@ export function createReplicatedLayoutController(init: {
     snapshot: LayoutSnapshot,
     key: string,
     value: AcceptedLayoutValue,
-  ): boolean => (value.present ? Object.is(snapshot[key], value.value) : snapshot[key] === undefined)
+  ): boolean =>
+    value.present ? Object.is(snapshot[key], value.value) : snapshot[key] === undefined
 
   const rememberAccepted = (entry: OutboxEntry): boolean => {
     const operation = operationForEntry(entry)

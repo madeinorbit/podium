@@ -1,4 +1,4 @@
-import type { PodiumClientApi, MutationId } from '@podium/client-core/api'
+import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   parseServerOrigin,
   resolveServerConfig,
@@ -7,6 +7,7 @@ import {
 import type { AskAnswerChoice } from '@podium/client-core/viewmodels'
 import type {
   IssueColorSlot,
+  MutationId,
   IssueStage,
   IssueType,
   IssueWire,

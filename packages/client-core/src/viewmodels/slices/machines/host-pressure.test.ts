@@ -1,4 +1,4 @@
-import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   hostAgentsView,
@@ -178,7 +178,7 @@ describe('listReclaimableWorktreesClient', () => {
         stage: 'done',
         closedAt: new Date(now - 20 * day).toISOString(),
         worktreePath: '/r/.worktrees/old',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       },
       {
         id: 'fresh',
@@ -186,14 +186,14 @@ describe('listReclaimableWorktreesClient', () => {
         stage: 'done',
         closedAt: new Date(now - 2 * day).toISOString(),
         worktreePath: '/r/.worktrees/fresh',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       },
       {
         id: 'open',
         title: 'Still open',
         stage: 'in_progress',
         worktreePath: '/r/.worktrees/open',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       },
       {
         id: 'busy',
@@ -201,7 +201,7 @@ describe('listReclaimableWorktreesClient', () => {
         stage: 'done',
         closedAt: new Date(now - 30 * day).toISOString(),
         worktreePath: '/r/.worktrees/busy',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       },
     ]
     const sessions = [session({ sessionId: 's', cwd: '/r/.worktrees/busy', status: 'live' })]
@@ -236,7 +236,7 @@ describe('placeReclaimable', () => {
 
   it('claims unattributed checkouts for the only machine', () => {
     const placed = placeReclaimable([candidate('a', null), candidate('b', null)], {
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       soleMachine: true,
     })
     expect(placed.here.map((c) => c.issueId)).toEqual(['a', 'b'])
@@ -246,7 +246,7 @@ describe('placeReclaimable', () => {
   it('counts unattributed checkouts instead of dropping them when there are several machines', () => {
     const placed = placeReclaimable(
       [candidate('mine', 'm1'), candidate('theirs', 'm2'), candidate('nowhere', null)],
-      { machineId: 'm1', soleMachine: false },
+      { machineId: asMachineId('m1'), soleMachine: false },
     )
     // Never offered under a chip it might not belong to...
     expect(placed.here.map((c) => c.issueId)).toEqual(['mine'])
@@ -256,7 +256,7 @@ describe('placeReclaimable', () => {
 
   it('keeps an attributed checkout off every other machine', () => {
     const placed = placeReclaimable([candidate('theirs', 'm2')], {
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       soleMachine: true,
     })
     expect(placed.here).toEqual([])

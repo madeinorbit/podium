@@ -31,7 +31,7 @@
 
 import { createLogger } from '@podium/logger'
 import type { AgentKind, IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
-import { asIssueId, asSessionId, dedupeSessionsByResume } from '@podium/model'
+import { asIssueId, asMutationId, asSessionId, dedupeSessionsByResume } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { OutboxEntry } from '../outbox'
@@ -410,7 +410,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     // Enqueue-time baseline (#263 review finding 2): fingerprint the target
     // row's REPLICA truth (unpainted — the replica is server truth only) so
     // resolution can tell whether truth already moved while in flight.
-    const probe = overlayForOutboxEntry({ mutationId: '', kind, input, queuedAt: 0 })
+    const probe = overlayForOutboxEntry({ mutationId: asMutationId(''), kind, input, queuedAt: 0 })
     let baseline: string | undefined
     let chained = false
     if (probe?.op === 'patch') {

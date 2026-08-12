@@ -1,3 +1,4 @@
+import { asMutationId } from '@podium/model'
 import type { EntityRecord, ReplicaEvent } from '@podium/sync/replica'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryStorage } from '../replica'
@@ -295,8 +296,12 @@ describe('the outbox seam is injectable, and defaults to the side cache', () => 
       side,
       outbox: { queued: stub('injected-queued'), awaiting: stub('injected-awaiting') },
     })
-    expect(replica.outboxStorage().load()).toEqual([{ mutationId: 'injected-queued' }])
-    expect(replica.outboxAwaitingStorage().load()).toEqual([{ mutationId: 'injected-awaiting' }])
+    expect(replica.outboxStorage().load()).toEqual([
+      { mutationId: asMutationId('injected-queued') },
+    ])
+    expect(replica.outboxAwaitingStorage().load()).toEqual([
+      { mutationId: asMutationId('injected-awaiting') },
+    ])
   })
 
   it('falls back to the side cache when none is — web behaviour is UNCHANGED', () => {
@@ -307,7 +312,9 @@ describe('the outbox seam is injectable, and defaults to the side cache', () => 
     const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
     side
       .outboxStorage()
-      .save([{ mutationId: 'from-side-cache', kind: 'rename', input: {}, queuedAt: 1 }])
+      .save([
+        { mutationId: asMutationId('from-side-cache'), kind: 'rename', input: {}, queuedAt: 1 },
+      ])
     const replica = createKernelReplica({ cache, side })
     expect(
       replica
@@ -416,7 +423,9 @@ describe('the side cache', () => {
 
   it('keeps the queued and awaiting-truth outbox stages in SEPARATE homes', () => {
     const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
-    side.outboxStorage().save([{ mutationId: 'm1', kind: 'rename', input: {}, queuedAt: 1 }])
+    side
+      .outboxStorage()
+      .save([{ mutationId: asMutationId('m1'), kind: 'rename', input: {}, queuedAt: 1 }])
     expect(side.outboxAwaitingStorage().load()).toEqual([])
     expect(side.outboxStorage().load()).toHaveLength(1)
   })
@@ -585,7 +594,7 @@ describe('the side cache', () => {
       }
     }
 
-    const entry = { mutationId: 'm1', kind: 'rename', input: {}, queuedAt: 1 }
+    const entry = { mutationId: asMutationId('m1'), kind: 'rename', input: {}, queuedAt: 1 }
 
     it('RETHROWS when the queue cannot be persisted, and reports the degradation', () => {
       // ADR 6 D4.3: queued entries are durable on the same footing as entity
@@ -612,7 +621,7 @@ describe('the side cache', () => {
       // are on disk, which are not.
       const storage = denyingStorage(() => false)
       const side = createSideCache({ storage, enumerateKeys: () => [] })
-      side.outboxStorage().save([entry, { ...entry, mutationId: 'm2' }])
+      side.outboxStorage().save([entry, { ...entry, mutationId: asMutationId('m2') }])
 
       // Now the store refuses, and a third write is attempted over the two that
       // are already durable.
@@ -636,7 +645,11 @@ describe('the side cache', () => {
       expect(() =>
         side2
           .outboxStorage()
-          .save([entry, { ...entry, mutationId: 'm2' }, { ...entry, mutationId: 'm3' }]),
+          .save([
+            entry,
+            { ...entry, mutationId: asMutationId('m2') },
+            { ...entry, mutationId: asMutationId('m3') },
+          ]),
       ).toThrow(OutboxNotDurableError)
 
       const failure = degraded[0] as OutboxNotDurableError
@@ -655,7 +668,7 @@ describe('the side cache', () => {
       // what licenses `notDurable` being a diff rather than "everything".
       const storage = denyingStorage(() => false)
       const side = createSideCache({ storage, enumerateKeys: () => [] })
-      side.outboxStorage().save([entry, { ...entry, mutationId: 'm2' }])
+      side.outboxStorage().save([entry, { ...entry, mutationId: asMutationId('m2') }])
       const denying = {
         ...storage,
         setItem: (k: string, v: string) => {
@@ -665,7 +678,13 @@ describe('the side cache', () => {
       }
       const side2 = createSideCache({ storage: denying, enumerateKeys: () => [] })
       expect(() =>
-        side2.outboxStorage().save([entry, { ...entry, mutationId: 'm2' }, { ...entry, mutationId: 'm3' }]),
+        side2
+          .outboxStorage()
+          .save([
+            entry,
+            { ...entry, mutationId: asMutationId('m2') },
+            { ...entry, mutationId: asMutationId('m3') },
+          ]),
       ).toThrow()
       // The reload's view: the two that were durable are still there.
       expect(

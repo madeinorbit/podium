@@ -1,5 +1,5 @@
 import type { SessionId } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asMutationId, asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { deadLetterHandlingFor } from './engine/wiring'
 import {
@@ -820,7 +820,7 @@ describe('recovery affordances are enforced, not advertised', () => {
     // Retrying without minting a fresh id is refused — the old id may still have
     // a receipt past the dedupe horizon.
     expect(() => ob.retry(old.mutationId, { rightsFixed: true })).toThrow()
-    const fresh = ob.retry(old.mutationId, { mutationId: 'm-fresh' })
+    const fresh = ob.retry(old.mutationId, { mutationId: asMutationId('m-fresh') })
     expect(fresh.mutationId).toBe('m-fresh')
   })
 })

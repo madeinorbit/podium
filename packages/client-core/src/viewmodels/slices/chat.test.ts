@@ -1,4 +1,4 @@
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import { asSessionId, asThreadId, type SessionMeta, type TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { buildChatRows, pairToolResults } from '../chat'
 import {
@@ -26,7 +26,7 @@ const item = (over: Partial<TranscriptItem> & Pick<TranscriptItem, 'role'>): Tra
 
 const session = (over: Partial<SessionMeta> = {}): SessionMeta =>
   ({
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     cwd: '/repo',
     status: 'live',
     geometry: { cols: 80, rows: 24 },
@@ -129,27 +129,27 @@ describe('superagent threads are per-user and private', () => {
   it('routes the principal’s own thread to its turn mutation', () => {
     expect(
       chatSendRoute({
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         headless: true,
-        superThread: { threadId: 't1', kind: 'global' },
+        superThread: { threadId: asThreadId('t1'), kind: 'global' },
         composer,
         ownThreadIds: new Set(['t1']),
       }),
-    ).toEqual({ kind: 'superagent-turn', threadId: 't1' })
+    ).toEqual({ kind: 'superagent-turn', threadId: asThreadId('t1') })
   })
 
   it('refuses a FOREIGN thread and a NONEXISTENT one identically', () => {
     const foreign = chatSendRoute({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       headless: true,
-      superThread: { threadId: 'someone-elses', kind: 'global' },
+      superThread: { threadId: asThreadId('someone-elses'), kind: 'global' },
       composer,
       ownThreadIds: new Set(['mine']),
     })
     const nonexistent = chatSendRoute({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       headless: true,
-      superThread: { threadId: 'never-existed', kind: 'global' },
+      superThread: { threadId: asThreadId('never-existed'), kind: 'global' },
       composer,
       ownThreadIds: new Set(['mine']),
     })
@@ -160,38 +160,43 @@ describe('superagent threads are per-user and private', () => {
   it('falls back to the server as the only gate when no roster is held', () => {
     expect(
       chatSendRoute({
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         headless: true,
-        superThread: { threadId: 't1', kind: 'global' },
+        superThread: { threadId: asThreadId('t1'), kind: 'global' },
         composer,
       }),
-    ).toEqual({ kind: 'superagent-turn', threadId: 't1' })
+    ).toEqual({ kind: 'superagent-turn', threadId: asThreadId('t1') })
   })
 
   it('routes a concierge thread by repo path, and a native session by id', () => {
     expect(
       chatSendRoute({
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         headless: true,
-        superThread: { threadId: 't1', kind: 'concierge', repoPath: '/repo' },
+        superThread: { threadId: asThreadId('t1'), kind: 'concierge', repoPath: '/repo' },
         composer,
         ownThreadIds: new Set(['t1']),
       }),
     ).toEqual({ kind: 'concierge', repoPath: '/repo' })
     expect(
-      chatSendRoute({ sessionId: 's1', headless: false, superThread: undefined, composer }),
+      chatSendRoute({
+        sessionId: asSessionId('s1'),
+        headless: false,
+        superThread: undefined,
+        composer,
+      }),
     ).toEqual({
       kind: 'session',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
     })
     expect(
       chatSendRoute({
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         headless: false,
         superThread: undefined,
         composer: { sendable: false, canResume: true },
       }),
-    ).toEqual({ kind: 'resume', sessionId: 's1' })
+    ).toEqual({ kind: 'resume', sessionId: asSessionId('s1') })
   })
 })
 

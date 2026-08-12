@@ -6,7 +6,7 @@
  * client).
  */
 
-import type { IssueUpdatePatch, MachineId, MutationId } from '@podium/commands'
+import type { IssueUpdatePatch } from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
@@ -19,7 +19,9 @@ import type {
   IssueEventWire,
   IssueId,
   IssueWire,
+  MachineId,
   MachineWire,
+  MutationId,
   SessionId,
   SessionMeta,
   WorkState,
@@ -464,11 +466,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * overlay paints the parent link only — the edge is derived server-side — so
    * the placement CHIP settles a round trip behind the row it describes.
    */
-  setIssuePlacement: (
-    id: string,
-    placement: 'own' | 'mission',
-    originId: string,
-  ) => Promise<void>
+  setIssuePlacement: (id: string, placement: 'own' | 'mission', originId: string) => Promise<void>
   /** UNDO a delete — `issues.restore`, `manage` authority: the issue comes back
    *  and, server-side, the exact sessions its delete tombstoned. Optimistic +
    *  outboxed, and a delete still QUEUED collapses against it, so the undo of a

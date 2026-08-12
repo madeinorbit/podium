@@ -31,7 +31,7 @@ import type {
   SessionMeta,
   ThreadId,
 } from '@podium/model'
-import { asIssueId } from '@podium/model'
+import { asIssueId, asThreadId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
@@ -515,7 +515,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     view: seed.persisted.view,
     settingsTab: seed.route.settingsTab,
     openIssueId: asIssueIdOrNull(seed.route.issueId),
-    superThreadId: 'global',
+    superThreadId: asThreadId('global'),
     // Default OPEN: the superagent is the desktop shell's center column now, not
     // an optional dock — only an explicit close ('0') keeps it collapsed.
     superOpen: seed.persisted.superOpen,

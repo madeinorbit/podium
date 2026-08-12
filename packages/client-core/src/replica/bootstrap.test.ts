@@ -9,6 +9,7 @@
  * convergence would pass while the outbox is being silently eaten."
  */
 
+import { asMutationId } from '@podium/model'
 import type { MetadataChangeLenient } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
@@ -26,7 +27,7 @@ const remove = (entity: string, id: string, seq: number): MetadataChangeLenient 
   ({ seq, entity, id, op: 'remove' }) as MetadataChangeLenient
 
 const userWrite: OutboxEntry = {
-  mutationId: 'mut_1',
+  mutationId: asMutationId('mut_1'),
   kind: 'issue.create',
   input: { title: 'the thing the user typed' },
   queuedAt: 1,

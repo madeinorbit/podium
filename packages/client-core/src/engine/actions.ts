@@ -8,6 +8,7 @@
  * single-operator placement.
  */
 
+import { asThreadId } from '@podium/model'
 import type {
   AgentKind,
   IssueId,
@@ -385,12 +386,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     setSuperOpen: (superOpen) => rt.apply({ superOpen }),
     setDockTab: (dockTab) => rt.apply({ dockTab }),
     startBtw: async (sessionId) => {
-      rt.apply({ superThreadId: `btw_${sessionId}`, superOpen: true })
+      rt.apply({ superThreadId: asThreadId(`btw_`), superOpen: true })
       await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
       await rt.refreshSuperThreads().catch(() => {})
     },
     tldrSession: async (sessionId, answerText) => {
-      const threadId = `btw_${sessionId}`
+      const threadId = asThreadId(`btw_`)
       rt.apply({ superThreadId: threadId, superOpen: true })
       await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
       const prompt = answerText.trim()

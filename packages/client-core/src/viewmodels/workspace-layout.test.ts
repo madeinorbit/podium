@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   activateTab,
@@ -66,10 +67,12 @@ const permanent = (ws: WorkspaceLayout, id: string): WorkspaceLayout =>
 
 describe('workspaceKeyFor', () => {
   it('prefers the mission root, then the issue, then the worktree', () => {
-    expect(workspaceKeyFor({ missionRootId: 'iss_root', issueId: 'iss_child' })).toBe(
-      'mission:iss_root',
+    expect(
+      workspaceKeyFor({ missionRootId: asIssueId('iss_root'), issueId: asIssueId('iss_child') }),
+    ).toBe('mission:iss_root')
+    expect(workspaceKeyFor({ issueId: asIssueId('iss_child'), worktreePath: '/wt' })).toBe(
+      'issue:iss_child',
     )
-    expect(workspaceKeyFor({ issueId: 'iss_child', worktreePath: '/wt' })).toBe('issue:iss_child')
     expect(workspaceKeyFor({ worktreePath: '/wt' })).toBe('wt:/wt')
     expect(workspaceKeyFor({})).toBe('none')
     expect(workspaceKeyFor({ missionRootId: null, issueId: null, worktreePath: null })).toBe('none')

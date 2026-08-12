@@ -1,6 +1,6 @@
-import type { ActivityComment, IssueEvent, IssueId } from '@podium/client-core/viewmodels'
+import type { ActivityComment, IssueEvent } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
-import type { IssueWire } from '@podium/model'
+import type { IssueId, IssueWire } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 
 /**

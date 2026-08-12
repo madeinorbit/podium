@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import type { AdvanceIdempotencyPort, IssueId, MachineId } from '@podium/commands'
-import { AgentKind, type SessionId } from '@podium/model'
+import type { AdvanceIdempotencyPort } from '@podium/commands'
+import { AgentKind, type IssueId, type MachineId, type SessionId } from '@podium/model'
 import type {
   ExecutionProfileWire,
   WorkflowGitObservation as GitObservation,
