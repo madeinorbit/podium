@@ -10,6 +10,9 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
+import { ActivationResumeBar } from '@/features/setup/ActivationShell'
+import { hasActivationState } from '@/features/setup/activation-route'
+import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
@@ -262,8 +265,32 @@ function AppBody(): JSX.Element {
   }, [view])
   const closeOverlay = (): void => setView(baseView)
   const workspaceActive = baseView === 'workspace'
-  const hasSessions = useStoreSelector((s) => s.sessions.length > 0)
-  const [dismissed, setDismissed] = useState(false)
+  const sessions = useStoreSelector((s) => s.sessions)
+  const {
+    state: activationState,
+    navigate: navigateActivation,
+    explore: explorePodium,
+    resume: resumeActivationRoute,
+    clear: clearActivation,
+  } = useActivationRoute()
+  const activationEligible = reposLoaded && repos.length === 0 && sessions.length === 0
+  const activationVisible =
+    activationEligible && activationState.mode === 'active' && workspaceActive
+  const activationResumeVisible =
+    activationEligible && (activationState.mode === 'exploring' || !workspaceActive)
+
+  // Repo/session creation is setup completion; query state is only a resumable
+  // first-run draft and must not shadow normal shell behavior afterward.
+  useEffect(() => {
+    if (reposLoaded && !activationEligible && hasActivationState(window.location.search)) {
+      clearActivation()
+    }
+  }, [activationEligible, clearActivation, reposLoaded])
+
+  const resumeActivation = (): void => {
+    resumeActivationRoute()
+    setView('workspace')
+  }
   // SUBSCRIBED, not seeded — the same bug as the two below, on the worklist
   // column (POD-540 handoff patch 1c). `sidebar.collapsed` is per-user
   // REPLICATED, so a `useState` initializer read it before the replica had the
@@ -477,16 +504,6 @@ function AppBody(): JSX.Element {
       </>
     )
   }
-  if (repos.length === 0 && !hasSessions && !dismissed) {
-    return (
-      <>
-        {menuHost}
-        <Suspense fallback={<LoadingScreen />}>
-          <OnboardingWizard onDismiss={() => setDismissed(true)} />
-        </Suspense>
-      </>
-    )
-  }
 
   const selectedIssue = selectedIssueId
     ? issues.find((issue) => issue.id === selectedIssueId && !issue.archived && !issue.deletedAt)
@@ -517,6 +534,14 @@ function AppBody(): JSX.Element {
           style={issueStyle}
         >
           <TopBar />
+          {activationResumeVisible && (
+            <ActivationResumeBar
+              routeLabel={
+                activationState.route === 'local-project' ? 'local projects' : 'welcome'
+              }
+              onResume={resumeActivation}
+            />
+          )}
           <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
             {/* The work list is persistent chrome: it stays mounted in every mode,
               so switching modes swaps the CONTENT REGION rather than the window
@@ -578,7 +603,21 @@ function AppBody(): JSX.Element {
                 )}
               </div>
             )}
-            <MainViewOutlet workspace={<Workspace />} view={baseView} />
+            <MainViewOutlet
+              workspace={
+                activationVisible ? (
+                  <OnboardingWizard
+                    route={activationState.route}
+                    onRouteChange={navigateActivation}
+                    onExplore={explorePodium}
+                    onComplete={clearActivation}
+                  />
+                ) : (
+                  <Workspace />
+                )
+              }
+              view={baseView}
+            />
             {workspaceActive && (
               <ResizableColumn
                 storageKey="podium:rightdock:width"

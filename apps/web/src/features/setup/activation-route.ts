@@ -1,0 +1,67 @@
+export const ACTIVATION_ROUTE_PARAM = 'activation'
+export const ACTIVATION_MODE_PARAM = 'activationMode'
+
+/**
+ * Routes inside first-run activation. Keep this separate from the application
+ * router: activation is a resumable surface layered into the real shell, not a
+ * replacement application mode. A guided VPS route can extend this union
+ * without coupling its steps to AppShell.
+ */
+export type ActivationRoute = 'welcome' | 'local-project'
+
+export type ActivationState = {
+  route: ActivationRoute
+  mode: 'active' | 'exploring'
+}
+
+export const DEFAULT_ACTIVATION_STATE: ActivationState = {
+  route: 'welcome',
+  mode: 'active',
+}
+
+function isActivationRoute(value: string | null): value is ActivationRoute {
+  return value === 'welcome' || value === 'local-project'
+}
+
+/** Parse defensively so stale or future route names return to the welcome step. */
+export function readActivationState(search: string): ActivationState {
+  const params = new URLSearchParams(search)
+  const route = params.get(ACTIVATION_ROUTE_PARAM)
+  return {
+    route: isActivationRoute(route) ? route : DEFAULT_ACTIVATION_STATE.route,
+    mode:
+      params.get(ACTIVATION_MODE_PARAM) === 'exploring'
+        ? 'exploring'
+        : DEFAULT_ACTIVATION_STATE.mode,
+  }
+}
+
+/** Whether activation has written anything that should be retired after setup. */
+export function hasActivationState(search: string): boolean {
+  const params = new URLSearchParams(search)
+  return params.has(ACTIVATION_ROUTE_PARAM) || params.has(ACTIVATION_MODE_PARAM)
+}
+
+/**
+ * Persist activation in the URL while preserving the app router's own query
+ * state (`server`, `e2e`, workspace selection, and future foreign params).
+ * The default welcome route stays implicit; every non-default route is exact.
+ */
+export function activationUrl(
+  location: Pick<Location, 'pathname' | 'search' | 'hash'>,
+  state: ActivationState | null,
+): string {
+  const params = new URLSearchParams(location.search)
+  params.delete(ACTIVATION_ROUTE_PARAM)
+  params.delete(ACTIVATION_MODE_PARAM)
+
+  if (state) {
+    if (state.route !== DEFAULT_ACTIVATION_STATE.route || state.mode === 'exploring') {
+      params.set(ACTIVATION_ROUTE_PARAM, state.route)
+    }
+    if (state.mode === 'exploring') params.set(ACTIVATION_MODE_PARAM, state.mode)
+  }
+
+  const search = params.toString()
+  return `${location.pathname}${search ? `?${search}` : ''}${location.hash}`
+}
