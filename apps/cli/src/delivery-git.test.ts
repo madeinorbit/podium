@@ -19,7 +19,9 @@ function runner(
 }
 
 function operation(call: Call): string | undefined {
-  return call.args.find((arg) => arg === 'status' || arg === 'fetch' || arg === 'checkout')
+  return call.args.find(
+    (arg) => arg === 'status' || arg === 'rev-parse' || arg === 'fetch' || arg === 'checkout',
+  )
 }
 
 describe('convergeViaGit', () => {
@@ -64,7 +66,24 @@ describe('convergeViaGit', () => {
     )
 
     expect(result).toEqual({ ok: true })
-    expect(calls.map(operation)).toEqual(['status', 'fetch', 'checkout'])
+    expect(calls.map(operation)).toEqual(['status', 'rev-parse', 'fetch', 'checkout'])
+  })
+
+  it('keeps an already-current source checkout attached to its branch', () => {
+    const calls: Call[] = []
+    const result = convergeViaGit(
+      { repo: '/checkout', sha: 'abc1234' },
+      {
+        run: runner(calls, (call) =>
+          operation(call) === 'rev-parse'
+            ? { status: 0, stdout: 'abc1234\n' }
+            : { status: 0, stdout: '' },
+        ),
+      },
+    )
+
+    expect(result).toEqual({ ok: true })
+    expect(calls.map(operation)).toEqual(['status', 'rev-parse'])
   })
 
   it('refuses when fetch fails', () => {
@@ -79,7 +98,7 @@ describe('convergeViaGit', () => {
     )
 
     expect(result).toEqual({ ok: false, reason: 'fetch-failed' })
-    expect(calls.map(operation)).toEqual(['status', 'fetch'])
+    expect(calls.map(operation)).toEqual(['status', 'rev-parse', 'fetch'])
   })
 
   it('refuses when checkout fails', () => {
@@ -94,7 +113,7 @@ describe('convergeViaGit', () => {
     )
 
     expect(result).toEqual({ ok: false, reason: 'checkout-failed' })
-    expect(calls.map(operation)).toEqual(['status', 'fetch', 'checkout'])
+    expect(calls.map(operation)).toEqual(['status', 'rev-parse', 'fetch', 'checkout'])
   })
 
   it('converges a clean checkout', () => {
@@ -123,12 +142,12 @@ describe('convergeViaGit', () => {
     )
 
     expect(result).toEqual({ ok: false, reason: 'timed-out' })
-    expect(calls.map(operation)).toEqual(['status', 'fetch'])
+    expect(calls.map(operation)).toEqual(['status', 'rev-parse', 'fetch'])
   })
 })
 
 /**
- * Git delivery is synchronous and runs three steps, so a per-step bound does
+ * Git delivery is synchronous and runs four steps, so a per-step bound does
  * not bound the sequence. The whole convergence must fail before the server's
  * silence deadline, or the server can age the grant out and re-grant while this
  * daemon is still blocked and unable to observe cancellation.
@@ -140,7 +159,7 @@ describe('withGitBudget', () => {
     const run = withGitBudget(
       (_cmd, _args, timeoutMs) => {
         seen.push(timeoutMs)
-        clock += 3 * 60_000
+        clock += 2 * 60_000
         return { status: 0, stdout: '' }
       },
       { totalMs: 8 * 60_000, now: () => clock },
@@ -149,7 +168,7 @@ describe('withGitBudget', () => {
     const result = convergeViaGit({ repo: '/checkout', sha: 'abc1234' }, { run })
 
     // Each step is granted only what the previous ones left behind.
-    expect(seen).toEqual([8 * 60_000, 5 * 60_000, 2 * 60_000])
+    expect(seen).toEqual([8 * 60_000, 6 * 60_000, 4 * 60_000, 2 * 60_000])
     expect(result).toEqual({ ok: true })
   })
 

@@ -97,7 +97,7 @@ describe('fetchArtifact', () => {
         pubkey,
         git: {
           run: (_cmd, args) => {
-            operations.push(args.find((arg) => ['status', 'fetch', 'checkout'].includes(arg)) ?? '')
+            operations.push(args.find((arg) => ['status', 'rev-parse', 'fetch', 'checkout'].includes(arg)) ?? '')
             return { status: 0, stdout: '' }
           },
         },
@@ -105,6 +105,6 @@ describe('fetchArtifact', () => {
     )
 
     expect(result).toEqual({ git: true })
-    expect(operations).toEqual(['status', 'fetch', 'checkout'])
+    expect(operations).toEqual(['status', 'rev-parse', 'fetch', 'checkout'])
   })
 })

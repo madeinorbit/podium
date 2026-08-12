@@ -39,6 +39,20 @@ describe('describeUpdate', () => {
     expect(server?.label).toContain('ludovico')
   })
 
+  it('folds the source browser rebuild into the coordinating server place', () => {
+    const v = describeUpdate({
+      ...base,
+      server: {
+        appVersion: 'dev+old1234',
+        target: { version: 'dev+abc1234', critical: false, artifacts: {} },
+      },
+    } as never)
+    expect((v as { places: { kind: string; label: string }[] }).places).toMatchObject([
+      { kind: 'server', label: 'This app and your server (ludovico)' },
+      { kind: 'machines' },
+    ])
+  })
+
   it('pluralises machines and says they are not interrupted', () => {
     const v = describeUpdate(base as never)
     const machines = (

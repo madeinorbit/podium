@@ -131,6 +131,22 @@ describe('UpdatesService', () => {
     expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
   })
 
+  it('continues an authorized wave when the canary proves current by reconnecting', () => {
+    const machines = [m('a'), m('b'), m('c')]
+    const { svc, send } = make(machines)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+
+    expect(svc.authorize()).toEqual(['a'])
+    expect(send).toHaveBeenCalledTimes(1)
+
+    const canary = machines[0]
+    if (!canary) throw new Error('test canary missing')
+    canary.version = '0.4.2'
+    svc.fleet()
+
+    expect(send).toHaveBeenCalledTimes(3)
+  })
+
   it('requires the raw reconnect identity instead of optimistic current status', () => {
     const machines = [m('a')]
     const { svc } = make(machines)

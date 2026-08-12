@@ -98,13 +98,28 @@ function appPlace(input: UpdateInput): Place {
 function placesFor(input: UpdateInput): Place[] {
   const places: Place[] = []
 
+  const sourceAppAndServer =
+    input.touched.app &&
+    input.touched.server &&
+    (input.surface === 'web' || input.surface === 'mobile') &&
+    (input.server.target?.version ?? '').startsWith('dev+')
+
+  if (sourceAppAndServer) {
+    const server = input.serverName ? `your server (${input.serverName})` : 'your server'
+    places.push({
+      kind: 'server',
+      label: `This app and ${server}`,
+      effect: 'will rebuild; this page will need to reload',
+    })
+  }
+
   // The all-in-one desktop shell is one place to the operator. Its embedded
   // server must not become a second row in the dialog.
   const appTouched =
     input.touched.app || (input.surface === 'desktop-all-in-one' && input.touched.server)
-  if (appTouched) places.push(appPlace(input))
+  if (appTouched && !sourceAppAndServer) places.push(appPlace(input))
 
-  if (input.touched.server && input.surface !== 'desktop-all-in-one') {
+  if (input.touched.server && input.surface !== 'desktop-all-in-one' && !sourceAppAndServer) {
     const label = input.serverName ? `Your server (${input.serverName})` : 'Your server'
     places.push({ kind: 'server', label, effect: 'will briefly reconnect' })
   }
