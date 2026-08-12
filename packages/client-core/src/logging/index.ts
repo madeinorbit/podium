@@ -17,6 +17,17 @@ export {
   toForwarded,
 } from './forward-sink'
 export {
+  applyServerLogLevel,
+  createLevelController,
+  DEFAULT_LEVEL_TTL_MS,
+  type LevelController,
+  type LogLevelCommand,
+  type LogLevelStatus,
+  logLevelStatus,
+  MAX_LEVEL_TTL_MS,
+  setActiveLevelController,
+} from './level-command'
+export {
   type ClientLogging,
   type ClientLoggingOptions,
   installClientLogging,

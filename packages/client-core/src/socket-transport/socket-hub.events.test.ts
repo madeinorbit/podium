@@ -5,7 +5,9 @@ import {
   encode,
   type ServerMessage,
 } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { resetLevels, resetLogging, setProcessContext } from '@podium/logger'
+import { afterEach, describe, expect, it } from 'vitest'
+import { createLevelController, setActiveLevelController } from '../logging/level-command'
 import { type SessionScopedServerMessage, SocketHub, type WebSocketLike } from './socket-hub'
 
 class FakeSocket implements WebSocketLike {
@@ -99,6 +101,7 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     presenceRoomState: noop,
     presenceRoomDelta: noop,
     presenceRoomClosed: noop,
+    setLogLevel: noop,
   }
 
   it('a mock future ServerMessage member without a handler fails compilation', () => {
@@ -267,5 +270,68 @@ describe('Codex review round (#261)', () => {
     fire()
     expect(late).toHaveLength(1)
     expect(skippedCalls).toBe(0)
+  })
+})
+
+/** The hello frame this socket sent. Found by type, not by index: the hub also
+ *  sends a heartbeat ping and a viewState around it, and an index would pin the
+ *  order of things this test does not care about. */
+function helloFrame(sock: FakeSocket): Record<string, unknown> {
+  const raw = sock.sent
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .find((frame) => frame.type === 'hello')
+  if (!raw) throw new Error('no hello frame was sent')
+  return raw
+}
+
+describe('SocketHub log level control (POD-1920)', () => {
+  afterEach(() => {
+    setActiveLevelController(null)
+    resetLogging()
+    resetLevels()
+    setProcessContext({})
+  })
+
+  it('applies a server-pushed setLogLevel without any per-app wiring', () => {
+    // THE POINT OF THIS TEST is the absence of a subscription. Nothing below
+    // registers a handler for the frame: the hub applies it, so a client that
+    // speaks this protocol is reachable by an operator whether or not its app
+    // remembered to wire anything.
+    const { sock, hub } = setup()
+    const levels = createLevelController({ boot: 'warn' })
+    setActiveLevelController(levels)
+    hub.connect()
+    sock.open()
+
+    sock.recv({ type: 'setLogLevel', level: 'debug', ttlMs: 60_000 } as ServerMessage)
+
+    expect(levels.status()).toMatchObject({ level: 'debug', boot: 'warn' })
+
+    sock.recv({ type: 'setLogLevel', level: null } as ServerMessage)
+
+    expect(levels.status()).toMatchObject({ level: 'warn', expiresAt: null })
+  })
+
+  it('names itself in hello with the origin its forwarded records carry', () => {
+    // Same tuple the server files this client's log file under, so "the mobile
+    // client on machine m1" is one thing whether you are reading its records or
+    // raising its level.
+    setProcessContext({ role: 'mobile', v: '1.2.3', machineId: 'm1' })
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+
+    expect(helloFrame(sock).origin).toEqual({ role: 'mobile', v: '1.2.3', machineId: 'm1' })
+  })
+
+  it('omits origin entirely when the client has no process context yet', () => {
+    // Absent is a legal answer and must look exactly like an older build's
+    // hello: such a connection is simply not individually addressable.
+    setProcessContext({})
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+
+    expect('origin' in helloFrame(sock)).toBe(false)
   })
 })

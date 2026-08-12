@@ -13,6 +13,11 @@ import {
 } from '@podium/logger'
 import { type CrashReporter, createCrashReporter } from './crash'
 import { createForwardingSink } from './forward-sink'
+import {
+  createLevelController,
+  type LevelController,
+  setActiveLevelController,
+} from './level-command'
 import { setActiveCrashReporter } from './runtime'
 
 /**
@@ -73,6 +78,13 @@ export interface ClientLoggingOptions {
 export interface ClientLogging {
   /** Hand this the error from whatever global handler the runtime provides. */
   reporter: CrashReporter
+  /**
+   * The runtime level knob (POD-1920): what a server-pushed `setLogLevel` lands
+   * in, and what a settings affordance drives. Returned as well as registered
+   * globally so a caller that holds the installation does not have to reach
+   * through module state to read its own status.
+   */
+  levels: LevelController
   /** The flight recorder's current contents, oldest first. */
   snapshot(): LogRecord[]
   /** Settle whatever the forwarding sink is holding. */
@@ -100,7 +112,14 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
     ...(options.platform ? { platform: options.platform } : {}),
     ...(machineId ? { machineId } : {}),
   })
-  setLogLevel(options.level ?? 'warn')
+  const boot = options.level ?? 'warn'
+  setLogLevel(boot)
+  // The boot level is captured HERE because this is the only place that knows
+  // it: an operator's reset says "back to your default" rather than naming one,
+  // so a later change to that default cannot strand a stale level in somebody's
+  // support instructions (POD-1920).
+  const levels = createLevelController({ boot })
+  setActiveLevelController(levels)
 
   const origin = (): LogOrigin => {
     const { v } = getProcessContext()
@@ -144,10 +163,13 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
 
   return {
     reporter,
+    levels,
     snapshot: () => ring.snapshot(),
     flush: () => forwarding.flush(),
     dispose: () => {
       setActiveCrashReporter(null)
+      setActiveLevelController(null)
+      levels.dispose()
       removeSink(ring)
       removeSink(forwarding)
       if (consoleSink) removeSink(consoleSink)

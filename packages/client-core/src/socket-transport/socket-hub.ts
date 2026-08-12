@@ -1,4 +1,4 @@
-import { createLogger } from '@podium/logger'
+import { createLogger, getProcessContext } from '@podium/logger'
 import type {
   AutomationRunWire,
   AutomationWire,
@@ -40,11 +40,31 @@ import {
   type SessionOpenUrlResultMessage,
   WIRE_VERSION,
 } from '@podium/protocol'
+import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
 import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
 
 const log = createLogger('client-core:socket-hub')
+
+/**
+ * This client's `hello.origin`, derived from the logger's process context
+ * (POD-1920). Returns the wrapper object so an absent role sends NO field at
+ * all: `origin: undefined` and a missing key are the same on the wire, but only
+ * the second is what an older build would have sent, and the server's reading of
+ * "absent means not individually addressable" is written against that.
+ */
+function clientLogOrigin(): { origin: { role: string; v?: string; machineId?: string } } | null {
+  const { role, v, machineId } = getProcessContext()
+  if (typeof role !== 'string' || role === '') return null
+  return {
+    origin: {
+      role,
+      ...(typeof v === 'string' ? { v } : {}),
+      ...(typeof machineId === 'string' ? { machineId } : {}),
+    },
+  }
+}
 
 const interactionNow = (): number =>
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -513,6 +533,14 @@ export class SocketHub {
         // with no feed sink must keep saying nothing rather than announcing a
         // version it has nowhere to put.
         ...(this.opts.feed ? { wireVersion: WIRE_VERSION } : {}),
+        // HOW THIS CLIENT NAMES ITSELF to an operator (POD-1920). Read from the
+        // logger's process context rather than taken as a hub option, because
+        // that context is what stamps the records the server files under this
+        // same tuple — an option would be a second answer to "which client is
+        // this?", free to disagree with the log file it is meant to match.
+        // Absent before client logging is installed, which is honest: nothing
+        // this connection says is being forwarded yet either.
+        ...(clientLogOrigin() ?? {}),
       })
       // Start both opaque feed sinks before restoring attaches and presence.
       this.opts.feed?.connected()
@@ -1354,6 +1382,16 @@ export class SocketHub {
     },
     attentionEvent: (msg) => {
       this.emit('attention', { sessionId: msg.sessionId, title: msg.title, body: msg.body })
+    },
+    setLogLevel: (msg) => {
+      // APPLIED HERE, not emitted for an app to wire (POD-1920). Every client
+      // that speaks this protocol runs this hub, and a per-app subscription is
+      // one composition root away from a feature that ships inert on the
+      // platform whose author forgot it — which for a diagnostic knob would
+      // mean an operator raising a phone that never hears them, with nothing
+      // failing to say so. `applyServerLogLevel` is a no-op before client
+      // logging is installed.
+      applyServerLogLevel({ level: msg.level, ...(msg.ttlMs ? { ttlMs: msg.ttlMs } : {}) })
     },
     sessionOpenUrl: (msg) => {
       this.emit('openUrl', msg)
