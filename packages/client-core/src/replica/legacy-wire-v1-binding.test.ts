@@ -5,6 +5,7 @@
  * the outbox survives a discard. These tests pin identity replacement and durable-outbox preservation at the Replica seam.
  */
 
+import { asMutationId } from '@podium/model'
 import { addSink } from '@podium/logger'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
@@ -38,7 +39,7 @@ const lists = (
 })
 
 const userWrite: OutboxEntry = {
-  mutationId: 'mut_1',
+  mutationId: asMutationId('mut_1'),
   kind: 'issue.create',
   input: { title: 'user work' },
   queuedAt: 1,

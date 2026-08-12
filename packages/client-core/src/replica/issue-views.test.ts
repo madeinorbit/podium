@@ -43,8 +43,8 @@ describe('membership by local index — the field POD-791 asked us to kill', () 
       session({ sessionId: asSessionId('s2'), issueId: asIssueId('i1') }),
       session({ sessionId: asSessionId('s3'), issueId: asIssueId('i2') }),
     ])
-    expect(index.get('i1')).toEqual(['s1', 's2'])
-    expect(index.get('i2')).toEqual(['s3'])
+    expect(index.get(asIssueId('i1'))).toEqual(['s1', 's2'])
+    expect(index.get(asIssueId('i2'))).toEqual(['s3'])
   })
 
   it('ignores sessions with no issue', () => {
@@ -66,7 +66,7 @@ describe('membership by local index — the field POD-791 asked us to kill', () 
       }),
     ])
 
-    expect(index.get('i1')).toEqual(['agent'])
+    expect(index.get(asIssueId('i1'))).toEqual(['agent'])
   })
 
   it('a session re-homing to another issue moves it in BOTH issues, with one source of truth', () => {
@@ -77,7 +77,7 @@ describe('membership by local index — the field POD-791 asked us to kill', () 
       [issue({ id: 'i1' }), issue({ id: 'i2' })],
       [session({ sessionId: asSessionId('s1'), issueId: asIssueId('i1') })],
     )
-    expect(before.get('i1')?.memberSessionIds).toEqual(['s1'])
+    expect(before.get('i1')?.memberSessionIds).toEqual([asSessionId('s1')])
     expect(before.get('i2')?.memberSessionIds).toEqual([])
 
     const after = deriveIssueViews(
@@ -85,7 +85,7 @@ describe('membership by local index — the field POD-791 asked us to kill', () 
       [session({ sessionId: asSessionId('s1'), issueId: asIssueId('i2') })],
     )
     expect(after.get('i1')?.memberSessionIds).toEqual([])
-    expect(after.get('i2')?.memberSessionIds).toEqual(['s1'])
+    expect(after.get('i2')?.memberSessionIds).toEqual([asSessionId('s1')])
   })
 
   it('a view model carries session IDS, never a SessionMeta', () => {
@@ -96,7 +96,7 @@ describe('membership by local index — the field POD-791 asked us to kill', () 
       [session({ sessionId: asSessionId('s1'), issueId: asIssueId('i1') })],
     )
     const view = views.get('i1')
-    expect(view?.memberSessionIds).toEqual(['s1'])
+    expect(view?.memberSessionIds).toEqual([asSessionId('s1')])
     expect(Object.values(view ?? {}).flat()).not.toContainEqual(
       expect.objectContaining({ sessionId: asSessionId('s1') }),
     )
@@ -248,7 +248,7 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
         lastActiveAt: '2026-07-17T09:00:00.000Z',
       }),
     ]
-    expect(deriveIssueRollups(read, ['s1'], sessionById(quiet)).unread).toBe(false)
+    expect(deriveIssueRollups(read, [asSessionId('s1')], sessionById(quiet)).unread).toBe(false)
 
     // The session speaks. THIS must move.
     const active = [
@@ -258,7 +258,7 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
         lastActiveAt: '2026-07-17T11:00:00.000Z',
       }),
     ]
-    expect(deriveIssueRollups(read, ['s1'], sessionById(active)).unread).toBe(true)
+    expect(deriveIssueRollups(read, [asSessionId('s1')], sessionById(active)).unread).toBe(true)
   })
 
   it('a never-read issue with any active session is unread', () => {
@@ -268,7 +268,7 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
     expect(
       deriveIssueRollups(
         { readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' },
-        ['s1'],
+        [asSessionId('s1')],
         sessionById(sessions),
       ).unread,
     ).toBe(true)
@@ -309,7 +309,7 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
         updatedAt: '2026-07-17T11:00:00.000Z',
         deletedAt: '2026-07-17T12:00:00.000Z',
       },
-      ['s1'],
+      [asSessionId('s1')],
       sessionById([
         session({ sessionId: asSessionId('s1'), lastActiveAt: '2026-07-17T13:00:00.000Z' }),
       ]),
@@ -326,7 +326,7 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
     ]
     const rollups = deriveIssueRollups(
       { readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' },
-      ['s1', 's2', 's3'],
+      [asSessionId('s1'), asSessionId('s2'), asSessionId('s3')],
       sessionById(sessions),
     )
     expect(rollups.sessionSummary).toEqual({ total: 3, byPhase: { working: 2, idle: 1 } })
@@ -337,7 +337,7 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
     // report a total the user cannot see.
     const rollups = deriveIssueRollups(
       { readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' },
-      ['s1', 'ghost'],
+      [asSessionId('s1'), asSessionId('ghost')],
       sessionById([session({ sessionId: asSessionId('s1') })]),
     )
     expect(rollups.sessionSummary.total).toBe(1)
@@ -362,7 +362,7 @@ describe('reading straight off the replica', () => {
     const views = deriveIssueViews(issues, sessions)
     expect(views.get('i1')).toMatchObject({
       displayRef: 'POD-13',
-      memberSessionIds: ['s1'],
+      memberSessionIds: [asSessionId('s1')],
       childCount: 1,
       childDoneCount: 1,
     })

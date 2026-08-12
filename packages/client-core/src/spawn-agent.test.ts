@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from './api'
 import { agentAcceptsArgvPrompt, createDraftAgent } from './spawn-agent'
@@ -30,7 +30,12 @@ describe('spawn machine-USE placement', () => {
     const result = createDraftAgent({
       ...base,
       trpc,
-      target: { path: '/worktree', repoPath: '/repo', machineId: 'machine-1', placement },
+      target: {
+        path: '/worktree',
+        repoPath: '/repo',
+        machineId: asMachineId('machine-1'),
+        placement,
+      },
     })
 
     await expect(result).rejects.toMatchObject({ reason: placement })
@@ -45,7 +50,7 @@ describe('spawn machine-USE placement', () => {
       target: {
         path: '/worktree',
         repoPath: '/repo',
-        machineId: 'machine-1',
+        machineId: asMachineId('machine-1'),
         placement: 'allowed',
       },
     })
@@ -55,7 +60,7 @@ describe('spawn machine-USE placement', () => {
       agentKind: 'codex',
       cwd: '/worktree',
       draftIssue: { repoPath: '/repo', issueId: 'issue-1' },
-      machineId: 'machine-1',
+      machineId: asMachineId('machine-1'),
     })
     // Per-field: `not.toEqual(expect.arrayContaining([...]))` only fails when
     // ALL of the listed fields are present at once, so a single leaked field
@@ -68,27 +73,28 @@ describe('spawn machine-USE placement', () => {
 })
 
 describe('firstPrompt delivery (POD-549)', () => {
-  it.each(['claude-code', 'codex', 'grok'] as const)(
-    'puts firstPrompt on create.initialPrompt for argv agent %s and does not resumeAndSend',
-    async (agentKind) => {
-      const { trpc, create, resumeAndSend } = api()
-      await createDraftAgent({
-        ...base,
-        agentKind,
-        trpc,
-        target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
-        firstPrompt: '  fix the bug  ',
-      })
+  it.each([
+    'claude-code',
+    'codex',
+    'grok',
+  ] as const)('puts firstPrompt on create.initialPrompt for argv agent %s and does not resumeAndSend', async (agentKind) => {
+    const { trpc, create, resumeAndSend } = api()
+    await createDraftAgent({
+      ...base,
+      agentKind,
+      trpc,
+      target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
+      firstPrompt: '  fix the bug  ',
+    })
 
-      expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          agentKind,
-          initialPrompt: 'fix the bug',
-        }),
-      )
-      expect(resumeAndSend).not.toHaveBeenCalled()
-    },
-  )
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentKind,
+        initialPrompt: 'fix the bug',
+      }),
+    )
+    expect(resumeAndSend).not.toHaveBeenCalled()
+  })
 
   it('falls back to resumeAndSend for non-argv agents after create seeds the draft', async () => {
     const { trpc, create, resumeAndSend } = api()

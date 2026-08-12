@@ -280,7 +280,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       // Assign BEFORE the durable retire, so any re-entrant recompute already
       // sees the pruned stage.
       this.awaitingTruth = pruned
-      for (const a of dropped) this.ports.outbox.retireAwaiting(a.overlay.key)
+      for (const a of dropped) this.ports.outbox.retireAwaiting(asMutationId(a.overlay.key))
     }
   }
 

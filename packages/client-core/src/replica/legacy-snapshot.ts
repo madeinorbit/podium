@@ -28,6 +28,7 @@
  *     migration did not delete the user's layout" is a measured claim.
  */
 
+import { asMutationId } from '@podium/model'
 import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
 import { createReplica, memoryStorage } from './replica'
 
@@ -102,7 +103,7 @@ export async function captureLegacyReplicaSnapshot(): Promise<CapturedLegacyRepl
 const PRE_REPLICA_DEVICE: LegacyReplicaSnapshot = {
   'podium.outbox.v1': JSON.stringify([
     {
-      mutationId: 'mut_ancient',
+      mutationId: asMutationId('mut_ancient'),
       kind: 'sessions.rename',
       input: { title: `${MIGRATION_PROBE_TEXT} (ancient)` },
       queuedAt: 5,
@@ -152,13 +153,13 @@ async function captureCollectionsDevice(): Promise<LegacyReplicaSnapshot> {
   queued.save([
     ...queued.load(),
     {
-      mutationId: 'mut_queued_1',
+      mutationId: asMutationId('mut_queued_1'),
       kind: 'sessions.rename',
       input: { title: `${MIGRATION_PROBE_TEXT} (queued first)` },
       queuedAt: 10,
     },
     {
-      mutationId: 'mut_queued_2',
+      mutationId: asMutationId('mut_queued_2'),
       kind: 'issues.close',
       input: { id: 'iss_1', note: `${MIGRATION_PROBE_TEXT} (queued second)` },
       queuedAt: 20,
@@ -166,7 +167,7 @@ async function captureCollectionsDevice(): Promise<LegacyReplicaSnapshot> {
   ])
   replica.outboxAwaitingStorage().save([
     {
-      mutationId: 'mut_awaiting',
+      mutationId: asMutationId('mut_awaiting'),
       kind: 'sessions.rename',
       input: { title: `${MIGRATION_PROBE_TEXT} (awaiting truth)` },
       queuedAt: 15,

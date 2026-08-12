@@ -20,6 +20,7 @@
  */
 
 import { createRequire } from 'node:module'
+import { asMutationId } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import type {
   PersistedCollectionPersistence,
@@ -314,7 +315,9 @@ describe('sqlite-persisted replica (POD-789)', () => {
     // Ancient raw-key era too (parseOutboxEntries path).
     legacy.setItem(
       'podium.outbox.v1',
-      JSON.stringify([{ mutationId: 'm0', kind: 'issue.update', input: {}, queuedAt: 500 }]),
+      JSON.stringify([
+        { mutationId: asMutationId('m0'), kind: 'issue.update', input: {}, queuedAt: 500 },
+      ]),
     )
 
     const a = h.make({ storage: legacy })
@@ -376,8 +379,8 @@ describe('sqlite-persisted replica (POD-789)', () => {
     const a = h.make()
     await a.hydrate()
     a.outboxStorage().save([
-      { mutationId: 'w1', kind: 'issue.update', input: { id: 'i1' }, queuedAt: 1 },
-      { mutationId: 'w2', kind: 'issue.update', input: { id: 'i2' }, queuedAt: 2 },
+      { mutationId: asMutationId('w1'), kind: 'issue.update', input: { id: 'i1' }, queuedAt: 1 },
+      { mutationId: asMutationId('w2'), kind: 'issue.update', input: { id: 'i2' }, queuedAt: 2 },
     ])
     a.uiState().set('podium.view', 'files')
     await a.flush()

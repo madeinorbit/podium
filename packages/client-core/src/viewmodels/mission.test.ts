@@ -7,6 +7,7 @@
 // filters, and the per-row operational state that drives the status column.
 
 import {
+  asIssueId,
   ISSUE_STAGES,
   type SessionMeta,
   type SessionMetaInput,
@@ -169,20 +170,22 @@ function mission(): { issues: IssueNavigationModel[]; sessions: SessionMeta[] } 
 describe('missionRootFor', () => {
   it('walks a deep descendant up to the top-level ancestor', () => {
     const { issues } = mission()
-    expect(missionRootFor(issues, 'g2')?.id).toBe('root')
-    expect(missionRootFor(issues, 'c1')?.id).toBe('root')
+    expect(missionRootFor(issues, asIssueId('g2'))?.id).toBe('root')
+    expect(missionRootFor(issues, asIssueId('c1'))?.id).toBe('root')
   })
 
   it('returns the issue itself when it is already top-level', () => {
     const { issues } = mission()
-    expect(missionRootFor(issues, 'root')?.id).toBe('root')
+    expect(missionRootFor(issues, asIssueId('root'))?.id).toBe('root')
   })
 
   it.each<[string, string | null]>([
     ['no selection', null],
     ['an id the replica has not seen', 'ghost'],
   ])('is undefined for %s', (_name, selected) => {
-    expect(missionRootFor(mission().issues, selected)).toBeUndefined()
+    expect(
+      missionRootFor(mission().issues, selected === null ? null : asIssueId(selected)),
+    ).toBeUndefined()
   })
 
   it('stops below an archived or deleted parent rather than surfacing it', () => {
@@ -192,8 +195,8 @@ describe('missionRootFor', () => {
       issue('a', { parentId: 'dead' }),
       issue('b', { parentId: 'gone' }),
     ]
-    expect(missionRootFor(issues, 'a')?.id).toBe('a')
-    expect(missionRootFor(issues, 'b')?.id).toBe('b')
+    expect(missionRootFor(issues, asIssueId('a'))?.id).toBe('a')
+    expect(missionRootFor(issues, asIssueId('b'))?.id).toBe('b')
   })
 
   it('terminates on a parentId cycle instead of hanging', () => {
@@ -203,7 +206,7 @@ describe('missionRootFor', () => {
       issue('b', { parentId: 'a' }),
       issue('c', { parentId: 'b' }),
     ]
-    expect(['a', 'b', 'c']).toContain(missionRootFor(issues, 'a')?.id)
+    expect(['a', 'b', 'c']).toContain(missionRootFor(issues, asIssueId('a'))?.id)
   })
 })
 

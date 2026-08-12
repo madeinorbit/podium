@@ -1,4 +1,11 @@
-import { type AgentKind, type SessionMeta, spawnedByParentSessionId, type IssueId, type SessionId } from '@podium/model'
+import {
+  asIssueId,
+  type AgentKind,
+  type SessionMeta,
+  spawnedByParentSessionId,
+  type IssueId,
+  type SessionId,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
 import { sessionsForIssueNav } from './session-ownership'
@@ -1216,14 +1223,14 @@ export function portfolioActionableCount(
     list.push(session)
     byIssue.set(issueId, list)
   }
-  const memberOf = new Map<string, string>()
+  const memberOf = new Map<SessionId, IssueId>()
   for (const issue of issues) {
     for (const sessionId of issue.memberSessionIds ?? []) memberOf.set(sessionId, issue.id)
   }
   for (const session of sessions) {
     if (session.archived) continue
     const owner = session.issueId ?? memberOf.get(session.sessionId)
-    if (owner) add(owner, session)
+    if (owner) add(asIssueId(owner), session)
   }
   return issues.filter((issue) => issueIsActionable(issue, byIssue.get(issue.id) ?? [])).length
 }

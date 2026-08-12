@@ -10,7 +10,8 @@
  * that the keys it actually produces are exactly the ones the importer looks for.
  *
  * WHY THE PROOF IS HERE AND THE LIST IS THERE. `packages/sync` is L2 and may not
- * import `packages/client-core` (L3), so the inventory cannot be derived from the
+ * import { asMutationId } from '@podium/model'
+import `packages/client-core` (L3), so the inventory cannot be derived from the
  * writer at runtime. Splitting it this way makes the drift a TEST FAILURE rather
  * than a silent divergence: rename a collection key in replica.ts and this goes
  * red, naming the key the importer would have missed.
@@ -75,9 +76,16 @@ async function exerciseLegacyReplica(): Promise<{ keys: string[] }> {
     { id: 'i1', role: 'user', text: 'hi' } as unknown as TranscriptItem,
   ])
   replica.setCursor(42)
-  replica.outboxStorage().save([
-    { mutationId: 'mut_1', kind: 'sessions.rename', input: { title: 'x' }, queuedAt: 1 },
-  ])
+  replica
+    .outboxStorage()
+    .save([
+      {
+        mutationId: asMutationId('mut_1'),
+        kind: 'sessions.rename',
+        input: { title: 'x' },
+        queuedAt: 1,
+      },
+    ])
   replica.uiState().set('podium.view', 'home')
   // The cursor write is FENCED behind the entity writes issued before it — the
   // cursor-after-data invariant, implemented as a promise chain. So it lands a
@@ -146,8 +154,18 @@ describe('ADR 6 D6 — readLegacyReplica against a store the real writer produce
     replica.applySnapshot('sessions', [session('sess_1')])
     replica.setCursor(42)
     replica.outboxStorage().save([
-      { mutationId: 'mut_1', kind: 'sessions.rename', input: { title: 'renamed' }, queuedAt: 10 },
-      { mutationId: 'mut_2', kind: 'sessions.rename', input: { title: 'later' }, queuedAt: 20 },
+      {
+        mutationId: asMutationId('mut_1'),
+        kind: 'sessions.rename',
+        input: { title: 'renamed' },
+        queuedAt: 10,
+      },
+      {
+        mutationId: asMutationId('mut_2'),
+        kind: 'sessions.rename',
+        input: { title: 'later' },
+        queuedAt: 20,
+      },
     ])
     for (let i = 0; i < 20; i += 1) await Promise.resolve()
     return storage.api

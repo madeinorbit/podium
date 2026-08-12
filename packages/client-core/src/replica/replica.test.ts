@@ -9,6 +9,7 @@
  */
 
 import { addSink } from '@podium/logger'
+import { asMutationId, asUserId } from '@podium/model'
 import {
   type AutomationId,
   type AutomationRunId,
@@ -288,7 +289,7 @@ describe('replica outbox storage: in-place entry transitions (#263 review findin
     const storage = memoryStorage()
     const prefix = 'ob.transition'
     const entry = {
-      mutationId: 'm-1',
+      mutationId: asMutationId('m-1'),
       kind: 'rename',
       input: { sessionId: 's1', name: 'one' },
       queuedAt: 1000,
@@ -321,7 +322,7 @@ describe('replica outbox storage: in-place entry transitions (#263 review findin
     const storage = memoryStorage()
     const prefix = 'ob.park'
     const parked = {
-      mutationId: 'm-parked',
+      mutationId: asMutationId('m-parked'),
       kind: 'rename',
       input: null,
       queuedAt: 1000,
@@ -378,7 +379,7 @@ describe('replica layout rows (POD-571)', () => {
       layout('superagent.mode', 'folded'),
     ])
 
-    replica.applyChanges('userLayouts', [], [layoutRowId('u1', 'sidebar.collapsed')])
+    replica.applyChanges('userLayouts', [], [layoutRowId(asUserId('u1'), 'sidebar.collapsed')])
 
     expect(wire(replica.rows('userLayouts'))).toEqual([layout('superagent.mode', 'folded')])
   })

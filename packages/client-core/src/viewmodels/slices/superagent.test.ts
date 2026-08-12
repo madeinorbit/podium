@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, asThreadId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createSlicePublisher } from './publish'
 import { superagentSlice, threadById, type SuperThreadView } from './superagent'
@@ -23,9 +23,9 @@ function thread(id: string, over: Partial<SuperThreadView> = {}): SuperThreadVie
   return { id, kind: 'global', ...over }
 }
 
-const source = (threads: SuperThreadView[], superThreadId = 'global') => ({
+const source = (threads: readonly SuperThreadView[], superThreadId = 'global') => ({
   superThreads: threads,
-  superThreadId,
+  superThreadId: asThreadId(superThreadId),
 })
 
 describe('superagentSlice', () => {

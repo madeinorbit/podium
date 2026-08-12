@@ -8,6 +8,7 @@
 import {
   asArtifactId,
   asIssueId,
+  asMachineId,
   asSessionId,
   DEVICE_LOCAL_UI_KEYS,
   type IssueId,
@@ -561,7 +562,7 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
     case 'workspace':
       return second === undefined ? { view: 'workspace', ...base } : null
     case 'issues':
-      return { view: 'issues', ...base, issueId: second ?? null }
+      return { view: 'issues', ...base, issueId: second === undefined ? null : asIssueId(second) }
     case 'settings':
       return { view: 'settings', ...base, settingsTab: second ?? null }
     case 'usage':
@@ -794,7 +795,7 @@ export function readStoredRecentFiles(ui: Pick<RoutedUiState, 'get'>): RecentFil
           path: row.path,
           worktreePath: row.worktreePath,
           openedAt: row.openedAt,
-          ...(typeof row.machineId === 'string' ? { machineId: row.machineId } : {}),
+          ...(typeof row.machineId === 'string' ? { machineId: asMachineId(row.machineId) } : {}),
           ...(artifact &&
           typeof artifact.issueId === 'string' &&
           typeof artifact.artifactId === 'string'

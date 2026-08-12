@@ -331,8 +331,8 @@ export function createReplicatedLayoutController(init: {
     reconcile: (snapshot, mutationIds) => {
       installBase(snapshot)
       for (const mutationId of mutationIds) {
-        ignoredAwaiting.add(mutationId)
-        outbox.retireAwaiting(mutationId)
+        ignoredAwaiting.add(mutationId as MutationId)
+        outbox.retireAwaiting(mutationId as MutationId)
       }
       for (const [key, value] of accepted) {
         if (!mutationIds.includes(value.mutationId)) continue

@@ -382,16 +382,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         rt.router.navigate({ ...current, view: 'issues', issueId: id })
       }
     },
-    setSuperThreadId: (superThreadId) => rt.apply({ superThreadId }),
+    setSuperThreadId: (superThreadId) => rt.apply({ superThreadId: asThreadId(superThreadId) }),
     setSuperOpen: (superOpen) => rt.apply({ superOpen }),
     setDockTab: (dockTab) => rt.apply({ dockTab }),
     startBtw: async (sessionId) => {
-      rt.apply({ superThreadId: asThreadId(`btw_`), superOpen: true })
+      rt.apply({ superThreadId: asThreadId(`btw_${sessionId}`), superOpen: true })
       await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
       await rt.refreshSuperThreads().catch(() => {})
     },
     tldrSession: async (sessionId, answerText) => {
-      const threadId = asThreadId(`btw_`)
+      const threadId = asThreadId(`btw_${sessionId}`)
       rt.apply({ superThreadId: threadId, superOpen: true })
       await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
       const prompt = answerText.trim()
