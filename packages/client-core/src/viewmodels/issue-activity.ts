@@ -49,20 +49,20 @@ export interface IssueEventLine {
   icon: IssueEventIcon
   text: string
   /**
-   * True for a line that records no decision — an unrecognised kind rendered
-   * through the generic de-prefixed fallback below. These arrive in floods (an
-   * agent's `issue.read` ticks land dozens at a time), so the feed ROLLS RUNS OF
-   * THEM into one expandable line rather than listing each. Known transitions
-   * never carry the flag: every one of them is a thing a human decided or a
-   * thing that changed the issue's state.
+   * True for a line that records no known decision — an unrecognised kind
+   * rendered through the generic de-prefixed fallback below. These can arrive
+   * in floods, so the feed ROLLS RUNS OF THEM into one expandable line rather
+   * than listing each. Known transitions never carry the flag: every one of
+   * them is a thing a human decided or a thing that changed the issue's state.
    */
   minor?: boolean
 }
 
-// Pure UI-sync bookkeeping events (agent panel/state publishes) fire on nearly
-// every mutation — they are churn, not user-meaningful transitions, so the feed
-// hides them rather than drowning real activity.
-const HIDDEN_KINDS = new Set(['issue.state', 'issue.panel'])
+// Pure UI bookkeeping events fire as the interface synchronises state. In
+// particular, read/unread belongs in the audit log because it drives per-user
+// attention, but viewing an issue is not activity ON that issue. Keep all of
+// these out of the human timeline so they cannot displace comments or changes.
+const HIDDEN_KINDS = new Set(['issue.state', 'issue.panel', 'issue.read', 'issue.unread'])
 
 function asRecord(payload: unknown): Record<string, unknown> {
   return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
@@ -71,6 +71,18 @@ function asRecord(payload: unknown): Record<string, unknown> {
 /** "issue.pinned" → "pinned"; "issue.snoozed_until" → "snoozed until". */
 function humanizeKind(kind: string): string {
   return kind.replace(/^issue\./, '').replace(/_/g, ' ')
+}
+
+function eventDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const at = new Date(value)
+  if (Number.isNaN(at.getTime())) return null
+  return at.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 /**
@@ -118,6 +130,18 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
             ? `integration blocked at #${p.blockedAt}`
             : 'integration ran',
       }
+    case 'issue.pinned':
+      return { icon: 'generic', text: p.pinned === false ? 'unpinned' : 'pinned' }
+    case 'issue.archived':
+      return { icon: 'generic', text: 'archived' }
+    case 'issue.auto_archived':
+      return { icon: 'generic', text: 'automatically archived' }
+    case 'issue.snoozed': {
+      const until = eventDate(p.until)
+      return { icon: 'generic', text: until ? `snoozed until ${until}` : 'snoozed' }
+    }
+    case 'issue.unsnoozed':
+      return { icon: 'generic', text: 'unsnoozed' }
     default:
       // Forward-compat, but QUIET: an unrecognised kind still renders (a future
       // event type is never silently dropped) and is marked minor so a flood of
@@ -173,11 +197,10 @@ export function buildActivityFeed(
 // Presentation grouping (POD-591)
 //
 // The flat chronological feed is the MODEL; it is not what a human should read.
-// One task's log is mostly minor churn — POD-516 carried 28 consecutive
-// `issue.read` ticks between two real transitions — so the feed renders as days
-// of entries, with runs of minor events collapsed behind one line the operator
-// can open. Pure and separate from `buildActivityFeed` so the merge order stays
-// independently testable.
+// One task's log can contain minor forward-compatible events between real
+// transitions, so the feed renders as days of entries, with runs of minor
+// events collapsed behind one line the operator can open. Pure and separate
+// from `buildActivityFeed` so the merge order stays independently testable.
 // ---------------------------------------------------------------------------
 
 /** A collapsed run of consecutive minor events. `items` are the originals, in

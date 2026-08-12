@@ -93,19 +93,51 @@ describe('formatIssueEvent', () => {
     )
   })
 
-  it('hides pure UI-sync bookkeeping events', () => {
-    expect(formatIssueEvent(ev({ kind: 'issue.state' }))).toBeNull()
-    expect(formatIssueEvent(ev({ kind: 'issue.panel' }))).toBeNull()
+  it('hides UI-sync and per-user read bookkeeping events', () => {
+    for (const kind of ['issue.state', 'issue.panel', 'issue.read', 'issue.unread']) {
+      expect(formatIssueEvent(ev({ kind })), kind).toBeNull()
+    }
+  })
+
+  it('describes curation events as meaningful transitions', () => {
+    expect(formatIssueEvent(ev({ kind: 'issue.pinned', payload: { pinned: true } }))).toEqual({
+      icon: 'generic',
+      text: 'pinned',
+    })
+    expect(formatIssueEvent(ev({ kind: 'issue.pinned', payload: { pinned: false } }))).toEqual({
+      icon: 'generic',
+      text: 'unpinned',
+    })
+    expect(formatIssueEvent(ev({ kind: 'issue.archived' }))).toEqual({
+      icon: 'generic',
+      text: 'archived',
+    })
+    expect(formatIssueEvent(ev({ kind: 'issue.auto_archived' }))).toEqual({
+      icon: 'generic',
+      text: 'automatically archived',
+    })
+    expect(
+      formatIssueEvent(
+        ev({ kind: 'issue.snoozed', payload: { until: '2026-07-10T09:30:00.000Z' } }),
+      ),
+    ).toEqual({
+      icon: 'generic',
+      text: `snoozed until ${new Date('2026-07-10T09:30:00.000Z').toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`,
+    })
+    expect(formatIssueEvent(ev({ kind: 'issue.unsnoozed' }))).toEqual({
+      icon: 'generic',
+      text: 'unsnoozed',
+    })
   })
 
   it('renders an unknown kind generically, and marks it minor (POD-591)', () => {
     // Still rendered — a future event type is never silently dropped — but
     // flagged so a flood of them collapses instead of burying the transitions.
-    expect(formatIssueEvent(ev({ kind: 'issue.pinned' }))).toEqual({
-      icon: 'generic',
-      text: 'pinned',
-      minor: true,
-    })
     expect(formatIssueEvent(ev({ kind: 'issue.snoozed_until' }))).toEqual({
       icon: 'generic',
       text: 'snoozed until',
@@ -125,6 +157,11 @@ describe('formatIssueEvent', () => {
       'issue.needs_human_cleared',
       'issue.ready',
       'issue.integration',
+      'issue.pinned',
+      'issue.archived',
+      'issue.auto_archived',
+      'issue.snoozed',
+      'issue.unsnoozed',
     ]) {
       expect(formatIssueEvent(ev({ kind }))?.minor, kind).toBeUndefined()
     }
@@ -165,7 +202,11 @@ describe('buildActivityFeed', () => {
   })
 
   it('drops hidden events from the feed', () => {
-    const feed = buildActivityFeed([], events)
+    const feed = buildActivityFeed([], [
+      ...events,
+      ev({ id: 13, kind: 'issue.read', ts: '2026-07-07T00:00:05.000Z' }),
+      ev({ id: 14, kind: 'issue.unread', ts: '2026-07-07T00:00:06.000Z' }),
+    ])
     expect(feed.some((i) => i.kind === 'event' && i.line.text === 'issue.state')).toBe(false)
     expect(feed).toHaveLength(2)
   })

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type { IssueEvent } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -71,7 +72,7 @@ const setPane = vi.fn()
 const setView = vi.fn()
 const setOpenIssueId = vi.fn()
 
-const EVENT_ROWS = [
+const BASE_EVENT_ROWS: IssueEvent[] = [
   {
     id: 1,
     ts: '2026-08-07T00:00:00.000Z',
@@ -89,11 +90,12 @@ const EVENT_ROWS = [
     payload: null,
   },
 ]
+let eventRows = BASE_EVENT_ROWS
 // Honours `subject` the way the SQL does (POD-532), so a caller that forgets to
 // send it fails here instead of quietly rendering another issue's history.
 const eventsQuery = vi.fn(async (input?: unknown) => {
   const subject = (input as { subject?: string } | undefined)?.subject
-  return subject ? EVENT_ROWS.filter((row) => row.subject === subject) : EVENT_ROWS
+  return subject ? eventRows.filter((row) => row.subject === subject) : eventRows
 })
 
 vi.mock('@/app/store', () => {
@@ -141,6 +143,7 @@ const parts = (): string[] =>
 beforeEach(() => {
   mockIssues = [ROOT, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
   mockSessions = []
+  eventRows = BASE_EVENT_ROWS
 })
 
 afterEach(() => {
@@ -368,6 +371,34 @@ describe('IssuePanelView inspector', () => {
     expect(eventsQuery).toHaveBeenCalledWith(expect.objectContaining({ subject: 'root' }))
     // The child's own creation event belongs to the child's feed, not this one.
     expect(await within(feed).findAllByText('created')).toHaveLength(1)
+  })
+
+  it('keeps semantic updates when later read receipts arrive', async () => {
+    eventRows = [
+      BASE_EVENT_ROWS[0]!,
+      {
+        id: 3,
+        ts: '2026-08-07T00:02:00.000Z',
+        kind: 'issue.stage_changed',
+        subject: 'root',
+        repoPath: '/r',
+        payload: { to: 'review' },
+      },
+      ...Array.from({ length: 6 }, (_, index) => ({
+        id: 10 + index,
+        ts: `2026-08-07T00:${String(10 + index).padStart(2, '0')}:00.000Z`,
+        kind: 'issue.read',
+        subject: 'root',
+        repoPath: '/r',
+        payload: null,
+      })),
+    ]
+    render(<IssuePanelView cwd="/r" />)
+
+    const feed = await screen.findByTestId('dock-recent-activity')
+    expect(within(feed).getByText('moved to Review')).toBeTruthy()
+    expect(within(feed).getByText('created')).toBeTruthy()
+    expect(within(feed).queryByText('read')).toBeNull()
   })
 
   it('links out to the full activity', () => {
