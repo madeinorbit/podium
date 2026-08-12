@@ -6,9 +6,10 @@
  */
 
 import { sessionStateCommand, sessionStateCommandNames } from '@podium/commands'
+import { addSink, resetLevels, setLogLevel } from '@podium/logger'
 import type { IssueWire, SessionMeta, SessionMetaInput } from '@podium/model'
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { ACTION_STATE_REDUCER_COMMANDS } from './actions'
 import {
@@ -336,7 +337,14 @@ describe('pruneAwaiting (retirement rule (a))', () => {
   })
 
   it('the TTL backstop retires a stuck entry (with a debug note), bounding the mask', () => {
-    const dbg = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    // The note travels as a record now. Capture with a REAL sink and no
+    // `minLevel`, so it follows the namespace level exactly as production sinks
+    // do — which means the level has to be raised to `debug` first, the same
+    // act an operator performs to diagnose. A capture pinned at `trace` would
+    // see records a real deployment never emits.
+    const captured: { level: string; msg?: unknown }[] = []
+    setLogLevel('debug')
+    const restore = addSink({ name: 'overlay-test-capture', write: (r) => captured.push(r) })
     try {
       const row = sess()
       const awaiting = [awaitRename(row, 'mine', 'm-stuck', NOW)]
@@ -348,9 +356,10 @@ describe('pruneAwaiting (retirement rule (a))', () => {
       expect(
         pruneAwaiting(awaiting, 'sessions', [row], keyOf, NOW + AWAITING_TRUTH_TTL_MS + 1),
       ).toEqual([])
-      expect(dbg.mock.calls.some((c) => String(c[0]).includes('outlived its TTL'))).toBe(true)
+      expect(captured.some((r) => String(r.msg).includes('outlived its TTL'))).toBe(true)
     } finally {
-      dbg.mockRestore()
+      restore()
+      resetLevels()
     }
   })
 })

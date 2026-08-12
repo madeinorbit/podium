@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { addSink } from '@podium/logger'
 import { describe, expect, it, vi } from 'vitest'
 import {
   type MirrorReadResult,
@@ -374,7 +375,11 @@ describe('MirrorService', () => {
   })
 
   it('backs off on a read error: cursor untouched, no lake file, re-enqueue is a no-op', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // A real sink, not a console spy: the diagnostic travels as a record now,
+    // and no `minLevel` so this follows the namespace level exactly as the
+    // production sinks do.
+    const captured: { level: string }[] = []
+    const restore = addSink({ name: 'mirror-test-capture', write: (r) => captured.push(r) })
     try {
       const { store, fs, mirror } = setup()
       const path = seed(store, 'm1', 'denied')
@@ -395,9 +400,9 @@ describe('MirrorService', () => {
       await settle(mirror, 'm1')
       expect(fs.log.length).toBe(1)
       expect(store.mirrorCursor('m1', 'denied')).toBe(0)
-      expect(warn).toHaveBeenCalled()
+      expect(captured.filter((r) => r.level === 'warn').length).toBeGreaterThan(0)
     } finally {
-      warn.mockRestore()
+      restore()
     }
   })
 

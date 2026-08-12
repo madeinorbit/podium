@@ -8,7 +8,18 @@
  * what yanked the engine's worktree selection (see engine.test.ts).
  */
 
-import { asAutomationId, asAutomationRunId, asSessionId, type AutomationId, type AutomationRunId, type AutomationRunWire, type AutomationWire, type IssueWire, type SessionMeta } from '@podium/model'
+import { addSink } from '@podium/logger'
+import {
+  type AutomationId,
+  type AutomationRunId,
+  type AutomationRunWire,
+  type AutomationWire,
+  asAutomationId,
+  asAutomationRunId,
+  asSessionId,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
 
@@ -178,7 +189,12 @@ describe('replica row-notification coalescing (#262 review)', () => {
   })
 
   it('a write landing around the flush cap still reaches subscribers via the deferred microtask flush (#263 finding 5)', async () => {
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // A real sink, not a console spy: the diagnostic travels as a record now.
+    // No `minLevel`, so it follows the namespace level as production sinks do.
+    const captured: { level: string; msg?: unknown }[] = []
+    const err = {
+      restore: addSink({ name: 'replica-test-capture', write: (r) => captured.push(r) }),
+    }
     try {
       const replica = createReplica({ storage: memoryStorage() })
       let calls = 0
@@ -194,7 +210,7 @@ describe('replica row-notification coalescing (#262 review)', () => {
       replica.applyChanges('sessions', [session('a')], [])
       // The synchronous flush stops at the cap (the stack stays bounded) …
       expect(calls).toBeLessThanOrEqual(101)
-      expect(err.mock.calls.some((c) => String(c[0]).includes('did not converge'))).toBe(true)
+      expect(captured.some((r) => String(r.msg).includes('did not converge'))).toBe(true)
       await new Promise((r) => setTimeout(r, 0))
       // … and the microtask continuation delivered EVERY remaining
       // notification: the final write is observed, nothing dropped. (>= — the
@@ -208,16 +224,19 @@ describe('replica row-notification coalescing (#262 review)', () => {
       // finding 5's bug) must not have fired. In this harness the collection's
       // trailing async events can mask a drop by restarting delivery, so the
       // no-drop pin is the discriminator.
-      expect(err.mock.calls.some((c) => String(c[0]).includes('dropping the remainder'))).toBe(
-        false,
-      )
+      expect(captured.some((r) => String(r.msg).includes('dropping the remainder'))).toBe(false)
     } finally {
-      err.mockRestore()
+      err.restore()
     }
   })
 
   it('a listener that writes on EVERY notification is cut off after bounded deferrals instead of spinning forever', async () => {
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // A real sink, not a console spy: the diagnostic travels as a record now.
+    // No `minLevel`, so it follows the namespace level as production sinks do.
+    const captured: { level: string; msg?: unknown }[] = []
+    const err = {
+      restore: addSink({ name: 'replica-test-capture', write: (r) => captured.push(r) }),
+    }
     try {
       const replica = createReplica({ storage: memoryStorage() })
       let calls = 0
@@ -236,13 +255,13 @@ describe('replica row-notification coalescing (#262 review)', () => {
       // is loose on purpose; the property under test is TERMINATION.)
       await new Promise((r) => setTimeout(r, 0))
       expect(calls).toBeLessThanOrEqual(5000)
-      expect(err.mock.calls.some((c) => String(c[0]).includes('dropping the remainder'))).toBe(true)
+      expect(captured.some((r) => String(r.msg).includes('dropping the remainder'))).toBe(true)
       // …and it stays terminated (no self-rescheduling ghost flushes).
       const settled = calls
       await new Promise((r) => setTimeout(r, 0))
       expect(calls).toBe(settled)
     } finally {
-      err.mockRestore()
+      err.restore()
     }
   })
 
@@ -312,9 +331,7 @@ describe('replica outbox storage: in-place entry transitions (#263 review findin
       },
     }
     createReplica({ storage, keyPrefix: prefix }).outboxDeadLetterStorage().save([parked])
-    const reloaded = createReplica({ storage, keyPrefix: prefix })
-      .outboxDeadLetterStorage()
-      .load()
+    const reloaded = createReplica({ storage, keyPrefix: prefix }).outboxDeadLetterStorage().load()
     expect(reloaded).toEqual([parked])
   })
 })

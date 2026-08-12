@@ -1,3 +1,4 @@
+import { addSink } from '@podium/logger'
 import { asMachineId, asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -112,14 +113,19 @@ describe('SocketHub', () => {
       archived: false,
     }
     const bad = { ...good, sessionId: 'bad', agentKind: 'auto' } // out-of-enum poison
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // A real sink, not a console spy: the diagnostic travels as a record now.
+    // No `minLevel`, so it follows the namespace level as production sinks do —
+    // which is what keeps "the drop is observable" a claim about what a real
+    // deployment shows, not about what a test happened to turn on.
+    const captured: { level: string }[] = []
+    const restore = addSink({ name: 'hub-test-capture', write: (r) => captured.push(r) })
     // Raw frame (bypasses the typed encode) carrying one poisoned element.
     sock.onmessage?.({ data: JSON.stringify({ type: 'sessionsChanged', sessions: [good, bad] }) })
     // The whole list is NOT dropped — the good session survives, the bad one is gone…
     expect(hub.sessions().map((s) => s.sessionId)).toEqual(['s1'])
     // …and the drop is observable, not silent.
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(captured.filter((r) => r.level === 'warn').length).toBeGreaterThan(0)
+    restore()
   })
 
   it('dispatches headlessActivity frames to the matching session subscribers only', () => {

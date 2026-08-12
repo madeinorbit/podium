@@ -1,12 +1,13 @@
+import { addSink } from '@podium/logger'
 import { describe, expect, it, vi } from 'vitest'
+import type { StorageApi, StorageEventApi } from './contract'
 import { createSideCache } from './kernel/side-cache'
 import {
+  type PrincipalNamespacePolicy,
   preparePrincipalNamespace,
   principalKeyPrefix,
-  type PrincipalNamespacePolicy,
 } from './principal-storage'
 import { createReplica } from './replica'
-import type { StorageApi, StorageEventApi } from './contract'
 
 const POLICY: PrincipalNamespacePolicy = {
   signOut: 'erase',
@@ -70,13 +71,16 @@ describe('principal replica storage', () => {
     expect(bobUi.get('podium.panelMode')).toBeNull()
     expect(bobUi.get('podium.view')).toBeNull()
     // Alice's namespaced blob remains; Bob has a separate empty collection.
-    expect(memory.keys().some((key) => key.startsWith(alice.keyPrefix) && key.includes('uistate'))).toBe(
-      true,
-    )
+    expect(
+      memory.keys().some((key) => key.startsWith(alice.keyPrefix) && key.includes('uistate')),
+    ).toBe(true)
   })
 
   it('degrades safely when the active marker cannot be persisted', () => {
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // A real sink, not a console spy: the diagnostic travels as a record now.
+    // No `minLevel`, so it follows the namespace level as production sinks do.
+    const captured: { level: string }[] = []
+    const restore = addSink({ name: 'principal-test-capture', write: (r) => captured.push(r) })
     const namespace = preparePrincipalNamespace({
       storage: {
         getItem: () => null,
@@ -93,8 +97,8 @@ describe('principal replica storage', () => {
     expect(namespace.keyPrefix).toBe(principalKeyPrefix('podium.replica', 'alice'))
     expect(namespace.durable).toBe(false)
     expect(namespace.knownPrincipals).toEqual([])
-    expect(warning).toHaveBeenCalledOnce()
-    warning.mockRestore()
+    expect(captured.filter((r) => r.level === 'warn')).toHaveLength(1)
+    restore()
   })
 
   it('sign-out erases only the acting namespace and leaves the raw theme', () => {

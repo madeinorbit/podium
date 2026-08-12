@@ -1,14 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { addSink } from '@podium/logger'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CHANGE_MAX_AGE_MS, CHANGE_PRUNE_EVERY } from './change-log'
-import { type EntityChangeSpec, entityOverlayKey, Ledger, prepareLedgerBoot } from './ledger'
 import { SyncRepository } from './adapters/sqlite/sync-repository'
 import {
   createTestSyncDatabase,
   createTestSyncRepository,
   createTestTransact,
 } from './adapters/sqlite/test-support'
+import { CHANGE_MAX_AGE_MS, CHANGE_PRUNE_EVERY } from './change-log'
+import { type EntityChangeSpec, entityOverlayKey, Ledger, prepareLedgerBoot } from './ledger'
 
 // The write-seam change log [spec:SP-3fe2] (#253): commit() must append exactly
 // the declared-and-real changes atomically with the entity write, reconcile()
@@ -573,7 +574,12 @@ describe('Ledger commit atomicity (sqlite)', () => {
   })
 
   it('a throwing onAppended listener cannot break the committer', () => {
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // A real sink, not a console spy: the diagnostic travels as a record now,
+    // and no `minLevel` so this follows the namespace level exactly as the
+    // production sinks do (a capture pinned at `trace` would see records a real
+    // deployment never emits).
+    const captured: { level: string }[] = []
+    const restore = addSink({ name: 'ledger-test-capture', write: (r) => captured.push(r) })
     const f = makeSqliteFixture()
     const ledger = new Ledger({ repo: f.repo, now: Date.now, transact: f.transact })
     const seen: number[] = []
@@ -588,7 +594,8 @@ describe('Ledger commit atomicity (sqlite)', () => {
     expect(out.changes).toHaveLength(1)
     expect(f.issueRows()).toEqual([{ id: 'a', title: 't1' }])
     expect(seen).toEqual([1])
-    expect(errors).toHaveBeenCalledOnce()
+    expect(captured.filter((r) => r.level === 'error')).toHaveLength(1)
+    restore()
   })
 
   it('returns the appended changes with contiguous seqs matching the durable log', () => {

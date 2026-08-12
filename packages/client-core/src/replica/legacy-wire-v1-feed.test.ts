@@ -1,3 +1,4 @@
+import { addSink, resetLevels, setLogLevel } from '@podium/logger'
 import {
   type AutomationRunWire,
   type AutomationWire,
@@ -488,7 +489,13 @@ describe('SocketHub metadata delta mode', () => {
 
   it('applies known kinds, ignores an UNKNOWN entity kind, and advances the cursor without healing ([spec:SP-3fe2] #258)', async () => {
     const { sock, hub, calls } = setup([snapshot(5)])
-    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    // A real sink, not a console spy. No `minLevel`, so it follows the
+    // namespace level — which means `debug` has to be turned ON first, the same
+    // act an operator performs to diagnose. A capture pinned at `trace` would
+    // see records a real deployment never emits.
+    const captured: { level: string; msg?: unknown; entity?: unknown }[] = []
+    setLogLevel('debug')
+    const restore = addSink({ name: 'feed-test-capture', write: (r) => captured.push(r) })
     hub.connect()
     sock.open()
     await flush()
@@ -516,7 +523,11 @@ describe('SocketHub metadata delta mode', () => {
     await flush()
     expect(hub.issues().map((i) => i.title)).toEqual(['known', 'also known'])
     expect(hub.conversations()).toEqual([]) // the unknown row corrupted nothing
-    expect(debug).toHaveBeenCalledWith(expect.stringContaining("unknown entity kind 'machine'"))
+    // The kind is a structured FIELD now, not interpolated into the message —
+    // so assert on the field, which is what makes the record queryable at all.
+    expect(
+      captured.some((r) => String(r.msg).includes('unknown entity kind') && r.entity === 'machine'),
+    ).toBe(true)
     // No heal loop: the cursor moved to 8, so the NEXT contiguous batch applies
     // cleanly and changesSince was never re-fetched.
     sock.recv({
@@ -527,7 +538,8 @@ describe('SocketHub metadata delta mode', () => {
     await flush()
     expect(hub.issues().map((i) => i.title)).toEqual(['also known'])
     expect(calls).toEqual([null]) // bootstrap only — never healed
-    debug.mockRestore()
+    restore()
+    resetLevels()
   })
 
   it('a changesSince delta result carrying an unknown kind applies the known rows and lands on the result cursor', async () => {

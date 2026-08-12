@@ -5,6 +5,7 @@
  * the outbox survives a discard. These tests pin identity replacement and durable-outbox preservation at the Replica seam.
  */
 
+import { addSink } from '@podium/logger'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { COLD_CURSOR } from './feed'
@@ -67,7 +68,12 @@ describe('onMetadataApplied — the cursor is the triple (ADR 2 D1)', () => {
 
 describe('onMetadataApplied — rung 4 is wired, not just implemented', () => {
   it('an epoch bump discards the cache and installs the new timeline', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // A real sink, not a console spy: the diagnostic travels as a record now.
+    // No `minLevel`, so it follows the namespace level as production sinks do.
+    const captured: { level: string; msg?: unknown }[] = []
+    const warn = {
+      mockRestore: addSink({ name: 'binding-test-capture', write: (r) => captured.push(r) }),
+    }
     try {
       const { replica, apply } = setup()
       apply({
@@ -94,7 +100,7 @@ describe('onMetadataApplied — rung 4 is wired, not just implemented', () => {
       expect(replica.getFeedCursor()).toEqual({ feedId: 'feed_1', epoch: 'epoch_2', seq: 3 })
       // The user's unsent write is not a cache.
       expect(replica.outboxStorage().load()).toEqual([userWrite])
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('feed identity changed'))
+      expect(captured.some((r) => String(r.msg).includes('feed identity changed'))).toBe(true)
     } finally {
       warn.mockRestore()
     }
