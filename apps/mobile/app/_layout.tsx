@@ -5,20 +5,29 @@ import { GeistMono_600SemiBold } from '@expo-google-fonts/geist-mono/600SemiBold
 import { useFonts } from 'expo-font'
 import { Stack } from 'expo-router/js-stack'
 import { StatusBar } from 'expo-status-bar'
-import { StyleSheet } from 'react-native'
+import { Platform, StyleSheet } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AuthGate } from '../src/client/AuthGate'
 import { LaunchBoundary, LaunchReadyView } from '../src/client/launch'
 import { MobileClientProvider } from '../src/client/MobileClientProvider'
+import { readServerConfig } from '../src/client/trpc'
 import { AgentOutcomeHaptics } from '../src/components/AgentOutcomeHaptics'
 import { VisualViewportRoot } from '../src/components/VisualViewportRoot'
 import { useReduceMotion } from '../src/hooks/useReduceMotion'
 import { installBlurOnNavigate } from '../src/lib/blur-on-navigate'
+import { startMobileLogging } from '../src/lib/logging'
 import { color } from '../src/theme/theme'
 
 // Before the first navigation, not inside an effect: the stack's keyboard
 // manager reaches for this on the very first page change [POD-402].
 installBlurOnNavigate()
+
+// AT MODULE SCOPE, BEFORE REACT, and that is the whole point of the placement:
+// an error thrown while the first screen mounts is exactly the error this
+// exists to catch, and a handler installed in an effect is installed too late
+// to see it. The server origin is read per send rather than captured here, so
+// records queued before the app resolves its server still go out afterwards.
+startMobileLogging(() => readServerConfig().httpOrigin, Platform.OS)
 
 export default function RootLayout() {
   // Four retained faces (POD-143): regular + semibold per family, imported by

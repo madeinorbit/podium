@@ -1,0 +1,298 @@
+/**
+ * MOBILE LOG CAPTURE — the phone's half of the one pipeline
+ * ([spec:2026-08-11-logging-strategy-design], chunk 5).
+ *
+ * The transport is NOT here, and the composition root is not either. Both live
+ * in `@podium/client-core/logging` (`installClientLogging`), shared with
+ * `apps/web`, which is what gives the phone the two properties a second
+ * implementation would have got wrong: client-side clamping to the ingestion
+ * contract's caps, so a record the server refuses cannot wedge a FIFO queue
+ * forever, and a batch dropped after `maxAttempts` rather than retried for the
+ * life of the process.
+ *
+ * What is HERE is only what React Native does differently:
+ *
+ *   - `ErrorUtils.setGlobalHandler` instead of `window.onerror`, chained rather
+ *     than replaced.
+ *   - Rejection capture that has to pick a surface at runtime, because a Hermes
+ *     build has no `unhandledrejection` event at all.
+ *   - A `fetch` transport rather than the app's tRPC client, because logging is
+ *     installed before React mounts and the app's client does not exist yet.
+ *     `logs.forward`/`logs.crash` take plain JSON and `makeMobileTrpc` uses no
+ *     transformer, so this sends exactly the bytes the batch link would.
+ *
+ * THE FORWARDING SINK PINS NO THRESHOLD, on either client. It follows the
+ * namespace level, so `setLogLevel('debug')` raises the console and the
+ * forwarded stream together — one knob rather than two that can disagree about
+ * what a client is currently reporting. `warn` is the boot default and is set
+ * below, not baked into a sink.
+ */
+
+import {
+  type ClientLogging,
+  installClientLogging,
+  type LogTransport,
+} from '@podium/client-core/logging'
+import { createLogger, type LogLevel } from '@podium/logger'
+
+/**
+ * Build-time version, the same convention the server family uses
+ * (`PODIUM_APP_VERSION` → `dev`). Expo inlines `EXPO_PUBLIC_*` at build time, so
+ * a release build carries its version into every forwarded record and a dev
+ * build says `dev` rather than claiming one it does not have.
+ */
+declare const process: { env?: Record<string, string | undefined> } | undefined
+
+export function appVersion(): string {
+  if (typeof process === 'undefined') return 'dev'
+  return process.env?.EXPO_PUBLIC_APP_VERSION ?? 'dev'
+}
+
+/** The subset of React Native's `ErrorUtils` this module uses. */
+export interface ErrorUtilsLike {
+  setGlobalHandler(handler: (error: unknown, isFatal?: boolean) => void): void
+  getGlobalHandler?(): ((error: unknown, isFatal?: boolean) => void) | undefined
+}
+
+/** The globals this module reaches for, named so a test can supply them. */
+export interface CaptureScope {
+  ErrorUtils?: ErrorUtilsLike
+  HermesInternal?: {
+    enablePromiseRejectionTracker?(options: {
+      allRejections: boolean
+      onUnhandled(id: number, rejection: unknown): void
+      onHandled?(id: number): void
+    }): void
+  }
+  addEventListener?(type: string, listener: (event: unknown) => void): void
+  removeEventListener?(type: string, listener: (event: unknown) => void): void
+}
+
+export interface CaptureHandlers {
+  /** A thrown error that nothing caught. `isFatal` is React Native's own bit. */
+  onUncaught(error: unknown, isFatal: boolean): void
+  /** A promise rejection nothing handled. */
+  onUnhandledRejection(reason: unknown): void
+}
+
+/**
+ * Which rejection surface was actually installed. Returned rather than assumed,
+ * because the answer differs per platform and "we installed nothing" is a state
+ * a reader of the logs has to be able to tell apart from "nothing rejected".
+ */
+export type RejectionCapture = 'event-target' | 'hermes' | 'none'
+
+export interface InstalledCapture {
+  rejection: RejectionCapture
+  uncaught: boolean
+  uninstall(): void
+}
+
+/**
+ * Install both global error surfaces, CHAINING whatever was there.
+ *
+ * Chaining matters more than it looks: React Native's default handler is what
+ * shows the red box in development and what reports a fatal to the platform in
+ * production. A logger that replaced it would trade a visible crash for a
+ * logged one, which is a worse app that produces better logs.
+ */
+export function installGlobalErrorCapture(
+  scope: CaptureScope,
+  handlers: CaptureHandlers,
+): InstalledCapture {
+  const undo: Array<() => void> = []
+  let uncaught = false
+
+  const errorUtils = scope.ErrorUtils
+  if (errorUtils && typeof errorUtils.setGlobalHandler === 'function') {
+    const previous = errorUtils.getGlobalHandler?.()
+    errorUtils.setGlobalHandler((error: unknown, isFatal?: boolean) => {
+      // The record is taken FIRST. If the previous handler is the one that ends
+      // the process, anything after it never runs.
+      try {
+        handlers.onUncaught(error, isFatal === true)
+      } catch {
+        // A crash reporter that throws inside the crash handler replaces the
+        // app's error with its own. Never.
+      }
+      previous?.(error, isFatal)
+    })
+    uncaught = true
+    undo.push(() => {
+      if (previous) errorUtils.setGlobalHandler(previous)
+    })
+  }
+
+  let rejection: RejectionCapture = 'none'
+  if (typeof scope.addEventListener === 'function') {
+    // React Native Web, and any build carrying the DOM event shim: the same
+    // surface `apps/web` uses, so the two clients behave identically here.
+    const listener = (event: unknown): void => {
+      const reason = (event as { reason?: unknown } | undefined)?.reason
+      handlers.onUnhandledRejection(reason ?? event)
+    }
+    scope.addEventListener('unhandledrejection', listener)
+    rejection = 'event-target'
+    undo.push(() => scope.removeEventListener?.('unhandledrejection', listener))
+  } else if (typeof scope.HermesInternal?.enablePromiseRejectionTracker === 'function') {
+    // Bare Hermes has no `unhandledrejection` event at all; this tracker is the
+    // engine's own equivalent and is what React Native's LogBox uses.
+    scope.HermesInternal.enablePromiseRejectionTracker({
+      allRejections: true,
+      onUnhandled: (_id: number, reason: unknown) => {
+        handlers.onUnhandledRejection(reason)
+      },
+    })
+    rejection = 'hermes'
+    // No uninstall: the tracker is engine-level and has no removal API. Saying
+    // so here is better than a no-op disposer that implies otherwise.
+  }
+
+  return {
+    rejection,
+    uncaught,
+    uninstall() {
+      for (const step of undo.splice(0)) step()
+    },
+  }
+}
+
+export interface FetchTransportOptions {
+  /** Resolves the paired server's HTTP origin; may return undefined before one
+   *  is known, in which case a send fails and the sink retries later. */
+  httpOrigin(): string | undefined
+  fetchImpl?: typeof fetch
+}
+
+/**
+ * The two ingestion calls over plain `fetch`.
+ *
+ * REJECTS ON A NON-2xx, deliberately: the forwarding sink treats a rejection as
+ * "keep the records and retry with backoff", and a 401 during a login flow or a
+ * 503 during a server restart is exactly the case where the records should
+ * survive rather than be acknowledged into a void. A refusal that never clears
+ * is not a wedge either — the sink drops that batch after `maxAttempts`.
+ */
+export function createFetchLogTransport(options: FetchTransportOptions): LogTransport {
+  const send = async (procedure: string, input: unknown): Promise<void> => {
+    const origin = options.httpOrigin()
+    if (origin === undefined || origin.length === 0) {
+      throw new Error('no server origin yet')
+    }
+    const doFetch = options.fetchImpl ?? fetch
+    const response = await doFetch(`${origin}/trpc/${procedure}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) throw new Error(`${procedure} failed: ${response.status}`)
+  }
+  return {
+    forward: (input) => send('logs.forward', input),
+    crash: (input) => send('logs.crash', input),
+  }
+}
+
+export interface MobileLoggingOptions {
+  transport: LogTransport
+  scope?: CaptureScope
+  /** App version. Defaults to the build-time inline, else `dev`. */
+  version?: string
+  /** `ios` | `android` | `web`. */
+  platform?: string
+  /** Client default. Spec: `warn`. */
+  level?: LogLevel
+  ringCapacity?: number
+  /** Off in tests, where a captured record is the assertion. */
+  console?: boolean
+  batchSize?: number
+  flushIntervalMs?: number
+}
+
+export interface MobileLogging extends ClientLogging {
+  /** Which global surfaces were actually wired on this build. */
+  capture: InstalledCapture
+}
+
+let installed: MobileLogging | undefined
+
+/** The live installation, or `undefined` before {@link installMobileLogging}. */
+export function mobileLogging(): MobileLogging | undefined {
+  return installed
+}
+
+/**
+ * Wire the phone into the pipeline: three sinks that disagree on purpose (the
+ * console and the forwarder follow config at `warn`, the ring buffer takes
+ * everything at `trace`), a crash reporter over the ring, and React Native's
+ * global error surfaces feeding it.
+ *
+ * Idempotent: a second call returns the first installation rather than stacking
+ * a second set of sinks and a second global handler onto the same app.
+ */
+export function installMobileLogging(options: MobileLoggingOptions): MobileLogging {
+  if (installed !== undefined) return installed
+  const scope = options.scope ?? (globalThis as unknown as CaptureScope)
+
+  // The sinks, the boot level, the process context and the crash reporter are
+  // all the SHARED composition root's — same three sinks the browser gets,
+  // same thresholds, same one-knob level policy. This file supplies only the
+  // two answers that are genuinely the phone's: which role it is, and which
+  // globals deliver its errors.
+  const logging = installClientLogging({
+    transport: options.transport,
+    role: 'mobile',
+    version: options.version ?? appVersion(),
+    ...(options.platform === undefined ? {} : { platform: options.platform }),
+    ...(options.level === undefined ? {} : { level: options.level }),
+    ...(options.ringCapacity === undefined ? {} : { ringCapacity: options.ringCapacity }),
+    ...(options.console === undefined ? {} : { console: options.console }),
+    ...(options.batchSize === undefined ? {} : { batchSize: options.batchSize }),
+    ...(options.flushIntervalMs === undefined ? {} : { flushIntervalMs: options.flushIntervalMs }),
+  })
+
+  const capture = installGlobalErrorCapture(scope, {
+    onUncaught: (error, isFatal) =>
+      logging.reporter.report(error, { source: 'ErrorUtils', isFatal }),
+    onUnhandledRejection: (reason) =>
+      logging.reporter.report(reason ?? new Error('unhandled rejection with no reason'), {
+        source: 'unhandledrejection',
+      }),
+  })
+  // Which surfaces exist is a property of the BUILD, and a crash that never
+  // arrived is indistinguishable from a handler that was never installed unless
+  // this line is in the log.
+  createLogger('mobile:boot').info('log capture installed', {
+    rejectionCapture: capture.rejection,
+    uncaughtCapture: capture.uncaught,
+  })
+
+  installed = {
+    ...logging,
+    capture,
+    dispose() {
+      capture.uninstall()
+      logging.dispose()
+      installed = undefined
+    },
+  }
+  return installed
+}
+
+/**
+ * Start logging for the real app, over the paired server's origin.
+ *
+ * Called at module scope in `app/_layout.tsx`, BEFORE React — an error thrown
+ * while the first screen mounts is exactly the error this exists to catch, and
+ * a handler installed in an effect is installed too late to see it.
+ */
+export function startMobileLogging(
+  httpOrigin: () => string | undefined,
+  platform?: string,
+): MobileLogging {
+  return installMobileLogging({
+    transport: createFetchLogTransport({ httpOrigin }),
+    ...(platform === undefined ? {} : { platform }),
+  })
+}
