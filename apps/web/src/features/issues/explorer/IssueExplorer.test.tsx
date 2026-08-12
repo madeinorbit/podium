@@ -11,11 +11,19 @@ import { IssueExplorer, IssueExplorerCrumbs } from './IssueExplorer'
 const EPIC = makeIssue({ id: 'p', seq: 1, title: 'Mission root', stage: 'in_progress' })
 const CHILD = makeIssue({ id: 'c', seq: 2, title: 'Live child', parentId: 'p', stage: 'review' })
 const STRANGER = makeIssue({ id: 's', seq: 9, title: 'Someone else’s task', stage: 'backlog' })
+const ARCHIVED = makeIssue({
+  id: 'archived',
+  seq: 766,
+  displayRef: 'POD-766',
+  title: 'Minimap stale-tick crash',
+  stage: 'done',
+  archived: true,
+})
 
 const state = {
   selectedIssueId: null as string | null,
   sessions: [] as never[],
-  issues: [EPIC, CHILD, STRANGER],
+  issues: [EPIC, CHILD, STRANGER, ARCHIVED],
   trpc: {
     issues: {
       comments: { query: vi.fn(async () => []) },
@@ -109,6 +117,19 @@ describe('issue explorer navigation', () => {
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'else' } })
     expect(screen.getByText(/1 match across every stage/)).toBeTruthy()
     expect(screen.getByText('Someone else’s task')).toBeTruthy()
+  })
+
+  it('recovers an archived task by exact ref, but not by title', () => {
+    mount()
+    const search = screen.getByLabelText('Search tasks')
+
+    fireEvent.change(search, { target: { value: 'POD-766' } })
+    expect(screen.getByText(/1 match across every stage/)).toBeTruthy()
+    expect(screen.getByText('Minimap stale-tick crash')).toBeTruthy()
+
+    fireEvent.change(search, { target: { value: 'minimap' } })
+    expect(screen.getByText('Nothing here by that name or ref.')).toBeTruthy()
+    expect(screen.queryByText('Minimap stale-tick crash')).toBeNull()
   })
 
   it('pushes a task from the list and pops back to it from the trail', () => {

@@ -81,8 +81,22 @@ export function explorerRows(
   opts: { tab: ExplorerTab; query: string },
 ): IssueViewModel[] {
   const open = issues.filter(listable)
-  if (opts.query.trim()) {
-    return open.filter((issue) => matchesQuery(issue, opts.query)).sort(byRecency)
+  const query = opts.query.trim()
+  if (query) {
+    const normalized = query.toLowerCase()
+    // Archive is a browsing boundary, not an identity boundary. A person who
+    // supplies the whole ref already knows which task they want, so let that
+    // one archived row cross it. Partial refs and title prose still run over
+    // `open` only; typing "minimap" must not turn search into an archive dump.
+    const archivedExactRefs = issues.filter(
+      (issue) =>
+        issue.archived &&
+        !issue.deletedAt &&
+        issueDisplayRef(issue).toLowerCase() === normalized,
+    )
+    return [...open.filter((issue) => matchesQuery(issue, query)), ...archivedExactRefs].sort(
+      byRecency,
+    )
   }
   if (opts.tab === 'needs') {
     const byIssue = sessionsByIssue(issues, sessions)

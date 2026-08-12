@@ -50,6 +50,25 @@ describe('explorer rows', () => {
     expect(rows.map((r) => r.id)).toEqual(['c'])
   })
 
+  it('finds an archived task by exact ref without widening ordinary search', () => {
+    const archived = issue('archived', 'done', {
+      seq: 766,
+      displayRef: 'POD-766',
+      title: 'Minimap stale-tick crash',
+      archived: true,
+    })
+    const all = [...issues, archived]
+
+    expect(explorerRows(all, [], { tab: 'in_progress', query: 'POD-766' }).map((r) => r.id)).toEqual(
+      ['archived'],
+    )
+    expect(explorerRows(all, [], { tab: 'in_progress', query: 'pod-766' }).map((r) => r.id)).toEqual(
+      ['archived'],
+    )
+    expect(explorerRows(all, [], { tab: 'in_progress', query: 'POD-76' })).toEqual([])
+    expect(explorerRows(all, [], { tab: 'in_progress', query: 'minimap' })).toEqual([])
+  })
+
   it('matches on ref and title only', () => {
     const target = issue('x', 'backlog', { seq: 512, title: 'Merge lock lease expiry' })
     expect(matchesQuery(target, 'lease')).toBe(true)
