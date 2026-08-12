@@ -26,6 +26,19 @@ tauri-plugin-opener = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 serde = { version = "1", features = ["derive"] }
 # Required by tauri::generate_context! once plugins.updater config is embedded.
+# Also renders the native NDJSON log records (src/logging.rs), which is why the
+# escaping of a stack trace into a log line is somebody else's solved problem.
+serde_json = "1"
+# The logging FACADE only ([spec:2026-08-11-logging-strategy-design], chunk 5).
+# Call sites say `log::warn!` and stay ignorant of the backend; the NDJSON sink
+# in src/logging.rs is ours, because the record shape is the cross-runtime
+# contract and every off-the-shelf backend wants to own the line format.
+log = "0.4"
+
+[dev-dependencies]
+# Integration tests (tests/) see only the crate and its DEV dependencies, never
+# its ordinary ones — so the panic-hook runtime check needs its own serde_json
+# to read back the NDJSON record it forced onto disk.
 serde_json = "1"
 
 [profile.release]

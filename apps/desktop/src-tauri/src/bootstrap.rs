@@ -154,7 +154,9 @@ pub fn read_config() -> DesktopConfig {
 }
 
 /// Config-file base dir: `$PODIUM_STATE_DIR` else `~/.podium` (same resolution as `read_config`).
-fn state_dir() -> PathBuf {
+/// `pub` because the native log sink writes under the SAME state dir the server
+/// family logs to — one resolution rule, not two that can drift apart.
+pub fn state_dir() -> PathBuf {
     let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         format!("{home}/.podium")
@@ -451,6 +453,95 @@ pub fn opener_shim_script() -> &'static str {
 })();"#
 }
 
+/// THE NATIVE CRASH HAND-OFF: panics recorded by the Rust shell on a PREVIOUS
+/// run, posted to `logs.crash` by the webview on this one.
+///
+/// WHY THE NEXT LAUNCH AND NOT THE PANIC ITSELF. A panicking process cannot make
+/// an authenticated HTTP call — release builds abort immediately after the hook,
+/// and the session cookie lives in the webview's cookie store, not in Rust. So
+/// the hook writes the record to disk (`logging`'s pending queue) and the next
+/// launch carries it across. This is what every native crash reporter does, and
+/// it is why a crash event's `ts` can be older than the launch that filed it.
+///
+/// The records are EMBEDDED in the script rather than fetched over an IPC
+/// command: embedding needs no new capability grant, and the payload is bounded
+/// at ten records by the queue that produced it.
+///
+/// A FAILED POST IS DROPPED, NOT RETRIED. The record is already durable in
+/// `desktop-native.ndjson` on the same disk; what is lost is the server-side
+/// crash EVENT, and a retry loop against a server that is down would replay a
+/// week of panics into an incident that has passed.
+pub fn native_crash_report_script(
+    pending: &[serde_json::Value],
+    machine_id: Option<&str>,
+) -> String {
+    if pending.is_empty() {
+        return String::new();
+    }
+    // `serde_json` makes the payload safe as a JS literal — quotes, backslashes
+    // and control characters are escaped. It does NOT make it safe as HTML, and
+    // a panic message is attacker-influenced text in the sense that matters here
+    // (any library can panic with any string). `</` → `<\/` closes that gap for
+    // good: `\/` is a legal JSON escape that parses back to the same character,
+    // so a payload containing a closing script tag cannot terminate a script
+    // element if this text is ever placed in one.
+    let escape = |json: String| json.replace("</", "<\\/");
+    let records = escape(serde_json::to_string(pending).unwrap_or_else(|_| "[]".to_string()));
+    let machine = machine_id
+        .and_then(|id| serde_json::to_string(id).ok())
+        .map(escape)
+        .unwrap_or_else(|| "null".to_string());
+    format!(
+        r#";(() => {{
+  const pending = {records};
+  const machineId = {machine};
+  const httpOrigin = () => {{
+    const raw = window.__PODIUM_SERVER__;
+    if (raw) {{
+      try {{
+        const u = new URL(raw);
+        if (u.protocol === 'ws:') u.protocol = 'http:';
+        else if (u.protocol === 'wss:') u.protocol = 'https:';
+        return u.origin;
+      }} catch {{}}
+    }}
+    return window.location.protocol.startsWith('http') ? window.location.origin : null;
+  }};
+  const post = (origin, record, credentials) => fetch(origin + '/trpc/logs.crash', {{
+    method: 'POST',
+    credentials,
+    headers: {{ 'content-type': 'application/json' }},
+    body: JSON.stringify({{
+      origin: {{ role: record.role, v: record.v, machineId: machineId ?? undefined }},
+      err: record.err,
+      // The record IS the snapshot: the native side keeps no ring buffer, and a
+      // crash event with an empty snapshot reads as "we lost the context" rather
+      // than "there was one line of context and here it is".
+      snapshot: [record],
+      context: {{ source: 'native-panic', occurredAt: record.ts }},
+    }}),
+  }});
+  const send = () => {{
+    const origin = httpOrigin();
+    if (!origin) return;
+    for (const record of pending) {{
+      if (!record || !record.err) continue;
+      // Credentialed first — that is the case where a password is configured and
+      // the page shares the server's origin. The retry without credentials covers
+      // the all-in-one shape, where the page is tauri:// and the server answers
+      // cross-origin with a wildcard CORS header that a credentialed fetch
+      // refuses; there, no password is configured and the guard lets it through.
+      post(origin, record, 'include').catch(() => post(origin, record, 'omit')).catch(() => {{}});
+    }}
+  }};
+  // After load: the cookie and __PODIUM_SERVER__ both have to exist, and a crash
+  // report has no reason to compete with first paint.
+  if (document.readyState === 'complete') setTimeout(send, 0);
+  else window.addEventListener('load', () => setTimeout(send, 0), {{ once: true }});
+}})();"#
+    )
+}
+
 /// Map a ws(s):// relay URL to the http(s):// URL the window should LOAD (ws→http, wss→https);
 /// an http/https URL passes through unchanged.
 pub fn webview_http_url(server_url: &str) -> String {
@@ -592,6 +683,51 @@ mod tests {
         assert!(s.contains("addEventListener('click'"));
         // Must be a no-op wherever the Tauri IPC bridge is absent (plain browsers/PWA).
         assert!(s.contains("__TAURI_INTERNALS__"));
+    }
+
+    #[test]
+    fn no_pending_crashes_injects_no_script_at_all() {
+        // Not "an empty IIFE": the common case is zero panics, and every launch
+        // paying for a script that does nothing is a cost with no reader.
+        assert_eq!(native_crash_report_script(&[], Some("machine-1")), "");
+    }
+
+    #[test]
+    fn the_crash_script_posts_each_record_to_logs_crash() {
+        let record = serde_json::json!({
+            "ts": "2026-08-11T14:03:22.847Z",
+            "level": "error",
+            "ns": "desktop:panic",
+            "msg": "native shell panicked",
+            "role": "desktop-native",
+            "v": "0.1.0",
+            "err": { "name": "RustPanic", "message": "boom", "stack": "RustPanic: boom" },
+        });
+        let script = native_crash_report_script(&[record], Some("machine-1"));
+        assert!(script.contains("/trpc/logs.crash"));
+        assert!(script.contains("\"machine-1\""));
+        assert!(script.contains("RustPanic"));
+        // ws→http: in the all-in-one shape the page is tauri:// and the server
+        // is only reachable through the injected __PODIUM_SERVER__ relay URL.
+        assert!(script.contains("u.protocol = 'http:'"));
+        assert!(script.contains("__PODIUM_SERVER__"));
+        // Credentialed first, then the uncredentialed retry for the wildcard-CORS
+        // all-in-one case; without the fallback a local install files nothing.
+        assert!(script.contains("'include'"));
+        assert!(script.contains("'omit'"));
+    }
+
+    #[test]
+    fn a_crash_message_with_a_quote_cannot_break_out_of_the_script() {
+        let record = serde_json::json!({
+            "err": { "name": "RustPanic", "message": "</script><script>alert('x')//\" \n" },
+            "role": "desktop-native",
+        });
+        let script = native_crash_report_script(&[record], None);
+        // serde_json escapes the payload, so the injected text carries no raw
+        // closing tag and no unescaped newline inside the string literal.
+        assert!(!script.contains("</script>"));
+        assert!(script.contains("machineId = null"));
     }
 
     #[test]

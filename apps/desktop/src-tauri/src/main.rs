@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bootstrap;
+mod logging;
 mod updater;
 
 use std::path::Path;
@@ -94,9 +95,9 @@ fn retarget_existing_window(
 ) -> Result<(), String> {
     match retarget_session_cookie(app, source_url, server_url)? {
         true => {
-            eprintln!("[podium-desktop] copied podium_session in memory for transferred origin")
+            log::info!("copied podium_session in memory for transferred origin")
         }
-        false => eprintln!("[podium-desktop] no local podium_session cookie to transfer"),
+        false => log::info!("no local podium_session cookie to transfer"),
     }
     grant_transfer_remote_capabilities(app, server_url)?;
     let target = Url::parse(&bootstrap::webview_http_url(server_url))
@@ -105,7 +106,7 @@ fn retarget_existing_window(
         .ok_or_else(|| "main window is unavailable".to_string())?
         .navigate(target)
         .map_err(|error| format!("cannot navigate transferred window: {error}"))?;
-    eprintln!("[podium-desktop] existing window retargeted to transferred origin");
+    log::info!("existing window retargeted to transferred origin");
     Ok(())
 }
 
@@ -156,8 +157,8 @@ fn spawn_respawn_monitor<F, S, D>(
                     transfer_id,
                     server_url,
                 } => {
-                    eprintln!(
-                        "[podium-desktop] transfer {transfer_id} committed; retargeting shell to {server_url}"
+                    log::info!(
+                        "transfer {transfer_id} committed; retargeting shell to {server_url}"
                     );
                     let result = source_cookie_url
                         .as_ref()
@@ -166,7 +167,7 @@ fn spawn_respawn_monitor<F, S, D>(
                             retarget_existing_window(&app_handle, source_url, &server_url)
                         });
                     if let Err(error) = result {
-                        eprintln!("[podium-desktop] committed transfer retarget failed: {error}");
+                        log::error!("committed transfer retarget failed: {error}");
                         let _ = child_state.lock().map(|mut child| child.take());
                         break;
                     }
@@ -174,8 +175,8 @@ fn spawn_respawn_monitor<F, S, D>(
                     true
                 }
                 bootstrap::BackendExitDecision::Hold { reason } => {
-                    eprintln!(
-                        "[podium-desktop] backend exited during an unproven role transition; not respawning: {reason}"
+                    log::warn!(
+                        "backend exited during an unproven role transition; not respawning: {reason}"
                     );
                     let _ = child_state.lock().map(|mut child| child.take());
                     break;
@@ -183,8 +184,8 @@ fn spawn_respawn_monitor<F, S, D>(
             };
 
             if !intentional_transfer {
-                eprintln!(
-                    "[podium-desktop] backend exited ({exited:?}); \
+                log::warn!(
+                    "backend exited ({exited:?}); \
                      respawning in {backoff_ms}ms {label}"
                 );
                 std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
@@ -204,7 +205,7 @@ fn spawn_respawn_monitor<F, S, D>(
                     *child_state.lock().unwrap() = Some(new_child);
                     backoff_ms = 500;
                 }
-                Err(e) => eprintln!("[podium-desktop] respawn failed: {e}"),
+                Err(e) => log::error!("respawn failed: {e}"),
             }
         }
     });
@@ -234,9 +235,9 @@ fn log_backend_version(port: u16) {
         Ok(response) => {
             // Body is whatever follows the header/content blank line; log it verbatim.
             let body = response.split("\r\n\r\n").nth(1).unwrap_or("").trim();
-            eprintln!("[podium-desktop] backend /version: {body}");
+            log::info!("backend /version: {body}");
         }
-        Err(e) => eprintln!("[podium-desktop] could not read backend /version: {e}"),
+        Err(e) => log::warn!("could not read backend /version: {e}"),
     }
 }
 
@@ -336,6 +337,13 @@ fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Resu
 }
 
 fn main() {
+    // FIRST STATEMENT IN THE PROCESS, and that placement is the point: the panic
+    // hook installed here is what turns a panic during plugin registration or
+    // window setup — the failures that leave a user with a shell that never
+    // appeared — into a durable record instead of a line on a stderr nobody is
+    // reading. `CARGO_PKG_VERSION` rather than `app.package_info()` because the
+    // app does not exist yet; they are the same string.
+    logging::init(env!("CARGO_PKG_VERSION"));
     let mut builder = tauri::Builder::default();
     // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
     // window and exit the duplicate. Registered FIRST so it fires before any setup work.
@@ -381,9 +389,9 @@ fn main() {
                 let path = std::path::Path::new(&state_dir).join("running-version");
                 let _ = std::fs::create_dir_all(&state_dir);
                 if let Err(e) = std::fs::write(&path, &version) {
-                    eprintln!("[podium-desktop] could not write running-version: {e}");
+                    log::warn!("could not write running-version: {e}");
                 } else {
-                    eprintln!("[podium-desktop] running version {version} (wrote {path:?})");
+                    log::info!("running version {version} (wrote {path:?})");
                 }
             }
 
@@ -392,7 +400,7 @@ fn main() {
             // spawns the server role only (#176).
             let cfg = bootstrap::read_config();
             let action = bootstrap::resolve_launch(cfg.mode.as_deref(), cfg.server_url.as_deref());
-            eprintln!("[podium-desktop] launch action: {action:?}");
+            log::info!("launch action: {action:?}");
             // Resolved-mode tag exposed to the web UI (bridge.launchMode) and used to gate the
             // hosting toggle [spec:SP-3701].
             let launch_mode_tag = match &action {
@@ -462,12 +470,12 @@ fn main() {
                     // Ensure the binary is on a writable, executable filesystem.
                     // AppImage mounts are read-only; ensure_executable copies it to ~/.podium/bin/.
                     let runnable = bootstrap::ensure_executable(&podium_res).map_err(|e| {
-                        eprintln!("[podium-desktop] ensure_executable failed: {e}");
+                        log::error!("ensure_executable failed: {e}");
                         e
                     })?;
 
-                    eprintln!(
-                        "[podium-desktop] spawning {runnable:?} {sidecar_args:?} on port {port}"
+                    log::info!(
+                        "spawning {runnable:?} {sidecar_args:?} on port {port}"
                     );
 
                     // Spawn the initial sidecar child process.
@@ -479,7 +487,7 @@ fn main() {
                     )
                         .spawn()
                         .map_err(|e| {
-                            eprintln!("[podium-desktop] spawn failed: {e}");
+                            log::error!("spawn failed: {e}");
                             e
                         })?;
                     *child_state.lock().unwrap() = Some(child);
@@ -530,15 +538,15 @@ fn main() {
                         .path()
                         .resolve("resources/podium", BaseDirectory::Resource)?;
                     let runnable = bootstrap::ensure_executable(&podium_res).map_err(|e| {
-                        eprintln!("[podium-desktop] ensure_executable failed: {e}");
+                        log::error!("ensure_executable failed: {e}");
                         e
                     })?;
 
-                    eprintln!("[podium-desktop] spawning daemon {runnable:?} → {server_url}");
+                    log::info!("spawning daemon {runnable:?} → {server_url}");
                     let child = replacement_daemon_command(&runnable, &server_url)
                         .spawn()
                         .map_err(|e| {
-                        eprintln!("[podium-desktop] daemon spawn failed: {e}");
+                        log::error!("daemon spawn failed: {e}");
                         e
                     })?;
                     *child_state.lock().unwrap() = Some(child);
@@ -566,7 +574,7 @@ fn main() {
 
                 bootstrap::LaunchAction::ClientOnly { server_url } => {
                     // No backend, no monitor — just point the window at the remote server.
-                    eprintln!("[podium-desktop] client mode → {server_url} (no local backend)");
+                    log::info!("client mode → {server_url} (no local backend)");
                     remote_window_server_url = Some(server_url.clone());
                     (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
                     wait_local_port = None;
@@ -585,8 +593,8 @@ fn main() {
                         Url::parse(&format!("http://127.0.0.1:{port}"))
                             .expect("runtime probe loopback URL is valid"),
                     );
-                    eprintln!(
-                        "[podium-desktop] runtime probe loading scratch host origin on port {port}"
+                    log::info!(
+                        "runtime probe loading scratch host origin on port {port}"
                     );
                 }
             }
@@ -638,8 +646,8 @@ fn main() {
                         update_capability = update_capability.remote(pattern.clone());
                         hosting_capability = hosting_capability.map(|c| c.remote(pattern));
                     }
-                    Err(error) => eprintln!(
-                        "[podium-desktop] no remote window capability for invalid URL {server_url:?}: {error}"
+                    Err(error) => log::warn!(
+                        "no remote window capability for invalid URL {server_url:?}: {error}"
                     ),
                 }
             }
@@ -735,11 +743,19 @@ fn main() {
             // raw plugin invoke avoids adding a Tauri JS dependency to apps/web.
             let restart_hook = "window.__PODIUM_RESTART__ = () => \
                 window.__TAURI_INTERNALS__.invoke('plugin:process|restart');";
-            let native_desktop_hook =
-                native_desktop_hook(launch_mode_tag, bootstrap::read_daemon_machine_id().as_deref());
+            let machine_id = bootstrap::read_daemon_machine_id();
+            let native_desktop_hook = native_desktop_hook(launch_mode_tag, machine_id.as_deref());
+            // Panics from PREVIOUS runs, handed to the webview to post as crash
+            // events (bootstrap::native_crash_report_script). Read here — once,
+            // at window construction — because reading CLEARS the queue, and a
+            // second reader would silently take records off the first one.
+            let native_crash_report = bootstrap::native_crash_report_script(
+                &logging::take_pending_crashes(),
+                machine_id.as_deref(),
+            );
             // External-link shim (ALL modes): route window.open/_blank to the OS browser.
             let init = format!(
-                "{window_injection}\n{restart_hook}\n{native_desktop_hook}\n{}",
+                "{window_injection}\n{restart_hook}\n{native_desktop_hook}\n{}\n{native_crash_report}",
                 bootstrap::opener_shim_script()
             );
             std::thread::spawn(move || {
@@ -749,7 +765,7 @@ fn main() {
                         // Log-only shell↔backend check: read the local backend's /version.
                         log_backend_version(port);
                     } else {
-                        eprintln!("[podium-desktop] backend did not become ready within timeout");
+                        log::warn!("backend did not become ready within timeout");
                     }
                 }
                 let handle2 = handle.clone();
@@ -795,12 +811,12 @@ fn main() {
                                         )
                                         .await;
                                     } else {
-                                        eprintln!("[podium-desktop] web update surface did not claim ownership; native interactive fallback disabled");
+                                        log::info!("web update surface did not claim ownership; native interactive fallback disabled");
                                     }
                                 }
                             });
                         }
-                        Err(e) => eprintln!("[podium-desktop] window build failed: {e}"),
+                        Err(e) => log::error!("window build failed: {e}"),
                     }
                 });
             });

@@ -205,37 +205,37 @@ pub async fn install_update(
 /// second operating-system dialog. Errors are logged, never fatal (no network = no-op).
 pub async fn check_and_prompt_update(app: AppHandle, channel: UpdateChannel) {
     if !production_auto_update_enabled(cfg!(debug_assertions)) {
-        eprintln!("[podium-desktop] production auto-update disabled in debug builds");
+        log::info!("production auto-update disabled in debug builds");
         return;
     }
     if std::env::var("PODIUM_UPDATE_AUTOCONFIRM").as_deref() != Ok("1") {
-        eprintln!("[podium-desktop] native interactive fallback disabled; the shared web surface owns updates");
+        log::info!("native interactive fallback disabled; the shared web surface owns updates");
         return;
     }
 
     let updater = match updater_for_channel(&app, channel) {
         Ok(u) => u,
         Err(error) => {
-            eprintln!("[podium-desktop] {error}");
+            log::warn!("{error}");
             return;
         }
     };
     match updater.check().await {
         Ok(Some(update)) => {
-            eprintln!(
-                "[podium-desktop] PODIUM_UPDATE_AUTOCONFIRM=1 — installing the fallback update (test-only)",
+            log::info!(
+                "PODIUM_UPDATE_AUTOCONFIRM=1 — installing the fallback update (test-only)",
             );
             if let Err(e) = update
                 .download_and_install(|_chunk, _total| {}, || {})
                 .await
             {
-                eprintln!("[podium-desktop] update install failed: {e}");
+                log::error!("update install failed: {e}");
                 return;
             }
             app.restart();
         }
         Ok(None) => { /* up to date */ }
-        Err(e) => eprintln!("[podium-desktop] update check failed: {e}"),
+        Err(e) => log::warn!("update check failed: {e}"),
     }
 }
 

@@ -212,6 +212,20 @@ describe('podium logs', () => {
         rmSync(dir, { recursive: true, force: true })
       }
     })
+
+    it('includes the desktop shell’s native records in the default tail', () => {
+      // The Rust half of the desktop app writes the same NDJSON shape into the
+      // same directory (apps/desktop/src-tauri/src/logging.rs). A file nobody
+      // tails is a file nobody reads, so its role has to be in the default set —
+      // this is the assertion that fails if the two names ever drift apart.
+      const dir = mkdtempSync(join(tmpdir(), 'podium-logs-'))
+      try {
+        writeFileSync(join(dir, 'desktop-native.ndjson'), '')
+        expect(logFilesFor([], dir)).toEqual([join(dir, 'desktop-native.ndjson')])
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    })
   })
 
   describe('renderLogLine', () => {

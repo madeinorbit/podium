@@ -219,7 +219,19 @@ export async function stopBackend(): Promise<void> {
 }
 
 /** The components `podium logs` knows how to tail, in the order it shows them. */
-const LOG_COMPONENTS = ['server', 'janitor', 'daemon', 'all-in-one', 'cli'] as const
+const LOG_COMPONENTS = [
+  'server',
+  'janitor',
+  'daemon',
+  'all-in-one',
+  'cli',
+  // The desktop shell's NATIVE half (apps/desktop/src-tauri/src/logging.rs) —
+  // the supervisor process, its panics, and the update path. It writes the same
+  // NDJSON shape into the same directory, so it costs one name here to be
+  // readable by the same tail; without it the file exists and nothing shows it.
+  // Named apart from the webview, which forwards its own records as a client.
+  'desktop-native',
+] as const
 
 export interface LogsOptions {
   follow: boolean
