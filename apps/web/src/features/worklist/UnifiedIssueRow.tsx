@@ -82,6 +82,7 @@ export function UnifiedIssueRow({
   onColorChangeIssue,
   onGripDown,
   onTuck,
+  shortcutDigit,
 }: {
   row: UnifiedIssueRowView
   sessions: SessionMeta[]
@@ -102,6 +103,8 @@ export function UnifiedIssueRow({
   /** Dismiss a finished row into the Closed fold (POD-293); absent = not a
    *  tuckable done row, so the control is hidden. */
   onTuck?: () => void
+  /** This row's ⌘-hold digit (POD-790); absent unless Command is down. */
+  shortcutDigit?: number
 }): JSX.Element {
   const { issue, sessions: mine } = row
   const active = selectedIssueId === issue.id
@@ -193,6 +196,7 @@ export function UnifiedIssueRow({
         testId="unified-issue-row"
         deemphasized={issue.audience === 'agent'}
         square={square}
+        shortcutDigit={shortcutDigit}
         label={label}
         onTuck={onTuck}
         statusLine={

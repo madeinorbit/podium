@@ -11,6 +11,7 @@ import type {
 import { FLOW_CSS } from '@/lib/issueColors'
 import { usePhaseMorph } from '@/lib/motion'
 import { cn } from '@/lib/utils'
+import { RowShortcutBadge } from './RowShortcutBadge'
 
 /** How far the selected row's bridge notch hangs off the row's right edge, in
  *  px. EXPORTED because the work-list scroller has to reserve exactly this much
@@ -81,6 +82,7 @@ export function WorkRowShell({
   gitStamp,
   onGripDown,
   onTuck,
+  shortcutDigit,
 }: {
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
@@ -132,6 +134,10 @@ export function WorkRowShell({
   /** Dismiss a finished row into the Closed fold (POD-293): when set, a quiet
    *  "tuck away" control rides the row's right edge. Absent on live rows. */
   onTuck?: () => void
+  /** ⌘-hold row shortcut (POD-790): while Command is down this row's digit is
+   *  drawn over its square. Absent whenever Command is not held — and always,
+   *  outside the macOS shell, where the chord is the browser's. */
+  shortcutDigit?: number
 }): JSX.Element {
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
@@ -216,8 +222,9 @@ export function WorkRowShell({
             ⠿
           </span>
         )}
-        <span className={cn('flex flex-none', morph === 'working' && 'morph-ignite')}>
+        <span className={cn('relative flex flex-none', morph === 'working' && 'morph-ignite')}>
           {square}
+          {shortcutDigit !== undefined && <RowShortcutBadge digit={shortcutDigit} size={30} />}
         </span>
         {editor ? (
           // Inline rename (#170): the input replaces the two-line block in place.

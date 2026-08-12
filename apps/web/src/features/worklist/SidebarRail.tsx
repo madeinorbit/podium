@@ -28,6 +28,8 @@ import { FLOW_CSS, issueColorHex } from '@/lib/issueColors'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useSidebarDerivation } from './derivation'
+import { RowShortcutBadge } from './RowShortcutBadge'
+import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
 import { useDefaultSpawn } from './spawn-row'
 import { useUnifiedWork } from './use-unified-work'
 
@@ -80,6 +82,25 @@ export function SidebarRail(): JSX.Element {
   const commandPaletteEnabled = useFeature('command-palette')
   const AgentIcon = NEW_AGENTS.find((a) => a.kind === defaultAgent)?.Icon
 
+  // ⌘-hold shortcuts (POD-790). The digits count DOWN THIS COLUMN as drawn: the
+  // rail keeps pinned work inside its project group where the wide list hoists
+  // it to the top, so ⌘3 can name a different mission collapsed than expanded.
+  // That is the right trade — a positional shortcut has to agree with the list
+  // in front of you, and only one of the two columns is ever on screen. Grouped
+  // once here and both numbered and rendered from that, so the digits and the
+  // squares cannot read a different list.
+  const railGroups = groupUnifiedWorkRows(work)
+  const shortcutRows = railGroups
+    .flatMap((group) => group.rows)
+    .filter((row): row is Extract<UnifiedWorkRow, { kind: 'issue' }> => row.kind === 'issue')
+    .slice(0, MAX_ROW_SHORTCUTS)
+  const { numbers: shortcutNumbers } = useRowShortcuts(
+    shortcutRows.map<RowShortcutTarget>((row) => ({
+      id: row.issue.id,
+      activate: () => selectIssue(row.issue),
+    })),
+  )
+
   const renderRow = (row: UnifiedWorkRow): JSX.Element => {
     const phase = rowMotionPhase(row)
     const waitingCount = rowWaitingCount(row)
@@ -88,6 +109,7 @@ export function SidebarRail(): JSX.Element {
       const { issue } = row
       const selected = selectedIssueId === issue.id
       const label = idSquareLabel(issue)
+      const shortcutDigit = shortcutNumbers.get(issue.id)
       return (
         <span key={`issue:${issue.id}`} className="relative flex flex-none">
           <IdSquare
@@ -102,6 +124,7 @@ export function SidebarRail(): JSX.Element {
             onPrimary={() => selectIssue(issue)}
             onColorChange={(color) => setIssueColor(issue.id, color)}
           />
+          {shortcutDigit !== undefined && <RowShortcutBadge digit={shortcutDigit} size={26} />}
           {selected && <RailNotch hex={issueColorHex(issue.color)} />}
         </span>
       )
@@ -164,7 +187,7 @@ export function SidebarRail(): JSX.Element {
         className="scroll-none flex min-h-0 w-full flex-1 flex-col items-center gap-2.5 overflow-y-auto pt-0.5 pb-1"
         style={{ marginRight: -6, paddingRight: 6 }}
       >
-        {groupUnifiedWorkRows(work).map((group) => (
+        {railGroups.map((group) => (
           <Fragment key={group.key}>
             <span
               data-testid="rail-project-hairline"

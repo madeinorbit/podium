@@ -21,6 +21,7 @@ import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { agentBrandText } from '@/lib/agent-tone'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { NewAgentMenu } from './NewAgentMenu'
@@ -195,6 +196,36 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
       setAgentSetting(kind) // optimistic — best-effort persistence
     }
   }
+
+  // ⌘N — File > New Agent in the desktop shell's macOS menu (POD-790).
+  //
+  // A MENU ACCELERATOR, NOT A KEYDOWN. ⌘N never reaches a webview that has not
+  // claimed it in the app menu, exactly as ⌘W did not before POD-710 gave it a
+  // Close Tab item — so the shell owns the chord and hands it back through this
+  // global, the same contract `__PODIUM_CLOSE_TAB__` already runs on
+  // (apps/desktop/src-tauri/src/main.rs).
+  //
+  // It does what the New <Agent> in <Repo> button does, deliberately: the
+  // keystroke's whole promise is that it is that button without the trip to it,
+  // so it spawns the SAME persisted default agent in the SAME most-recent repo.
+  // Registered from here rather than from a component because the button and the
+  // collapsed rail's compact version both already own this hook, and exactly one
+  // of the two is mounted at a time.
+  const newAgentRef = useRef<() => void>(() => {})
+  newAgentRef.current = () => {
+    if (defaultRepo) spawn(defaultAgent, defaultRepo)
+  }
+  useEffect(() => {
+    if (!nativeDesktopBridge()) return
+    const g = globalThis as { __PODIUM_NEW_AGENT__?: () => void }
+    const handler = (): void => newAgentRef.current()
+    g.__PODIUM_NEW_AGENT__ = handler
+    return () => {
+      // Only ours: an expand/collapse swaps rail and row, and React mounts the
+      // arriving one before unmounting the leaving one.
+      if (g.__PODIUM_NEW_AGENT__ === handler) delete g.__PODIUM_NEW_AGENT__
+    }
+  }, [])
 
   return {
     defaultAgent,

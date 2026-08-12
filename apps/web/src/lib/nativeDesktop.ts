@@ -22,9 +22,7 @@ export interface NativeDesktopBridge {
   /** Claims the shared update dialog so the shell does not show its native fallback. */
   claimUpdateOwnership?: () => Promise<void>
   /** Checks a production feed; older shells may not expose this command. */
-  checkUpdate?: (
-    channel: NativeDesktopUpdateChannel,
-  ) => Promise<NativeDesktopUpdateInfo | null>
+  checkUpdate?: (channel: NativeDesktopUpdateChannel) => Promise<NativeDesktopUpdateInfo | null>
   /** Installs the signed desktop update and restarts the shell. */
   installUpdate?: () => Promise<void>
   /**
@@ -44,6 +42,20 @@ export function nativeDesktopBridge(): NativeDesktopBridge | undefined {
   const bridge = (globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__
   if (!bridge || !['macos', 'windows', 'linux'].includes(bridge.platform)) return undefined
   return bridge
+}
+
+/**
+ * Is this the macOS native shell, as opposed to a browser tab?
+ *
+ * The gate for Command chords the browser will never hand over. ⌘1…⌘9 switch
+ * BROWSER TABS and ⌘N opens a browser window: in a tab those keystrokes never
+ * reach the page, so an app that drew ⌘-hold hints there would be advertising
+ * shortcuts it cannot honour. Inside the shell the same chords are ours — the
+ * webview gets ⌘-digit because no menu item claims it, and ⌘N arrives as a menu
+ * accelerator (`File > New Agent`, apps/desktop/src-tauri/src/main.rs).
+ */
+export function isMacNativeShell(): boolean {
+  return nativeDesktopBridge()?.platform === 'macos'
 }
 
 /**

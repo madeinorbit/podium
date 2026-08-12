@@ -679,6 +679,14 @@ fn main() {
                     .separator()
                     .quit()
                     .build()?;
+                // Cmd+N, same reasoning as Cmd+W below: an unclaimed accelerator
+                // never reaches the webview, so the only way the web app can own
+                // the chord is to be handed it from here. It starts the sidebar's
+                // default agent (see on_menu_event), and being a real menu item
+                // is also how the shortcut becomes discoverable at all.
+                let new_agent = MenuItemBuilder::with_id("new-agent", "New Agent")
+                    .accelerator("CmdOrCtrl+N")
+                    .build(app)?;
                 let close_tab = MenuItemBuilder::with_id("close-tab", "Close Tab")
                     .accelerator("CmdOrCtrl+W")
                     .build(app)?;
@@ -686,6 +694,8 @@ fn main() {
                     .accelerator("Shift+CmdOrCtrl+W")
                     .build(app)?;
                 let file_menu = SubmenuBuilder::new(app, "File")
+                    .item(&new_agent)
+                    .separator()
                     .item(&close_tab)
                     .item(&close_window)
                     .build()?;
@@ -823,6 +833,16 @@ fn main() {
             Ok(())
         })
         .on_menu_event(|app, event| match event.id.as_ref() {
+            // Cmd+N (macOS app menu). The web app registers __PODIUM_NEW_AGENT__
+            // from the work sidebar's spawn row; it starts the same default agent
+            // in the same default repo as the "New <Agent> in <Repo>" button and
+            // navigates to the fresh session. Nothing to do if the sidebar is not
+            // up (setup/onboarding) — there is no default to spawn yet.
+            "new-agent" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.eval("window.__PODIUM_NEW_AGENT__ && window.__PODIUM_NEW_AGENT__();");
+                }
+            }
             // Cmd+W (macOS app menu). The web app registers __PODIUM_CLOSE_TAB__
             // while a tab strip is on screen; it returns true when it handled the
             // command (including consuming it for a locked session tab).

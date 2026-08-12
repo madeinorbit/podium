@@ -1,5 +1,6 @@
 import {
   groupUnifiedWorkRows,
+  isDraftAgentVessel,
   planReorderKeys,
   rowAwaitsTuck,
   splitPinnedWork,
@@ -13,6 +14,7 @@ import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
+import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
 import { AppToolsRow, NewWorkRow } from './spawn-row'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
@@ -335,6 +337,37 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   })
   const onGripDown = (e: ReactPointerEvent, issueId: string) => startDrag(e, issueId)
 
+  // ⌘-hold row shortcuts (POD-790). The order is the column's own reading order
+  // — pinned first, then each project group's live rows — taken from the SETTLED
+  // groups rather than from `transitionRows`, so a row on its way out cannot
+  // renumber the rows above it mid-animation.
+  //
+  // Only live issue rows are numbered. The folds are skipped because a digit
+  // pointing into collapsed content would select something the operator cannot
+  // see, and worktree rows because they are roster BANDS, not tasks — the thing
+  // being counted here is "the missions in my column".
+  const activateRow = (row: UnifiedIssueRowView): void => {
+    setSelectedClosedPlacement({ issueId: row.issue.id, folded: false })
+    // Exactly what clicking the row does, draft carve-out included: a draft
+    // whose only content is its agent opens the session, not the empty issue.
+    const first = row.sessions[0]
+    if (isDraftAgentVessel(row.issue, row.sessions) && first)
+      selectPanelForIssue(row.issue, first.sessionId)
+    else selectIssue(row.issue)
+  }
+  const shortcutRows: UnifiedIssueRowView[] = []
+  for (const group of [{ rows: pinned }, ...targetGroups]) {
+    for (const row of group.rows) {
+      if (row.kind === 'issue' && shortcutRows.length < MAX_ROW_SHORTCUTS) shortcutRows.push(row)
+    }
+  }
+  const { numbers: shortcutNumbers } = useRowShortcuts(
+    shortcutRows.map<RowShortcutTarget>((row) => ({
+      id: row.issue.id,
+      activate: () => activateRow(row),
+    })),
+  )
+
   const renderWorkRow = (item: TransitionWorkRow, animate = true) => {
     const { row, lane } = item.value
     const folded = lane === 'closed' || lane === 'snoozed'
@@ -360,6 +393,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       ) : row.kind === 'issue' ? (
         <UnifiedIssueRow
           row={row}
+          shortcutDigit={shortcutNumbers.get(row.issue.id)}
           allWorktreePaths={allWorktreePaths}
           sessions={sessions}
           issues={issues}
