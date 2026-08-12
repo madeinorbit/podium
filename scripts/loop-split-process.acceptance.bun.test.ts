@@ -1,3 +1,4 @@
+import { asThreadId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'bun:test'
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -28,7 +29,7 @@ type FaultBoundary = 'before-apply' | 'after-apply-before-ack'
 function dueMessage(id: string): MessageRow {
   return {
     id,
-    threadId: 'thread_' + id,
+    threadId: asThreadId('thread_' + id),
     inReplyTo: null,
     fromKind: 'system',
     fromSession: null,

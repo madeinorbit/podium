@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, FIRST_ADMIN_USER_ID, type MachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startDaemon, type DaemonHandle } from '../apps/daemon/src/daemon'
 import { startServer, type ServerHandle } from '../apps/server/src/server'
 
-const DONOR_ID = '00000000-0000-4000-8000-000000001708'
-const TARGET_ID = '00000000-0000-4000-8000-000000001709'
+const DONOR_ID = asMachineId('00000000-0000-4000-8000-000000001708')
+const TARGET_ID = asMachineId('00000000-0000-4000-8000-000000001709')
 const ENVIRONMENT_KEYS = [
   'PODIUM_STATE_DIR',
   'PODIUM_INSTANCE',
@@ -104,7 +104,7 @@ describe('real daemon-to-daemon login propagation', () => {
       server = await startServer({ host: '127.0.0.1', port: 0 })
       const serverUrl = 'ws://127.0.0.1:' + server.port
       const startFixtureDaemon = async (
-        machineId: string,
+        machineId: MachineId,
         homeDir: string,
         label: string,
       ): Promise<DaemonHandle> =>
