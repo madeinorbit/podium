@@ -22,19 +22,25 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const TAURI_DIR = join(REPO_ROOT, 'apps/desktop/src-tauri')
 
-/** The `resources` entries of tauri.conf.json, and whether each is a directory. */
-const RESOURCE_PLACEHOLDERS = [
+/**
+ * Every path tauri-build probes for existence: the `resources` entries of
+ * tauri.conf.json, plus its `frontendDist` (checked by `generate_context!`,
+ * which is expanded by the TEST target too — `main.rs` has `#[test]`s in the
+ * same file). Relative to the tauri dir, as the config writes them.
+ */
+const BUILD_PLACEHOLDERS = [
   { path: 'resources/web', dir: true },
   { path: 'resources/licenses', dir: true },
   { path: 'resources/podium', dir: false },
+  { path: '../../web/dist', dir: true },
 ] as const
 
 /** `cargo` from PATH, else rustup's default install. A login shell has it on
@@ -51,20 +57,26 @@ export function resolveCargo(env: NodeJS.ProcessEnv = process.env): string | nul
 /** Create the placeholders that are missing; returns an undo for those only. */
 export function stagePlaceholders(tauriDir: string): () => void {
   const created: { abs: string; dir: boolean }[] = []
-  for (const { path, dir } of RESOURCE_PLACEHOLDERS) {
+  for (const { path, dir } of BUILD_PLACEHOLDERS) {
     const abs = join(tauriDir, path)
     if (existsSync(abs)) continue
     if (dir) mkdirSync(abs, { recursive: true })
     else {
-      mkdirSync(join(tauriDir, 'resources'), { recursive: true })
+      mkdirSync(dirname(abs), { recursive: true })
       writeFileSync(abs, '')
     }
     created.push({ abs, dir })
   }
   return () => {
-    // Reverse order so a `resources/` this script created goes last.
     for (const { abs, dir } of created.reverse()) {
       rmSync(abs, { recursive: dir, force: true })
+    }
+    // The parent `resources/` may itself have been created by the loop above.
+    // Removed only when EMPTY, so a real staged bundle is never touched.
+    try {
+      rmdirSync(join(tauriDir, 'resources'))
+    } catch {
+      // Not empty, or not there: both mean it is not ours to remove.
     }
   }
 }
@@ -86,6 +98,17 @@ function main(): number {
     const result = spawnSync(cargo, ['test', '--manifest-path', join(TAURI_DIR, 'Cargo.toml')], {
       stdio: 'inherit',
       cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        // DEBUG INFO OFF, unless the caller asked for it. It is most of the
+        // target dir — a debug build of this dep tree runs to several GiB, which
+        // is a lane that fails with ENOSPC on a working machine rather than a
+        // lane that reports. Assertion failures still name their file and line
+        // (that is `panic!`, not DWARF); what is lost is a debugger session,
+        // which is not what a CI lane does.
+        CARGO_PROFILE_TEST_DEBUG: process.env.CARGO_PROFILE_TEST_DEBUG ?? '0',
+        CARGO_PROFILE_DEV_DEBUG: process.env.CARGO_PROFILE_DEV_DEBUG ?? '0',
+      },
     })
     return result.status ?? 1
   } finally {

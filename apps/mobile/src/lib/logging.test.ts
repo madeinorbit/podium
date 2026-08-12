@@ -318,6 +318,26 @@ describe('installMobileLogging', () => {
     expect(forwarded.flatMap((b) => b.records.map((r) => r.msg))).toContain('now forwarded')
   })
 
+  it('keeps the boot line out of the forwarded stream and inside the crash snapshot', async () => {
+    // The boot line is `info` under the `warn` default, so at the real boot
+    // level it is RING-ONLY — by design, and this is the assertion that says so
+    // rather than a comment. It costs nothing per launch and is there in the one
+    // payload that answers "was capture even installed when this died?".
+    const { forwarded, crashes, transport } = collectingTransport()
+    const { scope, fire } = errorUtilsScope()
+    const logging = installMobileLogging({ transport, scope, console: false, batchSize: 1 })
+
+    fire(new Error('died'), true)
+    await Promise.resolve()
+    await Promise.resolve()
+    await logging.flush()
+
+    expect(forwarded.flatMap((b) => b.records.map((r) => r.msg))).not.toContain(
+      'log capture installed',
+    )
+    expect(crashes[0]?.snapshot.map((r) => r.msg)).toContain('log capture installed')
+  })
+
   it('records the capture surfaces it actually installed', () => {
     // A crash that never arrived is indistinguishable from a handler that was
     // never installed, unless the boot line says which surfaces exist.

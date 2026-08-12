@@ -955,11 +955,19 @@ mod tests {
             ]
         );
 
-        let capability = native_window_capability(
+        let built = native_window_capability(
             "transfer-window-controls-test",
             Some("https://new.example:55555/*".to_string()),
         )
         .build();
+        // `CapabilityFile` itself is NOT `Serialize` (only the `Capability` it
+        // wraps is), so the inner value is unwrapped before serializing. This
+        // used to call `to_value` on the file and had not compiled since the
+        // tauri bump that changed it — invisible because nothing ran this module
+        // until POD-1906 gave it a lane.
+        let tauri::utils::acl::capability::CapabilityFile::Capability(capability) = built else {
+            panic!("a CapabilityBuilder must build to exactly one capability")
+        };
         let capability = serde_json::to_value(capability).expect("capability should serialize");
         assert_eq!(capability["windows"], serde_json::json!(["main"]));
         assert_eq!(
