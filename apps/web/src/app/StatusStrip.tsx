@@ -1,9 +1,9 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { issueReferenceModel } from '@podium/client-core/viewmodels'
+import { isAgentComputing } from '@podium/model'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
-import { useFeature } from '@/lib/use-feature'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
 import { useReplicaIssues, useStoreSelector } from './store'
 
@@ -23,6 +23,12 @@ import { useReplicaIssues, useStoreSelector } from './store'
  *     this WINDOW is about,
  *   · whether the link is healthy, and only while it is not.
  *
+ * The "⌘K commands" hint is gone with it. It failed the same test: a keycap is
+ * not a window-scoped FACT, it is instruction, and instruction shown all day to
+ * an operator who learned the key on their first session is the definition of
+ * noise on a 24px edge. The palette teaches its own keys now, in its own footer,
+ * at the only moment they are useful — while it is open.
+ *
  * Branch and commit state deliberately do NOT appear. `GitStamp` (POD-98) owns
  * that in four prescribed densities and its whole design rule is that one git
  * fact is not restated in two places at once — a strip readout would be a fifth,
@@ -30,26 +36,24 @@ import { useReplicaIssues, useStoreSelector } from './store'
  * two problems".
  */
 export function StatusStrip(): JSX.Element {
-  const { sessions, selectedIssueId, paletteOpen, setPaletteOpen, trpc } = useStoreSelector(
+  const { sessions, selectedIssueId, trpc } = useStoreSelector(
     (s) => ({
       sessions: s.sessions,
       selectedIssueId: s.selectedIssueId,
-      paletteOpen: s.paletteOpen,
-      setPaletteOpen: s.setPaletteOpen,
       trpc: s.trpc,
     }),
     shallowEqual,
   )
   const issues = useReplicaIssues()
   const { health, visible: connVisible } = useStableConnection()
-  const commandPaletteEnabled = useFeature('command-palette')
 
-  // 'compacting' is the harness still computing, just about its own context —
-  // the same reading SessionContextMenu takes.
-  const working = sessions.filter(
-    (session) =>
-      session.agentState?.phase === 'working' || session.agentState?.phase === 'compacting',
-  ).length
+  // Liveness is part of the question, not just the phase: a session that exited
+  // mid-turn keeps `phase: 'working'` (the server preserves the final turn
+  // diagnosis) and a parked one keeps it too, so counting raw phase gives a
+  // number that only ratchets up — it read "13 agents working" for hours with
+  // four alive (POD-730). `isAgentComputing` asks both, and 'compacting' counts
+  // because the harness is still computing, just about its own context.
+  const working = sessions.filter(isAgentComputing).length
   const issue = selectedIssueId
     ? issues.find((candidate) => candidate.id === selectedIssueId && !candidate.deletedAt)
     : undefined
@@ -90,16 +94,6 @@ export function StatusStrip(): JSX.Element {
           <span className="status-strip-seam" aria-hidden="true" />
           <ConnectionIndicator health={health} />
         </>
-      )}
-      {commandPaletteEnabled && (
-        <button
-          data-pressable
-          type="button"
-          className="status-strip-hint"
-          onClick={() => setPaletteOpen(!paletteOpen)}
-        >
-          <kbd>⌘K</kbd> commands
-        </button>
       )}
     </footer>
   )

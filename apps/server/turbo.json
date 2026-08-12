@@ -659,6 +659,7 @@
         "src/modules/issues/git-state.ts",
         "src/modules/issues/git-watch.ts",
         "src/modules/issues/instrumentation.ts",
+        "src/modules/issues/placement.test.ts",
         "src/modules/issues/projection.ts",
         "src/modules/issues/publish.ts",
         "src/modules/issues/registry.test.ts",

@@ -64,16 +64,36 @@ describe('superade token blocks', () => {
   it('carves light in the theme ink and dark in black', () => {
     // Black at 0.85 on paper reads as dirt, not depth — that is the whole bug
     // this theme exists to fix, so assert the two grounds never share a carve.
-    expect(light).toContain('--carve-engraved: rgb(14 22 38 / 0.26)')
+    expect(light).toContain('--carve-engraved: rgb(29 28 25 / 0.07)')
     expect(dark).toContain('--carve-engraved: rgb(0 0 0 / 0.85)')
+  })
+
+  it('keeps every light neutral warm, so nothing reads as unlit dark mode', () => {
+    // POD-725: the Paper theme's whole premise is that a light UI must be warm
+    // stone rather than cool glass. A cool neutral sneaking back in is the one
+    // regression that would undo it and that no screenshot review reliably
+    // catches, so assert it numerically: for every 6-digit neutral in the
+    // block, red must not be the smallest channel.
+    const cool: string[] = []
+    for (const match of light.matchAll(/(--[a-z-]+):\s*(#[0-9a-f]{6})\b/gi)) {
+      const name = match[1] ?? ''
+      const hex = match[2] ?? ''
+      const [r = 0, g = 0, b = 0] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16))
+      // Chromatic accents (yellow, ochre, blue, terracotta, red) are exempt —
+      // only the greys are required to lean warm.
+      const chroma = Math.max(r, g, b) - Math.min(r, g, b)
+      if (chroma > 24) continue
+      if (r < b) cool.push(`${name}: ${hex}`)
+    }
+    expect(cool, 'cool neutrals in the Paper block').toEqual([])
   })
 
   it('scales issue tints down on paper and leaves dark at 1:1', () => {
     // A hue mixed into a light base saturates about twice as fast; without this
     // the 28% selected row becomes a flat fill, which the Tint-Never-Fill Rule
     // forbids. Set here rather than at ~28 call sites.
-    expect(light).toContain('--issue-tint-scale: 0.5%')
-    expect(light).toContain('--issue-line-scale: 0.85%')
+    expect(light).toContain('--issue-tint-scale: 0.4%')
+    expect(light).toContain('--issue-line-scale: 0.8%')
     expect(dark).toContain('--issue-tint-scale: 1%')
     expect(dark).toContain('--issue-line-scale: 1%')
   })

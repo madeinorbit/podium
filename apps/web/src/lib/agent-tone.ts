@@ -38,6 +38,8 @@ import {
 const GLYPH_TONE_FALLBACK = 'text-foreground'
 const CHIP_TINT_FALLBACK = 'border-border-strong bg-chip'
 const FLEET_TILE_TINT_FALLBACK = 'border-border-strong bg-chip text-foreground'
+/** A parked (hibernated) agent's tile — `KindIcon`'s `dimmed` pair, verbatim. */
+const FLEET_TILE_TINT_PARKED = 'border-hairline-bar bg-muted text-muted-foreground/70'
 
 const GLYPH_TONE: Record<AgentKind, string> = {
   'claude-code': 'text-claude',
@@ -98,8 +100,17 @@ export function agentChipTint(kind: WireHarnessKind): string {
 }
 
 /** Stacked fleet-summary tile (sidebar issue rows) — carries its own text tone,
- *  which is why it is not the chip resolver above. Total. */
-export function agentFleetTileTint(kind: WireHarnessKind): string {
+ *  which is why it is not the chip resolver above. Total.
+ *
+ *  `parked` (POD-756) is the ghost state: the harness is on the task but its
+ *  process was stopped to free memory. It drops the brand and takes the muted
+ *  fill for EVERY kind — deliberately not a sixth per-kind table, because the
+ *  fact being drawn is "this one is asleep", not "this one is Claude". Same two
+ *  classes `KindIcon`'s `dimmed` already uses, so a parked agent looks parked
+ *  wherever it is drawn. The fill stays SOLID: stacked tiles overlap, and an
+ *  opacity ghost would let the neighbour show through it. */
+export function agentFleetTileTint(kind: WireHarnessKind, parked = false): string {
+  if (parked) return FLEET_TILE_TINT_PARKED
   return FLEET_TILE_TINT[kind as AgentKind] ?? FLEET_TILE_TINT_FALLBACK
 }
 

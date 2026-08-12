@@ -1,7 +1,10 @@
+import { orderIssues as coreOrderIssues, type IssuesOrdering } from '@podium/client-core/viewmodels'
 import type { IssueViewModel } from '@/app/store'
 
 export type IssuesLayout = 'board' | 'list'
-export type IssuesOrdering = 'priority' | 'updated' | 'created'
+/** Ordering is the SHARED vocabulary now (POD-724) — the phone's Tasks tab reads
+ *  the same union and calls the same comparator. */
+export type { IssuesOrdering }
 
 export interface IssuesDisplay {
   layout: IssuesLayout
@@ -132,11 +135,8 @@ export function computeEpicProgressMap(
   return new Map(rootIds.map((id) => [id, progressFrom(childrenOf, id)]))
 }
 
-/** Stable ordering for board columns and list groups. Pure — returns a copy. */
+/** Stable ordering for board columns and list groups. Pure — returns a copy.
+ *  The comparator itself lives in client-core (POD-724). */
 export function orderIssues(issues: IssueViewModel[], ordering: IssuesOrdering): IssueViewModel[] {
-  const c = [...issues]
-  if (ordering === 'priority') c.sort((a, b) => a.priority - b.priority || a.seq - b.seq)
-  else if (ordering === 'updated') c.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-  else c.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  return c
+  return coreOrderIssues(issues, ordering)
 }

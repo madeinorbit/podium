@@ -14,10 +14,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { STAGE_LABELS } from '../issue-card'
-import { StageGlyph } from '../issue-glyphs'
 import type { IssuePageCommands } from '../issue-page-commands'
-import { SectionHeading, StatusChip } from './chrome'
+import { MACHINE_LABEL, SectionHeading, StatusChip } from './chrome'
 
 /** Inline-editable title. `editing` is owned by the page so Escape-to-board and
  *  the issue-switch reset stay in one place. */
@@ -42,7 +40,7 @@ export function IssueTitle({
         aria-label="Task title"
         autoFocus
         disabled={busy}
-        className="mb-2 h-auto font-semibold text-[18px] tracking-[-0.012em]"
+        className="mb-2 h-auto font-semibold text-[22px] leading-[1.25] tracking-[-0.018em]"
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
@@ -60,7 +58,7 @@ export function IssueTitle({
     <button
       data-pressable
       type="button"
-      className="mb-1.5 block w-full break-words text-left font-semibold text-[18px] text-foreground leading-[1.3] tracking-[-0.012em] transition-colors hover:text-foreground/80"
+      className="mb-2 block w-full break-words text-left font-semibold text-[22px] text-foreground leading-[1.25] tracking-[-0.018em] transition-colors hover:text-foreground/80"
       onClick={() => onEditingChange(true)}
       title="Click to edit title"
     >
@@ -84,7 +82,7 @@ export function IssueDescription({
   onCommit: (value: string) => void
 }): JSX.Element {
   return (
-    <section className="group/section mb-7">
+    <section className="group/section mb-9">
       {editing ? (
         <Textarea
           key={`desc-${issue.id}`}
@@ -92,7 +90,7 @@ export function IssueDescription({
           aria-label="Task description"
           autoFocus
           disabled={busy}
-          className="min-h-[120px] text-[13px]"
+          className="min-h-[120px] text-[14.5px] leading-[1.6]"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               e.preventDefault()
@@ -109,9 +107,9 @@ export function IssueDescription({
           data-pressable
           type="button"
           className={cn(
-            'block w-full whitespace-pre-wrap break-words text-left text-[13px] leading-relaxed',
+            'block w-full whitespace-pre-wrap break-words text-left text-[14.5px] leading-[1.6]',
             issue.description
-              ? 'text-foreground/85 hover:text-foreground'
+              ? 'text-foreground/90 hover:text-foreground'
               : 'text-muted-foreground/70 italic hover:text-foreground',
           )}
           onClick={() => onEditingChange(true)}
@@ -131,17 +129,17 @@ export function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | 
     // Collapsed by default and framed by hairlines rather than a box: the brief
     // is long, written FOR an agent, and sits between two things a human reads.
     // A bordered card here made the page's least-read text its loudest object.
-    <details className="mb-7 border-border border-y py-2" data-testid="issue-brief">
+    <details className="mb-9 border-border/60 border-y py-2.5" data-testid="issue-brief">
       <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-        <span className="label-mono">Brief</span>
-        <span className="text-[10.5px] text-text-faint">written for the agent</span>
+        <span className={MACHINE_LABEL}>Brief</span>
+        <span className="text-[11px] text-text-faint">written for the agent</span>
         <ChevronRight
           size={12}
           aria-hidden="true"
           className="ml-auto text-text-faint transition-transform group-open:rotate-90 [details[open]>summary>&]:rotate-90"
         />
       </summary>
-      <div className="mt-2.5 whitespace-pre-wrap break-words text-[12px] text-muted-foreground leading-relaxed">
+      <div className="mt-3 whitespace-pre-wrap break-words text-[13px] text-muted-foreground leading-[1.6]">
         {issue.brief}
       </div>
     </details>
@@ -158,35 +156,25 @@ export function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | 
  * reads here — what stage is this, and how stale is it — were the hardest to
  * find in the row.
  *
- * The rule now: an ORDINARY fact (stage, type, priority, assignee, timestamps)
- * is mono text on the line, because it is true of every task and carries no
- * alarm. An EXCEPTION (draft, pinned, archived, agent-created, internal, a stale
- * hub mirror) keeps a chip, because a chip means "this one is not like the
- * others". Nothing was dropped — every fact the strip carried is still here.
+ * The rule now: the rail owns ordinary editable properties (stage, type,
+ * priority, assignee). The line keeps recency plus EXCEPTIONS (draft, pinned,
+ * archived, agent-created, internal, a stale hub mirror), because a chip means
+ * "this one is not like the others". One fact, one home.
  */
 export function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
   const now = Date.now()
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
   const facts: { key: string; text: string; title?: string }[] = [
-    {
-      key: 'stage',
-      text: issue.closedReason
-        ? `Closed · ${issue.closedReason}`
-        : (STAGE_LABELS[issue.stage] ?? issue.stage),
-    },
-    { key: 'type', text: issue.type },
-    { key: 'priority', text: `P${issue.priority}` },
-    ...(issue.assignee ? [{ key: 'assignee', text: issue.assignee }] : []),
+    ...(issue.closedReason ? [{ key: 'closed', text: `Closed · ${issue.closedReason}` }] : []),
     ...(created ? [{ key: 'created', text: `created ${created}`, title: issue.createdAt }] : []),
     ...(updated ? [{ key: 'updated', text: `updated ${updated}`, title: issue.updatedAt }] : []),
   ]
   return (
     <div
-      className="mb-5 flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-[9.5px] text-text-dim tabular-nums"
+      className="mb-8 flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-[10.5px] text-text-dim tabular-nums"
       data-testid="status-strip"
     >
-      <StageGlyph stage={issue.stage} size={12} />
       {facts.map((fact, index) => (
         <span key={fact.key} className="flex items-center gap-1.5">
           {index > 0 && (
@@ -273,8 +261,8 @@ export function LongFormFields({
   return (
     <div data-testid="long-form-fields">
       {filled.map(({ field, label }) => (
-        <section key={field} className="group/section mb-7 flex flex-col gap-1.5">
-          <SectionHeading>{label}</SectionHeading>
+        <section key={field} className="group/section mb-9 flex flex-col gap-2">
+          <SectionHeading tone="narrative">{label}</SectionHeading>
           {editing === field ? (
             <Textarea
               key={`${field}-${issue.id}`}
@@ -282,7 +270,7 @@ export function LongFormFields({
               aria-label={`Task ${field}`}
               autoFocus
               disabled={busy}
-              className="min-h-[100px] text-[13px]"
+              className="min-h-[100px] text-[14.5px] leading-[1.6]"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault()
@@ -298,7 +286,7 @@ export function LongFormFields({
             <button
               data-pressable
               type="button"
-              className="block w-full whitespace-pre-wrap break-words text-left text-[13px] text-foreground/85 leading-relaxed hover:text-foreground"
+              className="block w-full whitespace-pre-wrap break-words text-left text-[14.5px] text-foreground/90 leading-[1.6] hover:text-foreground"
               onClick={() => setEditing(field)}
               title={`Click to edit ${field}`}
             >
@@ -308,7 +296,7 @@ export function LongFormFields({
         </section>
       ))}
       {empty.length > 0 && (
-        <div className="mb-7 flex flex-wrap items-center gap-1">
+        <div className="mb-9 flex flex-wrap items-center gap-1">
           {empty.map(({ field, label }) =>
             editing === field ? (
               <Textarea
@@ -318,7 +306,7 @@ export function LongFormFields({
                 autoFocus
                 disabled={busy}
                 placeholder={`Add ${label.toLowerCase()}…`}
-                className="min-h-[100px] w-full text-[13px]"
+                className="min-h-[100px] w-full text-[14.5px] leading-[1.6]"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault()

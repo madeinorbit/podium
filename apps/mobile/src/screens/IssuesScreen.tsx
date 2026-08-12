@@ -1,9 +1,9 @@
-import { boardIssues } from '@podium/client-core/viewmodels'
+import type { IssueRow } from '@podium/client-core/viewmodels'
 import type { IssueStage, IssueWire } from '@podium/model'
 import { useRouter } from 'expo-router'
-import { ChevronRight, Layers, Plus } from 'lucide-react-native'
-import { useMemo, useState } from 'react'
-import { SectionList, StyleSheet, Text, View } from 'react-native'
+import { ChevronDown, ChevronRight, Layers, Plus } from 'lucide-react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Animated, SectionList, StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues } from '../client/hooks'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
@@ -12,36 +12,37 @@ import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlacehold
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
+import { StageGlyph } from '../components/StageGlyph'
 import { EmptyState, Pill } from '../components/ui'
+import { useCollapsed } from '../hooks/useCollapsed'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
+import { stageFoldKey } from '../lib/fold-keys'
 import { buildScreeningQueue } from '../lib/screening'
+import { taskBoardSections } from '../lib/task-board'
 import { flow, issueColorHex } from '../theme/issueColors'
-import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { alpha } from '../theme/mix'
+import { stageColor } from '../theme/stage'
+import { color, font, leading, mono, monoLabel, radius, sans, space, spring } from '../theme/theme'
 
-const STAGE_ORDER: IssueStage[] = [
-  'in_progress',
-  'review',
-  'planning',
-  'backlog',
-  'proposed',
-  'done',
-]
-
-const STAGE_LABEL: Record<IssueStage, string> = {
-  proposed: 'Proposed',
-  backlog: 'Backlog',
-  planning: 'Planning',
-  in_progress: 'In progress',
-  review: 'Review',
-  done: 'Done',
-}
-
+/**
+ * THE TASKS TAB — the desktop board's population, order and nesting [POD-724].
+ *
+ * The rows themselves come from `../lib/task-board.ts`, which reads the SHARED
+ * derivation the desktop board reads. See that module for what was wrong before
+ * (every scoped issue rendered flat, so an epic's internal decomposition arrived
+ * as top-level work) and for the section-order decision.
+ *
+ * This file owns the two things that are genuinely the phone's: what a row looks
+ * like at 390pt, and the sticky collapsible section header.
+ */
 export function IssuesScreen() {
   const router = useRouter()
   const issues = useIssues()
   const [showDone, setShowDone] = useState(false)
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const booting = useBooting()
   const { notice } = useMobileShell()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
@@ -49,29 +50,19 @@ export function IssuesScreen() {
   const tabBarInset = useTabBarInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
 
-  // The board's population is the desktop board's population (POD-338): no
-  // archived or tombstoned rows, no DRAFT vessels (the placeholder issue every
-  // bare session lives in until it is titled — a session container, not work),
-  // and no agent-audience decomposition at top level.
-  const board = useMemo(() => boardIssues(issues), [issues])
+  const board = useMemo(
+    () => taskBoardSections(issues, expanded, { showDone }),
+    [issues, expanded, showDone],
+  )
 
-  const sections = useMemo(() => {
-    const byStage = new Map<IssueStage, IssueWire[]>()
-    for (const issue of board) {
-      const list = byStage.get(issue.stage) ?? []
-      list.push(issue)
-      byStage.set(issue.stage, list)
-    }
-    return STAGE_ORDER.filter((stage) => showDone || stage !== 'done')
-      .map((stage) => ({
-        key: stage,
-        title: STAGE_LABEL[stage],
-        data: (byStage.get(stage) ?? []).sort((a, b) => a.priority - b.priority || b.seq - a.seq),
-      }))
-      .filter((s) => s.data.length > 0)
-  }, [board, showDone])
-
-  const repoName = (issue: IssueWire) => issue.repoPath.split('/').filter(Boolean).pop() ?? ''
+  const toggleExpand = useCallback((id: string) => {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
   // flow is the fast way through them, so the board leads with it whenever any
@@ -103,109 +94,326 @@ export function IssuesScreen() {
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
       <BootstrapCrossfade resolved={!booting} placeholder={<TasksSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
-          <SectionList
-            ref={listRef as never}
-            sections={sections}
-            keyExtractor={(issue) => issue.id}
-            stickySectionHeadersEnabled
+          <StageSections
+            board={board}
+            listRef={listRef}
             refreshControl={refreshControl}
-            contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
-            {...refreshAccessibilityProps}
-            {...minimizeOnScroll}
-            ListHeaderComponent={
-              proposals.length === 0 ? null : (
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel="Screen proposed"
-                  accessibilityHint={`Decide on ${proposals.length} proposal${proposals.length === 1 ? '' : 's'} one at a time`}
-                  onPress={() => router.push('/screen-proposed')}
-                  style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
-                >
-                  <View style={styles.screenIcon}>
-                    <Icon as={Layers} size={16} color={color.accent} />
-                  </View>
-                  <View style={styles.screenText}>
-                    <Text style={styles.screenTitle}>Screen proposed</Text>
-                    <Text style={styles.screenSub}>
-                      {`${proposals.length} proposal${proposals.length === 1 ? '' : 's'} waiting on your call`}
-                    </Text>
-                  </View>
-                  <Icon as={ChevronRight} size={16} color={color.textFaint} />
-                </PressableScale>
-              )
-            }
-            renderSectionHeader={({ section }) => (
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionLabel}>{section.title.toUpperCase()}</Text>
-                <Text style={styles.sectionCount}>{section.data.length}</Text>
-                <View style={styles.sectionRule} />
-              </View>
-            )}
-            renderItem={({ item: issue }) => {
-              const hex = issueColorHex(issue.color)
-              const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
-              return (
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel={`Issue ${issue.seq}: ${issue.title}`}
-                  onPress={() => router.push(`/issue/${encodeURIComponent(issue.id)}`)}
-                  style={({ pressed }) => [
-                    styles.card,
-                    hex ? { backgroundColor: flow.rowBg(hex) } : null,
-                    pressed && styles.cardPressed,
-                  ]}
-                >
-                  <View style={styles.topRow}>
-                    <IdSquare
-                      issue={issue}
-                      state={
-                        issue.stage === 'done'
-                          ? 'done'
-                          : issue.needsHuman
-                            ? 'waiting'
-                            : resting
-                              ? 'queued'
-                              : 'working'
-                      }
-                      ringColor={hex ? flow.rowBg(hex) : color.surface}
-                    />
-                    <Text
-                      style={[styles.title, hex ? { color: flow.text(hex) } : null]}
-                      numberOfLines={2}
-                    >
-                      {issue.title}
-                    </Text>
-                  </View>
-                  <View style={styles.metaRow}>
-                    <Pill label={issue.type} />
-                    <Pill label={`P${issue.priority}`} />
-                    {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
-                    {issue.blockedByNotes.length > 0 ? (
-                      <Pill label={`blocked by ${issue.blockedByNotes.length}`} toneKey="danger" />
-                    ) : null}
-                    <Text style={styles.repo} numberOfLines={1}>
-                      {repoName(issue)}
-                    </Text>
-                  </View>
-                </PressableScale>
-              )
-            }}
-            ListEmptyComponent={
-              // Guarded on `booting` even though the crossfade covers this
-              // screen: ListEmptyComponent is rendered by the list whenever its
-              // data is empty, with no notion of whether loading has finished, so
-              // without this the empty state is CONSTRUCTED during bootstrap and
-              // sits in the tree — and in the accessibility tree — underneath an
-              // opaque placeholder. The crossfade stops it being SEEN; this stops
-              // it being built. Related conditions, not the same one.
-              booting ? null : (
-                <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
-              )
-            }
+            refreshAccessibilityProps={refreshAccessibilityProps}
+            minimizeOnScroll={minimizeOnScroll}
+            tabBarInset={tabBarInset}
+            booting={booting}
+            proposals={proposals.length}
+            onScreenProposals={() => router.push('/screen-proposed')}
+            onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
+            onToggleExpand={toggleExpand}
           />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
     </Screen>
+  )
+}
+
+/** The tab-wiring hook's own return shape — the list's ref, its pull-to-refresh
+ *  control, and the accessibility props that go with it. */
+type RefreshableTab = ReturnType<typeof useRefreshableTab>
+
+interface Section {
+  key: IssueStage
+  stage: IssueStage
+  title: string
+  /** How many TASKS this stage holds — its roots, not its rendered rows. */
+  total: number
+  data: IssueRow<IssueWire>[]
+}
+
+/**
+ * The list. Split from the screen only so the per-stage `useCollapsed` hooks can
+ * live in one place: hooks cannot be called in a loop over a variable-length
+ * list, so the folds are read for the SIX known stages up front and looked up by
+ * key. There are exactly six lifecycle stages and there always will be — the
+ * lane set is the product's vocabulary, not data.
+ */
+function StageSections({
+  board,
+  listRef,
+  refreshControl,
+  refreshAccessibilityProps,
+  minimizeOnScroll,
+  tabBarInset,
+  booting,
+  proposals,
+  onScreenProposals,
+  onOpen,
+  onToggleExpand,
+}: {
+  board: { stage: IssueStage; title: string; rows: IssueRow<IssueWire>[] }[]
+  listRef: RefreshableTab['listRef']
+  // Typed from the hook rather than restated: a hand-written `ReactElement` here
+  // drops the RefreshControlProps generic the list actually requires.
+  refreshControl: RefreshableTab['refreshControl']
+  refreshAccessibilityProps: RefreshableTab['refreshAccessibilityProps']
+  minimizeOnScroll: ReturnType<typeof useMinimizeTabBarOnScroll>
+  tabBarInset: number
+  booting: boolean
+  proposals: number
+  onScreenProposals: () => void
+  onOpen: (id: string) => void
+  onToggleExpand: (id: string) => void
+}) {
+  // Keys come from `../lib/fold-keys` — the ui-state classifier is default-closed
+  // and THROWS on an unregistered key, so an invented `tasks.stage.<stage>` took
+  // the whole tab down on first render. See that module for why these folds are
+  // per-user replicated rather than device-local.
+  //
+  // `done` starts folded: a board with two hundred finished tasks would open on
+  // a wall of them, and the Show-done toggle above already means "I want to look
+  // at these", not "put them under my thumb".
+  const folds: Record<IssueStage, ReturnType<typeof useCollapsed>> = {
+    proposed: useCollapsed(stageFoldKey('proposed'), false),
+    backlog: useCollapsed(stageFoldKey('backlog'), false),
+    planning: useCollapsed(stageFoldKey('planning'), false),
+    in_progress: useCollapsed(stageFoldKey('in_progress'), false),
+    review: useCollapsed(stageFoldKey('review'), false),
+    done: useCollapsed(stageFoldKey('done'), true),
+  }
+
+  const sections: Section[] = board.map((s) => ({
+    key: s.stage,
+    stage: s.stage,
+    title: s.title,
+    // ROOTS, not rows. Counting rendered rows made the number climb every time
+    // an epic was opened — "Review 2" became "Review 7" for revealing children
+    // that are in four different stages. The count answers "how much work is in
+    // this lane", which expanding something does not change.
+    total: s.rows.filter((r) => r.depth === 0).length,
+    // A folded section keeps its header (and therefore its count) and drops its
+    // rows — the compression the operator asked for, with nothing hidden that
+    // they did not choose to hide.
+    data: folds[s.stage][0] ? [] : s.rows,
+  }))
+
+  return (
+    <SectionList
+      ref={listRef as never}
+      sections={sections}
+      keyExtractor={(row) => row.issue.id}
+      stickySectionHeadersEnabled
+      refreshControl={refreshControl}
+      contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+      {...refreshAccessibilityProps}
+      {...minimizeOnScroll}
+      ListHeaderComponent={
+        proposals === 0 ? null : (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="Screen proposed"
+            accessibilityHint={`Decide on ${proposals} proposal${proposals === 1 ? '' : 's'} one at a time`}
+            onPress={onScreenProposals}
+            style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
+          >
+            <View style={styles.screenIcon}>
+              <Icon as={Layers} size={16} color={color.accent} />
+            </View>
+            <View style={styles.screenText}>
+              <Text style={styles.screenTitle}>Screen proposed</Text>
+              <Text style={styles.screenSub}>
+                {`${proposals} proposal${proposals === 1 ? '' : 's'} waiting on your call`}
+              </Text>
+            </View>
+            <Icon as={ChevronRight} size={16} color={color.textFaint} />
+          </PressableScale>
+        )
+      }
+      renderSectionHeader={({ section }) => (
+        <StageHeader
+          stage={section.stage}
+          title={section.title}
+          count={section.total}
+          collapsed={folds[section.stage][0]}
+          onToggle={folds[section.stage][1]}
+        />
+      )}
+      renderItem={({ item }) => (
+        <TaskRow row={item} onOpen={onOpen} onToggleExpand={onToggleExpand} />
+      )}
+      ListEmptyComponent={
+        // Guarded on `booting` even though the crossfade covers this screen:
+        // ListEmptyComponent is rendered whenever the data is empty, with no
+        // notion of whether loading has finished, so without this the empty
+        // state is CONSTRUCTED during bootstrap and sits in the tree — and in
+        // the accessibility tree — underneath an opaque placeholder.
+        booting ? null : (
+          <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
+        )
+      }
+    />
+  )
+}
+
+/**
+ * THE SECTION HEADER — a solid ledge, not a transparent label.
+ *
+ * The old one was a thin mono label, a count and a hairline on the page's own
+ * background. Sticky, that is barely a header at all: rows slide UNDER it and,
+ * because it shared their ground, they appeared to slide through it. A sticky
+ * header has to read as a surface the content passes behind, so this one takes
+ * the darkest canvas tier, a full-width bottom seam, and a stage-tinted left
+ * edge — three cheap, opaque things instead of a blur that costs a frame.
+ *
+ * IDENTITY COMES FROM THE STAGE, not from a new colour: the glyph and the tint
+ * are the same values the desktop's `issue-glyphs.tsx` and the terminal's
+ * `REF_STAGE_ACCENT` table use, read from `../theme/stage`. Amber never appears
+ * here — it is reserved for "waiting on you", and a stage is never an ask.
+ *
+ * The whole 44pt bar is the fold control, and the count sits OUTSIDE the fold so
+ * a collapsed lane still says how much is in it. Compression, not concealment.
+ */
+function StageHeader({
+  stage,
+  title,
+  count,
+  collapsed,
+  onToggle,
+}: {
+  stage: IssueStage
+  title: string
+  count: number
+  collapsed: boolean
+  onToggle: () => void
+}) {
+  const reduceMotion = useReduceMotion()
+  const spin = useRef(new Animated.Value(collapsed ? 0 : 1)).current
+  useEffect(() => {
+    if (reduceMotion) {
+      spin.setValue(collapsed ? 0 : 1)
+      return
+    }
+    Animated.spring(spin, {
+      toValue: collapsed ? 0 : 1,
+      useNativeDriver: true,
+      ...spring.snappy,
+    }).start()
+  }, [collapsed, reduceMotion, spin])
+  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['-90deg', '0deg'] })
+  const tint = stageColor(stage)
+
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !collapsed }}
+      accessibilityLabel={`${title}, ${count} task${count === 1 ? '' : 's'}`}
+      accessibilityHint={collapsed ? 'Show this stage' : 'Fold this stage away'}
+      onPress={onToggle}
+      scaleTo={1}
+      style={({ pressed }) => [styles.header, pressed && styles.headerPressed]}
+    >
+      <View style={[styles.headerEdge, { backgroundColor: tint }]} />
+      <StageGlyph stage={stage} size={15} ground={color.bar} />
+      <Text style={[styles.headerTitle, { color: tint }]}>{title.toUpperCase()}</Text>
+      <View style={[styles.headerCount, { borderColor: alpha(tint, 0.35) }]}>
+        <Text style={styles.headerCountText}>{count}</Text>
+      </View>
+      <Animated.View style={[styles.headerChevron, { transform: [{ rotate }] }]}>
+        <Icon as={ChevronDown} size={15} color={color.textFaint} />
+      </Animated.View>
+    </PressableScale>
+  )
+}
+
+/**
+ * One board row. A nested child is INSET and keeps its own stage glyph — that
+ * glyph is what makes a done sub-task under an in-progress parent readable as
+ * itself rather than as a member of the lane it is drawn in.
+ *
+ * THE EXPANDER SITS IN A GUTTER EVERY ROW PAYS FOR, not only the rows that have
+ * one. It was drawn only on parents first, and the result was that the one card
+ * in a lane with children started 22pt to the right of its siblings — the row
+ * that is structurally MORE important than its neighbours read as the one that
+ * had slipped. A reserved gutter costs 22pt of title width on every row and buys
+ * a straight left edge down the whole board.
+ *
+ * It is also its own target rather than a gesture on the card: opening an epic
+ * and opening the epic are different acts, and putting the second one behind a
+ * long-press is a thing every operator would have to be taught.
+ */
+function TaskRow({
+  row,
+  onOpen,
+  onToggleExpand,
+}: {
+  row: IssueRow<IssueWire>
+  onOpen: (id: string) => void
+  onToggleExpand: (id: string) => void
+}) {
+  const issue = row.issue
+  const hex = issueColorHex(issue.color)
+  const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
+  const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? ''
+  return (
+    <View style={[styles.rowWrap, row.depth > 0 && { marginLeft: row.depth * space.lg }]}>
+      <View style={styles.gutter}>
+        {row.childCount > 0 ? (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityState={{ expanded: row.expanded }}
+            accessibilityLabel={`${row.expanded ? 'Collapse' : 'Expand'} ${row.childCount} sub-task${row.childCount === 1 ? '' : 's'}`}
+            onPress={() => onToggleExpand(issue.id)}
+            hitSlop={11}
+            style={({ pressed }) => [styles.expander, pressed && styles.expanderPressed]}
+          >
+            <Icon
+              as={row.expanded ? ChevronDown : ChevronRight}
+              size={15}
+              color={color.textFaint}
+            />
+            <Text style={styles.expanderCount}>{row.childCount}</Text>
+          </PressableScale>
+        ) : null}
+      </View>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={`Task ${issue.seq}: ${issue.title}`}
+        onPress={() => onOpen(issue.id)}
+        style={({ pressed }) => [
+          styles.card,
+          hex ? { backgroundColor: flow.rowBg(hex) } : null,
+          pressed && styles.cardPressed,
+        ]}
+      >
+        <View style={styles.topRow}>
+          <IdSquare
+            issue={issue}
+            state={
+              issue.stage === 'done'
+                ? 'done'
+                : issue.needsHuman
+                  ? 'waiting'
+                  : resting
+                    ? 'queued'
+                    : 'working'
+            }
+            ringColor={hex ? flow.rowBg(hex) : color.surface}
+          />
+          <Text style={[styles.title, hex ? { color: flow.text(hex) } : null]} numberOfLines={2}>
+            {issue.title}
+          </Text>
+          {/* A nested row's own stage, in its own colour — the one mark that
+              tells you a child in the In-progress lane is actually done. */}
+          {row.depth > 0 ? <StageGlyph stage={issue.stage} size={13} /> : null}
+        </View>
+        <View style={styles.metaRow}>
+          <Pill label={issue.type} />
+          <Pill label={`P${issue.priority}`} />
+          {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
+          {issue.blockedByNotes.length > 0 ? (
+            <Pill label={`blocked by ${issue.blockedByNotes.length}`} toneKey="danger" />
+          ) : null}
+          <Text style={styles.repo} numberOfLines={1}>
+            {repo}
+          </Text>
+        </View>
+      </PressableScale>
+    </View>
   )
 }
 
@@ -267,35 +475,86 @@ const styles = StyleSheet.create({
     color: color.textDim,
     fontSize: font.micro,
   },
-  sectionHeader: {
+  header: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: space.md + 2,
-    paddingTop: space.md,
-    paddingBottom: 7,
-    backgroundColor: color.bg,
+    paddingLeft: space.md + 2,
+    paddingRight: space.sm,
+    marginTop: space.sm,
+    // OPAQUE, and the darkest tier the theme has — a sticky header shares no
+    // ground with the rows travelling behind it.
+    backgroundColor: color.bar,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairlineBar,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.hairlineBar,
+    overflow: 'hidden',
     zIndex: 1,
   },
-  sectionLabel: {
-    ...monoLabel(),
-    color: color.label,
+  headerPressed: {
+    backgroundColor: color.bgSunken,
   },
-  sectionCount: {
+  headerEdge: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+  },
+  headerTitle: {
+    ...monoLabel(font.micro),
+    flex: 1,
+  },
+  headerCount: {
+    minWidth: 22,
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: radius.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: color.bgSunken,
+  },
+  headerCountText: {
     ...mono(600),
-    color: color.textFaint,
+    color: color.textDim,
     fontSize: font.micro,
   },
-  sectionRule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.hairline,
+  headerChevron: {
+    width: 24,
+    alignItems: 'center',
   },
-  card: {
-    backgroundColor: color.surface,
-    borderRadius: radius.md,
+  rowWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginHorizontal: space.sm + 2,
     marginBottom: 3,
+  },
+  gutter: {
+    width: 22,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+  },
+  expander: {
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+  },
+  expanderPressed: {
+    opacity: 0.55,
+  },
+  expanderCount: {
+    ...mono(500),
+    color: color.textMicro,
+    fontSize: 9,
+  },
+  card: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: color.surface,
+    borderRadius: radius.md,
     paddingHorizontal: 9,
     paddingVertical: 7,
     gap: 6,

@@ -48,8 +48,8 @@ async function saveSettings(page: Page): Promise<void> {
   await expect(save).toBeHidden({ timeout: 15_000 })
 }
 
-async function setMergeQueueEnabled(page: Page, enabled: boolean): Promise<void> {
-  const flagSwitch = flagRow(page, 'Merge queue').getByRole('switch').first()
+async function setQueuesEnabled(page: Page, enabled: boolean): Promise<void> {
+  const flagSwitch = flagRow(page, 'Queues').getByRole('switch').first()
   if ((await flagSwitch.getAttribute('aria-checked')) !== String(enabled)) {
     await flagSwitch.click()
     await saveSettings(page)
@@ -72,15 +72,17 @@ async function openWorkspace(page: Page): Promise<void> {
   }
 }
 
-test('experimental page lists and persists the merge queue toggle', async ({ page }) => {
+test('experimental page persists and opens the separate queue groups', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openExperimental(page)
 
-  const row = flagRow(page, 'Merge queue')
-  await expect(row.locator('.settings-label')).toContainText('Merge queue', {
+  const row = flagRow(page, 'Queues')
+  await expect(row.locator('.settings-label')).toContainText('Queues', {
     timeout: 20_000,
   })
-  await expect(row.getByText('Show the merge queue tool in the right sidebar.')).toBeVisible()
+  await expect(
+    row.getByText('Show merge and heavy-test queues in the right sidebar.'),
+  ).toBeVisible()
   // The hint names the update channel.
   await expect(page.getByText(/update channel: (stable|edge)/)).toBeVisible()
 
@@ -94,36 +96,51 @@ test('experimental page lists and persists the merge queue toggle', async ({ pag
   await saveSettings(page)
 
   await openExperimental(page)
-  await expect(flagRow(page, 'Merge queue').getByRole('switch').first()).toHaveAttribute(
+  await expect(flagRow(page, 'Queues').getByRole('switch').first()).toHaveAttribute(
     'aria-checked',
     expected,
   )
 
   // Exercise the real feature boundary and right-rail interaction, then leave
   // the persisted setting exactly as the harness found it.
-  await setMergeQueueEnabled(page, true)
+  await setQueuesEnabled(page, true)
   await openWorkspace(page)
 
-  const railButton = page.getByRole('button', { name: 'Merge queue' })
+  const railButton = page.getByRole('button', { name: 'Queues' })
   await expect(railButton).toBeVisible({ timeout: 30_000 })
   await railButton.click()
 
   const queue = page.locator('[data-right-dock-panel="merge-queue"]')
   await expect(queue).toBeVisible()
-  await expect(queue.getByRole('heading', { name: 'READY' })).toBeVisible()
-  await expect(queue.getByRole('heading', { name: 'MERGING NOW' })).toBeVisible()
-  await expect(queue.getByRole('heading', { name: 'NEXT' })).toBeVisible()
-  await queue.getByRole('button', { name: 'Refresh merge queue' }).click()
-  await expect(queue.getByRole('region', { name: 'Main branch merge queue' })).toBeVisible()
+  const mergeGroup = queue
+    .getByRole('heading', { name: 'Merge queue' })
+    .locator('xpath=ancestor::section[1]')
+  const heavyGroup = queue
+    .getByRole('heading', { name: 'Heavy test queue' })
+    .locator('xpath=ancestor::section[1]')
+  await expect(mergeGroup.getByRole('heading')).toHaveText([
+    'Merge queue',
+    'MERGING NOW',
+    'NEXT UP',
+    'READY',
+  ])
+  await expect(heavyGroup.getByRole('heading')).toHaveText([
+    'Heavy test queue',
+    'TESTING NOW',
+    'NEXT UP',
+    'READY',
+  ])
+  await queue.getByRole('button', { name: 'Refresh queues' }).click()
+  await expect(queue.getByRole('region', { name: 'Repository queues' })).toBeVisible()
 
   const screenshotPath = process.env.PODIUM_MERGE_QUEUE_SCREENSHOT
   if (screenshotPath) await queue.screenshot({ path: screenshotPath })
 
   await openExperimental(page)
-  await setMergeQueueEnabled(page, before === 'true')
+  await setQueuesEnabled(page, before === 'true')
   if (before !== 'true') {
     await openWorkspace(page)
-    await expect(page.getByRole('button', { name: 'Merge queue' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Queues' })).toHaveCount(0)
     await expect(page.locator('[data-right-dock-panel="merge-queue"]')).toHaveCount(0)
   }
 })

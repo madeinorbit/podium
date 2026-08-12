@@ -9,8 +9,13 @@
  * own page to find out where it stood.
  *
  * So this block sits directly under the title, before any prose, and carries the
- * three volatile facts: who is computing, what each of them is doing, and where
- * the branch is. Everything else on the page is comparatively still.
+ * volatile agent facts: who is computing and what each of them is doing. Branch
+ * state has one home in the rail; repeating it here made the block louder while
+ * teaching the operator nothing new.
+ *
+ * It only takes a FRAME while something is live (POD-635). A task whose agents
+ * have all finished still has an answer to "what is happening now", but the
+ * answer is one line of mono, not a panel above the description.
  *
  * It is ENGRAVED, not carded. DESIGN.md's Carved Rule: a resting surface that
  * needs to read differently from its neighbours changes tone or recesses — it
@@ -23,14 +28,13 @@
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/model'
-import { FolderGit2 } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { PhaseTimer } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
-import { aheadCount } from '../issue-card'
+import { MACHINE_LABEL } from './chrome'
 
 /** Live rows first (working, then waiting on you), then the rest — the block is
  *  read top-down and the top is where the movement should be. */
@@ -45,42 +49,54 @@ export function IssueNow({
   sessions: SessionMeta[]
   onOpenSession: (sessionId: SessionMeta['sessionId']) => void
 }): JSX.Element | null {
-  const git = issue.gitState
-  const ahead = aheadCount(issue)
-  const dirty = git?.dirtyOwn ?? git?.dirtyFiles ?? 0
-  const hasGit = Boolean(issue.worktreePath || git?.branch)
-  if (sessions.length === 0 && !hasGit) return null
+  if (sessions.length === 0) return null
 
   const ranked = [...sessions]
     .map((session) => ({ session, phase: motionPhase(session, issue as unknown as IssueWire) }))
     .sort((a, b) => (PHASE_RANK[a.phase] ?? 9) - (PHASE_RANK[b.phase] ?? 9))
   const working = ranked.filter((r) => r.phase === 'working').length
+  const waiting = ranked.filter((r) => r.phase === 'waiting').length
   // Long fleets fold: POD-516 carries fifteen sessions and thirteen of them are
   // finished. The block promises what is happening NOW, so it shows the live
   // ones and lets the rail's full roster answer "who has ever been here".
-  const shown = ranked.filter((r) => r.phase === 'working' || r.phase === 'waiting').slice(0, 5)
+  const shown = ranked.filter((r) => r.phase === 'working' || r.phase === 'waiting').slice(0, 2)
   const restCount = ranked.length - shown.length
+
+  // NOTHING IS LIVE — so the block spends no structure on saying so (POD-635).
+  // A task whose agents all finished yesterday was still getting the page's
+  // strongest object: an engraved panel, a hairline header, a mono label and a
+  // row, above the description, to report that nothing was happening. The fact
+  // is worth one quiet line; the roster in the rail owns who has ever been here.
+  if (shown.length === 0) {
+    return (
+      <p className="mb-9 font-mono text-[10px] text-text-faint" data-testid="issue-now">
+        {sessions.length} session{sessions.length === 1 ? '' : 's'} · none working
+      </p>
+    )
+  }
 
   return (
     <section
-      className="mb-6 overflow-hidden rounded-[10px] bg-engraved shadow-engraved"
+      className="mb-9 overflow-hidden rounded-[9px] border border-border/35 bg-engraved/45"
       data-testid="issue-now"
     >
-      {sessions.length > 0 && (
-        <div className="flex h-[26px] items-center gap-2 border-hairline-soft border-b px-3">
-          <span className="label-mono">Now</span>
-          <span
-            className={cn(
-              'ml-auto font-mono text-[9px] tabular-nums',
-              working > 0 ? 'text-live' : 'text-text-faint',
-            )}
-          >
-            {working > 0
-              ? `${working} of ${sessions.length} session${sessions.length === 1 ? '' : 's'} working`
-              : `${sessions.length} session${sessions.length === 1 ? '' : 's'} · none working`}
-          </span>
-        </div>
-      )}
+      <div className="flex h-7 items-center gap-2 border-border/35 border-b px-3.5">
+        <span className={MACHINE_LABEL}>Now</span>
+        {/* The summary names the reason the block is here. It used to report
+            `none working` over a row that was waiting on the operator — the one
+            state on this page that is genuinely an ask, rendered in the faintest
+            ink the theme has, while the row's amber tint sat at 4.5%. */}
+        <span
+          className={cn(
+            'ml-auto font-mono text-[10px] tabular-nums',
+            working > 0 ? 'text-live' : 'text-attention',
+          )}
+        >
+          {working > 0
+            ? `${working} of ${sessions.length} session${sessions.length === 1 ? '' : 's'} working`
+            : `${waiting} waiting on you`}
+        </span>
+      </div>
 
       {shown.map(({ session, phase }) => {
         const AgentIcon = agentIconFor(session.agentKind)
@@ -91,7 +107,7 @@ export function IssueNow({
             key={session.sessionId}
             type="button"
             className={cn(
-              'flex w-full items-center gap-2.5 border-hairline-soft border-b px-3 py-1.5 text-left transition-colors last:border-b-0 hover:bg-accent/60',
+              'flex w-full items-center gap-2.5 border-border/30 border-b px-3.5 py-2 text-left transition-colors last:border-b-0 hover:bg-accent/35',
               phase === 'waiting' && 'bg-attention/[0.07]',
             )}
             onClick={() => onOpenSession(session.sessionId)}
@@ -105,7 +121,7 @@ export function IssueNow({
             >
               {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
             </span>
-            <span className="min-w-0 flex-1 truncate text-[11.5px] text-foreground">
+            <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground/90">
               {sessionDisplayName(session)}
             </span>
             <PhaseTimer
@@ -119,42 +135,10 @@ export function IssueNow({
         )
       })}
 
-      {sessions.length > 0 && shown.length === 0 && (
-        <p className="px-3 py-2 text-[11.5px] text-text-dim">
-          No agent is computing on this task right now.
-        </p>
-      )}
       {restCount > 0 && (
-        <p className="border-hairline-soft border-b px-3 py-1.5 font-mono text-[9px] text-text-faint">
+        <p className="px-3.5 py-2 font-mono text-[10px] text-text-faint">
           {restCount} more session{restCount === 1 ? '' : 's'} — see the roster
         </p>
-      )}
-
-      {hasGit && (
-        <div className="flex items-center gap-2 bg-card/50 px-3 py-1.5 font-mono text-[9.5px] text-text-dim tabular-nums">
-          <FolderGit2 size={11} aria-hidden="true" className="flex-none" />
-          <span className="min-w-0 truncate" title={issue.worktreePath ?? undefined}>
-            {git?.branch ?? issue.branch ?? issue.worktreePath ?? '—'}
-          </span>
-          {git?.computing && (
-            <span className="ml-auto animate-pulse text-text-faint">probing…</span>
-          )}
-          {!git?.computing && (
-            <span className="ml-auto flex flex-none items-center gap-2.5">
-              {ahead > 0 && (
-                <span className="text-info" title={`${ahead} ahead of ${issue.parentBranch}`}>
-                  ↑{ahead}
-                </span>
-              )}
-              {dirty > 0 && (
-                <span className="text-attention" title={`${dirty} uncommitted`}>
-                  {dirty} uncommitted
-                </span>
-              )}
-              {ahead === 0 && dirty === 0 && <span className="text-text-faint">clean</span>}
-            </span>
-          )}
-        </div>
       )}
     </section>
   )

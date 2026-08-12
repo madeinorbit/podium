@@ -33,8 +33,8 @@ export const THEME_BG: Record<string, string> = {
   'podium-light': '#f7f7f9',
   'shadcn-dark': '#09090b',
   'shadcn-light': '#ffffff',
-  'superade-dark': '#0a0f1c',
-  'superade-light': '#f5f6f9',
+  'superade-dark': '#16171a',
+  'superade-light': '#f2f1ed',
 }
 
 export function readStoredTheme(): ThemeState {

@@ -1,6 +1,3 @@
-import { type CSSProperties, type JSX, useState } from 'react'
-import { AppSheet } from '@/app/AppSheet'
-import { useStoreSelector } from '@/app/store'
 import {
   formatCostWeightRatio,
   formatCount,
@@ -15,7 +12,10 @@ import {
   type UsageProvider,
   type UsageSummaryView,
   usageSummary,
-} from './usage'
+} from '@podium/client-core/viewmodels'
+import { type CSSProperties, type JSX, useState } from 'react'
+import { AppSheet } from '@/app/AppSheet'
+import { useStoreSelector } from '@/app/store'
 import { formatClock, type UsageFeed, useArrived, useUsageFeed } from './useUsageFeed'
 
 /**
@@ -156,11 +156,20 @@ function UsageBody({
           stay the only always-on movement in the shell. */}
       {feed.waiting && <div className="usage-refreshing" aria-hidden="true" />}
       {cold && <span className="sr-only">Loading usage…</span>}
-      <UsageReadouts summary={summary} cold={cold} />
-      <UsageProviders summary={summary} cold={cold} />
-      <UsageTrace summary={summary} cold={cold} arrived={arrived} />
-      <UsageComposition summary={summary} cold={cold} />
-      <UsageModels summary={summary} cold={cold} />
+      {/* THE FIGURES SCROLL; THE FRAME DOES NOT (POD-755). The sheet ends where
+          its content ends and caps at the window (`app-sheet-fit`), so on a
+          short display the last region was simply cut off — `.app-sheet-body`
+          clips and nothing inside it could scroll, which left the model table
+          unreachable rather than merely below the fold. One scroller, holding
+          the content regions only: the provenance bar is the frame's bottom
+          edge and stays put, the way the sheet's own header does. */}
+      <div className="usage-scroll">
+        <UsageReadouts summary={summary} cold={cold} />
+        <UsageProviders summary={summary} cold={cold} />
+        <UsageTrace summary={summary} cold={cold} arrived={arrived} />
+        <UsageComposition summary={summary} cold={cold} />
+        <UsageModels summary={summary} cold={cold} />
+      </div>
       <UsageProvenance summary={summary} cold={cold} />
     </div>
   )
@@ -216,7 +225,33 @@ function UsageProvenance({
   )
 }
 
-/** One answer, followed by the rates and counterfactual that make it legible. */
+/**
+ * The masthead: one answer, the three readings that size it, one counterfactual.
+ *
+ * IT IS ONE ROW OF READOUTS, WIDEST FIRST (POD-755). The three supporting rates
+ * used to run together in a single dot-separated sentence under the figure —
+ * "$974 per active day · 7 of 7 days ran · $387 in the last 5 hours" — which is
+ * three separate readings punctuated as prose, in the one region of the sheet
+ * that had two thirds of its width empty beside it. They are now cells in a
+ * hairline-divided group at the band's right edge, mirroring the figure's own
+ * label-over-value structure: the eyebrow IS the leftmost cell's label, so the
+ * whole band reads as one instrument whose first reading happens to be 24px.
+ * The group is a divided object rather than three loose numbers for the reason
+ * the command bar's instrument well is one object — evenly spaced figures on a
+ * surface read as a website's account row (DESIGN.md, The Wells).
+ *
+ * They narrow left to right: the week ran seven days, at this much a day, and
+ * this much in the last five hours. The last cell's figures right-align with the
+ * provider costs and the ratio column below them, so the sheet has one right
+ * edge rather than one per region.
+ *
+ * ONE HEDGE, NOT THREE. The figure carried a superscript star whose footnote sat
+ * directly beneath it — an asterisk earns its keep when the note is somewhere
+ * else on the surface, and mine was the very next line — while the eyebrow above
+ * said API-EQUIVALENT and the provenance bar said list price a third time. The
+ * star and the word "API" come out of the caveat; what stays is the one claim
+ * nothing else on the sheet makes: this is not what you were billed.
+ */
 function UsageReadouts({
   summary,
   cold,
@@ -228,26 +263,37 @@ function UsageReadouts({
     summary.cacheSavingsMultiple === null
       ? null
       : summary.cacheSavingsMultiple.toFixed(1).replace(/\.0$/, '')
+  const readings = [
+    { label: 'Days ran', value: `${summary.activeDayCount} of 7`, ch: 4 },
+    {
+      label: 'Per active day',
+      value: summary.costPerActiveDayUsd === null ? '—' : formatUsd(summary.costPerActiveDayUsd),
+      ch: 5,
+    },
+    { label: 'Last 5 hours', value: formatUsd(summary.fiveHour.estCostUsd), ch: 5 },
+  ]
   return (
     <div className="usage-summary">
-      <div className="usage-window-label">Last 7 days · API-equivalent</div>
-      <div className="usage-window-value">
-        {cold ? <Unfilled ch={6} /> : formatUsd(summary.week.estCostUsd)}
-        <sup className="usage-window-star">*</sup>
+      <div className="usage-masthead">
+        <div className="usage-answer">
+          <div className="usage-window-label">Last 7 days · API-equivalent</div>
+          <div className="usage-window-value">
+            {cold ? <Unfilled ch={6} /> : formatUsd(summary.week.estCostUsd)}
+          </div>
+        </div>
+        <div className="usage-readings">
+          {readings.map((reading) => (
+            <div key={reading.label} className="usage-reading">
+              <span className="usage-reading-label">{reading.label}</span>
+              <span className="usage-reading-value">
+                {cold ? <Unfilled ch={reading.ch} /> : reading.value}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="usage-window-caveat">
-        * at API list price for the same tokens — not what you were billed
-      </div>
-      <div className="usage-window-sub">
-        {cold ? (
-          <Unfilled ch={56} />
-        ) : (
-          <>
-            {summary.costPerActiveDayUsd === null ? '—' : formatUsd(summary.costPerActiveDayUsd)}{' '}
-            per active day · {summary.activeDayCount} of 7 days ran ·{' '}
-            {formatUsd(summary.fiveHour.estCostUsd)} in the last 5 hours
-          </>
-        )}
+        at list price for the same tokens — not what you were billed
       </div>
       {(cold || summary.cacheSavingsUsd > 0) && (
         <div className="usage-cache-saving">
@@ -495,6 +541,15 @@ function UsageTrace({
  * tokens and a much smaller share of its bill, while output is a rounding error
  * in tokens and a large share of the cost. One stacked rail would have said none
  * of that — at these proportions three of its four segments are slivers.
+ *
+ * THE ROWS ARE ORDERED BY WHAT A TOKEN IN THEM COSTS (POD-755) — cheapest first,
+ * measured, so the third column always reads down the page as a ramp. Sorted by
+ * token share it read 0.7x / 9.1x / 6.8x / 38x, and a column of multiples that
+ * nearly ramps and then doesn't is the one thing on this surface a reader has to
+ * stop and re-check. It is the measured ratio rather than `TOKEN_CLASSES`' own
+ * list-price ramp because a provider that does not bill for cache writes at all
+ * inverts a tier, and an order that is true of the price list but not of the
+ * numbers beside it is no better than no order.
  */
 function UsageComposition({
   summary,
@@ -505,7 +560,12 @@ function UsageComposition({
 }): JSX.Element {
   const totalTokens = summary.composition.reduce((n, c) => n + c.tokens, 0)
   const totalCost = summary.composition.reduce((n, c) => n + c.estCostUsd, 0)
-  const rows = [...summary.composition].sort((a, b) => b.tokens - a.tokens)
+  // A class with no tokens has no ratio, and no claim to a place on the ramp: it
+  // sorts to the end rather than to the cheap end, where a `null` read as zero
+  // would put it.
+  const rows = [...summary.composition].sort(
+    (a, b) => (a.costWeightRatio ?? Infinity) - (b.costWeightRatio ?? Infinity),
+  )
 
   return (
     <section className="usage-section">
@@ -525,6 +585,14 @@ function UsageComposition({
             <span className="usage-comp-name">{c.label}</span>
             <CompCell part={c.tokens} whole={totalTokens} cold={cold} />
             <CompCell part={c.estCostUsd} whole={totalCost} cold={cold} />
+            {/* "0.7x its weight" left the multiple without a referent under a
+                heading that names a price — x what? The quotient is this class's
+                per-token cost over the window's blended one, so the cell says
+                so. Above average takes Strong ink and below it stays Muted: the
+                deviation is the reading, and it is an ink step rather than the
+                attention hue, which The Signal Rule reserves for what is asking
+                something of the operator. Three of four rows lit gold made a
+                token price look like a decision waiting on you. */}
             <span
               className="usage-comp-ratio"
               data-heavy={
@@ -537,7 +605,7 @@ function UsageComposition({
                 '—'
               ) : (
                 <>
-                  {formatCostWeightRatio(c.costWeightRatio)} <span>its weight</span>
+                  {formatCostWeightRatio(c.costWeightRatio)} <span>average</span>
                 </>
               )}
             </span>
@@ -569,12 +637,22 @@ function CompCell({
   )
 }
 
+/**
+ * One share on a 0–100% scale.
+ *
+ * NO PERCENTAGE FLOOR (POD-755). A `Math.max(0.6, pct)` minimum drew 0.3% and
+ * 0.7% at exactly the same length — two different readings as one mark — and
+ * 0.6% of a 570px track is 3.4px, which under the rail's own 2.5px radius is a
+ * circle: the token column of a cache-heavy week came out as one long bar and
+ * three specks of dirt. The floor is now 2px of CSS `min-width` on the fill, so a
+ * sliver keeps its true length wherever it has one and the tiniest marks still
+ * differ from each other. The fill's radius tightens with it — a mark this short
+ * has to read as a tick, and a pill that narrow reads as a bead.
+ */
 function ShareTrack({ pct, cold }: { pct: number; cold: boolean }): JSX.Element {
   return (
     <span className="usage-comp-track">
-      {!cold && pct > 0 && (
-        <span className="usage-comp-fill" style={{ width: `${Math.max(0.6, pct)}%` }} />
-      )}
+      {!cold && pct > 0 && <span className="usage-comp-fill" style={{ width: `${pct}%` }} />}
     </span>
   )
 }
@@ -656,7 +734,7 @@ function UsageModels({ summary, cold }: { summary: UsageSummaryView; cold: boole
                         <span
                           className="usage-share-fill"
                           style={{
-                            width: `${topCost > 0 ? Math.max(0.6, (m.estCostUsd / topCost) * 100) : 0}%`,
+                            width: `${topCost > 0 ? (m.estCostUsd / topCost) * 100 : 0}%`,
                           }}
                         />
                       </span>

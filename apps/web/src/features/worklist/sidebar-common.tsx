@@ -14,13 +14,14 @@ import {
 import type { SessionMeta } from '@podium/model'
 import { idleVerdictFinishedTurn, isSnoozed, returnedFromSnooze } from '@podium/model'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
+import { useReducedMotion } from 'motion/react'
 import type {
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
@@ -35,12 +36,21 @@ import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/Worker
 /** The one aside shell the sidebar renders into. The aside itself never scrolls —
  *  only the work list inside it — so the footer stays pinned. */
 export const SIDEBAR_ASIDE_CLASS =
-  'flex w-full min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground'
+  // No right seam (POD-725): the work list is separated from the flight deck by
+  // a tone step, as the design draws it. A border here plus the deck's own edge
+  // put two lines in the same 1px of screen.
+  'flex w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground'
 
 export const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
 export const SIDEBAR_WIDTH_MIN = 200
 export const SIDEBAR_WIDTH_MAX = 520
-export const SIDEBAR_WIDTH_DEFAULT = 292
+export const SIDEBAR_WIDTH_DEFAULT = 306
+
+/** The drawer's own motion (POD-769), matched to the Flight Deck's fold in
+ *  AppShell: the same 280ms and the same decelerating curve, because these are
+ *  the two columns of one shell opening and closing. */
+const COLLAPSE_MS = 280
+const COLLAPSE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
 /**
  * A fixed-width column with a drag-to-resize edge (`handleSide`, default right —
@@ -50,6 +60,15 @@ export const SIDEBAR_WIDTH_DEFAULT = 292
  * the ui-state collection under `storageKey`. This is THE resize mechanism for
  * shell columns — the sidebar, the superagent column, and the right dock all
  * render through it.
+ *
+ * Pass `collapsed` to make it a DRAWER. The column then keeps its full width
+ * internally and animates only the space it TAKES: the root's width runs
+ * between 0 and `width`, so the neighbour it shares the row with (the workspace)
+ * is pushed aside over the same 280ms instead of jumping. The content is held at
+ * its full width inside a clip box pinned to the column's fixed edge — the edge
+ * the handle is NOT on — so it slides out from under the chrome beyond that edge
+ * rather than reflowing from nothing. Nothing inside the panel relayouts during
+ * the animation; only the row does.
  */
 export function ResizableColumn({
   storageKey,
@@ -58,6 +77,8 @@ export function ResizableColumn({
   defaultWidth,
   handleLabel,
   handleSide = 'right',
+  collapsed,
+  onCollapsed,
   className,
   children,
 }: {
@@ -67,6 +88,12 @@ export function ResizableColumn({
   defaultWidth: number
   handleLabel: string
   handleSide?: 'left' | 'right'
+  /** Omit for a plain column; pass a boolean to make it an animated drawer. */
+  collapsed?: boolean
+  /** Fired once the drawer has finished closing — where the owner drops the
+   *  content it had to keep mounted for the exit. Not fired if the drawer is
+   *  reopened mid-close. */
+  onCollapsed?: () => void
   className?: string
   children: ReactNode
 }): JSX.Element {
@@ -75,6 +102,47 @@ export function ResizableColumn({
     const v = Number(ui.get(storageKey))
     return Number.isFinite(v) && v >= min && v <= max ? v : defaultWidth
   })
+  const isDrawer = collapsed !== undefined
+  const open = !collapsed
+  const rootRef = useRef<HTMLDivElement>(null)
+  const collapseAnimation = useRef<Animation | null>(null)
+  const wasOpen = useRef(open)
+  const reduceMotion = useReducedMotion()
+  // Read through a ref so a fresh closure from the owner cannot re-run the
+  // animation effect.
+  const onCollapsedRef = useRef(onCollapsed)
+  onCollapsedRef.current = onCollapsed
+  useEffect(() => () => collapseAnimation.current?.cancel(), [])
+  // The width React commits IS the end state; WAAPI only holds the other end
+  // over it for 280ms. Layout effect so the animation is attached in the same
+  // frame the new width lands — a passive effect lets one frame paint open.
+  //
+  // Deps carry `width` (a drag changes it), but the guard makes that a no-op:
+  // only a change in OPENNESS animates, never a resize, and never the first
+  // render — a drawer restored open on load is simply there.
+  useLayoutEffect(() => {
+    if (wasOpen.current === open) return
+    wasOpen.current = open
+    const root = rootRef.current
+    // With no motion there is no exit to wait for: the drawer is already shut.
+    if (!root || reduceMotion) {
+      if (!open) onCollapsedRef.current?.()
+      return
+    }
+    collapseAnimation.current?.cancel()
+    const animation = root.animate(
+      [{ width: `${open ? 0 : width}px` }, { width: `${open ? width : 0}px` }],
+      { duration: COLLAPSE_MS, easing: COLLAPSE_EASE, fill: 'both' },
+    )
+    collapseAnimation.current = animation
+    // `cancel()` on reopen does NOT fire this, so an interrupted close never
+    // tells the owner to drop the content that is sliding back in.
+    animation.onfinish = () => {
+      animation.cancel()
+      if (collapseAnimation.current === animation) collapseAnimation.current = null
+      if (!open) onCollapsedRef.current?.()
+    }
+  }, [open, width, reduceMotion])
   const onHandlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
     const handle = e.currentTarget
@@ -114,28 +182,48 @@ export function ResizableColumn({
   }
   return (
     <div
+      ref={rootRef}
       className={cn('relative flex min-w-0 flex-[0_1_auto]', className)}
-      style={{ width }}
+      style={{ width: isDrawer && !open ? 0 : width }}
       data-resizable-column={storageKey}
       data-width={width}
+      data-collapsed={isDrawer ? !open : undefined}
     >
-      {children}
-      {/* biome-ignore lint/a11y/useSemanticElements: the drag handle is an interactive, keyboard-operable separator */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={handleLabel}
-        aria-valuemin={min}
-        aria-valuemax={max}
-        aria-valuenow={width}
-        tabIndex={0}
-        className={cn(
-          'absolute inset-y-0 z-10 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60',
-          handleSide === 'right' ? '-right-0.5' : '-left-0.5',
-        )}
-        onPointerDown={onHandlePointerDown}
-        onKeyDown={onHandleKeyDown}
-      />
+      {isDrawer ? (
+        // The clip box is the root's own box (inset-0), so it narrows WITH the
+        // animation while the panel inside keeps its full width, anchored to the
+        // fixed edge. The handle stays outside it: it straddles the boundary by
+        // half its width and a clip here would eat that half.
+        <div className="absolute inset-0 overflow-hidden">
+          <div
+            className={cn('absolute inset-y-0 flex', handleSide === 'right' ? 'right-0' : 'left-0')}
+            style={{ width }}
+          >
+            {children}
+          </div>
+        </div>
+      ) : (
+        children
+      )}
+      {/* A shut drawer has no edge to drag, so the handle goes with it. */}
+      {open && (
+        // biome-ignore lint/a11y/useSemanticElements: the drag handle is an interactive, keyboard-operable separator
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={handleLabel}
+          aria-valuemin={min}
+          aria-valuemax={max}
+          aria-valuenow={width}
+          tabIndex={0}
+          className={cn(
+            'absolute inset-y-0 z-10 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60',
+            handleSide === 'right' ? '-right-0.5' : '-left-0.5',
+          )}
+          onPointerDown={onHandlePointerDown}
+          onKeyDown={onHandleKeyDown}
+        />
+      )}
     </div>
   )
 }

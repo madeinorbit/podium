@@ -87,11 +87,11 @@ describe('mobile transcript feed', () => {
 
   it('animates only genuine tail arrivals, never initial or prepended history', () => {
     expect([...appendedTranscriptArrivals([], new Set(), ['a', 'b'])]).toEqual([])
-    expect([...appendedTranscriptArrivals(['a', 'b'], new Set(['a', 'b']), ['a', 'b', 'c'])]).toEqual([
-      'c',
-    ])
-    expect(
-      [...appendedTranscriptArrivals(['a', 'b'], new Set(['a', 'b']), ['older', 'a', 'b'])],
-    ).toEqual([])
+    expect([
+      ...appendedTranscriptArrivals(['a', 'b'], new Set(['a', 'b']), ['a', 'b', 'c']),
+    ]).toEqual(['c'])
+    expect([
+      ...appendedTranscriptArrivals(['a', 'b'], new Set(['a', 'b']), ['older', 'a', 'b']),
+    ]).toEqual([])
   })
 })

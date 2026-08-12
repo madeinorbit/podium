@@ -58,10 +58,11 @@ function NeedsYouCard({
             item={pending}
             live
             onAnswer={async (answer) => {
-              await trpc.sessions.answerAskUserQuestion.mutate({
+              const sent = await trpc.sessions.answerAskUserQuestion.mutate({
                 sessionId: session.sessionId,
                 ...answer,
               })
+              if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
             }}
           />
         </View>

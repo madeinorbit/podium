@@ -91,6 +91,39 @@ describe('IssuePanelView subissue rows', () => {
     expect(setView).toHaveBeenCalledWith('workspace')
   })
 
+  // Inside the explorer the same row BROWSES instead: there is a trail there to
+  // walk back along, and a relation click that silently re-pointed the
+  // workspace would be a navigation the trail cannot show or undo.
+  it('pushes a level instead of moving the shell when the explorer owns it', () => {
+    const onNavigate = vi.fn()
+    render(
+      <OperatorFocusProvider missionId="p">
+        <IssuePanelView cwd="/r" onNavigate={onNavigate} />
+      </OperatorFocusProvider>,
+    )
+    const list = screen.getByTestId('dock-subissues')
+    fireEvent.click(within(list).getByText('Live child'))
+
+    expect(onNavigate).toHaveBeenCalledWith('c')
+    expect(setPane).not.toHaveBeenCalled()
+    expect(setView).not.toHaveBeenCalled()
+  })
+
+  // ...and "Show in deck" is the one control that still does move it.
+  it('moves the shell from Show in deck, and only offers it inside the explorer', () => {
+    const { unmount } = render(<IssuePanelView cwd="/r" />)
+    expect(screen.queryByTestId('dock-show-in-deck')).toBeNull()
+    unmount()
+
+    render(
+      <OperatorFocusProvider missionId="p">
+        <IssuePanelView cwd="/r" onNavigate={vi.fn()} />
+      </OperatorFocusProvider>,
+    )
+    fireEvent.click(screen.getByTestId('dock-show-in-deck'))
+    expect(setView).toHaveBeenCalledWith('workspace')
+  })
+
   it('shows the target status icon in relation rows', () => {
     render(<IssuePanelView cwd="/r" />)
     const relations = screen.getByTestId('dock-relations')

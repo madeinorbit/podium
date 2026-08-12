@@ -37,40 +37,53 @@ import { useCollapsed } from './sidebar-common'
  * The type alias stays so the override-taking signatures below keep reading the
  * same way; the shape is the slice's.
 
-/** Project section label: mono 8.5px uppercase over a trailing hairline (§2.2).
- *  Grouping is always on — no toggle, no chevron, no collapse. */
+/** The one section-label voice in this column (POD-725): the design's mono
+ *  8.5px / .16em uppercase micro label at the column's 14px inset, with the
+ *  group's size pushed to the right edge.
+ *
+ *  The trailing hairline that used to fill the row is gone. Now that the rows
+ *  below are full-bleed bands separated by their own rules, a second rule on the
+ *  label line was one horizontal too many — and the count is the fact the space
+ *  was worth spending on. `label-mono` carries the size and the case; only the
+ *  tracking and the (fainter) ink are overridden. */
+const SECTION_LABEL_CLASS =
+  'label-mono flex items-center gap-1.5 px-3.5 pb-2 tracking-[.16em] text-text-faint'
+
+/** Project section label. Grouping is always on — no toggle, no chevron, no
+ *  collapse. */
 export function ProjectGroupLabel({
   label,
+  count,
   first,
 }: {
   label: string
+  /** Rows in this group's open lane — the mock's right-aligned section count. */
+  count: number
   first: boolean
 }): JSX.Element {
   return (
     <div
       data-testid="project-group-label"
-      className={cn(
-        'shell-type-micro flex items-center gap-1.5 px-1 pb-0.5 font-mono tracking-[.12em] uppercase text-label',
-        first ? 'pt-1' : 'pt-2',
-      )}
+      className={cn(SECTION_LABEL_CLASS, first ? 'pt-[2px]' : 'pt-2')}
     >
-      <span className="truncate">{label}</span>
-      <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {count > 0 && (
+        <span className="flex-none tabular-nums" data-testid="project-group-count">
+          {count}
+        </span>
+      )}
     </div>
   )
 }
 
 /** PINNED section label (POD-166, R3): the one section above all project
- *  groups — same mono hairline voice, led by an attention-toned pin. */
-export function PinnedSectionLabel(): JSX.Element {
+ *  groups — same mono voice, led by an attention-toned pin. */
+export function PinnedSectionLabel({ count }: { count: number }): JSX.Element {
   return (
-    <div
-      data-testid="pinned-section-label"
-      className="shell-type-micro flex items-center gap-1.5 px-1 pt-1 pb-0.5 font-mono tracking-[.12em] uppercase text-label"
-    >
+    <div data-testid="pinned-section-label" className={cn(SECTION_LABEL_CLASS, 'pt-[2px]')}>
       <Pin size={9} className="flex-none text-attention" aria-hidden="true" />
-      <span>Pinned</span>
-      <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate">Pinned</span>
+      {count > 0 && <span className="flex-none tabular-nums">{count}</span>}
     </div>
   )
 }
@@ -171,7 +184,10 @@ export function FoldedWorkRow({
       onContextMenu={onContextMenu}
       title={`${issueDisplayRef(issue)} · ${issue.title}`}
       className={cn(
-        'group/crow flex w-full min-w-0 items-center gap-2.5 rounded-[6px] px-2 py-[3px] pr-8 text-left transition-colors',
+        // Full-bleed like the live rows above it (POD-725): a folded row is the
+        // same list, one line tall, so it starts at the same 14px inset and
+        // carries no radius of its own.
+        'group/crow flex w-full min-w-0 items-center gap-2.5 py-[3px] pr-8 pl-3.5 text-left transition-colors',
         active ? 'bg-accent' : 'hover:bg-muted',
       )}
     >
@@ -214,7 +230,7 @@ export function SnoozedIssueFold({
       <button
         data-pressable
         type="button"
-        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
+        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 px-3.5 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
         aria-expanded={!collapsed}
         aria-controls={contentId}
         onClick={toggle}
@@ -291,7 +307,7 @@ export function ClosedIssueFold<T>({
         <button
           data-pressable
           type="button"
-          className="flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
+          className="flex min-h-[31px] w-full items-center gap-1.5 px-3.5 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
           aria-expanded={!collapsed}
           aria-controls={contentId}
           onClick={toggle}
@@ -313,7 +329,7 @@ export function ClosedIssueFold<T>({
           title="Archive all closed issues"
           disabled={allArchiving}
           onClick={archiveAll}
-          className="absolute right-1.5 flex h-5 items-center gap-1 rounded-[5px] border border-hairline-bar bg-chip px-1.5 font-mono text-[9px] font-medium tracking-[.02em] text-label opacity-0 shadow-sm transition-[color,opacity,background-color] duration-100 group-hover/fold:opacity-100 group-focus-within/fold:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong disabled:pointer-events-none disabled:opacity-0"
+          className="absolute right-2.5 flex h-5 items-center gap-1 rounded-[5px] border border-hairline-bar bg-chip px-1.5 font-mono text-[9px] font-medium tracking-[.02em] text-label opacity-0 shadow-sm transition-[color,opacity,background-color] duration-100 group-hover/fold:opacity-100 group-focus-within/fold:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong disabled:pointer-events-none disabled:opacity-0"
           data-testid="closed-issues-archive-all"
         >
           <Archive size={10} aria-hidden="true" />
@@ -339,7 +355,7 @@ export function ClosedIssueFold<T>({
                   // Sized and centred to the one-line folded row (POD-293): a
                   // 20px control vertically centred at the right inset, not the
                   // old tall-row top offset that hung off a 26px line.
-                  className="absolute top-1/2 right-1.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-hairline-bar bg-chip text-label opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
+                  className="absolute top-1/2 right-2.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-hairline-bar bg-chip text-label opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
                   aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
                   title="Archive — remove from sidebar"
                   data-testid="closed-issue-archive"

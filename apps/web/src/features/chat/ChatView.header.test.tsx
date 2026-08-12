@@ -92,6 +92,7 @@ vi.mock('@/app/store', () => {
     drafts: {},
     setSessionDraft: vi.fn(),
     resumeAndSend: vi.fn(async () => {}),
+    setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     tldrSession: vi.fn(),

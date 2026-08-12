@@ -1388,12 +1388,16 @@ which is the point: a second filtering site or a second framing site would be a
 second definition of "now".
 
 **BOOTSTRAP IS A FEED OPERATION, and that is a kernel addition.**
-`Authority.bootstrap(principal)` reads the latest retained row per (entity, id)
+`Authority.bootstrap(principal)` reads the latest live state per (entity, id)
 and evaluates it through the same visibility policy the live path uses, at the
 same `cursor()` the next delta certifies from — one synchronous pass, so nothing
 can land between the read and the attach. Folding a world out of
 `changesSince(0)` would look equivalent and would be wrong the moment anything is
-pruned. The anchor half of `scopeBatch` is deliberately absent from
+pruned. POD-678 is the same argument one level down and the correction to what
+this paragraph used to say ("the latest RETAINED row"): a fold over the retained
+log is pruned too, so the adapter keeps the world in `change_latest` — written by
+the append, never swept by retention. The row budget bounds what `changesSince`
+can serve; it may not bound what exists. The anchor half of `scopeBatch` is deliberately absent from
 `scopeBootstrap`: a bootstrap has no "before", there is no cache to evict from,
 and a `rescope` mid-bootstrap tells a replica to re-bootstrap while it is
 bootstrapping. The new suite proves the difference rather than restating it — its

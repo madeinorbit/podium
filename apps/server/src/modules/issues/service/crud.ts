@@ -357,7 +357,12 @@ export class IssueCrudModule {
         input.repoPath,
         input.parentId ? this.store.resolveRef(input.parentId, input.repoPath) : null,
       ),
-      ...(input.color != null ? { color: input.color } : {}),
+      // Colour is a top-level property [spec:SP-b4d1]: a create that already
+      // names a parent is a sub-issue, and it inherits the parent's colour
+      // instead of holding one. Dropped rather than thrown — `create` takes a
+      // shape, and refusing a whole subtask create over an inapplicable accent
+      // would be a worse trade than ignoring the field.
+      ...(input.color != null && input.parentId == null ? { color: input.color } : {}),
       needsHuman: false,
       createdAt: ts,
       updatedAt: ts,
@@ -412,6 +417,20 @@ export class IssueCrudModule {
     if (!row) throw new Error(`unknown issue ${id}`)
     const prevStage = row.stage
     const wasClosed = this.store.isClosed(row)
+    // COLOUR IS A TOP-LEVEL PROPERTY [spec:SP-b4d1]. A sub-issue runs under its
+    // parent's colour by inheritance (see `setParentForUpdate`), so setting one
+    // on it is refused rather than silently dropped: the CLI and any older client
+    // must hear that the field does not apply here, not appear to have written it.
+    // Clearing (`color: null`) stays legal at any depth — it is how legacy slots
+    // on existing sub-issues get cleaned up.
+    if (patch.color != null) {
+      const nextParentId = 'parentId' in patch ? patch.parentId : row.parentId
+      if (nextParentId != null) {
+        throw new Error(
+          `colour belongs to top-level tasks: ${row.id} is a sub-task and takes its parent's colour`,
+        )
+      }
+    }
     patch = this.normalizeClosedPatch(row, patch)
     if (patch.defaultAgent !== undefined && patch.defaultAgent !== row.defaultAgent) {
       patch = {

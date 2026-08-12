@@ -17,6 +17,7 @@ const setOpenIssueId = vi.fn()
 const setView = vi.fn()
 const navigateToSession = vi.fn()
 const start = vi.fn(async () => ({}))
+const setPlacement = vi.fn(async () => ({}))
 
 /** Ids are branded on `SessionMeta`; fixtures are built from string literals,
  *  so the override side is the unbranded spelling. */
@@ -37,19 +38,22 @@ const session = (over: SessionOverride = {}): SessionMeta =>
   }) as unknown as SessionMeta
 
 let mockSessions: SessionMeta[] = []
+/** The replica the controls resolve an origin ref against. */
+let mockIssues: ReturnType<typeof makeIssue>[] = []
 
 vi.mock('@/app/store', () => {
   const state = () => ({
     trpc: {
       issues: {
         start: { mutate: start },
+        setPlacement: { mutate: setPlacement },
         close: { mutate: vi.fn(async () => ({})) },
         update: { mutate: vi.fn(async () => ({})) },
         clearNeedsHuman: { mutate: vi.fn(async () => ({})) },
       },
       sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
     },
-    issues: [],
+    issues: mockIssues,
     setOpenIssueId,
     setView,
     navigateToSession,
@@ -72,6 +76,7 @@ vi.mock('@/app/store', () => {
 afterEach(() => {
   cleanup()
   mockSessions = []
+  mockIssues = []
   vi.clearAllMocks()
 })
 
@@ -119,14 +124,19 @@ describe('resolveTaskAction', () => {
 })
 
 describe('IssueCompactControls', () => {
-  it('carries the warn treatment on the needs-you action', () => {
+  it('gives the needs-you action the panel’s one filled chip', () => {
     render(<IssueCompactControls issue={makeIssue({ id: 'i', needsHuman: true })} />)
 
     const action = screen.getByTestId('task-primary-action')
     expect(action.dataset.action).toBe('answer')
     expect(action.textContent).toBe('Answer')
-    // The shell's own obligation channel, not a raw palette amber.
-    expect(action.className).toContain('bg-attention/15')
+    // POD-725: the needs-you variant is the SOLID primary, not an ochre-tinted
+    // outline. `primaryAction()` returns exactly one action, so nothing competes
+    // with it — and on paper the old `bg-attention/15` was 15% ochre over
+    // near-white, a washed tan that read quieter than the neutral status pill
+    // beside it. Backwards for the one control asking something of the operator.
+    expect(action.className).not.toContain('bg-attention/15')
+    expect(action.className).toContain('btn-primary-rim')
   })
 
   it('sends the primary action to the coordinator session', () => {
@@ -147,6 +157,90 @@ describe('IssueCompactControls', () => {
     expect(action.textContent).toBe('Start work')
     fireEvent.click(action)
     expect(start).toHaveBeenCalledWith({ id: 'i' })
+  })
+
+  /**
+   * THE START CLICK IS THE TRIAGE MOMENT (POD-679). The plain button keeps the
+   * shape the filing agent chose; the fork beside it is how the operator says
+   * "this is something else" before anything runs.
+   */
+  describe('the placement fork', () => {
+    const origin = makeIssue({ id: 'origin', seq: 9, title: 'Flight deck spine' })
+    // `startedBySession` is what marks this as work an AGENT filed — the fork
+    // is for the decision the operator inherited, not for their own planning.
+    const proposal = makeIssue({
+      id: 'i',
+      stage: 'proposed',
+      startedBySession: 's-agent',
+      deps: [{ id: 'origin', type: 'discovered-from' }],
+    })
+
+    it('is absent on a plain task — there is nowhere else for it to live', () => {
+      render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+      expect(screen.queryByTestId('task-placement-trigger')).toBeNull()
+    })
+
+    it('is absent on a sub-task the operator planned themselves', () => {
+      const planned = makeIssue({ id: 'i', stage: 'proposed', parentId: 'origin' })
+      mockIssues = [origin, planned]
+      render(<IssueCompactControls issue={planned} />)
+      expect(screen.queryByTestId('task-placement-trigger')).toBeNull()
+    })
+
+    it('names both destinations by what they do to the origin', async () => {
+      mockIssues = [origin, proposal]
+      render(<IssueCompactControls issue={proposal} />)
+
+      fireEvent.click(screen.getByTestId('task-placement-trigger'))
+      expect((await screen.findByTestId('task-placement-own')).textContent).toContain(
+        '#9 can close without it',
+      )
+      expect(screen.getByTestId('task-placement-mission').textContent).toContain(
+        '#9 is not done until this is',
+      )
+    })
+
+    it('starts without moving anything when the agent already had it right', async () => {
+      mockIssues = [origin, proposal]
+      render(<IssueCompactControls issue={proposal} />)
+
+      fireEvent.click(screen.getByTestId('task-placement-trigger'))
+      fireEvent.click(await screen.findByTestId('task-placement-own'))
+
+      expect(setPlacement).not.toHaveBeenCalled()
+      expect(start).toHaveBeenCalledWith({ id: 'i' })
+    })
+
+    it('moves the work first, then starts it, when the operator disagrees', async () => {
+      mockIssues = [origin, proposal]
+      render(<IssueCompactControls issue={proposal} />)
+
+      fireEvent.click(screen.getByTestId('task-placement-trigger'))
+      fireEvent.click(await screen.findByTestId('task-placement-mission'))
+
+      expect(setPlacement).toHaveBeenCalledWith({
+        id: 'i',
+        placement: 'mission',
+        originId: 'origin',
+      })
+      // The start waits on the move: an agent must never boot into the shape
+      // the operator just rejected.
+      await vi.waitFor(() => expect(start).toHaveBeenCalledWith({ id: 'i' }))
+      expect(setPlacement.mock.invocationCallOrder[0]).toBeLessThan(
+        start.mock.invocationCallOrder[0] as number,
+      )
+    })
+  })
+
+  // Closing is reachable from the stage menu, but never as a bare stage write:
+  // the entry hands off to the guard dialog so a reason is recorded.
+  it('routes the stage menu close entries through the guard dialog', async () => {
+    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+
+    fireEvent.click(screen.getByLabelText('Stage'))
+    fireEvent.click(await screen.findByText('Close: done'))
+
+    expect(await screen.findByText('Close this issue?')).toBeTruthy()
   })
 })
 

@@ -91,25 +91,30 @@ export function KindIcon({
   kind,
   dimmed = false,
   chip = false,
+  compact = false,
 }: {
   kind: AgentKind
   dimmed?: boolean
   chip?: boolean
+  /** The 16px tile. Same object one step down, for a census of them on one row
+   *  (the flight deck's collapsed strips) rather than a single agent's row. */
+  compact?: boolean
 }): JSX.Element {
   const Icon = KIND_ICON[kind]
   // Claude's brand clay for its glyph; other kinds stay text-toned like the mock.
   // Table lookups, not comparisons — see apps/web/src/lib/agent-tone.ts.
   const tone = dimmed ? 'text-muted-foreground/70' : agentGlyphTone(kind)
-  if (chip) {
+  if (chip || compact) {
     // Per-kind tinted tile (POD-293): Claude wears its clay, other harnesses a
     // quiet navy — solid fills so the chip never ghosts through a neighbour.
     const chipTint = dimmed ? 'border-hairline-bar bg-muted' : agentChipTint(kind)
+    const box = compact ? 'size-4 rounded' : 'size-5 rounded-[6px]'
     return (
       <span
-        className={`flex size-5 flex-none items-center justify-center rounded-[6px] border ${chipTint} ${tone}`}
+        className={`flex ${box} flex-none items-center justify-center border ${chipTint} ${tone} ${dimmed ? 'opacity-60' : ''}`}
         title={panelLabel(kind)}
       >
-        <Icon size={12} aria-label={panelLabel(kind)} />
+        <Icon size={compact ? 10 : 12} aria-label={panelLabel(kind)} />
       </span>
     )
   }

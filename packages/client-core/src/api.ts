@@ -21,8 +21,10 @@ import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   LayoutSnapshot,
+  MachineQuotaWire,
   ReadPositionSnapshot,
   SessionId,
+  UsageBucketWire,
   WorkState,
 } from '@podium/model'
 import type { LockWire, SyncChangesSinceResult } from '@podium/protocol'
@@ -181,6 +183,17 @@ export interface PodiumClientApi {
   settings: {
     get: ApiQuery<void, PodiumSettings>
     updatePersonal: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, PodiumSettings>
+  }
+  /** Hour×model token buckets for the last 7 days, harvested from harness
+   *  transcripts. All window/cost math is client-side — see `viewmodels/usage`. */
+  usage: {
+    summary: ApiQuery<void, { hostname: string; buckets: UsageBucketWire[] }>
+  }
+  /** Plan rate-limit windows, read live from each agent's own quota endpoint,
+   *  one entry per online machine. Distinct from `usage`, which is harvested
+   *  token-cost analytics — see `viewmodels/quota`. */
+  quota: {
+    summary: ApiQuery<void, MachineQuotaWire[]>
   }
   superagent: {
     /** The signed-in principal's own threads. The authority scopes this to the

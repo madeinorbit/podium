@@ -1,5 +1,6 @@
 import {
   groupUnifiedWorkRows,
+  planReorderKeys,
   rowAwaitsTuck,
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
@@ -12,12 +13,12 @@ import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
-import { planReorderKeys } from './reorder'
 import { AppToolsRow, NewWorkRow } from './spawn-row'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
+import { BRIDGE_NOTCH_W } from './WorkRowShell'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
@@ -60,22 +61,37 @@ export function SidebarUnified(): JSX.Element {
           nobody asked about. What is left is the 9px spacer that was always
           here, so the list starts where it always did. */}
       <div className="h-[9px] flex-none" aria-hidden="true" />
-      {/* The scroll container leaves 5px of horizontal head-room past the aside
-          edge (negative margin + matching padding) so the selected row's bridge
-          notch can paint OVER the aside border into the engraved column —
-          overflow clips at the padding box, so the notch survives (#41). Rows
-          sit at the column's 8px side inset (13 − 5). Within a project group
-          the 3px row gap holds; between groups the project-group mb-2.5
+      {/* The scroll container leaves horizontal head-room past the aside edge
+          (negative margin + matching padding) so the selected row's bridge notch
+          can paint OVER the aside border into the engraved column — overflow
+          clips at the padding box, so the notch survives (#41).
+
+          THE HEAD-ROOM IS THE NOTCH'S WIDTH, NOT A PIXEL LESS (POD-761). It was
+          5px against a 10px notch, so half the notch fell outside the padding
+          box — where it was not painted but WAS scrollable overflow, and every
+          selected row gave the column a 5px sideways scroll. Anything that hangs
+          off a row's right edge has to fit in here, or it comes back as scroll.
+          `overflow-x-clip` holds that line: it makes the head-room a PAINTING
+          allowance rather than a scrollable one, since `overflow-y: auto` alone
+          computes the x axis to `auto`. (Chrome computes the pair to `hidden`,
+          which still measures overflow — hence the width match above, which is
+          what actually removes it.)
+          The padding matches the negative margin exactly now (POD-725): rows are
+          FULL-BLEED bands, so the list has no side inset of its own and each row
+          owns its 14px text inset. No row gap either — rows are separated by
+          their own hairline rules; between groups the project-group mb-2.5
           clusters repo + snoozed/done as one unit. */}
       <div
         data-testid="work-scroll"
-        className="scroll-none flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto pb-2.5 pl-2"
-        style={{ marginRight: -5, paddingRight: 13 }}
+        className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
+        style={{ marginRight: -BRIDGE_NOTCH_W, paddingRight: BRIDGE_NOTCH_W }}
       >
         <WorkSections derivation={derivation} />
       </div>
-      {/* Footer: 8px top / 10px sides, 4px own bottom + the column's 6px. */}
-      <AppToolsRow className="flex-none border-t border-hairline-soft px-2.5 pt-2 pb-2.5" />
+      {/* Footer: the design's 38px strip at the column's 16px inset. The mock
+          writes `new task` / `search` as bare mono words; we keep our muted icon
+          controls (operator call) and the ⌘K hint stays right-aligned. */}
+      <AppToolsRow className="h-[38px] flex-none border-t border-hairline-soft px-4" />
     </>
   )
 }
@@ -453,11 +469,11 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           <motion.div
             layout="position"
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-            className="mb-2.5 flex min-w-0 flex-col gap-[3px]"
+            className="mb-2.5 flex min-w-0 flex-col"
             data-testid="pinned-section"
             data-drag-scope="pinned"
           >
-            <PinnedSectionLabel />
+            <PinnedSectionLabel count={renderedPinned.length} />
             {renderedPinned.map((item) => renderWorkRow(item))}
           </motion.div>
         )}
@@ -466,12 +482,13 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             layout="position"
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
             key={group.key}
-            className="mb-2.5 flex min-w-0 flex-col gap-[3px] last:mb-0"
+            className="mb-2.5 flex min-w-0 flex-col last:mb-0"
             data-testid="project-group"
             data-drag-scope={`group:${group.key}`}
           >
             <ProjectGroupLabel
               label={group.label}
+              count={group.rows.length}
               first={index === 0 && renderedPinned.length === 0}
             />
             {group.rows.map((item) => renderWorkRow(item))}

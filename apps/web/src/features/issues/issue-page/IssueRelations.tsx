@@ -24,6 +24,8 @@
  * read like the dependency list two sections up. The key now says what it
  * holds.
  */
+
+import { groupRelations } from '@podium/client-core/viewmodels'
 import type { IssueId } from '@podium/model'
 import { ISSUE_DEP_TYPES } from '@podium/model'
 import { Plus, X } from 'lucide-react'
@@ -33,8 +35,7 @@ import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { StageGlyph } from '../issue-glyphs'
 import type { IssuePageCommands } from '../issue-page-commands'
-import { groupRelations } from '@podium/client-core/viewmodels'
-import { SectionHeading } from './chrome'
+import { MACHINE_LABEL, SectionHeading } from './chrome'
 import { edgeIssue, IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
 
 export function IssueRelations({
@@ -66,7 +67,7 @@ export function IssueRelations({
       )}
       {relations.map((group) => (
         <div key={group.section} className="flex flex-col gap-0.5">
-          <span className="label-mono">{group.section}</span>
+          <span className={MACHINE_LABEL}>{group.section}</span>
           {group.entries.map((entry) => {
             const edge = resolve(entry.id)
             // A `hidden` edge draws nothing — under a `hidden` policy, and for a

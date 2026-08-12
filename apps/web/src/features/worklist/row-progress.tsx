@@ -42,6 +42,8 @@
  * A row that is one issue with one agent has no fraction — it is 0% until the
  * moment it is 100% — and a bar that can only ever show those two states says
  * nothing the status word ("Running", "Done") has not already said in a word.
+ * A row that is an epic with a single sub-issue is the same row wearing a
+ * hierarchy, and since POD-710 it counts as the one task it is.
  * The operator qualified the ask with "if it makes sense", and this is the
  * qualification: the meter appears exactly when there is a real done/total,
  * i.e. when the row is speaking for a subtree that the flat column gives no
@@ -61,15 +63,15 @@
  *
  * TWO TONES AND A GHOST, not the artifact's four colours. This row already owns
  * a colour vocabulary for exactly these facts, six pixels above the meter: its
- * status line goes `--motion-working` blue while an agent runs and
- * `--motion-total` grey when the work is done. The meter speaks it back —
- * finished work in the settled grey, live work in the working blue, everything
- * untouched left as the faint trough — so the row says one thing in one
+ * status word goes `--live` blue while an agent runs and drops back to the ink
+ * ramp when the work is done. The meter speaks it back — finished work in the
+ * settled `--text-faint`, live work in the working blue, everything untouched
+ * left as the `--hairline-soft` trough — so the row says one thing in one
  * language rather than introducing a second palette for the same states.
  *
  * The rejected alternative was the artifact's done-in-green, which Superade has
  * no green for; its honest translation is the theme's success accent, and in
- * Daylight that is #1d4ed8 against a running #2a62f0 — two blues a 3px bar
+ * Daylight that is #1d4ed8 against a running #2a62f0 — two blues a 2px bar
  * cannot separate. Grey against blue survives every theme, and it leaves the
  * MOVING part as the only coloured thing in the instrument, which is precisely
  * where the operator asked the eye to go.
@@ -101,9 +103,14 @@ import { cn } from '@/lib/utils'
 /**
  * The smallest mission that gets a meter.
  *
- * `missionProgress` counts the root as a task, so `2` means "the row speaks for
- * at least one task besides itself" — the exact condition under which a
- * done/total is a real fraction rather than a boolean wearing a bar.
+ * `missionProgress` counts UNITS OF WORK, and one unit is one task in the
+ * mission — the root is the container being measured, not a segment of it
+ * (POD-710). So `2` now means literally two tasks, which is the exact condition
+ * under which a done/total is a real fraction rather than a boolean wearing a
+ * bar. The number did not move; what it counts did, and it moved in the
+ * direction that makes the threshold honest. A row whose whole mission is one
+ * task used to arrive here as `total: 2` — the root plus its only child — and
+ * drew a two-segment meter over what was always one thing.
  */
 export const ROW_PROGRESS_MIN_TASKS = 2
 
@@ -145,15 +152,21 @@ export function RowProgressMeter({
       role="img"
       aria-label={label}
       title={label}
-      // Inside the row's bottom padding: -2px puts the 3px rule below the status
-      // line's descender box without adding a pixel to the row. The trough is
-      // the ink ramp's faintest grey at a quarter strength, so it reads as
-      // "there is a length here" in both themes without becoming a divider.
-      className="pointer-events-none absolute inset-x-0 -bottom-[2px] flex h-[3px] overflow-hidden rounded-full bg-text-faint/25"
+      // Inside the row's bottom padding: -2px puts the rule below the status
+      // line's descender box without adding a pixel to the row. Two pixels and a
+      // square end (POD-725) — the design draws this as a rule, not a capsule,
+      // and a pill at 2px is all cap and no bar. The trough is `--hairline-soft`,
+      // the same seam tone as the rule between two rows, so an empty meter reads
+      // as "there is a length here" without becoming a second divider.
+      className="pointer-events-none absolute inset-x-0 -bottom-[2px] flex h-[2px] overflow-hidden bg-hairline-soft"
     >
       <span
         data-segment="done"
-        className={cn(segment, 'bg-[var(--motion-total)]')}
+        // Settled work reads in `--text-faint` (POD-725): the same ramp step the
+        // row's own micro labels wear, so the finished part of the bar sits at
+        // the quietest legible tone in both themes rather than in the motion
+        // grammar's private grey.
+        className={cn(segment, 'bg-text-faint')}
         style={{ width: pct(progress.done) }}
       />
       <span

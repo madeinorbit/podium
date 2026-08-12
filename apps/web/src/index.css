@@ -136,6 +136,18 @@
     0 14px 34px var(--carve-popover-far),
     0 2px 8px var(--carve-popover-near);
 
+  /* THE SHEET (POD-725). The one surface in the shell that floats rather than
+     carves: the stage, lifted off the ground inside its own gutter. Everything
+     else in the window separates by tone and hairline, which is what makes a
+     single real elevation legible — spend it on the work and nowhere else.
+     Three layers: a contact ring, a near shadow that gives the edge weight, and
+     a long soft cast that puts air under the sheet. The ink is --carve-drop, so
+     it warms with the paper theme and blackens on navy. */
+  --shadow-sheet:
+    0 0 0 1px color-mix(in srgb, var(--carve-drop) 70%, transparent),
+    0 2px 4px color-mix(in srgb, var(--carve-drop) 50%, transparent),
+    0 20px 44px -20px var(--carve-popover-far);
+
   /* The command bar's wells (POD-365) — same contract as --carve-*: the bevel
      GEOMETRY is constant, the two inks are not. A groove is a dark lip along the
      top and a lit one along the bottom, and BOTH flip with the ground: black on
@@ -391,193 +403,253 @@
   --flow-foreground: #141a24;
 }
 
-/* ── Superade preset — light ("Daylight") [POD-372] ───────────────────────────────
-   Designed, not derived. Three rules, each measured against Linear, Cursor and
-   Conductor's light UIs rather than guessed:
+/* ── Superade preset — light ("Paper") [POD-725] ──────────────────────────────────
+   The light theme is warm paper, not cool office glass. Three rules:
 
-   1. NEUTRAL, NOT TINTED. Surfaces are oklch(L C 264) — the dark theme's own
-      navy hue, but at 0.000–0.006 chroma. The references all sit in that band
-      (Cursor 0.004, Conductor 0.0035, Linear 0.0011); the previous derived
-      palette ran 0.011–0.020, and an obviously-blue grey is what made it read
-      cheap. Linear calls this "limiting blue chrome" for a neutral, timeless light.
-   2. LINE, NOT TONE. The seven tiers span 6.2 L-points (bar → white); Cursor's
-      whole app lives in 4.2. Heavy tonal tiering is a DARK-mode idiom — on paper
-      the hairlines do the separating, which is why --border matters more here
-      and why the engraved groove (below) had to get stronger, not weaker.
-   3. ONE INK. Every neutral is --ink at an alpha, resolved to hex so contrast is
-      exact. --ink is #0e1626 = oklch(0.20 0.035 264) — which is Rail Navy,
-      already a SURFACE in the dark theme. The mirror is literal: the navy the
-      dark theme paints panels with is the ink the light theme writes with, and
-      it is what carries the brand now that no surface is navy.
+   1. WARM, NOT NEUTRAL. Every surface is a stone/oat tone (hue ≈ 80–90, chroma
+      0.003–0.010). The previous Daylight palette sat at hue 264 and 0.000–0.006
+      chroma — a correct, careful, and completely anonymous grey. Warmth is what
+      makes a light UI read as PAPER rather than as an unlit dark theme, and it
+      is the only thing in the light mode carrying any brand of its own.
+   2. TONE AND LINE. Daylight banned tonal tiering as a dark-mode idiom and
+      leaned on hairlines alone; the result was flat. Here the chrome tiers do
+      separate by tone — rail 92.8% · engraved 95.8% · background 95.2% ·
+      bar 97.2% · tabstrip 98.1% · card 100% — but the steps are ≤1.5 L-points,
+      so tone GROUPS and the hairline still CUTS.
+   3. LIGHT COMES FROM ABOVE. The tier order inverts the dark theme's on
+      purpose: on navy the chrome is the darkest thing in the window, on paper
+      it is the lightest. The top bar and status strip sit ABOVE the ground
+      (#f7f7f5 over #f2f1ed); the icon rail, furthest from the work, sits
+      deepest (#eceae4); and the stage is the one true white, lifted off the
+      ground by a real drop shadow rather than carved into it.
 
-   Yellow keeps the primary role here, amending DESIGN.md's Royal Blue call: a
-   blue-primary light theme is every other tool, and the premise was wrong —
-   the rule is navy-on-yellow, which measures 11.1:1. Yellow's problem on paper
-   is EDGE, not contrast, hence --primary-rim. But yellow FILLS and ochre WRITES:
-   --attention is a `color:` in six places (styles.css .chat-next, text-attention
-   in UnifiedIssueRow/sidebar-common/the Flight Deck), so it takes the ochre.
-   #f5c518 as text is 1.6:1 and must never be assigned to a text token. */
+   ONE INK: #1d1c19, a warm near-black. Every neutral and every carve alpha is
+   that ink, so nothing in the window is a cool grey.
+
+   Yellow keeps the primary role (navy-on-yellow measures 11.1:1) but yellow
+   FILLS and ochre WRITES: --attention is a `color:` in six places, so it takes
+   #8a6200. #f5c518 as text is 1.6:1 and must never reach a text token. The
+   silhouette rim Daylight needed is gone — against warm stone the yellow reads
+   as its own object without an edge, and the rim only muddied it. */
 [data-theme="superade"] {
-  --radius: 0.375rem;
+  /* 8px — the design's chip/pill radius. The named radii (--radius-row 7,
+     --radius-composer 9, --radius-tray 10) already match and are unchanged. */
+  --radius: 0.5rem;
 
-  /* The one ink. Every neutral below is this at an alpha, over --background. */
-  --ink: #0e1626;
+  /* The one ink. Every neutral and carve alpha below is this. */
+  --ink: #1d1c19;
 
-  --background: #f5f6f9;
-  --foreground: #2a313f;
-  --card: #f9fafc;
-  --card-foreground: #2a313f;
+  --background: #f2f1ed;
+  --foreground: #38362f;
+  --card: #ffffff;
+  --card-foreground: #38362f;
   --popover: #ffffff;
-  --popover-foreground: #2a313f;
+  --popover-foreground: #38362f;
   --primary: #f5c518;
-  --primary-foreground: #0e1626;
-  --secondary: #edeff2;
-  --secondary-foreground: #0e1626;
-  --muted: #f0f2f5;
-  --muted-foreground: #5d626e;
-  --accent: #e8eaef;
-  --accent-foreground: #0e1626;
+  --primary-foreground: #1d1c19;
+  --secondary: #eceae4;
+  --secondary-foreground: #1d1c19;
+  --muted: #f0efe9;
+  --muted-foreground: #5f5d55;
+  --accent: #eceae4;
+  --accent-foreground: #1d1c19;
   --destructive: #c81e2b;
-  --border: #dadce1;
-  --input: #c7c9cf;
+  --border: #e6e5e0;
+  --input: #e2e0d9;
   --ring: #c8990a;
-  /* Superade has no green: success reads in its blue, as in the dark variant. */
+  /* Superade has no green: success reads in its blue, as in the dark variant.
+     TWO blues, though, not one. They were briefly the same value, which broke
+     the mission gauge — its done and running bands sit adjacent in one meter and
+     would have been the identical colour, leaving the counts inside them as the
+     only difference. Royal Blue is the settled state, Accent Blue the moving
+     one; both are already in the brand vocabulary (DESIGN.md §2). */
   --success: #1d4ed8;
   --warning: #8a6200;
   --live: #2a62f0;
-  --info: #1d4ed8;
-  --sidebar: #f9fafc;
-  --sidebar-foreground: #2a313f;
+  --info: #2a62f0;
+  --sidebar: #f4f3f0;
+  --sidebar-foreground: #38362f;
   --sidebar-primary: #f5c518;
-  --sidebar-primary-foreground: #0e1626;
-  --sidebar-accent: #e8eaef;
-  --sidebar-accent-foreground: #0e1626;
-  --sidebar-border: #dadce1;
+  --sidebar-primary-foreground: #1d1c19;
+  --sidebar-accent: #eceae4;
+  --sidebar-accent-foreground: #1d1c19;
+  --sidebar-border: #e6e5e0;
   --sidebar-ring: #c8990a;
 
-  /* Surface tiers — oklch(L C 264), mirroring the dark ramp's ordering.
-     bar 93.8% · engraved 95.1% · tabstrip 96.0% · rail 96.6% · background 97.4%
-     · card 98.6% · chip 100%. Pure white is spent ONLY on the raised tier, so
-     "whitest" keeps meaning "closest to you". */
-  --engraved: #edeff2;
-  --bar: #e8eaef;
-  --tabstrip: #f0f2f5;
-  --rail: #f2f4f6;
+  /* Surface tiers. Ordering inverts the dark ramp (rule 3): the rail is the
+     DEEPEST chrome and the card the brightest, with the command bar and status
+     strip lifted just above the ground.
+     rail 92.8% · engraved 95.8% · background 95.2% · bar 97.2% ·
+     tabstrip 98.1% · card/chip 100%. */
+  --engraved: #f4f3f0;
+  --bar: #f7f7f5;
+  --tabstrip: #faf9f7;
+  --rail: #eceae4;
   --chip: #ffffff;
 
-  /* --ink at 7 / 16 / 20% — the seams. */
-  --hairline-soft: #e5e6ea;
-  --hairline-bar: #d0d2d7;
-  --border-strong: #c7c9cf;
+  /* --ink at 7 / 11 / 14% — the seams. Three steps, each visible against the
+     one before: row rules → panel seams → chip rims. */
+  --hairline-soft: #eeede8;
+  --hairline-bar: #e6e5e0;
+  --border-strong: #e2e0d9;
 
-  /* --ink at 100 / 58 / 38 / 60% — the text ramp. Ratios vs --background:
-     16.7 · 4.3 · 2.4 (micro hints only) · 4.6. --foreground is ink/88% = 12.1,
-     --muted-foreground is ink/66% = 5.7. */
-  --text-strong: #0e1626;
-  --text-dim: #6f747f;
-  --text-faint: #9da1a9;
-  --label: #6a707a;
+  /* The text ramp, --ink at 100 / 82 / 68 / 48 / 40%. Ratios vs --background:
+     14.9 · 9.9 · 6.2 · 3.2 · 2.6 (micro hints only). --foreground is ink/82%
+     and --muted-foreground ink/68%. */
+  --text-strong: #1d1c19;
+  --text-dim: #8f8d85;
+  --text-faint: #a3a199;
+  --label: #8f8d85;
 
-  /* Ochre — the brand hue as ink (5.3:1). Yellow fills, ochre writes. */
+  /* Ochre — the brand hue as ink (5.6:1). Yellow fills, ochre writes. */
   --attention: #8a6200;
   --attention-foreground: #ffffff;
-  /* 1px rim so the yellow fill has a silhouette against paper. */
-  --primary-rim: #c8990a;
+  /* No rim: on warm stone the yellow already has a silhouette, and the ochre
+     edge Daylight needed against cool grey read as dirt here. Kept as a token
+     (rather than deleted) because .btn-primary-rim and the light/dark leakage
+     test both expect the name to exist in this block. */
+  --primary-rim: transparent;
 
   --claude: #b8532e;
-  --flow: #64748b;
+  /* The no-colour flow. Warm taupe, not slate — a blue-grey flow over stone is
+     the one thing that reliably makes this palette look broken. */
+  --flow: #85817a;
   --flow-foreground: #ffffff;
 
-  /* Carve in the ink, at 26%. Retested against the compressed ramp: with the
-     tiers this close the groove IS the depth, so it needed MORE than the 22%
-     that suited a wider ramp — and 32% bands. Black at 0.85 (the old shared
-     constant) reads as dirt on paper, never as depth.
+  /* Carve in the warm ink, LIGHTLY. Daylight needed 26% because its tiers were
+     so close that the groove had to do all the separating; here tone already
+     groups the columns, so the carve is only an edge, not a shadow. Anything
+     heavier and the columns read as dirty rather than deep — the stage's real
+     drop shadow (styles.css) is where elevation is spent instead.
      Literal rgb() rather than color-mix(var(--ink)): Lightning CSS emits a
      no-color-mix fallback that collapses to the OPAQUE ink, which would paint
-     the groove as a solid navy slab. These alphas ARE --ink, exactly. */
-  --carve-engraved: rgb(14 22 38 / 0.26);
-  --carve-drop: rgb(14 22 38 / 0.28);
-  --carve-popover-far: rgb(14 22 38 / 0.16);
-  --carve-popover-near: rgb(14 22 38 / 0.1);
+     the groove as a solid slab. These alphas ARE --ink, exactly. */
+  --carve-engraved: rgb(29 28 25 / 0.07);
+  --carve-drop: rgb(29 28 25 / 0.1);
+  /* The two FLOATING inks are the exception to "carve lightly": a popover and
+     the stage sheet are the only things in the window that are genuinely above
+     it, and on paper a cast has to be deep enough to be a shadow rather than a
+     smudge. 0.3 is the design's own value for the sheet's long cast. */
+  --carve-popover-far: rgb(29 28 25 / 0.3);
+  --carve-popover-near: rgb(29 28 25 / 0.12);
 
   /* The wells, inverted for paper. On navy the groove's floor sits a hair ABOVE
      the bar because a recess catches ambient light against a near-black ground;
      on paper there is no ambient left to catch, so the floor goes a hair BELOW
      and the highlight moves to real white along the bottom lip. The raised cell
-     becomes the card surface — brighter than both bar and groove — which is how
-     a selection stays legible without a ring. */
-  --well-floor: rgb(14 22 38 / 0.05);
-  --well-lip: rgb(14 22 38 / 0.16);
-  --well-rim: rgb(14 22 38 / 0.1);
-  --well-lit: rgb(255 255 255 / 0.85);
-  --well-hover: rgb(14 22 38 / 0.045);
+     becomes pure white — brighter than both bar and groove — which is how a
+     selection stays legible without a ring. */
+  --well-floor: rgb(29 28 25 / 0.045);
+  --well-lip: rgb(29 28 25 / 0.1);
+  --well-rim: rgb(29 28 25 / 0.07);
+  --well-lit: rgb(255 255 255 / 0.9);
+  --well-hover: rgb(29 28 25 / 0.04);
   --well-cell: var(--card);
-  --well-cell-lit: rgb(255 255 255 / 0.9);
-  --well-cell-lip: rgb(14 22 38 / 0.12);
+  --well-cell-lit: rgb(255 255 255 / 1);
+  --well-cell-lip: rgb(29 28 25 / 0.1);
 
-  /* Issue-tint scales — see the issue-accent channel below. */
-  --issue-tint-scale: 0.5%;
-  --issue-line-scale: 0.85%;
+  /* Issue-tint scales — see the issue-accent channel below. Down from 0.5%
+     (POD-725): the issue palette is the Tailwind-500 ramp, chosen against navy,
+     and a saturated hue mixed into WARM stone reads about twice as loud as the
+     same mix into the cool grey Daylight used. At 0.5% a teal issue turned the
+     whole centre of the window green. 0.4% puts the handoff's headline doses
+     back where the design draws them: the deck's fade at 6%, the tab strip at
+     7%, the selected row's ground at 11% over the card it is lifted onto.
+     Lines are barely touched — a hairline has to stay visible to do its job. */
+  --issue-tint-scale: 0.4%;
+  --issue-line-scale: 0.8%;
 }
 
-/* ── Superade preset — dark (from the "Podium Superman" design mock: deep navy,
-      Superman yellow #f5c518 primary, red #e5303f alerts) ─────────────────────────── */
+/* ── Superade preset — dark ("Dark Ink") [POD-737] ────────────────────────────────
+   The dark theme is neutral ink, not navy. It was deep navy (#0a0f1c ground,
+   #121b30 card) because the first Superade mock painted the chrome in the brand's
+   blue; the Dark Ink mock drops the hue from the neutrals entirely and keeps the
+   blue for what MOVES. Three rules:
+
+   1. NEUTRAL, NOT NAVY. Every surface and every line is a cool-neutral ink
+      (chroma ≤ 10 across the ramp). A tinted ground competes with the issue-accent
+      channel — the whole point of that channel is that a hue on a surface MEANS
+      something, and navy chrome meant nothing while looking like it did.
+   2. THE FRAME LIFTS. The tier order inverts the old navy ramp, the same way
+      Paper's does: background #16171a is the darkest thing in the window and the
+      stage sheet #23262d the brightest, with the title bar and status strip
+      raised just above the ground (#1b1d21). Wells therefore cut DOWNWARD now —
+      the --well-* block below flips with them.
+      background 16171a · sidebar/dock 191a1e · bar 1b1d21 · rail/muted 1e2024 ·
+      tabstrip 202228 · card 23262d · chip 252830 · secondary 2c3038.
+   3. YELLOW FILLS, GOLD WRITES. Same split Paper makes, one tier up: #f5c518
+      stays the fill (buttons, dots, spines) and #e3ba52 — the mock's own value —
+      does every attention/warning `color:`. Pure yellow as running text at this
+      size reads as a highlighter smear against neutral ink.
+
+   Blue keeps its two jobs from the mock: #6f9dff is what is MOVING (spinners,
+   live rings, meters) and #2a62f0 the settled fill behind them. Still no green;
+   red stays reserved for alerts and destructive. */
 [data-theme="superade"].dark {
   --radius: 0.375rem;
-  --background: #0a0f1c;
-  --foreground: #d7d7e0;
-  --card: #121b30;
-  --card-foreground: #d7d7e0;
-  --popover: #121b30;
-  --popover-foreground: #d7d7e0;
+  --background: #16171a;
+  --foreground: #d7dae0;
+  --card: #23262d;
+  --card-foreground: #d7dae0;
+  --popover: #23262d;
+  --popover-foreground: #d7dae0;
   --primary: #f5c518;
-  --primary-foreground: #0a0f1c;
-  --secondary: #223564;
-  --secondary-foreground: #f3f3f8;
-  --muted: #17223c;
-  --muted-foreground: #9a9aa8;
-  --accent: #1c2a4e;
-  --accent-foreground: #f3f3f8;
+  --primary-foreground: #16171a;
+  --secondary: #2c3038;
+  --secondary-foreground: #f2f3f5;
+  --muted: #1e2024;
+  --muted-foreground: #a8adb6;
+  --accent: #2a2d33;
+  --accent-foreground: #f2f3f5;
   --destructive: #e5303f;
-  --border: #243356;
-  --input: #364a78;
+  --border: #26292f;
+  --input: #2a2d33;
   --ring: #f5c518;
-  /* The Superman mock has no green at all: host-health dots and quota meters
-     render in its blue (#2f6bff). Live agent activity reads calm blue too
-     (POD-166 R10) — red stays reserved for alerts/destructive. */
-  --success: #2f6bff;
-  --warning: #f5c518;
+  /* No green: host-health dots and quota meters render in the mock's blue.
+     Live agent activity reads calm blue too (POD-166 R10). */
+  --success: #2a62f0;
+  --warning: #e3ba52;
   --live: #6f9dff;
-  --info: #2f6bff;
-  --sidebar: #0f1626;
-  --sidebar-foreground: #d7d7e0;
+  --info: #2a62f0;
+  --sidebar: #191a1e;
+  --sidebar-foreground: #d7dae0;
   --sidebar-primary: #f5c518;
-  --sidebar-primary-foreground: #0a0f1c;
-  --sidebar-accent: #223564;
-  --sidebar-accent-foreground: #f3f3f8;
-  --sidebar-border: #1e2a4c;
+  --sidebar-primary-foreground: #16171a;
+  --sidebar-accent: #2c3038;
+  --sidebar-accent-foreground: #f2f3f5;
+  --sidebar-border: #24272d;
   --sidebar-ring: #f5c518;
 
-  /* Redesign tokens — derived navy equivalents (non-breaking). */
-  --engraved: #070b16;
-  --bar: #050912;
-  --tabstrip: #0c1322;
-  --rail: #0e1626;
-  --chip: #16223c;
-  --hairline-soft: #1e2a4c;
-  --hairline-bar: #283a66;
-  --border-strong: #364a78;
-  --text-strong: #f3f3f8;
-  /* Shell-secondary text must remain readable on the #0a0f1c ground. The old
-     faint token was 2.88:1 and made ordinary metadata look disabled. */
-  --text-dim: #818ba5;
-  --text-faint: #737e9a;
-  --label: #8b94ac;
-  --attention: #f5c518;
+  /* Surface tiers — the mock's own values (rule 2). The right dock takes the
+     same tone as the work list (both are #191a1e in the mock) and the icon rail,
+     furthest from the work, steps up to the chip tier rather than down. */
+  --engraved: #191a1e;
+  --bar: #1b1d21;
+  --tabstrip: #202228;
+  --rail: #1e2024;
+  --chip: #252830;
+
+  /* The seams, three visible steps: row rules → panel/bar seams → chip rims. */
+  --hairline-soft: #24272d;
+  --hairline-bar: #26292f;
+  --border-strong: #3a3f48;
+
+  /* The text ramp. Ratios vs --background: 16.5 · 13.1 · 8.1 · 6.5 · 5.3 · 3.9.
+     Shell-secondary text must remain readable on the #16171a ground — the tier
+     under --label is where metadata lives, so it holds above 5:1 and only the
+     faint tier (timestamps, micro-hints) drops to the mock's #6f7580. */
+  --text-strong: #f2f3f5;
+  --text-dim: #848a94;
+  --text-faint: #6f7580;
+  --label: #949aa4;
+  /* Gold writes (9.9:1); --primary above keeps the fill (rule 3). */
+  --attention: #e3ba52;
   --attention-foreground: #161006;
   --claude: #d97757;
-  --flow: #94a3b8;
-  --flow-foreground: #141a24;
+  /* The no-colour flow is a true neutral, not slate: a blue-grey default tint
+     over neutral ink reads as an issue colour nobody chose. */
+  --flow: #949aa4;
+  --flow-foreground: #16171a;
 
   /* Restore the dark-ground values for everything the light block above
      introduces — `[data-theme="superade"]` matches this element too, so an
@@ -588,11 +660,23 @@
   --carve-drop: rgb(0 0 0 / 0.9);
   --carve-popover-far: rgb(0 0 0 / 0.65);
   --carve-popover-near: rgb(0 0 0 / 0.5);
-  --well-floor: color-mix(in srgb, var(--secondary) 30%, transparent);
-  --well-lip: rgb(0 0 0 / 0.75);
-  --well-rim: rgb(0 0 0 / 0.35);
+  /* The wells cut DOWNWARD now (rule 2). On navy the frame was the darkest thing
+     in the window, so a groove had to sit ABOVE its bar to show at all; with the
+     bar lifted to #1b1d21 the floor can go where a groove actually goes — the
+     mock's instrument well is #16171a in a #1b1d21 bar, which is this black at
+     17%, and its rim is a LIGHT hairline (#26292f) rather than a black one. The
+     lip and the lit edge keep the bevel: dark along the top, light along the
+     bottom, inverted again by the raised cell. Literal rgb() rather than
+     color-mix on a token — Lightning CSS emits a no-color-mix fallback that
+     collapses an alpha mix to the OPAQUE colour, which would paint the groove as
+     a solid slab. */
+  --well-floor: rgb(0 0 0 / 0.17);
+  --well-lip: rgb(0 0 0 / 0.5);
+  --well-rim: rgb(255 255 255 / 0.06);
   --well-lit: rgb(255 255 255 / 0.05);
   --well-hover: rgb(255 255 255 / 0.045);
+  /* ≈ #292c34 over the floor — the mock's raised cell (#2c3038), reached as a
+     mix so the cell tracks --secondary wherever the well is used. */
   --well-cell: color-mix(in srgb, var(--secondary) 85%, transparent);
   --well-cell-lit: rgb(255 255 255 / 0.07);
   --well-cell-lip: rgb(0 0 0 / 0.35);
@@ -606,13 +690,16 @@
    the issue's palette colour (lib/issueColors.ts); unset, it inherits the
    neutral slate --flow. The percentages come straight from the handoff:
      selected sidebar row 28 (over card) · pane header 24 (over background) ·
-     tab strip 18 (over tabstrip) · rail fade 16 ·
-     attention rows 11–13 · workspace pane 10–12 ·
+     rail fade 16 · attention rows 11–13 ·
      hairlines 30–50 · selection rings 35.
+   A dose is also CAPPED BY THE NEXT SURFACE UP (POD-748): a mix always walks
+   toward a lighter colour, so a tint that carries its surface past the one above
+   it inverts the ramp. The tab strip is the tight one — three levels under the
+   sheet on Dark Ink — and runs at 1–3 (Workspace.tsx), not the handoff's 18.
    Two surfaces are deliberately OUTSIDE this channel. The Superagent pane stays
    a flat --engraved surface in both modes. And the RIGHT DOCK, with its icon
    rail, is a dark default (POD-516 item 9, styles.css `.right-dock-shell`): the
-   dock hosts Superagent, Git, Files, Shell, Messages and the merge queue as
+   dock hosts Superagent, Git, Files, Shell, Messages and the queues panel as
    often as it hosts the task, so a tint drawn from the selected issue claimed a
    relationship that usually is not there — a tint only carries meaning when the
    surface IS that issue. The dock's ID square keeps its own colour; it names one
@@ -679,6 +766,9 @@
 }
 @utility issue-base-engraved {
   --issue-base: var(--engraved);
+}
+@utility issue-base-sidebar {
+  --issue-base: var(--sidebar);
 }
 /* Issue-tinted hairline: border-color at N% opacity of the issue colour. */
 @utility issue-hairline-* {
@@ -858,14 +948,17 @@
 /* ── Native agents pane (.design/specs/native-pane.md) ───────────────────────
    The pane's chrome is tinted by the selected issue via the --issue channel
    (slate --flow when uncoloured); its derived text shades come from the
-   .issue-scope ramp above, inherited from the shell root. The pane surface is
-   12% coloured / 9% slate over the app background (§2.6). */
-.native-agents-pane {
-  background-color: color-mix(in srgb, var(--issue) 12%, var(--background));
-}
-[data-issue-colored='false'] .native-agents-pane {
-  background-color: color-mix(in srgb, var(--issue) 9%, var(--background));
-}
+   .issue-scope ramp above, inherited from the shell root.
+   The pane SURFACE is no longer tinted. POD-725 turned the stage into a sheet
+   and made this element the ground around it, so styles.css `.native-agents-pane`
+   paints it flat --background. The 12%/9% wash that used to live here outlived
+   that: it was written as a bare class and a `[data-issue-colored='false']`
+   descendant, and the slate half (0-2-0) outranked the styles.css override
+   (0-1-0) no matter which file loaded last — so an uncoloured mission's gutter
+   rendered #212326 where the Dark Ink mock draws its ground at #16171a, and a
+   coloured one rendered the mock's value. The ground is not a tintable surface;
+   the colour it used to carry lives in the deck's fade, the selected row's band
+   and the active tab's dot and ring. */
 /* Tab leading square: the 7×7 issue-colour dot (radius 2.5px). Beats the
    unlayered `.dot` circle rule in styles.css by specificity while keeping the
    `.dot.parked + .worker-label` hibernated-row hook intact. */
@@ -873,9 +966,16 @@
   border-radius: 2.5px;
   background: var(--issue);
 }
-/* Active tab's 1px issue-colour top inset line. */
+/* The active tab, raised (POD-725). A small real drop plus a 1px issue ring —
+   the design's own recipe, and the only object inside the sheet allowed to
+   float, because it is the one the operator is looking at. It replaced a 1px
+   issue line along the tab's top edge, which was invisible the moment the tab
+   stopped being a browser tab welded to the strip's bottom. */
 @utility native-tab-active {
-  box-shadow: inset 0 1px 0 var(--issue);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 90%, transparent),
+    inset 0 0 0 1px
+      color-mix(in srgb, var(--issue) calc(35 * var(--issue-line-scale, 1%)), transparent);
 }
 
 @layer base {

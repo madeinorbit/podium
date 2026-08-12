@@ -115,7 +115,7 @@ export function IssueSubIssues({
   const doneChildren = subIssues.filter(isFinished)
   const openChildren = subIssues.filter((child) => !isFinished(child))
   return (
-    <section className="mb-7 flex flex-col gap-1" data-testid="sub-issues">
+    <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">
       <SectionHeading
         count={issue.childCount > 0 ? `${issue.childDoneCount}/${issue.childCount}` : undefined}
       >

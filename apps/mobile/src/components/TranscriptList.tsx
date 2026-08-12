@@ -54,7 +54,19 @@ import {
   searchMobileTranscript,
   transcriptItemKey,
 } from '../lib/transcript-feed'
-import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { atTail as atTailRule, measureAtTail } from '../lib/transcript-tail'
+import {
+  color,
+  elevation,
+  font,
+  leading,
+  mono,
+  monoLabel,
+  radius,
+  sans,
+  space,
+  spring,
+} from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Icon } from './Icon'
@@ -454,6 +466,90 @@ function StreamingCaret({ reduceMotion }: { reduceMotion: boolean }) {
   return <Animated.Text style={[styles.streamingCaret, { opacity }]}>▋</Animated.Text>
 }
 
+/**
+ * Jump-to-newest, floating ABOVE the prompt box (POD-724).
+ *
+ * It used to sit `space.sm` off the bottom of the list frame — the same band
+ * the composer capsule floats in, as a sibling layer over the same area — so
+ * the one control that says "you are behind the conversation" was rendered
+ * BEHIND the composer. It is now lifted by the composer's own resting height:
+ * the value the feed already pays as bottom padding, plus a gap. With no
+ * composer (a read-only transcript) the lift is zero and the pill rests near
+ * the bottom edge, where it always did.
+ *
+ * It also carries what arrived while you were away, because "Newest" answers
+ * where the button goes and not whether it is worth pressing.
+ */
+function JumpToNewest({
+  visible,
+  unread,
+  lift,
+  reduceMotion,
+  onPress,
+}: {
+  visible: boolean
+  unread: number
+  lift: number
+  reduceMotion: boolean
+  onPress: () => void
+}) {
+  const [mounted, setMounted] = useState(visible)
+  const enter = useRef(new Animated.Value(visible ? 1 : 0)).current
+
+  useEffect(() => {
+    if (visible) setMounted(true)
+    // Reduce Motion still gets the control, immediately — the appearance is
+    // information, only its travel is decoration.
+    if (reduceMotion) {
+      enter.setValue(visible ? 1 : 0)
+      if (!visible) setMounted(false)
+      return
+    }
+    const animation = Animated.spring(enter, {
+      toValue: visible ? 1 : 0,
+      ...spring.snappy,
+      useNativeDriver: true,
+    })
+    animation.start(({ finished }) => {
+      if (finished && !visible) setMounted(false)
+    })
+    return () => animation.stop()
+  }, [enter, reduceMotion, visible])
+
+  if (!mounted) return null
+  return (
+    <Animated.View
+      pointerEvents={visible ? 'box-none' : 'none'}
+      style={[
+        styles.newestLayer,
+        {
+          bottom: lift,
+          opacity: enter,
+          transform: [
+            { translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
+          ],
+        },
+      ]}
+    >
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={
+          unread > 0 ? `Jump to ${unread} new messages` : 'Jump to newest message'
+        }
+        onPress={onPress}
+        hitSlop={8}
+        // The one control here that is genuinely ABOVE the page rather than
+        // carved into it, so it takes the card shadow — a bordered capsule on
+        // its own reads as another row that happens to be centred.
+        style={({ pressed }) => [styles.newest, elevation.card, pressed && styles.utilityPressed]}
+      >
+        <Icon as={ChevronDown} size={14} color={color.text} />
+        <Text style={styles.newestText}>{unread > 0 ? `${unread} new` : 'Newest'}</Text>
+      </PressableScale>
+    </Animated.View>
+  )
+}
+
 export function TranscriptList({
   items,
   live,
@@ -528,6 +624,8 @@ export function TranscriptList({
   const [cursor, setCursor] = useState(0)
   const [actionText, setActionText] = useState<string | null>(null)
   const [atTail, setAtTail] = useState(true)
+  /** Rows that arrived while the operator was reading further up. */
+  const [unread, setUnread] = useState(0)
 
   const setVerbosity = useCallback(
     (value: ChatVerbosity) => uiState.set(CHAT_VERBOSITY_KEY, value === 'normal' ? null : value),
@@ -591,10 +689,49 @@ export function TranscriptList({
   )
   // Chronological (not inverted). Bottom-pinning is done by hand: scrollToEnd
   // on growth while the user sits at the tail.
+  //
+  // `pinned` is a MEASUREMENT and `operatorMoved` is an INTENT, and the split is
+  // what makes opening at the newest message deterministic (POD-724). The
+  // measurement cannot be trusted while the transcript is still laying out:
+  // content height climbs for several frames as markdown, images and tool rows
+  // resolve, and each settling scroll reported on the way reads as "not at the
+  // bottom". So until a real gesture moves the feed, every content-size change
+  // goes back to the end no matter what the measurement currently says. After a
+  // gesture the measurement is the whole answer — a reader who scrolled up to
+  // find something must never be yanked back down. See ../lib/transcript-tail.
   const pinned = useRef(true)
+  const operatorMoved = useRef(false)
+  // A different session is a different conversation, and it opens at ITS tail
+  // even if the previous one was left scrolled up.
+  const transcriptId = assetContext?.sessionId ?? null
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the transcript's identity is the trigger, not a value the reset reads.
+  useEffect(() => {
+    operatorMoved.current = false
+    pinned.current = true
+    setAtTail(true)
+    setUnread(0)
+  }, [transcriptId])
+
+  const markOperatorMoved = useCallback(() => {
+    operatorMoved.current = true
+  }, [])
+
+  // What landed while the operator was reading further up. `arrivedKeys` is
+  // already derived for the row entrance, so the count costs nothing extra.
+  useEffect(() => {
+    if (atTail) {
+      setUnread(0)
+      return
+    }
+    if (arrivedKeys.size > 0) setUnread((count) => count + arrivedKeys.size)
+  }, [arrivedKeys, atTail])
 
   useEffect(() => {
     if (search.activeRow === undefined) return
+    // Jumping to a match IS the operator moving the feed. Without this the
+    // opening pin outlives the jump and every page the search loads snaps the
+    // reader back to the tail (POD-724).
+    operatorMoved.current = true
     listRef.current?.scrollToIndex({
       index: search.activeRow,
       animated: !reduceMotion,
@@ -611,7 +748,14 @@ export function TranscriptList({
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-      pinned.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
+      pinned.current = atTailRule({
+        operatorMoved: operatorMoved.current,
+        measuredAtTail: measureAtTail(
+          contentOffset.y,
+          layoutMeasurement.height,
+          contentSize.height,
+        ),
+      })
       setAtTail(pinned.current)
       if (contentOffset.y < 200) onLoadOlder?.()
     },
@@ -811,6 +955,17 @@ export function TranscriptList({
         ListEmptyComponent={emptyComponent}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScroll={onScroll}
+        // Four ways to learn that the OPERATOR moved, because no single one
+        // covers both targets: native fires the drag/momentum pair, and
+        // react-native-web's ScrollView forwards only touch and wheel — which
+        // is the phone web app, so a missing wheel handler would let a settling
+        // scroll speak for the reader on the surface that actually ships.
+        // `onTouchMove` rather than `onTouchStart`: tapping a ref chip is not
+        // leaving the tail.
+        onScrollBeginDrag={markOperatorMoved}
+        onMomentumScrollBegin={markOperatorMoved}
+        onTouchMove={markOperatorMoved}
+        {...({ onWheel: markOperatorMoved } as object)}
         scrollEventThrottle={32}
         onScrollToIndexFailed={({ index, averageItemLength }) => {
           listRef.current?.scrollToOffset({
@@ -819,7 +974,9 @@ export function TranscriptList({
           })
         }}
         onContentSizeChange={() => {
-          if (pinned.current) listRef.current?.scrollToEnd({ animated: false })
+          if (!operatorMoved.current || pinned.current) {
+            listRef.current?.scrollToEnd({ animated: false })
+          }
         }}
         ListFooterComponent={
           <>
@@ -933,21 +1090,18 @@ export function TranscriptList({
         </View>
       )}
 
-      {!atTail ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel="Jump to newest message"
-          onPress={() => {
-            pinned.current = true
-            setAtTail(true)
-            listRef.current?.scrollToEnd({ animated: !reduceMotion })
-          }}
-          style={({ pressed }) => [styles.newest, pressed && styles.utilityPressed]}
-        >
-          <Icon as={ChevronDown} size={14} color={color.text} />
-          <Text style={styles.newestText}>Newest</Text>
-        </PressableScale>
-      ) : null}
+      <JumpToNewest
+        visible={!atTail}
+        unread={unread}
+        lift={bottomInset + space.md}
+        reduceMotion={reduceMotion}
+        onPress={() => {
+          pinned.current = true
+          setAtTail(true)
+          setUnread(0)
+          listRef.current?.scrollToEnd({ animated: !reduceMotion })
+        }}
+      />
 
       <ActionSheet
         visible={detailOpen}
@@ -1490,15 +1644,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  newest: {
+  /** Full-width so the pill centres itself; `bottom` is set per render from the
+   *  composer's measured height. `box-none` keeps the feed tappable around it. */
+  newestLayer: {
     position: 'absolute',
-    alignSelf: 'center',
-    bottom: space.sm,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  newest: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    height: 34,
-    paddingHorizontal: space.md,
+    gap: 5,
+    height: 38,
+    paddingLeft: space.sm + 2,
+    paddingRight: space.md,
     borderRadius: radius.full,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.borderStrong,

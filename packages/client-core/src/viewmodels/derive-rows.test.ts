@@ -2,6 +2,7 @@ import type { AgentRuntimeState, SessionMeta, SessionMetaInput } from '@podium/m
 import { describe, expect, it } from 'vitest'
 import {
   isUnstartedSession,
+  rowHasWorkingSession,
   rowMotionPhase,
   rowMotionTiming,
   rowPendingDecision,
@@ -194,9 +195,28 @@ describe('rowWaitingCount — the amber pill / rail badge number', () => {
 describe('rowStatusLine — the second line copy grammar', () => {
   it('waiting rows surface what is waited for; multi-agent rows carry the head-count', () => {
     expect(rowStatusLine(issueRow([waiting()]), NOW)).toBe('needs answer')
-    expect(rowStatusLine(issueRow([waiting(), working(), done()]), NOW)).toBe(
-      '3 agents · needs answer',
+    expect(rowStatusLine(issueRow([waiting(), done()]), NOW)).toBe('2 agents · needs answer')
+  })
+
+  // POD-703: the row is the mission's ONLY line in the worklist since it
+  // flattened to one row per mission, so a waiting row that stays silent about a
+  // running agent tells the operator the fleet has stopped. The ask still wins
+  // the phase (and the amber); the work is stated in the words beside it.
+  it('says a running agent out loud on a row that is also asking', () => {
+    const row = issueRow([waiting(), working(), done()])
+    expect(rowMotionPhase(row)).toBe('waiting')
+    expect(rowHasWorkingSession(row)).toBe(true)
+    // The head-count yields its place: line 2 has room for two of the three,
+    // and the fleet stack on line 1 already carries the number.
+    expect(rowStatusLine(row, NOW)).toBe('working · needs answer')
+    // A standing offer beside a live agent is the shape the bug was found in:
+    // the offer outlived its decision while a second session did the work.
+    expect(rowStatusLine(issueRow([offered(), working()]), NOW)).toBe(
+      'working · waiting on decision',
     )
+    // Nothing running ⇒ nothing said, and the head-count keeps its place (the
+    // case asserted just above).
+    expect(rowHasWorkingSession(issueRow([waiting(), done()]))).toBe(false)
   })
 
   it('names the pending decision after the producing turn is done', () => {

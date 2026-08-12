@@ -52,7 +52,7 @@
 import type { SessionMeta, TranscriptItem } from '@podium/model'
 import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE } from '../chat'
 import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
-import { type ChatActivity, chatActivity } from '../session-status'
+import { type ChatActivity, chatActivity, sessionWaking } from '../session-status'
 
 // ---------------------------------------------------------------------------
 // The composer draft: classified, and deliberately absent.
@@ -497,6 +497,10 @@ export function composerState(input: {
   const canResume =
     session?.status === 'hibernated' ||
     (session?.status === 'exited' && session?.resumable === true)
+  // A wake already in flight (POD-762). The composer stays open — a second
+  // message queues behind the first — but it must not keep offering to do the
+  // thing it is already doing.
+  const waking = sessionWaking(session)
   // Headless: PTY status is meaningless — the composer is open whenever no turn
   // is running (a turn is one queued unit; the server rejects overlap anyway).
   const enabled = headless ? !turnRunning : sendable || canResume
@@ -509,11 +513,13 @@ export function composerState(input: {
           // operator at the moment they start using it (POD-516 R3).
           'Ask across all tasks…'
         : 'Message the agent…'
-    : sendable
-      ? 'Message the agent…'
-      : canResume
-        ? 'Message — resumes the agent…'
-        : 'Session is not running.'
+    : waking
+      ? 'Waking the agent — message queues…'
+      : sendable
+        ? 'Message the agent…'
+        : canResume
+          ? 'Message — resumes the agent…'
+          : 'Session is not running.'
   return { enabled, sendable, canResume, placeholder }
 }
 

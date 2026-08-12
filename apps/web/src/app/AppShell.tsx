@@ -1,28 +1,26 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
-import { IssuePeekOverlay } from '@/components/IssuePeekOverlay'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { SettingsView } from '@/features/settings/SettingsView'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
-import { FlightDeck } from './FlightDeck'
 import { UsageView } from '@/features/usage/UsageView'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
+import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { useFeature } from '@/lib/use-feature'
-import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
+import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
 import { AsciiLoader } from './AsciiLoader'
@@ -31,12 +29,15 @@ import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPalette } from './CommandPalette'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
+import { FlightDeck } from './FlightDeck'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
+import { OperatorFocusProvider } from './operator-focus'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import {
+  CLOSE_RIGHT_PANEL,
   isOverlayView,
   nextBaseView,
   OPEN_RIGHT_PANEL_EVENT,
@@ -57,7 +58,6 @@ import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
 import { Workspace } from './Workspace'
-import { OperatorFocusProvider } from './operator-focus'
 
 function LoadingScreen(): JSX.Element {
   return (
@@ -117,10 +117,7 @@ export function AppShell(): JSX.Element {
   if (kernel.status === 'failed') {
     return (
       <TooltipProvider>
-        <AppErrorPage
-          title="Podium could not open its private replica"
-          message={kernel.failure}
-        />
+        <AppErrorPage title="Podium could not open its private replica" message={kernel.failure} />
       </TooltipProvider>
     )
   }
@@ -191,7 +188,6 @@ function AppBody(): JSX.Element {
     paletteOpen,
     setPaletteOpen,
     uiState,
-    trpc,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -202,7 +198,6 @@ function AppBody(): JSX.Element {
       paletteOpen: s.paletteOpen,
       setPaletteOpen: s.setPaletteOpen,
       uiState: s.uiState,
-      trpc: s.trpc,
     }),
     shallowEqual,
   )
@@ -268,13 +263,20 @@ function AppBody(): JSX.Element {
       mergeQueue: mergeQueueEnabled,
     })
   const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
+  // What the dock RENDERS, which outlives what the rail says is open: the panel
+  // has to still be there to slide back out under the rail. The column tells us
+  // when that exit is over, so the closed dock holds no live panel (POD-769).
+  const [dockPanel, setDockPanel] = useState<RightPanelTab | null>(visibleRightPanel)
+  useEffect(() => {
+    if (visibleRightPanel) setDockPanel(visibleRightPanel)
+  }, [visibleRightPanel])
 
   const setFlightDeckCollapsed = (collapsed: boolean): void => {
     uiState.set(SUPERAGENT_MODE_KEY, collapsed ? 'folded' : 'open')
   }
   const persistedFlightDeckWidth = (): number => {
     const stored = Number(uiState.get('podium:superagent:width'))
-    return Number.isFinite(stored) && stored >= 300 && stored <= 620 ? stored : 360
+    return Number.isFinite(stored) && stored >= 300 && stored <= 620 ? stored : 366
   }
   const animateFlightDeckWidth = (from: number, to: number, onFinish?: () => void): void => {
     const shell = flightDeckShellRef.current
@@ -370,6 +372,10 @@ function AppBody(): JSX.Element {
   useEffect(() => {
     const onOpenPanel = (event: Event): void => {
       const detail = (event as CustomEvent).detail
+      if (detail === CLOSE_RIGHT_PANEL) {
+        setRightPanel(null)
+        return
+      }
       const panel = readRightPanel(typeof detail === 'string' ? detail : null)
       if (!panel) return
       setRightPanel(panelAllowed(panel) ? panel : 'issue')
@@ -411,127 +417,122 @@ function AppBody(): JSX.Element {
   const effectiveHex = effectiveIssueColorHex(selectedIssue, (id) =>
     issues.find((issue) => issue.id === id),
   )
-  const issueAccent = effectiveHex ?? FLOW_SLATE
+  const issueAccent = effectiveHex ?? FLOW_CSS
   const issueStyle = { '--issue': issueAccent } as CSSProperties
-  // One colour-pick handler for every shell surface showing the ID square.
-  const changeIssueColor = selectedIssue
-    ? (color: IssueColorSlot | null) =>
-        trpc.issues.update.mutate({ id: selectedIssue.id, patch: { color } })
-    : undefined
 
   return (
     <OperatorFocusProvider missionId={selectedIssueId}>
-      <>
-      <div
-        className="desktop-shell issue-scope"
-        data-issue-colored={effectiveHex ? 'true' : 'false'}
-        style={issueStyle}
-      >
-        <TopBar />
-        <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
-          {/* The work list is persistent chrome: it stays mounted in every mode,
+      {/* The issue explorer's stack lives ABOVE the dock (POD-743): the panel
+          unmounts when the dock closes, and closing it must cost the operator
+          nothing — reopen and the same task, trail, tab and query are there.
+          It also keeps tracking the shell's target while closed. */}
+      <IssueExplorerProvider>
+        <div
+          className="desktop-shell issue-scope"
+          data-issue-colored={effectiveHex ? 'true' : 'false'}
+          style={issueStyle}
+        >
+          <TopBar />
+          <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
+            {/* The work list is persistent chrome: it stays mounted in every mode,
               so switching modes swaps the CONTENT REGION rather than the window
               (POD-365). The engraved column, dock and rail are workspace
               instruments and stay with the workspace. */}
-          {sidebarCollapsed ? (
-            <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-              <button
-                data-pressable
-                type="button"
-                className="collapsed-sidebar-expand"
-                aria-label="Expand sidebar"
-                title="Expand sidebar"
-                onClick={() => setSidebarCollapsed(false)}
-              >
-                <ChevronRight size={13} aria-hidden="true" />
-              </button>
-              <SidebarRail />
-            </aside>
-          ) : (
-            <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
-              <ResizableAside>
-                <SidebarUnified />
-              </ResizableAside>
-              <button
-                data-pressable
-                type="button"
-                className="sidebar-collapse-control"
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar"
-                onClick={() => setSidebarCollapsed(true)}
-              >
-                <ChevronLeft size={12} aria-hidden="true" />
-              </button>
-            </div>
-          )}
-          {workspaceActive && (
-            <div
-              ref={flightDeckShellRef}
-              className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"
-              data-flight-deck-shell={flightDeckCollapsed ? 'folded' : 'open'}
-              style={{ width: flightDeckWidth ?? (flightDeckCollapsed ? 44 : undefined) }}
-            >
-              {flightDeckCollapsed ? (
-                <FoldedFlightDeckBar onExpand={expandFlightDeck} />
-              ) : (
-                <ResizableColumn
-                  storageKey="podium:superagent:width"
-                  min={300}
-                  max={620}
-                  defaultWidth={360}
-                  handleLabel="Resize Flight Deck"
-                  className="max-w-[45vw]"
+            {sidebarCollapsed ? (
+              <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
+                <button
+                  data-pressable
+                  type="button"
+                  className="collapsed-sidebar-expand"
+                  aria-label="Expand sidebar"
+                  title="Expand sidebar"
+                  onClick={() => setSidebarCollapsed(false)}
                 >
-                  <FlightDeck onCollapse={collapseFlightDeck} />
-                </ResizableColumn>
-              )}
-            </div>
-          )}
-          <MainViewOutlet workspace={<Workspace />} view={baseView} />
-          {workspaceActive && visibleRightPanel && (
-            <ResizableColumn
-              storageKey="podium:rightdock:width"
-              min={280}
-              max={860}
-              defaultWidth={340}
-              handleLabel="Resize right dock"
-              handleSide="left"
-              className="max-w-[45vw]"
-            >
-              {/* No issue tint: the dock is a dark default surface (POD-516
-                  item 9) — see `.right-dock-shell` in styles.css. */}
-              <aside className="right-dock-shell">
-                <RightDock tab={visibleRightPanel} onClose={() => setRightPanel(null)} />
+                  <ChevronRight size={13} aria-hidden="true" />
+                </button>
+                <SidebarRail />
               </aside>
-            </ResizableColumn>
-          )}
-          {workspaceActive && (
-            <RightRail
-              issue={selectedIssue}
-              rightPanel={visibleRightPanel}
-              onPanelChange={setRightPanel}
-              onColorChange={changeIssueColor}
-            />
-          )}
+            ) : (
+              <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
+                <ResizableAside>
+                  <SidebarUnified />
+                </ResizableAside>
+                <button
+                  data-pressable
+                  type="button"
+                  className="sidebar-collapse-control"
+                  aria-label="Collapse sidebar"
+                  title="Collapse sidebar"
+                  onClick={() => setSidebarCollapsed(true)}
+                >
+                  <ChevronLeft size={12} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+            {workspaceActive && (
+              <div
+                ref={flightDeckShellRef}
+                className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"
+                data-flight-deck-shell={flightDeckCollapsed ? 'folded' : 'open'}
+                style={{ width: flightDeckWidth ?? (flightDeckCollapsed ? 44 : undefined) }}
+              >
+                {flightDeckCollapsed ? (
+                  <FoldedFlightDeckBar onExpand={expandFlightDeck} />
+                ) : (
+                  <ResizableColumn
+                    storageKey="podium:superagent:width"
+                    min={300}
+                    max={620}
+                    defaultWidth={366}
+                    handleLabel="Resize Flight Deck"
+                    className="max-w-[45vw]"
+                  >
+                    <FlightDeck onCollapse={collapseFlightDeck} />
+                  </ResizableColumn>
+                )}
+              </div>
+            )}
+            <MainViewOutlet workspace={<Workspace />} view={baseView} />
+            {workspaceActive && (
+              <ResizableColumn
+                storageKey="podium:rightdock:width"
+                min={280}
+                max={860}
+                defaultWidth={316}
+                handleLabel="Resize right dock"
+                handleSide="left"
+                collapsed={!visibleRightPanel}
+                onCollapsed={() => setDockPanel(null)}
+                className="max-w-[45vw]"
+              >
+                {/* No issue tint: the dock is a dark default surface (POD-516
+                  item 9) — see `.right-dock-shell` in styles.css. */}
+                {dockPanel && (
+                  <aside className="right-dock-shell">
+                    <RightDock tab={dockPanel} onClose={() => setRightPanel(null)} />
+                  </aside>
+                )}
+              </ResizableColumn>
+            )}
+            {workspaceActive && (
+              <RightRail rightPanel={visibleRightPanel} onPanelChange={setRightPanel} />
+            )}
+          </div>
+          <StatusStrip />
         </div>
-        <StatusStrip />
-      </div>
-      {/* The utility tier (POD-365): an inset sheet over a live shell. The mode
+        {/* The utility tier (POD-365): an inset sheet over a live shell. The mode
           underneath stays mounted, so closing is instant and the chrome never
           blinks out of existence. */}
-      {view === 'settings' && <SettingsView onClose={closeOverlay} />}
-      {view === 'usage' && <UsageView onClose={closeOverlay} />}
-      <AutoContinueDialog />
-      <ApprovalDialog />
-      {commandPaletteEnabled && <CommandPalette />}
-      {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
+        {view === 'settings' && <SettingsView onClose={closeOverlay} />}
+        {view === 'usage' && <UsageView onClose={closeOverlay} />}
+        <AutoContinueDialog />
+        <ApprovalDialog />
+        {commandPaletteEnabled && <CommandPalette />}
+        {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
           floating miniview. Both render nothing until there's something to show. */}
-      <RefPrefixSync />
-      <RefMiniviewHost />
-      {/* The issue peek drawer (POD-95): a chat ref's "open" — slides in OVER
-          the right edge (dock + rail included), above the normal UI. */}
-      <IssuePeekOverlay />
-      </>
+        <RefPrefixSync />
+        <RefMiniviewHost />
+      </IssueExplorerProvider>
     </OperatorFocusProvider>
   )
 }

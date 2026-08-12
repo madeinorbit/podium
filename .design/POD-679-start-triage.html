@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>POD-679 · Starting discovered work</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   POD-679 — the start of discovered work as a TRIAGE moment.
+
+   Tokens: Superade dark (canonical), restated locally so the file stands alone.
+   Spine geometry is verbatim from apps/web/src/app/FlightDeck.tsx:79-118 —
+   SPINE_PAD 8, DEPTH_STEP 14, RAIL_INSET 6, BAND_HEIGHT 30, PROPOSED_BAND 24.
+   ═════════════════════════════════════════════════════════════════════════ */
+:root {
+  --background: #0a0f1c;
+  --engraved: #070b16;
+  --bar: #050912;
+  --rail-s: #0e1626;
+  --chip: #16223c;
+  --card: #121b30;
+  --muted: #17223c;
+
+  --hairline-soft: #1e2a4c;
+  --hairline-bar: #283a66;
+  --border: #243356;
+  --border-strong: #364a78;
+
+  --foreground: #d7d7e0;
+  --text-strong: #f3f3f8;
+  --text-dim: #818ba5;
+  --text-faint: #737e9a;
+  --label: #8b94ac;
+
+  --primary: #f5c518;
+  --attention: #f5c518;
+  --attention-fg: #161006;
+  --info: #2f6bff;
+  --success: #2f6bff;
+  --working: #6f9dff;
+  --alert: #e5303f;
+
+  --carve: rgb(0 0 0 / 0.85);
+  --carve-drop: rgb(0 0 0 / 0.9);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px; line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: 96px;
+}
+.mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+header.top {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--bar);
+  border-bottom: 1px solid var(--hairline-soft);
+  box-shadow: 0 5px 10px -5px var(--carve-drop);
+}
+.topinner {
+  max-width: 1080px; margin: 0 auto; padding: 0 28px;
+  height: 44px; display: flex; align-items: center; gap: 12px;
+}
+.topinner .ref {
+  font-family: ui-monospace, Menlo, monospace; font-size: 8.5px; font-weight: 500;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--label);
+}
+.topinner h1 { font-size: 12.5px; font-weight: 600; margin: 0; color: var(--text-strong); }
+
+.lede { padding: 34px 0 8px; max-width: 68ch; }
+.lede h2 { font-size: 20px; font-weight: 600; margin: 0 0 10px; color: var(--text-strong); letter-spacing: -0.01em; }
+.lede p { margin: 0 0 10px; color: var(--foreground); }
+.lede em { color: var(--text-strong); font-style: normal; font-weight: 500; }
+
+section { padding-top: 30px; }
+.kicker {
+  font-family: ui-monospace, Menlo, monospace; font-size: 8.5px; font-weight: 500;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--label);
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+}
+.kicker::after { content: ""; flex: 1; height: 1px; background: var(--hairline-soft); }
+h3 { font-size: 14px; font-weight: 600; margin: 0 0 6px; color: var(--text-strong); }
+.note { color: var(--text-dim); max-width: 66ch; margin: 0 0 14px; font-size: 12.5px; }
+
+/* ── The carved panel every mock sits in ─────────────────────────────────── */
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 8px 18px -14px var(--carve);
+  overflow: hidden;
+}
+.panel + .panel { margin-top: 14px; }
+.panelbar {
+  height: 26px; display: flex; align-items: center; gap: 8px;
+  padding: 0 10px; background: var(--engraved);
+  border-bottom: 1px solid var(--hairline-soft);
+  font-family: ui-monospace, Menlo, monospace; font-size: 8.5px;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--label);
+}
+.panelbar .tag {
+  margin-left: auto; letter-spacing: .04em; text-transform: none;
+  font-size: 9.5px; color: var(--text-faint);
+}
+.two { display: grid; grid-template-columns: 1fr 268px; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+
+/* ── Flight deck spine ───────────────────────────────────────────────────── */
+.deck { padding: 8px 10px 12px 8px; }
+.mission {
+  display: flex; align-items: baseline; gap: 8px; padding: 4px 0 8px 14px;
+}
+.mission .name { font-size: 12.5px; font-weight: 600; color: var(--text-strong); }
+.mission .ref { font-size: 10px; color: var(--text-faint); }
+
+/* progress well */
+.well {
+  position: relative; height: 18px; margin: 0 0 10px 14px; border-radius: 4px;
+  background: var(--engraved); border: 1px solid var(--hairline-soft);
+  display: flex; align-items: center; overflow: hidden;
+}
+.well .fills { position: absolute; inset: 0; display: flex; }
+.well .fills i { display: block; height: 100%; }
+.well .floor { position: absolute; inset: auto 0 0 0; display: flex; height: 2px; }
+.well .floor i { display: block; height: 100%; }
+.well .words {
+  position: relative; padding-left: 9px; font-family: ui-monospace, Menlo, monospace;
+  font-size: 9.5px; color: var(--foreground); font-variant-numeric: tabular-nums;
+}
+.well .live {
+  position: relative; margin-left: auto; padding-right: 9px;
+  font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; color: var(--text-dim);
+}
+
+/* one task strip */
+.row { position: relative; display: flex; align-items: stretch; }
+.rails { position: relative; flex: none; }
+.rails i {
+  position: absolute; top: 0; bottom: 0; width: 1px; background: var(--hairline-bar);
+}
+.rails i.half { bottom: auto; height: 15px; }
+.rails b {
+  position: absolute; height: 1px; background: var(--hairline-bar);
+}
+.band {
+  flex: 1; min-height: 30px; display: flex; align-items: center; gap: 8px;
+  padding: 0 9px; border-radius: 5px;
+  background: var(--rail-s); border: 1px solid transparent;
+}
+.band.proposed { min-height: 24px; background: transparent; border-color: var(--hairline-soft); border-style: dashed; }
+.band.focus { background: var(--muted); border-color: var(--border-strong); }
+.band .glyph { flex: none; width: 11px; text-align: center; color: var(--text-faint); font-size: 10px; }
+.band .title { font-size: 12px; color: var(--foreground); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.band .ref { font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; color: var(--text-faint); flex: none; }
+.band .right { margin-left: auto; display: flex; align-items: center; gap: 7px; flex: none; }
+.band .state { font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; color: var(--text-dim); }
+.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--attention); flex: none; }
+.spin { color: var(--working); font-family: ui-monospace, Menlo, monospace; font-size: 10px; }
+
+/* the ⤷ provenance / shape chips that ride on a strip */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; color: var(--text-faint);
+}
+.chip.shape-in { color: var(--text-dim); }
+.chip.shape-own { color: var(--text-dim); }
+
+/* an agent row hanging under a strip */
+.agent {
+  display: flex; align-items: center; gap: 7px; min-height: 24px;
+  padding-left: 22px; font-size: 11.5px; color: var(--text-dim);
+}
+.agent .kind {
+  font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; color: var(--text-faint);
+}
+
+/* the departure tick — provenance without membership */
+.departed {
+  display: flex; align-items: center; gap: 7px; min-height: 22px;
+  font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; color: var(--text-faint);
+}
+.departed a { color: var(--text-dim); text-decoration: none; border-bottom: 1px dotted var(--border-strong); }
+
+/* ── Sidebar column ──────────────────────────────────────────────────────── */
+.side { padding: 8px; background: var(--engraved); }
+.side .grp {
+  font-family: ui-monospace, Menlo, monospace; font-size: 8.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--label); padding: 6px 6px 4px;
+}
+.srow {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px;
+  border: 1px solid transparent;
+}
+.srow + .srow { margin-top: 2px; }
+.srow.on { background: var(--card); border-color: var(--border); }
+.srow.fresh { background: var(--card); border-color: var(--border-strong); box-shadow: inset 2px 0 0 var(--primary); }
+.srow .title { font-size: 12px; color: var(--foreground); }
+.srow .sub { font-family: ui-monospace, Menlo, monospace; font-size: 9px; color: var(--text-faint); }
+.srow .right { margin-left: auto; }
+
+/* ── The fork control ────────────────────────────────────────────────────── */
+.controls { display: flex; align-items: center; gap: 6px; padding: 10px 12px 12px 22px; }
+.btn {
+  height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border-strong);
+  background: var(--chip); color: var(--foreground); font-size: 11.5px; display: inline-flex;
+  align-items: center; gap: 6px;
+}
+.btn.primary { background: var(--primary); color: #0a0f1c; border-color: var(--primary); font-weight: 600; }
+.btn.split { padding: 0 7px; }
+.menu {
+  margin: 6px 0 0 22px; width: 396px; border-radius: 7px; border: 1px solid var(--border-strong);
+  background: var(--card); box-shadow: 0 18px 34px -18px #000; overflow: hidden;
+}
+.menu .head {
+  padding: 8px 11px 6px; border-bottom: 1px solid var(--hairline-soft);
+  font-family: ui-monospace, Menlo, monospace; font-size: 8.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--label);
+}
+.opt { display: flex; gap: 9px; padding: 9px 11px; align-items: flex-start; }
+.opt + .opt { border-top: 1px solid var(--hairline-soft); }
+.opt.sel { background: var(--muted); box-shadow: inset 2px 0 0 var(--primary); }
+.opt .mark { flex: none; width: 12px; color: var(--text-faint); font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.opt.sel .mark { color: var(--primary); }
+.opt .body { min-width: 0; }
+.opt .lab { font-size: 12px; color: var(--text-strong); font-weight: 500; }
+.opt .why { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+.opt .why b { color: var(--foreground); font-weight: 500; }
+.opt .rec {
+  margin-left: 6px; font-family: ui-monospace, Menlo, monospace; font-size: 8.5px;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint);
+}
+
+/* ── Captions / annotations ──────────────────────────────────────────────── */
+.caption {
+  display: flex; gap: 9px; margin-top: 10px; padding: 9px 11px;
+  border-left: 2px solid var(--hairline-bar); color: var(--text-dim); font-size: 12px;
+  max-width: 70ch;
+}
+.caption.bad { border-left-color: var(--alert); }
+.caption.good { border-left-color: var(--primary); }
+.caption b { color: var(--text-strong); font-weight: 600; }
+
+ul.pts { margin: 6px 0 0; padding-left: 18px; color: var(--text-dim); font-size: 12.5px; max-width: 72ch; }
+ul.pts li { margin-bottom: 6px; }
+ul.pts code, p code, .caption code {
+  font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+  background: var(--engraved); border: 1px solid var(--hairline-soft);
+  border-radius: 3px; padding: 0 4px; color: var(--foreground);
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="topinner">
+    <span class="ref">POD-679</span>
+    <h1>Starting discovered work</h1>
+    <span class="ref" style="margin-left:auto">concept · flight deck + sidebar</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="lede">
+    <h2>The start click is the triage moment</h2>
+    <p>
+      An agent that discovers work already decides whether it is <em>part of this mission</em>
+      (a sub-issue the origin cannot ship without) or <em>its own thing</em> (a spin-off with a
+      <code>discovered-from</code> edge). That decision is made silently, in a CLI litmus test the
+      operator never sees — and then the operator's <em>Start</em> click inherits it blind.
+    </p>
+    <p>
+      Worse, both outcomes look identical on screen: a started spin-off is still pulled into the
+      origin's spine, because mission membership follows <code>startedBySession</code> and never
+      checks for a spin-off edge. So the origin never looks finished, and the new work never feels
+      like its own.
+    </p>
+    <p>
+      The fix is one question, asked once, at the only moment the operator has the context to answer
+      it: <em>does this belong to the mission, or does it leave?</em>
+    </p>
+  </div>
+
+  <!-- ══ 1 · TODAY ══════════════════════════════════════════════════════ -->
+  <section>
+    <div class="kicker">1 · Today</div>
+    <h3>Same picture, two different meanings</h3>
+    <p class="note">
+      POD-644 was filed by the agent working POD-516 and has nothing to do with it. It sits in the
+      spine looking exactly like decomposition, and it keeps the mission's progress off 100%.
+    </p>
+
+    <div class="two">
+      <div class="panel">
+        <div class="panelbar">Flight deck <span class="tag">mission · POD-516</span></div>
+        <div class="deck">
+          <div class="mission"><span class="name">Flight deck spine</span><span class="ref mono">POD-516</span></div>
+          <div class="well">
+            <span class="fills"><i style="width:52%;background:rgb(47 107 255 / .22)"></i><i style="width:24%;background:rgb(111 157 255 / .22)"></i></span>
+            <span class="floor"><i style="width:52%;background:var(--success)"></i><i style="width:24%;background:var(--working)"></i></span>
+            <span class="words mono">7 of 11 done · 2 running</span>
+            <span class="live mono">⠻ 3 live</span>
+          </div>
+
+          <div class="row">
+            <span class="rails" style="width:22px"><i style="left:14px"></i><b style="left:14px;right:0;top:15px"></b></span>
+            <span class="band"><span class="glyph">✓</span><span class="title">Rail geometry</span><span class="ref mono">POD-640</span>
+              <span class="right"><span class="state mono">done</span></span></span>
+          </div>
+          <div class="row">
+            <span class="rails" style="width:22px"><i style="left:14px"></i><b style="left:14px;right:0;top:15px"></b></span>
+            <span class="band"><span class="glyph">◐</span><span class="title">Attention bubbling</span><span class="ref mono">POD-641</span>
+              <span class="right"><span class="spin">⠻</span><span class="state mono">working</span></span></span>
+          </div>
+          <div class="row">
+            <span class="rails" style="width:22px"><i class="half" style="left:14px"></i><b style="left:14px;right:0;top:15px"></b></span>
+            <span class="band focus"><span class="glyph">◐</span><span class="title">Session hover cards leak on unmount</span><span class="ref mono">POD-644</span>
+              <span class="chip">⤷ from POD-516</span>
+              <span class="right"><span class="spin">⠻</span><span class="state mono">working</span></span></span>
+          </div>
+          <div class="agent"><span class="kind mono">claude</span> fixing the listener teardown…</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panelbar">Sidebar</div>
+        <div class="side">
+          <div class="srow on"><span class="title">Flight deck spine</span><span class="right sub mono">⠻ 3</span></div>
+          <div class="srow"><span class="title">Usage analytics</span><span class="right sub mono">1</span></div>
+          <div class="srow"><span class="title">Merge queue</span><span class="right sub mono">–</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="caption bad">
+      <span>
+        <b>Two failures in one row.</b> The operator cannot tell that POD-644 is unrelated —
+        nothing on the strip says so — and POD-516 now cannot honestly close, because a task it does
+        not own is counted inside it. The one thing that would fix both, the sidebar, never receives
+        the work: <code>rows.ts</code> drops every <code>proposed</code> issue and mission membership
+        keeps the started one inside the spine.
+      </span>
+    </div>
+  </section>
+
+  <!-- ══ 2 · THE FORK ═══════════════════════════════════════════════════ -->
+  <section>
+    <div class="kicker">2 · The move</div>
+    <h3>The proposal says its shape; the start control asks you to confirm it</h3>
+    <p class="note">
+      Two changes to a moment that today is a single unlabelled button. First, the proposal strip
+      carries one extra word — the agent's own call, in the operator's language. Second, <em>Start</em>
+      becomes a two-way control whose options are phrased as consequences for the mission, not as
+      tracker vocabulary.
+    </p>
+
+    <div class="panel">
+      <div class="panelbar">Flight deck <span class="tag">proposal, not yet started</span></div>
+      <div class="deck">
+        <div class="mission"><span class="name">Flight deck spine</span><span class="ref mono">POD-516</span></div>
+
+        <div class="row">
+          <span class="rails" style="width:22px"><i style="left:14px"></i><b style="left:14px;right:0;top:15px"></b></span>
+          <span class="band"><span class="glyph">◐</span><span class="title">Attention bubbling</span><span class="ref mono">POD-641</span>
+            <span class="right"><span class="spin">⠻</span><span class="state mono">working</span></span></span>
+        </div>
+        <div class="row">
+          <span class="rails" style="width:22px"><i class="half" style="height:12px;left:14px"></i><b style="left:14px;right:0;top:12px"></b></span>
+          <span class="band proposed focus"><span class="glyph">◇</span><span class="title">Session hover cards leak on unmount</span><span class="ref mono">POD-644</span>
+            <span class="chip shape-own">↗ on its own</span>
+            <span class="right"><span class="state mono">proposed</span></span></span>
+        </div>
+
+        <div class="controls">
+          <button class="btn primary">Start</button>
+          <button class="btn primary split">▾</button>
+          <button class="btn">Not now</button>
+          <button class="btn">Dismiss</button>
+        </div>
+
+        <div class="menu">
+          <div class="head">Where does this work live?</div>
+          <div class="opt sel">
+            <span class="mark">↗</span>
+            <span class="body">
+              <span class="lab">Start on its own<span class="rec mono">agent's call</span></span>
+              <span class="why">Gets its own row in the sidebar. <b>POD-516 can close without it</b> — it keeps only a link back.</span>
+            </span>
+          </div>
+          <div class="opt">
+            <span class="mark">↳</span>
+            <span class="body">
+              <span class="lab">Start inside this mission</span>
+              <span class="why">Stays on this spine as a sub-task. <b>POD-516 is not done until it is.</b></span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="caption good">
+      <span>
+        <b>One click, still.</b> The plain <em>Start</em> button takes the agent's call — the marked
+        option — so the fast path costs nothing. The split arrow is there for the case the operator
+        already knows is different, and it reads as an outcome (<em>POD-516 can close without it</em>)
+        rather than as <code>parentId</code> versus <code>discovered-from</code>.
+      </span>
+    </div>
+  </section>
+
+  <!-- ══ 3 · AFTER ══════════════════════════════════════════════════════ -->
+  <section>
+    <div class="kicker">3 · After</div>
+    <h3>It leaves the spine, lands in the sidebar, and releases the mission</h3>
+    <p class="note">
+      Departure is visible, not silent: the origin keeps a one-line tick where the work used to hang,
+      so the provenance survives a scroll and a week. But the tick is not a task — no state mark, no
+      seat, no weight in the progress well.
+    </p>
+
+    <div class="two">
+      <div class="panel">
+        <div class="panelbar">Flight deck <span class="tag">mission · POD-516</span></div>
+        <div class="deck">
+          <div class="mission"><span class="name">Flight deck spine</span><span class="ref mono">POD-516</span></div>
+          <div class="well">
+            <span class="fills"><i style="width:100%;background:rgb(47 107 255 / .22)"></i></span>
+            <span class="floor"><i style="width:100%;background:var(--success)"></i></span>
+            <span class="words mono">10 of 10 done</span>
+            <span class="live mono">· no one live</span>
+          </div>
+
+          <div class="row">
+            <span class="rails" style="width:22px"><i style="left:14px"></i><b style="left:14px;right:0;top:15px"></b></span>
+            <span class="band"><span class="glyph">✓</span><span class="title">Rail geometry</span><span class="ref mono">POD-640</span>
+              <span class="right"><span class="state mono">done</span></span></span>
+          </div>
+          <div class="row">
+            <span class="rails" style="width:22px"><i class="half" style="left:14px"></i><b style="left:14px;right:0;top:15px"></b></span>
+            <span class="band"><span class="glyph">✓</span><span class="title">Attention bubbling</span><span class="ref mono">POD-641</span>
+              <span class="right"><span class="state mono">done</span></span></span>
+          </div>
+          <div class="departed" style="padding-left:22px">
+            ↗ <a href="#">POD-644</a> left this mission · running on its own
+          </div>
+
+          <div class="controls" style="padding-left:22px">
+            <button class="btn primary">Mark done</button>
+            <span class="mono" style="font-size:10px;color:var(--text-faint)">nothing left here · 1 spin-off runs on its own</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panelbar">Sidebar</div>
+        <div class="side">
+          <div class="srow fresh">
+            <span>
+              <span class="title">Session hover cards leak on unmount</span><br />
+              <span class="sub mono">⤷ POD-516 · ⠻ claude</span>
+            </span>
+            <span class="right sub mono">⠻ 1</span>
+          </div>
+          <div class="srow on"><span class="title">Flight deck spine</span><span class="right sub mono">ready</span></div>
+          <div class="srow"><span class="title">Usage analytics</span><span class="right sub mono">1</span></div>
+          <div class="srow"><span class="title">Merge queue</span><span class="right sub mono">–</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="caption good">
+      <span>
+        <b>The mission can now be closed and the work is not lost.</b> The sidebar row carries the
+        existing <code>⤷ origin</code> tick, so "where did this come from?" is answerable after
+        POD-516 is closed and gone from the column.
+      </span>
+    </div>
+  </section>
+
+  <!-- ══ 4 · WHAT IT TOUCHES ════════════════════════════════════════════ -->
+  <section>
+    <div class="kicker">4 · What it touches</div>
+    <h3>Four changes, in rough order of value</h3>
+    <ul class="pts">
+      <li>
+        <b>A spin-off is never a mission member.</b> <code>missionIssueIds</code>
+        (<code>packages/client-core/src/viewmodels/mission.ts:129</code>) adds any issue whose
+        <code>startedBySession</code> is a mission session, with no check for a
+        <code>discovered-from</code> edge — and <code>issues.create</code> stamps that field on every
+        agent create. So today a spin-off is always pulled back in; the existing test passes only
+        because its fixture leaves <code>startedBySession</code> unset. Making the edge win is the
+        single highest-value line here: without it, nothing else can release the origin.
+      </li>
+      <li>
+        <b>The shape word on the proposal strip.</b> One chip on an existing channel
+        (<code>IssueNoteChip</code>) — <code>↳ part of this mission</code> or
+        <code>↗ on its own</code>. No new colour; the strip already runs a
+        <code>⤷ discovered from</code> chip in that slot.
+      </li>
+      <li>
+        <b>The split Start.</b> Menu with the two outcomes; the non-default one runs the conversion
+        server-side in one mutation (drop/park <code>parentId</code> ⇄ add <code>discovered-from</code>),
+        then starts. The same two items stay on the started issue's menu as
+        <em>Move out of this mission</em> / <em>Move into this mission</em>, so a wrong call is one
+        click to undo rather than tracker surgery.
+      </li>
+      <li>
+        <b>The departure tick and the release.</b> A non-task row under the origin, excluded from
+        <code>missionProgress</code>, plus the honest close sentence when everything remaining has
+        left. Proposals never enter the sidebar — the operator ruled that out for column 1
+        (<code>SidebarUnified.flat-rows.test.tsx</code>) — they enter it only once <em>started as
+        their own thing</em>, which is exactly the distinction this concept adds.
+      </li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

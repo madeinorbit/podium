@@ -159,154 +159,160 @@ export function LoadPanel({
         <span className="hp-title">{mem?.hostname ?? '…'}</span>
         {figures && <span className="hp-figures">{figures}</span>}
       </div>
-      <div className="hp-section">
-        {data ? (
-          <>
-            <div className="hp-seg" role="presentation">
-              <i className="hp-seg-agents" style={{ width: seg(agentBytes) }} />
-              <i className="hp-seg-projects" style={{ width: seg(projectBytes) }} />
-              <i className="hp-seg-other" style={{ width: seg(data.otherBytes) }} />
+      {/* Everything between the hostname and the footer scrolls: the pinned tier
+          lists one row per session, so on a busy machine it is taller than the
+          window (POD-751). The header stays so you never lose which host you are
+          reading; the footer stays so the way out stays on screen. */}
+      <div className="hp-scroll">
+        <div className="hp-section">
+          {data ? (
+            <>
+              <div className="hp-seg" role="presentation">
+                <i className="hp-seg-agents" style={{ width: seg(agentBytes) }} />
+                <i className="hp-seg-projects" style={{ width: seg(projectBytes) }} />
+                <i className="hp-seg-other" style={{ width: seg(data.otherBytes) }} />
+              </div>
+              <div className="hp-legend">
+                <span>
+                  <i className="hp-seg-agents" /> Agents {formatMemBytes(agentBytes)}
+                </span>
+                <span>
+                  <i className="hp-seg-projects" /> Projects {formatMemBytes(projectBytes)}
+                </span>
+                <span>
+                  <i className="hp-seg-other" /> Other {formatMemBytes(data.otherBytes)}
+                </span>
+              </div>
+            </>
+          ) : error ? (
+            <div className="hp-dim-line">Could not load the breakdown: {error}</div>
+          ) : (
+            <div className="hp-dim-line flex items-center gap-2 py-1.5">
+              <Loader2 size={12} className="flex-none animate-spin" aria-hidden="true" />
+              <span>Measuring memory per process…</span>
             </div>
-            <div className="hp-legend">
-              <span>
-                <i className="hp-seg-agents" /> Agents {formatMemBytes(agentBytes)}
-              </span>
-              <span>
-                <i className="hp-seg-projects" /> Projects {formatMemBytes(projectBytes)}
-              </span>
-              <span>
-                <i className="hp-seg-other" /> Other {formatMemBytes(data.otherBytes)}
-              </span>
+          )}
+          {updateNote}
+          {!pinned && hibernation && (
+            <div className="hp-dim-line">
+              {hibernation.enabled
+                ? hibActive
+                  ? loadActive && !memActive
+                    ? `Load ${load?.label ?? ''} per core — auto-hibernation parks idle agents past ${hibernation.loadPerCore}×`
+                    : 'Hibernating stale agents to free resources'
+                  : hibernation.loadPerCore != null
+                    ? `Auto-hibernation standing by at ${hibernation.loadPerCore}× load or ${hibernation.memoryPct}% memory`
+                    : `Auto-hibernation standing by — parks idle agents past ${hibernation.memoryPct}%`
+                : 'Auto-hibernation off'}
             </div>
-          </>
-        ) : error ? (
-          <div className="hp-dim-line">Could not load the breakdown: {error}</div>
-        ) : (
-          <div className="hp-dim-line flex items-center gap-2 py-1.5">
-            <Loader2 size={12} className="flex-none animate-spin" aria-hidden="true" />
-            <span>Measuring memory per process…</span>
+          )}
+        </div>
+        {pinned && data && (
+          <div className="hp-section">
+            {data.supported ? (
+              <>
+                <div className="hp-sect-label">Agents &amp; shells</div>
+                {data.agents.length > 0 ? (
+                  data.agents.map((agent) => (
+                    <ProcessRow
+                      key={agent.sessionId}
+                      name={sessionLabel(agent.sessionId)}
+                      detail={`${agent.processCount} process${agent.processCount === 1 ? '' : 'es'}`}
+                      bytes={agent.bytes}
+                    />
+                  ))
+                ) : (
+                  <div className="hp-dim-line">No sessions running.</div>
+                )}
+                <div className="hp-sect-label">Project processes</div>
+                {data.projects.length > 0 ? (
+                  data.projects.map((project) => (
+                    <ProcessRow
+                      key={project.root}
+                      name={project.root.split('/').pop() ?? project.root}
+                      title={project.root}
+                      detail={project.topProcesses.map((p) => p.name).join(', ')}
+                      bytes={project.bytes}
+                    />
+                  ))
+                ) : (
+                  <div className="hp-dim-line">Nothing else running in your worktrees.</div>
+                )}
+                <ProcessRow name="Everything else on this machine" bytes={data.otherBytes} muted />
+              </>
+            ) : (
+              <div className="hp-dim-line">
+                This host can&apos;t attribute memory per process (no /proc) — totals only.
+              </div>
+            )}
           </div>
         )}
-        {updateNote}
-        {!pinned && hibernation && (
-          <div className="hp-dim-line">
-            {hibernation.enabled
-              ? hibActive
-                ? loadActive && !memActive
-                  ? `Load ${load?.label ?? ''} per core — auto-hibernation parks idle agents past ${hibernation.loadPerCore}×`
-                  : 'Hibernating stale agents to free resources'
-                : hibernation.loadPerCore != null
-                  ? `Auto-hibernation standing by at ${hibernation.loadPerCore}× load or ${hibernation.memoryPct}% memory`
-                  : `Auto-hibernation standing by — parks idle agents past ${hibernation.memoryPct}%`
-              : 'Auto-hibernation off'}
+        {pinned && (
+          <div className="hp-section">
+            <div className="hp-sect-label">Reclaimable</div>
+            <div className="hp-kv">
+              <span className="hp-kv-key">Worktrees</span>
+              <span className="hp-kv-value">
+                {reclaimable.here.length} checkout{reclaimable.here.length === 1 ? '' : 's'}
+                {reclaimable.unplaceable > 0 ? ` · ${reclaimable.unplaceable} unplaced` : ''}
+              </span>
+              {onOpenReclaim && reclaimable.here.length > 0 && (
+                <button data-pressable type="button" className="hp-link" onClick={onOpenReclaim}>
+                  Review
+                </button>
+              )}
+            </div>
+            <div className="hp-kv">
+              <span className="hp-kv-key">Idle sessions</span>
+              <span className="hp-kv-value">
+                {idleSplit.parkable} parkable · {idleSplit.protected} protected
+                {metric?.idleCapUnmet != null && metric.idleCapUnmet > 0
+                  ? ` · ${metric.idleCapUnmet} cap unmet`
+                  : ''}
+              </span>
+            </div>
+            {/* Not a readout — a standing caveat about what Review will and will
+              not do. It reports no count, so it must not sit in the key column
+              pretending to be one. */}
+            <div className="hp-dim-line">
+              Nothing is freed from here. Review proposes; you tick what goes.
+            </div>
+          </div>
+        )}
+        {pinned && (hibernation || worktreeGc) && (
+          <div className="hp-hibernation">
+            {hibernation && (
+              <>
+                {hibernation.enabled
+                  ? hibActive
+                    ? memActive
+                      ? `Memory is past ${hibernation.memoryPct}%, so agents idle ${hibernation.idleMinutes} min are hibernating. One click resumes them. `
+                      : `Load is past ${hibernation.loadPerCore}× per core, so agents idle ${hibernation.idleMinutes} min are hibernating. One click resumes them. `
+                    : hibernation.loadPerCore != null
+                      ? `Auto-hibernation on: agents idle ${hibernation.idleMinutes} min park past ${hibernation.loadPerCore}× load or ${hibernation.memoryPct}% memory. `
+                      : `Auto-hibernation on: past ${hibernation.memoryPct}% memory, agents idle ${hibernation.idleMinutes} min park themselves. `
+                  : 'Auto-hibernation is off — idle agents keep their memory until you hibernate them by hand. '}
+                <button data-pressable type="button" className="hp-link" onClick={openHibernation}>
+                  Hibernation settings
+                </button>
+              </>
+            )}
+            {worktreeGc && (
+              <>
+                {hibernation ? <br /> : null}
+                {worktreeGc.mode === 'off'
+                  ? 'Worktree GC is off. '
+                  : worktreeGc.mode === 'auto'
+                    ? `Worktree GC: auto-freeing after ${worktreeGc.afterDays} days. `
+                    : `Worktree GC: proposing after ${worktreeGc.afterDays} days. `}
+                <button data-pressable type="button" className="hp-link" onClick={openHibernation}>
+                  GC settings
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
-      {pinned && data && (
-        <div className="hp-section">
-          {data.supported ? (
-            <>
-              <div className="hp-sect-label">Agents &amp; shells</div>
-              {data.agents.length > 0 ? (
-                data.agents.map((agent) => (
-                  <ProcessRow
-                    key={agent.sessionId}
-                    name={sessionLabel(agent.sessionId)}
-                    detail={`${agent.processCount} process${agent.processCount === 1 ? '' : 'es'}`}
-                    bytes={agent.bytes}
-                  />
-                ))
-              ) : (
-                <div className="hp-dim-line">No sessions running.</div>
-              )}
-              <div className="hp-sect-label">Project processes</div>
-              {data.projects.length > 0 ? (
-                data.projects.map((project) => (
-                  <ProcessRow
-                    key={project.root}
-                    name={project.root.split('/').pop() ?? project.root}
-                    title={project.root}
-                    detail={project.topProcesses.map((p) => p.name).join(', ')}
-                    bytes={project.bytes}
-                  />
-                ))
-              ) : (
-                <div className="hp-dim-line">Nothing else running in your worktrees.</div>
-              )}
-              <ProcessRow name="Everything else on this machine" bytes={data.otherBytes} muted />
-            </>
-          ) : (
-            <div className="hp-dim-line">
-              This host can&apos;t attribute memory per process (no /proc) — totals only.
-            </div>
-          )}
-        </div>
-      )}
-      {pinned && (
-        <div className="hp-section">
-          <div className="hp-sect-label">Reclaimable</div>
-          <div className="hp-kv">
-            <span className="hp-kv-key">Worktrees</span>
-            <span className="hp-kv-value">
-              {reclaimable.here.length} checkout{reclaimable.here.length === 1 ? '' : 's'}
-              {reclaimable.unplaceable > 0 ? ` · ${reclaimable.unplaceable} unplaced` : ''}
-            </span>
-            {onOpenReclaim && reclaimable.here.length > 0 && (
-              <button data-pressable type="button" className="hp-link" onClick={onOpenReclaim}>
-                Review
-              </button>
-            )}
-          </div>
-          <div className="hp-kv">
-            <span className="hp-kv-key">Idle sessions</span>
-            <span className="hp-kv-value">
-              {idleSplit.parkable} parkable · {idleSplit.protected} protected
-              {metric?.idleCapUnmet != null && metric.idleCapUnmet > 0
-                ? ` · ${metric.idleCapUnmet} cap unmet`
-                : ''}
-            </span>
-          </div>
-          {/* Not a readout — a standing caveat about what Review will and will
-              not do. It reports no count, so it must not sit in the key column
-              pretending to be one. */}
-          <div className="hp-dim-line">
-            Nothing is freed from here. Review proposes; you tick what goes.
-          </div>
-        </div>
-      )}
-      {pinned && (hibernation || worktreeGc) && (
-        <div className="hp-hibernation">
-          {hibernation && (
-            <>
-              {hibernation.enabled
-                ? hibActive
-                  ? memActive
-                    ? `Memory is past ${hibernation.memoryPct}%, so agents idle ${hibernation.idleMinutes} min are hibernating. One click resumes them. `
-                    : `Load is past ${hibernation.loadPerCore}× per core, so agents idle ${hibernation.idleMinutes} min are hibernating. One click resumes them. `
-                  : hibernation.loadPerCore != null
-                    ? `Auto-hibernation on: agents idle ${hibernation.idleMinutes} min park past ${hibernation.loadPerCore}× load or ${hibernation.memoryPct}% memory. `
-                    : `Auto-hibernation on: past ${hibernation.memoryPct}% memory, agents idle ${hibernation.idleMinutes} min park themselves. `
-                : 'Auto-hibernation is off — idle agents keep their memory until you hibernate them by hand. '}
-              <button data-pressable type="button" className="hp-link" onClick={openHibernation}>
-                Hibernation settings
-              </button>
-            </>
-          )}
-          {worktreeGc && (
-            <>
-              {hibernation ? <br /> : null}
-              {worktreeGc.mode === 'off'
-                ? 'Worktree GC is off. '
-                : worktreeGc.mode === 'auto'
-                  ? `Worktree GC: auto-freeing after ${worktreeGc.afterDays} days. `
-                  : `Worktree GC: proposing after ${worktreeGc.afterDays} days. `}
-              <button data-pressable type="button" className="hp-link" onClick={openHibernation}>
-                GC settings
-              </button>
-            </>
-          )}
-        </div>
-      )}
       {pinned ? (
         <HealthPopoverFooter
           left="sampled every 5s"

@@ -9,29 +9,16 @@ import {
 } from '@podium/client-core/viewmodels'
 import { ISSUE_STAGES, type IssueWire, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import * as Haptics from 'expo-haptics'
-import { Check, ChevronDown } from 'lucide-react-native'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Animated,
-  Dimensions,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native'
-import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useRouter } from 'expo-router'
+import { Check, ChevronDown, ChevronRight } from 'lucide-react-native'
+import { useMemo, useState } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../client/hooks'
-import { useReduceMotion } from '../hooks/useReduceMotion'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
+import { STAGE_LABEL } from '../theme/stage'
 import {
   color,
-  elevation,
   font,
   leading,
   mono,
@@ -39,237 +26,107 @@ import {
   radius,
   sans,
   space,
-  spring,
   tracking,
 } from '../theme/theme'
 import { ActionSheet } from './ActionSheet'
+import { BottomSheet } from './BottomSheet'
+import { Composer } from './Composer'
 import { Icon } from './Icon'
+import { IdSquare } from './IdSquare'
 import { PressableScale } from './PressableScale'
 import { kindTone } from './spine'
 
 /**
- * The task inspector as ONE sheet with TWO detents [POD-592].
+ * THE TASK INSPECTOR — one sheet, two detents [POD-592, POD-724].
  *
  * Medium is the peek: identity, the decision band, and the beginning of the
- * scroll. Large is the whole inspector plus the comment composer. There is no
- * second full-screen task page — everything the old `/issue/[id]` showed lives
- * in the large detent, which is what makes this one object rather than a glance
- * that hands off to a page.
+ * scroll. Large is the whole inspector plus the comment composer.
  *
- * THE SCROLL IS LOCKED AT MEDIUM. Dragging the content upward promotes the
- * sheet to large first, and only then does the scroll take over. That is the
- * standard iOS rule and the thing that makes a two-detent sheet feel like one
- * surface; without it the sheet and its scroll fight for the same gesture and
- * the sheet reads as a window with a list glued inside it.
+ * POD-724 made it the ONLY task-reveal surface on the phone. There were two:
+ * this one, and a `TaskPeekSheet` that opened from the session header, from
+ * POD-refs in chat and from the work list — a fixed-height card with
+ * `animationType="slide"`, no drag, no detents, and its own subset of the same
+ * facts. So "peek at a task" meant a sheet you could pull on when you arrived
+ * from the deck and a sheet that ignored your finger when you arrived from the
+ * transcript, and the two disagreed about what a task even shows. One object
+ * now, on the shared {@link BottomSheet}, reached from everywhere.
  *
- * On native this should become a real `formSheet` with system detents once
- * POD-501 lands the platform-split navigator; the geometry and the vocabulary
- * here are the fallback that the PWA keeps either way.
+ * THE SCROLL IS LOCKED AT MEDIUM (the sheet primitive enforces it): dragging
+ * content upward promotes the sheet first, and only then does the scroll take
+ * over. That is the standard iOS rule and the thing that makes a two-detent
+ * sheet feel like one surface rather than a window with a list glued inside it.
  */
-
-export type Detent = 'medium' | 'large' | 'closed'
-
-/** Where the large detent stops — far enough down to leave the status bar. */
-const TOP_GAP = 10
-/** Fraction of the screen the medium detent shows. */
-const MEDIUM_FRACTION = 0.52
-/** Past this velocity the flick decides, not the position. */
-const FLICK_VELOCITY = 500
-
 export function TaskSheet({
   issue,
   issues,
   sessions,
   onClose,
   onOpenSession,
+  onToggleTodo,
+  onOpenIssue,
 }: {
   issue: IssueWire | null
   issues: readonly IssueWire[]
   sessions: readonly SessionMeta[]
   onClose: () => void
   onOpenSession: (session: SessionMeta) => void
+  /**
+   * Check an agent's plan item off from inside the sheet. Supplied wherever the
+   * caller holds the live issue row, so the checkbox updates in the OPEN sheet
+   * instead of waiting to be reopened — the plan bridge is the one thing an
+   * operator reaches for mid-transcript.
+   */
+  onToggleTodo?: (index1: number, done: boolean) => void
+  /** Retarget the sheet at another task (a subtask row). Absent = navigate. */
+  onOpenIssue?: (issue: IssueWire) => void
 }) {
-  const insets = useSafeAreaInsets()
-  const reduceMotion = useReduceMotion()
-  const screenH = Dimensions.get('window').height
-  const top = insets.top + TOP_GAP
-  const span = screenH - top
-  const MEDIUM = Math.round(screenH * (1 - MEDIUM_FRACTION)) - top
-  const CLOSED = span
+  const store = useMobileStore()
+  const router = useRouter()
+  const hex = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : FLOW_SLATE
 
-  const y = useRef(new Animated.Value(CLOSED)).current
-  const yValue = useRef(CLOSED)
-  const detent = useRef<Detent>('medium')
-  const [atLarge, setAtLarge] = useState(false)
-  const [mounted, setMounted] = useState(false)
-  const dragStartY = useRef(CLOSED)
-
-  useEffect(() => {
-    const id = y.addListener(({ value }) => {
-      yValue.current = value
-    })
-    return () => y.removeListener(id)
-  }, [y])
-
-  const settle = useCallback(
-    (to: Detent) => {
-      const target = to === 'large' ? 0 : to === 'medium' ? MEDIUM : CLOSED
-      const changed = detent.current !== to
-      detent.current = to
-      setAtLarge(to === 'large')
-      if (changed && to !== 'closed') {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-      }
-      Animated.spring(y, {
-        toValue: target,
-        // JS driver on purpose: the drag below feeds this same node through
-        // Animated.Value.setValue, which a native-driven node rejects.
-        useNativeDriver: false,
-        ...(reduceMotion ? spring.smooth : spring.snappy),
-      }).start(({ finished }) => {
-        if (finished && to === 'closed') {
-          setMounted(false)
-          onClose()
-        }
-      })
-    },
-    [CLOSED, MEDIUM, onClose, reduceMotion, y],
-  )
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the task, deliberately — `settle` changes identity on every detent, and depending on it would re-seat the sheet at medium each time it moved
-  useEffect(() => {
-    if (!issue) {
-      if (mounted) settle('closed')
-      return
-    }
-    setMounted(true)
-    detent.current = 'closed'
-    y.setValue(CLOSED)
-    const raf = requestAnimationFrame(() => settle('medium'))
-    return () => cancelAnimationFrame(raf)
-  }, [issue?.id])
-
-  const pan = usePanGesture({
-    // Gesture Handler owns the pointer stream inside the Modal on web. The RN
-    // responder system never sees that stream, even though it works on iOS.
-    activeOffsetY: [-4, 4],
-    failOffsetX: [-4, 4],
-    runOnJS: true,
-    onActivate: () => {
-      y.stopAnimation()
-      dragStartY.current = yValue.current
-    },
-    onUpdate: ({ translationY }) => {
-      // Rubber-band above the large detent: the sheet can be pulled past its
-      // stop, but at a fraction of the finger, so the stop is felt.
-      const raw = dragStartY.current + translationY
-      y.setValue(raw < 0 ? raw * 0.38 : raw)
-    },
-    onDeactivate: ({ canceled, translationX, translationY, velocityY }) => {
-      if (canceled) return settle(detent.current)
-      // Preserve the head's tap-to-toggle fallback for pointers that travel a
-      // few pixels before release and therefore activate the pan.
-      if (Math.abs(translationY) < 6 && Math.abs(translationX) < 6) {
-        return settle(detent.current === 'large' ? 'medium' : 'large')
-      }
-      if (velocityY > FLICK_VELOCITY) {
-        return settle(detent.current === 'large' ? 'medium' : 'closed')
-      }
-      if (velocityY < -FLICK_VELOCITY) return settle('large')
-      const raw = dragStartY.current + translationY
-      const at = raw < 0 ? raw * 0.38 : raw
-      const d = [
-        ['large', Math.abs(at - 0)],
-        ['medium', Math.abs(at - MEDIUM)],
-        ['closed', Math.abs(at - CLOSED)],
-      ] as const
-      settle([...d].sort((a, b) => a[1] - b[1])[0][0])
-    },
-  })
-
-  if (!issue || !mounted) return null
-
-  const hex = issueColorHex(issue.color) ?? FLOW_SLATE
-  const backdrop = y.interpolate({
-    inputRange: [0, CLOSED],
-    outputRange: [0.45, 0],
-    extrapolate: 'clamp',
-  })
+  const post = (body: string) => {
+    if (!issue) return
+    void store.trpc.issues.addComment
+      .mutate({ id: issue.id, author: 'mobile', body })
+      .catch(() => {})
+  }
 
   return (
-    <Modal transparent visible animationType="none" onRequestClose={() => settle('closed')}>
-      <Animated.View style={[styles.backdrop, { opacity: backdrop }]} pointerEvents="none" />
-      <Pressable
-        accessibilityLabel="Close"
-        style={StyleSheet.absoluteFill}
-        onPress={() => settle('closed')}
-      />
-      <Animated.View
-        style={[
-          styles.sheet,
-          elevation.raised,
-          { top, height: span, transform: [{ translateY: y }], borderTopColor: alpha(hex, 0.45) },
-        ]}
-      >
-        {/* One gesture surface for the whole head. The grabber retains the
-            tap-to-toggle fallback without wrapping the head's own controls in
-            another Pressable; once travel becomes a pan, Gesture Handler takes
-            over from anywhere in the region. */}
-        <GestureDetector gesture={pan} touchAction="none" userSelect="none">
-          <View
-            accessibilityRole="adjustable"
-            accessibilityLabel={atLarge ? 'Collapse the task' : 'Expand the task'}
-            accessibilityActions={[
-              { name: 'increment', label: 'Expand task' },
-              { name: 'decrement', label: 'Collapse task' },
-            ]}
-            onAccessibilityAction={(event) => {
-              if (event.nativeEvent.actionName === 'increment') settle('large')
-              if (event.nativeEvent.actionName === 'decrement') settle('medium')
-            }}
-            style={styles.dragRegion}
-          >
-            <Pressable
-              accessible={false}
-              onPress={() => settle(detent.current === 'large' ? 'medium' : 'large')}
-              style={styles.grabberBox}
-            >
-              <View style={styles.grabber} />
-            </Pressable>
-            <SheetHead
-              issue={issue}
-              sessions={sessions}
-              issues={issues}
-              hex={hex}
-              onOpenSession={onOpenSession}
-            />
-          </View>
-        </GestureDetector>
-
-        <ScrollView
-          style={styles.scroll}
-          scrollEnabled={atLarge}
-          contentContainerStyle={{ paddingBottom: space.xl }}
-        >
-          <SheetBody
+    <BottomSheet
+      visible={issue !== null}
+      onClose={onClose}
+      mode="detented"
+      accent={hex}
+      testID="task-sheet"
+      head={
+        issue ? (
+          <SheetHead
             issue={issue}
             issues={issues}
             sessions={sessions}
+            hex={hex}
             onOpenSession={onOpenSession}
           />
-        </ScrollView>
-
-        {/* The composer belongs to the large detent — at medium it would be a
-            control for a surface you cannot yet read. */}
-        {atLarge ? (
-          <View style={[styles.composer, { paddingBottom: insets.bottom + space.sm }]}>
-            <View style={styles.well}>
-              <Text style={styles.wellHint}>Comment on this task…</Text>
-            </View>
-          </View>
-        ) : null}
-      </Animated.View>
-    </Modal>
+        ) : null
+      }
+      footer={issue ? <Composer placeholder="Comment on this task…" onSend={post} /> : null}
+      footerRule={false}
+    >
+      {issue ? (
+        <SheetBody
+          issue={issue}
+          issues={issues}
+          sessions={sessions}
+          onOpenSession={onOpenSession}
+          {...(onToggleTodo ? { onToggleTodo } : {})}
+          onOpenIssue={(target) => {
+            if (onOpenIssue) return onOpenIssue(target)
+            onClose()
+            router.push(`/issue/${encodeURIComponent(target.id)}`)
+          }}
+        />
+      ) : null}
+    </BottomSheet>
   )
 }
 
@@ -306,6 +163,11 @@ function SheetHead({
   return (
     <View style={styles.head}>
       <View style={styles.identRow}>
+        <IdSquare
+          issue={issue}
+          state={issue.needsHuman ? 'waiting' : mine.length > 0 ? 'working' : 'queued'}
+          size={22}
+        />
         <Text style={[styles.chip, styles.chipRef]}>{issueDisplayRef(issue)}</Text>
         <Text
           style={[
@@ -330,12 +192,11 @@ function SheetHead({
       <View style={styles.decide}>
         <PressableScale
           style={styles.stagePill}
+          accessibilityRole="button"
           accessibilityLabel="Change stage"
           onPress={() => setStageOpen(true)}
         >
-          <Text style={styles.stagePillText}>
-            {issue.stage.replace('_', ' ').replace(/^./, (c) => c.toUpperCase())}
-          </Text>
+          <Text style={styles.stagePillText}>{STAGE_LABEL[issue.stage]}</Text>
           <Icon as={ChevronDown} size={11} color={color.text} />
         </PressableScale>
         {/* `Answer` is a ROUTE, not a second answering surface: the agent that
@@ -343,6 +204,7 @@ function SheetHead({
             With nobody on the task at all, the same slot starts one. */}
         <PressableScale
           style={styles.primary}
+          accessibilityRole="button"
           accessibilityLabel={asking.length > 0 ? 'Answer' : 'Run now'}
           onPress={() => {
             const target = asking[0]
@@ -377,7 +239,8 @@ function SheetHead({
         title="Stage"
         onClose={() => setStageOpen(false)}
         actions={ISSUE_STAGES.map((stage) => ({
-          label: stage === issue.stage ? `${STAGE_LABEL[stage]} ✓` : STAGE_LABEL[stage],
+          label: STAGE_LABEL[stage],
+          selected: stage === issue.stage,
           disabled: stage === issue.stage,
           onPress: () => {
             void store.trpc.issues.update.mutate({ id: issue.id, patch: { stage } }).catch(() => {})
@@ -388,27 +251,22 @@ function SheetHead({
   )
 }
 
-const STAGE_LABEL: Record<(typeof ISSUE_STAGES)[number], string> = {
-  proposed: 'Proposed',
-  backlog: 'Backlog',
-  planning: 'Planning',
-  in_progress: 'In progress',
-  review: 'Review',
-  done: 'Done',
-}
-
 function SheetBody({
   issue,
   issues,
   sessions,
   onOpenSession,
+  onToggleTodo,
+  onOpenIssue,
 }: {
   issue: IssueWire
   issues: readonly IssueWire[]
   sessions: readonly SessionMeta[]
   onOpenSession: (s: SessionMeta) => void
+  onToggleTodo?: (index1: number, done: boolean) => void
+  onOpenIssue: (issue: IssueWire) => void
 }) {
-  const children = useMemo(() => subIssuesOf(issues, issue.id), [issues, issue.id])
+  const children = useMemo(() => subIssuesOf([...issues], issue.id), [issues, issue.id])
   const relations = useMemo(() => groupRelations(issue), [issue])
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const mine = useMemo(
@@ -425,6 +283,7 @@ function SheetBody({
   )
   const todos = issue.panel?.todos ?? []
   const done = todos.filter((t) => t.done).length
+  const artifacts = issue.panel?.artifacts ?? []
   const git = issue.gitState
 
   return (
@@ -444,13 +303,38 @@ function SheetBody({
 
       {todos.length > 0 ? (
         <Part title="Evidence & checks" meta={`${done} / ${todos.length}`}>
-          {todos.map((todo) => (
-            <View key={todo.text} style={styles.todo}>
+          <View style={styles.meterTrack}>
+            <View style={[styles.meterFill, { width: `${(done / todos.length) * 100}%` }]} />
+          </View>
+          {todos.map((todo, index) => (
+            <PressableScale
+              // biome-ignore lint/suspicious/noArrayIndexKey: issue todos are positional; the mutation API addresses this exact 1-based index.
+              key={`${index}:${todo.text}`}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: todo.done, disabled: !onToggleTodo }}
+              accessibilityLabel={todo.text}
+              disabled={!onToggleTodo}
+              scaleTo={0.99}
+              onPress={() => onToggleTodo?.(index + 1, !todo.done)}
+              style={({ pressed }) => [styles.todo, pressed && styles.rowPressed]}
+            >
               <View style={[styles.todoBox, todo.done ? styles.todoBoxDone : null]}>
                 {todo.done ? <Icon as={Check} size={9} color="#fff" /> : null}
               </View>
               <Text style={[styles.todoText, todo.done ? styles.todoTextDone : null]}>
                 {todo.text}
+              </Text>
+            </PressableScale>
+          ))}
+        </Part>
+      ) : null}
+
+      {artifacts.length > 0 ? (
+        <Part title="Artifacts" meta={String(artifacts.length)}>
+          {artifacts.map((artifact) => (
+            <View key={artifact.path} style={styles.row}>
+              <Text numberOfLines={1} style={styles.rowTitle}>
+                {artifact.title || artifact.path.split('/').pop()}
               </Text>
             </View>
           ))}
@@ -463,12 +347,20 @@ function SheetBody({
           meta={`${children.filter((c) => c.stage === 'done').length} / ${children.length}`}
         >
           {children.map((child) => (
-            <View key={child.id} style={styles.row}>
+            <PressableScale
+              key={child.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${issueDisplayRef(child)} ${child.title}`}
+              onPress={() => onOpenIssue(child)}
+              scaleTo={0.99}
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+            >
               <Text style={styles.rowRef}>{issueDisplayRef(child)}</Text>
               <Text numberOfLines={1} style={styles.rowTitle}>
                 {child.title}
               </Text>
-            </View>
+              <Icon as={ChevronRight} size={14} color={color.textMicro} />
+            </PressableScale>
           ))}
         </Part>
       ) : null}
@@ -480,8 +372,11 @@ function SheetBody({
             return (
               <PressableScale
                 key={session.sessionId}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${sessionTitle(session)}`}
                 onPress={() => onOpenSession(session)}
-                style={styles.row}
+                scaleTo={0.99}
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
               >
                 <View style={[styles.kind, { backgroundColor: tone.bg }]}>
                   <Text style={[styles.kindCh, { color: tone.fg }]}>{tone.ch}</Text>
@@ -555,21 +450,6 @@ function Part({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: '#000' },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    backgroundColor: color.bg,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-  },
-  // A drag must never leave a trail of selected text behind it.
-  dragRegion: Platform.OS === 'web' ? ({ userSelect: 'none' } as object) : {},
-  grabberBox: { height: 26, alignItems: 'center', justifyContent: 'center' },
-  grabber: { width: 36, height: 5, borderRadius: 3, backgroundColor: color.borderStrong },
   flex: { flex: 1 },
 
   head: {
@@ -578,7 +458,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: alpha(color.border, 0.7),
   },
-  identRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: 6 },
+  identRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: 8 },
   chip: {
     ...mono(400),
     fontSize: font.micro,
@@ -604,8 +484,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    minHeight: 36,
     paddingHorizontal: 11,
-    paddingVertical: 6,
     borderRadius: radius.md,
     backgroundColor: color.surface,
     borderWidth: StyleSheet.hairlineWidth,
@@ -615,7 +495,8 @@ const styles = StyleSheet.create({
   primary: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 9,
+    justifyContent: 'center',
+    minHeight: 36,
     borderRadius: radius.md,
     backgroundColor: color.accent,
   },
@@ -634,7 +515,6 @@ const styles = StyleSheet.create({
   blockedText: { color: '#f0a0a6' },
   presence: { ...mono(400), fontSize: font.micro, color: color.textMicro, marginTop: 10 },
 
-  scroll: { flex: 1 },
   body: { paddingHorizontal: 18, paddingTop: space.md },
   prose: {
     ...sans(400),
@@ -653,14 +533,29 @@ const styles = StyleSheet.create({
   partMeta: { ...mono(400), fontSize: font.micro, color: color.textMicro },
   rule: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: color.hairline },
 
-  todo: { flexDirection: 'row', gap: 9, paddingVertical: 5 },
+  meterTrack: {
+    height: 3,
+    marginBottom: space.sm,
+    borderRadius: radius.full,
+    overflow: 'hidden',
+    backgroundColor: alpha(color.border, 0.7),
+  },
+  meterFill: { height: '100%', backgroundColor: color.working },
+
+  todo: {
+    flexDirection: 'row',
+    gap: 9,
+    paddingVertical: 7,
+    minHeight: 34,
+    borderRadius: radius.sm,
+  },
   todoBox: {
-    width: 15,
-    height: 15,
-    borderRadius: 4,
+    width: 17,
+    height: 17,
+    borderRadius: 5,
     borderWidth: 1.5,
     borderColor: color.borderStrong,
-    marginTop: 2,
+    marginTop: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -672,10 +567,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
+    minHeight: 44,
     paddingVertical: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: alpha(color.hairline, 0.55),
   },
+  rowPressed: { backgroundColor: color.surfacePressed },
   rowRef: { ...mono(400), fontSize: font.micro, color: color.textMicro, minWidth: 52 },
   rowTitle: { ...sans(400), flex: 1, fontSize: font.tiny, color: color.body },
   rowStamp: { ...mono(400), fontSize: font.micro, color: color.textMicro },
@@ -691,26 +588,4 @@ const styles = StyleSheet.create({
 
   branch: { ...mono(400), fontSize: font.micro, color: color.accentTint },
   gitLine: { ...mono(400), fontSize: font.micro, color: color.textFaint, marginTop: 4 },
-
-  composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 9,
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: alpha(color.border, 0.7),
-    backgroundColor: Platform.OS === 'web' ? color.bar : alpha(color.bar, 0.86),
-  },
-  well: {
-    flex: 1,
-    minHeight: 40,
-    justifyContent: 'center',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    backgroundColor: color.bgSunken,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.hairline,
-  },
-  wellHint: { ...mono(400), fontSize: font.tiny, color: color.textMicro },
 })

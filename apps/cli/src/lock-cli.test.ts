@@ -144,6 +144,29 @@ describe('mergeLockArgv', () => {
     expect(mergeLockArgv(['help'])).toEqual(['help'])
     expect(() => mergeLockArgv(['acquire', '--branch'])).toThrow(/--branch needs a value/)
   })
+
+  it('collapses the refs/heads spelling onto the same lease (POD-672)', () => {
+    // Two spellings of one branch must not become two mutexes.
+    expect(mergeLockArgv(['acquire', '--branch', 'refs/heads/main'])).toEqual([
+      'acquire',
+      'merge:main',
+    ])
+  })
+})
+
+describe('lock name validation reaches the CLI', () => {
+  it('refuses the bare `merge` before the round trip, naming the canonical lock', async () => {
+    // POD-672: this name used to be accepted as an independent lease, so an
+    // agent taking `merge` serialised against nobody holding `merge:main`.
+    const mutate = vi.fn()
+    const client = { lock: { acquire: { mutate } } } as never
+    // The error carries the canonical name, so an agent reading it does not
+    // have to go hunting for the right spelling.
+    await expect(runLockCli(['acquire', 'merge', '--repoPath', '/r'], client)).rejects.toThrow(
+      /merge:main/,
+    )
+    expect(mutate).not.toHaveBeenCalled()
+  })
 })
 
 describe('runLockCli', () => {
@@ -253,6 +276,36 @@ describe('runLockCli', () => {
     expect(out.exitCode).toBe(0)
     expect(mutate).toHaveBeenCalledTimes(3)
     expect(sleep).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports a grant off the queue as an acquisition, not as a same-session renew', async () => {
+    // What the server necessarily returns once advanceQueue has made this
+    // waiter the holder: the next poll is a same-holder re-acquire. Callers read
+    // `alreadyHeld` as a re-entry signal, and one that refuses on it would
+    // refuse over — and then strand — the lease it queued for [POD-675].
+    const renewedWire = { ...grantedWire('l'), alreadyHeld: true }
+    const mutate = vi
+      .fn()
+      .mockResolvedValueOnce(queuedWire('l', 1))
+      .mockResolvedValueOnce(renewedWire)
+    const client = { lock: { acquire: { mutate } } } as never
+    const out = await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait'], client, {
+      sleep: async () => {},
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.text).toBe("acquired 'l' (expires in 10m0s)")
+    expect(out.data).toMatchObject({ granted: true, alreadyHeld: false })
+  })
+
+  it('still reports a lock the caller already held as a renew when it never queued', async () => {
+    const mutate = vi.fn(async () => ({ ...grantedWire('l'), alreadyHeld: true }))
+    const client = { lock: { acquire: { mutate } } } as never
+    const out = await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait'], client, {
+      sleep: async () => {},
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.text).toContain('already held: renewed')
+    expect(out.data).toMatchObject({ alreadyHeld: true })
   })
 
   it('acquire --wait backs off between polls instead of hammering acquire every 3s', async () => {
@@ -435,6 +488,44 @@ describe('runLockCli', () => {
     expect(out.exitCode).toBe(0)
     expect(out.text).toContain('granted as the wait was interrupted')
     expect(out.text).toContain('podium lock release l')
+  })
+
+  it('reports a grant found by the deadline settle as fresh too, not as a re-entry', async () => {
+    // The poll loop is not the only place a grant surfaces: when the wait stops,
+    // leaveQueue runs one more acquire to learn whether the grant landed in the
+    // gap. That settle is a same-session re-acquire as well, so it answers
+    // alreadyHeld — and a caller that reads the flag as a re-entry guard would
+    // refuse the lease it now holds. Both returns go through asQueuedGrant
+    // [POD-675, path raised by POD-683].
+    const mutate = vi
+      .fn()
+      .mockResolvedValueOnce(queuedWire('l', 1))
+      .mockResolvedValue({ ...grantedWire('l'), alreadyHeld: true })
+    const client = {
+      lock: {
+        acquire: { mutate },
+        cancel: {
+          mutate: vi.fn(async () => {
+            throw new Error("you hold lock 'l' — use `release`, not cancel")
+          }),
+        },
+      },
+    } as never
+    let nowMs = 0
+    const out = await runLockCli(
+      ['acquire', 'l', '--repoPath', '/r', '--wait', '--timeout', '60'],
+      client,
+      {
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms
+        },
+      },
+    )
+    expect(out.exitCode).toBe(0)
+    expect(out.text).toContain("acquired 'l'")
+    expect(out.text).not.toContain('already held')
+    expect(out.data).toMatchObject({ granted: true, alreadyHeld: false })
   })
 
   it('an already-aborted signal stops the wait after one round without sleeping', async () => {

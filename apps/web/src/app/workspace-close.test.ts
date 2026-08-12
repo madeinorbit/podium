@@ -1,34 +1,28 @@
-import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import type { DeckTab } from './panel-deck'
-import { closeWorkspaceTab } from './workspace-close'
+import { closeActiveWorkspaceTab } from './workspace-close'
 
-describe('closeWorkspaceTab', () => {
-  it('consumes Cmd+W without closing a session tab', () => {
-    const closeFileTab = vi.fn()
-    const active = {
-      id: 'session-1',
-      kind: 'session',
-      session: { sessionId: asSessionId('session-1') },
-    } as DeckTab
+describe('closeActiveWorkspaceTab', () => {
+  // POD-710: the lock is gone — a session tab is a view like any other, so Cmd+W
+  // closes it. The session itself is untouched (the caller only rewrites the
+  // workspace layout), which is why this returns true rather than declining.
+  it('closes an active session tab and consumes the keystroke', () => {
+    const closeTab = vi.fn()
 
-    expect(closeWorkspaceTab(active, closeFileTab)).toBe(true)
-    expect(closeFileTab).not.toHaveBeenCalled()
+    expect(closeActiveWorkspaceTab('session-1', closeTab)).toBe(true)
+    expect(closeTab).toHaveBeenCalledWith('session-1')
   })
 
   it('closes an active file tab', () => {
-    const closeFileTab = vi.fn()
-    const active = {
-      id: 'file:/repo/readme.md',
-      kind: 'file',
-      file: { id: 'file:/repo/readme.md' },
-    } as DeckTab
+    const closeTab = vi.fn()
 
-    expect(closeWorkspaceTab(active, closeFileTab)).toBe(true)
-    expect(closeFileTab).toHaveBeenCalledWith('file:/repo/readme.md')
+    expect(closeActiveWorkspaceTab('file:/repo/readme.md', closeTab)).toBe(true)
+    expect(closeTab).toHaveBeenCalledWith('file:/repo/readme.md')
   })
 
   it('allows the desktop shell fallback when there is no active tab', () => {
-    expect(closeWorkspaceTab(undefined, vi.fn())).toBe(false)
+    const closeTab = vi.fn()
+
+    expect(closeActiveWorkspaceTab(null, closeTab)).toBe(false)
+    expect(closeTab).not.toHaveBeenCalled()
   })
 })

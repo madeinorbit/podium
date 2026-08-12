@@ -2,6 +2,8 @@ import {
   type AskAnswerChoice,
   type AskQuestion,
   isChosenOption,
+  isPreviewLayout,
+  optionPreview,
   parseAskQuestions,
 } from '@podium/client-core/viewmodels'
 import { CircleHelp } from 'lucide-react'
@@ -39,6 +41,18 @@ import type { ChatBlock } from './chat'
  * pressed). Anything larger — several questions, or a multi-select — collects the
  * set and sends on one explicit press, so revising an earlier answer can never
  * fire the send.
+ *
+ * PREVIEWS BUY BROWSING (POD-708). Options may carry a `preview`: a monospace
+ * mockup that IS the comparison — two layouts cannot be judged from their
+ * labels. It renders in a well beside the option list, following whichever
+ * option the pointer or the focus ring is on. That forces the commit rule open:
+ * if looking at an option means choosing it, a card whose whole point is to be
+ * browsed would answer itself on the first click. So a previewed question takes
+ * an explicit send — which is what the terminal does too, where the arrows move
+ * the preview and only Enter commits.
+ *
+ * The predicate is `isPreviewLayout`, not "has any preview", so the card and the
+ * dialog behind it change shape on exactly the same condition (POD-770).
  */
 
 /** Agents are told to write "(Recommended)" into the label (that is the tool's
@@ -53,6 +67,41 @@ function splitRecommendation(label: string): { text: string; recommended: boolea
 
 /** The rail's tab name: the tool's short `header`, else a positional fallback. */
 const tabName = (q: AskQuestion, qi: number): string => q.header?.trim() || `Q${qi + 1}`
+
+/**
+ * Which option's preview the well shows: what the operator is browsing, else
+ * what they have already picked, else the recommendation, else the first option
+ * that has one. -1 when the question has nothing to draw.
+ *
+ * The fallback chain matters more than it looks: in a list where only SOME
+ * entries drew a mockup, a hover over a preview-less row must not answer with an
+ * empty well — the panel would blink out and back as the pointer travels. It
+ * holds the last thing worth showing instead.
+ */
+function previewIndex(q: AskQuestion, peek: number | null, chosen: number): number {
+  const has = (oi: number) => oi >= 0 && optionPreview(q.options[oi]) !== undefined
+  if (has(peek ?? -1)) return peek as number
+  if (has(chosen)) return chosen
+  const rec = q.options.findIndex(
+    (o) => splitRecommendation(o.label).recommended && optionPreview(o) !== undefined,
+  )
+  return rec >= 0 ? rec : q.options.findIndex((o) => optionPreview(o) !== undefined)
+}
+
+/** One option's mockup. Named, because on a wide card the well sits a long way
+ *  from the row it belongs to and the pointer is not always what put it there. */
+function OptionPreviewWell({ label, text }: { label: string; text: string }): JSX.Element {
+  return (
+    <div className="min-w-0" data-testid="ask-preview">
+      <div className="mb-1 truncate font-mono text-[8.5px] font-medium tracking-[0.12em] text-muted-foreground/70 uppercase">
+        Preview · {label}
+      </div>
+      <div className="ask-preview">
+        <pre>{text}</pre>
+      </div>
+    </div>
+  )
+}
 
 /**
  * What the card submits. Matches `sessions.answerAskUserQuestion`:
@@ -89,6 +138,9 @@ export function AskUserQuestionCard({
   const [custom, setCustom] = useState<Record<number, string>>({})
   const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'failed'>('idle')
   const [step, setStep] = useState(0)
+  // Which option's preview is showing on the OPEN question, when the pointer or
+  // the focus ring is on one. Browsing only — it never becomes an answer.
+  const [peek, setPeek] = useState<number | null>(null)
   const optionsRef = useRef<HTMLDivElement | null>(null)
   // Set whenever WE move the step. Focus follows the card to the new question so
   // the keyboard route survives the advance — but never on mount, which would
@@ -106,15 +158,21 @@ export function AskUserQuestionCard({
 
   const goToStep = (qi: number) => {
     followFocus.current = true
+    setPeek(null)
     setStep(qi)
   }
 
   const answered = (qi: number) => (picks[qi]?.size ?? 0) > 0 || (custom[qi]?.trim() ?? '') !== ''
   const allAnswered = questions.length > 0 && questions.every((_, qi) => answered(qi))
   const remaining = questions.filter((_, qi) => !answered(qi)).length
-  // A lone single-select commits on option click like the native menu; free text
-  // and every larger shape wait for an explicit press (or Enter in the box).
-  const commitsOnClick = questions.length === 1 && !questions[0]?.multiSelect
+  // A lone single-select commits on option click like the native menu; free
+  // text, previews, and every larger shape wait for an explicit press (or Enter
+  // in the box).
+  // A previewed question is browsed before it is answered — see the header note.
+  // Card-wide rather than per-question, so the commit rule cannot change under
+  // the operator as they step through a rail.
+  const previewed = questions.some(isPreviewLayout)
+  const commitsOnClick = questions.length === 1 && !questions[0]?.multiSelect && !previewed
   const current = questions[Math.min(step, Math.max(questions.length - 1, 0))]
   const currentIndex = Math.min(step, Math.max(questions.length - 1, 0))
 
@@ -124,26 +182,26 @@ export function AskUserQuestionCard({
   ): AskAnswerChoice[] | null => {
     // The question's SHAPE travels with its answer: the native menu leaves a
     // multi-select only on Tab, and the server cannot infer that from one pick
-    // (POD-609).
+    // (POD-609). A question with per-option previews draws a different dialog
+    // again — no Other row, digits that only move a cursor — and answering it
+    // with the list script silently commits option 1 (POD-770).
     const choices: AskAnswerChoice[] = []
     for (let qi = 0; qi < questions.length; qi++) {
+      const q = questions[qi]
+      const shape = {
+        ...(q?.multiSelect ? { multiSelect: true as const } : {}),
+        ...(q && isPreviewLayout(q) ? { previewLayout: true as const } : {}),
+      }
       const text = nextCustom[qi]?.trim() ?? ''
       if (text !== '') {
-        choices.push({
-          freeText: text,
-          otherIndex: (questions[qi]?.options.length ?? 0) + 1,
-          ...(questions[qi]?.multiSelect ? { multiSelect: true } : {}),
-        })
+        choices.push({ freeText: text, otherIndex: (q?.options.length ?? 0) + 1, ...shape })
         continue
       }
       const indices = [...(nextPicks[qi] ?? new Set<number>())]
         .sort((a, b) => a - b)
         .map((oi) => oi + 1)
       if (indices.length === 0) return null
-      choices.push({
-        optionIndices: indices,
-        ...(questions[qi]?.multiSelect ? { multiSelect: true } : {}),
-      })
+      choices.push({ optionIndices: indices, ...shape })
     }
     return choices
   }
@@ -188,6 +246,9 @@ export function AskUserQuestionCard({
     const nextCustom = { ...custom, [qi]: '' }
     setPicks(next)
     setCustom(nextCustom)
+    // Keep the well on what was just picked — the digit keys reach options the
+    // pointer never touched.
+    setPeek(oi)
     if (commitsOnClick) {
       void submit(next, nextCustom)
       return
@@ -220,8 +281,10 @@ export function AskUserQuestionCard({
       const text = e.currentTarget.value.trim()
       if (text === '') return
       const nextCustom = { ...custom, [qi]: text }
-      // Lone single-select: free text submits immediately on Enter.
-      if (commitsOnClick) {
+      // Lone single-select: free text submits immediately on Enter. Previews
+      // change how an OPTION commits, not what a finished typed answer is —
+      // nothing is left to browse once the operator has written their own.
+      if (questions.length === 1 && !questions[0]?.multiSelect) {
         void submit({ ...picks, [qi]: new Set() }, nextCustom)
         return
       }
@@ -350,6 +413,15 @@ export function AskUserQuestionCard({
             <CircleHelp size={11} aria-hidden="true" />
             {readOnly ? 'Question · not answered' : 'Needs your input'}
           </span>
+          {/* A multi-question card spends its headers on the rail below. A lone
+              question has no rail, so its header — the <=12-char subject the
+              agent chose, "Scope", "Runtime" — rides the eyebrow instead of
+              going unsaid. Free: the row is already there. */}
+          {!readOnly && questions.length === 1 && (questions[0]?.header?.trim() ?? '') !== '' && (
+            <span className="inline-flex h-[15px] flex-none items-center rounded-[5px] border border-border px-[6px] font-mono text-[8.5px] font-medium tracking-[0.1em] text-muted-foreground uppercase">
+              {questions[0]?.header?.trim()}
+            </span>
+          )}
           {submitState === 'sending' && (
             <span className="ml-auto flex items-center gap-1.5 font-mono text-[9px] tracking-[0.06em] text-muted-foreground">
               sending
@@ -410,6 +482,14 @@ export function AskUserQuestionCard({
         {/* Read-only shows every question; live shows the open one. */}
         {(readOnly ? questions : current ? [current] : []).map((q, i) => {
           const qi = readOnly ? i : currentIndex
+          // Read-only has no pointer to follow, so its well shows the option the
+          // agent's own result named — the record of what the decision was.
+          const chosenIndex = readOnly
+            ? q.options.findIndex((o) => isChosen(o.label))
+            : ([...(picks[qi] ?? new Set<number>())][0] ?? -1)
+          const pvIndex = previewIndex(q, readOnly ? null : peek, chosenIndex)
+          const pvOption = pvIndex >= 0 ? q.options[pvIndex] : undefined
+          const pvText = optionPreview(pvOption)
           return (
             <div key={`${tabName(q, qi)}-${qi}`} className={readOnly && i > 0 ? 'mt-3.5' : ''}>
               {readOnly && q.header && (
@@ -426,113 +506,154 @@ export function AskUserQuestionCard({
               >
                 {q.question}
               </div>
-              <div
-                ref={readOnly ? undefined : optionsRef}
-                role={q.multiSelect ? 'group' : 'radiogroup'}
-                aria-label={q.question}
-                className="mt-1.5 flex flex-col gap-px"
-                // The keys live on the option group rather than the card: focus
-                // follows the card here on every advance, so this is where the
-                // operator's hands already are.
-                onKeyDown={readOnly ? undefined : onKeyDown}
-              >
-                {q.options.map((o, oi) => {
-                  // Live: highlight the operator's local pick. Read-only:
-                  // highlight the option the agent's result says was chosen.
-                  const chosen = readOnly ? isChosen(o.label) : (picks[qi]?.has(oi) ?? false)
-                  const { text, recommended } = splitRecommendation(o.label)
-                  const recommendedIndex = q.options.findIndex(
-                    (option) => splitRecommendation(option.label).recommended,
-                  )
-                  // A one-click ask has no separate confirm button, so its
-                  // recommended (or first) option is the one actionable yellow
-                  // choice. Multi-question/multi-select cards spend yellow on
-                  // the shared Send answers button instead.
-                  const primaryAction =
-                    commitsOnClick && oi === (recommendedIndex >= 0 ? recommendedIndex : 0)
-                  const body = (
-                    <>
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          'row-span-2 mt-px flex size-4 items-center justify-center font-mono text-[9.5px] font-medium tabular-nums',
-                          q.multiSelect ? 'rounded-[3px]' : 'rounded-[4px]',
-                          readOnly
-                            ? chosen
-                              ? 'text-foreground'
-                              : 'text-muted-foreground/60'
-                            : chosen
-                              ? 'bg-primary text-primary-foreground'
-                              : primaryAction
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-foreground/[0.06] text-muted-foreground',
-                        )}
-                      >
-                        {chosen ? '✓' : oi + 1}
-                      </span>
-                      <span className="flex min-w-0 flex-wrap items-baseline gap-x-[7px]">
-                        <span
-                          className={cn(
-                            'text-[12.5px] leading-[1.35]',
-                            chosen
-                              ? 'font-semibold text-foreground'
-                              : readOnly
-                                ? 'font-medium text-muted-foreground'
-                                : 'font-medium text-foreground',
-                          )}
-                        >
-                          {text}
-                        </span>
-                        {recommended && (
-                          <span className="inline-flex h-3.5 flex-none items-center rounded-[4px] border border-border px-[5px] font-mono text-[8px] font-medium tracking-[0.1em] text-muted-foreground uppercase">
-                            rec
-                          </span>
-                        )}
-                      </span>
-                      {o.description && (
-                        <span className="col-start-2 mt-px max-w-[76ch] text-[11.5px] leading-[1.45] text-muted-foreground">
-                          {o.description}
-                        </span>
-                      )}
-                    </>
-                  )
-                  const baseCls = 'grid grid-cols-[16px_1fr] gap-x-2.5 rounded-[7px] text-left'
-                  return readOnly ? (
+              {/* Two columns once a preview is in play AND the card is wide
+                  enough to hold both. The measurement is a container query, not
+                  a viewport one: this card lives in a transcript beside a
+                  sidebar, so the window's width says nothing useful about the
+                  space it actually got. Below the threshold the well stacks
+                  under the options — a mockup is worth more narrow than it is
+                  squeezed into half a column. */}
+              <div className={cn(pvText && '@container')}>
+                <div
+                  className={cn(
+                    pvText &&
+                      'flex flex-col gap-2.5 @min-[600px]:flex-row @min-[600px]:items-start @min-[600px]:gap-3.5',
+                  )}
+                >
+                  <div className={cn('min-w-0', pvText && '@min-[600px]:flex-1')}>
                     <div
-                      key={`${o.label}-${oi}`}
-                      className={cn(baseCls, 'px-2 py-1.5', chosen && 'bg-foreground/[0.04]')}
+                      ref={readOnly ? undefined : optionsRef}
+                      role={q.multiSelect ? 'group' : 'radiogroup'}
+                      aria-label={q.question}
+                      className="mt-1.5 flex flex-col gap-px"
+                      // The keys live on the option group rather than the card: focus
+                      // follows the card here on every advance, so this is where the
+                      // operator's hands already are.
+                      onKeyDown={readOnly ? undefined : onKeyDown}
                     >
-                      {body}
+                      {q.options.map((o, oi) => {
+                        // Live: highlight the operator's local pick. Read-only:
+                        // highlight the option the agent's result says was chosen.
+                        const chosen = readOnly ? isChosen(o.label) : (picks[qi]?.has(oi) ?? false)
+                        const { text, recommended } = splitRecommendation(o.label)
+                        const recommendedIndex = q.options.findIndex(
+                          (option) => splitRecommendation(option.label).recommended,
+                        )
+                        // A one-click ask has no separate confirm button, so its
+                        // recommended (or first) option is the one actionable yellow
+                        // choice. Multi-question/multi-select cards spend yellow on
+                        // the shared Send answers button instead.
+                        const primaryAction =
+                          commitsOnClick && oi === (recommendedIndex >= 0 ? recommendedIndex : 0)
+                        const body = (
+                          <>
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                'row-span-2 mt-px flex size-4 items-center justify-center font-mono text-[9.5px] font-medium tabular-nums',
+                                q.multiSelect ? 'rounded-[3px]' : 'rounded-[4px]',
+                                readOnly
+                                  ? chosen
+                                    ? 'text-foreground'
+                                    : 'text-muted-foreground/60'
+                                  : chosen
+                                    ? 'bg-primary text-primary-foreground'
+                                    : primaryAction
+                                      ? 'bg-primary text-primary-foreground'
+                                      : 'bg-foreground/[0.06] text-muted-foreground',
+                              )}
+                            >
+                              {chosen ? '✓' : oi + 1}
+                            </span>
+                            <span className="flex min-w-0 flex-wrap items-baseline gap-x-[7px]">
+                              <span
+                                className={cn(
+                                  'text-[12.5px] leading-[1.35]',
+                                  chosen
+                                    ? 'font-semibold text-foreground'
+                                    : readOnly
+                                      ? 'font-medium text-muted-foreground'
+                                      : 'font-medium text-foreground',
+                                )}
+                              >
+                                {text}
+                              </span>
+                              {recommended && (
+                                <span className="inline-flex h-3.5 flex-none items-center rounded-[4px] border border-border px-[5px] font-mono text-[8px] font-medium tracking-[0.1em] text-muted-foreground uppercase">
+                                  rec
+                                </span>
+                              )}
+                            </span>
+                            {o.description && (
+                              <span className="col-start-2 mt-px max-w-[76ch] text-[11.5px] leading-[1.45] text-muted-foreground">
+                                {o.description}
+                              </span>
+                            )}
+                          </>
+                        )
+                        const baseCls =
+                          'grid grid-cols-[16px_1fr] gap-x-2.5 rounded-[7px] text-left'
+                        return readOnly ? (
+                          <div
+                            key={`${o.label}-${oi}`}
+                            className={cn(baseCls, 'px-2 py-1.5', chosen && 'bg-foreground/[0.04]')}
+                          >
+                            {body}
+                          </div>
+                        ) : (
+                          <button
+                            data-pressable
+                            key={`${o.label}-${oi}`}
+                            type="button"
+                            role={q.multiSelect ? 'checkbox' : 'radio'}
+                            aria-checked={chosen}
+                            disabled={locked}
+                            aria-busy={submitState === 'sending' || undefined}
+                            onClick={() => onOptionClick(q, qi, oi)}
+                            // Browsing, not answering. Focus carries the arrow keys;
+                            // the pointer carries the mouse. Neither picks anything.
+                            onMouseEnter={() => setPeek(oi)}
+                            onFocus={() => setPeek(oi)}
+                            className={cn(
+                              baseCls,
+                              'w-full border border-transparent px-2 pt-1.5 pb-[7px] transition-colors',
+                              chosen && 'border-primary/35 bg-primary/[0.08]',
+                              !chosen && primaryAction && 'border-primary/30 bg-primary/[0.035]',
+                              locked
+                                ? cn('cursor-default', !chosen && 'opacity-40')
+                                : 'cursor-pointer hover:bg-foreground/[0.038]',
+                            )}
+                          >
+                            {body}
+                          </button>
+                        )
+                      })}
                     </div>
-                  ) : (
-                    <button
-                      data-pressable
-                      key={`${o.label}-${oi}`}
-                      type="button"
-                      role={q.multiSelect ? 'checkbox' : 'radio'}
-                      aria-checked={chosen}
-                      disabled={locked}
-                      aria-busy={submitState === 'sending' || undefined}
-                      onClick={() => onOptionClick(q, qi, oi)}
-                      className={cn(
-                        baseCls,
-                        'w-full border border-transparent px-2 pt-1.5 pb-[7px] transition-colors',
-                        chosen && 'border-primary/35 bg-primary/[0.08]',
-                        !chosen && primaryAction && 'border-primary/30 bg-primary/[0.035]',
-                        locked
-                          ? cn('cursor-default', !chosen && 'opacity-40')
-                          : 'cursor-pointer hover:bg-foreground/[0.038]',
-                      )}
-                    >
-                      {body}
-                    </button>
-                  )
-                })}
+                  </div>
+                  {/* The mt matches the option group's, so the well's eyebrow
+                      sits on the same line as the first option. The column takes
+                      the width the DRAWING needs rather than an even half — a
+                      mockup has one correct width and prose does not, so the
+                      option text is what gives ground. Past 56% the well scrolls
+                      instead, which is the lesser of the two evils. */}
+                  {pvText && pvOption && (
+                    <div className="mt-1.5 min-w-0 @min-[600px]:max-w-[56%] @min-[600px]:flex-none">
+                      <OptionPreviewWell
+                        label={splitRecommendation(pvOption.label).text}
+                        text={pvText}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Free-text escape (native Other). Only on the open live question —
-                  Claude's own AskUserQuestion always offers this; do not add it
-                  to the option list. */}
+              {/* Free-text escape. In the classic list it is the native Other
+                  row; in the preview layout there is no Other row and the server
+                  routes the same text to the dialog's Notes field instead
+                  (POD-770) — one box either way, because the operator is doing
+                  the same thing. It sits BELOW both columns rather than in the
+                  options one: stacked, the evidence has to be read before the
+                  way out of the choice, not after it. */}
               {livePending && !readOnly && (
                 <div className="mt-1.5">
                   <label className="sr-only" htmlFor={`ask-free-${index}-${qi}`}>

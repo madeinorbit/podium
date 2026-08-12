@@ -146,6 +146,12 @@ const SESSIONS = [
   }),
   sess('tree', 'grandchild', { agentKind: 'cursor' }),
   sess('inspect', 'grandchild', { ...asking }),
+  // The memory reaper parked this one (POD-756). It is still on `solo`.
+  sess('napping', 'solo', {
+    agentKind: 'grok',
+    status: 'hibernated',
+    agentState: { phase: 'idle', since: '2026-07-06T12:00:00.000Z' },
+  }),
 ]
 
 const ISSUES = [
@@ -268,7 +274,7 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(solo.querySelector('[data-testid="need-pill"]')).toBeNull()
   })
 
-  it('stacks real harness kinds with the live total and the native-child count', () => {
+  it('stacks real harness kinds with the agent total and the native-child count', () => {
     render(<SidebarUnified />)
     const fleet = missionRow().querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
     // KINDS, not agents: five sessions across three harnesses is three tiles.
@@ -281,12 +287,27 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(fleet.querySelector('[data-testid="issue-fleet-subagent-count"]')?.textContent).toBe(
       '×3',
     )
-    expect(fleet.getAttribute('title')).toBe('5 live agents · 3 native children')
-    // A lone agent shows its tile and no total — the number would say nothing.
+    expect(fleet.getAttribute('title')).toBe('5 agents · 3 native children')
+  })
+
+  it('keeps a PARKED agent on its issue, ghosted (POD-756)', () => {
+    render(<SidebarUnified />)
+    // `solo`'s only agent is hibernated: Podium stopped its process to reclaim
+    // memory, which says nothing about who is on the task. The row used to drop
+    // it and render no stack at all — the state every Codex agent in the fleet
+    // was in.
     const solo = screen
       .getByText('Sidebar unread dot')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    expect(solo.querySelector('[data-testid="issue-fleet-summary"]')).toBeNull()
+    const fleet = solo.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
+    const tile = fleet.querySelector('[data-agent-kind="grok"]') as HTMLElement
+    expect(tile.getAttribute('data-parked')).toBe('')
+    // Ghosted: the muted pair, none of the harness's own tint.
+    expect(tile.className).toContain('bg-muted')
+    expect(tile.className).not.toContain('bg-chip')
+    // A lone agent shows its tile and no total — the number would say nothing.
+    expect(fleet.querySelector('[data-testid="issue-fleet-total"]')).toBeNull()
+    expect(fleet.getAttribute('title')).toBe('1 agent · 1 parked')
   })
 
   it('ends the column with the tucked-away fold and nothing else foldable', () => {

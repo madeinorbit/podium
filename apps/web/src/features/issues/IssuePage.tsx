@@ -178,7 +178,7 @@ export function IssuePage({
             manner a desktop app is expected to have. */}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            <div className="mx-auto w-full max-w-3xl px-6 py-6 md:px-8">
+            <div className="mx-auto w-full max-w-[54rem] px-6 pt-10 pb-9 md:px-10 md:pt-12">
               <IssueBanners
                 issue={issue}
                 busy={busy}
@@ -268,9 +268,12 @@ export function IssuePage({
           />
         </div>
 
+        {/* The rail takes its roomier width only where there is room to give:
+            just above the md breakpoint the shell's sidebar and this column
+            together leave the document around 310px, and 24px matters there. */}
         <aside
           data-testid="issue-aside"
-          className="hidden w-[272px] shrink-0 overflow-y-auto overscroll-contain border-border border-l bg-rail md:block"
+          className="hidden w-[272px] shrink-0 overflow-y-auto overscroll-contain border-border/70 border-l bg-rail/55 md:block xl:w-[296px]"
         >
           <IssueProperties
             issue={issue}

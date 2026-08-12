@@ -6,6 +6,14 @@
  * the hex — the palette maps a slot to a full colouring scheme, so hues can be
  * retuned centrally without touching stored data.
  *
+ * TOP-LEVEL ONLY (POD-697). The colour names a MISSION: it is what tells the
+ * sidebar's rows apart, and everything downstream — flight deck, terminal tint,
+ * rail notch — is that one mission's colour flowing. A sub-issue therefore has
+ * no slot of its own; it runs under its mission's by inheritance (see
+ * {@link effectiveIssueColorHex}). The server enforces it — a sub-issue create
+ * drops the field, an update is refused, and gaining a parent clears it — so
+ * the pickers are simply not offered below the top level.
+ *
  * RESERVED COLOURS — never pickable, never to be reused as issue accents, and
  * conversely never to be used for status:
  *   - amber   #f59e0b (--attention): "waiting on you"
@@ -72,8 +80,23 @@ export function issueSquareFg(hex: string): string {
   return `color-mix(in srgb, ${hex} 30%, #000)`
 }
 
-/** The neutral no-colour flow slate — same value as the --flow token. */
+/** The neutral no-colour flow, as a literal hex — for JS colour MATH only
+ *  (mixHex and friends, which cannot resolve a custom property). It is the
+ *  --flow token of the podium/shadcn dark presets; each Superade variant now
+ *  carries its own, because a flow that reads as "no colour chosen" has to
+ *  match its ground — a warm taupe on Paper's stone (a blue-grey there is what
+ *  makes that palette look broken) and a true grey on Dark Ink's neutral, where
+ *  this slate would read as a blue somebody picked. Every CALL SITE should use
+ *  FLOW_CSS below; this hex is the last-resort value for a JS mixer, and the
+ *  one place it survives (terminal appearance) mixes it at 9%. */
 export const FLOW_SLATE = '#94a3b8'
+
+/** The same flow, as a CSS <color> that follows the active theme. Use this
+ *  ANYWHERE the value lands in CSS — a `style` value, a color-mix() string, a
+ *  custom-property assignment — so the no-colour flow stays warm on paper and
+ *  neutral on ink. Only fall back to FLOW_SLATE when the value must be a real
+ *  hex a JS mixer can read. */
+export const FLOW_CSS = 'var(--flow)'
 
 /** The minimal issue shape colour resolution needs. */
 export interface ColorCarrier {
@@ -88,6 +111,12 @@ export interface ColorCarrier {
  * for the flow surfaces only (shell scope, attention rows, terminal tint);
  * identity surfaces — the ID square, the issue's own sidebar row — keep
  * {@link issueColorHex} so an uncoloured child still reads as uncoloured.
+ *
+ * Since POD-697 only a top-level issue can hold a slot, so in practice the walk
+ * always lands on the mission root. The own-colour branch is kept because this
+ * function must stay correct against a wire that still carries a legacy slot on
+ * a sub-issue, and because promoting a sub-issue to top level makes its own
+ * colour meaningful again the moment it is set.
  */
 export function effectiveIssueColorHex(
   issue: ColorCarrier | undefined,

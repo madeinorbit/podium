@@ -107,6 +107,12 @@ export const TranscriptMirrorResultMessage = z.object({
   fileSize: z.number().int().nonnegative(),
   /** True when offset + chunk reaches fileSize (nothing further to pull now). */
   eof: z.boolean(),
+  /** Stable identity of the opened file. A provider can reuse a native session id
+   *  for a replacement file; device+inode distinguishes that new incarnation
+   *  from an in-place rewrite of the file we were already mirroring. Optional
+   *  during rolling upgrades from daemons that predate incarnation tracking. */
+  device: z.string().optional(),
+  inode: z.string().optional(),
   /** Refused (outside roots) or unreadable — the server backs off, cursor untouched. */
   error: z.string().optional(),
 })

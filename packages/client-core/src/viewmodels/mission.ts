@@ -1,5 +1,6 @@
 import { type AgentKind, type SessionMeta, spawnedByParentSessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
+import { sessionPresentOnTask } from './fleet'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase } from './session-status'
 import type { IssueNavigationModel } from './slices/issues'
@@ -20,6 +21,20 @@ export interface CollapsedSummary {
   run: number
   /** Up to two distinct harness kinds among the live sessions being hidden. */
   kinds: AgentKind[]
+  /**
+   * A CENSUS, NOT A ROSTER — the sessions a fold is hiding, in person.
+   *
+   * A collapsed strip shows one harness icon per session rather than a count or
+   * a name: names need room the strip does not have, and a count of "3" tells
+   * the operator nothing about whether Claude or a shell is in there. The
+   * sessions arrive ordered working → present → settled, so a cap that bites
+   * drops the quietest first, and each one keeps its identity so the strip can
+   * put the whole line (`POD-716-A · Gauge smith · working 08:47`) on a tooltip.
+   *
+   * Covers the row's OWN sessions as well as its descendants': folding hides
+   * both, and the icons stand for everything behind the chevron.
+   */
+  crew: SessionMeta[]
   needsYou: boolean
 }
 
@@ -67,8 +82,39 @@ export interface MissionProgress {
   wait: number
 }
 
-const openSession = (session: SessionMeta): boolean =>
-  !session.archived && session.status !== 'exited'
+/** The mission's name for {@link sessionPresentOnTask} — one presence rule for
+ *  the whole client (POD-756), spelled once in `./fleet`. */
+const openSession = sessionPresentOnTask
+
+/**
+ * A session that is no longer working: retired, or holding a finished turn.
+ *
+ * The deck DIMS these rather than hiding them (POD-758): "nothing is hidden by
+ * default" is the spine's rule, and what removes finished work is the view bar,
+ * not a fold. One predicate so the dimmed agent row, the dimmed census icon and
+ * the ordering below can never disagree about which agents are still in play.
+ */
+export function sessionSettled(session: SessionMeta): boolean {
+  return !openSession(session) || motionPhase(session) === 'done'
+}
+
+/** The census behind a fold: deduplicated, ordered working → present → settled,
+ *  and capped well above what any strip draws so the caller owns the trim and
+ *  the `+N` that goes with it. */
+const CREW_CAP = 12
+
+function deckCrew(sessions: readonly SessionMeta[]): SessionMeta[] {
+  const seen = new Set<string>()
+  const unique: SessionMeta[] = []
+  for (const session of sessions) {
+    if (seen.has(session.sessionId)) continue
+    seen.add(session.sessionId)
+    unique.push(session)
+  }
+  const rank = (session: SessionMeta): number =>
+    openSession(session) && motionPhase(session) === 'working' ? 0 : sessionSettled(session) ? 2 : 1
+  return unique.sort((a, b) => rank(a) - rank(b)).slice(0, CREW_CAP)
+}
 
 export function sessionNeedsHuman(session: SessionMeta): boolean {
   return (
@@ -107,6 +153,41 @@ export function missionRootFor(
   return current
 }
 
+/**
+ * The origin a spin-off was discovered from, or null when it is not one.
+ *
+ * An OUTGOING `discovered-from` dep is what `attach --spinoff` writes (see
+ * issue-relations.ts for the verified direction), and it is the model's own
+ * statement that this work is nobody's sub-task.
+ */
+export function spinOffOriginId(issue: {
+  deps?: ReadonlyArray<{ id: string; type: string }>
+}): string | null {
+  return issue.deps?.find((dep) => dep.type === 'discovered-from')?.id ?? null
+}
+
+/** Stages that mean nobody has picked the work up yet. Work that has not begun
+ *  has not gone anywhere, whatever shape it was filed in. */
+const UNSTARTED = new Set(['proposed', 'backlog'])
+
+/**
+ * A spin-off the operator has STARTED has left the mission that discovered it.
+ *
+ * Both halves matter. Until it starts it belongs on the origin's spine — the
+ * deck is the only surface that shows a proposal at all, and the whole point of
+ * showing it there is that the operator triages it in the context that produced
+ * it. The moment it is started as its own thing, it is its own thing: it gets a
+ * sidebar row, and the origin is released.
+ *
+ * Without this, mission membership follows `startedBySession` alone — and
+ * `issues.create` stamps that field on EVERY agent create — so a spin-off filed
+ * by a mission agent was dragged back onto the origin's spine for good, counted
+ * in its progress, and the origin could never read as finished (POD-679).
+ */
+export function hasLeftMission(issue: IssueNavigationModel): boolean {
+  return !UNSTARTED.has(issue.stage) && spinOffOriginId(issue) !== null
+}
+
 export function missionIssueIds(
   issues: readonly IssueNavigationModel[],
   rootId: string,
@@ -127,8 +208,11 @@ export function missionIssueIds(
     ids.add(id)
     for (const child of children.get(id) ?? []) stack.push(child.id)
   }
-  // Agent-started children belong to the mission when their starting session
-  // is already in the mission; discovered-from relations remain separate.
+  // Agent-started children belong to the mission when their starting session is
+  // already in the mission — unless they have LEFT it (see `hasLeftMission`):
+  // provenance is not membership once the operator has started the work on its
+  // own. The parent-child walk above is untouched; a spin-off never has a
+  // parentId, so only this fallback could ever have claimed one.
   let changed = true
   while (changed) {
     changed = false
@@ -140,6 +224,7 @@ export function missionIssueIds(
     for (const issue of issues) {
       if (
         !ids.has(issue.id) &&
+        !hasLeftMission(issue) &&
         issue.startedBySession &&
         missionSessions.has(issue.startedBySession)
       ) {
@@ -187,15 +272,30 @@ function sessionsForIssue(
  * from the rendered rows made `Active` (which hides done work) report `0 / N`,
  * which is the one number the operator is most likely to read as truth.
  *
- * Four segments, from the artifact's `progress()`: done / run / block / wait.
- * The root counts as a task — it is one, with its own stage — matching the
- * artifact, whose `issues` array includes it.
+ * ---------------------------------------------------------------------------
+ * ONE UNIT OF WORK IS ONE TASK IN THE MISSION (POD-710)
+ * ---------------------------------------------------------------------------
  *
- * The artifact's arithmetic (`done` by stage, `run` by stage, `block` by state,
- * `wait` = the remainder) lets one issue land in two buckets, which would push
- * the bar past 100%. Classification here is EXCLUSIVE in the order
- * done → block → run → wait: blocked work is not running, and that is the
- * segment the operator needs to see.
+ * THE RULE: when the mission root has real members besides itself, the root is
+ * the CONTAINER BEING MEASURED and is not also a segment; when it stands alone,
+ * it is the single unit. So a root with one child is `total = 1`, not 2.
+ *
+ * This used to count the root as one more task — "it is one, with its own
+ * stage" — which is true of the issue and false of the meter. A mission of one
+ * sub-issue reported two units and lit two different segments (the root running
+ * and the child not started), which is the whole of the operator's complaint:
+ * "if there is only one task, it still shows two points of information … that is
+ * just confusing." A container's own stage is a roll-up OF its members, so
+ * counting it beside them double-counts the same work and puts the bar's
+ * denominator one above the number of things anyone can point at.
+ *
+ * Archived and deleted issues are not units either, at any level.
+ *
+ * Four segments: done / run / block / wait. The artifact's arithmetic (`done` by
+ * stage, `run` by stage, `block` by state, `wait` = the remainder) lets one
+ * issue land in two buckets, which would push the bar past 100%. Classification
+ * here is EXCLUSIVE in the order done → block → run → wait: blocked work is not
+ * running, and that is the segment the operator needs to see.
  */
 export function missionProgress(
   issues: readonly IssueNavigationModel[],
@@ -206,16 +306,71 @@ export function missionProgress(
   if (!rootId) return empty
   const ids = missionIssueIds(issues, rootId, sessions)
   const scope = issues.filter((issue) => ids.has(issue.id) && !issue.archived && !issue.deletedAt)
+  // The units are the members; the root only becomes one when it has no members
+  // to be the container of. A root that is itself archived is already out of
+  // `scope`, so `members` and `scope` agree and the fallback never resurrects it.
+  const members = scope.filter((issue) => issue.id !== rootId)
+  const units = members.length > 0 ? members : scope
   let done = 0
   let run = 0
   let block = 0
-  for (const issue of scope) {
+  for (const issue of units) {
     if (issue.stage === 'done' || issue.closedReason) done += 1
     else if (issue.blocked) block += 1
     else if (issue.stage === 'in_progress' || issue.stage === 'review') run += 1
   }
-  const total = scope.length
+  const total = units.length
   return { total, done, run, block, wait: Math.max(0, total - done - run - block) }
+}
+
+/** Work that was discovered here and is now running as its own task. */
+export interface MissionDeparture {
+  issue: IssueNavigationModel
+  /** The mission member it was discovered from — the root, or a task on it. */
+  originId: string
+  /** What it is doing now, out there, in the spine's own state vocabulary. */
+  state: DeckIssueState
+}
+
+/**
+ * What LEFT this mission — the departure ticks under the spine (POD-679).
+ *
+ * A started spin-off is no longer a member (`hasLeftMission`), and a mission
+ * that simply dropped the row would be lying by omission: the operator watched
+ * an agent file that work here, and "where did it go?" has to stay answerable
+ * from the surface it went missing from. So the origin keeps ONE LINE per
+ * departure — provenance without membership. It is not a task: it holds no
+ * seat, wears no mark, and carries no weight in `missionProgress`.
+ *
+ * FINISHED DEPARTURES ARE DROPPED. The tick exists so the operator can find
+ * work that is still happening somewhere else; a done spin-off is answered by
+ * the issue's own Relations block, and keeping it here would grow the mission's
+ * footer forever with rows nobody can act on.
+ */
+export function missionDepartures(
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+  rootId: string | null | undefined,
+  allWorktreePaths: readonly string[] = [],
+): MissionDeparture[] {
+  if (!rootId) return []
+  const ids = missionIssueIds(issues, rootId, sessions)
+  const sessionList = [...sessions]
+  const worktreePaths = [...allWorktreePaths]
+  const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
+  const out: MissionDeparture[] = []
+  for (const issue of issues) {
+    if (issue.archived || issue.deletedAt || ids.has(issue.id)) continue
+    if (issue.stage === 'done' || issue.closedReason) continue
+    const originId = hasLeftMission(issue) ? spinOffOriginId(issue) : null
+    if (!originId || !ids.has(originId)) continue
+    out.push({
+      issue,
+      originId,
+      state: deckIssueState(issue, sessionsForIssue(issue, sessionList, worktreePaths), byId),
+    })
+  }
+  return out.sort((a, b) => a.issue.seq - b.issue.seq)
 }
 
 /**
@@ -384,6 +539,7 @@ export function buildFlightDeckRows(
           0,
           2,
         ),
+        crew: deckCrew(subtreeSessions),
         needsYou: actionableCount > 0,
       },
     })
@@ -569,61 +725,18 @@ export function deckSessions(
   return asking.length > 0 ? asking : row.sessions
 }
 
-/** Below this a fold costs a row to save fewer, which is the fold that hides
- *  nothing — the same rule the collapsed payload follows. */
-const ROSTER_FOLD_FLOOR = 2
-
-export interface RootRoster {
-  /** The sessions the root block prints, in the order it was given them. */
-  shown: SessionMeta[]
-  /** What the fold is holding back. Stays truthful while the fold is OPEN — the
-   *  disclosure has to keep standing, and keep its count, or there is no way
-   *  back down. */
-  hidden: number
-  /** Whether the disclosure line is drawn at all. */
-  foldable: boolean
-}
-
-/**
- * The mission header's own roster, trimmed.
+/*
+ * `rootRoster` LIVED HERE AND IS GONE (POD-758).
  *
- * Every session the mission has ever had hangs off the header, and on a
- * long-running mission that is sixteen rows — most of them finished — between
- * the operator and the first actual task. So the settled ones fold away behind
- * their own count and what stands is what is still happening. Two things the
- * trim must never eat:
- *
- * FULL SPINE IS THE MODE THAT SHOWS EVERYTHING. Asking for the full spine and
- * getting a trimmed roster makes the mode a lie, and leaves the finished agents
- * reachable only through a second control inside the view that was supposed to
- * already be showing them. Trimming belongs to the modes that narrow.
- *
- * THE SESSION YOU HAVE OPEN IS NEVER FOLDED AWAY, whatever its phase. A
- * hibernated agent reads as `done` here, but it is still the transcript on
- * screen; a navigator that hides your own position is not a navigator.
+ * The mission header's roster used to fold its finished agents away behind an
+ * "N finished agents" line, because every session the mission ever had hangs
+ * off the header and on a long mission that was a screen of retired rows before
+ * the first task. The redesign answers the same problem one level up instead:
+ * nothing in the spine is hidden by default, settled agents stay at full height
+ * one tier dimmer, and what removes them is the view bar — `Full spine`,
+ * `Active`, `Needs you`. A second, in-view disclosure that hid what the chosen
+ * view had promised to show was the duplication.
  */
-export function rootRoster(
-  sessions: readonly SessionMeta[],
-  opts: { mode: FlightDeckMode; activeSessionId?: string | null; open: boolean },
-): RootRoster {
-  const settled = new Set<string>()
-  if (opts.mode !== 'full') {
-    for (const session of sessions) {
-      if (session.sessionId === opts.activeSessionId) continue
-      const retired = session.archived || session.status === 'exited'
-      if (retired || motionPhase(session) === 'done') settled.add(session.sessionId)
-    }
-  }
-  const foldable = settled.size > ROSTER_FOLD_FLOOR
-  return {
-    shown:
-      !foldable || opts.open
-        ? [...sessions]
-        : sessions.filter((session) => !settled.has(session.sessionId)),
-    hidden: foldable ? settled.size : 0,
-    foldable,
-  }
-}
 
 /**
  * What a session IS on this task — the dim mono word after its name.
@@ -903,8 +1016,64 @@ export function relationNote(
  * Presence stays OUT of this: "session moved to POD-612" and "no session yet"
  * are facts about the agent SLOT, and the slot is where they belong.
  */
+/** Where a proposal will live if it is started as it stands. */
+export type ProposalPlacement = 'own' | 'mission'
+
+export interface ProposalShape {
+  placement: ProposalPlacement
+  /** The issue this proposal came out of, when the replica can resolve it. */
+  originId: string | null
+  originRef: string | null
+}
+
+/**
+ * The SHAPE of a proposal: does starting it keep it here, or send it away?
+ *
+ * The agent that filed the work already answered this — a sub-issue is
+ * decomposition its parent cannot ship without, a spin-off is independent work
+ * with a `discovered-from` edge. It answered it in a CLI litmus test the
+ * operator never sees, and then the operator's Start click inherited that
+ * answer blind (POD-679). This is the answer, in the operator's language, so it
+ * can ride on the strip and be corrected before anything runs.
+ *
+ * Null for a proposal that came from nowhere in particular: a top-level
+ * proposal with no origin has no placement decision to state.
+ */
+export function proposalShape(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): ProposalShape | null {
+  return issue.stage === 'proposed' ? discoveredPlacement(issue, byId) : null
+}
+
+/**
+ * The same reading, at any stage — what the placement IS right now.
+ *
+ * `proposalShape` is the chip's gate (a strip only states a shape while the
+ * decision is still open). The controls need the answer for work that has left
+ * `proposed` too: promoting a proposal to backlog does not decide where it
+ * lives, and a placement chosen wrongly stays correctable after it starts.
+ */
+export function discoveredPlacement(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): ProposalShape | null {
+  const refOf = (id: string | null | undefined): string | null => {
+    const target = id ? byId?.get(id) : undefined
+    return target ? issueDisplayRef(target) : null
+  }
+  const spinOrigin = spinOffOriginId(issue)
+  if (spinOrigin) {
+    return { placement: 'own', originId: spinOrigin, originRef: refOf(spinOrigin) }
+  }
+  if (issue.parentId) {
+    return { placement: 'mission', originId: issue.parentId, originRef: refOf(issue.parentId) }
+  }
+  return null
+}
+
 export interface IssueNote {
-  kind: 'blocked' | 'waiting' | 'relation'
+  kind: 'blocked' | 'waiting' | 'relation' | 'shape-own' | 'shape-mission'
   /** What the strip prints: a display ref, a count, or the authored prose. */
   short: string
   /** The sentence, for the hover title and the accessible name. */
@@ -933,6 +1102,29 @@ export function issueNote(
       short: refs.length === 1 ? (refs[0] as string) : many(),
       full: waitingNote(issue, byId) as string,
     }
+  }
+  // A PROPOSAL SAYS WHERE IT WILL LAND, not where it came from. The provenance
+  // chip ("Discovered from POD-516") is a fact about the past; the operator
+  // reading this strip is about to decide the future, and the sentence names
+  // the consequence rather than the edge type that encodes it.
+  const shape = proposalShape(issue, byId)
+  if (shape) {
+    const origin = shape.originRef
+    return shape.placement === 'own'
+      ? {
+          kind: 'shape-own',
+          short: 'on its own',
+          full: origin
+            ? `Starts on its own — ${origin} can close without it`
+            : 'Starts on its own — the task that found it can close without it',
+        }
+      : {
+          kind: 'shape-mission',
+          short: 'in this mission',
+          full: origin
+            ? `Part of ${origin} — that task is not done until this is`
+            : 'Part of the task that found it — that task is not done until this is',
+        }
   }
   const edge = relationEdge(issue, byId)
   return edge ? { kind: 'relation', short: edge.ref, full: `${edge.verb} ${edge.ref}` } : null
@@ -965,14 +1157,30 @@ export function portfolioActionableCount(
     const owner = session.issueId ?? memberOf.get(session.sessionId)
     if (owner) add(owner, session)
   }
-  return issues.filter(
-    (issue) =>
-      !issue.archived &&
-      !issue.deletedAt &&
-      issue.stage !== 'done' &&
-      !issue.closedReason &&
-      issueNeedsHuman(issue, byIssue.get(issue.id) ?? []),
-  ).length
+  return issues.filter((issue) => issueIsActionable(issue, byIssue.get(issue.id) ?? [])).length
+}
+
+/**
+ * One task, asking something of the operator right now — the predicate behind
+ * every attention count in the product.
+ *
+ * Exported because the number has to be the same number wherever it appears:
+ * the rail badge counts it over the portfolio, the issue explorer's "Needs you"
+ * tab lists exactly the tasks it returns true for. Two surfaces re-deriving
+ * "needs me" independently is how a badge reading 3 comes to sit above a list
+ * of 5.
+ */
+export function issueIsActionable(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionMeta[],
+): boolean {
+  return (
+    !issue.archived &&
+    !issue.deletedAt &&
+    issue.stage !== 'done' &&
+    !issue.closedReason &&
+    issueNeedsHuman(issue, sessions)
+  )
 }
 
 /** How many distinct sessions are leading something in this mission. One agent

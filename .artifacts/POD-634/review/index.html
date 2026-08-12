@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tasks index — polish pass</title>
+    <style>
+      :root {
+        --bg: #0a0f1c;
+        --panel: #121b30;
+        --bar: #050912;
+        --seam: #243356;
+        --hair: #1e2a4c;
+        --ink: #d7d7e0;
+        --ink-strong: #f3f3f8;
+        --muted: #9a9aa8;
+        --dim: #6c7690;
+        --yellow: #f5c518;
+        --blue: #6f9dff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 400 15px/1.6 "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 96px; }
+      header { border-bottom: 1px solid var(--seam); padding-bottom: 24px; margin-bottom: 40px; }
+      .eyebrow {
+        font: 500 9.5px/1 ui-monospace, "Geist Mono Variable", monospace;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.012em; margin: 14px 0 10px; color: var(--ink-strong); }
+      header p { margin: 0; max-width: 62ch; color: var(--muted); }
+      h2 {
+        font-size: 15px; font-weight: 600; color: var(--ink-strong);
+        margin: 56px 0 6px; letter-spacing: -0.004em;
+      }
+      h2:first-of-type { margin-top: 40px; }
+      section > p { margin: 0 0 20px; max-width: 66ch; color: var(--muted); font-size: 14px; }
+      .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .pair.tall { grid-template-columns: 1fr 1fr; align-items: start; }
+      figure { margin: 0; min-width: 0; }
+      figure img {
+        display: block; width: 100%; height: auto;
+        border: 1px solid var(--hair); border-radius: 8px; background: var(--bar);
+      }
+      figcaption {
+        font: 500 9.5px/1 ui-monospace, "Geist Mono Variable", monospace;
+        letter-spacing: 0.12em; text-transform: uppercase;
+        color: var(--dim); padding: 10px 2px 0;
+      }
+      figcaption.after { color: var(--blue); }
+      ul.notes { margin: 18px 0 0; padding: 0; list-style: none; }
+      ul.notes li {
+        border-top: 1px solid var(--hair);
+        padding: 11px 0 11px 0;
+        display: grid; grid-template-columns: 190px 1fr; gap: 20px;
+        font-size: 13.5px; align-items: baseline;
+      }
+      ul.notes li b {
+        font-weight: 500; color: var(--ink-strong); font-size: 13px;
+      }
+      ul.notes li span { color: var(--muted); }
+      code {
+        font: 400 12px ui-monospace, "Geist Mono Variable", monospace;
+        color: var(--ink); background: rgba(255,255,255,0.045);
+        padding: 1px 5px; border-radius: 4px;
+      }
+      .metrics { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 13px; }
+      .metrics th, .metrics td { text-align: left; padding: 9px 14px 9px 0; border-top: 1px solid var(--hair); }
+      .metrics th {
+        font: 500 9.5px/1 ui-monospace, "Geist Mono Variable", monospace;
+        letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
+        border-top: 0; padding-bottom: 12px;
+      }
+      .metrics td.n { font-family: ui-monospace, "Geist Mono Variable", monospace; font-variant-numeric: tabular-nums; }
+      .metrics td.was { color: var(--dim); }
+      .metrics td.now { color: var(--ink-strong); }
+      .open { color: var(--muted); font-size: 13.5px; }
+      .open b { color: var(--ink-strong); font-weight: 500; }
+      @media (max-width: 860px) { .pair { grid-template-columns: 1fr; } ul.notes li { grid-template-columns: 1fr; gap: 4px; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="eyebrow">POD-634 · tasks index</div>
+        <h1>The board stops leaning, and the list rejoins it</h1>
+        <p>
+          Shot against the live board with its real 180-task backlog. The first pass on this
+          issue scaled the card up about a pixel everywhere; this one goes after the things
+          that were making it read as assembled rather than composed — one left edge per
+          column, separation that distinguishes a card from its neighbours, and the list
+          layout brought onto the board's vocabulary.
+        </p>
+      </header>
+
+      <section>
+        <h2>The whole board</h2>
+        <p>
+          Every card now sits the same distance from both edges of its column, and more
+          titles fit on one line, so a column scans as a stack rather than a wall.
+        </p>
+        <div class="pair">
+          <figure>
+            <img src="board-before-wide.png" alt="The task board before the pass" />
+            <figcaption>before</figcaption>
+          </figure>
+          <figure>
+            <img src="board-after-wide.png" alt="The task board after the pass" />
+            <figcaption class="after">after</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section>
+        <h2>One column, close up</h2>
+        <p>
+          The card was leaning right: <code>scrollbar-gutter: stable</code> reserves its
+          15px <em>inside</em> the padding box, so every card sat 12px from the left of its
+          column and 28px from the right. The column now scrolls the way the sidebar's work
+          list does, and the gutter it gives back goes to the cards.
+        </p>
+        <div class="pair tall">
+          <figure>
+            <img src="column-before.png" alt="A board column before" />
+            <figcaption>before</figcaption>
+          </figure>
+          <figure>
+            <img src="column-after.png" alt="A board column after" />
+            <figcaption class="after">after</figcaption>
+          </figure>
+        </div>
+        <table class="metrics">
+          <tr><th>What</th><th>Was</th><th>Now</th><th>Why</th></tr>
+          <tr>
+            <td>Card inset, left / right</td>
+            <td class="n was">12 / 28</td><td class="n now">12 / 12</td>
+            <td>The single visible tell that nothing on the board was measured.</td>
+          </tr>
+          <tr>
+            <td>Left edges per column</td>
+            <td class="n was">4</td><td class="n now">1</td>
+            <td>Stage glyph, card edge and the <code>+</code> now share one line.</td>
+          </tr>
+          <tr>
+            <td>Gap between cards</td>
+            <td class="n was">8</td><td class="n now">10</td>
+            <td rowspan="2">
+              They were equal, so the three parts of a card stood as far apart as two
+              cards did and the column read as loose lines.
+            </td>
+          </tr>
+          <tr>
+            <td>Gap inside a card</td>
+            <td class="n was">8</td><td class="n now">6</td>
+          </tr>
+          <tr>
+            <td>Fleet tile</td>
+            <td class="n was">18</td><td class="n now">16</td>
+            <td>A saturated terracotta square was out-shouting the title.</td>
+          </tr>
+          <tr>
+            <td>Sizes in the meta row</td>
+            <td class="n was">4</td><td class="n now">2</td>
+            <td>10px for what is read, 9.5px for the uppercase tokens.</td>
+          </tr>
+        </table>
+      </section>
+
+      <section>
+        <h2>Hover, and the one decision on a proposal</h2>
+        <p>
+          Approve is inset to the card's own padding now, and the fade that clears a wrapped
+          title runs 56px instead of 24 — the text recedes under the button rather than
+          stopping dead beside it.
+        </p>
+        <div class="pair tall">
+          <figure>
+            <img src="column-before-hover.png" alt="Hover and Approve, before" />
+            <figcaption>before</figcaption>
+          </figure>
+          <figure>
+            <img src="column-after-hover.png" alt="Hover and Approve, after" />
+            <figcaption class="after">after</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section>
+        <h2>Selection, focus, drag</h2>
+        <p>
+          A selected card used to get <em>darker</em> under the cursor — hover and selection
+          each wrote one background class, and the variant won on source order, so the card
+          visibly deselected itself. Hover is conditioned on the selection now and steps up
+          from it. Drag is unchanged and still lands where the line says.
+        </p>
+        <div class="pair tall">
+          <figure>
+            <img src="column-states.png" alt="Two selected cards and one keyboard-focused card" />
+            <figcaption class="after">after · two selected, one focused</figcaption>
+          </figure>
+          <figure>
+            <img src="board-drag.png" alt="A card mid-drag with the drop line open" />
+            <figcaption class="after">after · mid-drag, drop line open</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section>
+        <h2>The list layout</h2>
+        <p>
+          The board was rebuilt at POD-591 and the list was left on the older vocabulary:
+          a translucent blurred group bar, a US month/day date next to the board's
+          <code>1d</code>, an ID set in sans, a violet Epic pill from outside the palette,
+          and yellow for both hover-selection and the focus ring — two spends of the one
+          voice the design reserves for "this needs you".
+        </p>
+        <div class="pair tall">
+          <figure>
+            <img src="list-before-states.png" alt="The list layout before, with yellow selection and focus ring" />
+            <figcaption>before</figcaption>
+          </figure>
+          <figure>
+            <img src="list-states.png" alt="The list layout after" />
+            <figcaption class="after">after</figcaption>
+          </figure>
+        </div>
+        <ul class="notes">
+          <li><b>Group header</b><span>The board's column header exactly: same 36px datum, glyph, 12/600 label, 10px mono count, same <code>+</code>.</span></li>
+          <li><b>States</b><span>The issue-colour channel for hover, selection and the focus ring — the same three states the board card runs.</span></li>
+          <li><b>Machine voice</b><span>Ref, counts, due and age all mono; <code>epic</code> and <code>deleted</code> are the board's tokens rather than pills.</span></li>
+          <li><b>One left edge</b><span>The disclosure slot is always drawn, so a parent no longer pushes its own row 20px right of every leaf around it.</span></li>
+          <li><b>One clock</b><span><code>Aug 10</code> became <code>33m</code> — the board's words for the same fact.</span></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Left alone, on purpose</h2>
+        <p class="open">
+          <b>Stage glyph colours.</b> Proposed is fuchsia and Done is green, neither of which
+          is in the Superade palette. They are shared by the board, the list, the sidebar and
+          the task page, so re-hueing them is its own change with its own before/after —
+          filed rather than smuggled into a spacing pass.
+        </p>
+        <p class="open">
+          <b>Card radius and title ink.</b> 9px and <code>--issue-bright</code> are the
+          system's own derivations, not drift; nothing about them was reading as a defect.
+        </p>
+      </section>
+    </div>
+  </body>
+</html>

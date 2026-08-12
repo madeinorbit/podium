@@ -53,6 +53,44 @@ describe('AskQuestionCard', () => {
     )
   })
 
+  // POD-770 — per-option `preview` text swaps the NATIVE dialog for a layout with
+  // no Other row, where the Other script silently commits option 1 and drops the
+  // typed answer. The card ships the fact that produces it, as it does multiSelect.
+  const previewed = ask([
+    {
+      question: 'Pick an approach',
+      options: [
+        { label: 'Alpha', preview: 'the alpha design' },
+        { label: 'Beta', preview: 'the beta design' },
+      ],
+    },
+  ])
+
+  it('marks a previewed question previewLayout, on both the option and the free-text route', async () => {
+    const onAnswer = vi.fn(async () => {})
+    const view = render(<AskQuestionCard item={previewed} live onAnswer={onAnswer} />)
+
+    fireEvent.click(screen.getByLabelText('Beta'))
+    await waitFor(() =>
+      expect(onAnswer).toHaveBeenCalledWith({
+        choices: [{ optionIndices: [2], previewLayout: true }],
+      }),
+    )
+
+    view.unmount()
+    const onTyped = vi.fn(async () => {})
+    render(<AskQuestionCard item={previewed} live onAnswer={onTyped} />)
+    fireEvent.change(screen.getByLabelText('Type your own answer'), {
+      target: { value: 'neither — do gamma' },
+    })
+    fireEvent.click(screen.getByLabelText('Send answer'))
+    await waitFor(() =>
+      expect(onTyped).toHaveBeenCalledWith({
+        choices: [{ freeText: 'neither — do gamma', otherIndex: 3, previewLayout: true }],
+      }),
+    )
+  })
+
   it('skips the whole dialog without any choices', async () => {
     const onAnswer = vi.fn(async () => {})
     render(<AskQuestionCard item={single} live onAnswer={onAnswer} />)

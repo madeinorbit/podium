@@ -50,7 +50,7 @@
  */
 
 import { sql } from 'drizzle-orm'
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
  * THE CHANGE LOG — the one global sequence (ADR 2 D2).
@@ -112,6 +112,57 @@ export const changes = sqliteTable(
   (table) => [
     index('changes_entity').on(table.entity, table.entityId, table.seq),
     index('changes_event_time').on(table.eventTime),
+  ],
+)
+
+/**
+ * THE INSTALLED WORLD — the latest upsert per (entity, id), kept COMPLETE.
+ *
+ * `changes` answers two questions that have different retention needs, and
+ * POD-678 is what happens when one table tries to serve both. "What changed
+ * since seq N?" is a WINDOW: it may be bounded, because a replica that falls
+ * outside it re-bootstraps. "What is there?" is a WORLD: it may not be bounded,
+ * because there is nothing behind it to fall back to. Head-pruning the log
+ * (ADR 2 D5) is correct for the window and silently destroys the world — the
+ * 20k row budget bit after ~27 hours on the live install, so `latestChangeStates`
+ * folded 66 of 631 issues and every client that attached after that rendered the
+ * other 565 as unknown references.
+ *
+ * So the world lives here instead, as a MATERIALIZED projection of the log:
+ * `appendChanges` upserts a row for every `upsert` and deletes it for every
+ * `remove`, in the same transaction that appends the change, and retention never
+ * touches this table. Size is O(live entities) rather than O(history).
+ *
+ * NOT A SECOND AUTHORITY, and the two properties that keep it from becoming one:
+ * it has exactly ONE writer (`SyncRepository.appendChanges` — the same seam that
+ * is already the log's only writer), and it is written INSIDE that append's
+ * transaction, so a crash cannot leave the world describing a change the log does
+ * not have or vice versa. Reading a projection is not owning a truth.
+ *
+ * ONLY LIVE UPSERTS. A `remove` deletes the row rather than storing a tombstone,
+ * because every consumer of the fold — the bootstrap read, the dedup baseline
+ * seed, the visibility read cache — already skips non-upsert rows. A tombstone
+ * would be a row that exists so that everyone can ignore it, and would grow
+ * without bound in exactly the dimension this table has to stay small in.
+ *
+ * `seq` is carried (not derived) because a bootstrap row is a POSITION in the one
+ * global sequence as well as a value, and the fold is read in seq order so a
+ * replica installs the world in the order it was written.
+ */
+export const changeLatest = sqliteTable(
+  'change_latest',
+  {
+    entity: text().notNull(),
+    entityId: text('entity_id').notNull(),
+    /** The seq of the append that last upserted this entity. */
+    seq: integer().notNull(),
+    /** The entity's wire JSON, serialized. Never NULL — removes delete the row. */
+    payload: text().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.entity, table.entityId] }),
+    /** The fold is read in seq order — the order a replica installs in. */
+    index('change_latest_seq').on(table.seq),
   ],
 )
 

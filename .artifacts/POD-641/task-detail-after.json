@@ -1,0 +1,252 @@
+{
+  "wide": {
+    "url": "http://127.0.0.1:4318/issues/iss_cac76cc0-afed-447f-8425-c1095c4c695f?e2e=1",
+    "aside": {
+      "width": 296,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "letterSpacing": "normal"
+    },
+    "now": {
+      "width": 784,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "letterSpacing": "normal"
+    },
+    "status": "created 22h ago·updated 5m agoagent-created",
+    "nowRows": 2,
+    "relationsLabel": null,
+    "machineLabels": [
+      {
+        "text": "quota",
+        "fontSize": "0px"
+      },
+      {
+        "text": "podium",
+        "fontSize": "10.5px"
+      },
+      {
+        "text": "",
+        "fontSize": "10.5px"
+      },
+      {
+        "text": "agent-created",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Now",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Brief",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Todo",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Artifacts",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Deferred",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Sub-tasks",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Mail",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Sessions",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Branch",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Relations",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Spun off from",
+        "fontSize": "10px"
+      },
+      {
+        "text": "More fields",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Activity",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Assistant",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Today",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Sessions",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Branch",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Relations",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Spun off from",
+        "fontSize": "10px"
+      },
+      {
+        "text": "More fields",
+        "fontSize": "10px"
+      },
+      {
+        "text": "12h",
+        "fontSize": "8px"
+      },
+      {
+        "text": "peak 17",
+        "fontSize": "8px"
+      }
+    ],
+    "docScrollWidth": 1976
+  },
+  "narrow": {
+    "url": "http://127.0.0.1:4318/issues/iss_cac76cc0-afed-447f-8425-c1095c4c695f?e2e=1",
+    "aside": {
+      "width": 272,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "letterSpacing": "normal"
+    },
+    "now": {
+      "width": 256,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "letterSpacing": "normal"
+    },
+    "status": "created 22h ago·updated 5m agoagent-created",
+    "nowRows": 2,
+    "relationsLabel": null,
+    "machineLabels": [
+      {
+        "text": "quota",
+        "fontSize": "0px"
+      },
+      {
+        "text": "podium",
+        "fontSize": "10.5px"
+      },
+      {
+        "text": "",
+        "fontSize": "10.5px"
+      },
+      {
+        "text": "agent-created",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Now",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Brief",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Todo",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Artifacts",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Deferred",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Sub-tasks",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Mail",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Sessions",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Branch",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Relations",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Spun off from",
+        "fontSize": "10px"
+      },
+      {
+        "text": "More fields",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Activity",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Assistant",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Today",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Sessions",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Branch",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Relations",
+        "fontSize": "10px"
+      },
+      {
+        "text": "Spun off from",
+        "fontSize": "10px"
+      },
+      {
+        "text": "More fields",
+        "fontSize": "10px"
+      },
+      {
+        "text": "12h",
+        "fontSize": "8px"
+      },
+      {
+        "text": "peak 17",
+        "fontSize": "8px"
+      }
+    ],
+    "docScrollWidth": 900
+  }
+}

@@ -58,12 +58,17 @@ function LifecycleButton({
   compact,
   className,
   variant,
+  size,
 }: {
   action: LifecycleAction
   sessionId: SessionId
   compact: boolean
   className?: string
   variant?: 'default' | 'secondary' | 'outline' | 'ghost'
+  /** Overrides the size `compact` would pick. The state bar is chrome at the
+   *  status strip's own height, so its control is an xs cell inside it rather
+   *  than a 28px button filling the bar edge to edge. */
+  size?: 'sm' | 'xs'
 }): JSX.Element {
   const { resurrectSession, killSession } = useStoreSelector(
     (s) => ({ resurrectSession: s.resurrectSession, killSession: s.killSession }),
@@ -75,7 +80,7 @@ function LifecycleButton({
     <Button
       type="button"
       {...(variant ? { variant } : {})}
-      {...(compact ? { size: 'sm' as const } : {})}
+      {...(size ? { size } : compact ? { size: 'sm' as const } : {})}
       {...(className ? { className } : {})}
       disabled={busy}
       data-testid={`lifecycle-${action.id}`}
@@ -148,45 +153,98 @@ export function ExitedPane(props: ExitedProps): JSX.Element {
 }
 
 /** Thin bar over an exited session's (read-only) transcript: says the process is
- *  gone but keeps the conversation readable, with resume/restart or remove. */
-export function ExitedBanner(props: ExitedProps): JSX.Element {
+ *  gone but keeps the conversation readable, with resume/restart or remove.
+ *  Shares `.pane-state-bar` with the hibernated one — they are the same object
+ *  reporting two versions of the same fact, and used to be two differently
+ *  tinted slabs (POD-747). Only the tone differs, and it is carried by the glyph
+ *  and the state's own word, never by a fill. */
+export function ExitedBanner(props: ExitedProps & { waking?: boolean }): JSX.Element {
   const { detail, action } = exitedAction(props)
+  // Same rule as the hibernated bar (POD-762): a wake already in flight is
+  // reported, not offered again. It also stops being a FAULT while it runs —
+  // the process is on its way back, which is the parked tone, not the warning
+  // ink an exit earns.
+  if (props.waking) return <WakingBar mark={<RotateCcw size={13} strokeWidth={1.7} />} />
   return (
-    // items-start (not -center) so the action stays put when the notice wraps to
-    // a second line — a spawn-failure message carries the daemon's diagnosis and
-    // runs longer than a bare exit line.
-    <div className="flex shrink-0 items-start gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
-      <RotateCcw size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
-      <span className="min-w-0 flex-1">{detail} Transcript is read-only.</span>
+    <div className="pane-state-bar" data-tone="fault">
+      <span className="pane-state-bar-mark" aria-hidden="true">
+        <RotateCcw size={13} strokeWidth={1.7} />
+      </span>
+      <span className="pane-state-bar-copy">{detail} Transcript is read-only.</span>
       <LifecycleButton
         action={action}
         sessionId={props.sessionId}
         compact
+        size="xs"
         variant={action.id === 'remove' ? 'ghost' : 'outline'}
-        className={
-          action.id === 'remove'
-            ? 'shrink-0'
-            : 'shrink-0 border-warning/50 text-warning hover:bg-warning/10 hover:text-warning'
-        }
+        className="shrink-0"
       />
     </div>
   )
 }
 
-/** Thin bar over a hibernated session's (read-only) transcript: explains the
- *  state and offers one-click resume, without hiding the conversation. */
-export function HibernatedBanner({ sessionId }: { sessionId: SessionId }): JSX.Element {
-  const action = recoveryAction('parked', 'resume')
+/**
+ * The state bar while a wake is in flight — the SAME object as the two below,
+ * in the parked tone, with the state's own word in strong ink and the glyph
+ * pulsing because this state is the one that ends by itself (POD-762).
+ *
+ * It is a live region: unlike "Hibernated" or "Exited", which are true when you
+ * arrive, this one appears in answer to a key the operator just pressed.
+ */
+function WakingBar({ mark, queuedCount = 0 }: { mark: JSX.Element; queuedCount?: number }) {
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary">
-      <Moon size={14} aria-hidden="true" />
-      <span className="min-w-0 flex-1">Hibernated — transcript is read-only until you resume.</span>
+    <div className="pane-state-bar" data-tone="parked" role="status">
+      <span className="pane-state-bar-mark animate-pulse" aria-hidden="true">
+        {mark}
+      </span>
+      <span className="pane-state-bar-copy">
+        <span className="pane-state-bar-word">Waking</span> the agent — your{' '}
+        {queuedCount > 1 ? `${queuedCount} messages send` : 'message sends'} as soon as it&apos;s
+        ready.
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Thin bar over a hibernated session's (read-only) transcript: explains the
+ * state and offers one-click resume, without hiding the conversation.
+ *
+ * ONCE A MESSAGE IS WAITING THE BAR STOPS OFFERING THE WAKE (POD-762) and
+ * reports it instead. The offer would be a lie — the wake is already running,
+ * the button would queue nothing, and the operator who just pressed Enter is
+ * looking here for confirmation that something happened. `waking` is the
+ * server's own queue depth, so the bar reads the same after a reload and after
+ * a trip through three other issues.
+ */
+export function HibernatedBanner({
+  sessionId,
+  waking = false,
+  queuedCount = 0,
+}: {
+  sessionId: SessionId
+  waking?: boolean
+  queuedCount?: number
+}): JSX.Element {
+  const action = recoveryAction('parked', 'resume')
+  if (waking)
+    return <WakingBar mark={<Moon size={13} strokeWidth={1.7} />} queuedCount={queuedCount} />
+  return (
+    <div className="pane-state-bar" data-tone="parked">
+      <span className="pane-state-bar-mark" aria-hidden="true">
+        <Moon size={13} strokeWidth={1.7} />
+      </span>
+      <span className="pane-state-bar-copy">
+        <span className="pane-state-bar-word">Hibernated</span> — transcript is read-only until you
+        resume.
+      </span>
       <LifecycleButton
         action={action}
         sessionId={sessionId}
         compact
+        size="xs"
         variant="outline"
-        className="shrink-0 border-primary/50 text-primary hover:bg-primary/10 hover:text-primary"
+        className="shrink-0"
       />
     </div>
   )

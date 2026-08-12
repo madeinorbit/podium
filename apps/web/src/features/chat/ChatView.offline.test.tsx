@@ -1,4 +1,10 @@
-import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
+import {
+  asSessionId,
+  type SessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+  type TranscriptItem,
+} from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -71,6 +77,7 @@ vi.mock('@/app/store', () => {
     drafts: {},
     setSessionDraft: vi.fn(),
     resumeAndSend: vi.fn(async () => {}),
+    setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     tldrSession: vi.fn(),
@@ -172,7 +179,7 @@ describe('ChatView offline transcript copy', () => {
     })
     await flush()
     expect(container.querySelector('[data-notice="offline"]')).toBeNull()
-    expect(container.textContent).toContain('No transcript yet')
+    expect(container.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
   })
 
   it('writes a successful read through into the replica and shows no notice', async () => {
@@ -225,5 +232,123 @@ describe('ChatView offline transcript copy', () => {
     await flush()
     expect(container.textContent).toContain('fresh from server')
     expect(container.querySelector('[data-notice="offline"]')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// CACHE-FIRST (POD-700). The same cached window the offline path falls back to
+// is also the fastest thing this pane can paint when the server IS reachable:
+// the read costs p50 545ms and up to 8.7s on a cold panel open, and the pane
+// used to hold nothing for all of it. Seeding is a first-frame paint, not a
+// fallback, so it must not borrow any of the offline path's other claims.
+// ---------------------------------------------------------------------------
+describe('ChatView cache-first transcript', () => {
+  it('paints the cached window before the read resolves, with no offline notice', async () => {
+    fakeReplica.windows.set('s1', {
+      items: [item('a', 'c1', 'cached hello')],
+      savedAt: Date.parse('2026-07-01T10:00:00.000Z'),
+    })
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    // The read is in flight and has answered nothing yet.
+    expect(reads).toHaveLength(1)
+    expect(container.textContent).toContain('cached hello')
+    // Not the offline path: the server was never unreachable, so no notice.
+    expect(container.querySelector('[data-notice="offline"]')).toBeNull()
+    // And not the cold state either — there is real content on screen.
+    expect(container.querySelector('[data-testid="transcript-cold"]')).toBeNull()
+  })
+
+  it('lets the read reconcile the seed rather than replacing the pane', async () => {
+    fakeReplica.windows.set('s1', {
+      items: [item('a', 'c1', 'cached hello')],
+      savedAt: Date.now(),
+    })
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [item('a', 'c1', 'cached hello'), item('b', 'c2', 'newer turn')],
+        head: 'c1',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+    // The seed is not duplicated by the read that supersedes it.
+    expect(container.textContent).toContain('newer turn')
+    expect(container.textContent?.match(/cached hello/g)).toHaveLength(1)
+  })
+
+  it('shows the cold transcript when the session has never been read here', async () => {
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    expect(container.querySelector('[data-testid="transcript-cold"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="transcript-empty-state"]')).toBeNull()
+  })
+
+  // The cache answers "what did we read last time", never "does this conversation
+  // have anything in it" — only the read settles that. A seeded pane whose read
+  // comes back empty must still be able to reach the terminal empty state.
+  it('leaves the empty answer to the read, not to the cache', async () => {
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await act(async () => {
+      reads[0]?.resolve({ items: [], hasMore: false })
+    })
+    await flush()
+    expect(container.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="transcript-cold"]')).toBeNull()
+  })
+
+  // Back-paging needs an anchor, and the anchor arrives with the read. A seeded
+  // pane must not offer a page it would refuse to fetch.
+  it('offers no earlier-transcript pager until the read supplies an anchor', async () => {
+    fakeReplica.windows.set('s1', {
+      items: [item('a', 'c1', 'cached hello')],
+      savedAt: Date.now(),
+    })
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    expect(container.textContent).toContain('cached hello')
+    expect(container.querySelector('.transcript-pager')).toBeNull()
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [item('a', 'c1', 'cached hello')],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: true,
+      })
+    })
+    await flush()
+    // With an anchor in hand it is a real affordance again.
+    expect(container.querySelector('.transcript-pager')).not.toBeNull()
+  })
+
+  // A seeded window has no live subscription behind it, so re-activating a pane
+  // that only ever painted from cache must still go to the server.
+  it('does not let a seeded window stand in for a re-read on re-activation', async () => {
+    fakeReplica.windows.set('s1', {
+      items: [item('a', 'c1', 'cached hello')],
+      savedAt: Date.now(),
+    })
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} active={false} />)
+    })
+    await act(async () => {
+      reads[0]?.reject(new Error('still starting up'))
+    })
+    await flush()
+    const before = reads.length
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} active={true} />)
+    })
+    await flush()
+    expect(reads.length).toBeGreaterThan(before)
   })
 })

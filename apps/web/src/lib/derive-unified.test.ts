@@ -1106,7 +1106,9 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
     )
     const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
     expect(deepAttentionSource(rootRow)).toMatchObject({ depth: 2 })
-    expect(rowStatusLine(rootRow, NOW)).toBe('2 agents · working · deep: #3 needs you')
+    // No head-count: a row saying both "working" and where the ask is has spent
+    // its width, and the fleet stack already shows how many agents (POD-703).
+    expect(rowStatusLine(rootRow, NOW)).toBe('working · deep: #3 needs you')
     // A depth-capped child (visibleDepth 0) whispers even for a direct child source.
     const midRow = (rootRow.startedByChildren ?? [])[0] as Extract<
       UnifiedWorkRow,

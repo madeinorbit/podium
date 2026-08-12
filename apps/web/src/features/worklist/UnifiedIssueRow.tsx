@@ -5,6 +5,7 @@ import {
   missionProgress,
   pendingDecisionLabel,
   pendingDecisionTitle,
+  rowHasWorkingSession,
   rowMotionPhase,
   rowMotionTiming,
   rowPendingDecision,
@@ -13,7 +14,7 @@ import {
   rowWaitingCount,
   type UnifiedIssueRow as UnifiedIssueRowView,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueColorSlot, IssueId, SessionId, SessionMeta } from '@podium/model'
+import type { IssueColorSlot, IssueId, SessionId, SessionMeta } from '@podium/model'
 import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { AlarmClock, Pin } from 'lucide-react'
@@ -21,125 +22,16 @@ import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEv
 import { useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
+import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
-import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { issueColorHex } from '@/lib/issueColors'
-import { PhaseTimer } from '@/lib/motion'
+import { BrailleSpinner, PhaseTimer } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
-import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { RowProgressMeter } from './row-progress'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
-
-/** How many distinct harness tiles a fleet stack shows before the total alone
- *  carries the rest. The approved artifact stacks kinds, not agents — three is
- *  what its widest mission renders. */
-const FLEET_KIND_LIMIT = 3
-
-/**
- * The mission's execution presence, in the approved artifact's `fleet-summary`
- * anatomy: a stack of REAL harness-kind tiles, the live agent total once there
- * is more than one, and `×N` for native (in-process Task) children.
- *
- * Kinds, not sessions. A nine-agent mission running three harnesses shows three
- * tiles and a `9`, not nine tiles — the question the stack answers is "who is
- * here", and the number answers "how many". Everything is client-derived from
- * the row's bubbled session set; nothing is stored on the issue.
- */
-function FleetSummary({
-  sessions,
-  unread = false,
-}: {
-  sessions: SessionMeta[]
-  /** An unopened update since last read (POD-293): a single info dot on the
-   *  agent identity, not a shouted banner. Bound to the fleet glyph so it reads
-   *  as "this agent has something new", never a free-floating third dot. */
-  unread?: boolean
-}): JSX.Element | null {
-  const live = sessions.filter(
-    (session) =>
-      !session.archived && session.status !== 'exited' && session.status !== 'hibernated',
-  )
-  if (live.length === 0) return null
-  const kinds: AgentKind[] = []
-  for (const session of live) {
-    if (!kinds.includes(session.agentKind)) kinds.push(session.agentKind)
-  }
-  const shown = kinds.slice(0, FLEET_KIND_LIMIT)
-  const nativeCount = live.reduce(
-    (sum, session) => sum + (session.agentState?.nativeSubagentCount ?? 0),
-    0,
-  )
-  // The artifact's tooltip, verbatim in structure: the two facts the stack
-  // itself compresses. Leads are not in it — a coordinator is the Flight Deck's
-  // fact, and repeating it here spent a third clause on a glyph cluster.
-  const label = `${live.length} live agent${live.length === 1 ? '' : 's'}${
-    nativeCount > 0 ? ` · ${nativeCount} native children` : ''
-  }`
-  return (
-    <span
-      className="ml-0.5 flex flex-none items-center gap-[5px]"
-      role="img"
-      aria-label={label}
-      title={label}
-      data-testid="issue-fleet-summary"
-    >
-      <span className="flex items-center pl-1">
-        {shown.map((kind, index) => {
-          const AgentIcon = agentIconFor(kind)
-          // Per-kind tint (POD-293): Claude wears its clay, other harnesses a
-          // quiet navy — solid fills so stacked tiles don't ghost through each
-          // other. A table keyed by kind, not a comparison (see @/lib/agent-tone).
-          const tileTint = agentFleetTileTint(kind)
-          // The row's unopened-update dot rides the corner of the LAST tile (the
-          // artifact's `.fleet-tile .dot`): tight to the glyph at -3px, ringed in
-          // the row background — "this fleet has something new", not a third
-          // free-floating mark.
-          const showDot = unread && index === shown.length - 1
-          return (
-            <span
-              key={kind}
-              data-agent-kind={kind}
-              className={cn(
-                'relative flex size-[19px] items-center justify-center rounded-[6px] border',
-                tileTint,
-                index > 0 && '-ml-[5px]',
-              )}
-              style={{ zIndex: index + 1 }}
-            >
-              {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
-              {showDot && (
-                <span
-                  className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,var(--sidebar))] bg-info"
-                  data-testid="row-unread-dot"
-                  aria-hidden="true"
-                />
-              )}
-            </span>
-          )
-        })}
-      </span>
-      {live.length > 1 && (
-        <span
-          className="shell-type-micro font-mono tabular-nums text-muted-foreground"
-          data-testid="issue-fleet-total"
-        >
-          {live.length}
-        </span>
-      )}
-      {nativeCount > 0 && (
-        <span
-          className="shell-type-micro rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-claude"
-          data-testid="issue-fleet-subagent-count"
-        >
-          ×{nativeCount}
-        </span>
-      )}
-    </span>
-  )
-}
 
 /** Lineage flash (POD-85): briefly outline another issue's row — provenance as
  *  a gesture when a spin-off is selected, not persistent chrome. DOM-level on
@@ -225,6 +117,11 @@ export function UnifiedIssueRow({
   // here, so the fleet stack reads the bubbled aggregate.
   const fleetSessions = row.aggregateSessions ?? mine
   const phase = rowMotionPhase(row)
+  // Is an agent on this mission computing right now? NOT the same question as
+  // the phase, which an ask outranks — and the row is the mission's only line
+  // here, so the phase alone left a running fleet reading as stillness
+  // (POD-703). This is the predicate every working texture below gates on.
+  const working = rowHasWorkingSession(row)
   // What this row is asking of the human, if anything (POD-279).
   const decision = rowPendingDecision(row)
   const waitingCount = rowWaitingCount(row)
@@ -246,6 +143,11 @@ export function UnifiedIssueRow({
       state={phase}
       selected={active}
       size={30}
+      // The corner badge punches out of the ROW's own ground, not the card tier
+      // it used to assume — a white ring around the dot was visible on every
+      // paper row. `--row-bg` is set by the tinted-row case in WorkRowShell; the
+      // fallback covers plain and selected rows, whose ground is the column.
+      ringColor="var(--row-bg, var(--sidebar))"
       // The ask wins the corner (amber dot); otherwise a working row shows the
       // blue spinner badge on the square itself (POD-293), not beside line 2.
       badge={waitingCount > 0 ? { kind: 'dot' } : phase === 'working' ? { kind: 'spinner' } : null}
@@ -294,28 +196,43 @@ export function UnifiedIssueRow({
         label={label}
         onTuck={onTuck}
         statusLine={
-          decision !== null ? (
-            // The one word that answers "what is being asked of me here" — a
-            // merge states its commit count so the row is a fact, not a mood
-            // (POD-279). It is the row's single amber voice (POD-293): plain
-            // weighted text, no box, no icon — the boxed chip made every review
-            // row shout. The git stamp's own "N commits ahead" is suppressed
-            // below: one voice per region (DESIGN.md, The Signal Rule).
-            <span
-              data-testid={decision === 'merge' ? 'awaiting-merge-status' : 'needs-review-status'}
-              data-decision={decision}
-              title={pendingDecisionTitle(issue, decision)}
-              className="flex-none font-semibold text-attention"
-            >
-              {pendingDecisionLabel(issue, decision)}
-            </span>
-          ) : (
-            // Nothing below this row renders (the mission's tree is the Flight
-            // Deck's), so the status line reports at visible depth 0: an ask
-            // buried three levels down names its source instead of a bare
-            // "needs you" with no visible row to explain it.
-            rowStatusLine(row, now, 0)
-          )
+          <>
+            {/* THE ONE WORKING MARK ON A ROW THAT IS ALSO ASKING (POD-703). The
+                square's corner belongs to the ask (The Signal Rule), so when
+                both are true the spinner comes back to line 2 — the place
+                POD-293 moved it away from precisely because the square already
+                carried it. There is no duplication here: the square is amber,
+                so this is the row's only "an agent is computing" mark, in the
+                motion grammar's own device and its calm blue. */}
+            {working && phase !== 'working' && (
+              // `.spb` already paints itself `--motion-working`, so the glyph
+              // stays calm blue inside a dim waiting lockup without a prop.
+              <BrailleSpinner size={9} className="mr-1" />
+            )}
+            {decision !== null ? (
+              // The one word that answers "what is being asked of me here" — a
+              // merge states its commit count so the row is a fact, not a mood
+              // (POD-279). It is the row's single amber voice (POD-293): plain
+              // weighted text, no box, no icon — the boxed chip made every
+              // review row shout. The git stamp's own "N commits ahead" is
+              // suppressed below: one voice per region (DESIGN.md, The Signal
+              // Rule).
+              <span
+                data-testid={decision === 'merge' ? 'awaiting-merge-status' : 'needs-review-status'}
+                data-decision={decision}
+                title={pendingDecisionTitle(issue, decision)}
+                className="flex-none font-semibold text-attention"
+              >
+                {pendingDecisionLabel(issue, decision)}
+              </span>
+            ) : (
+              // Nothing below this row renders (the mission's tree is the Flight
+              // Deck's), so the status line reports at visible depth 0: an ask
+              // buried three levels down names its source instead of a bare
+              // "needs you" with no visible row to explain it.
+              rowStatusLine(row, now, 0)
+            )}
+          </>
         }
         hex={hex}
         phase={phase}
@@ -329,7 +246,7 @@ export function UnifiedIssueRow({
             sinceMs={timing.sinceMs}
             baseMs={timing.baseMs ?? 0}
             totalMs={timing.totalMs}
-            size={11}
+            size={10}
             showSpinner={false}
             plainLanguage
             leadingSeparator
@@ -339,9 +256,12 @@ export function UnifiedIssueRow({
         }
         // The row's baseline progress rule (POD-516 round 3). Renders only where
         // there is a real done/total — a mission of two tasks or more — and the
-        // running segment sweeps only while `phase` says an agent on this row is
-        // genuinely computing, which is the same gate as the square's spinner.
-        meter={<RowProgressMeter progress={progress} working={phase === 'working'} />}
+        // running segment sweeps only while an agent on this row is genuinely
+        // computing. That predicate is `rowHasWorkingSession`, which is what
+        // DESIGN.md §Motion sanctions this sweep on; gating it on the row's
+        // PHASE instead meant a concurrent ask froze the meter of a mission that
+        // was still running (POD-703).
+        meter={<RowProgressMeter progress={progress} working={working} />}
         active={draftAgentOnly ? active && paneA === first?.sessionId : active}
         gitStamp={
           issue.gitState && (
@@ -396,7 +316,13 @@ export function UnifiedIssueRow({
                 internal
               </span>
             )}
-            {!draftAgentOnly && <FleetSummary sessions={fleetSessions} unread={unread} />}
+            {/* One rule, no exceptions: an agent on this issue or anywhere in its
+                subtree shows here. Drafts used to be carved out on the grounds
+                that their row already WAS the agent — true when the sidebar was
+                the only column, but the Flight Deck owns the tree now and the
+                draft row kept nothing but an issue square, so the one row that
+                is purely an agent was the one row that never named one. */}
+            <IssueFleetSummary sessions={fleetSessions} unread={unread} className="ml-0.5" />
             {issue.pinned && (
               <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}

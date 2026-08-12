@@ -21,6 +21,7 @@ import {
   issueNeedsHuman,
   issueNote,
   type MissionProgress,
+  missionDepartures,
   missionIssueIds,
   missionProgress,
   missionRootFor,
@@ -31,7 +32,6 @@ import {
   portfolioActionableCount,
   presenceNote,
   relationNote,
-  rootRoster,
   sessionNeedsHuman,
   waitingNote,
 } from './mission'
@@ -261,6 +261,125 @@ describe('missionIssueIds', () => {
     ]
     const sessions = [sess('s-c1', { issueId: 'c1' })]
     expect([...missionIssueIds(issues, 'root', sessions)].sort()).toEqual(['c1', 'root'])
+  })
+
+  /**
+   * The case above passes for the wrong reason on real data: `issues.create`
+   * stamps `startedBySession` on EVERY agent create, so the started-by fallback
+   * dragged every spin-off straight back onto the origin's spine — where it was
+   * counted in the mission's progress and could never be released (POD-679).
+   */
+  it('a STARTED spin-off leaves, even though a mission session filed it', () => {
+    const issues = [
+      issue('root'),
+      issue('c1', { parentId: 'root' }),
+      issue('spin', {
+        startedBySession: 's-c1',
+        stage: 'in_progress',
+        deps: [{ id: 'c1', type: 'discovered-from' }],
+      }),
+    ]
+    const sessions = [sess('s-c1', { issueId: 'c1' })]
+    expect([...missionIssueIds(issues, 'root', sessions)].sort()).toEqual(['c1', 'root'])
+  })
+
+  it('keeps a spin-off that is still PROPOSED — the deck is where it gets triaged', () => {
+    const issues = [
+      issue('root'),
+      issue('c1', { parentId: 'root' }),
+      issue('spin', {
+        startedBySession: 's-c1',
+        stage: 'proposed',
+        deps: [{ id: 'c1', type: 'discovered-from' }],
+      }),
+    ]
+    const sessions = [sess('s-c1', { issueId: 'c1' })]
+    expect([...missionIssueIds(issues, 'root', sessions)].sort()).toEqual(['c1', 'root', 'spin'])
+  })
+
+  it('keeps an approved-but-unstarted spin-off — nothing has gone anywhere yet', () => {
+    const issues = [
+      issue('root'),
+      issue('c1', { parentId: 'root' }),
+      issue('spin', {
+        startedBySession: 's-c1',
+        stage: 'backlog',
+        deps: [{ id: 'c1', type: 'discovered-from' }],
+      }),
+    ]
+    const sessions = [sess('s-c1', { issueId: 'c1' })]
+    expect([...missionIssueIds(issues, 'root', sessions)].sort()).toEqual(['c1', 'root', 'spin'])
+  })
+
+  it('a departed spin-off stops counting against the mission it came from', () => {
+    const issues = [
+      issue('root', { stage: 'done' }),
+      issue('c1', { parentId: 'root', stage: 'done' }),
+      issue('spin', {
+        startedBySession: 's-c1',
+        stage: 'in_progress',
+        deps: [{ id: 'c1', type: 'discovered-from' }],
+      }),
+    ]
+    const sessions = [sess('s-c1', { issueId: 'c1' })]
+    // ONE unit, not two — and the point of the case is which one is missing.
+    // Two rules compose here, from two different changes: POD-679 took the
+    // departed spin-off out of `missionIssueIds`, and POD-710 stopped counting
+    // the mission ROOT beside its own members (a root with one child reported
+    // two units and lit two segments for one task). So `root` is the container
+    // and `spin` is gone, leaving `c1` — done, and the mission legitimately
+    // reads 100%, which is the outcome this test exists to protect.
+    expect(missionProgress(issues, sessions, 'root')).toEqual({
+      total: 1,
+      done: 1,
+      run: 0,
+      block: 0,
+      wait: 0,
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// missionDepartures — what the mission discovered and no longer owns
+// ---------------------------------------------------------------------------
+
+describe('missionDepartures', () => {
+  const departed = (over: Partial<UnbrandIds<IssueNavigationModel>> = {}) =>
+    issue('spin', {
+      seq: 44,
+      startedBySession: 's-c1',
+      stage: 'in_progress',
+      deps: [{ id: 'c1', type: 'discovered-from' }],
+      ...over,
+    })
+  const base = [issue('root'), issue('c1', { parentId: 'root' })]
+  const sessions = [sess('s-c1', { issueId: 'c1' })]
+
+  it('names the work that left, and the task it left from', () => {
+    const out = missionDepartures([...base, departed()], sessions, 'root')
+    expect(out.map((d) => [d.issue.id, d.originId])).toEqual([['spin', 'c1']])
+    // It reports what the work is doing OUT THERE, in the spine's own words.
+    expect(out[0]?.state.label).toBe('Not started')
+  })
+
+  it('says nothing about a proposal — that one is still on the spine', () => {
+    const proposal = departed({ stage: 'proposed' })
+    expect(missionDepartures([...base, proposal], sessions, 'root')).toEqual([])
+  })
+
+  it('drops a finished departure rather than growing a permanent footer', () => {
+    expect(missionDepartures([...base, departed({ stage: 'done' })], sessions, 'root')).toEqual([])
+    expect(
+      missionDepartures([...base, departed({ closedReason: 'wontfix' })], sessions, 'root'),
+    ).toEqual([])
+  })
+
+  it('ignores work discovered from some OTHER mission', () => {
+    const elsewhere = issue('spin', {
+      stage: 'in_progress',
+      deps: [{ id: 'stranger', type: 'discovered-from' }],
+    })
+    expect(missionDepartures([...base, issue('stranger'), elsewhere], sessions, 'root')).toEqual([])
   })
 })
 
@@ -499,8 +618,9 @@ describe('buildFlightDeckRows', () => {
     ]
     const rows = buildFlightDeckRows(issues, [sess('s-root', { issueId: 'root' })], 'root')
     expect(shape(rows)).toEqual(['root@0', 'c1@1'])
-    // …and therefore it cannot move the mission's progress either. (root + c1)
-    expect(missionProgress(issues, [sess('s-root', { issueId: 'root' })], 'root').total).toBe(2)
+    // …and therefore it cannot move the mission's progress either: the mission
+    // is one unit of work, c1, with the root as its container.
+    expect(missionProgress(issues, [sess('s-root', { issueId: 'root' })], 'root').total).toBe(1)
   })
 
   describe('mode filters', () => {
@@ -563,9 +683,38 @@ describe('missionProgress', () => {
   const cases: Array<[string, IssueNavigationModel[], MissionProgress]> = [
     ['no mission at all', [], { total: 0, done: 0, run: 0, block: 0, wait: 0 }],
     [
-      'a lone root, which counts as a task like any other',
+      'a lone root, which IS the single unit because it contains nothing',
       [issue('root')],
       { total: 1, done: 0, run: 1, block: 0, wait: 0 },
+    ],
+    [
+      // POD-710, the whole complaint: one sub-issue is ONE unit of work. The
+      // root is what the meter is measuring, so it cannot also be a segment of
+      // it — this used to report `total: 2` with the root running beside its
+      // untouched child.
+      'a root with one child, as one unit and one only',
+      [issue('root', { stage: 'in_progress' }), issue('a', { parentId: 'root', stage: 'backlog' })],
+      { total: 1, done: 0, run: 0, block: 0, wait: 1 },
+    ],
+    [
+      'a root with N children, every one of them a unit and the root none',
+      [
+        issue('root', { stage: 'in_progress' }),
+        issue('a', { parentId: 'root', stage: 'done' }),
+        issue('b', { parentId: 'root', stage: 'in_progress' }),
+        issue('c', { parentId: 'root', stage: 'backlog' }),
+      ],
+      { total: 3, done: 1, run: 1, block: 0, wait: 1 },
+    ],
+    [
+      'grandchildren, which are units at any depth',
+      [
+        issue('root'),
+        issue('a', { parentId: 'root', stage: 'done' }),
+        issue('a1', { parentId: 'a', stage: 'done' }),
+        issue('a2', { parentId: 'a', stage: 'backlog' }),
+      ],
+      { total: 3, done: 2, run: 0, block: 0, wait: 1 },
     ],
     [
       'all four segments at once',
@@ -576,7 +725,7 @@ describe('missionProgress', () => {
         issue('c', { parentId: 'root', blocked: true }),
         issue('d', { parentId: 'root', stage: 'backlog' }),
       ],
-      { total: 5, done: 1, run: 1, block: 1, wait: 2 },
+      { total: 4, done: 1, run: 1, block: 1, wait: 1 },
     ],
     [
       'a child closed for another reason than stage=done',
@@ -584,12 +733,12 @@ describe('missionProgress', () => {
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', closedReason: 'duplicate' }),
       ],
-      { total: 2, done: 1, run: 0, block: 0, wait: 1 },
+      { total: 1, done: 1, run: 0, block: 0, wait: 0 },
     ],
     [
       'blocked in-progress work, counted once and as blocked',
       [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', blocked: true })],
-      { total: 2, done: 0, run: 0, block: 1, wait: 1 },
+      { total: 1, done: 0, run: 0, block: 1, wait: 0 },
     ],
     [
       'done work that is also flagged blocked, counted once as done',
@@ -597,7 +746,7 @@ describe('missionProgress', () => {
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', stage: 'done', blocked: true }),
       ],
-      { total: 2, done: 1, run: 0, block: 0, wait: 1 },
+      { total: 1, done: 1, run: 0, block: 0, wait: 0 },
     ],
   ]
 
@@ -626,7 +775,7 @@ describe('missionProgress', () => {
       issue('b', { parentId: 'root', seq: 2, stage: 'done' }),
       issue('c', { parentId: 'root', seq: 3 }),
     ]
-    const expected = { total: 4, done: 2, run: 2, block: 0, wait: 0 }
+    const expected = { total: 3, done: 2, run: 1, block: 0, wait: 0 }
     for (const mode of ['full', 'active', 'needs-you'] as const) {
       // The spine really does shrink in the filtered modes…
       const rows = buildFlightDeckRows(issues, [], 'root', mode)
@@ -647,6 +796,20 @@ describe('missionProgress', () => {
     })
   })
 
+  it('measures the root as a container, not as one more segment beside it', () => {
+    // The same root, in two missions. Alone it is the unit and reads as running;
+    // the moment it has a member it is only the thing being measured, and the
+    // member's own state is the whole reading.
+    const alone = missionProgress([issue('root', { stage: 'in_progress' })], [], 'root')
+    const container = missionProgress(
+      [issue('root', { stage: 'in_progress' }), issue('a', { parentId: 'root', stage: 'done' })],
+      [],
+      'root',
+    )
+    expect(alone).toEqual({ total: 1, done: 0, run: 1, block: 0, wait: 0 })
+    expect(container).toEqual({ total: 1, done: 1, run: 0, block: 0, wait: 0 })
+  })
+
   it('is empty rather than throwing when there is no mission root', () => {
     expect(missionProgress([issue('root')], [], null)).toEqual({
       total: 0,
@@ -661,8 +824,33 @@ describe('missionProgress', () => {
     const issues = [
       issue('root', { stage: 'backlog' }),
       issue('a', { parentId: 'root', archived: true }),
+      issue('b', { parentId: 'root', deletedAt: '2026-07-01T00:00:00.000Z' }),
+      issue('c', { parentId: 'root', stage: 'done' }),
     ]
-    expect(missionProgress(issues, [], 'root').total).toBe(1)
+    // Three members on paper, one unit of work: retired work is not work.
+    expect(missionProgress(issues, [], 'root')).toEqual({
+      total: 1,
+      done: 1,
+      run: 0,
+      block: 0,
+      wait: 0,
+    })
+  })
+
+  it('falls back to the root when every member has been retired', () => {
+    // Nothing left to be the container OF, so the root is the unit again —
+    // never `total: 0`, which would render as a mission that does not exist.
+    const issues = [
+      issue('root', { stage: 'backlog' }),
+      issue('a', { parentId: 'root', archived: true }),
+    ]
+    expect(missionProgress(issues, [], 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 0,
+      block: 0,
+      wait: 1,
+    })
   })
 })
 
@@ -736,6 +924,7 @@ describe('collapsedSummary', () => {
       done: 1,
       run: 1,
       kinds: [],
+      crew: [],
       needsYou: false,
     })
     // A leaf hides nothing.
@@ -759,6 +948,36 @@ describe('collapsedSummary', () => {
       .kinds
     expect(kinds).toHaveLength(2)
     expect(kinds).not.toContain('grok')
+  })
+
+  // THE CENSUS KEEPS THE RETIRED AGENT (POD-758). `kinds` answers "what is
+  // running in there"; `crew` answers "who is in there", and an agent that
+  // finished is still someone the operator can open — it arrives last and the
+  // strip draws it dimmed rather than dropping it.
+  it('lists the crew behind the fold, working first and settled last', () => {
+    const issues = [
+      issue('root'),
+      issue('a', { parentId: 'root' }),
+      issue('b', { parentId: 'root' }),
+    ]
+    const sessions = [
+      sess('gone', { issueId: 'a', status: 'exited' }),
+      sess('idle', { issueId: 'b' }),
+      sess('busy', { issueId: 'b', agentState: workingState }),
+    ]
+    const crew = rowFor(buildFlightDeckRows(issues, sessions, 'root'), 'root').collapsedSummary.crew
+    expect(crew.map((session) => session.sessionId)).toEqual(['busy', 'idle', 'gone'])
+  })
+
+  // One agent that is a member of two issues in the subtree is one icon.
+  it('deduplicates a session that sits on two tasks', () => {
+    const issues = [
+      issue('root'),
+      issue('a', { parentId: 'root', memberSessionIds: ['s1'] }),
+      issue('b', { parentId: 'root', memberSessionIds: ['s1'] }),
+    ]
+    const rows = buildFlightDeckRows(issues, [sess('s1', { issueId: 'a' })], 'root')
+    expect(rowFor(rows, 'root').collapsedSummary.crew).toHaveLength(1)
   })
 
   // Folding replaces the row's own state mark with this payload, so the
@@ -1355,6 +1574,50 @@ describe('issueNote', () => {
   it('is null on a plain task, so the strip stays one line', () => {
     expect(issueNote(issue('a'), index([issue('a')]))).toBeNull()
   })
+
+  /**
+   * A PROPOSAL STATES ITS SHAPE (POD-679). Provenance is a fact about the past;
+   * the operator reading a proposal is about to decide the future, so the chip
+   * names the consequence of starting it as it stands.
+   */
+  it('a proposed spin-off says it will start on its own, and what that frees', () => {
+    const subject = issue('a', {
+      stage: 'proposed',
+      deps: [{ id: 'origin', type: 'discovered-from' }],
+    })
+    const note = issueNote(subject, index([origin, subject]))
+    expect(note?.kind).toBe('shape-own')
+    expect(note?.short).toBe('on its own')
+    expect(note?.full).toBe('Starts on its own — #9 can close without it')
+  })
+
+  it('a proposed sub-task says it belongs to the task that found it', () => {
+    const subject = issue('a', { stage: 'proposed', parentId: 'origin' })
+    const note = issueNote(subject, index([origin, subject]))
+    expect(note?.kind).toBe('shape-mission')
+    expect(note?.short).toBe('in this mission')
+    expect(note?.full).toBe('Part of #9 — that task is not done until this is')
+  })
+
+  it('goes back to plain provenance once the proposal has been started', () => {
+    const subject = issue('a', {
+      stage: 'in_progress',
+      deps: [{ id: 'origin', type: 'discovered-from' }],
+    })
+    expect(issueNote(subject, index([origin, subject]))?.kind).toBe('relation')
+  })
+
+  it('still puts a real blocker above the shape', () => {
+    const subject = issue('a', {
+      stage: 'proposed',
+      blocked: true,
+      deps: [
+        { id: 'dep', type: 'blocks' },
+        { id: 'origin', type: 'discovered-from' },
+      ],
+    })
+    expect(issueNote(subject, index([dep, origin, subject]))?.kind).toBe('blocked')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1381,7 +1644,9 @@ describe('deckIssueState', () => {
 })
 
 // ---------------------------------------------------------------------------
-// portfolioActionableCount — the Superagent rail badge
+// portfolioActionableCount — the portfolio-wide attention total. No chrome
+// renders it since the Superagent rail badge came off; it is the shared
+// definition the explorer's Needs tab count is checked against.
 // ---------------------------------------------------------------------------
 
 describe('portfolioActionableCount', () => {
@@ -1424,102 +1689,5 @@ describe('portfolioActionableCount', () => {
         sess('s', { issueId: 'a', archived: true, agentState: needsUserState }),
       ]),
     ).toBe(0)
-  })
-})
-
-// ---------------------------------------------------------------------------
-
-describe('rootRoster', () => {
-  const settled = (id: string): SessionMeta =>
-    sess(id, { issueId: 'root', agentState: finishedState })
-  const live = (id: string): SessionMeta => sess(id, { issueId: 'root', agentState: workingState })
-  const ids = (sessions: readonly SessionMeta[]): string[] => sessions.map((s) => s.sessionId)
-
-  it('folds the settled agents away in a narrowing mode', () => {
-    const roster = rootRoster([live('s-live'), settled('a'), settled('b'), settled('c')], {
-      mode: 'active',
-      activeSessionId: null,
-      open: false,
-    })
-    expect(roster.foldable).toBe(true)
-    expect(roster.hidden).toBe(3)
-    expect(ids(roster.shown)).toEqual(['s-live'])
-  })
-
-  // FULL SPINE IS THE MODE THAT SHOWS EVERYTHING. A trim here makes the mode a
-  // lie and buries finished agents behind a second control inside the view that
-  // was meant to already be showing them.
-  it('shows every finished agent in the full spine, with no fold at all', () => {
-    const roster = rootRoster([live('s-live'), settled('a'), settled('b'), settled('c')], {
-      mode: 'full',
-      activeSessionId: null,
-      open: false,
-    })
-    expect(roster.foldable).toBe(false)
-    expect(roster.hidden).toBe(0)
-    expect(ids(roster.shown)).toEqual(['s-live', 'a', 'b', 'c'])
-  })
-
-  // A hibernated agent reads as `done`, but it is the transcript on screen: a
-  // navigator that hides your own position is not a navigator.
-  it('never folds away the session you have open, hibernated or not', () => {
-    const open = sess('s-open', {
-      issueId: 'root',
-      status: 'hibernated',
-      agentState: finishedState,
-    })
-    const roster = rootRoster([live('s-live'), open, settled('a'), settled('b'), settled('c')], {
-      mode: 'active',
-      activeSessionId: 's-open',
-      open: false,
-    })
-    expect(ids(roster.shown)).toEqual(['s-live', 's-open'])
-    // Shown, so not counted among the hidden — a fold that overstates what it
-    // holds sends the operator looking for a row that is already on screen.
-    expect(roster.hidden).toBe(3)
-  })
-
-  it('leaves an exited session visible while it is the open one', () => {
-    const open = sess('s-open', { issueId: 'root', status: 'exited' })
-    const roster = rootRoster([open, settled('a'), settled('b'), settled('c')], {
-      mode: 'needs-you',
-      activeSessionId: 's-open',
-      open: false,
-    })
-    expect(ids(roster.shown)).toContain('s-open')
-  })
-
-  // The disclosure must keep standing, and keep its count, while unfolded —
-  // otherwise the control that opened it vanishes and there is no way back down.
-  it('keeps the fold and its count once opened', () => {
-    const sessions = [live('s-live'), settled('a'), settled('b'), settled('c')]
-    const roster = rootRoster(sessions, { mode: 'active', activeSessionId: null, open: true })
-    expect(roster.foldable).toBe(true)
-    expect(roster.hidden).toBe(3)
-    expect(ids(roster.shown)).toEqual(['s-live', 'a', 'b', 'c'])
-  })
-
-  it('does not fold when it would cost a row to save fewer', () => {
-    const roster = rootRoster([live('s-live'), settled('a'), settled('b')], {
-      mode: 'active',
-      activeSessionId: null,
-      open: false,
-    })
-    expect(roster.foldable).toBe(false)
-    expect(ids(roster.shown)).toEqual(['s-live', 'a', 'b'])
-  })
-
-  it('counts a retired session as settled even when its last state read working', () => {
-    const roster = rootRoster(
-      [
-        sess('s-gone', { issueId: 'root', status: 'exited', agentState: workingState }),
-        sess('s-away', { issueId: 'root', archived: true, agentState: workingState }),
-        settled('c'),
-        live('s-live'),
-      ],
-      { mode: 'active', activeSessionId: null, open: false },
-    )
-    expect(roster.hidden).toBe(3)
-    expect(ids(roster.shown)).toEqual(['s-live'])
   })
 })

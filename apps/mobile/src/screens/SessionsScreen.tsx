@@ -11,7 +11,7 @@ import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
-import { TaskPeekSheet } from '../components/TaskPeekSheet'
+import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { sessionHref } from '../lib/session-route'
@@ -20,7 +20,8 @@ import { color, font, mono, monoLabel, space } from '../theme/theme'
 /**
  * Agents — the roster [POD-131]. Sessions grouped by attention (needs you /
  * working / idle), each row naming its attached task via the ID square.
- * Long-press peeks the task (TaskPeekSheet) without leaving the roster.
+ * Long-press peeks the task in the shared inspector sheet, without leaving the
+ * roster.
  */
 export function SessionsScreen() {
   const router = useRouter()
@@ -115,11 +116,15 @@ export function SessionsScreen() {
           />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
-      <TaskPeekSheet
+      <TaskSheet
         issue={peek?.issue ?? null}
-        session={peek?.session}
+        issues={issues}
         sessions={sessions}
         onClose={() => setPeek(null)}
+        onOpenSession={(session) => {
+          setPeek(null)
+          router.push(sessionHref(session.sessionId, '/'))
+        }}
       />
     </Screen>
   )

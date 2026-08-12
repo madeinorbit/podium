@@ -138,9 +138,31 @@ describe('overlayForOutboxEntry projection', () => {
     expect(untuck.coveredBy({ tuckedAt: '2026-07-03T00:00:00.000Z' } as IssueWire)).toBe(false)
   })
 
-  it('kinds without row-visible optimism (resumeAndSend, unknown) project to null', () => {
-    expect(overlayForOutboxEntry(entry('resumeAndSend', { sessionId: 's1', text: 'x' }))).toBeNull()
+  it('an unknown kind projects to null', () => {
     expect(overlayForOutboxEntry(entry('someFutureKind', {}))).toBeNull()
+  })
+
+  // POD-762: a wake is row-visible. The queue depth is the fact — the operator's
+  // message is waiting on this session — and one field lights the wake up on
+  // every surface at once.
+  it('projects a queued message onto the woken session, until the server has its own opinion', () => {
+    const wake = overlayForOutboxEntry(entry('resumeAndSend', { sessionId: 's1', text: 'x' }))
+    if (wake?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(wake.entity).toBe('sessions')
+    expect(wake.id).toBe('s1')
+    expect(wake.patch).toEqual({ queuedMessageCount: 1 })
+
+    // Still parked with nothing reported → the optimism stands.
+    expect(wake.coveredBy({ status: 'hibernated' } as SessionMeta)).toBe(false)
+    expect(wake.coveredBy({ status: 'exited' } as SessionMeta)).toBe(false)
+    // The server reports a queue of its own → covered.
+    expect(wake.coveredBy({ status: 'hibernated', queuedMessageCount: 1 } as SessionMeta)).toBe(
+      true,
+    )
+    // It woke — covered even with an empty queue, because a drain that beat the
+    // snapshot must not leave the row claiming a message is still waiting.
+    expect(wake.coveredBy({ status: 'live' } as SessionMeta)).toBe(true)
+    expect(wake.coveredBy({ status: 'starting' } as SessionMeta)).toBe(true)
   })
 })
 

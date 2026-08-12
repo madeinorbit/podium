@@ -81,6 +81,9 @@ vi.mock('@/app/store', () => {
     drafts: storeDrafts,
     setSessionDraft: vi.fn(),
     resumeAndSend: vi.fn(async () => {}),
+    // A send pins the panel to the surface it came from (POD-762) — part of the
+    // send path, so the fake store must carry it like the real one does.
+    setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     tldrSession: vi.fn(),
@@ -193,7 +196,7 @@ describe('an invisible referent', () => {
     })
     await flush()
     expect(container.textContent).not.toContain('Loading transcript')
-    expect(container.textContent).toContain('No transcript yet')
+    expect(container.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
   })
 })
 

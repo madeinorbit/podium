@@ -84,6 +84,7 @@ vi.mock('@/app/store', () => {
       },
       sess('s-parent', 'parent', 'idle'),
       sess('s-child', 'child', 'idle'),
+      { ...sess('s-draft', 'draft', 'working'), name: 'Push the commits' },
     ],
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
@@ -134,6 +135,8 @@ vi.mock('@/app/store', () => {
       issue('review-only', 'Review without branch', { stage: 'review' }),
       issue('parent', 'Nested parent', { childCount: 1, color: 'pink' }),
       issue('child', 'Nested child', { parentId: 'parent', audience: 'agent' }),
+      // A draft vessel: no title of its own, no worktree, one agent inside it.
+      issue('draft', 'Draft', { draft: true }),
     ],
     trpc: {
       settings: {
@@ -187,7 +190,9 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(screen.queryByText('WORK')).toBeNull()
     const groups = screen.getAllByTestId('project-group-label')
     expect(groups).toHaveLength(1)
-    expect(groups[0]?.textContent).toBe('repo')
+    // Repo name, then the group's size pushed to the right edge (POD-725).
+    expect(groups[0]?.firstElementChild?.textContent).toBe('repo')
+    expect(groups[0]?.querySelector('[data-testid="project-group-count"]')?.textContent).toBe('8')
     // Both issues render exactly once, inside the group.
     expect(screen.getAllByText('Fully working issue')).toHaveLength(1)
     expect(screen.getAllByText('Partly working issue')).toHaveLength(1)
@@ -212,6 +217,35 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(waitingRow.querySelector('[data-phase="waiting"]')).toBeTruthy()
     expect(waitingRow.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
+  })
+
+  // POD-703: the ask owns the phase and the square's amber corner, but the row
+  // is the only place this mission appears — so an agent still computing under
+  // it must be visible, in the motion grammar's own device. A mission with a
+  // live agent used to render as total stillness the moment anything on it
+  // asked, which reads as "the fleet stopped".
+  it('keeps the working spinner on a waiting row that still has an agent computing', () => {
+    render(<SidebarUnified />)
+    const waitingRow = screen
+      .getByText('Partly working issue')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    // Amber keeps the square (The Signal Rule) …
+    expect(
+      waitingRow.querySelector('[data-testid="issue-id-square"][data-badge="dot"]'),
+    ).toBeTruthy()
+    // … and the spinner returns to line 2, where it is the row's only
+    // "an agent is computing" mark rather than a second one.
+    expect(waitingRow.querySelector('.spb')).toBeTruthy()
+    const status = waitingRow.querySelector('[data-testid="row-lifecycle-status"]')
+    // Both facts, and no head-count eating the width they need.
+    expect(status?.textContent).toContain('working · needs answer')
+    expect(status?.textContent).not.toContain('agents')
+    // A waiting row with nothing running stays perfectly still.
+    const merge = screen
+      .getByText('Reviewable issue')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    expect(merge.querySelector('[data-phase="waiting"]')).toBeTruthy()
+    expect(merge.querySelector('.spb')).toBeNull()
   })
 
   // POD-516 §1.1: agents are a fleet stack and nothing else in this column.
@@ -258,9 +292,25 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     // The child's session is still counted: two agents, one harness kind.
     const fleet = parentRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
     expect(fleet).toBeTruthy()
-    expect(fleet.getAttribute('aria-label')).toBe('2 live agents')
+    expect(fleet.getAttribute('aria-label')).toBe('2 agents')
     expect(fleet.querySelectorAll('[data-agent-kind]')).toHaveLength(1)
     expect(fleet.querySelector('[data-testid="issue-fleet-total"]')?.textContent).toBe('2')
+  })
+
+  // POD-741: the fleet stack has ONE rule — an agent on the issue or anywhere in
+  // its subtree shows. A draft vessel used to be the exception, which left the
+  // row that is nothing but an agent as the only row that never named one.
+  it('stacks the agent on a draft vessel row too', () => {
+    render(<SidebarUnified />)
+    const draftRow = screen
+      .getByText('Push the commits')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    const fleet = draftRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
+    expect(fleet).toBeTruthy()
+    expect(fleet.getAttribute('aria-label')).toBe('1 agent')
+    expect(fleet.querySelector('[data-agent-kind="claude-code"]')).toBeTruthy()
+    // A lone agent shows its tile and no total — the number would say nothing.
+    expect(fleet.querySelector('[data-testid="issue-fleet-total"]')).toBeNull()
   })
 
   it('shows unmerged done work as a tint-only branch attention chip', () => {

@@ -179,6 +179,6 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(
       partial.querySelector('[data-testid="issue-fleet-summary"]')?.getAttribute('aria-label'),
-    ).toBe('2 live agents')
+    ).toBe('2 agents')
   })
 })

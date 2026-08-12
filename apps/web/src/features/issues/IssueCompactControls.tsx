@@ -1,9 +1,24 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
-import { issueNeedsHuman, motionPhase, sessionNeedsHuman } from '@podium/client-core/viewmodels'
+import {
+  discoveredPlacement,
+  issueNeedsHuman,
+  motionPhase,
+  type ProposalPlacement,
+  sessionNeedsHuman,
+} from '@podium/client-core/viewmodels'
 import type { IssueId, IssueStage, SessionMeta } from '@podium/model'
-import { ChevronDown, GitBranch, GitCommit, MoreHorizontal, RotateCcw } from 'lucide-react'
-import { type JSX, useState } from 'react'
+import {
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  CornerDownRight,
+  GitBranch,
+  GitCommit,
+  MoreHorizontal,
+  RotateCcw,
+} from 'lucide-react'
+import { type JSX, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -12,6 +27,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { OfferBar } from '@/features/chat/OfferBar'
@@ -27,6 +43,20 @@ import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 /** Every stage a live issue can be moved between. `done` is not one of them —
  *  see the close dialog. */
 const OPEN_STAGES = (Object.keys(STAGE_LABELS) as IssueStage[]).filter((stage) => stage !== 'done')
+
+/**
+ * The dock's reading scale (POD-725 §7). Written out rather than taken from
+ * `shell-type-secondary` because that role drops to 11px under compact density,
+ * and the step UP to a settled 12px is precisely what this design is for — the
+ * issue panel is read, not scanned. Labels, stamps and section headers still
+ * come from the role tokens; only the prose is pinned.
+ */
+export const DOCK_BODY = 'text-[12px] leading-[1.5]'
+/** The same 12px set tighter, for the one-line titles rows are made of. */
+export const DOCK_ROW = 'text-[12px] leading-[1.4]'
+/** Machine voice at the floor of the scale: trailing state words, timestamps,
+ *  the facts a row parks on its right edge. */
+export const DOCK_STAMP = 'font-mono text-[9.5px] leading-none'
 
 /** A session is still present when its process is: an exited-but-unarchived
  *  session is gone, and reading it as "standing by" would tell the operator an
@@ -140,10 +170,12 @@ export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element
   const attributedDirty = git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0)
   const delivery = git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0)
   return (
-    <div className="shell-type-micro flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-1 text-muted-foreground">
+    // Mono facts, whole row: a branch name and a file count are both machine
+    // voice, and setting only half the row in mono made the two disagree.
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-1 font-mono text-[10.5px] leading-[1.6] text-muted-foreground">
       <span className="inline-flex min-w-0 items-center gap-1.5">
         <GitBranch size={12} className="flex-none" aria-hidden="true" />
-        <span className="min-w-0 truncate font-mono">
+        <span className="min-w-0 truncate">
           {git.branch ?? (git.shared ? 'Shared checkout' : (issue.branch ?? 'Checkout'))}
         </span>
       </span>
@@ -206,9 +238,7 @@ function SessionAnswer({ session }: { session: SessionMeta }): JSX.Element | nul
     // Indented to the session's NAME (4px row pad + 20px harness chip + 8px
     // gap), so the question reads as that agent speaking, not as a new section.
     <div className="pt-0.5 pb-2 pl-8" data-testid="dock-session-answer">
-      {headline && (
-        <p className="shell-type-secondary line-clamp-2 text-foreground/85">{headline}</p>
-      )}
+      {headline && <p className={cn(DOCK_BODY, 'line-clamp-2 text-foreground/85')}>{headline}</p>}
       {offer.actions.length > 0 && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {offer.actions.map((action, index) => (
@@ -299,7 +329,10 @@ export function IssueSessionRow({
           <button
             data-pressable
             type="button"
-            className="shell-type-secondary flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-foreground/90"
+            className={cn(
+              DOCK_ROW,
+              'flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-foreground/90',
+            )}
             onClick={onOpen}
             // Right-click for the full action menu — same gesture, same menu, as
             // the sidebar's session rows and the tab strip.
@@ -313,8 +346,9 @@ export function IssueSessionRow({
         )}
         <span
           className={cn(
-            'shell-type-micro flex-none font-mono',
-            needs ? 'font-semibold text-attention' : 'text-text-dim',
+            DOCK_STAMP,
+            'flex-none',
+            needs ? 'font-semibold text-attention' : 'text-text-faint',
           )}
         >
           {sessionStateLabel(session)}
@@ -369,8 +403,13 @@ export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Ele
   if (!issueNeedsHuman(issue, active)) return null
 
   return (
-    <div className="flex-none px-3 pb-3" data-testid="dock-decision-band">
-      <div className="shell-type-secondary flex items-baseline gap-1.5 rounded-md border border-attention/40 bg-attention/[0.07] px-2.5 py-2">
+    <div className="flex-none px-3.5 pb-3" data-testid="dock-decision-band">
+      <div
+        className={cn(
+          DOCK_BODY,
+          'flex items-baseline gap-1.5 rounded-md border border-attention/40 bg-attention/[0.07] px-2.5 py-2',
+        )}
+      >
         <span className="flex-none font-semibold text-attention">Needs you</span>
         <span className="line-clamp-2 min-w-0 flex-1 text-foreground/85">
           {decisionLine(issue, active)}
@@ -396,6 +435,92 @@ export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Ele
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * The start control's second half: WHERE the work will live once it runs.
+ *
+ * One decision, two destinations, each named by what it does to the task that
+ * found this work rather than by the edge it writes. The current shape — the
+ * one the filing agent chose, and the one the plain Start button takes — is
+ * ticked, so the menu reads as a confirmation with an escape hatch instead of
+ * an open question the operator has to answer every time.
+ */
+function PlacementMenu({
+  placement,
+  busy,
+  onStart,
+}: {
+  placement: { placement: ProposalPlacement; originRef: string | null }
+  busy: boolean
+  onStart: (moveTo: ProposalPlacement) => void
+}): JSX.Element {
+  const origin = placement.originRef
+  const options: Array<{
+    key: ProposalPlacement
+    label: string
+    why: string
+    Glyph: typeof ArrowUpRight
+  }> = [
+    {
+      key: 'own',
+      label: 'Start on its own',
+      why: origin
+        ? `Its own row in the sidebar. ${origin} can close without it.`
+        : 'Its own row in the sidebar. The task that found it can close without it.',
+      Glyph: ArrowUpRight,
+    },
+    {
+      key: 'mission',
+      label: origin ? `Start inside ${origin}` : 'Start inside this mission',
+      why: origin
+        ? `Stays on that spine. ${origin} is not done until this is.`
+        : 'Stays on this mission’s spine, which is not done until this is.',
+      Glyph: CornerDownRight,
+    },
+  ]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            size="sm"
+            data-testid="task-placement-trigger"
+            aria-label="Where should this work live?"
+            title="Where should this work live?"
+            disabled={busy}
+            className="h-7 rounded-l-none border-l border-l-black/20 px-1.5"
+          >
+            <ChevronDown size={11} aria-hidden="true" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="start" className="max-w-[19rem]">
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.key}
+            data-testid={`task-placement-${option.key}`}
+            className="items-start gap-2"
+            onClick={() => onStart(option.key)}
+          >
+            <option.Glyph size={12} aria-hidden="true" className="mt-0.5 flex-none" />
+            <span className="flex min-w-0 flex-col">
+              <span className="flex items-center gap-1.5">
+                {option.label}
+                {option.key === placement.placement && (
+                  <Check size={11} aria-hidden="true" className="flex-none opacity-70" />
+                )}
+              </span>
+              <span className="text-[10.5px] leading-[1.35] text-muted-foreground">
+                {option.why}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -428,6 +553,19 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
   const active = issueSessions(issue, sessions).filter(isOpenSession)
   const action = resolveTaskAction(issue, active)
   const closed = Boolean(issue.closedReason) || issue.archived
+  // WHERE THIS WORK WILL LIVE, offered at the moment it starts (POD-679).
+  // Only while it has not started: once an agent is on it, the same two moves
+  // live in the context menu, where a correction belongs.
+  const placement = useMemo(() => {
+    // DISCOVERED work only. `startedBySession` is stamped exactly when a
+    // non-operator filed the issue, so this is the fork on work an AGENT found
+    // — the case where the operator inherited a placement decision they never
+    // made. A sub-task the operator planned themselves needs no second opinion
+    // on the button; the context menu still offers the move.
+    if (action.kind !== 'start-work' || !issue.startedBySession) return null
+    const byId = new Map(issues.map((candidate) => [candidate.id as string, candidate]))
+    return discoveredPlacement(issue, byId)
+  }, [action.kind, issue, issues])
 
   const confirmClose = (reason: IssueCloseReason): void => {
     setClosing(true)
@@ -460,36 +598,63 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
         return
       }
       case 'start-work':
-        setStarting(true)
-        trpc.issues.start
-          .mutate({ id: issue.id })
-          .catch((error: unknown) =>
-            toast.error(error instanceof Error ? error.message : String(error)),
-          )
-          .finally(() => setStarting(false))
+        startWork()
         return
     }
   }
 
+  /**
+   * Start the work, optionally moving it first.
+   *
+   * The placement move goes BEFORE the start deliberately: an agent that boots
+   * into a worktree and reads its own issue should find the shape the operator
+   * chose, not the one it is about to be moved out of. A failed move therefore
+   * cancels the start rather than running the work in the wrong place.
+   */
+  const startWork = (moveTo?: ProposalPlacement): void => {
+    setStarting(true)
+    const origin = placement?.originId
+    const start = (): Promise<unknown> => trpc.issues.start.mutate({ id: issue.id })
+    // Nothing to move is the ordinary case, and it stays a DIRECT call: routing
+    // it through a resolved promise would delay every plain start by a tick for
+    // the sake of one branch's symmetry.
+    const run =
+      moveTo && origin && moveTo !== placement?.placement
+        ? trpc.issues.setPlacement
+            .mutate({ id: issue.id, placement: moveTo, originId: origin })
+            .then(start)
+        : start()
+    run
+      .catch((error: unknown) =>
+        toast.error(error instanceof Error ? error.message : String(error)),
+      )
+      .finally(() => setStarting(false))
+  }
+
   return (
-    <div className="mt-2.5 flex items-center gap-1.5">
+    <div className="mt-2.5 flex items-center gap-2">
       {/* Stage, exposed as a first-class dock action. Built from the shell's
           own dropdown rather than a native <select>, which exists nowhere in
-          this chrome. `done` is deliberately absent: closing an issue goes
-          through the close dialog so a reason is always recorded. */}
+          this chrome. `done` is absent as a plain stage: closing is reachable
+          from here, but the close entries route through the dialog so a reason
+          is always recorded — the same split the full page's Status menu makes.
+          `ghost` + an explicit card fill rather than `outline`: the dock's
+          surface is --engraved, which sits ABOVE --background in the paper
+          ramp, so the outline variant's --background fill made the pill sink
+          into the panel instead of lifting off it. */}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
               aria-label="Stage"
-              className="h-7 flex-none gap-1.5 px-2 text-[11.5px]"
+              className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
             >
               <StageGlyph stage={issue.stage} size={12} />
               {STAGE_LABELS[issue.stage]}
-              <ChevronDown size={11} aria-hidden="true" />
+              <ChevronDown size={13} className="size-[13px] text-text-faint" aria-hidden="true" />
             </Button>
           }
         />
@@ -509,6 +674,25 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
               {STAGE_LABELS[stage]}
             </DropdownMenuItem>
           ))}
+          {!closed && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="whitespace-nowrap"
+                onClick={() => setCloseReason('done')}
+              >
+                <StageGlyph stage="done" size={12} />
+                Close: done
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="whitespace-nowrap"
+                onClick={() => setCloseReason('wontfix')}
+              >
+                <StageGlyph stage="done" size={12} />
+                Close: wontfix
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       {closed ? (
@@ -516,7 +700,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           type="button"
           variant="outline"
           size="sm"
-          className="h-7 gap-1.5 px-2.5 text-[11.5px]"
+          className="h-7 gap-1.5 px-3 text-[11.5px]"
           onClick={() =>
             trpc.issues.update
               .mutate({ id: issue.id, patch: { stage: 'backlog' } })
@@ -528,28 +712,45 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           <RotateCcw size={12} aria-hidden="true" /> Reopen issue
         </Button>
       ) : (
-        <Button
-          type="button"
-          variant={action.warn ? 'outline' : 'default'}
-          size="sm"
-          data-testid="task-primary-action"
-          data-action={action.kind}
-          disabled={starting}
-          className={cn(
-            'h-7 px-2.5 text-[11.5px] font-semibold',
-            action.warn &&
-              'border-attention/50 bg-attention/15 text-attention hover:bg-attention/25',
-          )}
-          onClick={runAction}
-        >
-          {starting && action.kind === 'start-work' ? 'Starting…' : action.label}
-        </Button>
+        <div className="flex items-center">
+          {/* THE PANEL'S ONE PRIMARY CHIP. `resolveTaskAction()` returns exactly
+              one action, so there is never a second filled object to compete
+              with — which is why the needs-you variant (Answer / Mark done) now
+              takes the SAME solid yellow as Start work rather than an
+              ochre-tinted outline. On paper that outline was 15% ochre over
+              near-white: a washed tan that read as disabled, and read QUIETER
+              than the neutral status pill beside it — exactly backwards for the
+              one control asking something of the operator (POD-725, The Signal
+              Rule). Yellow fills; ochre writes, and it keeps doing the writing
+              in the status line. */}
+          <Button
+            type="button"
+            size="sm"
+            data-testid="task-primary-action"
+            data-action={action.kind}
+            disabled={starting}
+            className={cn(
+              'btn-primary-rim h-7 border px-2.5 text-[11.5px] font-semibold',
+              placement && 'rounded-r-none',
+            )}
+            onClick={runAction}
+          >
+            {starting && action.kind === 'start-work' ? 'Starting…' : action.label}
+          </Button>
+          {/* THE FORK (POD-679). The plain button keeps the agent's own call, so
+              the fast path costs no extra click; this is for the case the
+              operator already knows the work is something else. Both entries are
+              phrased as the CONSEQUENCE for the origin — "POD-516 can close
+              without it" is what the operator is actually choosing between, and
+              `parentId` versus `discovered-from` is not. */}
+          {placement && <PlacementMenu placement={placement} busy={starting} onStart={startWork} />}
+        </div>
       )}
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
-        className="ml-auto size-7"
+        className="ml-auto size-7 text-text-dim"
         title="More issue actions"
         aria-label="More issue actions"
         onClick={(event) => {
@@ -557,7 +758,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           setMenu({ x: rect.right - 4, y: rect.bottom + 4 })
         }}
       >
-        <MoreHorizontal size={15} aria-hidden="true" />
+        <MoreHorizontal size={16} aria-hidden="true" />
       </Button>
       {menu && (
         <IssueContextMenu

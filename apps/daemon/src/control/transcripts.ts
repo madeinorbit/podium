@@ -1,9 +1,14 @@
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
+import {
+  discoveryRoots,
+  harnessKindForResumeKind,
+  resolveWithinRoots,
+  transcriptSourceFor,
+} from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import { discoveryRoots, harnessKindForResumeKind, resolveWithinRoots, transcriptSourceFor } from '@podium/harness'
-import type { ControlMessage } from '@podium/protocol'
 import type { AgentKind } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol'
 import type { SliceResult, TranscriptSource } from '@podium/transcript'
 import type { ControlHandlers, DaemonContext } from './context'
 
@@ -96,8 +101,14 @@ async function readTranscriptMirror(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'transcriptMirrorRead' }>,
 ): Promise<void> {
-  const reply = (r: { data: string; fileSize: number; eof: boolean; error?: string }): void =>
-    ctx.send({ type: 'transcriptMirrorResult', requestId: msg.requestId, ...r })
+  const reply = (r: {
+    data: string
+    fileSize: number
+    eof: boolean
+    device?: string
+    inode?: string
+    error?: string
+  }): void => ctx.send({ type: 'transcriptMirrorResult', requestId: msg.requestId, ...r })
   const refuse = (error: string): void => reply({ data: '', fileSize: 0, eof: false, error })
   try {
     const real = await resolveWithinRoots(msg.path, discoveryRoots(ctx.homeDir ?? homedir()))
@@ -107,9 +118,11 @@ async function readTranscriptMirror(
     }
     const handle = await open(real, 'r')
     try {
-      const fileSize = (await handle.stat()).size
+      const stats = await handle.stat({ bigint: true })
+      const fileSize = Number(stats.size)
+      const identity = { device: stats.dev.toString(), inode: stats.ino.toString() }
       if (msg.offset >= fileSize) {
-        reply({ data: '', fileSize, eof: true })
+        reply({ data: '', fileSize, eof: true, ...identity })
         return
       }
       const buf = Buffer.alloc(Math.min(msg.maxBytes, fileSize - msg.offset))
@@ -118,6 +131,7 @@ async function readTranscriptMirror(
         data: buf.subarray(0, bytesRead).toString('base64'),
         fileSize,
         eof: msg.offset + bytesRead >= fileSize,
+        ...identity,
       })
     } finally {
       await handle.close()

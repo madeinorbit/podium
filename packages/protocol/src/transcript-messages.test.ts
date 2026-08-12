@@ -1,5 +1,5 @@
-import { asSessionId } from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   ControlMessage,
@@ -123,6 +123,32 @@ describe('transcript read result (daemon -> server)', () => {
   })
 })
 
+describe('transcript mirror result (daemon -> server)', () => {
+  it('round-trips the opened file identity with the ranged bytes', () => {
+    const msg = {
+      type: 'transcriptMirrorResult' as const,
+      requestId: 'mr1',
+      data: 'aGVsbG8=',
+      fileSize: 5,
+      eof: true,
+      device: '2049',
+      inode: '8961297',
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('accepts a pre-incarnation daemon reply during a rolling upgrade', () => {
+    const msg = {
+      type: 'transcriptMirrorResult' as const,
+      requestId: 'mr-old',
+      data: '',
+      fileSize: 0,
+      eof: true,
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+})
+
 describe('transcript delta (daemon -> server AND server -> client)', () => {
   const msg = {
     type: 'transcriptDelta' as const,
@@ -141,7 +167,11 @@ describe('transcript delta (daemon -> server AND server -> client)', () => {
   })
 
   it('round-trips a transcriptDelta with tail/reset omitted', () => {
-    const minimal = { type: 'transcriptDelta' as const, sessionId: asSessionId('s1'), items: [item] }
+    const minimal = {
+      type: 'transcriptDelta' as const,
+      sessionId: asSessionId('s1'),
+      items: [item],
+    }
     expect(parseServerMessage(encode(minimal))).toEqual(minimal)
   })
 })
@@ -165,7 +195,11 @@ describe('transcript subscribe (client -> server)', () => {
 
 describe('retired transcript message literals no longer parse', () => {
   it('rejects transcriptAppend in the server and daemon unions', () => {
-    const raw = JSON.stringify({ type: 'transcriptAppend', sessionId: asSessionId('s1'), items: [] })
+    const raw = JSON.stringify({
+      type: 'transcriptAppend',
+      sessionId: asSessionId('s1'),
+      items: [],
+    })
     expect(() => parseServerMessage(raw)).toThrow()
     expect(() => parseDaemonMessage(raw)).toThrow()
     expect(ServerMessage.safeParse(JSON.parse(raw)).success).toBe(false)
@@ -173,7 +207,11 @@ describe('retired transcript message literals no longer parse', () => {
   })
 
   it('rejects transcriptSnapshot in the server union', () => {
-    const raw = JSON.stringify({ type: 'transcriptSnapshot', sessionId: asSessionId('s1'), items: [] })
+    const raw = JSON.stringify({
+      type: 'transcriptSnapshot',
+      sessionId: asSessionId('s1'),
+      items: [],
+    })
     expect(() => parseServerMessage(raw)).toThrow()
     expect(ServerMessage.safeParse(JSON.parse(raw)).success).toBe(false)
   })

@@ -8,8 +8,8 @@
   --safe-left: env(safe-area-inset-left, 0px);
   /* Shell chrome geometry (POD-365). One source for the command bar, the status
      strip and the gap a sheet leaves around itself, so the three stay in step. */
-  --topbar-h: 44px;
-  --status-strip-h: 24px;
+  --topbar-h: 48px;
+  --status-strip-h: 28px;
   --sheet-gap: 14px;
   --sheet-max: 1180px;
   /* The single horizontal datum every column header aligns to. Three columns
@@ -18,14 +18,37 @@
   /* The persistent shell has four semantic type roles. Components choose a
      role by meaning instead of inventing a local size; terminal output and
      document content intentionally keep their own scales. */
-  --shell-type-reading: 14.5px;
-  --shell-leading-reading: 23px;
+  /* 15/25 is the design's document setting (POD-725). It was 14.5/23, half a
+     point and two pixels of leading short, and the transcript is the only place
+     in the shell where the reading role does real work — a document has to be
+     set for reading, not for fitting. Compact density keeps 14/22. */
+  --shell-type-reading: 15px;
+  --shell-leading-reading: 25px;
   --shell-type-primary: 13px;
   --shell-leading-primary: 18px;
   --shell-type-secondary: 12px;
   --shell-leading-secondary: 16px;
   --shell-type-micro: 10.5px;
   --shell-leading-micro: 14px;
+  /* A fifth role, above reading: the one title per column that names what you
+     are looking at — today the flight deck's mission title (POD-725). It sits
+     outside the four shell roles because it is not shell chrome and not body
+     copy; it is the column's headline, and the design sets it two full points
+     above anything else in that column. */
+  --shell-type-column-title: 17px;
+  --shell-leading-column-title: 1.3;
+  /* DOCUMENT SCALE, outside the four shell roles [POD-788] — the source editor
+     is content, not chrome, and it is read the way the transcript is read. It
+     was set at 13px on CodeMirror's stock 1.4 leading, which is a diff viewer's
+     density asked to do an hour of reading. 15px matches --shell-type-reading
+     (the shell's own answer to "set for reading, not for fitting") and 1.7
+     leading is a full step above the shell's 1.67 body: code lines are ragged,
+     so the eye needs more air to find the next line's start, and the indent
+     guides only read as columns when the rows are far enough apart to see
+     through. Compact density steps to 14/1.6 rather than following the shell's
+     14/22, which would be tighter than the terminal's 1.7. */
+  --code-type: 15px;
+  --code-leading: 1.7;
 }
 html[data-density="compact"] {
   --shell-type-reading: 14px;
@@ -37,6 +60,9 @@ html[data-density="compact"] {
   /* 10.5px is the ordinary-information floor in both modes. */
   --shell-type-micro: 10.5px;
   --shell-leading-micro: 14px;
+  --shell-type-column-title: 16px;
+  --code-type: 14px;
+  --code-leading: 1.6;
 }
 .shell-type-reading {
   font-size: var(--shell-type-reading);
@@ -54,11 +80,19 @@ html[data-density="compact"] {
   font-size: var(--shell-type-micro);
   line-height: var(--shell-leading-micro);
 }
+.shell-type-column-title {
+  font-size: var(--shell-type-column-title);
+  line-height: var(--shell-leading-column-title);
+  letter-spacing: -0.015em;
+}
+/* 9px, the design's own value (POD-725). The row is full-bleed now, with a
+   hairline instead of a gap between rows, so the padding IS the whole rhythm of
+   the column — a pixel here is worth two anywhere else. */
 .shell-work-row {
-  padding-block: 8px;
+  padding-block: 9px;
 }
 html[data-density="compact"] .shell-work-row {
-  padding-block: 6.5px;
+  padding-block: 7.5px;
 }
 html,
 body,
@@ -100,64 +134,77 @@ body {
      doesn't shrink to exclude the home-indicator area the way dvh does. */
   height: 100dvh;
 }
-/* THE COMMAND BAR (POD-365) — 44px, four zones over independently folding
-   columns: mode tabs │ mode-contextual slot │ instrument well │ utilities.
-   Its surface is --bar, the DARKEST tier, one step below the panels beneath it,
-   so the columns read as carved into the chassis instead of stacked beside it.
-   (It was --card, the same tone as the sidebar directly below, which is what
-   made it read as one more content band.) */
+/* THE COMMAND BAR (POD-365, remeasured POD-725) — 48px, four zones over
+   independently folding columns: mode tabs │ mode-contextual slot │ instrument │
+   utilities. Its surface is --bar, the frame tier, and BOTH grounds now lift it
+   just above their own: #1b1d21 over the ink theme's #16171a, #f7f7f5 over
+   paper's #f2f1ed. (It was the darkest tone in the window while the dark theme
+   was navy, and the columns read as carved into the chassis; Dark Ink inverted
+   that ramp, POD-737.) Same token, one reading. */
 .desktop-topbar {
   display: flex;
-  flex: 0 0 44px;
+  flex: 0 0 var(--topbar-h);
   align-items: center;
-  /* ONE ZONE GAP. Every seam and every zone boundary in the bar is 10px, so the
-     bar has a single horizontal rhythm instead of the 2/5/8px mixture that made
-     it read as assembled rather than composed. */
-  gap: 10px;
+  /* ONE ZONE GAP. Every zone boundary in the bar is 18px, so the bar has a
+     single horizontal rhythm instead of the 2/5/8px mixture that made it read
+     as assembled rather than composed. The gap replaced the hairline seams that
+     used to divide the zones: at this width whitespace divides cleanly and the
+     rules were one more line in a window that already has plenty. */
+  gap: 18px;
   min-width: 0;
-  height: 44px;
-  padding: 0 8px 0 12px;
+  height: var(--topbar-h);
+  padding: 0 14px;
   border-bottom: 1px solid var(--border);
   background: var(--bar);
 }
-/* The wordmark is identity, not state. It sat at full strength and out-shone the
-   mode you were actually in; stepped back, the eye lands on the active mode
-   first and finds the mark when it goes looking for it. */
+/* The wordmark is identity, not state — but at 0.55 it read as disabled chrome
+   rather than as a mark held back. 0.8 is the design's value: present, and still
+   quieter than the mode you are actually in. */
 .desktop-topbar-logo {
   display: flex;
   flex: none;
   align-items: center;
-  opacity: 0.55;
+  opacity: 0.8;
 }
-/* THE TWO WELLS. Modes on the left and instruments on the right share one
-   recipe — 30px, 8px radius, carved INTO the bar with a black wash under an
-   inset hairline — so the bar is bracketed by two objects of the same make
-   rather than a nav on one end and a lozenge on the other. This is the Affinity
-   Personas pattern's actual mechanism: it is the WELL that stops a row of
-   glyphs reading as links, not a container drawn around the selected one. */
+/* THE INSTRUMENT WELL. One object, 30px, 9px radius, carved INTO the bar with a
+   wash under an inset hairline and divided by hairlines rather than gaps — so
+   the eye parses host + quota + fleet as one instrument with internal structure
+   instead of five loose numbers.
+
+   POD-725 dropped the matching well around the MODE TABS. Two wells bracketing
+   the bar was a nice symmetry and the wrong reading: a well says "these things
+   are one instrument", which is true of three meters and false of three
+   destinations. Modes are now bare pills whose ACTIVE one is filled — the
+   Affinity Personas pattern minus the container, which the design shows is
+   enough once the bar has a single 18px rhythm holding its zones apart. */
 .topbar-well {
   display: inline-flex;
   align-items: center;
   height: 30px;
   padding: 2px;
-  border-radius: 8px;
+  border-radius: 9px;
   /* Recessed is an EDGE, not a tone: the recess comes from a dark lip along the
      top and a lit one along the bottom, and the raised cell inside inverts that
      same bevel, so the two edges tell you which way each surface faces. (A ring
      all the way round is an outline, and an outline around a row of glyphs is
      one big button.) Which way the FLOOR goes is per-ground and lives in the
-     --well-* tokens: above the bar on navy, where a groove catches ambient light
-     a near-black wash could not show; below it on paper, where there is no
-     ambient left to catch. */
+     --well-* tokens: below the bar on both grounds now that the bar is lifted
+     off the deepest tier in each (POD-737) — it sat ABOVE on the old navy
+     chassis, where a groove had to catch ambient light a near-black wash could
+     not show. */
   background: var(--well-floor);
   box-shadow:
     inset 0 1px 1px var(--well-lip),
     inset 0 0 0 1px var(--well-rim),
     inset 0 -1px 0 var(--well-lit);
 }
+/* Bare pills, not a well (see .topbar-well). 4px apart, so two adjacent filled
+   states could never be read as one segmented control. */
 .desktop-topbar-nav {
+  display: inline-flex;
   flex: none;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
 }
 /* The dynamic centre. Sized by its contents and allowed to shrink before the
    instrument well does — a mode's controls may truncate, the machine readouts
@@ -181,7 +228,7 @@ body {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 /* Zones are divided by hairlines, never by whitespace alone — the same grammar
    every other section of the shell uses. The leading seam belongs to the slot:
@@ -207,13 +254,17 @@ body {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 9px;
-  border-radius: 6px;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 8px;
   background: transparent;
-  color: var(--text-dim);
-  font-size: var(--shell-type-secondary);
+  /* An inactive mode is a DESTINATION, not metadata. --text-dim is the ink for
+     timestamps and sub-lines; at nav scale it read as disabled, which is what
+     made the bar look like it had one tab in it. --muted-foreground is the
+     secondary-content tier, and the closest token to the design's own value. */
+  color: var(--muted-foreground);
+  font-size: 12.5px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -225,18 +276,25 @@ body {
   background: var(--well-hover);
   color: var(--muted-foreground);
 }
-/* Raised, not lit. On navy the whole ramp gets bluer as it gets lighter, so a
-   full --secondary cell against the groove lands as a saturated blue slab — the
-   generic "selected pill" again, in a different colour; --well-cell holds it at
-   two thirds of that step. On paper the same cell is the card surface, brighter
-   than both bar and groove, which is how the selection stays legible with no
-   ring on either ground. */
+/* Filled, not raised. With the well gone there is no recess to climb out of, so
+   the active mode is simply the one pill wearing the chip tone — a tone step and
+   a weight step, no bevel, no ring, and still no yellow (a permanently-lit brand
+   hairline in the chrome is exactly the spend The Signal Rule reserves for what
+   is asking something of you). */
 .topbar-mode[data-active="true"] {
-  background: var(--well-cell);
-  box-shadow:
-    inset 0 1px 0 0 var(--well-cell-lit),
-    inset 0 -1px 0 0 var(--well-cell-lip);
+  background: var(--secondary);
   color: var(--text-strong);
+  font-weight: 600;
+}
+/* THE ACTIVE PILL IS ITS OWN COLOUR, NOT A BRIGHTENED ONE (POD-725). The shared
+   pressable contract brightens anything carrying aria-current / aria-pressed by
+   8%, which is right for a glyph button and wrong for the one control whose
+   fill IS the design's specified tone: it lifted --secondary off #eceae4 toward
+   white, so the mode you are in read as an empty outline rather than a filled
+   pill. Hover and press feedback stay — they change the BACKGROUND here, which
+   is legible without touching the resting colour. */
+.topbar-mode {
+  filter: none;
 }
 /* The proposals count. Bare tabular digits in attention ink — the count IS
    asking something of you, so it keeps the yellow, but a filled pill is a
@@ -737,7 +795,16 @@ html[data-density="balanced"] .header-quota-pools {
    Hover shows the preview; click pins + widens it into the full breakdown.
    The only lifted surface tier — popover shadow per the carved-elevation rule. */
 .health-popover {
+  display: flex;
+  flex-direction: column;
   width: 296px;
+  /* The pinned breakdown names every session and worktree on the host, so it has
+     no natural ceiling. Cap it against the room the positioner reports below the
+     chip (never taller than a comfortable read) and hand the overflow to
+     `.hp-scroll`; unbounded, a busy machine ran the panel off both edges of the
+     window (POD-751). */
+  max-height: min(var(--available-height, 100dvh), 520px);
+  overflow: hidden;
   border: 1px solid var(--input);
   border-radius: 8px;
   background: var(--popover);
@@ -756,10 +823,20 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-header {
   display: flex;
+  flex: none;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
   padding: 9px 12px 7px;
+}
+/* The scrolling middle of a health popover. Which host you are looking at
+   (`.hp-header`) and how to dismiss it (`.hp-footer`) stay pinned; everything
+   between them scrolls once the panel hits its cap. */
+.hp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .hp-title {
   font-size: 11.5px;
@@ -823,6 +900,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-footer {
   display: flex;
+  flex: none;
   justify-content: space-between;
   gap: 8px;
   padding: 6px 12px;
@@ -1040,11 +1118,13 @@ html[data-density="balanced"] .header-quota-pools {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* A top-level popover block, not a child of `.hp-section` — so it carries the
+   same 12px gutter itself, or its prose runs into the left and right borders. */
 .hp-hibernation {
-  margin-top: 10px;
-  padding-top: 9px;
+  padding: 9px 12px 10px;
   border-top: 1px solid var(--border);
   font-size: 10.5px;
+  line-height: 1.45;
   color: var(--muted-foreground);
 }
 .hp-link {
@@ -1088,14 +1168,14 @@ html[data-density="balanced"] .header-quota-pools {
   display: flex;
   flex: 0 0 var(--status-strip-h);
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   height: var(--status-strip-h);
-  padding: 0 10px 0 12px;
+  padding: 0 16px;
   border-top: 1px solid var(--border);
   background: var(--bar);
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 9.5px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -1314,26 +1394,358 @@ html[data-density="balanced"] .header-quota-pools {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.status-strip-hint {
-  display: inline-flex;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE COMMAND PALETTE (POD-745)
+
+   THE PALETTE IS THE COMMAND BAR, ARRIVED.
+
+   It used to be a stock dialog: a bordered input over 13px rows with a grey
+   `bg-accent` wash on the selected one. Nothing in it was made of this system —
+   not the well, not the mono machine voice, not the ID square, not the agent
+   state grammar — which is why the one surface the operator reaches for most
+   was the one that looked least like Podium. This is that surface built out of
+   the shell's own parts:
+
+     · THE FIELD IS A WELL. The command bar's signature control at full width,
+       down to its recipe: `--well-floor` under the same three insets
+       `.topbar-well` wears. The floor is the TOKEN and never a tier name — POD-737
+       lifted the bar off the deepest tier in both grounds, so which direction a
+       groove cuts is a per-ground call the `--well-*` values already carry. A
+       literal `--bar` here was right for one week and wrong the moment the
+       chassis changed.
+     · THE SELECTED ROW IS A RAISED CELL on `--secondary` — the same fill the
+       active mode tab takes, under the `--well-cell-*` bevel. Not `--well-cell`
+       itself: on paper that token resolves to `--card`, which is correct for a
+       cell sitting in the BAR and invisible here, where the panel is already
+       white. The bevel flips with the ground; the fill has to differ from the
+       surface it sits on, and only `--secondary` does that in both.
+     · GROUPS SPEAK MONO. Section labels are the Label role — the same voice the
+       overlay menus and the colour picker name their regions in.
+     · ONE YELLOW THING. `.cmdk-row-cap` marks what Enter will do, on the row it
+       will do it to, and nothing else in the surface may take the signal.
+
+   Layered Tailwind utilities from `DialogContent` sit underneath these plain
+   rules, which is why the geometry is restated here in full rather than
+   patched: `top`, `transform`, `padding`, `gap`, `display` and `max-width` all
+   have a utility to beat.
+   ───────────────────────────────────────────────────────────────────────────*/
+/* The palette keeps the SHARED backdrop rather than inventing a deeper one.
+   A literal black scrim was one step darker on the old navy chassis and simply
+   wrong on Paper — "black at 0.85 on paper reads as dirt, not depth" is the
+   light theme's founding rule, and there is no scrim TOKEN to deepen it with.
+   A color-mix over --carve-popover-* would theme correctly and collapse to an
+   opaque black wall on the Lightning CSS fallback path the well tokens already
+   document. The blur plus the popover lift separate the palette; that is enough. */
+.cmdk-panel {
+  top: 13vh;
+  left: 50%;
+  display: flex;
+  width: min(640px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(560px, calc(100dvh - 22vh));
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-tray);
+  background: var(--chip);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--shell-type-primary);
+  gap: 0;
+  overflow: hidden;
+  transform: translateX(-50%);
+}
+/* The one authored moment: the panel drops in from just above its resting
+   place on an exponential ease-out, and everything after that is instant.
+   `translate`/`scale` rather than `transform`, which is carrying the centring. */
+.cmdk-panel[data-open] {
+  animation: cmdk-drop 170ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cmdk-panel[data-closed] {
+  animation: cmdk-lift 110ms ease-in;
+}
+@keyframes cmdk-drop {
+  from {
+    opacity: 0;
+    scale: 0.985;
+    translate: 0 -9px;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+}
+@keyframes cmdk-lift {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.99;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmdk-panel[data-open],
+  .cmdk-panel[data-closed] {
+    animation: none;
+  }
+}
+.cmdk-field {
+  display: flex;
   flex: none;
   align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  padding: 0 4px;
-  border-radius: var(--radius-md, 4.8px);
-  color: var(--text-faint);
-  font-family: inherit;
-  font-size: inherit;
-  transition: color 150ms ease;
+  gap: 10px;
+  height: 46px;
+  margin: 7px 7px 0;
+  padding: 0 13px;
+  /* `--radius-composer` by name: this is the field you type into, which is the
+     role that radius was cut for. */
+  border-radius: var(--radius-composer);
+  background: var(--well-floor);
+  box-shadow:
+    inset 0 1px 1px var(--well-lip),
+    inset 0 0 0 1px var(--well-rim),
+    inset 0 -1px 0 var(--well-lit);
 }
-.status-strip-hint:hover {
+.cmdk-field-glyph {
+  flex: none;
+  color: var(--text-dim);
+}
+.cmdk-input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-family: inherit;
+  /* The reading role, by name — so the field tracks compact density instead of
+     staying 14.5px while every row around it shrinks. */
+  font-size: var(--shell-type-reading);
+  letter-spacing: -0.005em;
+  outline: none;
+}
+.cmdk-input::placeholder {
   color: var(--muted-foreground);
 }
-.status-strip-hint kbd {
-  font-family: inherit;
-  font-size: inherit;
+/* Gated on a search actually being in flight — the same predicate the agent
+   spinner runs on, which is what licenses motion here at all (DESIGN §5). */
+.cmdk-field-spinner {
+  flex: none;
+  color: var(--text-dim);
 }
+.cmdk-list {
+  min-height: 0;
+  flex: 1;
+  padding-bottom: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+.cmdk-group-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 15px 6px;
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.cmdk-group:first-child .cmdk-group-label {
+  padding-top: 10px;
+}
+.cmdk-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* `shown/total` on a capped group. The cap is a design decision, and a surface
+   that silently drops results reads as a surface that found none. */
+.cmdk-group-count {
+  margin-left: auto;
+  flex: none;
+  color: var(--muted-foreground);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+.cmdk-row {
+  display: flex;
+  width: calc(100% - 12px);
+  height: 32px;
+  align-items: center;
+  gap: 9px;
+  margin: 0 6px;
+  padding: 0 6px 0 9px;
+  border-radius: var(--radius-row);
+  color: var(--foreground);
+  cursor: pointer;
+  text-align: left;
+}
+/* The pressable contract brightens anything carrying aria-selected / data-active
+   by 8%, and `.topbar-mode` already opts out for exactly this reason: it is the
+   right reflex for a glyph button and wrong for a control whose fill IS a
+   specified tone. Here it would also have lifted the ↵ cap's Superade Yellow
+   off spec — the one colour in the surface allowed to be exact. */
+.cmdk-row {
+  filter: none;
+}
+.cmdk-row:hover {
+  background: var(--well-hover);
+}
+.cmdk-row[data-active] {
+  background: var(--secondary);
+  box-shadow:
+    inset 0 1px 0 var(--well-cell-lit),
+    inset 0 0 0 1px var(--well-cell-lip);
+  color: var(--text-strong);
+}
+.cmdk-row-lead {
+  display: flex;
+  width: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+}
+.cmdk-row[data-active] .cmdk-row-lead {
+  color: var(--muted-foreground);
+}
+.cmdk-row-issue {
+  min-width: 0;
+  flex: 1;
+  gap: 9px;
+}
+.cmdk-row-ref {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.cmdk-row-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmdk-row[data-active] .cmdk-row-title {
+  font-weight: 500;
+}
+.cmdk-row-hint {
+  max-width: 40%;
+  flex: none;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* THE ONE YELLOW THING. Always laid out, so the hint column never jitters as
+   the highlight walks the list; visible only on the row Enter would run. */
+.cmdk-row-cap {
+  display: grid;
+  min-width: 18px;
+  height: 16px;
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--primary-rim, transparent);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1;
+  place-items: center;
+}
+.cmdk-row[data-active] .cmdk-row-cap {
+  opacity: 1;
+}
+/* The search found nothing, said once, above the one thing still on offer. */
+.cmdk-nomatch {
+  padding: 18px 15px 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-align: center;
+}
+.cmdk-empty {
+  padding: 30px 20px 34px;
+  text-align: center;
+}
+.cmdk-empty-label {
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.cmdk-empty-text {
+  margin: 8px auto 0;
+  max-width: 44ch;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.55;
+}
+/* The status strip's own grammar, borrowed to close the surface: mono at label
+   scale on --bar. A window ends with an edge, and so does this. */
+.cmdk-foot {
+  display: flex;
+  height: 27px;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-top: 1px solid var(--hairline-soft);
+  background: var(--bar);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.cmdk-keys {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.cmdk-keys span {
+  margin-right: 7px;
+}
+.cmdk-keys span:last-child {
+  margin-right: 0;
+}
+.cmdk-keys kbd {
+  display: inline-grid;
+  min-width: 15px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+  color: var(--muted-foreground);
+  font: inherit;
+  place-items: center;
+}
+.cmdk-count {
+  margin-left: auto;
+  flex: none;
+}
+
 .sidebar-collapse-control {
   position: absolute;
   z-index: 20;
@@ -1353,7 +1765,6 @@ html[data-density="balanced"] .header-quota-pools {
 .sidebar-collapse-control:hover,
 .collapsed-sidebar-expand:hover,
 .folded-superagent-control:hover,
-.folded-superagent-cell:hover,
 .right-rail-cell:hover {
   background: var(--accent);
   color: var(--text-strong);
@@ -1370,8 +1781,12 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   gap: 10px;
   padding: 10px 0;
-  border-right: 1px solid var(--border);
-  background: var(--card);
+  /* The column's own tone, not --card: collapsing changes the sidebar's width,
+     not its material (POD-725, same rule the folded flight deck now follows).
+     On paper --card is pure white, so the old value turned a collapsed sidebar
+     into the brightest column in the window. No seam, for the same reason the
+     dock and rail lost theirs — tone separates. */
+  background: var(--sidebar);
 }
 .collapsed-sidebar-expand,
 .folded-superagent-control {
@@ -1385,53 +1800,160 @@ html[data-density="balanced"] .header-quota-pools {
   background: transparent;
   color: var(--text-dim);
 }
+/* THE FLIGHT DECK'S COLUMN (POD-725). The one column that is about ONE issue —
+   which is why it, alone, wears the issue colour as a surface: the selected
+   row's 3px spine in the work list continues across this column's top edge and
+   fades down into the card tone over 240px. Read left to right, the spine says
+   "this is the same thing" twice, then stops.
+   That is also where the tint the workspace pane used to carry has gone. A wash
+   over the stage claimed the whole centre of the window for one issue; here the
+   claim is true and the gradient is spent on a column narrow enough to make it. */
+/* NOT ENGRAVED ANY MORE, despite the name (POD-725). The column kept a groove
+   down both sides and a border on its right; the design has neither. Columns
+   are separated by TONE — work list, deck, gutter are three steps of stone —
+   and the only shadow left is the design's own `0 1px 2px`, which is not
+   elevation so much as a seam you can feel. The class name stays because it is
+   load-bearing across the shell; what it MEANS is now "the mission's column". */
 .engraved-column {
   display: flex;
   width: 100%;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  border-right: 1px solid var(--border);
-  /* Flat theme surface — the column carries no issue tint (the glow was removed). */
-  background: var(--engraved);
-  box-shadow: var(--shadow-engraved);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--card)),
+    var(--card) 240px
+  );
+  box-shadow:
+    inset 0 3px 0 var(--issue),
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
+/* The no-colour flow runs the same mechanics quieter (handoff 1b). */
+[data-issue-colored="false"] .engraved-column {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--card)),
+    var(--card) 240px
+  );
+  box-shadow:
+    inset 0 3px 0 color-mix(in srgb, var(--issue) 55%, transparent),
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
+}
+/* Folding must not change the column's MATERIAL (POD-725) — only its width. The
+   open deck is the card tone under an issue fade; the folded bar was still flat
+   --engraved, so collapsing it swapped one surface for another and read as a
+   different object appearing rather than the same one narrowing. Same gradient,
+   44px of it.
+   WHAT THE FOLD KEEPS IS THE SPINE, NOT THE LID (POD-738). The 3px issue inset
+   along the top edge is gone, and so is the issue-tinted right border: the top
+   edge belongs to the OPEN column, where it continues the selected work row's
+   line into a column wide enough to carry a mission, and drawn across 44px it
+   read as a cap on the rail rather than a continuation of anything. In its
+   place the spine runs DOWN the rail's left edge as a 2px gradient — full
+   strength beside the ID chip, gone by the end of the gauge — so the closed
+   column still says "this is POD-nnn" without a hard colour edge, and the right
+   edge goes back to being a tone step like every other seam in the shell. */
 .folded-superagent {
   display: flex;
   flex: 0 0 44px;
   min-height: 0;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-right: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
-  /* Flat theme surface — the bar carries no issue tint (the fade was removed). */
-  background: var(--engraved);
-  box-shadow: var(--shadow-engraved-bar);
+  gap: 8px;
+  padding: 8px 0 14px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--issue) calc(75 * var(--issue-line-scale, 1%)), transparent),
+      color-mix(in srgb, var(--issue) calc(14 * var(--issue-line-scale, 1%)), transparent) 190px,
+      transparent 340px
+    )
+    left top / 2px 100% no-repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--card)),
+      var(--card) 240px
+    );
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
+}
+/* The no-colour flow runs the same mechanics quieter (handoff 1b), exactly as
+   the open column's `.engraved-column` does. */
+[data-issue-colored="false"] .folded-superagent {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--issue) calc(55 * var(--issue-line-scale, 1%)), transparent),
+      color-mix(in srgb, var(--issue) calc(10 * var(--issue-line-scale, 1%)), transparent) 190px,
+      transparent 340px
+    )
+    left top / 2px 100% no-repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--card)),
+      var(--card) 240px
+    );
+}
+/* THE GAUGE SPINE (POD-738): one 4px tick per task, running top-down in the open
+   gauge's own state order. The states take the open gauge's tokens so the two
+   readings can never disagree — done in Accent Blue, running in the working blue
+   the spinner wears, and BLOCKED WITH NO HUE AT ALL (`--warning` IS `--attention`
+   in Superade, so a warning-toned tick would spend the one signal colour on work
+   that is asking nothing). At 4px there is no room for the open gauge's tint +
+   floor-rule pair, so each state is one saturation instead: full for done, the
+   design's 60% for running, and two neutral weights for stopped and not-started. */
+.deck-tick {
+  width: 4px;
+  flex: 0 1 26px;
+  min-height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+.deck-tick[data-s="done"] {
+  background: var(--success);
+}
+.deck-tick[data-s="run"] {
+  background: color-mix(in srgb, var(--live) 60%, transparent);
+}
+.deck-tick[data-s="block"] {
+  background: color-mix(in srgb, var(--foreground) 34%, transparent);
+}
+/* The foot's stacks: glyph in its cell, count under it, the whole stack the
+   control. */
+.folded-superagent-stat {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 .folded-superagent-cell {
   position: relative;
   display: flex;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   flex: none;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--hairline-bar);
-  border-radius: var(--radius-row);
-  background: var(--card);
+  border-radius: 9px;
+  background: var(--muted);
   color: var(--muted-foreground);
 }
-.folded-superagent-label {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--shell-type-micro);
-  line-height: var(--shell-leading-micro);
-  letter-spacing: 0.18em;
-  writing-mode: vertical-rl;
+.folded-superagent-stat:hover .folded-superagent-cell {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+/* AMBER ONLY WHEN TRUE. The cell is drawn at all only while something is
+   actually asking (the component does not render a zero), and when it is, the
+   tint and the ring are how it says so from across the desk. */
+.folded-superagent-cell[data-attention="true"] {
+  background: color-mix(in srgb, var(--attention) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 50%, transparent);
+  color: var(--attention);
+}
+.folded-superagent-stat:hover .folded-superagent-cell[data-attention="true"] {
+  background: color-mix(in srgb, var(--attention) 22%, transparent);
+  color: var(--attention);
 }
 .native-agents-pane {
   /* The workspace is the elastic centre of the shell. Keep 360px as its
@@ -1440,31 +1962,59 @@ html[data-density="balanced"] .header-quota-pools {
      a min-width pushes the protected right rail past compact viewports. */
   flex: 1 1 360px;
   min-width: 0;
-  /* Surface tint lives in index.css (12% coloured / 9% slate, §2.6) — this
-     shorthand would silently reset it. */
+  /* THE GUTTER (POD-725). The stage stopped being a column and became a SHEET
+     lying on the ground, so this element is now the ground around it: the app
+     background, unpainted, with the gutter as padding. Asymmetric because the
+     left neighbour (the flight deck) already ends in its own surface and the
+     right one (the issue panel) does not.
+     The issue tint that used to wash this pane is gone with it — a tint over a
+     surface that is now just the gap between two objects has nothing to be
+     about. The colour it carried moved to where the design puts it: the flight
+     deck's fade, the selected row's band, and the active tab's dot and ring.
+     The index.css wash this replaced is now DELETED, not overridden: its slate
+     half was a descendant selector that outranked this rule, so the gutter kept
+     the tint whenever the mission had no colour. `.native-agents-pane` has one
+     consumer (Workspace.tsx) and mobile is not it. */
+  display: flex;
+  padding: 12px 12px 12px 14px;
+  background-color: var(--background);
+}
+/* The sheet itself — the one thing in the window with real elevation. */
+.workspace-sheet {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow-sheet);
 }
 /* The right dock is a DARK DEFAULT surface (POD-516 item 9), not an
    issue-tinted one. It used to wear `issue-base-card issue-fade`, but a tint
    only means something when the surface IS that issue — and this dock also
-   hosts Superagent, Git, Files, Shell, Messages and the merge queue, so the
+   hosts Superagent, Git, Files, Shell, Messages and the queues panel, so the
    selected issue's colour asserted a relationship that is usually untrue.
    Deliberately narrows §2's issue-colour channel on this one surface; the ID
    square in the rail keeps its own colour, because it identifies one issue.
 
-   Written in TOKENS, not a dark literal: the dock body takes --engraved (§4's
-   own name for "recessed column, flat, no issue tint") and the icon rail takes
-   --bar, the frame tier the command bar and status strip already wear — so the
-   right edge steps DOWN away from the workspace in every theme: deep navy in
-   Superade, quiet paper greys in Daylight, where a hard-coded dark value would
-   have been a hole. Same tonal ordering as the POD-491 artifact, whose dock sits
-   a step under the pane and whose icon rail sits under the dock. */
+   Written in TOKENS, not a dark literal: the dock body takes --engraved (§2's
+   own name for "flat, steps away from the work, no issue tint") and the icon
+   rail takes --rail — so the right edge steps AWAY from the workspace in every
+   theme, the dock tone on the dark ground and the darkest stone on paper, where
+   a hard-coded dark value would have been a hole. Same tonal ordering as the POD-491
+   artifact, whose dock sits a step under the pane and whose icon rail sits
+   under the dock. */
 .right-dock-shell {
   display: flex;
   width: 100%;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  border-left: 1px solid var(--border);
+  /* NO SEAM (POD-725). The design separates the right edge by TONE alone —
+     stage gutter, dock, rail are three steps of stone with nothing drawn
+     between them. A border plus a groove plus a tone step is three ways of
+     saying one thing, and on paper the drawn ones read as construction. */
   /* Flat, like .engraved-column's surface but without its groove: this column
      scrolls long content and a lip under a sticky header reads as grime. */
   background: var(--engraved);
@@ -1472,20 +2022,164 @@ html[data-density="balanced"] .header-quota-pools {
      tints mix over the dock's own surface, not the --card default. */
   --issue-base: var(--engraved);
 }
+
+/* ── The issue explorer (POD-743) ──────────────────────────────────────────
+   The dock's task surface is a navigation stack now, so it needs a viewport
+   that clips: going deeper slides a level in from the right and going back
+   slides it off again. This is STRUCTURAL motion — one shot, ~260ms, latched
+   to an actual move — not a status signal, so it spends none of the stillness
+   budget the agent-state grammar guards. */
+.explorer-stack {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+.explorer-level {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  /* Opaque, because two levels are mounted at once mid-move and the outgoing
+     one must not read through the incoming one. */
+  background: var(--engraved);
+}
+.explorer-level[data-move="push-in"] {
+  animation: explorer-push-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.explorer-level[data-move="push-out"] {
+  animation: explorer-push-out 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.explorer-level[data-move="pop-in"] {
+  animation: explorer-pop-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.explorer-level[data-move="pop-out"] {
+  animation: explorer-pop-out 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  /* The level being left behind sits UNDER the one arriving. */
+  z-index: 0;
+}
+.explorer-level[data-move="push-in"],
+.explorer-level[data-move="pop-in"] {
+  z-index: 1;
+}
+@keyframes explorer-push-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes explorer-push-out {
+  /* The level you came from recedes rather than leaving: it is still where you
+     will land when you walk the trail back. */
+  from {
+    transform: translateX(0);
+    filter: brightness(1);
+  }
+  to {
+    transform: translateX(-24%);
+    filter: brightness(0.62);
+  }
+}
+@keyframes explorer-pop-in {
+  from {
+    transform: translateX(-24%);
+    filter: brightness(0.62);
+  }
+  to {
+    transform: translateX(0);
+    filter: brightness(1);
+  }
+}
+@keyframes explorer-pop-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Seven stage buckets do not fit a 316px dock, so the strip scrolls and snaps.
+   It fades where it runs on instead of clipping flat — a half-visible tab has
+   to read as more to scroll, not as a layout that ran out of room. */
+.explorer-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-bottom: 1px solid var(--hairline-soft, var(--border));
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 34px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 34px), transparent 100%);
+}
+.explorer-tabs::-webkit-scrollbar {
+  display: none;
+}
+.explorer-tab {
+  position: relative;
+  display: flex;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+  scroll-snap-align: center;
+  transition: color 140ms ease;
+}
+.explorer-tab:hover {
+  color: var(--foreground);
+}
+.explorer-tab[aria-selected="true"] {
+  color: var(--text-strong, var(--foreground));
+  font-weight: 500;
+}
+/* No yellow on the selected tab: the strip already answers "you are here", and
+   a permanently-lit brand hairline in chrome is the exact spend The Signal Rule
+   guards. The attention COUNT keeps its amber — that one is asking. */
+.explorer-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: -1px;
+  left: 6px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--text-strong, var(--foreground));
+}
+@media (prefers-reduced-motion: reduce) {
+  .explorer-level[data-move] {
+    animation-duration: 1ms;
+  }
+}
 .right-rail {
   display: flex;
-  flex: 0 0 44px;
+  flex: 0 0 46px;
   min-height: 0;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 10px 0;
-  border-left: 1px solid var(--border);
-  background: var(--bar);
-  /* A 44px vertical bar, carved like the folded one (§4's engraved-bar) — the
-     separation the tint gradient used to give it now comes from the groove. */
-  box-shadow: var(--shadow-engraved-bar);
-  --issue-base: var(--bar);
+  /* The design's own spacing: 14px between cells, 16px off the top. The rail
+     holds six glyphs in a 1000px column — it can afford air, and at 6px they
+     read as one striped object rather than six destinations. */
+  gap: 14px;
+  padding: 16px 0;
+  /* --rail, the tier that exists for exactly this and had never been spent.
+     The rail is the furthest chrome from the work, so it takes the deepest step
+     in whichever direction the theme's ramp runs: #1e2024 on the dark ground,
+     the darkest stone on paper. It wore --bar (the frame tier) while the paper
+     theme's frame was still the darkest thing in the window; now that the bar
+     lifts, --bar would have made the rail brighter than the columns it edges. */
+  background: var(--rail);
+  --issue-base: var(--rail);
 }
 .right-rail-cell {
   display: flex;
@@ -1495,11 +2189,27 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: var(--radius-row);
+  border-radius: var(--radius);
   background: transparent;
   /* Neutral chrome ink: these cells are Superagent / Git / Files / Shell /
      Messages, none of which belong to the selected issue. */
-  color: var(--muted-foreground);
+  color: var(--text-dim);
+}
+/* THE OPEN PANEL'S CELL (POD-725). The design raises it out of the rail onto the
+   card with a small drop and a 1px issue ring, and puts the issue's own colour
+   in the glyph — the same "raised, ringed, and it is about THIS issue" recipe
+   the active workspace tab uses, so the two objects that say "you are here"
+   say it the same way.
+   It was `bg-secondary text-primary`: brand YELLOW on a light chip, which on
+   paper measured 1.6:1 and is the exact assignment DESIGN.md forbids. Yellow
+   fills; it never writes. */
+.right-rail-cell[aria-pressed="true"] {
+  background: var(--card);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--carve-drop) 90%, transparent),
+    inset 0 0 0 1px
+    color-mix(in srgb, var(--issue) calc(35 * var(--issue-line-scale, 1%)), transparent);
+  color: var(--issue);
 }
 
 /* Scrollable region with no visible scrollbar (sidebar work list, transcripts). */
@@ -1601,12 +2311,34 @@ html[data-density="balanced"] .header-quota-pools {
    alignment without visual noise.
    ─────────────────────────────────────────────────────────────────────────── */
 
+/* THE BEAT. 11px each side = a 22px gap between two adjacent blocks, which is
+   the rhythm the document is set on. It has been 12 (24px, read as air between
+   separate messages rather than as spacing inside one answer) and then 8 (16px,
+   which at the restored 13.5/23 narration was under a line of leading and let
+   consecutive blocks run together into one slab). 22px is a line of the document
+   plus its own paragraph space: adjacent blocks separate without the exchange
+   losing its grouping, and it still leaves the `open` seam room to be visibly
+   larger than it.
+
+   THE PANE IS THE MEASURE (POD-747). There used to be two nested caps here — a
+   44em one on the row and a 62ch one on the prose inside it — and the result was
+   a document with three different right edges: a work line stopping at 704px, a
+   paragraph at 704, an answer at 620, inside a pane 992 wide, with the rest of
+   the pane (the composer, the offer, the hibernation strip, the tail's rule)
+   running the full width underneath them. A measure that only some of the column
+   obeys does not read as typography; it reads as a layout that failed to fill.
+
+   So the row takes the pane, and the operator sets the measure by sizing the
+   pane — which is the honest instrument behaviour here, because this column is
+   one of several the shell already lets them drag. The caps are gone rather than
+   retuned: a single cap would put the dead margin back the moment the pane is
+   wider than it, which is exactly the state this replaces. */
 .transcript-row {
   display: flex;
   flex-direction: row;
   gap: 0;
-  padding-top: 12px;
-  padding-bottom: 12px;
+  padding-top: 11px;
+  padding-bottom: 11px;
 }
 
 /* Flat Field (POD-159): the rails are gone — agent output lies flat on the
@@ -1624,129 +2356,71 @@ html[data-density="balanced"] .header-quota-pools {
   background-color: transparent;
 }
 
-/* The operator's turn — the ONLY elevated surface class in the field. Embossed
-   per the Carved Rule: depth goes inward, so the panel is engraved into the
-   chassis rather than floated above it. */
-/* THE ISSUE TINT CHANNEL, SPENT ON THE FEED (POD-376). `--issue` is scoped on
-   the shell root, so the chat inherits the selected issue's colour for free and
-   used it nowhere. It is spent here and only here: the operator's panel is the
-   head of every exchange, so tinting it says "this whole conversation belongs to
-   POD-411" once per exchange instead of once per screen. Tint, never fill —
-   6% into the panel, 32% into its hairline, both below DESIGN.md's selected-row
-   dose because this surface repeats down the column. Both percentages ride the
-   theme's `--issue-tint-scale` / `--issue-line-scale`, like every other tinted
-   surface: a hue mixed into a light ground saturates about twice as fast, and a
-   percentage written out here would be a second place that has to know it. The
-   answer hierarchy stays neutral: colour that means "your issue" must not
-   collide with colour that means "act now". */
+/* THE OPERATOR'S TURN IS A BRIEF, NOT A BUBBLE (POD-725).
+   It used to be the one elevated surface in the field: a tinted, engraved panel
+   with its own border and radius. The design retires the panel outright, and the
+   reason is a reading order rather than a taste. In a bubble transcript the
+   loudest object on screen is the thing the reader already knows — they typed
+   it. The design makes the brief the QUIETEST register in the document (13.5px
+   at muted ink, under a micro eyebrow) and gives the weight to the answer, then
+   ends the brief with a hairline so the eye has the seam it was looking for
+   without a box to find it by. What survives is the structure: an eyebrow, the
+   words, a rule.
+
+   THE ISSUE TINT CHANNEL. The panel is where `--issue` used to be spent on the
+   feed — once per exchange, saying "this conversation belongs to POD-411". With
+   no panel to tint, the whole spend lands on the eyebrow instead, at a dose you
+   read as warmth in the grey rather than as a colour. The bulk of the feed's
+   colour moved out of the chat entirely, onto the flight deck's fade and the
+   selected row's spine (see .engraved-column).
+
+   --transcript-ground is the surface the brief lies on, needed by the clamp's
+   fade and by nothing else. It is the SHEET, not the app background: the stage
+   is a card now, and a fade to --background would have ended in a visible band. */
 .transcript-you {
-  --transcript-you-bg: color-mix(
-    in srgb,
-    var(--issue, transparent) calc(6 * var(--issue-tint-scale, 1%)),
-    color-mix(in oklab, var(--background) 82%, black)
-  );
-  border: 1px solid
-    color-mix(
-      in srgb,
-      var(--issue, transparent) calc(32 * var(--issue-line-scale, 1%)),
-      var(--border)
-    );
-  border-radius: 9px;
-  background: var(--transcript-you-bg);
-  padding: 10px 15px;
-  box-shadow:
-    inset 0 3px 7px -2px var(--carve-engraved),
-    inset 0 -1px 0 color-mix(in oklab, var(--border) 45%, transparent);
+  --transcript-ground: var(--card);
+  --transcript-you-bg: var(--transcript-ground);
+  padding-bottom: 19px;
+  border-bottom: 1px solid var(--hairline-soft);
 }
 .transcript-you .chat-md {
-  color: var(--foreground);
-  font-weight: 500;
-  font-size: var(--shell-type-reading);
-  line-height: var(--shell-leading-reading);
+  color: var(--muted-foreground);
+  font-weight: 400;
+  font-size: 13.5px;
+  line-height: 1.7;
 }
 .transcript-you-label {
   display: flex;
   align-items: baseline;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
-  line-height: var(--shell-leading-micro);
-  font-weight: 500;
-  letter-spacing: 0.12em;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: color-mix(
     in oklab,
-    var(--issue, var(--muted-foreground)) calc(58 * var(--issue-line-scale, 1%)),
-    var(--muted-foreground)
+    var(--issue, var(--text-faint)) calc(30 * var(--issue-line-scale, 1%)),
+    var(--text-faint)
   );
-  margin-bottom: 3px;
+  margin-bottom: 9px;
 }
 
-/* The pinned request becomes a compact context shelf. Two reading lines keep
-   the active brief available without letting it blanket the answer beneath it;
-   the fixed label row always keeps Read more reachable. */
-.transcript-you-clamp {
-  --transcript-prompt-chrome: 66px;
-}
-.transcript-you-clamp[data-clamped="true"] {
-  position: relative;
-  overflow: hidden;
-  max-height: 2.95em;
-}
-/* Expanded is bounded too, and scrolls inside itself. A prompt taller than the
-   scrollport cannot pin its top — it scrolls away with the content, taking the
-   "Show less" control with it and leaving the reader walled in exactly as
-   before. Three fifths keeps the row pinnable, so the control stays reachable
-   and the conversation stays visible underneath. */
-.transcript-you-clamp:not([data-clamped="true"]) {
-  overflow-y: auto;
-  max-height: max(
-    8rem,
-    calc(var(--chat-viewport-h, 100dvh) * 0.6 - var(--transcript-prompt-chrome))
-  );
-}
-/* Mark the cut with an ellipsis over a fade into the panel, so the clamp reads
-   as "there is more" and never as a message that ends mid-sentence.
-   Keyed on `data-cut`, NOT on `data-clamped` (POD-376): the cap is applied to
-   every collapsed prompt to hold the row's height steady as it sticks, but only
-   a prompt that is genuinely hiding something may be faded — and that is the
-   same verdict that renders the "Read more" toggle. The two cannot disagree,
-   which is what produced a greyed-out last line with no way to reveal it. */
-.transcript-you-clamp[data-cut="true"]::after {
-  content: "…";
-  display: flex;
-  align-items: flex-end;
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  height: 34px;
-  pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--transcript-you-bg));
-  color: var(--muted-foreground);
-  font-size: 15px;
-  line-height: 1;
-}
-/* The expand control rides in the label row: an expanded prompt runs taller
-   than the viewport, so a control under the text would be out of reach exactly
-   when the reader wants to collapse it again. */
-.transcript-you-more {
-  margin-left: auto;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: var(--muted-foreground);
-  transition: color 120ms ease;
-}
-.transcript-you-more:hover {
-  color: var(--text-strong, var(--foreground));
-}
-@media (prefers-reduced-motion: reduce) {
-  .transcript-you-more {
-    transition: none;
-  }
-}
+/* THE BRIEF IS NEVER CUT (POD-747). There was a clamp here — 2.95em, one line
+   and three quarters of the brief's own 22.95px setting — so a two-line prompt
+   arrived pre-truncated behind a fade with a "Read more" for the four words it
+   was hiding. Raising the cap only moves the line at which the same thing
+   happens, so there is no cap: a brief is the one thing in the feed the reader
+   wrote themselves, and hiding part of it to buy space in their own conversation
+   was never a trade worth making. The ellipsis, the fade, the toggle and the
+   height math all went with it, and the class is a plain wrapper now.
+
+   Nor is there a scroll bound, which was the next thing tried: a brief sliced
+   off mid-sentence at the edge of a scroll box reads as truncated whatever the
+   scrollbar says, and it takes the hairline that ends the brief out of view with
+   it. What the cap was protecting — a pasted wall of text blanketing the feed
+   while it is pinned — is handled in ChatBlockView instead, by NOT PINNING a
+   brief too tall to pin. See `usePinnable`. */
 
 /* The final answer is a typographic step, not an attention state. Yellow is
    withheld until the operator is actually asked to act. */
@@ -1755,21 +2429,82 @@ html[data-density="balanced"] .header-quota-pools {
 }
 /* The conclusion is the one thing in the feed a reader came for, and it used to
    be set at exactly the size of the narration it followed. A point and a half of
-   type does what a second keyline could not (POD-376). */
+   type does what a second keyline could not (POD-376). 15/25 rather than 15/1.62
+   because the whole document is now set on a 25px leading grid. Body ink is
+   --foreground; --text-strong is reserved for the headings inside the answer, so
+   that within one block there is still somewhere louder to go. */
 .transcript-answer .chat-md {
   font-size: 15px;
-  line-height: 1.62;
-  color: var(--text-strong, var(--foreground));
+  line-height: 25px;
+  color: var(--foreground);
 }
+/* Both eyebrows — the brief's and the answer's — are one register: mono 9px at
+   .16em in the faintest ink. They name the voice and then get out of the way. */
 .transcript-answer-label {
+  display: flex;
+  align-items: baseline;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
-  line-height: var(--shell-leading-micro);
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 9px;
+}
+
+/* WHEN (POD-701). A transcript that never says when anything happened cannot
+   answer the question a reader most often brings to it — "is this from just now
+   or from before lunch?". The clock rides the right end of a row's own label,
+   inside the 52px lane the hover actions already reserve, so it costs no height
+   and never collides. Machine voice at DESIGN.md's timer spec: Geist Mono 9px,
+   tabular so the digits do not shift width as the minute turns, Dim ink. */
+.chat-clk {
+  margin-left: auto;
+  padding-left: 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  color: color-mix(in oklab, var(--text-dim, var(--muted-foreground)) 82%, transparent);
+}
+.transcript-row:hover .chat-clk {
+  color: var(--text-dim, var(--muted-foreground));
+}
+
+/* THE DAY MARK. Clocks alone are ambiguous the moment a session outlives a
+   day — 09:14 above 23:51 reads as going backwards. One divider at each date
+   boundary resolves every clock beneath it, and it borrows the "Churned for"
+   shape already in the feed rather than introducing a second kind of seam. */
+.transcript-daymark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 26px 0 6px;
+}
+.transcript-daymark::before,
+.transcript-daymark::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in oklab, var(--border) 62%, transparent);
+}
+.transcript-daymark-label {
+  flex: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
-  margin-bottom: 5px;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+}
+/* The first mark sits at the top of the mounted window, where the air above it
+   would only pad the scrollport. */
+.transcript-daymark:first-child {
+  margin-top: 2px;
 }
 
 /* Muted one-line tool rows: mono machine voice, verdict glyph, right-aligned
@@ -2054,7 +2789,7 @@ html[data-density="balanced"] .header-quota-pools {
   flex: 1 1 auto;
   overflow: hidden;
   border-radius: 3px;
-  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  background: var(--hairline-soft);
   cursor: pointer;
   touch-action: none;
 }
@@ -2073,25 +2808,66 @@ html[data-density="balanced"] .header-quota-pools {
    pointing at and the colour beside the word come from one rule.
 
    Passive bands stay in the identity/neutral ramp. Search is the overlay and
-   operator action remains the only reason to spend Superade yellow. */
+   operator action remains the only reason to spend Superade yellow.
+
+   Drawn from the TEXT RAMP rather than from --foreground at an alpha (POD-725).
+   An alpha of the body ink is calibrated to exactly one ground: at 32% it is a
+   quiet band on navy and a solid grey slab on paper, which turned the map into
+   the loudest column in the pane. --text-dim and --text-faint are already tuned
+   per theme to be exactly this legible, which is what the map wants — the shape
+   of a session, not a barcode.
+
+   FOUR RUNGS, NOT FOUR GREYS (POD-747). Staying inside the ramp was right; the
+   spacing inside it was not. `you` mixed only 55% of the issue hue into
+   --text-dim, which lands within a few points of --text-dim itself, and `answer`
+   WAS --text-dim — so the two bands a reader actually scrubs for were the same
+   colour, and `agent` and `work` were two more near-identical faints under them.
+   Measured on the dark theme the whole map spanned rgb(111,117,128) to
+   rgb(132,138,148): four rungs inside eight points of lightness.
+
+   The ladder now uses the ramp's real span, and it is weighted the way a map
+   wants rather than the way the ramp is ordered: narration and machine work are
+   MOST of a transcript, so they are the quiet field, and the two landmarks a
+   reader actually scrubs for stand out of it. Each rung still carries its width,
+   so the shape survives with no colour at all:
+
+     answer   the strongest neutral, near-white. Where an exchange concludes —
+              the brightest thing on the map because it is what you came for.
+              Full width.
+     you      the issue's own hue, lifted a little toward strong ink so an
+              uncoloured issue's slate still clears the field under it. Where an
+              exchange BEGINS. Full width, and the only hue on the column.
+     agent    narration. Faint, stepped in 5px.
+     work     machine activity. Faintest, stepped in 11px.
+
+   Weighting it the other way — which is what "you > answer > agent > work" in
+   ramp order produced — filled two thirds of the column with a light grey field
+   and left the landmarks with nowhere to stand. */
 .minimap-tick--you {
   inset-inline: 0;
-  background: color-mix(in oklab, var(--issue, var(--info)) 72%, var(--foreground));
+  background: color-mix(
+    in oklab,
+    var(--issue, var(--info)) 80%,
+    var(--text-strong, var(--foreground))
+  );
 }
 .minimap-tick--answer {
   inset-inline: 0;
-  background: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  background: color-mix(in oklab, var(--text-strong, var(--foreground)) 78%, transparent);
 }
 .minimap-tick--agent {
-  inset-inline: 0 6px;
-  background: color-mix(in oklab, var(--foreground) 32%, transparent);
+  inset-inline: 0 5px;
+  background: color-mix(in oklab, var(--text-faint) 82%, transparent);
 }
 .minimap-tick--work {
-  inset-inline: 0 12px;
-  background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  inset-inline: 0 11px;
+  background: color-mix(in oklab, var(--text-faint) 42%, transparent);
 }
+/* A ring, not a brightness filter: brightening works on navy and does nothing to
+   a near-black band on paper, so the hover cue used to vanish in Daylight. */
 .minimap-tick--hover {
-  filter: brightness(1.6);
+  box-shadow: 0 0 0 1px var(--background);
+  filter: brightness(1.25) saturate(1.15);
 }
 /* A search hit rides the right edge rather than repainting the band, so "what
    is this" and "is it a match" stay two separate questions with two answers. */
@@ -2109,13 +2885,16 @@ html[data-density="balanced"] .header-quota-pools {
   background: color-mix(in oklab, var(--issue, var(--info)) 78%, var(--foreground));
   box-shadow: 0 0 6px color-mix(in oklab, var(--issue, var(--info)) 38%, transparent);
 }
+/* Where you ARE, over a map whose bands now carry the issue hue themselves — so
+   the viewport frame goes neutral and bright rather than tinted, or "you are
+   here" and "this is your prompt" would be the same colour on the same column. */
 .minimap-view {
   position: absolute;
   inset-inline: 0;
   pointer-events: none;
-  border: 1px solid color-mix(in oklab, var(--issue, var(--foreground)) 50%, var(--foreground));
+  border: 1px solid color-mix(in oklab, var(--text-strong, var(--foreground)) 55%, transparent);
   border-radius: 2px;
-  background: color-mix(in oklab, var(--issue, var(--foreground)) 10%, transparent);
+  background: color-mix(in oklab, var(--text-strong, var(--foreground)) 9%, transparent);
 }
 
 /* The legend, delivered on hover and tied to the band under the pointer. */
@@ -2521,10 +3300,37 @@ html[data-density="balanced"] .header-quota-pools {
   --work-line-face: color-mix(in oklab, var(--background) 88%, black);
   --work-line-carve: rgb(0 0 0 / 0.45);
 }
-/* Superade light carves in its own navy ink, like every other groove there
-   (POD-372) — black on paper reads as dirt even at this alpha. */
+/* Paper carves in its own warm ink, like every other groove there (POD-725) —
+   black on paper reads as dirt even at this alpha, and a cool ink over stone
+   reads as a bruise. */
 [data-theme="superade"]:not(.dark) .work-line {
-  --work-line-carve: rgb(14 22 38 / 0.16);
+  --work-line-carve: rgb(29 28 25 / 0.12);
+}
+/* THE RUN THAT ENDS THE FEED (POD-747). When a call is in flight the tail stands
+   down and this row is the last thing in the transcript, so it inherits the
+   tail's job of showing that the document ENDS — one hairline under the run, in
+   the live hue, the same weight and alpha the tail's own rule carries. It is a
+   ::after on the container rather than a border on the chip so the fanned deck
+   behind a folded run still reads between the two. */
+.work-line[data-ends-feed="true"] {
+  margin-bottom: 16px;
+}
+.work-line[data-ends-feed="true"]::after {
+  content: "";
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--live, var(--info));
+  opacity: 0.2;
+  pointer-events: none;
+}
+.work-line[data-ends-feed="true"][data-state="wait"]::after {
+  background: var(--muted-foreground);
+}
+.work-line[data-open="true"][data-ends-feed="true"]::after {
+  display: none;
 }
 .work-line-deck {
   position: absolute;
@@ -2825,13 +3631,192 @@ html[data-density="balanced"] .header-quota-pools {
    Which row is which is decided in TranscriptFeed, where the whole sequence is
    visible. Margin, not padding, on the opener: the prompt row is `position:
    sticky` and its offset is measured from its border box, so spacing it this
-   way cannot move where it pins. */
+   way cannot move where it pins.
+
+   The seam has to stay visibly larger than the beat or the structure collapses
+   into one uniform gap, which is the state this replaced. At an 11px beat that
+   makes the exchange seam 22 + 34 = 56px against 22px between blocks inside one
+   — a ratio a reader resolves at a glance, without a rule or a box (POD-747). */
 .transcript-turn-open {
-  margin-top: 22px;
+  margin-top: 34px;
 }
 .transcript-turn-bind {
   padding-top: 2px;
   padding-bottom: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   THE COLD TRANSCRIPT (POD-700) — the feed while its first read is in flight.
+
+   See TranscriptCold.tsx for the three rules. What this file owns is that the
+   slots are the FEED'S OWN geometry, not a generic skeleton: every metric below
+   is read off the real rows a few hundred lines up (`.transcript-you`,
+   `.transcript-you-label`, `.transcript-answer-label`, `.transcript-turn-open`),
+   so the layout the cold pass holds is the layout that lands in it.
+
+   Each run takes the INK OF THE THING IT STANDS FOR, mixed from an inherited
+   `color` rather than named: the answer's prose is Foreground so its slots carry
+   the page's weight, its label is Muted so that slot recedes. POD-394 recorded
+   why — one flat value for every slot reads as a single texture and inverts the
+   hierarchy the filled surface has. Inheriting also means Daylight needs no
+   second palette and a future ink change moves both feeds together.
+
+   The 2.5px run radius is the tab square's documented sub-component value, not
+   the component scale: 4.8px on a 7px bar is a pill. */
+.transcript-cold {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  /* Bottom-anchored by TranscriptFeed's auto-margin spacer, and never taller
+     than the scrollport: the extra exchanges are CLIPPED at the top, so the cold
+     pass fills the pane without inventing a scrollbar over content that does not
+     exist yet. */
+  max-height: 100%;
+  overflow: hidden;
+  /* The one thing unknowable before the read is how much sits ABOVE. The fade
+     says so and claims no count — the oldest exchange leaves rather than stopping
+     at a hard edge, which would read as the top of the conversation. */
+  /* Prefixed alongside the standard property, as `.code-copy` and `.ref-icon`
+     already do — the Tauri wrapper renders on WebKitGTK. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 18%);
+  mask-image: linear-gradient(to bottom, transparent, black 18%);
+  /* Resolve in at 180ms. `both` holds opacity 0 through the delay, so a read that
+     beats it — the warm-miss p50 is 188ms — never blinks anything on screen, and
+     no JS timer or extra state exists to get out of step with the read. */
+  animation: transcript-cold-in 160ms ease-out 180ms both;
+}
+@keyframes transcript-cold-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* The exchanges are pinned to the BOTTOM of the clipped block, so what falls off
+   is the oldest, under the fade — the same end the real feed loses first. */
+.transcript-cold-stack {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.transcript-cold-turn + .transcript-cold-turn {
+  margin-top: 34px; /* `.transcript-turn-open`'s own seam. */
+}
+/* The mono label above each half of the exchange, at the real label's box and
+   its Muted ink. */
+.transcript-cold-label {
+  /* Block, not the span default: an inline box drops width/height and the label
+     collapses, taking the air between the prompt and its answer with it. */
+  display: block;
+  height: 9px;
+  width: 84px;
+  margin-bottom: 6px;
+  border-radius: 2.5px;
+  color: var(--muted-foreground);
+  background: color-mix(in oklab, currentColor 34%, transparent);
+}
+.transcript-cold-label--answer {
+  width: 62px;
+  margin-top: 16px;
+  margin-bottom: 7px;
+}
+/* The operator's prompt is a CARVED BOX in this feed, not a run of text, so the
+   cold pass carves it too — same radius, padding, border and inset as
+   `.transcript-you`. Reproducing the container is what stops the read landing
+   with a jump. */
+.transcript-cold-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 13px 15px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--issue, transparent) calc(32 * var(--issue-line-scale, 1%)),
+      var(--border)
+    );
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--background) 82%, black);
+  box-shadow:
+    inset 0 3px 7px -2px var(--carve-engraved),
+    inset 0 -1px 0 color-mix(in oklab, var(--border) 45%, transparent);
+  color: var(--foreground);
+}
+/* The answer's prose, at the feed's reading ink. */
+.transcript-cold-answer {
+  color: var(--text-strong, var(--foreground));
+}
+/* A prose run. Height is the reading leading's INK, not the whole line box, so a
+   stack of them has the rhythm of text rather than of a table. */
+.transcript-cold-line {
+  display: block;
+  height: 7px;
+  border-radius: 2.5px;
+  background: color-mix(in oklab, currentColor 26%, transparent);
+}
+.transcript-cold-answer .transcript-cold-line + .transcript-cold-line {
+  margin-top: calc(var(--shell-leading-reading) - 7px);
+}
+/* Deterministic, uneven widths. A conversation does not wrap at one measure, and
+   equal bars are the tell that turns a cold pass into a loading graphic. Keyed by
+   position so the four exchanges never repeat one silhouette. */
+.transcript-cold-prompt .transcript-cold-line:nth-child(1) {
+  width: 84%;
+}
+.transcript-cold-prompt .transcript-cold-line:nth-child(2) {
+  width: 41%;
+}
+.transcript-cold-turn:nth-child(even) .transcript-cold-prompt .transcript-cold-line:nth-child(1) {
+  width: 62%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(1) {
+  width: 96%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(2) {
+  width: 88%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(3) {
+  width: 93%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(4) {
+  width: 71%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(5) {
+  width: 46%;
+}
+.transcript-cold-turn:nth-child(even) .transcript-cold-answer .transcript-cold-line:nth-child(1) {
+  width: 89%;
+}
+.transcript-cold-turn:nth-child(even) .transcript-cold-answer .transcript-cold-line:nth-child(3) {
+  width: 54%;
+}
+/* The admission, and only once the read has earned it. Under 1.2s the shape has
+   already answered "something is coming", and a line that blinks in and out reads
+   as a fault; past it, the read is slow enough to name. Machine voice, Dim ink. */
+.transcript-cold-note {
+  flex: none;
+  margin-top: 18px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
+  color: var(--text-dim, var(--muted-foreground));
+  animation: transcript-cold-in 200ms ease-out 1200ms both;
+}
+.transcript-cold-note.is-compact {
+  margin-top: 14px;
+}
+.chat-compact .transcript-cold-prompt {
+  padding: 10px 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The DELAYS are the state machine and stay; only the fades go. */
+  .transcript-cold,
+  .transcript-cold-note {
+    animation-duration: 1ms;
+  }
 }
 
 /* Loading, empty and paging share one quiet machine-voice object. They occupy
@@ -2874,6 +3859,106 @@ html[data-density="balanced"] .header-quota-pools {
   color: var(--text-dim, var(--muted-foreground));
   font-size: 10.5px;
 }
+/* ── STANDBY: the transcript that has not started (POD-701, redrawn POD-746) ─
+   A card in the middle of the pane — icon box, title, lede, a three-row
+   coordinate table, a closing instruction — was six objects saying one thing,
+   floated in a void. What is left is the question, set at the column title and
+   asked WHERE THE ANSWER GETS TYPED: bottom-anchored onto the composer, so the
+   eye runs question → cursor with nothing between them. The caret hangs in the
+   margin so the question and its coordinates share one left edge, and it is
+   Attention ink because this is the pane's one thing waiting on the operator.
+   It holds still after one authored moment. */
+.transcript-standby {
+  flex: none;
+  width: 100%;
+  padding-bottom: 2px;
+  animation: transcript-standby-in 260ms cubic-bezier(0.22, 0.8, 0.28, 1) both;
+}
+/* Hanging caret: the block is indented by the caret's own column, so the
+   question, the note and the coordinates all start on the same axis and only
+   the mark sits outside it. */
+.transcript-standby.is-asking {
+  padding-left: 18px;
+}
+/* Flex on the BASELINE, not absolute positioning: the caret is a smaller font
+   in the same line, and only a baseline join makes the two read as one line of
+   type rather than as a glyph parked beside a heading. */
+.transcript-standby-ask {
+  display: flex;
+  align-items: baseline;
+  font-weight: 600;
+  color: var(--text-strong, var(--foreground));
+  text-wrap: pretty;
+}
+.transcript-standby-caret {
+  flex: none;
+  width: 18px;
+  margin-left: -18px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85em;
+  font-weight: 500;
+  color: var(--attention);
+}
+.transcript-standby-note {
+  margin-top: 4px;
+  max-width: 52ch;
+  font-size: var(--shell-type-secondary);
+  line-height: var(--shell-leading-secondary);
+  text-wrap: pretty;
+  color: var(--muted-foreground);
+}
+/* Machine voice, one line: who answers and from where. Settles after the
+   question rather than with it — the same delayed one-shot the cold pass uses,
+   so the pane resolves in a reading order instead of all at once. */
+.transcript-standby-where {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  margin-top: 9px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
+  /* Dim, not Faint: the folder is the fact that stops an operator prompting the
+     wrong worktree, so it has to be READ, not merely present. */
+  color: var(--text-dim, var(--muted-foreground));
+  animation: transcript-standby-in 260ms cubic-bezier(0.22, 0.8, 0.28, 1) 70ms both;
+}
+.transcript-standby-where > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcript-standby-sep {
+  padding: 0 7px;
+  color: color-mix(in oklab, var(--text-dim, var(--muted-foreground)) 55%, transparent);
+}
+@keyframes transcript-standby-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript-standby,
+  .transcript-standby-where {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}
+/* The narrow dock (§2.5) runs the same object with its own air. */
+.chat-compact .transcript-standby.is-asking {
+  padding-left: 16px;
+}
+.chat-compact .transcript-standby-caret {
+  width: 16px;
+  margin-left: -16px;
+}
+
 .transcript-pager {
   display: inline-flex;
   align-items: center;
@@ -2936,7 +4021,7 @@ html[data-density="balanced"] .header-quota-pools {
    than it does at full width — 14 against a 13px body. */
 .chat-compact .transcript-answer .chat-md {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 22px;
 }
 
 /* PER-MESSAGE ACTIONS. Absolutely positioned and fading only in opacity, so a
@@ -2949,6 +4034,7 @@ html[data-density="balanced"] .header-quota-pools {
   right: 1px;
   z-index: 2;
   display: flex;
+  align-items: center;
   gap: 1px;
   padding: 2px;
   border: 1px solid transparent;
@@ -2984,12 +4070,80 @@ html[data-density="balanced"] .header-quota-pools {
   background: var(--muted);
   color: var(--text-strong, var(--foreground));
 }
+/* Agent narration has no label row of its own, so its clock rides the hover
+   chip. Inside a chip it is one item among three, not a right-aligned tail —
+   the auto margin the label rows want would strand it against the buttons. */
+.msg-actions .chat-clk {
+  margin-left: 0;
+  padding: 0 6px 0 4px;
+}
 /* The label rows keep a lane clear on the right so the overlay never lands on
    "Read more" or on an attribution mark. */
 .transcript-you-label,
 .transcript-answer-label,
 .transcript-header {
   padding-inline-end: 52px;
+}
+
+/* THE PANE STATE BAR (POD-747) — the strip over a transcript whose process is
+   not running: hibernated, exited, crashed.
+
+   It used to be a tinted slab: `bg-primary/10` with `text-primary` and a
+   primary-bordered button, which put a band of Superade Yellow across the top of
+   the pane for a session that is asking nothing of anyone. Hibernation is a
+   STATE, not a request, and The Signal Rule reserves yellow for the thing that
+   needs you — so the bar spends none of it.
+
+   What it is instead: the same object as the status strip that closes the bottom
+   of the window. `--bar` ground, one hairline seam, machine voice at the mono
+   micro size, `--status-strip-h` tall so the transcript is framed top and bottom
+   by chrome of one height. The state's own word is the only thing in strong ink;
+   its glyph carries the tone. A fault (exited, crashed) takes the warning ink on
+   those two elements ONLY — never as a fill, because a filled red or amber slab
+   is the enterprise-console look this system opens by rejecting. */
+.pane-state-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--status-strip-h);
+  padding: 0 8px 0 11px;
+  border-bottom: 1px solid var(--hairline-soft, var(--border));
+  background: var(--bar, var(--background));
+  color: var(--text-dim, var(--muted-foreground));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
+}
+.pane-state-bar-mark {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--text-faint, var(--muted-foreground));
+}
+.pane-state-bar-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/* The state's own word, and nothing else, steps up to strong ink — "Hibernated"
+   and "Exited" are what the reader is scanning for; the sentence after them is
+   the consequence and stays where the rest of the machine voice lives. */
+.pane-state-bar-word {
+  color: var(--text-strong, var(--foreground));
+}
+.pane-state-bar[data-tone="fault"] .pane-state-bar-mark,
+.pane-state-bar[data-tone="fault"] .pane-state-bar-word {
+  color: var(--warning, var(--destructive));
+}
+/* A fault line can carry the daemon's diagnosis and run to two lines; the
+   control must not drift down with it. */
+.pane-state-bar[data-tone="fault"] {
+  align-items: flex-start;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.pane-state-bar[data-tone="fault"] .pane-state-bar-mark {
+  margin-top: 2px;
 }
 
 /* THE TAIL — where the transcript ENDS, in three weights. One shape (mark,
@@ -3000,8 +4154,6 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   gap: 9px;
   width: 100%;
-  max-width: 960px;
-  margin: 0 auto;
   padding: 13px 0 5px;
 }
 .feed-tail-body {
@@ -3299,14 +4451,29 @@ html[data-density="balanced"] .header-quota-pools {
 
 /* The feed's four registers used to live inside three pixels — prose 14, prompt
    13.5, work line 13, tool row 11 — so every distinction had to be carried by a
-   box. The band is now 15 / 13.5 / 11.5 / 10.5 (POD-376): the ANSWER is the only
-   thing that got bigger, intermediate narration steps back a half point, and
-   machine voice steps down to DESIGN.md's mono size. Net reading load falls. */
+   box. The band is 15 / 13.5 / 11.5 / 10.5 (POD-376): the ANSWER is the only
+   thing that is bigger, intermediate narration steps back a half point, and
+   machine voice steps down to DESIGN.md's mono size. Net reading load falls.
+
+   THE BAND, RESTORED (POD-747). Narration was wired to `--shell-type-reading`,
+   and when POD-725 raised that role to 15/25 for the flight deck's column the
+   feed came with it — so narration and the ANSWER both arrived at 15/25 and the
+   one typographic step this document has (the conclusion is a point and a half
+   above the working-out that led to it) silently closed. Narration is stated
+   here instead of borrowed, because the feed's band is a four-rung ladder of its
+   own and only one of its rungs is a shell role. It shares the brief's 13.5 and
+   its 1.7 leading, so the two quiet registers sit on one rhythm and the answer
+   is the only thing that steps. */
 .chat-md {
-  font-size: var(--shell-type-reading);
-  line-height: var(--shell-leading-reading);
+  font-size: 13.5px;
+  line-height: 23px;
   color: var(--foreground);
   overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+html[data-density="compact"] .chat-md {
+  font-size: 13px;
+  line-height: 21px;
 }
 .chat-md > :first-child {
   margin-top: 0;
@@ -3314,32 +4481,146 @@ html[data-density="balanced"] .header-quota-pools {
 .chat-md > :last-child {
   margin-bottom: 0;
 }
+/* A turn is paragraphs, not a wall. 0.55em put barely half a line between two
+   thoughts, so a four-paragraph answer read as one block of text; 0.85em is
+   about two thirds of a line — enough that the eye finds the next paragraph's
+   first word without the feed growing visibly longer (POD-701). */
 .chat-md p {
-  margin: 0.55em 0;
+  margin: 0.85em 0;
 }
+/* A heading inside an answer is a step of INK and WEIGHT, barely one of size:
+   the design sets "What I'd build" at 16/25 against 15/25 body, on the same
+   leading grid, in the strong ink. A larger jump turns one answer into a
+   document with sections, which is not what a turn in a conversation is. */
 .chat-md h1,
 .chat-md h2,
-.chat-md h3 {
-  color: var(--foreground);
-  margin: 16px 0 6px;
+.chat-md h3,
+.chat-md h4,
+.chat-md h5,
+.chat-md h6 {
+  /* The strong ink, not body ink: with the answer itself now set in --foreground
+     (POD-725), a heading sharing that colour was a step of weight alone. */
+  color: var(--text-strong);
+  /* More air above a heading than below it: a heading belongs to what follows. */
+  margin: 1.5em 0 0.45em;
   font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.008em;
 }
 .chat-md h1 {
-  font-size: 1.2em;
+  font-size: 1.13em;
 }
 .chat-md h2 {
-  font-size: 1.1em;
+  font-size: 1.07em;
 }
 .chat-md h3 {
   font-size: 1em;
 }
+/* Below h3 the ladder runs out of size, so it steps on the other axis — weight
+   and ink — rather than inventing sub-1em headings that read as small print. */
+.chat-md h4 {
+  font-size: 1em;
+  font-weight: 640;
+}
+.chat-md h5,
+.chat-md h6 {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  letter-spacing: 0.01em;
+}
+/* The design's numbered points lead with a bold fragment that carries the strong
+   ink and then continue in body ink on the same line, so a list of proposals
+   scans as headlines without becoming a list of headings. */
+.chat-md strong,
+.chat-md b {
+  color: var(--text-strong);
+  font-weight: 600;
+}
 .chat-md ul,
 .chat-md ol {
-  padding-left: 1.4em;
-  margin: 0.5em 0;
+  padding-left: 1.5em;
+  margin: 0.75em 0;
 }
+/* An ordered list's marker box is `outside`, so it has to fit in the padding —
+   and 1.5em fits "9." and not "10." (POD-747). Agents write ten-, twelve- and
+   twenty-step plans constantly, and past the ninth item the numbers were
+   crowding into the text or clipping at the column edge. 2.3em holds two digits
+   with the same optical gap one digit gets; tabular figures keep the run of
+   markers on one vertical edge instead of drifting right as the digits widen. */
+.chat-md ol {
+  padding-left: 2.3em;
+}
+.chat-md ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
+/* A list is the continuation of the sentence that introduces it, not a new
+   block after it: 0.85em of paragraph air above a list detaches it from its own
+   lead-in, which is exactly the sentence a reader needs it attached to. */
+.chat-md p + :is(ul, ol) {
+  margin-top: 0.3em;
+}
+/* Tailwind's preflight strips list markers globally, and nothing put them back
+   here — so every list an agent wrote arrived as unmarked indented lines and an
+   ordered plan lost its numbers (POD-701). The markers are the structure. */
+.chat-md ul {
+  list-style: disc outside;
+}
+.chat-md ol {
+  list-style: decimal outside;
+}
+.chat-md ul ul {
+  list-style-type: circle;
+}
+.chat-md ul ul ul {
+  list-style-type: square;
+}
+.chat-md li::marker {
+  color: var(--text-dim, var(--muted-foreground));
+}
+/* A list is one unit: tight inside, paragraph-sized air around it. */
 .chat-md li {
-  margin: 0.2em 0;
+  margin: 0.3em 0;
+}
+.chat-md li > :is(ul, ol) {
+  margin: 0.3em 0 0.15em;
+}
+.chat-md li > p {
+  margin: 0 0 0.45em;
+}
+.chat-md li > :last-child {
+  margin-bottom: 0;
+}
+/* A task item's checkbox IS its marker — hang it in the marker slot so checked
+   and bulleted items share one text edge. */
+.chat-md li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.5em;
+}
+.chat-md li > input[type="checkbox"] {
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.55em;
+  vertical-align: -0.06em;
+  accent-color: var(--info);
+}
+.chat-md dl {
+  margin: 0.75em 0;
+}
+.chat-md dt {
+  font-weight: 600;
+}
+.chat-md dd {
+  margin: 0 0 0.4em 1.5em;
+  color: var(--muted-foreground);
+}
+/* A rule is a section break in prose, so it takes section-sized air and stays a
+   hairline — never a 2px slab across the reading column. */
+.chat-md hr {
+  height: 0;
+  margin: 1.6em 0;
+  border: 0;
+  border-top: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
 }
 /* Code blocks: window-bar chrome + subtle background */
 .chat-md pre {
@@ -3366,13 +4647,15 @@ html[data-density="balanced"] .header-quota-pools {
     13px 0 0 var(--border),
     26px 0 0 var(--border);
 }
+/* Inline code is a CHANGE OF VOICE, not a chip (POD-725). It wore a fill, a
+   border and a radius, so a sentence naming three symbols came out as three
+   little buttons and the prose stopped being prose. Mono at the design's 13px
+   against 15px body, in the strong ink — the face and the weight are already
+   the whole signal, and they survive on both grounds. */
 .chat-md code {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.88em;
-  background: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 4px;
+  font-size: 0.87em;
+  color: var(--text-strong);
 }
 .chat-md pre code {
   background: none;
@@ -3400,6 +4683,44 @@ html[data-density="balanced"] .header-quota-pools {
   display: block;
   color: #06b6d4;
 }
+
+/* ---------------------------------------------------------------------------
+   Option preview (POD-708) — the mockup an AskUserQuestion option carries.
+
+   A well, not a card: the same engraved recipe as the You bubble, so the
+   evidence reads as carved into the question rather than floated beside it.
+   Everything here defends the drawing. Box glyphs are hand-aligned at a fixed
+   pitch, so the text may never wrap (`pre`, scroll instead), may never be
+   letter-spaced, and may never have adjacent characters fused by a ligature —
+   any of the three turns a diagram into rubble. Line-height is unitless and
+   tight for the same reason: vertical box runs must meet across rows.
+   --------------------------------------------------------------------------- */
+.ask-preview {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--muted);
+  padding: 9px 11px;
+  box-shadow:
+    inset 0 3px 7px -2px var(--carve-engraved),
+    inset 0 -1px 0 color-mix(in oklab, var(--border) 45%, transparent);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.ask-preview pre {
+  margin: 0;
+  white-space: pre;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 1.34;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
+  tab-size: 2;
+  color: var(--muted-foreground);
+}
+
 /* Copy button injected into every rendered code block (COPY_BUTTON in markdown.ts).
    Icon is a CSS mask (an inline lucide "copy" SVG) so it never depends on DOMPurify
    keeping inline SVG markup. Hover-revealed, top-right, inside the pre's window bar. */
@@ -3532,30 +4853,67 @@ a.ref-link--issue[data-issue-stage="done"] {
 a.ref-link--issue[data-issue-stage="done"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-width='1.8'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'/%3E%3Cpath%20d='M4.5%207.2L6.3%209l3.2-3.6'/%3E%3C/svg%3E");
 }
+/* Unknown to this client: no live row answers for the token. Two spellings —
+   no `data-issue-stage` at all (the ref never resolved) and an empty one (the
+   issue resolved but is deleted, so it has no stage). Muted rather than the
+   `--issue`/`--info` accent: a ref the client simply has not received yet must
+   not wear a colour that reads as a workflow state (POD-676). Session refs are
+   never "unknown" in this sense and keep the accent. */
+a.ref-link--issue:not([data-issue-stage]),
+a.ref-link--issue[data-issue-stage=""] {
+  --ref-accent: var(--muted-foreground);
+}
+/* …and it says so, rather than only going quiet: a ring carrying a question
+   mark, matching `UnknownRefGlyph`. The old fallback here was the generic
+   circle-dot, which is the shape a ref wears when nothing is known about its
+   KIND — a reader had only the grey to tell "not received yet" from a muted
+   stage, and backlog is muted too. */
+a.ref-link--issue:not([data-issue-stage])::before,
+a.ref-link--issue[data-issue-stage=""]::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20stroke-width='1.6'/%3E%3Cpath%20d='M5.3%205.0a1.75%201.75%200%200%201%203.4%200.58c0%201.17-1.75%201.75-1.75%201.75'%20stroke-width='1.5'/%3E%3Ccircle%20cx='7'%20cy='9.7'%20r='0.85'%20fill='black'%20stroke='none'/%3E%3C/svg%3E");
+}
 /* Session refs (POD-13-A / POD-DRAFT-3): lucide terminal. */
 a.ref-link--session::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolyline%20points='4%2017%2010%2011%204%205'/%3E%3Cline%20x1='12'%20x2='20'%20y1='19'%20y2='19'/%3E%3C/svg%3E");
 }
 .chat-md blockquote {
-  border-left: 2px solid var(--border);
-  margin: 8px 0;
-  padding-left: 12px;
+  border-left: 2px solid color-mix(in oklab, var(--border) 85%, var(--foreground));
+  margin: 1em 0;
+  padding-left: 13px;
   color: var(--muted-foreground);
   font-style: italic;
 }
+.chat-md blockquote > :is(p, ul, ol):first-child {
+  margin-top: 0;
+}
+.chat-md blockquote > :is(p, ul, ol):last-child {
+  margin-bottom: 0;
+}
+/* A markdown table can be wider than the reading column, and a table that
+   overflows its pane pushes the whole feed sideways. It scrolls inside itself
+   instead — the one place in the chat body licensed to have its own scrollport,
+   for the same reason a code block has one. */
 .chat-md table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   font-size: 12px;
-  margin: 8px 0;
+  font-variant-numeric: tabular-nums;
+  margin: 1em 0;
 }
 .chat-md th,
 .chat-md td {
   border: 1px solid var(--border);
-  padding: 4px 9px;
+  padding: 5px 10px;
+  text-align: left;
+  vertical-align: top;
 }
 .chat-md th {
   background: var(--muted);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Firefox-snoozed-tab look: hibernated panels read as parked, not dead. Keyed on
@@ -3563,9 +4921,13 @@ a.ref-link--session::before {
    agent state — a hibernated agent waiting on you still reads as needs-attention.
    Adjacent-sibling on the worker label covers every row type (sidebar, tab strip,
    mobile picker/menu) uniformly. */
+/* ITALIC MEANS ONE THING: "this tab is temporary" (POD-725). It used to mean
+   two — a preview tab, and any hibernated session — so a permanent tab on a
+   parked session read as temporary and the preview idiom stopped carrying
+   information. Hibernation keeps the dim and the parked dot, which is the pair
+   that already distinguished it before italic was borrowed. */
 .dot.parked + .worker-label .worker-name {
   opacity: 0.55;
-  font-style: italic;
 }
 
 /* Rendered markdown preview (.md panels) — a READING surface, not chrome, and the
@@ -4081,24 +5443,156 @@ a.ref-link--session::before {
    its type sits one step above the shell's 12px: 13.5px/500 section titles,
    12px body, 11.5px sub-lines, 9.5px mono labels. The sheet's own chrome stays
    at 12px, which is what keeps the utility reading as part of the app. */
+/* ONE RULE TONE FOR THE SHEET (POD-755) — and it is mixed from the theme's ink,
+   not a hairline token. Every inner rule here was `--hairline-soft` (#24272d) on
+   the sheet's own `--card` (#23262d): one point of red, one of green, none of
+   blue. Nothing drawn in it could be seen. The trace's three gridlines — the
+   scale its axis labels are pinned to — the composition's share tracks and the
+   model table's row rules were all on screen and all invisible, which is why the
+   axis read as three numbers floating beside a chart.
+
+   The token is not wrong, its GROUND is: `--hairline-soft` is a step UP, and it
+   reads on `--engraved`, `--bar` and the app background (the footer's dividers
+   below are on `--bar` and stay on it). A sheet is `--card`, the lightest tier in
+   the window, so a rule on it has to be mixed from the ink instead — which also
+   costs nothing on Paper, where the same mix lands as an ordinary light hairline
+   over white rather than needing a second per-theme value.
+
+   TWO TONES, BECAUSE THEY DO TWO JOBS. `--usage-rule` divides things: a table
+   row from the next, one reading in the masthead group from its neighbour. It
+   lands about where `--border-strong` does, which is what a 1px division needs to
+   be seen at all. `--usage-scale` is what data is measured AGAINST — the trace's
+   gridlines and the share tracks under the rails — and it is deliberately the
+   quieter of the two: a grid the eye has to look past is a grid drawn too
+   strongly, and a 5px track running the width of the sheet at division strength
+   would out-ink the bar lying on it. */
 .usage-body {
+  --usage-rule: color-mix(in srgb, var(--foreground) 11%, transparent);
+  --usage-scale: color-mix(in srgb, var(--foreground) 7%, transparent);
   position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+/* THE ONE SCROLLER ON THE SURFACE (POD-755). The sheet is `app-sheet-fit`: it
+   ends where the figures end, and caps at the window. Past that cap it was
+   simply CLIPPED — `.app-sheet-body` hides its overflow and nothing inside it
+   scrolled, so on a shorter display the model ranking was not below the fold, it
+   was unreachable. The scroller holds the content regions only; the provenance
+   bar below it is the frame's bottom edge and does not travel, the same way the
+   sheet's own header does not. Native scrollbar, as on `.settings-pane-scroll`:
+   the sheet tier does not hide the one affordance that says there is more. */
+.usage-scroll {
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: 20px;
   min-height: 0;
   padding: 18px 20px;
+  overflow-y: auto;
+  /* THE FADE IS EXACTLY THE PADDING, WHICH IS WHY IT NEEDS NO STATE. Both edges
+     ramp over 18px — the scroller's own top and bottom padding — so at either end
+     of the travel the band holds nothing but that padding and no reading is ever
+     dimmed, while anything passing THROUGH it leaves rather than being sliced.
+     Which matters here because the scrollbar is an overlay on both platforms
+     Podium ships (macOS WebKit, WebKitGTK): it fades out at rest, so without this
+     the only sign of more figures below was a row of type cut in half against the
+     header seam, which reads as a paint bug rather than as an invitation. No
+     scroll listener, no shadow, no custom scrollbar — the affordance is that the
+     content leaves the frame.
+
+     Prefixed alongside the standard property, as `.transcript-cold` and
+     `.code-copy` already are: the Tauri wrapper renders on WebKitGTK. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 18px,
+    #000 calc(100% - 18px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 18px,
+    #000 calc(100% - 18px),
+    transparent 100%
+  );
 }
 
 /* ── The window readout ──────────────────────────────────────────────────────
    One answer at the rationed 24px step. The rates and counterfactual below it
-   interpret that answer without turning the surface into a metric-card row. */
+   interpret that answer without turning the surface into a metric-card row.
+
+   THE BAND IS ONE ROW OF LABEL-OVER-VALUE READOUTS (POD-755), of which the
+   leftmost happens to be 24px. The three rates were a dot-separated sentence
+   under the figure with two thirds of the band empty beside them; as a divided
+   group at the right edge they use that width for the readings it was missing,
+   and they mirror the figure's own structure rather than sitting beside it as a
+   second kind of thing. Nothing is boxed and nothing else takes the 24px step,
+   which is what keeps this off the metric-card grid the system opens by
+   rejecting: one answer, three readings that size it, in one row. */
 .usage-summary {
   display: flex;
   flex: none;
   flex-direction: column;
   align-items: flex-start;
+  align-self: stretch;
+}
+.usage-masthead {
+  display: flex;
+  /* The figure's block and the reading group's last line share a bottom edge, so
+     the 24px answer and the 13px readings sit on one optical line. */
+  align-items: flex-end;
+  gap: 24px;
+  align-self: stretch;
+}
+.usage-answer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* A DIVIDED OBJECT, NOT THREE LOOSE NUMBERS — the reason the command bar puts
+   host and quota in one well (DESIGN.md, The Wells). Evenly spaced figures on a
+   surface read as an account row; the same figures divided by hairlines read as
+   an instrument with internal structure. No ring around the group: an outline
+   around a set of readings is one big button. */
+.usage-readings {
+  display: flex;
+  align-items: stretch;
+  margin-left: auto;
+}
+.usage-reading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 16px;
+  border-left: 1px solid var(--usage-rule);
+  text-align: right;
+}
+/* The last cell's figures right-align with the provider costs, the share
+   percentages and the ratio column below them: one right edge for the sheet,
+   not one per region. */
+.usage-reading:last-child {
+  padding-right: 0;
+}
+.usage-reading-label {
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.usage-reading-value {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .usage-window-label {
   color: var(--label);
@@ -4113,7 +5607,10 @@ a.ref-link--session::before {
    steps everywhere steps nowhere — every other number here stays in the reading
    tier, which is what leaves this one room to be loud without a card under it. */
 .usage-window-value {
-  margin: 6px 0 3px;
+  /* No bottom margin: the band bottom-aligns its two blocks, so a margin under
+     the figure would drop the readings beside it off its optical line. The gap
+     to the caveat is the caveat's. */
+  margin: 5px 0 0;
   color: var(--text-strong);
   font-family: var(--font-mono);
   font-size: 24px;
@@ -4122,28 +5619,20 @@ a.ref-link--session::before {
   letter-spacing: -0.015em;
   line-height: 1.05;
 }
-.usage-window-star {
-  margin-left: 1px;
-  color: var(--text-dim);
-  font-size: 14px;
-  font-weight: 500;
-  vertical-align: super;
-}
 .usage-window-caveat {
-  margin-bottom: 6px;
+  margin: 5px 0 0;
   color: var(--text-dim);
   font-size: 11.5px;
 }
-.usage-window-sub {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
+/* The counterfactual closes the band. It sat under a hairline that could not be
+   seen (see `--usage-rule`), so the 24px it added read as a hole between two
+   lines of type rather than as a division — and once the rule is visible it is
+   the wrong instrument anyway: this sentence interprets the figure above it, and
+   a rule would cut it away from what it is about. Proximity does the work, at one
+   step wider than the lines inside the readout. */
 .usage-cache-saving {
   align-self: stretch;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--hairline-soft);
+  margin-top: 14px;
   color: var(--foreground);
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
@@ -4301,7 +5790,7 @@ a.ref-link--session::before {
   right: 0;
   left: 0;
   height: 1px;
-  background: var(--hairline-soft);
+  background: var(--usage-scale);
 }
 .usage-trace-day {
   position: relative;
@@ -4435,15 +5924,23 @@ a.ref-link--session::before {
   flex: 1;
   height: 5px;
   border-radius: 2.5px;
-  background: var(--hairline-soft);
+  background: var(--usage-scale);
 }
+/* A SLIVER IS A TICK, NOT A BEAD (POD-755). Sub-1% shares are real readings on
+   this surface — output is 0.3% of the tokens and a tenth of the bill — and at
+   the track's own 2.5px radius a 3px mark renders as a circle, so the token
+   column of a cache-heavy week came out as one bar and three specks of dirt. The
+   floor is 2px of width here rather than a percentage in the markup, so a sliver
+   keeps its true length wherever it has one, and the radius tightens to a value a
+   2px mark can still show. */
 .usage-comp-fill,
 .usage-share-fill {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  border-radius: 2.5px;
+  min-width: 2px;
+  border-radius: 1.5px;
   background: color-mix(in srgb, var(--live) 82%, transparent);
   transition:
     width 360ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -4471,18 +5968,29 @@ a.ref-link--session::before {
 .usage-comp-ratio > span {
   color: var(--text-faint);
 }
+/* Dearer than the window's average token: an ink step, not the attention hue.
+   Yellow marks what is asking something of the operator (The Signal Rule), and
+   three of four rows in gold made a per-token price read as a decision waiting
+   on someone. The deviation from average is the reading, so the ink carries
+   it. */
 .usage-comp-ratio[data-heavy] {
-  color: var(--attention);
+  color: var(--text-strong);
 }
 
 /* ── The model ranking ───────────────────────────────────────────────────────
    Ranked by cost, and the rail measures cost, because the sheet leads with cost:
    a rail measuring one thing under a column ordered by another is two answers to
    one question. */
+/* The table scrolls SIDEWAYS only. It capped itself at 40vh and scrolled its own
+   overflow, which is a second scroll region inside a surface that now has one —
+   the pointer's wheel picks whichever it happens to be over, and the trap is
+   worse than a long table. Vertically it simply grows and the sheet's scroller
+   carries it; horizontally it still needs to run rather than crush six columns
+   when the sheet is narrower than the model ids inside it. */
 .usage-table-scroll {
   flex: none;
-  max-height: 40vh;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .usage-table {
   width: 100%;
@@ -4490,7 +5998,7 @@ a.ref-link--session::before {
 }
 .usage-table th {
   padding: 0 0 7px;
-  border-bottom: 1px solid var(--hairline-soft);
+  border-bottom: 1px solid var(--usage-rule);
   color: var(--label);
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -4502,7 +6010,7 @@ a.ref-link--session::before {
 }
 .usage-table td {
   padding: 8px 0;
-  border-bottom: 1px solid var(--hairline-soft);
+  border-bottom: 1px solid var(--usage-rule);
   color: var(--foreground);
   font-size: 12px;
 }
@@ -4578,9 +6086,9 @@ a.ref-link--session::before {
      height is its own cell's content makes three rules of three different
      lengths out of what is meant to be one row of dividers. */
   align-items: stretch;
-  /* Out of the body's 18px/20px padding, so the bar meets the sheet's own
-     edges. The gap above it is the body's; the bar owns the space below. */
-  margin: 0 -20px -18px;
+  /* A sibling of the scroller rather than its last child (POD-755), so it meets
+     the sheet's own edges without reaching back out of anyone's padding — and so
+     the figures travel under it instead of taking it with them. */
   padding: 11px 20px 12px;
   border-top: 1px solid var(--border);
   background: var(--bar);
@@ -4684,7 +6192,7 @@ a.ref-link--session::before {
    itself. Fires once, on the pass that fills a cold sheet, and never again: a
    sheet opened from cache is already readable and gets no entrance at all. */
 .usage-body[data-arrive] .usage-window-value,
-.usage-body[data-arrive] .usage-window-sub,
+.usage-body[data-arrive] .usage-reading-value,
 .usage-body[data-arrive] .usage-cache-saving,
 .usage-body[data-arrive] .usage-provider-cost,
 .usage-body[data-arrive] .usage-provider-sub,
@@ -4728,7 +6236,7 @@ a.ref-link--session::before {
     transition: none;
   }
   .usage-body[data-arrive] .usage-window-value,
-  .usage-body[data-arrive] .usage-window-sub,
+  .usage-body[data-arrive] .usage-reading-value,
   .usage-body[data-arrive] .usage-cache-saving,
   .usage-body[data-arrive] .usage-provider-cost,
   .usage-body[data-arrive] .usage-provider-sub,
@@ -4831,7 +6339,7 @@ a.ref-link--session::before {
 @media (prefers-reduced-motion: reduce) {
   .usage-bar,
   .usage-body[data-arrive] .usage-window-value,
-  .usage-body[data-arrive] .usage-window-sub,
+  .usage-body[data-arrive] .usage-reading-value,
   .usage-body[data-arrive] .usage-axis-tick,
   .usage-body[data-arrive] .usage-bar-value,
   .usage-body[data-arrive] .usage-table-scroll tbody tr {
@@ -5035,16 +6543,20 @@ a.ref-link--session::before {
   padding-top: 8px;
   padding-bottom: 8px;
 }
+/* The narrow dock is half the width, so the band steps down a point rather than
+   borrowing the shell's reading role — which is set for the flight deck's
+   column and, taken literally here, put 15px narration ABOVE the 14px answer
+   under it and inverted the one hierarchy the feed has (POD-747). */
 .chat-compact .chat-md {
-  font-size: var(--shell-type-reading);
-  line-height: var(--shell-leading-reading);
+  font-size: 13px;
+  line-height: 21px;
 }
 .chat-compact .transcript-you {
   padding: 10px 13px;
 }
 .chat-compact .transcript-you .chat-md {
-  font-size: var(--shell-type-reading);
-  line-height: var(--shell-leading-reading);
+  font-size: 13px;
+  line-height: 21px;
   font-weight: 500;
 }
 .chat-compact .transcript-answer {
@@ -5099,7 +6611,8 @@ a.ref-link--session::before {
    the command bar's WELL and uses it as a field:
 
      · it is grooved into the pane's own ground (the --well-* tokens carry the
-       per-ground recipe — floor a hair ABOVE on navy, a hair BELOW on paper);
+       per-ground recipe — a floor a hair BELOW its ground on both, since
+       POD-737 lifted the dark frame off the deepest tier);
      · it is inset from all four edges instead of welded to the bottom by a
        full-width seam, so it reads as an object ON the pane, not as its base;
      · the thread DISSOLVES into the ground above it (::before) rather than
@@ -5162,25 +6675,23 @@ a.ref-link--session::before {
     0 0 0 2px color-mix(in srgb, var(--issue, var(--foreground)) 14%, transparent);
 }
 
-/* Regular chat wears the same issue-tinted, neutral-focus seam as the compact
-   prompt. Focus is navigation state; only a sendable arrow turns yellow. */
+/* THE FIELD (POD-725). A quiet well on the sheet: the tabstrip tone with a
+   single hairline ring, and no border box at all. It had a real border plus a
+   bevel, which on a white sheet made the composer the second-loudest object in
+   the pane after the offer — a resting input should be the last thing you see.
+   Focus stays neutral and issue-tinted; only a sendable arrow turns yellow. */
 .chat-composer-well {
-  border-color: color-mix(in srgb, var(--issue, var(--border-strong)) 30%, var(--border-strong));
-  box-shadow:
-    inset 0 2px 3px -2px var(--well-lip),
-    inset 0 -1px 0 var(--well-lit);
+  background: var(--tabstrip);
+  box-shadow: inset 0 0 0 1px var(--hairline-soft);
   transition:
-    border-color 150ms ease,
     box-shadow 150ms ease,
     background-color 150ms ease;
 }
 .chat-composer-well:focus-within {
-  border-color: color-mix(in srgb, var(--issue, var(--text-dim)) 54%, var(--text-dim));
-  background: color-mix(in oklab, var(--issue, transparent) 3%, var(--background));
+  background: var(--card);
   box-shadow:
-    inset 0 2px 4px -2px var(--well-lip),
-    inset 0 -1px 0 var(--well-lit),
-    0 0 0 2px color-mix(in srgb, var(--issue, var(--foreground)) 13%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--issue, var(--text-dim)) 28%, var(--border-strong)),
+    0 0 0 2px color-mix(in srgb, var(--issue, var(--foreground)) 9%, transparent);
 }
 
 .composer-notices {
@@ -5326,16 +6837,667 @@ a.ref-link--session::before {
    IS `--attention` (#f5c518), so a "warning-toned" blocked strip would read as
    "answer me" on the exact surface built to tell obligation from state. Blocked
    asks nothing; it just is not moving. The rule is drawn in the theme's own
-   foreground at 5%, which is one step of texture in both dark and Daylight and
-   still legible when a strip already carries a 28% issue tint.
-
-   The mission gauge's blocked segment wears the same class, so "stopped" is one
-   texture in the column and the meter both, and the meter never spends the
-   signal colour on work that is asking nothing. */
+   foreground at 5%, which is one step of texture in both dark and Paper and
+   still legible when a strip already carries an issue tint. */
 .deck-hatch {
   background-image: repeating-linear-gradient(
     135deg,
     transparent 0 4px,
     color-mix(in srgb, var(--foreground) 5%, transparent) 4px 8px
   );
+}
+
+/* ── THE LEAD RAIL — who is running this, said by the line (POD-758) ─────────
+   A branch whose owner has a live coordinator draws its guide in the mission's
+   own accent instead of a hairline, at two tiers: the mission's lead owns the
+   spine's main rail, a task's lead owns its own sub-branch. Deliberately QUIET
+   — enough to trace from the header to the row, not enough to read as a
+   highlight — because the line is a name, not a selection. Un-led branches keep
+   the hairline, which is what stops the colour from being decoration.
+
+   `--issue` falls back to `--flow` on an uncoloured mission, so the worst case
+   is a rail one step warmer than the hairline rather than a broken one. */
+.deck-rail-mission {
+  background: color-mix(in oklab, var(--issue) 45%, transparent);
+}
+.deck-rail-task {
+  background: color-mix(in oklab, var(--issue) 22%, transparent);
+}
+
+/* THE ONE AGENT ROW WITH A FILL. The mission's coordinator owns the whole
+   mission, so it is allowed to be the loudest thing in the roster — and being
+   the only filled agent row anywhere in the spine, the fill says exactly that
+   and nothing else. Square and full-width: it is still an agent row, not a
+   card. Over `--bar` rather than `--card` so it reads as a tint on the column's
+   own paper in both themes. */
+.deck-lead-fill {
+  background: color-mix(in oklab, var(--issue) 8%, var(--bar));
+}
+
+/* ── THE DROP ORDER — how a strip gives way (POD-758) ────────────────────────
+   The title outranks everything else in the row: it has a 150px floor and it is
+   the only shrinker, because a half-rendered clock (`28:`) is a WRONG number
+   where `Mission progress…` is still a readable title. Past that floor whole
+   elements drop, never mid-string, in the order the design fixes: the relation
+   chip, then the collapsed payload chip, then the census icons past the first.
+   Everything dropped survives on the row's own tooltip.
+
+   Keyed off each STRIP's width rather than the column's, so a deeply nested
+   strip — which is genuinely narrower — gives way before a shallow one.
+
+   The numbers are the arithmetic of the rule, not taste. Rigid furniture is
+   ~125px: the 20px chevron, the 13px stage glyph, the 70px state column and
+   four 6px gaps. Add the title's 150px floor and a bare strip needs 275px;
+   each threshold above that is the width of the thing it decides about — a
+   census icon (22), the payload chip and its bar (86), a relation chip (76).
+   The strip is a container, so its inline size comes from the column rather
+   than from its own contents: these queries can never feed back on themselves. */
+.deck-strip {
+  container-type: inline-size;
+  container-name: deck-strip;
+}
+
+@container deck-strip (max-width: 360px) {
+  .deck-drop-relation {
+    display: none;
+  }
+}
+
+@container deck-strip (max-width: 340px) {
+  .deck-drop-payload {
+    display: none;
+  }
+}
+
+@container deck-strip (max-width: 300px) {
+  .deck-drop-crew {
+    display: none;
+  }
+}
+
+/* An AGENT row gives way on the same principle, with one thing to drop. Its
+   rigid parts are the 20px harness chip, the ref (which never truncates) and
+   the 70px state column; the name is the arbitrary-length one and the role is
+   the least load-bearing, so under ~300px the role leaves whole and the name
+   gets the room back. Its own container, because an agent row is inset further
+   than the strip it hangs under and narrows before it does. */
+.deck-agent {
+  container-type: inline-size;
+  container-name: deck-agent;
+}
+
+@container deck-agent (max-width: 300px) {
+  .deck-drop-role {
+    display: none;
+  }
+}
+
+/* ── THE MISSION GAUGE — "the split readout" (POD-710) ───────────────────────
+   The flight deck's mission bar is a row of bands, one per state, each sized by
+   how many tasks it holds and each carrying its own count INSIDE itself. A band
+   with no work in it is not rendered at all — not a sliver, not a zero — so a
+   one-task mission reads `1 RUNNING` across the whole track and says one thing
+   once. `MissionGauge.tsx` owns the markup and the reasoning.
+
+   THE NARROW LADDER. The deck column is resizable from 300px, so a band running
+   out of room is routine. It sheds the way the command bar sheds (DESIGN.md §5):
+   WORDS BEFORE DATA, DATA BEFORE MATERIAL, NOTHING EVER CLIPPED.
+
+       `4 DONE`  →  `4`  →  bare material (colour / hatch / floor rule)
+
+   Each band is its OWN inline-size container, so the rung is the band's width,
+   not the column's: a wide `6 DONE` can keep its noun while the one-task band
+   beside it is already down to a numeral, which is the honest reading of who
+   has the room.
+
+   The rungs are the text's own measure, checked in a browser: Geist Mono
+   advances 0.6em, so a character at 9px with 0.06em tracking costs ~6px. Each
+   word rung is its label with a single-digit count plus ten of breathing room,
+   of which a second digit spends six; the count's own rung is keyed on how many
+   digits it actually has, so `128` never lands in a box sized for `4`. They are
+   min-width rungs ONLY, so a browser without container queries lands on bare
+   material rather than on clipped text — and the full sentence is on the
+   gauge's aria-label and title at every rung either way. */
+.gauge-band {
+  position: relative;
+  container: gauge-band / inline-size;
+  display: flex;
+  flex: 0 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: flex-grow 0.3s ease-out;
+}
+/* Two devices per band, not one: a 26% tint says roughly how much, a saturated
+   2px rule along the floor says exactly where it ends. That is also what keeps
+   done and running apart in Daylight, where Accent Blue and the working blue
+   sit close enough that hue alone would not carry it. */
+.gauge-band[data-s="done"] {
+  background-color: color-mix(in srgb, var(--success) 26%, transparent);
+  box-shadow: inset 0 -2px 0 var(--success);
+  color: var(--text-strong);
+}
+.gauge-band[data-s="run"] {
+  background-color: color-mix(in srgb, var(--live) 26%, transparent);
+  box-shadow: inset 0 -2px 0 var(--live);
+  color: var(--text-strong);
+}
+/* Blocked's ground is `.gauge-hatch`; its floor rule is the theme's own
+   foreground, never a hue. */
+.gauge-band[data-s="block"] {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--foreground) 34%, transparent);
+  color: var(--text-dim);
+}
+.gauge-band[data-s="wait"] {
+  background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--text-faint);
+}
+/* Over the sweep, never under it. */
+.gauge-band-text {
+  position: relative;
+}
+/* The count is the datum, so it is the loud half of the label: DESIGN.md §3 puts
+   badge counts at 9px/700. Pinned here rather than borrowed from `<b>`'s UA
+   weight. */
+.gauge-band-count {
+  font-weight: 700;
+}
+/* The base state is the LAST rung: material only. Every rung above it is opt-in. */
+.gauge-band-count,
+.gauge-band-word {
+  display: none;
+}
+@container gauge-band (min-width: 8px) {
+  .gauge-band-count[data-w="1"] {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 14px) {
+  .gauge-band-count[data-w="2"] {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 20px) {
+  .gauge-band-count[data-w="3"] {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 46px) {
+  .gauge-band[data-s="done"] .gauge-band-word {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 52px) {
+  .gauge-band[data-s="wait"] .gauge-band-word {
+    display: inline;
+  }
+}
+@container gauge-band (min-width: 64px) {
+  .gauge-band[data-s="run"] .gauge-band-word,
+  .gauge-band[data-s="block"] .gauge-band-word {
+    display: inline;
+  }
+}
+/* THE GAUGE'S BLOCKED GROUND (POD-710).
+   The same idea as `.deck-hatch`, and deliberately the same 135° rhythm —
+   "stopped" is ONE texture in this app — one step denser and one step tighter,
+   because the deck strip wears it across a 28px row while the gauge wears it in
+   a 22px band, where a 4/8px 5% hatch resolves to nothing. Still hueless: the
+   theme's own foreground, no warning tone, because blocked work asks the
+   operator for nothing and amber is what asking looks like. */
+.gauge-hatch {
+  background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    color-mix(in srgb, var(--foreground) 13%, transparent) 3px 6px
+  );
+}
+@media (prefers-reduced-motion: reduce) {
+  /* A band resizing is structural motion, but it is still motion. */
+  .gauge-band {
+    transition: none;
+  }
+}
+
+/* ── THE DIFF SHEET (POD-787) ──────────────────────────────────────────────
+   The dock's Git tab lists what changed; this sheet is where it is READ. It
+   joins the utility tier (POD-365) rather than inventing a surface: inset over
+   a live shell, Esc / backdrop / ✕, and the shell's own chrome scale in its
+   header.
+
+   IT IS THE ONE SHEET THAT EARNS THE FULL 1180. Settings computes a narrower
+   width because nothing in it can reach past its form column; a diff has no
+   such stop — 120 columns of code is ordinary, and every pixel taken off the
+   pane comes straight out of the thing being read. So it takes the shared cap
+   and the full height, and spends the width on the code rather than on a
+   measure. */
+.diff-sheet {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The rail — every changed file, so moving between them is a click and never a
+   close-and-reopen. Two lines per row: the NAME is what you are looking for and
+   gets the readable line; the directory is how you tell two `index.ts` apart
+   and sits under it, truncated from the left because the tail is the half that
+   identifies. */
+.diff-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 252px;
+  padding: 6px 8px 16px;
+  border-right: 1px solid var(--border);
+  background: var(--bar);
+  overflow-y: auto;
+}
+.diff-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 9px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+/* The keyboard route is stated where it applies, once — the same reasoning that
+   puts Esc on the ✕'s tooltip rather than on a keycap of its own. */
+.diff-rail-hint {
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.diff-file {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  width: 100%;
+  column-gap: 7px;
+  padding: 5px 8px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 150ms ease;
+}
+.diff-file + .diff-file {
+  margin-top: 1px;
+}
+.diff-file:hover {
+  background: color-mix(in oklab, var(--accent) 55%, transparent);
+}
+/* The chip tone alone separates the current row on ink; on paper the chip IS
+   white over near-white bar, so the rim is what makes it a cell rather than a
+   slightly brighter patch. */
+.diff-file[aria-current="true"] {
+  background: var(--chip);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.diff-file:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 40%, transparent);
+}
+.diff-file-badge {
+  grid-row: 1 / span 2;
+  align-self: start;
+  width: 2.2ch;
+  padding-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.diff-tone-staged {
+  color: var(--live);
+}
+.diff-tone-unstaged {
+  color: var(--warning);
+}
+.diff-tone-untracked {
+  color: var(--text-faint);
+}
+.diff-file-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-file[aria-current="true"] .diff-file-name {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.diff-file-counts {
+  display: inline-flex;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.diff-file-dir {
+  grid-column: 2 / span 2;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-count-add {
+  color: var(--live);
+}
+.diff-count-del {
+  color: var(--destructive);
+}
+
+/* The reading half. */
+.diff-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* The file's own line: what it is, what happened to it, how much. The path
+   takes the subject's step within a machine-voice surface — mono, because a
+   path is machine voice, and one step over the code it heads. */
+.diff-head {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 12px;
+  padding: 11px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.diff-head-path {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-head-dir {
+  color: var(--text-dim);
+}
+.diff-head-name {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.diff-head-status {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.diff-head-from {
+  color: var(--text-faint);
+}
+.diff-head-counts {
+  display: inline-flex;
+  flex: none;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* THE ONE SCROLLER. Both axes belong to this element: the gutter stays put on
+   the horizontal one (sticky left), the hunk header on the vertical one (sticky
+   top), and nothing inside scrolls on its own. */
+.diff-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+/* Rows stretch to the widest line rather than to the pane, so a row's tint runs
+   the full length of what it is tinting — a colour that stops at the fold reads
+   as a highlight over the code instead of as the state of the line. */
+.diff-lines {
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+  padding-bottom: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.diff-scroll[data-wrap="on"] .diff-lines {
+  min-width: 0;
+}
+/* The cells STRETCH. A gutter cell is empty on half the rows — no old number on
+   an added line — and an empty flex item aligned to flex-start is zero pixels
+   tall, so it painted no ground at all and a horizontally scrolled line ran
+   straight through the line numbers. */
+.diff-row {
+  display: flex;
+  align-items: stretch;
+  /* Every row declares the ground its sticky gutter paints itself with; the
+     mix lands ON the card, so it is opaque and code passes underneath. */
+  --row-bg: var(--card);
+  background: var(--row-bg);
+}
+/* Blue adds, red removes — this theme's activity vocabulary, and it has no
+   green (POD-166 R10). The TINT carries the sign, not the text: over four
+   hundred lines, fully coloured code is two smears you decode character by
+   character, while a tinted row leaves the code in reading ink and still says
+   what happened to it at a glance. */
+.diff-row-add {
+  --row-bg: color-mix(in oklab, var(--live) 13%, var(--card));
+}
+/* Red at the same dose as blue reads about a step louder — a deleted FILE is a
+   solid block of it — so the removal tint runs a shade under the addition's. */
+.diff-row-del {
+  --row-bg: color-mix(in oklab, var(--destructive) 10.5%, var(--card));
+}
+.diff-num {
+  position: sticky;
+  z-index: 1;
+  flex: none;
+  width: 46px;
+  padding-right: 9px;
+  background: var(--row-bg);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+.diff-num:first-child {
+  left: 0;
+}
+.diff-num:nth-child(2) {
+  left: 46px;
+}
+.diff-sign {
+  position: sticky;
+  left: 92px;
+  z-index: 1;
+  flex: none;
+  width: 17px;
+  background: var(--row-bg);
+  text-align: center;
+  user-select: none;
+}
+.diff-row-add .diff-sign,
+.diff-row-add .diff-num:nth-child(2) {
+  color: var(--live);
+}
+.diff-row-del .diff-sign,
+.diff-row-del .diff-num:first-child {
+  color: var(--destructive);
+}
+/* Positioned at z-0 so the sticky gutter's z-1 is decided by z-index rather than
+   by paint order between a positioned cell and a plain flex item. */
+.diff-code {
+  position: relative;
+  z-index: 0;
+  padding: 0 16px 0 7px;
+  color: var(--secondary-foreground);
+  white-space: pre;
+  tab-size: 2;
+}
+.diff-scroll[data-wrap="on"] .diff-code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+/* The hunk header holds the position: which lines these are, and what encloses
+   them. It sticks to the top of the scroller so the function name stays with
+   its body, and its contents stick to the left so scrolling a long line never
+   takes the answer off screen. */
+.diff-row-hunk {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  --row-bg: var(--secondary);
+  border-top: 1px solid var(--hairline-soft);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.diff-row-hunk:first-child {
+  border-top: 0;
+}
+.diff-hunk-inner {
+  position: sticky;
+  left: 0;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100vw;
+  padding: 3px 16px 3px 14px;
+  font-size: 10.5px;
+}
+.diff-hunk-span {
+  flex: none;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.diff-hunk-context {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Git's own asides — `No newline at end of file`, a binary refusal. They are
+   about the diff rather than in it, so they sit in the code column at label
+   scale and take no line number. */
+.diff-row-note {
+  padding: 3px 16px 3px 116px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+.diff-notice {
+  padding: 16px 20px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.diff-notice-error {
+  color: var(--destructive);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+}
+/* Waiting is drawn as the shape of what is coming (POD-394) — lines of code at
+   the right rhythm, unfilled. Deliberately still: stillness is this system's
+   "needs you" signal, and a pulsing placeholder spends it on a local fetch. */
+.diff-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px;
+}
+.diff-skeleton-line {
+  height: 8px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+}
+
+/* The sheet header's own furniture stays at the shell's scale — a utility whose
+   frame grew with its content stops reading as part of the app. */
+.diff-sheet-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.diff-sheet-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 280px;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-sheet-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.diff-sheet-totals {
+  display: inline-flex;
+  gap: 9px;
+  margin-right: 2px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.diff-sheet-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.diff-sheet-tool:hover {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+.diff-sheet-tool[aria-pressed="true"] {
+  background: var(--chip);
+  color: var(--text-strong);
+}
+.diff-sheet-tool:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+/* A narrow window takes it out of the rail's second line and its width before
+   it takes anything off the code — the pane is the reason the sheet exists. */
+@media (max-width: 760px) {
+  .diff-rail {
+    width: 168px;
+  }
+  .diff-file-dir {
+    display: none;
+  }
 }

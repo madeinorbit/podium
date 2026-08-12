@@ -135,7 +135,15 @@ export function issueMenuEligibility(
     canSetLabels: activeAny,
     // Colour is a per-issue patch like stage/priority, so it bulk-applies to a
     // whole selection; a deleted issue has nothing to recolour.
-    canSetColor: activeAny,
+    //
+    // TOP-LEVEL ONLY [spec:SP-b4d1]. The colour names a MISSION — it is what
+    // tells the sidebar's rows apart and what the flight deck, terminal tint and
+    // rail flow from. A sub-issue already runs under its mission's colour by
+    // inheritance, so its own slot would only ever compete with the parent's;
+    // the server refuses that write, and the menu does not offer it. One
+    // sub-issue in a multi-selection takes the entry away for the whole set,
+    // like every other bulk item that cannot apply to part of it.
+    canSetColor: activeAny && issues.every((i) => i.parentId == null),
     canClose: openSingle && !hasDeleted,
     canDefer: openSingle && !hasDeleted,
     canUndefer: single && !hasDeleted && first?.deferUntil != null,

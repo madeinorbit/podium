@@ -104,7 +104,15 @@ function item(id: string, cursor: string, text: string): TranscriptItem {
 
 let captured: UseTranscriptWindowResult | null = null
 
-function Probe({ active }: { active: boolean }): JSX.Element | null {
+function Probe({
+  active,
+  session = meta({}),
+}: {
+  active: boolean
+  /** Overridable so the liveness tests below can move the session row's
+   *  activity fingerprint (POD-701) between renders. */
+  session?: SessionMeta
+}): JSX.Element | null {
   const scrollerRef = { current: null }
   captured = useTranscriptWindow({
     sessionId: asSessionId('s1'),
@@ -112,7 +120,7 @@ function Probe({ active }: { active: boolean }): JSX.Element | null {
     trpc: fakeTrpc,
     replica: fakeReplica,
     active,
-    session: meta({}),
+    session,
     scrollerRef,
   } as unknown as UseTranscriptWindowOptions)
   return null
@@ -495,5 +503,177 @@ describe('useTranscriptWindow initial depth and search deepen (POD-1631)', () =>
     // The old 1000-item read was sliced to 200 by REPLICA_TRANSCRIPT_ITEM_CAP, so
     // an offline reopen served 200 then and serves 200 now: no depth was lost.
     expect(fakeReplica.puts.at(-1)?.items).toHaveLength(200)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-701: the feed must not go quiet. Live deltas are the fast path, but when
+// one is dropped the chat used to sit there showing nothing while the sidebar —
+// driven by the same session rows — visibly ticked over, and the only recourse
+// was to leave the pane and come back (an unmount forces a fresh read). The
+// window now reconciles against the session row's own activity fingerprint.
+// ---------------------------------------------------------------------------
+describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
+  /** Advance past the 400ms trailing debounce on the activity signal. */
+  async function settleDebounce(): Promise<void> {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 450))
+    })
+  }
+
+  async function mountLoaded(session?: SessionMeta): Promise<void> {
+    act(() => root.render(<Probe active={true} session={session ?? meta({})} />))
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [item('a', 'c1', 'first')],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+  }
+
+  it('re-reads when the session row says there has been activity the feed did not see', async () => {
+    await mountLoaded()
+    expect(reads).toHaveLength(1)
+
+    // The agent worked; no delta arrived. The row moved anyway.
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })} />,
+      )
+    })
+    await settleDebounce()
+    expect(reads).toHaveLength(2)
+  })
+
+  it('debounces a burst of row updates into ONE read', async () => {
+    await mountLoaded()
+    for (const minute of [1, 2, 3]) {
+      act(() => {
+        root.render(
+          <Probe
+            active={true}
+            session={meta({ lastActiveAt: `2026-06-03T00:0${minute}:00.000Z` })}
+          />,
+        )
+      })
+    }
+    await settleDebounce()
+    expect(reads).toHaveLength(2)
+  })
+
+  it('does not re-read while the pane is in the BACKGROUND — only the foreground pays', async () => {
+    act(() => root.render(<Probe active={false} />))
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [item('a', 'c1', 'first')],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+    act(() => {
+      root.render(
+        <Probe active={false} session={meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })} />,
+      )
+    })
+    await settleDebounce()
+    expect(reads).toHaveLength(1)
+  })
+
+  it('leaves POD-725 intact: a warm activation that reused its window does not read 400ms later', async () => {
+    // Load in the background so the window is healthy, then activate. The
+    // activation cache-hit must NOT be undone by the liveness reconcile.
+    act(() => root.render(<Probe active={false} />))
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [item('a', 'c1', 'first')],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+    act(() => root.render(<Probe active={true} />))
+    await flush()
+    expect(reads).toHaveLength(1)
+    await settleDebounce()
+    expect(reads).toHaveLength(1)
+  })
+
+  it('a reconcile that finds nothing new keeps the SAME rows array — no re-render, no re-derive', async () => {
+    await mountLoaded()
+    const rowsBefore = captured?.rows
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })} />,
+      )
+    })
+    await settleDebounce()
+    await act(async () => {
+      reads[1]?.resolve({
+        items: [item('a', 'c1', 'first')],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+    expect(captured?.rows).toBe(rowsBefore)
+  })
+
+  it('a reconcile that finds a new item lands it', async () => {
+    await mountLoaded()
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })} />,
+      )
+    })
+    await settleDebounce()
+    await act(async () => {
+      reads[1]?.resolve({
+        items: [item('a', 'c1', 'first'), item('b', 'c2', 'the delta that never arrived')],
+        head: 'c1',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+    expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
+  })
+
+  it('stands down once the reader has paged HISTORY in — a tail re-read would drop it', async () => {
+    act(() => root.render(<Probe active={true} />))
+    await act(async () => {
+      // hasMore: there IS history on disk to page back into.
+      reads[0]?.resolve({
+        items: [item('a', 'c1', 'first')],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: true,
+      })
+    })
+    await flush()
+    // Scroll-up back-page: an older page lands ABOVE the held window.
+    act(() => captured?.loadOlder())
+    await act(async () => {
+      reads[1]?.resolve({ items: [item('z', 'c0', 'older')], head: 'c0', hasMore: false })
+    })
+    await flush()
+    expect(captured?.blocks.map((b) => b.item.id)).toEqual(['z', 'a'])
+
+    // The agent keeps working. The reconcile must NOT fire: `readNewest` clears
+    // `older`, which would delete the history under the reader's scroll.
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:09:00.000Z' })} />,
+      )
+    })
+    await settleDebounce()
+    expect(reads).toHaveLength(2)
+    expect(captured?.blocks.map((b) => b.item.id)).toEqual(['z', 'a'])
   })
 })

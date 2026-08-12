@@ -194,11 +194,18 @@ export function IssueEdgeLink({
       </span>
     )
   }
+  // NEUTRAL, NOT YELLOW (POD-635). Every edge on this page — relations,
+  // spin-offs, the parent row, the superseded banner — rendered in Superade
+  // Yellow, so a task with six spin-offs put six of the brightest pixels the
+  // theme owns in one column, none of them asking the operator for anything.
+  // The Signal Rule spends yellow on the primary action or the thing waiting on
+  // you; a cross-reference is neither. The row's hover wash and this underline
+  // carry the affordance, and the stage glyph beside it carries the state.
   return (
     <button
       data-pressable
       type="button"
-      className="block min-w-0 truncate text-left font-medium text-primary hover:underline"
+      className="block min-w-0 truncate text-left font-medium text-foreground/90 hover:text-foreground hover:underline"
       onClick={() => onNavigate(target.id)}
       title={target.id}
     >

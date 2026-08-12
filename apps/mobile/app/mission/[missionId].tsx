@@ -1,3 +1,3 @@
-import { FlightDeckScreen } from '../../src/screens/FlightDeckScreen'
+import { MissionScreen } from '../../src/screens/MissionScreen'
 
-export default FlightDeckScreen
+export default MissionScreen

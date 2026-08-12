@@ -1,4 +1,5 @@
 import { type CommandDef, defineCommands, type LockCommandName } from '@podium/commands'
+import { lockNameProblem } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { authorize } from '../../issue-authz'
@@ -111,17 +112,19 @@ export const UNKNOWN_RELAY_SESSION = 'unknown-session'
 
 // Lock names are interpolated into agent mail and the durable event log, so
 // they are tightly constrained: printable, short, no control chars/newlines.
-// The charset covers merge:<branch> for real branch names (slashes, dots,
-// dashes, underscores); first char alphanumeric so a name can't look like a
-// flag.
+// Beyond the charset, the `merge` namespace is RESERVED to the canonical
+// `merge:<branch>` (POD-672): the store keys leases on the exact bytes, so a
+// near-miss like the bare `merge` is a SECOND lease that serialises against
+// nothing and only shows up later as someone else's lost commits. Refusing here
+// is the whole point — it fails at acquire time instead of at reset time.
+// Rules live in @podium/protocol so the CLI, the web read binding and this
+// schema cannot drift apart.
 const lockName = z
   .string()
-  .min(1)
-  .max(200)
-  .regex(
-    /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/,
-    'lock names allow letters, digits and - _ : . / (starting with a letter or digit)',
-  )
+  .superRefine((name, ctx) => {
+    const problem = lockNameProblem(name)
+    if (problem != null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem })
+  })
 
 // Shared input fragments. repoPath is REQUIRED: a lock is meaningless without
 // its repo scope; the CLI injects it from the cwd (repos.inferFromPath).

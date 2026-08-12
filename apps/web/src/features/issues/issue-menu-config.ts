@@ -1,3 +1,4 @@
+import { discoveredPlacement, type ProposalShape } from '@podium/client-core/viewmodels'
 import { ISSUE_COLOR_SLOTS, ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
@@ -46,6 +47,8 @@ export type IssueMenuAction =
   | 'archive'
   | 'restore'
   | 'delete'
+  | 'placeOnOwn'
+  | 'placeInMission'
 
 export type IssueMenuSubmenu =
   | 'stage'
@@ -125,6 +128,14 @@ const has =
   (key: keyof IssueMenuEligibility) =>
   (data: IssueMenuData): boolean =>
     data.eligibility[key]
+
+/** Where the menu's single subject currently lives, when it is discovered work
+ *  with an origin. Null for a multi-select: placement is one issue's decision. */
+export function menuPlacement(data: IssueMenuData): ProposalShape | null {
+  if (data.issues.length !== 1) return null
+  const byId = new Map(data.allIssues.map((issue) => [issue.id as string, issue]))
+  return discoveredPlacement(data.first, byId)
+}
 
 /** One ordered tree. Context menus and palette commands both project this list. */
 export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
@@ -254,6 +265,32 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
     section: 'main',
     when: (data) => data.handoffEnabled && data.handoff !== undefined,
     options: (data) => data.handoff?.options ?? [],
+  },
+  /**
+   * THE PLACEMENT CORRECTION (POD-679).
+   *
+   * The start control asks where discovered work should live; this is where a
+   * wrong answer is undone. It has to exist: departure keys on the
+   * `discovered-from` EDGE, so reparenting alone would not bring a spin-off
+   * back — the UI would be able to reach a state it could not leave.
+   *
+   * Exactly one of the two ever shows, because an issue is in one place.
+   */
+  {
+    kind: 'action',
+    id: 'placeOnOwn',
+    label: (data) => `Move out of ${menuPlacement(data)?.originRef ?? 'this mission'}`,
+    icon: 'arrow-right-left',
+    section: 'lifecycle',
+    when: (data) => menuPlacement(data)?.placement === 'mission',
+  },
+  {
+    kind: 'action',
+    id: 'placeInMission',
+    label: (data) => `Move into ${menuPlacement(data)?.originRef ?? 'the task that found it'}`,
+    icon: 'arrow-right-left',
+    section: 'lifecycle',
+    when: (data) => menuPlacement(data)?.placement === 'own',
   },
   {
     kind: 'action',

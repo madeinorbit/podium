@@ -9,6 +9,7 @@ import {
   mergeByCursor,
   pairToolResults,
   reconcileReset,
+  sameItems,
   toolBatchTitle,
   toolCallPhrase,
   toolRunElapsedMs,
@@ -449,5 +450,28 @@ describe('reconcileReset', () => {
     const prev = [it_('a', 'c1'), it_('b', 'c2')]
     const snapshot = [it_('a', 'c1'), it_('b', 'c2'), it_('c', 'c3')]
     expect(reconcileReset(prev, snapshot, 'c3').map((i) => i.id)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('sameItems', () => {
+  it('holds for a re-read that returned the identical transcript in a fresh array', () => {
+    // The guard that makes the liveness reconcile free: reconcileReset hands back
+    // a NEW array for an unchanged transcript, and without this every heartbeat
+    // would re-derive rows and re-render the feed.
+    expect(sameItems([it_('a', 'c1'), it_('b', 'c2')], [it_('a', 'c1'), it_('b', 'c2')])).toBe(true)
+  })
+
+  it('fails on a grown window, so a genuinely new item still lands', () => {
+    expect(sameItems([it_('a', 'c1')], [it_('a', 'c1'), it_('b', 'c2')])).toBe(false)
+  })
+
+  it('fails when a same-cursor record grew — the re-emitted complete text', () => {
+    const partial: TranscriptItem = { id: 'a', cursor: 'c1', role: 'assistant', text: 'Hel' }
+    const complete: TranscriptItem = { id: 'a', cursor: 'c1', role: 'assistant', text: 'Hello' }
+    expect(sameItems([partial], [complete])).toBe(false)
+  })
+
+  it('fails when the same length holds different items', () => {
+    expect(sameItems([it_('a', 'c1')], [it_('b', 'c2')])).toBe(false)
   })
 })

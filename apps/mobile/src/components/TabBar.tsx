@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { BottomTabBarHeightCallbackContext } from 'expo-router/build/react-navigation/bottom-tabs'
-import { KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
+import { Activity, KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
 import { useContext, useEffect, useRef, useState } from 'react'
 import { Animated, type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -19,6 +19,7 @@ const ICONS: Record<string, typeof Rows3> = {
   work: Rows3,
   issues: KanbanSquare,
   superagent: MessagesSquare,
+  pulse: Activity,
 }
 
 /** Gap between the capsule and the screen edges it floats over. */

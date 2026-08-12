@@ -8,7 +8,9 @@ import {
   AGENT_CONCURRENCY_EVENT,
   AgentConcurrencyHistory,
   buildAgentConcurrencyHistory,
+  workingAgentCount,
 } from './concurrency-history'
+import type { Session } from './session'
 
 const NOW = Date.parse('2026-08-06T18:00:00.000Z')
 
@@ -25,6 +27,18 @@ function event(at: number, count: number, id = 1): PodiumEventRecord {
 
 function state(phase: AgentRuntimeState['phase']): AgentRuntimeState {
   return { phase, since: new Date(NOW).toISOString(), nativeSubagentCount: 0 }
+}
+
+interface FakeSession {
+  status: Session['status']
+  archived: boolean
+  /** Non-optional so these rows can also stand in as a `stateChanged` payload's
+   *  `next`, which is always a state. */
+  agentState: AgentRuntimeState
+}
+
+function live(phase: AgentRuntimeState['phase']): FakeSession {
+  return { status: 'live', archived: false, agentState: state(phase) }
 }
 
 describe('buildAgentConcurrencyHistory', () => {
@@ -60,7 +74,7 @@ describe('buildAgentConcurrencyHistory', () => {
 describe('AgentConcurrencyHistory', () => {
   it('records only changes to the working/compacting fleet count', () => {
     const bus = new EventBus()
-    const sessions: Array<{ agentState: AgentRuntimeState | undefined }> = []
+    const sessions: FakeSession[] = []
     const rows: PodiumEventRecord[] = []
     const events = {
       appendEvent(
@@ -79,7 +93,7 @@ describe('AgentConcurrencyHistory', () => {
     })
     const sessionId = asSessionId('s1')
 
-    const session = { agentState: state('working') }
+    const session = live('working')
     sessions.push(session)
     bus.emit('session.stateChanged', {
       sessionId,
@@ -105,5 +119,56 @@ describe('AgentConcurrencyHistory', () => {
     expect(history.history().buckets.at(-1)?.count).toBe(1)
     expect(rows).toHaveLength(2)
     history.dispose()
+  })
+
+  /** POD-730: the registry keeps every session it ever saw, and their last
+   *  observed phase is preserved deliberately. Counting phase alone gave the
+   *  skyline a floor that only ratcheted upward. */
+  it('drops an agent from the count the moment its process is gone', () => {
+    const bus = new EventBus()
+    const sessions: FakeSession[] = [live('working')]
+    const rows: PodiumEventRecord[] = []
+    const events = {
+      appendEvent(
+        input: Omit<PodiumEventRecord, 'id' | 'repoPath'> & { repoPath?: string | null },
+      ) {
+        rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })
+        return rows.length
+      },
+      listKindSinceWithPrior: () => rows,
+    }
+    const history = new AgentConcurrencyHistory({
+      sessions: () => sessions,
+      events,
+      bus,
+      now: () => NOW,
+    })
+    expect(history.capture()).toBe(1)
+
+    // A process that dies mid-turn emits no closing state event, so the exit
+    // itself has to move the count.
+    const dead = sessions[0]
+    if (dead) dead.status = 'exited'
+    bus.emit('session.exited', { sessionId: asSessionId('s1'), code: 1 })
+
+    expect(rows.map((row) => row.payload)).toEqual([{ count: 1 }, { count: 0 }])
+    history.dispose()
+  })
+})
+
+describe('workingAgentCount', () => {
+  it('counts only agents that are both alive and computing', () => {
+    expect(
+      workingAgentCount([
+        live('working'),
+        live('compacting'),
+        live('idle'),
+        { ...live('working'), status: 'exited' },
+        { ...live('working'), status: 'hibernated' },
+        { ...live('working'), archived: true },
+        // A dropped daemon link is not a dropped agent.
+        { ...live('working'), status: 'reconnecting' },
+      ]),
+    ).toBe(3)
   })
 })

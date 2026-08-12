@@ -1,0 +1,688 @@
+<title>Command Palette</title>
+<style>
+  /* ══ Podium tokens, verbatim from apps/web/src/index.css ══════════════════
+     Superade is the shipped preset. POD-737 took the hue out of the dark
+     chassis (Dark Ink) and POD-736 replaced the light one with warm paper; both
+     INVERT the old surface ramp — the chrome is no longer the darkest thing on
+     dark, and on paper it is the lightest. ══════════════════════════════════ */
+  .t-dark {
+    --background: #16171a; --foreground: #d7dae0; --card: #23262d;
+    --primary: #f5c518; --primary-foreground: #16171a; --primary-rim: #f5c518;
+    --secondary: #2c3038; --muted-foreground: #a8adb6; --border: #26292f;
+    --live: #6f9dff; --success: #2a62f0; --attention: #e3ba52;
+    --engraved: #191a1e; --bar: #1b1d21; --chip: #252830;
+    --hairline-soft: #24272d; --border-strong: #3a3f48; --text-strong: #f2f3f5;
+    --text-dim: #848a94; --text-faint: #6f7580; --label: #949aa4;
+    --claude: #d97757; --flow: #949aa4;
+    --radius-sm: 3.6px;
+    --well-floor: rgb(0 0 0 / .17); --well-lip: rgb(0 0 0 / .5);
+    --well-rim: rgb(255 255 255 / .06); --well-lit: rgb(255 255 255 / .05);
+    --well-hover: rgb(255 255 255 / .045);
+    --well-cell-lit: rgb(255 255 255 / .07); --well-cell-lip: rgb(0 0 0 / .35);
+    --shadow-popover: 0 14px 34px rgb(0 0 0 / .65), 0 2px 8px rgb(0 0 0 / .5);
+    --scrim: rgb(0 0 0 / .10);
+  }
+  .t-light {
+    --background: #f2f1ed; --foreground: #38362f; --card: #ffffff;
+    --primary: #f5c518; --primary-foreground: #1d1c19; --primary-rim: transparent;
+    --secondary: #eceae4; --muted-foreground: #5f5d55; --border: #e6e5e0;
+    --live: #2a62f0; --success: #1d4ed8; --attention: #8a6200;
+    --engraved: #f4f3f0; --bar: #f7f7f5; --chip: #ffffff;
+    --hairline-soft: #eeede8; --border-strong: #e2e0d9; --text-strong: #1d1c19;
+    --text-dim: #8f8d85; --text-faint: #a3a199; --label: #8f8d85;
+    --claude: #b8532e; --flow: #85817a;
+    --radius-sm: 4.8px;
+    --well-floor: rgb(29 28 25 / .045); --well-lip: rgb(29 28 25 / .1);
+    --well-rim: rgb(29 28 25 / .07); --well-lit: rgb(255 255 255 / .9);
+    --well-hover: rgb(29 28 25 / .04);
+    --well-cell-lit: rgb(255 255 255 / 1); --well-cell-lip: rgb(29 28 25 / .1);
+    --shadow-popover: 0 14px 34px rgb(29 28 25 / .3), 0 2px 8px rgb(29 28 25 / .12);
+    --scrim: rgb(29 28 25 / .10);
+  }
+  :root {
+    --radius-row: 7px; --radius-composer: 9px; --radius-tray: 10px;
+    --font-sans: 'Geist Variable', ui-sans-serif, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --shell-type-primary: 13px; --shell-type-reading: 14.5px;
+    color-scheme: dark;
+  }
+
+  /* ══ THE PAGE ═════════════════════════════════════════════════════════════ */
+  body {
+    margin: 0; padding: 0 20px 100px;
+    background:
+      radial-gradient(130% 80% at 50% -10%, #202228 0%, transparent 62%),
+      #141518;
+    color: #d7dae0;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  header { padding: 84px 0 0; }
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: .16em; text-transform: uppercase; color: #949aa4;
+  }
+  h1 {
+    margin: 16px 0 0; font-size: clamp(30px, 5vw, 46px); font-weight: 600;
+    letter-spacing: -.024em; line-height: 1.06; color: #f2f3f5;
+    text-wrap: balance;
+  }
+  h1 em { font-style: normal; color: #f5c518; }
+  .lede {
+    margin: 20px 0 0; max-width: 63ch; font-size: 15px; line-height: 1.65;
+    color: #a8adb6;
+  }
+  h2 {
+    margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.014em;
+    color: #f2f3f5;
+  }
+  section { margin-top: 76px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .sec-head .eyebrow { flex: none; }
+  .sec-note {
+    margin: 12px 0 0; max-width: 68ch; font-size: 13.5px; line-height: 1.65;
+    color: #969ba3;
+  }
+  .rule { height: 1px; margin: 26px 0 0; background: linear-gradient(90deg, #3a3f48, transparent); }
+
+  /* The stage the specimens sit on */
+  .stage {
+    display: flex; justify-content: center; align-items: flex-start;
+    margin-top: 30px; padding: 42px 20px;
+    border: 1px solid rgba(58,63,72,.5); border-radius: 14px;
+    background: var(--scrim);
+    overflow-x: auto;
+  }
+  .stage.pale { background: #e4e2db; }
+  .two { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-top: 30px; }
+  .cap {
+    margin: 14px 0 0; font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .1em; text-transform: uppercase; color: #6f7580; text-align: center;
+  }
+
+  /* ══ THE COMPONENT — apps/web/src/styles.css `.cmdk-*`, verbatim ══════════ */
+  .cmdk-panel {
+    display: flex; width: min(640px, 100%); max-width: none;
+    flex-direction: column; padding: 0;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-tray);
+    background: var(--chip); box-shadow: var(--shadow-popover);
+    color: var(--foreground); font-family: var(--font-sans);
+    font-size: var(--shell-type-primary); gap: 0; overflow: hidden;
+    text-align: left;
+  }
+  .cmdk-field {
+    display: flex; flex: none; align-items: center; gap: 10px; height: 46px;
+    margin: 7px 7px 0; padding: 0 13px; border-radius: var(--radius-composer);
+    background: var(--well-floor);
+    box-shadow: inset 0 1px 1px var(--well-lip), inset 0 0 0 1px var(--well-rim),
+      inset 0 -1px 0 var(--well-lit);
+  }
+  .cmdk-field-glyph { flex: none; color: var(--text-dim); display: flex; }
+  .cmdk-input {
+    min-width: 0; flex: 1; border: 0; background: transparent; color: var(--text-strong);
+    font-family: inherit; font-size: var(--shell-type-reading); letter-spacing: -.005em; outline: none;
+  }
+  .cmdk-input.ph { color: var(--muted-foreground); }
+  .cmdk-field-spinner { flex: none; color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; }
+  .cmdk-list { min-height: 0; flex: 1; padding-bottom: 7px; overflow-y: auto; }
+  .cmdk-group-label {
+    display: flex; align-items: baseline; gap: 8px; padding: 14px 15px 6px;
+    color: var(--label); font-family: var(--font-mono); font-size: 8.5px;
+    font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+  }
+  .cmdk-group:first-child .cmdk-group-label { padding-top: 10px; }
+  .cmdk-group-count {
+    margin-left: auto; flex: none; color: var(--muted-foreground); font-weight: 400;
+    font-variant-numeric: tabular-nums; letter-spacing: .06em;
+  }
+  .cmdk-row {
+    display: flex; width: calc(100% - 12px); height: 32px; align-items: center;
+    gap: 9px; margin: 0 6px; padding: 0 6px 0 9px; border: 0;
+    border-radius: var(--radius-row); background: none; color: var(--foreground);
+    cursor: pointer; text-align: left; font-family: inherit;
+  }
+  .cmdk-row { filter: none; }
+  .cmdk-row:hover { background: var(--well-hover); }
+  .cmdk-row[data-active] {
+    background: var(--secondary);
+    box-shadow: inset 0 1px 0 var(--well-cell-lit), inset 0 0 0 1px var(--well-cell-lip);
+    color: var(--text-strong);
+  }
+  .cmdk-row-lead {
+    display: flex; width: 16px; flex: none; align-items: center;
+    justify-content: center; color: var(--text-dim);
+  }
+  .cmdk-row[data-active] .cmdk-row-lead { color: var(--muted-foreground); }
+  .cmdk-row-issue { display: inline-flex; min-width: 0; flex: 1; align-items: center; gap: 9px; }
+  .cmdk-row-ref {
+    flex: none; color: var(--muted-foreground); font-family: var(--font-mono); font-size: 9px;
+    font-variant-numeric: tabular-nums; letter-spacing: .02em;
+  }
+  .cmdk-row-title {
+    min-width: 0; flex: 1; overflow: hidden; font-size: 12.5px;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cmdk-row[data-active] .cmdk-row-title { font-weight: 500; }
+  .cmdk-row-hint {
+    max-width: 40%; flex: none; overflow: hidden; color: var(--muted-foreground);
+    font-family: var(--font-mono); font-size: 9px;
+    font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cmdk-row-cap {
+    display: grid; min-width: 18px; height: 16px; flex: none; padding: 0 4px;
+    border: 1px solid var(--primary-rim, transparent); border-radius: var(--radius-sm); opacity: 0;
+    background: var(--primary); color: var(--primary-foreground);
+    font-family: var(--font-mono); font-size: 9px; line-height: 1; place-items: center;
+  }
+  .cmdk-row[data-active] .cmdk-row-cap { opacity: 1; }
+  .cmdk-nomatch {
+    margin: 0; padding: 18px 15px 4px; color: var(--muted-foreground);
+    font-size: 12px; text-align: center;
+  }
+  .cmdk-empty { padding: 30px 20px 34px; text-align: center; }
+  .cmdk-empty-label {
+    margin: 0; color: var(--label); font-family: var(--font-mono); font-size: 8.5px;
+    font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+  }
+  .cmdk-empty-text {
+    margin: 8px auto 0; max-width: 44ch; color: var(--muted-foreground);
+    font-size: 12px; line-height: 1.55;
+  }
+  .cmdk-foot {
+    display: flex; height: 27px; flex: none; align-items: center; gap: 10px;
+    padding: 0 12px; border-top: 1px solid var(--hairline-soft); background: var(--bar);
+    color: var(--muted-foreground); font-family: var(--font-mono); font-size: 9px;
+    font-variant-numeric: tabular-nums; letter-spacing: .02em; user-select: none;
+  }
+  .cmdk-keys { display: inline-flex; min-width: 0; align-items: center; gap: 5px; white-space: nowrap; }
+  .cmdk-keys span { margin-right: 7px; }
+  .cmdk-keys span:last-child { margin-right: 0; }
+  .cmdk-keys kbd {
+    display: inline-grid; min-width: 15px; height: 14px; padding: 0 3px;
+    border-radius: var(--radius-sm); background: color-mix(in srgb, var(--foreground) 10%, transparent);
+    color: var(--muted-foreground); font: inherit; place-items: center;
+  }
+  .cmdk-count { margin-left: auto; flex: none; }
+  .spb::after { content: "⠋"; animation: braille .8s steps(1) infinite; }
+  @keyframes braille {
+    0%{content:"⠋"} 10%{content:"⠙"} 20%{content:"⠹"} 30%{content:"⠸"} 40%{content:"⠼"}
+    50%{content:"⠴"} 60%{content:"⠦"} 70%{content:"⠧"} 80%{content:"⠇"} 90%{content:"⠏"}
+  }
+  @media (prefers-reduced-motion: reduce) { .spb::after { animation: none } }
+
+  /* ══ The before/after strip ═══════════════════════════════════════════════ */
+  .old {
+    width: min(560px, 100%); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 12px; background: #16161c; padding: 0; overflow: hidden;
+    font-family: var(--font-sans);
+  }
+  .old-field { padding: 8px; border-bottom: 1px solid #2a2a34; }
+  .old-field div {
+    height: 36px; display: flex; align-items: center; padding: 0 12px;
+    color: #6c6c78; font-size: 14px;
+  }
+  .old-list { padding: 6px; }
+  .old-lab {
+    padding: 6px 10px 4px; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .06em; color: rgba(154,154,168,.6);
+  }
+  .old-row {
+    display: flex; align-items: center; height: 27px; padding: 0 10px;
+    border-radius: 6px; font-size: 13px; color: #d7d7e0;
+  }
+  .old-row.sel { background: #25252f; color: #f3f3f8; }
+  .old-row span { margin-left: auto; font-size: 11px; color: rgba(154,154,168,.7); }
+
+  /* ══ Notes ════════════════════════════════════════════════════════════════ */
+  .notes {
+    display: grid; gap: 1px; margin-top: 30px; overflow: hidden;
+    border: 1px solid rgba(58,63,72,.45); border-radius: 12px; background: rgba(58,63,72,.45);
+  }
+  .note { display: grid; gap: 4px 20px; padding: 18px 20px; background: #1b1d21; grid-template-columns: 190px 1fr; }
+  @media (max-width: 720px) { .note { grid-template-columns: 1fr } }
+  .note h3 {
+    margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: #f5c518;
+  }
+  .note p { margin: 0; font-size: 13px; line-height: 1.6; color: #a8adb6; }
+  .note p code, .lede code, .sec-note code {
+    font-family: var(--font-mono); font-size: .88em; color: #d7dae0;
+    background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 4px;
+  }
+
+  table { width: 100%; margin-top: 26px; border-collapse: collapse; font-size: 13px; }
+  th {
+    padding: 0 12px 9px; border-bottom: 1px solid rgba(58,63,72,.8); text-align: left;
+    font-family: var(--font-mono); font-size: 8.5px; font-weight: 600;
+    letter-spacing: .12em; text-transform: uppercase; color: #949aa4;
+  }
+  td { padding: 11px 12px; border-bottom: 1px solid rgba(58,63,72,.4); color: #a8adb6; line-height: 1.55; vertical-align: top; }
+  td:first-child { color: #e8eaed; font-weight: 500; white-space: nowrap; }
+  td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .gone { color: #6f7580; text-decoration: line-through; }
+  footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid rgba(58,63,72,.45); font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; color: #6f7580; }
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">POD-745 · Command palette</p>
+  <h1>The palette is the command bar,<br><em>arrived.</em></h1>
+  <p class="lede">
+    ⌘K was the one surface in Podium made of nothing from Podium — a stock dialog
+    with a bordered input, 13px rows and a grey wash on the selected one. It also
+    showed eight arbitrary agents and nothing else the moment you opened it,
+    because every kind of result shared a single cap of&nbsp;8. This rebuilds it
+    out of the shell's own parts and fixes the reason it was hard to use.
+  </p>
+</header>
+
+<!-- ────────────────────────────────────────────────────────────── AT REST ── -->
+<section>
+  <div class="sec-head"><span class="eyebrow">01</span><h2>At rest — ⌘K, nothing typed</h2></div>
+  <p class="sec-note">
+    The resting palette is a <strong>home</strong>, not an index. <code>Recent</code>
+    merges agents by last activity and tasks by last touch — the answer to "what
+    was I just doing". Below it, what you can do to the task and the agent the
+    shell is pointed at, then the command list. The raw indexes (every task,
+    every agent, every worktree) are answers to a query and are not offered
+    before there is one.
+  </p>
+  <div class="rule"></div>
+
+  <div class="stage t-dark">
+    <div class="cmdk-panel">
+      <div class="cmdk-field">
+        <span class="cmdk-field-glyph">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </span>
+        <span class="cmdk-input ph">Search tasks, agents and commands…</span>
+      </div>
+      <div class="cmdk-list">
+
+        <div class="cmdk-group">
+          <div class="cmdk-group-label"><span>Recent</span></div>
+          <button class="cmdk-row" data-active>
+            <span class="cmdk-row-issue">
+              <svg width="14" height="14" viewBox="0 0 14 14" style="color:#3b82f6;flex:none"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 0 1 9.77 8.6 Z" fill="currentColor"/></svg>
+              <span class="cmdk-row-ref">POD-745</span>
+              <span class="cmdk-row-title">Command palette redesign</span>
+            </span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead" style="color:var(--claude)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l2.2 5.6L20 10l-5.8 1.4L12 17l-2.2-5.6L4 10l5.8-1.4z"/></svg>
+            </span>
+            <span class="cmdk-row-title">reviewer · lock lease expiry</span>
+            <span class="spb" style="color:var(--live);font-family:var(--font-mono);font-size:10px;flex:none"></span>
+            <span class="cmdk-row-hint">pod-712</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-issue">
+              <svg width="14" height="14" viewBox="0 0 14 14" style="color:#0ea5e9;flex:none"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 1 1 4.23 8.6 Z" fill="currentColor"/></svg>
+              <span class="cmdk-row-ref">POD-712</span>
+              <span class="cmdk-row-title">Merge lock lease expiry</span>
+            </span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead" style="color:var(--claude)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l2.2 5.6L20 10l-5.8 1.4L12 17l-2.2-5.6L4 10l5.8-1.4z"/></svg>
+            </span>
+            <span class="cmdk-row-title">mobile pulse polish</span>
+            <span class="cmdk-row-hint">pod-592</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+        </div>
+
+        <div class="cmdk-group">
+          <div class="cmdk-group-label"><span>Task · POD-745</span><span class="cmdk-group-count">5/38</span></div>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+            <span class="cmdk-row-title">Set stage · Review</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+            <span class="cmdk-row-title">Close (done)</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/><circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12.5" r="1"/><path d="M12 2a10 10 0 0 0 0 20 2 2 0 0 0 2-2v-1a2 2 0 0 1 2-2h2a4 4 0 0 0 4-4 10 10 0 0 0-10-10"/></svg></span>
+            <span class="cmdk-row-title">Set colour · Amber</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+        </div>
+
+        <div class="cmdk-group">
+          <div class="cmdk-group-label"><span>Agent · reviewer · lock lease expiry</span></div>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9"/></svg></span>
+            <span class="cmdk-row-title">Hibernate</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg></span>
+            <span class="cmdk-row-title">Ask superagent (BTW)</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+        </div>
+
+        <div class="cmdk-group">
+          <div class="cmdk-group-label"><span>Actions</span><span class="cmdk-group-count">10/31</span></div>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12h8M12 8v8"/></svg></span>
+            <span class="cmdk-row-title">New task</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead" style="color:var(--claude)"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l2.2 5.6L20 10l-5.8 1.4L12 17l-2.2-5.6L4 10l5.8-1.4z"/></svg></span>
+            <span class="cmdk-row-title">New Claude agent in POD-745</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5h5l2 2h5a2 2 0 0 1 2 2v1"/><path d="M3 5v14h13"/><path d="M19 14v6M16 17h6"/></svg></span>
+            <span class="cmdk-row-title">Add repo…</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></span>
+            <span class="cmdk-row-title">Go to Work</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 12h10M11 6h10M11 18h10M4 6h2M4 12h2M4 18h2"/></svg></span>
+            <span class="cmdk-row-title">Open Queues panel</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+        </div>
+
+      </div>
+      <div class="cmdk-foot">
+        <span class="cmdk-keys">
+          <kbd>↑↓</kbd><span>move</span><kbd>↵</kbd><span>run</span><kbd>esc</kbd><span>close</span>
+        </span>
+        <span class="cmdk-count">247 commands</span>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Dark Ink · resting state · scrolled to show all four groups</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── UNDER A QUERY -->
+<section>
+  <div class="sec-head"><span class="eyebrow">02</span><h2>Under a query</h2></div>
+  <p class="sec-note">
+    Groups split by kind and each carries its own budget, so one task's thirty-eight
+    context-menu permutations can no longer take the whole list. Group <em>order</em>
+    is earned rather than declared: the group holding the strongest match comes
+    first, so typing <code>close</code> puts the agent's own <code>Close</code>
+    above four tasks that merely contain the letters. A capped group says so —
+    <code>6/23</code> — because a surface that silently drops results reads as a
+    surface that found none.
+  </p>
+  <div class="rule"></div>
+
+  <div class="stage t-dark">
+    <div class="cmdk-panel">
+      <div class="cmdk-field">
+        <span class="cmdk-field-glyph">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </span>
+        <span class="cmdk-input">lock</span>
+        <span class="cmdk-field-spinner spb"></span>
+      </div>
+      <div class="cmdk-list">
+        <div class="cmdk-group">
+          <div class="cmdk-group-label"><span>Tasks</span><span class="cmdk-group-count">3/9</span></div>
+          <button class="cmdk-row" data-active>
+            <span class="cmdk-row-issue">
+              <svg width="14" height="14" viewBox="0 0 14 14" style="color:#0ea5e9;flex:none"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 1 1 4.23 8.6 Z" fill="currentColor"/></svg>
+              <span class="cmdk-row-ref">POD-712</span>
+              <span class="cmdk-row-title">Merge lock lease expiry</span>
+            </span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-issue">
+              <svg width="14" height="14" viewBox="0 0 14 14" style="color:rgba(168,173,182,.7);flex:none"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></svg>
+              <span class="cmdk-row-ref">POD-560</span>
+              <span class="cmdk-row-title">Bug: lock status shows dead waiters</span>
+            </span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+          <button class="cmdk-row">
+            <span class="cmdk-row-issue">
+              <svg width="14" height="14" viewBox="0 0 14 14" style="color:#2a62f0;flex:none"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.5 7.2 6.3 9l3.2-3.6" stroke="#16171a" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="cmdk-row-ref">POD-475</span>
+              <span class="cmdk-row-title">Merge lock client projection</span>
+            </span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+        </div>
+        <div class="cmdk-group">
+          <div class="cmdk-group-label"><span>Agents</span></div>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead" style="color:var(--claude)"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l2.2 5.6L20 10l-5.8 1.4L12 17l-2.2-5.6L4 10l5.8-1.4z"/></svg></span>
+            <span class="cmdk-row-title">reviewer · lock lease expiry</span>
+            <span class="spb" style="color:var(--live);font-family:var(--font-mono);font-size:10px;flex:none"></span>
+            <span class="cmdk-row-hint">pod-712</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+        </div>
+        <div class="cmdk-group">
+          <div class="cmdk-group-label"><span>Worktrees</span></div>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span>
+            <span class="cmdk-row-title">issue/712-merge-lock-lease</span>
+            <span class="cmdk-row-hint">podium</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+        </div>
+        <div class="cmdk-group">
+          <div class="cmdk-group-label"><span>Actions</span></div>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 12h10M11 6h10M11 18h10M4 6h2M4 12h2M4 18h2"/></svg></span>
+            <span class="cmdk-row-title">Open Queues panel</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+        </div>
+        <div class="cmdk-group">
+          <div class="cmdk-group-label"><span>New agent</span></div>
+          <button class="cmdk-row">
+            <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 4v4M9 14h.01M15 14h.01"/></svg></span>
+            <span class="cmdk-row-title">New agent: “lock”</span>
+            <span class="cmdk-row-hint">POD-745</span>
+            <span class="cmdk-row-cap">↵</span>
+          </button>
+        </div>
+      </div>
+      <div class="cmdk-foot">
+        <span class="cmdk-keys">
+          <kbd>↑↓</kbd><span>move</span><kbd>↵</kbd><span>run</span><kbd>esc</kbd><span>clear</span>
+        </span>
+        <span class="cmdk-count">9 matches</span>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Dark Ink · query state · the field's spinner runs only while the server search is in flight</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────── LIGHT + EMPTY -->
+<section>
+  <div class="sec-head"><span class="eyebrow">03</span><h2>Paper, and the end of the road</h2></div>
+  <p class="sec-note">
+    Every surface here is a token, so Paper comes for free — including the
+    bevels, which flip with the ground (<code>--well-cell-lit</code> is a faint
+    lit edge on ink and a full white <em>face</em> on stone). One value could not
+    come along: the selected row's fill. <code>--well-cell</code> resolves to
+    <code>--card</code> on paper, which is right for a cell sitting in the bar
+    and invisible here, where the panel is already white — so the fill is
+    <code>--secondary</code>, the same tone the active mode tab takes, and the
+    only one that differs from its surface in both grounds. When nothing matches,
+    the palette says so and hands you the one thing it can still do.
+  </p>
+  <div class="rule"></div>
+
+  <div class="two">
+    <div class="stage pale t-light" style="padding:28px 18px">
+      <div class="cmdk-panel" style="width:100%">
+        <div class="cmdk-field">
+          <span class="cmdk-field-glyph"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+          <span class="cmdk-input">merge</span>
+        </div>
+        <div class="cmdk-list">
+          <div class="cmdk-group">
+            <div class="cmdk-group-label"><span>Tasks</span><span class="cmdk-group-count">2/6</span></div>
+            <button class="cmdk-row" data-active>
+              <span class="cmdk-row-issue">
+                <svg width="14" height="14" viewBox="0 0 14 14" style="color:#0ea5e9;flex:none"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 1 1 4.23 8.6 Z" fill="currentColor"/></svg>
+                <span class="cmdk-row-ref">POD-712</span>
+                <span class="cmdk-row-title">Merge lock lease expiry</span>
+              </span>
+              <span class="cmdk-row-cap">↵</span>
+            </button>
+            <button class="cmdk-row">
+              <span class="cmdk-row-issue">
+                <svg width="14" height="14" viewBox="0 0 14 14" style="color:rgba(95,93,85,.7);flex:none"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></svg>
+                <span class="cmdk-row-ref">POD-474</span>
+                <span class="cmdk-row-title">Merge queue sidebar tool</span>
+              </span>
+              <span class="cmdk-row-cap">↵</span>
+            </button>
+          </div>
+          <div class="cmdk-group">
+            <div class="cmdk-group-label"><span>Actions</span></div>
+            <button class="cmdk-row">
+              <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 12h10M11 6h10M11 18h10M4 6h2M4 12h2M4 18h2"/></svg></span>
+              <span class="cmdk-row-title">Open Queues panel</span>
+              <span class="cmdk-row-cap">↵</span>
+            </button>
+          </div>
+        </div>
+        <div class="cmdk-foot">
+          <span class="cmdk-keys"><kbd>↑↓</kbd><span>move</span><kbd>↵</kbd><span>run</span><kbd>esc</kbd><span>clear</span></span>
+          <span class="cmdk-count">3 matches</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage t-dark" style="padding:28px 18px">
+      <div class="cmdk-panel" style="width:100%">
+        <div class="cmdk-field">
+          <span class="cmdk-field-glyph"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+          <span class="cmdk-input">zzqxjv</span>
+        </div>
+        <div class="cmdk-list">
+          <p class="cmdk-nomatch">No match for “zzqxjv”</p>
+          <div class="cmdk-group">
+            <div class="cmdk-group-label"><span>New agent</span></div>
+            <button class="cmdk-row" data-active>
+              <span class="cmdk-row-lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 4v4M9 14h.01M15 14h.01"/></svg></span>
+              <span class="cmdk-row-title">New agent: “zzqxjv”</span>
+              <span class="cmdk-row-hint">POD-745</span>
+              <span class="cmdk-row-cap">↵</span>
+            </button>
+          </div>
+        </div>
+        <div class="cmdk-foot">
+          <span class="cmdk-keys"><kbd>↑↓</kbd><span>move</span><kbd>↵</kbd><span>run</span><kbd>esc</kbd><span>clear</span></span>
+          <span class="cmdk-count">1 match</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Paper · and the no-match state, where the fallback becomes the whole answer</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────── MECHANICS -->
+<section>
+  <div class="sec-head"><span class="eyebrow">04</span><h2>What it is made of</h2></div>
+  <div class="rule"></div>
+  <div class="notes">
+    <div class="note">
+      <h3>The field is a well</h3>
+      <p>The command bar's signature control at full width, down to its recipe: <code>--well-floor</code> under the three insets <code>.topbar-well</code> wears, at <code>--radius-composer</code>. The floor is the token and never a tier name — Dark Ink lifted the bar off the deepest tier, so which way a groove cuts is a per-ground call the <code>--well-*</code> values already carry.</p>
+    </div>
+    <div class="note">
+      <h3>Selection is a raised cell</h3>
+      <p>The <code>--well-cell-*</code> bevel over <code>--secondary</code> — the same fill the active mode tab takes. It also opts out of the global pressable brightness, which lifts anything <code>aria-selected</code> by 8%: right for a glyph button, wrong for a fill that IS a specified tone, and wrong for the one colour here allowed to be exact.</p>
+    </div>
+    <div class="note">
+      <h3>One yellow thing</h3>
+      <p>The ↵ cap marks what Enter will do, on the row it will do it to — the Signal Rule's one voice per region. It is laid out on every row and revealed on one, so the hint column never jitters as the highlight walks the list.</p>
+    </div>
+    <div class="note">
+      <h3>Machine voice</h3>
+      <p>Group labels, refs, hints, counts and the footer are Geist Mono — the voice the overlay menus and the colour picker already name their regions in. Headings take <code>--label</code>; anything carrying information takes <code>--muted-foreground</code>, because <code>--text-dim</code> measures 3.0:1 on warm stone. Row titles stay Geist Sans: they are the human's words.</p>
+    </div>
+    <div class="note">
+      <h3>Rows carry identity</h3>
+      <p>Task rows are the canonical <code>IssueReference</code> — stage glyph, ref, title. Agent rows carry the harness mark and the live agent-state glyph, so a working agent spins in the palette exactly as it does in the sidebar.</p>
+    </div>
+    <div class="note">
+      <h3>Motion earns its keep</h3>
+      <p>One authored moment: the panel drops in from 9px above on an exponential ease-out, 170ms. Everything after that is instant. The field's braille spinner runs only while a server search is genuinely in flight — the same predicate the agent spinner gates on.</p>
+    </div>
+    <div class="note">
+      <h3>The footer teaches</h3>
+      <p>The status strip's grammar, borrowed to close the surface. It is also where the <code>⌘K commands</code> hint that used to sit in the app's own footer all day now lives — stated once, at the only moment it is useful. Escape's label tracks what Escape will actually do next.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ──────────────────────────────────────────────────────────────── COVERAGE -->
+<section>
+  <div class="sec-head"><span class="eyebrow">05</span><h2>What it can now reach</h2></div>
+  <p class="sec-note">The audit found ten action points with no ⌘K route. Six shipped with the redesign; four need a decision or a dialog that does not exist yet.</p>
+  <div class="rule"></div>
+  <table>
+    <thead><tr><th>Added</th><th>Why it mattered</th></tr></thead>
+    <tbody>
+      <tr><td>Dock panels ×7</td><td>Task, Superagent, Git, Files, Shell, Messages, Queues — plus <em>Close side panel</em>. Exactly one of the seven ("the superagent panel") had a route before, under copy that predates the dock.</td></tr>
+      <tr><td>Go to Specs</td><td>A <code>MainView</code> and a top-bar tab. The views array listed six of the seven; this was a plain omission.</td></tr>
+      <tr><td>Settings · <em>tab</em></td><td>Every settings destination, from the shared <code>SETTINGS_TABS</code>. ⌘K could only land you on the default page.</td></tr>
+      <tr><td>Add repo…</td><td>The other half of the two-tool footer row ⌘K search sits in. Every new project goes through it.</td></tr>
+      <tr><td>Mark agent read / unread</td><td>The shared eligibility helper computes five flags; the palette destructured three.</td></tr>
+      <tr><td>Recent</td><td>Not a command — the resting state's whole answer, and the reason ⌘K no longer opens on eight arbitrary agents.</td></tr>
+    </tbody>
+  </table>
+  <table>
+    <thead><tr><th>Left out</th><th>What it needs</th></tr></thead>
+    <tbody>
+      <tr><td>Rename agent</td><td>The context menu's first item. It takes an <code>onRename</code> callback from its host and there is no palette-owned rename dialog to hand it.</td></tr>
+      <tr><td>Agent handoff</td><td>Wired for tasks, not for the focused agent. Needs the machine-candidate list projected the way the task path already does.</td></tr>
+      <tr><td>Split / unsplit pane</td><td><code>toggleSplit</code> behind the tab-splitting flag — a shell-layout action with no keyboard route at all.</td></tr>
+      <tr><td>Theme &amp; density</td><td>Flipped often, reachable only through Settings. Worth a pair of palette rows; wants a call on whether ⌘K should hold preferences.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ──────────────────────────────────────────────────────────────── THE CAPS -->
+<section>
+  <div class="sec-head"><span class="eyebrow">06</span><h2>The caps</h2></div>
+  <p class="sec-note">
+    One cap of 8 across every kind of result was the defect the redesign exists to
+    fix. <code>rest: 0</code> means a group does not exist until you type;
+    <code>query: 0</code> on Recent is the mirror, so a query never shows the same
+    row twice under two labels.
+  </p>
+  <div class="rule"></div>
+  <table>
+    <thead><tr><th>Group</th><th class="num">At rest</th><th class="num">Under a query</th><th>Holds</th></tr></thead>
+    <tbody>
+      <tr><td>Recent</td><td class="num">6</td><td class="num">—</td><td>Agents by last activity, tasks by last touch, merged</td></tr>
+      <tr><td>Tasks</td><td class="num">—</td><td class="num">6</td><td>The replica's issues plus server search hits</td></tr>
+      <tr><td>Agents</td><td class="num">—</td><td class="num">5</td><td>Live and hibernated sessions</td></tr>
+      <tr><td>Worktrees</td><td class="num">—</td><td class="num">4</td><td>Every worktree of every repo</td></tr>
+      <tr><td>Task · <em>ref</em></td><td class="num">5</td><td class="num">12</td><td>The shared context-menu tree, ~38 rows</td></tr>
+      <tr><td>Agent · <em>name</em></td><td class="num">6</td><td class="num">all</td><td>The focused agent's own actions</td></tr>
+      <tr><td>Actions</td><td class="num">10</td><td class="num">all</td><td>Create, go to, panels, settings destinations</td></tr>
+      <tr><td class="gone">Navigate</td><td class="num gone">8</td><td class="num gone">8</td><td class="gone">Sessions, worktrees, tasks and task actions, in one bucket</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>POD-745 · Command palette redesign · apps/web/src/app/CommandPalette.tsx · command-palette.ts · styles.css §.cmdk-*</footer>
+</div>

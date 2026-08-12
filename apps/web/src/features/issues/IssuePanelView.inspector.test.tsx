@@ -149,16 +149,22 @@ afterEach(() => {
 })
 
 describe('IssuePanelView inspector', () => {
-  it('renders one scroll in the approved section order', () => {
+  // POD-743 re-ordered this scroll. It used to run by how fast each fact moves,
+  // which put the evidence below two sections of roster; that was right when
+  // this panel was the only place a task's shape was visible. The Flight Deck
+  // draws the shape now, so what the operator came here to do — judge the work
+  // and act on it — comes first, and the structure the deck already shows sits
+  // underneath as reference.
+  it('renders one scroll, judgement first and structure underneath', () => {
     render(<IssuePanelView cwd="/r" />)
 
     expect(parts()).toEqual([
       'Current update',
-      'Subtasks',
-      'Agents & sessions',
-      'Relations',
-      'Branch & worktree',
       'Recent activity',
+      'Subtasks',
+      'Relations',
+      'Agents & sessions',
+      'Branch & worktree',
     ])
   })
 
@@ -170,20 +176,24 @@ describe('IssuePanelView inspector', () => {
     }
   })
 
-  // The TITLE is the dock title bar's job now (RightDock), so the panel leads
-  // with the ref and the description — and the description is uncapped, because
-  // it lives in the scroll instead of in the height-budgeted fixed head.
-  it('leads with the ref and an uncapped description, and repeats no title', () => {
+  // The TITLE came back to the panel in POD-743: the dock title bar carries the
+  // explorer's trail now, which is a position rather than a name. It is bounded
+  // at two lines because this head sits above the single scroll and anything
+  // unbounded up here comes out of the scroll's budget; the description stays
+  // uncapped, down in the scroll where there is no budget to protect.
+  it('names the task in a two-line head, over an uncapped description', () => {
     render(<IssuePanelView cwd="/r" />)
 
-    expect(within(screen.getByTestId('dock-inspect-head')).getByText('#1')).toBeTruthy()
+    const head = within(screen.getByTestId('dock-inspect-head'))
+    expect(head.getByText('#1')).toBeTruthy()
+    const title = screen.getByTestId('dock-title')
+    expect(title.textContent).toBe('Operator workspace')
+    expect(title.className).toContain('line-clamp-2')
     const description = screen.getByTestId('dock-description')
     expect(description.textContent).toBe('Rework the dock into one scroll.')
     expect(description.className).not.toContain('line-clamp')
-    // The dock title bar says it once; the panel does not say it again.
-    expect(screen.queryByText('Operator workspace')).toBeNull()
-    // ...and the head no longer names the panel it is already inside.
-    expect(within(screen.getByTestId('dock-inspect-head')).queryByText('Task')).toBeNull()
+    // ...and the head still does not name the panel it is already inside.
+    expect(head.queryByText('Task')).toBeNull()
     expect(screen.queryByText('P2')).toBeNull()
     expect(screen.queryByText(/subissues done/)).toBeNull()
   })

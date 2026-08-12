@@ -1,9 +1,11 @@
+import type { SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import type { SocketHub } from '../socket-transport'
 import type { Router } from '../ui-state'
+import { emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../viewmodels'
 import {
   COMMAND_ACTIONS,
   createEngineActions,
@@ -37,7 +39,6 @@ function harness() {
     sessions: [],
     issues: [],
     repos: [],
-    peekIssueId: null,
     superThreadId: 'global',
     superOpen: false,
     dockTab: 'chat' as const,
@@ -45,6 +46,7 @@ function harness() {
     paletteOpen: false,
     selectedWorktree: null,
     selectedIssueId: null,
+    workspaces: {},
     paneA: null,
     paneB: null,
     split: false,
@@ -83,6 +85,7 @@ function harness() {
     api: {
       layout: { get: { query: async () => ({}) } },
       superagent: { startBtw: { mutate: vi.fn(async () => ({})) } },
+      sessions: { kill: { mutate: vi.fn(async () => ({})) } },
     } as unknown as PodiumClientApi,
     hub: {} as SocketHub,
     outbox: {
@@ -116,6 +119,10 @@ function harness() {
     queued,
     navigated,
     state: () => state,
+    /** Seed action state directly — the runtime's `apply`, in miniature. */
+    seed: (patch: Record<string, unknown>) => {
+      state = { ...state, ...patch } as typeof state
+    },
   }
 }
 
@@ -129,7 +136,6 @@ describe('engine action ownership boundary', () => {
   it('navigation, pane, selection, focus, and transient view changes never touch the Outbox', () => {
     const h = harness()
     h.actions.setView('workspace')
-    h.actions.setPeekIssueId(asIssueId('issue-1'))
     h.actions.setSelectedWorktree('/worktree')
     h.actions.setSelectedIssueId(asIssueId('issue-1'))
     h.actions.setPane('A', sessionId)
@@ -282,6 +288,110 @@ describe('engine action ownership boundary', () => {
         expect(keys, `${kind} payload asserts attribution field '${field}'`).not.toContain(field)
       }
     }
+  })
+})
+
+/**
+ * The pane scalars are a MIRROR of the layout (POD-710). Every case here is one
+ * of the writers that used to disagree with it — and a disagreement is not
+ * cosmetic: `paneA`/`paneB`/`split` drive the `?pane=` route, PTY-relay
+ * priority, the warm set and what the flight deck highlights.
+ */
+describe('pane scalars follow the layout', () => {
+  /** Two panes: p1 holds `a`, p2 holds `b` and has focus — the arrangement
+   *  every "second pane" defect below needs. */
+  const twoPanes = (a: string, b: string): WorkspaceLayout => {
+    let ws = openTab(emptyWorkspace('none'), a, { permanent: true })
+    ws = splitPane(ws, 'p1', 'row') // p2: empty, focused
+    return openTab(ws, b, { permanent: true }) // …and it lands there
+  }
+  const meta = (id: string): SessionMeta =>
+    ({ sessionId: asSessionId(id), cwd: '/wt', archived: false }) as unknown as SessionMeta
+
+  it('killing the session in the second pane also collapses the split', async () => {
+    const h = harness()
+    h.seed({
+      workspaces: { none: twoPanes('s-a', 'session-1') },
+      paneA: asSessionId('s-a'),
+      paneB: sessionId,
+      split: true,
+      focusedPane: 'B',
+    })
+
+    await h.actions.killSession(sessionId)
+
+    // The mirror computed `split: false` all along; killSession cherry-picked
+    // `workspaces`/`paneA`/`paneB` out of the patch and dropped it, leaving a
+    // phantom second pane that no later write could clear — the compatibility
+    // clause saw one leaf both before and after and stopped writing `split`.
+    const st = h.state()
+    expect(st.split).toBe(false)
+    expect(st.paneB).toBeNull()
+    expect(st.focusedPane).toBe('A')
+    expect(st.paneA).toBe('s-a')
+  })
+
+  it('closing the file tab in the second pane collapses it too', () => {
+    const h = harness()
+    const fileId = 'file:s:s1:notes.md'
+    h.seed({
+      workspaces: { none: twoPanes('s-a', fileId) },
+      fileTabs: [{ id: fileId, scope: { kind: 'session', sessionId }, path: 'notes.md' }],
+      paneA: asSessionId('s-a'),
+      paneB: fileId,
+      split: true,
+      focusedPane: 'B',
+    })
+
+    h.actions.closeFileTab(fileId)
+
+    const st = h.state()
+    expect(st.split).toBe(false)
+    expect(st.paneB).toBeNull()
+    expect(st.fileTabs).toEqual([])
+  })
+
+  it('navigating to a session opens it in the FOCUSED pane, not on top of pane A', () => {
+    const h = harness()
+    h.seed({
+      sessions: [meta('s-a'), meta('session-1')],
+      workspaces: { none: twoPanes('s-a', 's-b') },
+    })
+
+    h.actions.navigateToSession(sessionId)
+
+    // `paneA: meta.sessionId` used to be spread AFTER the mirror, so a split
+    // layout put one session in both panes and blanked the other half.
+    const st = h.state()
+    expect(st.paneB).toBe(sessionId)
+    expect(st.paneA).toBe('s-a')
+  })
+
+  it('setPane(A, null) leaves the layout — and therefore the scalar — alone', () => {
+    const h = harness()
+    h.seed({
+      workspaces: { none: openTab(emptyWorkspace('none'), 's-a', { permanent: true }) },
+      paneA: asSessionId('s-a'),
+    })
+
+    h.actions.setPane('A', null)
+
+    // Clearing a pane is not an operation the model has. Writing the scalar
+    // anyway blanked the panel while the strip still listed the tab.
+    expect(h.state().paneA).toBe('s-a')
+  })
+
+  it('setPane(B, …) against a single-leaf layout is inert, not a raw scalar write', () => {
+    const h = harness()
+    h.seed({
+      workspaces: { none: openTab(emptyWorkspace('none'), 's-a', { permanent: true }) },
+      paneA: asSessionId('s-a'),
+    })
+
+    h.actions.setPane('B', sessionId)
+
+    expect(h.state().paneB).toBeNull()
+    expect(h.state().split).toBe(false)
   })
 })
 

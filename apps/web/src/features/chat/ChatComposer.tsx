@@ -1,3 +1,4 @@
+import { sessionWaking } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, Clock, CloudOff, Paperclip, Square } from 'lucide-react'
@@ -233,11 +234,15 @@ export function ChatComposer({
             // safe-area maths, so nothing is restated here.
             'prompt-dock font-mono'
           : cn(
-              'border-t border-border px-3 pt-2.5 pb-[calc(10px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
+              'px-[18px] pt-2 pb-[calc(16px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
               // Flat Field (POD-159): every chat composer mirrors the native
               // Claude Code / superagent prompt box — mono, CLI `>` prefix, block
               // caret, flat background.
-              'bg-background px-3.5 font-mono',
+              // No top rule and no surface of its own any more (POD-725): the
+              // sheet runs to the bottom edge and the field's own well is the
+              // only boundary the design draws. A border here would have cut the
+              // document off from the thing it is a reply to.
+              'font-mono',
             ),
       )}
       {...attachments.dropHandlers}
@@ -263,7 +268,13 @@ export function ChatComposer({
             <div className="composer-notice" data-notice="queue">
               <Clock size={12} aria-hidden="true" />
               <strong>Queued · {queuedTotal}</strong>
-              <span>sends after this turn</span>
+              {/* A parked session has no turn to send after — it has a process
+                  to start first (POD-762). Saying "after this turn" there names
+                  a turn that does not exist and is not what the operator is
+                  waiting on. */}
+              <span>
+                {sessionWaking(session) ? 'sends once the agent is up' : 'sends after this turn'}
+              </span>
             </div>
           )}
           {turnError !== null && (
@@ -298,7 +309,7 @@ export function ChatComposer({
           'relative',
           compact
             ? 'prompt-well'
-            : 'chat-composer-well flex flex-col gap-0.5 rounded-[9px] border bg-background px-3 py-1.5',
+            : 'chat-composer-well flex flex-col gap-0.5 rounded-[11px] px-3.5 py-2',
         )}
       >
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
@@ -308,7 +319,7 @@ export function ChatComposer({
               'pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5',
               // Follow the well's own corner, or the drop target reads as a
               // second box laid over the field.
-              compact && 'rounded-[9px]',
+              compact ? 'rounded-[9px]' : 'rounded-[11px]',
             )}
           >
             <span className="text-sm font-medium text-primary">Drop image to attach</span>

@@ -1,7 +1,3 @@
-import type { QuotaWindowWire } from '@podium/model'
-import type { JSX } from 'react'
-import { cn } from '@/lib/utils'
-import { HealthPopoverFooter } from './HealthPopover'
 import {
   type AccountQuotaGroup,
   agentLabel,
@@ -17,7 +13,11 @@ import {
   windowPace,
   windowScopeModel,
   windowShortLabel,
-} from './quota'
+} from '@podium/client-core/viewmodels'
+import type { QuotaWindowWire } from '@podium/model'
+import type { JSX } from 'react'
+import { cn } from '@/lib/utils'
+import { HealthPopoverFooter } from './HealthPopover'
 
 /**
  * The agent-quota popover body. Hover tier: verdict header + one aligned
@@ -55,40 +55,43 @@ export function QuotaPanel({
           {verdict.label}
         </span>
       </div>
-      {ok.length === 0 && <div className="hp-section hp-dim-line">No quota reported</div>}
-      {ok.map((g) => {
-        const { gating, models } = splitQuotaWindows(g.windows)
-        return (
-          <div key={g.key} className="hp-section">
-            <div className="hp-acct">
-              <span className="hp-acct-agent">{agentLabel(g.agent)}</span>
-              {g.account?.plan && <span className="hp-acct-plan">{g.account.plan}</span>}
-              {g.account?.email && <span className="hp-acct-sub">{g.account.email}</span>}
-            </div>
-            {gating.map((w) => (
-              <WindowRow key={w.key} w={w} now={now} pinned={pinned} />
-            ))}
-            {/* Model-scoped buckets read as a separate tier — they are extra
+      {/* Scrolls once the accounts outgrow the popover's cap — see `.hp-scroll`. */}
+      <div className="hp-scroll">
+        {ok.length === 0 && <div className="hp-section hp-dim-line">No quota reported</div>}
+        {ok.map((g) => {
+          const { gating, models } = splitQuotaWindows(g.windows)
+          return (
+            <div key={g.key} className="hp-section">
+              <div className="hp-acct">
+                <span className="hp-acct-agent">{agentLabel(g.agent)}</span>
+                {g.account?.plan && <span className="hp-acct-plan">{g.account.plan}</span>}
+                {g.account?.email && <span className="hp-acct-sub">{g.account.email}</span>}
+              </div>
+              {gating.map((w) => (
+                <WindowRow key={w.key} w={w} now={now} pinned={pinned} />
+              ))}
+              {/* Model-scoped buckets read as a separate tier — they are extra
                 capacity for one model, not a limit on the harness (POD-271). */}
-            {models.length > 0 && (
-              <>
-                <div className="hp-sect-label hp-model-label">Model limits</div>
-                {models.map((w) => (
-                  <WindowRow key={w.key} w={w} now={now} pinned={pinned} />
-                ))}
-                <div className="hp-model-note">{modelLimitNote(g.agent, g.windows)}</div>
-              </>
-            )}
-          </div>
-        )
-      })}
-      {pinned &&
-        degraded.map((g) => (
-          <div key={g.key} className="hp-section hp-acct">
-            <span className="hp-acct-agent">{agentLabel(g.agent)}</span>
-            <span className="hp-acct-sub">{statusNote(g)}</span>
-          </div>
-        ))}
+              {models.length > 0 && (
+                <>
+                  <div className="hp-sect-label hp-model-label">Model limits</div>
+                  {models.map((w) => (
+                    <WindowRow key={w.key} w={w} now={now} pinned={pinned} />
+                  ))}
+                  <div className="hp-model-note">{modelLimitNote(g.agent, g.windows)}</div>
+                </>
+              )}
+            </div>
+          )
+        })}
+        {pinned &&
+          degraded.map((g) => (
+            <div key={g.key} className="hp-section hp-acct">
+              <span className="hp-acct-agent">{agentLabel(g.agent)}</span>
+              <span className="hp-acct-sub">{statusNote(g)}</span>
+            </div>
+          ))}
+      </div>
       {!pinned && <HealthPopoverFooter left="click to pin breakdown" right="esc closes" />}
     </>
   )

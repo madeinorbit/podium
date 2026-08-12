@@ -241,7 +241,9 @@ export const createInput = z.object({
   assignee: UserIdField.optional(),
   labels: z.array(z.string()).optional(),
   parentId: IssueIdField.optional(),
-  // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow).
+  // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow). Top-level
+  // only (POD-697): a create that also names a `parentId` is a sub-task, which
+  // runs under its mission's colour, and the service drops the field.
   color: IssueColor.optional(),
   // #198: an agent opts a work item onto the human's top-level board with
   // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
@@ -289,6 +291,8 @@ export const updateInput = z.object({
     // can never poison a sibling scope's ordering.
     sortKey: z.string().max(128).refine(isSortKey, 'malformed sort key').optional(),
     // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
+    // Top-level only (POD-697): the service refuses a slot on a sub-task, which
+    // takes its mission's colour. Clearing stays legal at any depth.
     color: IssueColor.nullable().optional(),
     estimateMin: z.number().int().optional(),
   }),
@@ -403,6 +407,24 @@ export const answerQuestionInput = z.object({ id: IssueIdField, answer: z.string
 export const clearNeedsHumanInput = byIssueId
 
 export const reparentInput = z.object({ id: IssueIdField, parentId: IssueIdField.nullable() })
+
+/**
+ * POD-679 — where discovered work LIVES, relative to the task that found it.
+ *
+ * `'mission'` is decomposition (a sub-issue: the origin is not done until this
+ * is); `'own'` is independent work (top-level plus a `discovered-from` edge: the
+ * origin can close without it). The two are already expressible as
+ * `reparent` + `depAdd`/`depRemove`, and that is exactly the problem — the
+ * halves can land separately, and an issue that lost its parent before it
+ * gained its provenance edge is work with no way back to where it came from.
+ * One command, one decision.
+ */
+export const setPlacementInput = z.object({
+  id: IssueIdField,
+  placement: z.enum(['own', 'mission']),
+  /** The issue it was discovered from — its parent, or its spin-off origin. */
+  originId: IssueIdField,
+})
 
 /**
  * THE EXPECTED-REVISION ENVELOPE [ADR 3 D13.1], ported from main's
@@ -1309,6 +1331,21 @@ export const issueReparentContract = {
   conflict: 'exp-rev',
 } as const satisfies MutatingCommandContract
 
+export const issueSetPlacementContract = {
+  name: 'issues.setPlacement',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: setPlacementInput.merge(EXPECTED_REVISION),
+  policy: WRITE_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: WRITE_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'exp-rev',
+} as const satisfies MutatingCommandContract
+
 export const issueClaimContract = {
   name: 'issues.claim',
   version: 1,
@@ -1759,6 +1796,7 @@ export const ISSUE_CONTRACTS = {
   search: issueSearchContract,
   setCoordinator: issueSetCoordinatorContract,
   setLabels: issueSetLabelsContract,
+  setPlacement: issueSetPlacementContract,
   share: issueShareContract,
   setNeedsHuman: issueSetNeedsHumanContract,
   setState: issueSetStateContract,

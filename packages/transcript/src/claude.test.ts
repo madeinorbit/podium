@@ -483,6 +483,59 @@ describe('claudeRecordToItems — AskUserQuestion tool', () => {
     expect(JSON.parse(item?.toolInputJson ?? '{}').questions[0].options).toHaveLength(2)
   })
 
+  // The card only exists when toolInputJson does, so the size cap sheds the
+  // heavy optional field instead of dropping the payload and, with it, the
+  // operator's only way to answer (POD-708).
+  const askWith = (options: unknown[]) =>
+    claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'a-ask-big',
+      message: {
+        role: 'assistant',
+        stop_reason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu-big',
+            name: 'AskUserQuestion',
+            input: { questions: [{ question: 'Which layout?', options }] },
+          },
+        ],
+      },
+    })[0]
+
+  it('trims oversized option previews rather than dropping the question card', () => {
+    const item = askWith([
+      { label: 'A', preview: 'A'.repeat(30_000) },
+      { label: 'B', preview: 'B'.repeat(30_000) },
+    ])
+    expect(item?.toolInputJson).toBeDefined()
+    const parsed = JSON.parse(item?.toolInputJson ?? '{}')
+    expect(parsed.questions[0].options.map((o: { label: string }) => o.label)).toEqual(['A', 'B'])
+    // Trimmed, marked as trimmed, and still a preview.
+    const preview: string = parsed.questions[0].options[0].preview
+    expect(preview.length).toBeLessThan(30_000)
+    expect(preview.endsWith('\n…')).toBe(true)
+  })
+
+  it('drops previews entirely before it gives up on the card', () => {
+    // Enough options that even the shortest preview budget still overflows, so
+    // the last rung before giving up is the one that has to hold.
+    const item = askWith(
+      Array.from({ length: 150 }, (_, i) => ({ label: `opt ${i}`, preview: 'x'.repeat(20_000) })),
+    )
+    const parsed = JSON.parse(item?.toolInputJson ?? '{}')
+    expect(parsed.questions[0].options).toHaveLength(150)
+    expect(parsed.questions[0].options[0].preview).toBeUndefined()
+  })
+
+  it('keeps a preview untouched when the payload already fits', () => {
+    const item = askWith([{ label: 'A', preview: 'frame 1\n[ box ]' }])
+    expect(JSON.parse(item?.toolInputJson ?? '{}').questions[0].options[0].preview).toBe(
+      'frame 1\n[ box ]',
+    )
+  })
+
   it('leaves ordinary tools without toolInputJson', () => {
     const rec = {
       type: 'assistant',

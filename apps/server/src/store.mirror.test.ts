@@ -63,6 +63,49 @@ describe('SessionStore transcript mirror state', () => {
     store.close()
   })
 
+  it('retains retired file identities while advancing the active incarnation', () => {
+    const store = new SessionStore(':memory:')
+    store.conversations.registry.ensure({
+      machineId: 'm1',
+      nativeId: 'reused',
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-proj/reused.jsonl',
+    })
+    store.conversations.mirror.startIncarnation(
+      'm1',
+      'reused',
+      { device: '7', inode: '8961297' },
+      '2026-08-08T21:06:39Z',
+    )
+    store.conversations.mirror.setMirrorCursor('m1', 'reused', 1_229_180, '2026-08-08T21:06:39Z')
+    store.conversations.mirror.rotateIncarnation(
+      'm1',
+      'reused',
+      { device: '7', inode: '7115245' },
+      1_229_180,
+      '2026-08-08T21:57:00Z',
+    )
+
+    expect(store.conversations.mirror.mirrorCursor('m1', 'reused')).toBe(0)
+    expect(store.conversations.mirror.incarnations('m1', 'reused')).toEqual([
+      {
+        sequence: 1,
+        device: '7',
+        inode: '8961297',
+        mirroredBytes: 1_229_180,
+        active: false,
+      },
+      {
+        sequence: 2,
+        device: '7',
+        inode: '7115245',
+        mirroredBytes: 0,
+        active: true,
+      },
+    ])
+    store.close()
+  })
+
   it('segmentsToMirror lists only path-known segments of the requested machine', () => {
     const store = new SessionStore(':memory:')
     store.conversations.registry.ensure({

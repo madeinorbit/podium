@@ -91,6 +91,21 @@ export interface MountedSession {
   /** Send user input, taking control first when a server-grid spectator starts
    *  interacting. The two ordered frames make the first byte land as controller. */
   sendInput(data: string): void
+  /**
+   * Claim control of the shared PTY WITHOUT typing anything (POD-724).
+   *
+   * A server-grid spectator (the phone) is deliberately not driving the PTY
+   * size, so a wide desktop TUI arrives cropped and has to be panned. The only
+   * way to be sized for this screen used to be the implicit takeover inside
+   * {@link sendInput} — you had to send a keystroke into someone else's session
+   * to be able to READ it. This is that takeover made explicit, and it is on the
+   * mount rather than on `connection` because the viewport sample belongs with
+   * the fit logic: reporting THIS client's grid and requesting control are two
+   * ordered frames on one socket, so the server applies this screen's size at
+   * the transfer instead of whatever the debounced resize observer last sent.
+   * Control mode has nothing to withhold, so there it is just the request.
+   */
+  takeControl(): void
   /** Toggle/reset input-event→paint diagnostics without remounting the PTY. */
   setEchoLatencyEnabled(enabled: boolean): void
   setActive(active: boolean): void
@@ -508,22 +523,31 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // while ineligible, so a hidden tab can't pin the shared PTY to its stale grid.
   if (active) becomeEligible()
 
-  // Paste + arrows now live in the panel's React action row / D-pad above the key
-  // bar, so the bar itself no longer renders a Paste key.
-  const sendInput = (data: string, inputEventAt?: number): void => {
-    if (gridMode === 'server-grid' && connection.state().role === 'spectator') {
-      // The resize observer is debounced. Sample once synchronously so an input
-      // that immediately follows a rotation/keyboard change cannot take control
-      // with the spectator's previous recorded viewport.
+  // The takeover itself, shared by the implicit path (first keystroke) and the
+  // explicit one a client can offer as an action (POD-724). Whichever triggers
+  // it, the server-grid spectator hands over its OWN viewport in the same
+  // ordered burst: reportViewport, then requestControl on one socket, so the
+  // server applies this client's size at the transfer. The resize observer is
+  // debounced, so the grid is sampled synchronously HERE — a takeover that
+  // immediately follows a rotation or a keyboard change must not pin the shared
+  // PTY to the previous size. The role transition in onState then fits/repaints.
+  function takeControl(): void {
+    if (gridMode === 'server-grid') {
       const grid = proposeViewport()
       if (grid && (reportedViewport?.cols !== grid.cols || reportedViewport.rows !== grid.rows)) {
         reportedViewport = grid
         connection.reportViewport(grid.cols, grid.rows)
       }
-      // requestControl and input share one ordered WebSocket. The server applies
-      // the viewport reported above, transfers control, then accepts this byte.
-      connection.requestControl()
     }
+    connection.requestControl()
+  }
+
+  // Paste + arrows now live in the panel's React action row / D-pad above the key
+  // bar, so the bar itself no longer renders a Paste key.
+  const sendInput = (data: string, inputEventAt?: number): void => {
+    // A spectator that starts typing means it: take control first so the first
+    // byte lands as controller, on this client's own grid.
+    if (gridMode === 'server-grid' && connection.state().role === 'spectator') takeControl()
     connection.sendInput(data, inputEventAt)
   }
 
@@ -581,7 +605,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       codexInputReady: () => codexInputReady(view),
       sendInput,
       setEchoLatencyEnabled: (enabled: boolean) => connection.setEchoLatencyEnabled?.(enabled),
-      takeControl: () => connection.requestControl(),
+      // The same takeover the product's own action performs — one name, one
+      // meaning, so a browser test cannot pass against a path nothing ships.
+      takeControl,
       sessions: () => hub.sessions(),
       attach: (id: SessionId) => hub.attach(id),
       simulateKeyboard: (inset: number) => {
@@ -620,6 +646,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     connection,
     view,
     sendInput,
+    takeControl,
     setEchoLatencyEnabled(enabled: boolean): void {
       connection.setEchoLatencyEnabled?.(enabled)
     },

@@ -33,6 +33,7 @@ export interface AnswerDeliveryDeps {
       principal: InboxPrincipalReference
     }): {
       ok: boolean
+      reason?: string
     }
     resumeAndSend(input: {
       sessionId: SessionId
@@ -97,7 +98,7 @@ export async function deliverAnswerToSession(
   let questions: Array<{
     question?: string
     multiSelect?: boolean
-    options?: Array<{ label?: string }>
+    options?: Array<{ label?: string; preview?: string }>
   }> = []
   try {
     const parsed = JSON.parse(q.toolInputJson ?? '{}') as { questions?: unknown }
@@ -135,14 +136,21 @@ export async function deliverAnswerToSession(
       notes.push(`single-select — used first of ${idx.join(',')}`)
     }
     // The shape rides along: a multi-select question's digits only toggle, so
-    // the menu needs a Tab from us to move off it (POD-609).
+    // the menu needs a Tab from us to move off it (POD-609), and a question with
+    // per-option previews draws the side-by-side dialog, where the digit only
+    // moves the cursor and a CR is what selects (POD-770).
+    const previewLayout =
+      !qq.multiSelect && (qq.options ?? []).some((o) => (o.preview ?? '') !== '')
     choices.push({
       optionIndices: qq.multiSelect ? idx : idx.slice(0, 1),
       ...(qq.multiSelect ? { multiSelect: true } : {}),
+      ...(previewLayout ? { previewLayout: true } : {}),
     })
   }
   const r = deps.sessions.answerAskUserQuestion({ sessionId, choices, principal: input.principal })
-  if (!r.ok) return { ok: false, message: 'failed: session not running' }
+  // A reason only ever accompanies the undeliverable-choice refusal; the older
+  // not-live refusal is bare, and keeps its original wording.
+  if (!r.ok) return { ok: false, message: `failed: ${r.reason ?? 'session not running'}` }
   return { ok: true, via: 'menu', choices, ...(notes.length > 0 ? { note: notes.join('; ') } : {}) }
 }
 

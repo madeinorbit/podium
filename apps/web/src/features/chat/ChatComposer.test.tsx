@@ -156,7 +156,10 @@ describe('ChatComposer, compact (the Superagent box)', () => {
 describe('ChatComposer, non-compact (the main chat)', () => {
   it('keeps its own dock and height cap while adopting the neutral issue seam', async () => {
     const { ta } = await mount({ compact: false })
-    expect(dock().className).toContain('border-t')
+    // No top rule (POD-725): the composer sits on the stage sheet's own card
+    // tone and the field's well is the only boundary the design draws. A border
+    // here cut the document off from the thing it is a reply to.
+    expect(dock().className).not.toContain('border-t')
     expect(dock().className).not.toContain('prompt-dock')
     expect(well().className).toContain('chat-composer-well')
     expect(well().className).not.toContain('focus-within:border-primary')

@@ -144,6 +144,57 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined
 }
 
+/** A permission card is one line wide, and a tool input can be a whole file. */
+const PERMISSION_DETAIL_MAX = 300
+
+/**
+ * The field of a tool's input that says what the tool would DO.
+ *
+ * Ordered, not merged: `Bash` carries both `command` and `description`, and the
+ * command is the thing being consented to. A tool whose input matches nothing
+ * here yields no detail rather than a guess — an approval line that describes
+ * the wrong field is worse than one that describes none, so the card falls back
+ * to the tool name alone.
+ */
+const PERMISSION_DETAIL_KEYS = [
+  'command',
+  'file_path',
+  'path',
+  'url',
+  'pattern',
+  'query',
+  'notebook_path',
+  'prompt',
+]
+
+/** Collapse the newlines out of a heredoc/multi-line command so one ask stays one line. */
+function oneLine(value: string): string {
+  const flat = value.replace(/\s+/g, ' ').trim()
+  return flat.length > PERMISSION_DETAIL_MAX ? `${flat.slice(0, PERMISSION_DETAIL_MAX - 1)}…` : flat
+}
+
+function permissionDetail(toolInput: unknown): string | undefined {
+  if (typeof toolInput !== 'object' || toolInput === null) return undefined
+  const input = toolInput as Record<string, unknown>
+  for (const key of PERMISSION_DETAIL_KEYS) {
+    const value = str(input[key])
+    if (value) return oneLine(value)
+  }
+  return undefined
+}
+
+/**
+ * Did the harness offer an "always allow" alongside this ask?
+ *
+ * `permission_suggestions` is a list of RULE MUTATIONS (addRules / replaceRules /
+ * setMode / addDirectories …), which is what the native menu's "yes, and don't
+ * ask again" rows commit. Only their EXISTENCE is reported — see
+ * {@link AgentPermissionAsk} for why their key positions are not usable.
+ */
+function offersAlwaysAllow(suggestions: unknown): boolean {
+  return Array.isArray(suggestions) && suggestions.length > 0
+}
+
 export async function translateClaudeHookPayload(payload: unknown): Promise<AgentStateEvent[]> {
   if (typeof payload !== 'object' || payload === null) return []
   const p = payload as Record<string, unknown>
@@ -163,11 +214,33 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
     case 'PostToolUse':
       return [{ kind: 'activity' }]
     case 'PermissionRequest': {
+      // The ONE channel that says what is being asked. `tool_input` and
+      // `permission_suggestions` are on the payload (bundle 2.1.226 pins the
+      // schema: hook_event_name / tool_name / tool_input /
+      // permission_suggestions?) and used to be dropped here, which is why the
+      // web chat could only ever render "needs permission" with no subject.
       const summary = str(p.tool_name)
-      return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
+      const detail = permissionDetail(p.tool_input)
+      const ask = summary
+        ? {
+            toolName: summary,
+            ...(detail ? { detail } : {}),
+            ...(offersAlwaysAllow(p.permission_suggestions) ? { canAlwaysAllow: true } : {}),
+          }
+        : undefined
+      return [
+        {
+          kind: 'needs_user',
+          need: 'permission',
+          ...(summary ? { summary } : {}),
+          ...(ask ? { ask } : {}),
+        },
+      ]
     }
     case 'Notification': {
       // Settings subscribe matcher=permission_prompt only, so anything arriving is one.
+      // No `ask`: this channel carries a rendered message, not the tool call, so
+      // there is nothing here to build a faithful subject from.
       const summary = str(p.message)
       return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
     }
@@ -266,6 +339,13 @@ export interface ClaudePromptHookIdentity {
  * Membership here is necessary but not sufficient: the caller additionally
  * requires prompt-id proof that the hook belongs to some turn other than the one
  * terminal already closed, so this never weakens the absorbing terminal.
+ *
+ * That proof is also this path's limit, and the reason it is not the whole story.
+ * When the epoch that was lost is the one STILL RUNNING, its hooks carry the very
+ * prompt id the checkpoint holds, so none of them can clear the bar — the case
+ * {@link ClaudeCausalObserver.inheritedTurnUnproven} settles at the constructor
+ * instead, before the epoch is ever closed. Revival remains for the genuinely
+ * unwitnessed NEXT turn. [POD-765]
  */
 const EPOCH_REVIVING_HOOKS = new Set([
   'PreToolUse',
@@ -359,11 +439,45 @@ export class ClaudeCausalObserver {
       this.turnEpoch > 0 &&
       (this.state.phase === 'working' ||
         this.state.phase === 'compacting' ||
-        this.state.phase === 'needs_user')
+        this.state.phase === 'needs_user' ||
+        this.inheritedTurnUnproven(checkpoint))
     ) {
       this.epochOpen = true
     }
   }
+
+  /**
+   * Whether the epoch we just inherited was left open — nothing ever proved it
+   * ended — while the state we booted with claims idle anyway.
+   *
+   * Boot classification reads the transcript TAIL, and the tail lags a turn in
+   * flight: mid-tool-loop the newest flushed record routinely looks like a
+   * finished assistant message, so {@link bootEventsForClaudeRecords} resolves no
+   * idle verdict and the state defaults to a bare `idle`. Reconciling that over
+   * the checkpoint (see `reconciledState` above) used to close the epoch, and a
+   * closed epoch is absorbing: every hook from the turn STILL RUNNING carries the
+   * prompt id the checkpoint already names, so the revival below — which demands
+   * a DIFFERENT prompt id — could not let any of them back in. The row then read
+   * idle for the rest of the turn, and only the human's next prompt freed it.
+   * One session reported idle for 65 minutes while it was committing (POD-765).
+   *
+   * Two facts have to agree before we override the boot guess. The terminal fence
+   * is the server's own record of a turn ending, so no fence for the epoch we
+   * inherited means that epoch was never proven closed; a fence for a LATER epoch
+   * cannot speak for this one, hence the epoch equality. And a verdict-bearing
+   * idle is a conclusion someone actually reached, whereas a bare idle is the
+   * absence of evidence — only the latter yields.
+   *
+   * This deliberately does NOT relax the revival gate. A legitimate Stop leaves
+   * both a fence and a verdict, so a replayed terminal still cannot manufacture a
+   * turn that never existed. [POD-765]
+   */
+  private inheritedTurnUnproven(checkpoint: SessionObservationCheckpointV1): boolean {
+    if (this.state.phase !== 'idle' || this.state.idle !== undefined) return false
+    const fence = checkpoint.terminalFence
+    return fence === null || fence.turnEpoch !== this.turnEpoch
+  }
+
   get pendingInputOriginCount(): number {
     return this.pendingOrigins.length
   }

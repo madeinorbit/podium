@@ -268,6 +268,62 @@ describe('SessionInbox authorization and identity', () => {
     }
   })
 
+  // POD-770 — an answer the script cannot express is a REFUSAL, never a partial
+  // script. The keystrokes for the preview layout are pinned in the command
+  // oracle; these pin the half that decides whether anything is typed at all,
+  // because a partial script is exactly how the bug stayed silent: the questions
+  // it skipped stayed on their first row and the closing CR committed them.
+  describe.each([
+    [
+      'free text whose Other row is off the digit range',
+      { freeText: 'custom', otherIndex: 12 },
+      "question 1: Other is at 12, outside the menu's 1-9 digits",
+    ],
+    [
+      'an option index no digit can reach',
+      { optionIndices: [11] },
+      "question 1: no option in the menu's 1-9 digits (got 11)",
+    ],
+    [
+      'a preview question claiming to be multi-select',
+      { optionIndices: [1], previewLayout: true, multiSelect: true },
+      'question 1: a preview question cannot be multi-select',
+    ],
+    [
+      'several options on a preview question, which selects exactly one',
+      { optionIndices: [1, 2], previewLayout: true },
+      'question 1: a preview question takes one option, got 1,2',
+    ],
+  ])('an undeliverable answer (%s)', (_name, choice, reason) => {
+    it('is refused with the reason and types nothing', () => {
+      const h = harness()
+
+      expect(
+        h.inbox.answerAskUserQuestion({
+          sessionId: SID,
+          choices: [choice],
+          principal: agentPrincipal(),
+        }),
+      ).toEqual({ ok: false, reason })
+      expect(h.sent).toEqual([])
+      // Nothing was delivered, so the question is still the operator's to answer.
+      expect(h.answered).toEqual([])
+    })
+  })
+
+  it('refuses one undeliverable question without typing the answerable ones before it', () => {
+    const h = harness()
+
+    expect(
+      h.inbox.answerAskUserQuestion({
+        sessionId: SID,
+        choices: [{ optionIndices: [1] }, { optionIndices: [] }],
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({ ok: false, reason: "question 2: no option in the menu's 1-9 digits (got nothing)" })
+    expect(h.sent).toEqual([])
+  })
+
   // The keystroke SEQUENCES are pinned in oracle-commands.test.ts; what this
   // covers is the half only the inbox can see — the script outlives the call,
   // so every later keystroke has to re-ask whether there is still a menu.

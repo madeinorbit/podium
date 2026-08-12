@@ -1,5 +1,5 @@
-import { asSessionId } from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -83,10 +83,14 @@ describe('compact chat blocks (POD-164)', () => {
     expect(host.querySelector('.chat-md')?.textContent).not.toContain('→ next:')
   })
 
-  it('keeps full-size rendering untouched: Answer label, no clock, no split', () => {
+  it('keeps full-size rendering untouched apart from the clock, which is now on both widths', () => {
     mount(answer('Done.\n→ next: nothing'), { compact: false })
-    expect(host.querySelector('.transcript-answer-label')?.textContent).toBe('Answer')
-    expect(host.querySelector('.chat-clk')).toBeNull()
+    const label = host.querySelector('.transcript-answer-label')
+    expect(label?.textContent).toContain('Answer')
+    // POD-701: the clock used to be a compact-only affordance, which left the
+    // full-width chat — the one people read — with no times in it at all.
+    expect(label?.querySelector('.chat-clk')).not.toBeNull()
+    // The `→ next:` split stays compact-only.
     expect(host.querySelector('.chat-next')).toBeNull()
   })
 

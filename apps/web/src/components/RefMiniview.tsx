@@ -1,6 +1,10 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
+import {
+  type IssueReferenceModel,
+  issueReferenceModel,
+  missionRootFor,
+} from '@podium/client-core/viewmodels'
 import type { IssueId } from '@podium/model'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import {
@@ -8,8 +12,9 @@ import {
   Check,
   ExternalLink,
   GripVertical,
+  ListTree,
   LoaderCircle,
-  PanelRight,
+  MessagesSquare,
   Play,
   User,
   X,
@@ -24,7 +29,10 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { useOperatorFocus } from '@/app/operator-focus'
+import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { PriorityGlyph } from '@/features/issues/issue-glyphs'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import {
   ISSUE_AGENT_KINDS,
@@ -43,10 +51,12 @@ import {
 } from '@/lib/ref-activation'
 import {
   collectRefPrefixes,
+  type IssueSessionTarget,
   type RefIssueLike,
   type RefSessionLike,
   type ResolvedRef,
   resolveRef,
+  sessionForIssue,
   sessionWorkingIssueRef,
 } from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
@@ -61,22 +71,42 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
  */
 export function RefMiniviewHost(): JSX.Element | null {
   const issues = useReplicaIssues()
-  const { trpc, sessions, setOpenIssueId, setView, setPeekIssueId, navigateToSession } =
+  const { trpc, sessions, setOpenIssueId, setView, setSelectedIssueId, navigateToSession } =
     useStoreSelector(
       (s) => ({
         trpc: s.trpc,
         sessions: s.sessions,
         setOpenIssueId: s.setOpenIssueId,
         setView: s.setView,
-        setPeekIssueId: s.setPeekIssueId,
+        setSelectedIssueId: s.setSelectedIssueId,
         navigateToSession: s.navigateToSession,
       }),
       shallowEqual,
     )
+  const { setFocusedIssueId } = useOperatorFocus()
 
   const openIssueFull = (issueId: IssueId): void => {
     setOpenIssueId(issueId)
     setView('issues')
+  }
+
+  /**
+   * The card's escalation (POD-786): point the ISSUE EXPLORER at this task and
+   * reveal the dock. It replaces the peek drawer, which was a second, parallel
+   * detail surface over the same `IssuePanelView` — the explorer already renders
+   * that panel, with a trail the drawer never had.
+   *
+   * The mission moves, not just the focus inside it: a ref in chat can name a
+   * task in another mission entirely, and focusing alone would be discarded by
+   * `resolveFocus` as not-in-mission and snap straight back. Selecting the
+   * MISSION ROOT rather than the task itself keeps the explorer's scope the same
+   * one the deck and sidebar use, so a subtask still opens in its epic's context.
+   */
+  const openInExplorer = (issueId: IssueId): void => {
+    const root = missionRootFor(issues, issueId)
+    setSelectedIssueId(root?.id ?? issueId)
+    setFocusedIssueId(issueId)
+    window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'issue' }))
   }
   // Register the activator: plain click opens the miniview; Cmd/Ctrl-click jumps
   // straight to the full view. Kept fresh so it always sees the latest store data.
@@ -109,17 +139,21 @@ export function RefMiniviewHost(): JSX.Element | null {
       anchor={state.anchor}
       target={target}
       issues={issues}
+      sessions={sessions}
       onClose={closeMiniview}
       onOpenFull={() => {
         if (!target) return
         closeMiniview()
-        // One rung up the ladder (POD-95): an issue escalates to the PEEK
-        // DRAWER over the right edge — the chat stays put; the full /issues/:id
-        // page remains one more step away (drawer header's "Open issue peek", or
-        // Cmd/Ctrl-click on the chip). Sessions have no peek surface and still
-        // navigate.
-        if (target.kind === 'issue') setPeekIssueId(target.issue.id)
+        // One rung up the ladder: an issue escalates INTO THE EXPLORER, which
+        // keeps the chat where it is; the full /issues/:id page stays one more
+        // step away (Cmd/Ctrl-click on the chip). Sessions have no explorer
+        // surface and still navigate.
+        if (target.kind === 'issue') openInExplorer(target.issue.id)
         else navigateToSession(state.ref)
+      }}
+      onGoToSession={(sessionId) => {
+        closeMiniview()
+        navigateToSession(sessionId)
       }}
       onStart={(issueId) => trpc.issues.start.mutate({ id: issueId })}
       onPromote={(issueId) => trpc.issues.promote.mutate({ id: issueId })}
@@ -158,8 +192,10 @@ export function RefCard({
   anchor,
   target,
   issues,
+  sessions = [],
   onClose,
   onOpenFull,
+  onGoToSession,
   onStart,
   onPromote,
   onAgentChange,
@@ -168,8 +204,12 @@ export function RefCard({
   anchor?: { x: number; y: number }
   target: ResolvedRef | null
   issues: readonly RefIssueLike[]
+  /** Live sessions, for the "Go to session" action. Absent = no such action. */
+  sessions?: readonly RefSessionLike[]
   onClose: () => void
   onOpenFull: () => void
+  /** Jump to the session running this task (or the ancestor's that covers it). */
+  onGoToSession?: (sessionId: string) => void
   /** Start an agent on the issue (POD-110) — `trpc.issues.start` in the host. */
   onStart?: (issueId: string) => Promise<unknown>
   /** Approve an agent proposal into backlog without starting it. */
@@ -259,10 +299,7 @@ export function RefCard({
       if (e.target instanceof Node && el.contains(e.target)) return
       // Base UI portals SelectContent to document.body. It is still owned by
       // this popup, so choosing a harness must not trip light-dismiss.
-      if (
-        e.target instanceof Element &&
-        e.target.closest('[data-ref-miniview-owned="true"]')
-      )
+      if (e.target instanceof Element && e.target.closest('[data-ref-miniview-owned="true"]'))
         return
       onClose()
     }
@@ -325,9 +362,23 @@ export function RefCard({
             className="cursor-grab touch-none px-4 pt-4 pb-3 active:cursor-grabbing"
             {...dragHandlers}
           >
+            {/* IDENTITY ROW — what this task IS, in one line: stage glyph, ref,
+                priority. Priority is identity, not enrichment: it outranks
+                everything on the meta line below and was being read last, at the
+                end of a dot-separated run. Here it sits where the ref is, in the
+                same mono voice, and reads first. */}
             <div className="mb-2.5 flex items-center justify-between gap-3">
-              <div className="min-w-0 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
+              <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
                 {issueRefModel && <IssueReference model={issueRefModel} showTitle={false} />}
+                {target.issue.priority !== undefined && (
+                  <span
+                    className="flex flex-none items-center gap-1"
+                    title={`Priority P${target.issue.priority}`}
+                  >
+                    <PriorityGlyph priority={target.issue.priority} size={12} />
+                    <span className="font-mono text-foreground/85">P{target.issue.priority}</span>
+                  </span>
+                )}
               </div>
               <span className="flex flex-none items-center gap-1.5">{closeButton}</span>
             </div>
@@ -370,19 +421,13 @@ export function RefCard({
           {onStart && isIssueStartable(target.issue) && (
             <IssueActions issue={target.issue} onStart={onStart} onPromote={onPromote} />
           )}
-          {/* Escalation stays one rung (POD-95): open the peek drawer without
-              replacing the chat. */}
-          <div className="border-t border-border/60 p-2.5">
-            <button
-              data-pressable
-              type="button"
-              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              onClick={onOpenFull}
-            >
-              Open issue peek
-              <PanelRight size={12} aria-hidden="true" />
-            </button>
-          </div>
+          <IssueEscalations
+            issue={target.issue}
+            issues={issues}
+            sessions={sessions}
+            onOpenFull={onOpenFull}
+            onGoToSession={onGoToSession}
+          />
         </>
       ) : (
         <>
@@ -671,6 +716,79 @@ function IssueActions({
   )
 }
 
+/**
+ * THE CARD'S TWO WAYS OUT (POD-786).
+ *
+ * The card is a glance. Both exits leave the chat exactly where it is, and each
+ * answers a different question the glance provokes:
+ *
+ *  - "tell me more about this task" → the ISSUE EXPLORER, which owns task detail
+ *    now. It replaced a peek drawer that rendered the same `IssuePanelView` on a
+ *    scrim, so what used to be a parallel surface is now the one surface.
+ *  - "take me to the agent doing it" → the session. For a subtask that is usually
+ *    the PARENT's session, and when it is, the button says so rather than
+ *    pretending the child has one — otherwise a landing on POD-500-A from a card
+ *    titled POD-517 reads as the wrong session opening.
+ *
+ * Neither is primary: reading and joining are different intents, not steps.
+ */
+function IssueEscalations({
+  issue,
+  issues,
+  sessions,
+  onOpenFull,
+  onGoToSession,
+}: {
+  issue: RefIssueLike
+  issues: readonly RefIssueLike[]
+  sessions: readonly RefSessionLike[]
+  onOpenFull: () => void
+  onGoToSession?: (sessionId: string) => void
+}): JSX.Element {
+  const target: IssueSessionTarget | null = onGoToSession
+    ? sessionForIssue(issue, issues, sessions)
+    : null
+  // Only worth naming when it is NOT this task's own session; on its own task
+  // the ref is noise the header already carries.
+  const inherited = target && target.via.id !== issue.id ? target : null
+  const sessionRef = target?.session.displayRef ?? ''
+  return (
+    <div className="flex items-center gap-1.5 border-t border-border/60 p-2.5">
+      {target && onGoToSession && (
+        <button
+          data-pressable
+          type="button"
+          className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          title={
+            inherited
+              ? `Open ${sessionRef} — the session on ${inherited.via.displayRef ?? 'the parent task'}, which covers this subtask`
+              : `Open ${sessionRef}`
+          }
+          onClick={() => onGoToSession(target.session.sessionId)}
+        >
+          <MessagesSquare size={12} className="flex-none" aria-hidden="true" />
+          <span className="truncate">{inherited ? 'Parent session' : 'Go to session'}</span>
+          {inherited && sessionRef && (
+            <span className="flex-none font-mono text-[10.5px] text-muted-foreground/60">
+              {sessionRef}
+            </span>
+          )}
+        </button>
+      )}
+      <button
+        data-pressable
+        type="button"
+        className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        title="Show this task in the issue explorer"
+        onClick={onOpenFull}
+      >
+        <ListTree size={12} className="flex-none" aria-hidden="true" />
+        <span className="truncate">Open in explorer</span>
+      </button>
+    </div>
+  )
+}
+
 /** Title row + one primary action + the quiet meta line — the head's lower half
  *  (identity + stage render above it, in the card head). "Ready" is intentionally
  *  absent: normal availability is silent, blockers appear only when actionable
@@ -687,12 +805,7 @@ function IssueSummary({
     ? issues.find((i) => i.id === issue.parentId)?.displayRef
     : undefined
   const meta: JSX.Element[] = []
-  if (issue.priority !== undefined)
-    meta.push(
-      <span key="p" className="font-mono font-semibold text-foreground/85">
-        P{issue.priority}
-      </span>,
-    )
+  // Priority is deliberately absent — it rides the identity row above.
   if (issue.assignee)
     meta.push(
       <span key="a" className="inline-flex min-w-0 items-center gap-1">

@@ -8,8 +8,10 @@
  * node_modules/@podium links). This wrapper closes that hole and makes uncached
  * runs deliberate:
  *
- *   1. Refuses to run when node_modules/@podium is missing or dangling — a cached
- *      green in a broken environment is not evidence.
+ *   1. Refuses to run when node_modules/@podium has no usable links or points
+ *      outside this checkout — a cached green in that environment is not evidence.
+ *      A dangling link left behind for a deleted workspace is inert and remains in
+ *      the fingerprint; Bun does not remove those links on a frozen install.
  *   2. Fingerprints the environment (bunfig.toml content + @podium link census)
  *      into PODIUM_CHECK_ENV_HASH, declared in turbo.json `globalEnv`, so any
  *      environment drift is an automatic cache MISS — no --force needed.
@@ -109,6 +111,31 @@ export interface EnvCensus {
   }
 }
 
+export interface WorkspaceLinksHealth {
+  healthy: string[]
+  dangling: string[]
+  external: string[]
+  error: string | null
+}
+
+/**
+ * External targets are unsafe because their contents can change without moving
+ * this fingerprint. Dangling targets cannot provide code and are safe to retain
+ * in the fingerprint when at least one real in-checkout workspace link exists.
+ */
+export function assessWorkspaceLinks(links: string[]): WorkspaceLinksHealth {
+  const healthy = links.filter((link) => !link.includes('!'))
+  const dangling = links.filter((link) => link.endsWith('!DANGLING'))
+  const external = links.filter((link) => link.endsWith('!EXTERNAL'))
+  const error =
+    healthy.length === 0
+      ? 'node_modules/@podium has no usable in-checkout workspace links'
+      : external.length > 0
+        ? `node_modules/@podium points outside this checkout: ${external.join(', ')}`
+        : null
+  return { healthy, dangling, external, error }
+}
+
 /** Environment fingerprint: hashed into the turbo cache key via globalEnv. */
 export function fingerprint(census: EnvCensus): string {
   return createHash('sha256')
@@ -200,13 +227,11 @@ export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
-  const healthy = census.links.filter((l) => !l.includes('!'))
-  const broken = census.links.filter((l) => l.includes('!'))
-  if (healthy.length === 0 || broken.length > 0) {
+  const links = assessWorkspaceLinks(census.links)
+  if (links.error) {
     console.error(
-      'typecheck refused: node_modules/@podium must contain only usable, in-checkout workspace ' +
-        'links; a missing, dangling, or external link makes a cached green unsafe ' +
-        '(POD-1343). Run `bun install` first.',
+      `typecheck refused: ${links.error}; a cached green there would be unsafe (POD-1343). ` +
+        'Run `bun install` first.',
     )
     process.exit(1)
   }

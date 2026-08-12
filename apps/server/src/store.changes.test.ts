@@ -134,7 +134,7 @@ describe('SessionStore changes table', () => {
     expect(next).toEqual([3])
   })
 
-  it('folds the log to the latest state per (entity, id)', () => {
+  it('reports the latest LIVE state per (entity, id)', () => {
     const store = new SessionStore(':memory:')
     store.sync.appendChanges(
       [
@@ -146,29 +146,28 @@ describe('SessionStore changes table', () => {
       ],
       1000,
     )
-    const folded = store.sync.latestChangeStates()
-    expect(folded).toHaveLength(3)
-    // `seq` is part of the row since POD-1203 — the fold is the bootstrap read
-    // now, and a bootstrap row carries its position in the one global sequence.
-    // Asserted rather than stripped: a fold that returned the FIRST row per key
-    // instead of the latest would still carry the right payload for i1 (both
-    // writes upsert it) and the wrong seq.
-    expect(folded).toContainEqual({
+    const world = store.sync.latestChangeStates()
+    // i2 was removed IN THE SAME BATCH it was first seen: the world is what is
+    // there, so a removed entity is absent rather than present as a tombstone.
+    // Order within the batch is what decides this — an implementation that
+    // applied the batch's upserts and removes in op order instead of log order
+    // would leave i2 installed here.
+    expect(world).toHaveLength(2)
+    expect(world.map((row) => row.entityId)).not.toContain('i2')
+    // `seq` is part of the row since POD-1203 — this is the bootstrap read, and a
+    // bootstrap row carries its position in the one global sequence. Asserted
+    // rather than stripped: a read that kept the FIRST state per key instead of
+    // the latest would still carry the right payload for i1 (both writes upsert
+    // it) and the wrong seq.
+    expect(world).toContainEqual({
       seq: 3,
       entity: 'issue',
       entityId: 'i1',
       op: 'upsert',
       payload: '{"v":2}',
     })
-    expect(folded).toContainEqual({
-      seq: 4,
-      entity: 'issue',
-      entityId: 'i2',
-      op: 'remove',
-      payload: null,
-    })
     // Same id under a different entity is a distinct key, not a collision.
-    expect(folded).toContainEqual({
+    expect(world).toContainEqual({
       seq: 5,
       entity: 'session',
       entityId: 'i1',
@@ -176,10 +175,38 @@ describe('SessionStore changes table', () => {
       payload: '{"s":1}',
     })
     // In seq order, which is what a bootstrap installs in.
-    expect(folded.map((row) => row.seq)).toEqual([...folded.map((row) => row.seq)].sort((a, b) => a - b))
+    expect(world.map((row) => row.seq)).toEqual([...world.map((row) => row.seq)].sort((a, b) => a - b))
   })
 
-  it('reuses latest-state materialization until append or prune', () => {
+  // POD-678. The regression that made every POD-N mention older than a day render
+  // as unknown: the installed world was a FOLD over the retained log, so retention
+  // deleted the world along with the delta window. Retention bounds what
+  // `changesSince` can serve; it may not bound what exists.
+  it('keeps the installed world when retention deletes the whole log', () => {
+    const store = new SessionStore(':memory:')
+    store.sync.appendChanges(
+      [
+        { entity: 'issue', entityId: 'old', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issue', entityId: 'gone', op: 'upsert', payload: '{"v":1}' },
+      ],
+      1000,
+    )
+    store.sync.appendChanges([{ entity: 'issue', entityId: 'gone', op: 'remove', payload: null }], 2000)
+    // Everything, including the row `old` was last written by, is now beyond the
+    // budget — exactly the live install's state after ~27h at 20k rows.
+    expect(pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })).toBe(3)
+    expect(store.sync.minChangeSeq()).toBeNull()
+
+    const world = store.sync.latestChangeStates()
+    expect(world).toEqual([
+      { seq: 1, entity: 'issue', entityId: 'old', op: 'upsert', payload: '{"v":1}' },
+    ])
+    // The removed entity did not come back with it, and the pruned log did not
+    // resurrect as a delta range either: a replica must still re-bootstrap.
+    expect(store.sync.changesSince(0)).toEqual([])
+  })
+
+  it('reuses latest-state materialization until the next append', () => {
     const store = new SessionStore(':memory:')
     const initialGeneration = store.sync.latestChangeStatesGeneration()
     store.sync.appendChanges(
@@ -209,8 +236,11 @@ describe('SessionStore changes table', () => {
     })
     expect(store.sync.latestChangeStates()).toBe(second)
 
+    // A prune changes nothing the world can see (POD-678), so it must NOT bump
+    // the generation: doing so would throw away a still-valid authorization read
+    // cache on a retention timer.
     expect(pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })).toBe(3)
-    expect(store.sync.latestChangeStatesGeneration()).toBe(initialGeneration + 3)
-    expect(store.sync.latestChangeStates()).toEqual([])
+    expect(store.sync.latestChangeStatesGeneration()).toBe(initialGeneration + 2)
+    expect(store.sync.latestChangeStates()).toBe(second)
   })
 })

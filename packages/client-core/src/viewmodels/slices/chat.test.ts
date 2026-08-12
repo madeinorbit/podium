@@ -322,6 +322,79 @@ describe('composer, queue, offer and activity', () => {
     ).toMatchObject({ enabled: false, placeholder: 'Session is not running.' })
   })
 
+  // POD-762. The whole point of these three is that they read the SERVER's
+  // fields, so the answer is identical on a fresh mount three issues later.
+  describe('a wake in flight', () => {
+    const parkedWithQueue = session({
+      status: 'hibernated',
+      queuedMessageCount: 1,
+    } as Partial<SessionMeta>)
+
+    it('says the agent is waking rather than offering to resume it', () => {
+      expect(
+        composerState({
+          session: parkedWithQueue,
+          headless: false,
+          turnRunning: false,
+          compact: false,
+        }),
+      ).toMatchObject({
+        enabled: true,
+        canResume: true,
+        placeholder: 'Waking the agent — message queues…',
+      })
+      // Parked and EMPTY still offers the resume, unchanged.
+      expect(
+        composerState({
+          session: session({ status: 'hibernated' }),
+          headless: false,
+          turnRunning: false,
+          compact: false,
+        }).placeholder,
+      ).toBe('Message — resumes the agent…')
+    })
+
+    it('carries the wake through the resurrect, while the process is `starting`', () => {
+      expect(
+        chatActivityState({
+          session: session({ status: 'starting', queuedMessageCount: 2 } as Partial<SessionMeta>),
+          headless: false,
+          turnRunning: false,
+          justSent: false,
+        }),
+      ).toEqual({ label: 'Waking the agent…', tone: 'working' })
+      // A `starting` session with an EMPTY queue is an ordinary spawn, not a wake.
+      expect(
+        chatActivityState({
+          session: session({ status: 'starting' }),
+          headless: false,
+          turnRunning: false,
+          justSent: false,
+        }),
+      ).toBeNull()
+    })
+
+    it('covers the optimistic gap with justSent, and only while parked', () => {
+      expect(
+        chatActivityState({
+          session: session({ status: 'hibernated' }),
+          headless: false,
+          turnRunning: false,
+          justSent: true,
+        }),
+      ).toEqual({ label: 'Waking the agent…', tone: 'working' })
+      // A LIVE session's justSent is the ordinary optimistic send, untouched.
+      expect(
+        chatActivityState({
+          session: session(),
+          headless: false,
+          turnRunning: false,
+          justSent: true,
+        }),
+      ).toEqual({ label: 'Sending', tone: 'idle', transient: 'just-sent' })
+    })
+  })
+
   it('consumes duplicate restored rows FIFO against optimistic bubbles', () => {
     const state = queuedState({
       session: session({ queuedMessageCount: 2 } as Partial<SessionMeta>),

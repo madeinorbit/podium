@@ -1,9 +1,9 @@
-import { asIssueId, asUserId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeMiniview, openMiniview } from '@/lib/ref-activation'
-import type { RefIssueLike, ResolvedRef } from '@/lib/ref-miniview'
+import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-miniview'
 import { RefCard, RefMiniviewHost, seedCardPosition } from './RefMiniview'
 
 const hostStore = vi.hoisted(() => ({
@@ -26,7 +26,7 @@ vi.mock('@/app/store', () => ({
       sessions: [],
       setOpenIssueId: vi.fn(),
       setView: vi.fn(),
-      setPeekIssueId: vi.fn(),
+      setSelectedIssueId: vi.fn(),
       navigateToSession: vi.fn(),
     }),
 }))
@@ -417,5 +417,124 @@ describe('seedCardPosition', () => {
 
   it('never seeds off-screen on a narrow viewport', () => {
     expect(seedCardPosition({ x: 20, y: 40 }, { width: 320, height: 640 }).x).toBe(12)
+  })
+})
+
+describe('RefCard escalations (POD-786)', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  const session = (
+    over: Omit<Partial<RefSessionLike>, 'sessionId'> & { sessionId: string },
+  ): RefSessionLike => ({
+    cwd: '/repo',
+    lastActiveAt: '2026-08-01T00:00:00.000Z',
+    ...over,
+    sessionId: asSessionId(over.sessionId),
+  })
+
+  function renderWith(
+    issue: RefIssueLike,
+    sessions: RefSessionLike[],
+    handlers: { onOpenFull?: () => void; onGoToSession?: (id: string) => void } = {},
+  ): void {
+    act(() => {
+      root.render(
+        <RefCard
+          refToken={issue.displayRef ?? ''}
+          target={issueTarget(issue)}
+          issues={issues}
+          sessions={sessions}
+          onClose={() => {}}
+          onOpenFull={handlers.onOpenFull ?? (() => {})}
+          onGoToSession={handlers.onGoToSession ?? (() => {})}
+        />,
+      )
+    })
+  }
+
+  const button = (text: string): HTMLButtonElement | undefined =>
+    [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(text))
+
+  it('sends the reader to the explorer, not to a peek drawer', () => {
+    const onOpenFull = vi.fn()
+    renderWith(rich, [], { onOpenFull })
+    expect(container.textContent).not.toContain('Open issue peek')
+    const explorer = button('Open in explorer')
+    expect(explorer).toBeDefined()
+    act(() => explorer?.click())
+    expect(onOpenFull).toHaveBeenCalled()
+  })
+
+  it('offers the task’s own session and hands back its id', () => {
+    const onGoToSession = vi.fn()
+    renderWith(rich, [session({ sessionId: 's_own', issueId: 'iss_1', displayRef: 'POD-517-A' })], {
+      onGoToSession,
+    })
+    const go = button('Go to session')
+    expect(go).toBeDefined()
+    act(() => go?.click())
+    expect(onGoToSession).toHaveBeenCalledWith('s_own')
+  })
+
+  it('names the PARENT session when the subtask has none of its own', () => {
+    const onGoToSession = vi.fn()
+    // `rich` is parented on iss_parent (POD-500); only the parent has run.
+    renderWith(
+      rich,
+      [session({ sessionId: 's_parent', issueId: 'iss_parent', displayRef: 'POD-500-A' })],
+      { onGoToSession },
+    )
+    // The label must not claim this task's own session, and the ref it lands on
+    // is spelled out so the landing is not a surprise.
+    expect(button('Go to session')).toBeUndefined()
+    const go = button('Parent session')
+    expect(go?.textContent).toContain('POD-500-A')
+    act(() => go?.click())
+    expect(onGoToSession).toHaveBeenCalledWith('s_parent')
+  })
+
+  it('offers no session action at all when nothing in the chain has run', () => {
+    renderWith(rich, [])
+    expect(button('Go to session')).toBeUndefined()
+    expect(button('Parent session')).toBeUndefined()
+    expect(button('Open in explorer')).toBeDefined()
+  })
+})
+
+describe('RefCard identity row (POD-786)', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it('carries priority beside the ref, not down on the meta line', () => {
+    renderCard(root, rich)
+    const identity = container.querySelector('[data-issue-reference]')?.parentElement
+    expect(identity?.textContent).toContain('POD-517')
+    expect(identity?.textContent).toContain('P1')
+    // The meta line still carries the enrichments — priority just is not one.
+    expect(container.textContent).toContain('in POD-500')
+  })
+
+  it('omits priority entirely when the issue has none', () => {
+    renderCard(root, { ...rich, priority: undefined })
+    expect(container.querySelector('[aria-label="P1"]')).toBeNull()
   })
 })

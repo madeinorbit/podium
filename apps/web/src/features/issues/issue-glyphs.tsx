@@ -98,6 +98,42 @@ export function StageGlyph({
   )
 }
 
+/**
+ * The sixth glyph in the family: a ref this client cannot answer for (POD-676).
+ *
+ * Not a stage — the ring carries a question mark instead of a stage's fill, so
+ * "we do not know" is a shape of its own rather than a stage worn in grey. A
+ * dashed ring was the old fallback and it is exactly the backlog glyph, which
+ * made a replica gap read as a real workflow state at a glance; the colour alone
+ * was never going to separate them, because backlog is muted too.
+ *
+ * Same 14-unit viewBox and r=6 ring at 1.6 as StageGlyph, so it sits at the same
+ * optical weight beside the stages it must NOT be mistaken for.
+ */
+export function UnknownRefGlyph({ size = 14 }: { size?: number }): JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 14 14"
+      className="shrink-0 text-muted-foreground"
+      role="img"
+      aria-label="Unknown"
+    >
+      <circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M5.3 5.0a1.75 1.75 0 0 1 3.4 0.58c0 1.17-1.75 1.75-1.75 1.75"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="7" cy="9.7" r="0.85" fill="currentColor" />
+    </svg>
+  )
+}
+
 /** Linear-style priority glyph: P0 urgent box, P1–P3 signal bars, P4 muted. */
 export function PriorityGlyph({
   priority,

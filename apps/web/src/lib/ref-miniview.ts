@@ -44,6 +44,9 @@ export type RefIssueLike = Pick<IssueWire, 'id' | 'seq' | 'title'> &
       | 'activityNotes'
       | 'notesUpdatedAt'
       | 'commentCount'
+      // Membership, for the card's "Go to session" action: the designated
+      // coordinator wins over the merely-most-recent member.
+      | 'coordinatorSessionId'
       // Startability fields for the card's "Run now" action (POD-110) — the same
       // structural subset `isIssueStartable` reads off IssueWire.
       | 'worktreePath'
@@ -74,6 +77,12 @@ export interface RefSessionLike {
   issueId?: string
   title?: string
   name?: string
+  /** Liveness + recency, for {@link sessionForIssue}'s pick. All optional: a
+   *  lean fixture or a legacy row still resolves, it just ranks by nothing. */
+  archived?: boolean
+  status?: string
+  lastActiveAt?: string
+  agentKind?: string
 }
 
 export type ResolvedRef =
@@ -102,6 +111,74 @@ export function resolveRef(
   // Session: the birth displayRef is the canonical, permanent nice name.
   const session = sessions.find((s) => s.displayRef === dataRef.trim())
   return session ? { kind: 'session', ref, session } : null
+}
+
+// ---------------------------------------------------------------------------
+// "Go to session" — the chat's other escalation from an issue ref.
+// ---------------------------------------------------------------------------
+
+/**
+ * The session a ref card's "Go to session" lands on, and the issue it hangs off.
+ *
+ * `via` is the issue that OWNS the session, which is not always the issue the
+ * ref names: a subtask is usually worked inside its parent's session, so a card
+ * for a sessionless child hands you the nearest ancestor that has one rather
+ * than nothing. `via.id === issue.id` means the task runs its own session.
+ */
+export interface IssueSessionTarget {
+  session: RefSessionLike
+  via: RefIssueLike
+}
+
+/** Still present: an exited-but-unarchived session is gone, and offering it
+ *  would promise a live agent where there is none. Same predicate the dock
+ *  and the Flight Deck count with. */
+function isLiveSession(session: RefSessionLike): boolean {
+  return !session.archived && session.status !== 'exited' && session.agentKind !== 'shell'
+}
+
+/** Contract order, matching the dock's session roster: the designated
+ *  coordinator, then the most recently active member. */
+function pickSession(
+  issue: RefIssueLike,
+  sessions: readonly RefSessionLike[],
+): RefSessionLike | null {
+  const mine = sessions.filter((s) => s.issueId === issue.id && isLiveSession(s))
+  if (mine.length === 0) return null
+  const coordinator = issue.coordinatorSessionId
+    ? mine.find((s) => s.sessionId === issue.coordinatorSessionId)
+    : undefined
+  return (
+    coordinator ??
+    [...mine].sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))[0] ??
+    null
+  )
+}
+
+/**
+ * Where "Go to session" goes for an issue: its own live session, else the
+ * nearest ancestor's — a subtask carries no session of its own, and the work on
+ * it is happening in the parent that does.
+ *
+ * Returns null when nothing in the chain has run, in which case the card offers
+ * no session action at all rather than a button that goes nowhere. The walk is
+ * bounded by the visited set, so a cyclic `parentId` terminates.
+ */
+export function sessionForIssue(
+  issue: RefIssueLike,
+  issues: readonly RefIssueLike[],
+  sessions: readonly RefSessionLike[],
+): IssueSessionTarget | null {
+  const seen = new Set<string>()
+  let node: RefIssueLike | undefined = issue
+  while (node && !seen.has(node.id)) {
+    seen.add(node.id)
+    const session = pickSession(node, sessions)
+    if (session) return { session, via: node }
+    const parentId: string | undefined = node.parentId
+    node = parentId ? issues.find((i) => i.id === parentId) : undefined
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------

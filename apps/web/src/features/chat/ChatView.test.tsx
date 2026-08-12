@@ -1,4 +1,10 @@
-import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
+import {
+  asSessionId,
+  type SessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+  type TranscriptItem,
+} from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -45,6 +51,15 @@ const fakeTrpc = {
   },
 }
 
+// Store ACTIONS, hoisted out of the `useStore` factory so they survive a
+// re-render: the factory runs on every hook call, and inline `vi.fn()`s there
+// would hand each render a fresh spy with no recorded calls.
+const storeActions = {
+  resumeAndSend: vi.fn(async (_sessionId: SessionId, _text: string) => {}),
+  setPanelMode: vi.fn((_sessionId: SessionId, _mode: 'chat' | 'native') => {}),
+  setSessionDraft: vi.fn(),
+}
+
 let storeSessions: SessionMeta[] = []
 let storeDrafts: Record<string, string> = {}
 const fakeUiValues = new Map<string, string>()
@@ -81,8 +96,9 @@ vi.mock('@/app/store', () => {
     replica: fakeReplica,
     sessions: storeSessions,
     drafts: storeDrafts,
-    setSessionDraft: vi.fn(),
-    resumeAndSend: vi.fn(async () => {}),
+    setSessionDraft: storeActions.setSessionDraft,
+    resumeAndSend: storeActions.resumeAndSend,
+    setPanelMode: storeActions.setPanelMode,
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     tldrSession: vi.fn(),
@@ -244,7 +260,7 @@ describe('ChatView read-then-subscribe', () => {
     expect(container.textContent).toContain('fresh content')
   })
 
-  it('shows "No transcript yet" when the read resolves empty', async () => {
+  it('shows the standby state when the read resolves empty', async () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
@@ -252,7 +268,7 @@ describe('ChatView read-then-subscribe', () => {
       reads[0]?.resolve({ items: [], hasMore: false })
     })
     await flush()
-    expect(container.textContent).toContain('No transcript yet')
+    expect(container.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
   })
 
   it('does a read-then-subscribe for a PARKED (hibernated) session too — no parked gate', async () => {
@@ -443,5 +459,78 @@ describe('ChatView composer', () => {
     })
 
     expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * SENDING INTO A HIBERNATED AGENT (POD-762).
+ *
+ * The bug was never in delivery — the server durably queues the text and drains
+ * it when the resumed PTY binds. It was that the chat said nothing about any of
+ * that and then handed the operator a terminal they had not asked for. These pin
+ * the three halves of the answer: the panel stays on the surface the send came
+ * from, the message reads as QUEUED rather than as eternally in flight, and the
+ * durable row is pulled in at once so it is still there after you walk away.
+ */
+describe('ChatView sending into a hibernated session', () => {
+  const submit = async (): Promise<void> => {
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+  }
+
+  beforeEach(() => {
+    storeSessions = [meta({ status: 'hibernated' })]
+    storeDrafts = { s1: 'pick this back up' }
+  })
+
+  it('wakes it, and keeps the panel on the chat the send came from', async () => {
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+    await submit()
+
+    expect(storeActions.resumeAndSend).toHaveBeenCalledWith(asSessionId('s1'), 'pick this back up')
+    // The live path is not the parked path.
+    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+    // The mode is pinned to chat as part of the send, so the parked→live flip
+    // that follows the wake cannot swap the conversation for a booting terminal.
+    expect(storeActions.setPanelMode).toHaveBeenCalledWith(asSessionId('s1'), 'chat')
+  })
+
+  it('shows the message as queued rather than forever "sending…"', async () => {
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+    await submit()
+    await flush()
+
+    const bubble = container.querySelector('.transcript-pending')
+    expect(bubble?.textContent).toContain('pick this back up')
+    expect(bubble?.textContent).toContain('queued')
+    expect(bubble?.textContent).not.toContain('sending…')
+  })
+
+  it('pulls the durable ledger row in at once, so leaving does not lose it', async () => {
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+    const before = fakeTrpc.messages.ledger.query.mock.calls.length
+    await submit()
+    await flush()
+
+    expect(fakeTrpc.messages.ledger.query.mock.calls.length).toBeGreaterThan(before)
+    expect(fakeTrpc.messages.ledger.query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: asSessionId('s1') }),
+    )
   })
 })
