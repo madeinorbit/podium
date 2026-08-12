@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { WORKFLOW_CONTRACTS } from '@podium/commands'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
@@ -30,9 +30,9 @@ describe('WorkflowService', () => {
       {
         sessionId: asSessionId('s1'),
         cwd: '/repo/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         agentKind: 'claude-code',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       },
     ],
     [
@@ -40,9 +40,9 @@ describe('WorkflowService', () => {
       {
         sessionId: asSessionId('s2'),
         cwd: '/repo/wt',
-        issueId: 'issue-1',
+        issueId: asIssueId('issue-1'),
         agentKind: 'codex',
-        machineId: 'm1',
+        machineId: asMachineId('m1'),
       },
     ],
   ])

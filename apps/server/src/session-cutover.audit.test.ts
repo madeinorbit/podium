@@ -728,7 +728,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
   )('%s refuses a principal who may see the machine but not use it', async (_key, gated) => {
     const o = makeOracle({
       machineId: asMachineId('box'),
-      offlineMachines: [{ id: asSessionId('box'), name: 'The Box' }],
+      offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
     })
     const target = o.reg.modules.sessions.createSession({
       agentKind: 'shell',
@@ -886,7 +886,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
   it('an INVISIBLE machine answers exactly as a never-paired one', async () => {
     const o = makeOracle({
       machineId: asMachineId('box'),
-      offlineMachines: [{ id: asSessionId('box'), name: 'The Box' }],
+      offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
     })
     // A machine owned by a colleague with NO grant at all: invisible.
     const invisible = ownershipTable(

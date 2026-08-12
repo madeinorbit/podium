@@ -42,7 +42,7 @@ function storeWith(
 }
 
 const MANAGED_ANTHROPIC = {
-  id: 'managed:anthropic',
+  id: asAccountId('managed:anthropic'),
   provider: 'anthropic',
   kind: 'api-key',
   credential: 'sk-ant-managed',
@@ -90,7 +90,9 @@ async function resurrectFrame(store: SessionStore) {
   })
   expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
   const before = spawns(daemon).length
-  expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({ ok: true })
+  expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+    ok: true,
+  })
   const frame = spawns(daemon).at(-1)
   // A wake really did re-spawn — otherwise we'd be asserting on the create frame.
   expect(spawns(daemon).length).toBe(before + 1)

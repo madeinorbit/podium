@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Inventory } from '@podium/model'
+import type { Inventory, UserId } from '@podium/model'
 import { asUserId, asAccountId, asMachineId, asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
@@ -534,7 +534,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   const ALICE = 'user:alice'
   const BOB = 'user:bob'
 
-  function adoptWorld(opts: { rowOwner?: string | null; known?: string[] } = {}): {
+  function adoptWorld(opts: { rowOwner?: UserId | null; known?: UserId[] } = {}): {
     svc: MachinesService
     store: SessionStore
     dir: string

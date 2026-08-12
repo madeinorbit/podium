@@ -15,6 +15,7 @@
  * control.
  */
 
+import { asMutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { captureLogs } from './test-support/capture-logs'
 import {
@@ -38,7 +39,10 @@ function sink(): RetirementEventSink & { events: AppendedEvent[] } {
 
 const source = (
   rows: { mutationId: string; proc: string; queuedAt: number }[],
-): ParkedUpstreamSource => ({ listParkedUpstreamMutations: () => rows })
+): ParkedUpstreamSource => ({
+  listParkedUpstreamMutations: () =>
+    rows.map((row) => ({ ...row, mutationId: asMutationId(row.mutationId) })),
+})
 
 const AT = Date.UTC(2026, 6, 30, 12, 0, 0)
 

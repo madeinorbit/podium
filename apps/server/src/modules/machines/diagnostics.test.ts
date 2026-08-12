@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { type MachineDiagnosticRouterDeps, routeMachineDiagnostic } from './diagnostics'
 
 const diagnostic = {
-  machineId: 'machine-a',
+  machineId: asMachineId('machine-a'),
   code: 'codex-version-unsupported',
   title: 'Codex hooks need review',
   body: 'Codex 0.999 is not recognized; Podium left hooks.json and config.toml untouched.',

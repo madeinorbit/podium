@@ -147,7 +147,7 @@ describe('login propagation coordinator', () => {
     ).resolves.toEqual({ status: 'skipped', reason: 'target owner does not match principal' })
     expect(credentialExport).not.toHaveBeenCalled()
 
-    const input = { targetMachineId: 'target', agentKind: 'codex' as const }
+    const input = { targetMachineId: asMachineId('target'), agentKind: 'codex' as const }
     await expect(service.propagate(input)).resolves.toMatchObject({ status: 'failed' })
     expect(await service.propagate(input)).toEqual({
       status: 'skipped',

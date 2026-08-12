@@ -11,7 +11,7 @@
  * assertion can be satisfied by a store that simply returns nothing.
  */
 
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../store'
 
@@ -25,11 +25,11 @@ beforeEach(() => {
 
 const pair = (id: string, ownerUserId: string | null): void =>
   store.machines.upsertMachine({
-    id,
+    id: asMachineId(id),
     name: id,
     hostname: `${id}.local`,
     tokenHash: `hash-${id}`,
-    ownerUserId,
+    ownerUserId: ownerUserId === null ? null : asUserId(ownerUserId),
   })
 
 describe('machines.owner_user_id', () => {
@@ -87,10 +87,12 @@ describe('the grant edge table', () => {
     store.grants.upsert(edge(COLLEAGUE, 'see'))
     expect(store.grants.visibilityRevision()).toBe(before + 2)
 
-    expect(store.grants.listForResource('machine', 'laptop').map((g) => g.verb).sort()).toEqual([
-      'see',
-      'use',
-    ])
+    expect(
+      store.grants
+        .listForResource('machine', 'laptop')
+        .map((g) => g.verb)
+        .sort(),
+    ).toEqual(['see', 'use'])
 
     expect(store.grants.remove('machine', 'laptop', COLLEAGUE, 'use')).toBe(true)
     expect(store.grants.visibilityRevision()).toBe(before + 3)

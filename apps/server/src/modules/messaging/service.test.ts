@@ -1170,15 +1170,17 @@ describe('MessagingService', () => {
       routing: { chatIdForUser: () => '42' },
       telegramBotToken: () => 'tok',
       superagent: {
-        sendTurn: vi.fn(() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
+        sendTurn: vi.fn(() =>
+          Promise.resolve({ threadId: asThreadId('global'), podiumSessionId: asSessionId('ps1') }),
+        ),
         interruptTurn: vi.fn(),
         restartThread: vi.fn(),
         startBtwTurn: vi.fn(({ sessionId }: { sessionId: SessionId }) => ({
-          threadId: `btw_${sessionId}`,
+          threadId: asThreadId(`btw_${sessionId}`),
           isNew: true,
         })),
         ensureConciergeThread: vi.fn(({ repoPath }: { repoPath: string }) => ({
-          threadId: `concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`,
+          threadId: asThreadId(`concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`),
           isNew: true,
         })),
       },

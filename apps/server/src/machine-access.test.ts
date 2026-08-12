@@ -451,7 +451,7 @@ describe('ownership and grants come from the source, live', () => {
     // but holds neither use nor manage on it — ownership of other machines does
     // not spill. A member still cannot see it at all.
     const { rows, source } = liveSource()
-    rows.set('orphan', null)
+    rows.set(asMachineId('orphan'), null)
     const ownership = ownershipFromMachines(source)
 
     expect(checkMachineUse(user(OWNER), asMachineId('orphan'), ownership)).toBe('unauthorized')

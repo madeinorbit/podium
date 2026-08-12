@@ -16,6 +16,7 @@
  * (the run-scoped idempotency the registry applies before any of these runs).
  */
 
+import { asIssueId } from '@podium/model'
 import type {
   ContractInput,
   workflowAdoptContract,
@@ -231,7 +232,7 @@ export function adoptHandler(
   } catch {
     throw new Error(unknownRevision(input.revisionId))
   }
-  const issueId = current.subjectKind === 'issue' ? current.subjectId : undefined
+  const issueId = current.subjectKind === 'issue' ? asIssueId(current.subjectId) : undefined
   // EVERYTHING VALIDATES BEFORE THE SUPERSEDE (POD-730 §8). The order below is
   // the invariant, not an accident of how it was written: a failure at any of
   // these four points must leave the live run exactly as it was.

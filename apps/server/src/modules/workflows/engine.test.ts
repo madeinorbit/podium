@@ -63,7 +63,7 @@
  * docs/multi-user-readiness.md, docs/agents/pod-521-oracle-retirement.md
  * (the coverage map and why this file was kept).
  */
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -128,9 +128,9 @@ const SESSIONS = new Map([
     {
       sessionId: asSessionId('s1'),
       cwd: '/repo-a/wt',
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
       agentKind: 'claude-code',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     },
   ],
   // Worker on the same issue, different harness, same machine.
@@ -139,9 +139,9 @@ const SESSIONS = new Map([
     {
       sessionId: asSessionId('s2'),
       cwd: '/repo-a/wt',
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
       agentKind: 'codex',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     },
   ],
   // Foreign session: different issue, different repo, different machine.
@@ -150,9 +150,9 @@ const SESSIONS = new Map([
     {
       sessionId: asSessionId('s3'),
       cwd: '/repo-b/wt',
-      issueId: 'issue-2',
+      issueId: asIssueId('issue-2'),
       agentKind: 'claude-code',
-      machineId: 'm2',
+      machineId: asMachineId('m2'),
     },
   ],
   // Session with no issue and no machine — the unreachable/unknown-machine arm.
@@ -163,9 +163,9 @@ const SESSIONS = new Map([
     {
       sessionId: asSessionId('s5'),
       cwd: '/nowhere',
-      issueId: 'issue-1',
+      issueId: asIssueId('issue-1'),
       agentKind: 'claude-code',
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
     },
   ],
 ])
@@ -342,7 +342,7 @@ function threeStepRun(h: Harness, name = 'Double advance', subjectSession = 's1'
 
 /** A second, independent two-step run: issue-2 in repo-b, coordinated by s3. */
 const secondSubject = {
-  issueId: 'issue-2',
+  issueId: asIssueId('issue-2'),
   sessionId: asSessionId('s3'),
   cwd: '/repo-b/wt',
 } as const
@@ -1499,7 +1499,7 @@ describe('POD-730 workflow mutation characterization', () => {
           id: created.id,
           name: 'Codex pinned',
           accountId: 'native:claude-code',
-          machineId: 'm2',
+          machineId: asMachineId('m2'),
           harness: 'claude-code',
           model: 'claude-fable-5',
           effort: 'high',
@@ -1509,7 +1509,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(updated.id).toBe(created.id)
       expect(updated).toMatchObject({
         name: 'Codex pinned',
-        machineId: 'm2',
+        machineId: asMachineId('m2'),
         harness: 'claude-code',
       })
       expect(h.service.profiles(operator)).toHaveLength(1)
@@ -1525,7 +1525,7 @@ describe('POD-730 workflow mutation characterization', () => {
         harness: 'codex',
       })
       expect(parsed).toMatchObject({ model: 'auto', effort: 'auto' })
-      const created = h.service.profileSave({ ...parsed, machineId: 'm1' }, operator)
+      const created = h.service.profileSave({ ...parsed, machineId: asMachineId('m1') }, operator)
       const cleared = h.service.profileSave(
         { ...parsed, id: created.id, machineId: null },
         operator,

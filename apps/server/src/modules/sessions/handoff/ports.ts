@@ -169,7 +169,7 @@ export interface HandoffRepo {
 
 /** The slice of a machine row the handoff decision reads. */
 export interface HandoffMachine {
-  id: SessionId
+  id: MachineId
   name?: string
   online: boolean
   inventory?: { agents: { kind: string; installed: boolean; login: { state: string } }[] }

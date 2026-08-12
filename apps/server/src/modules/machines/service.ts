@@ -8,6 +8,7 @@ import {
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
   asMachineId,
+  asUserId,
   type Inventory,
   type MachineId,
   type MachineUseDecision,
@@ -349,13 +350,13 @@ export class MachinesService {
 
   /** Give an owner to a machine that has none (POD-1494) — the product surface
    *  behind `machines.adopt`. See {@link credentials.adoptMachine}. */
-  adoptMachine(id: string, newOwnerUserId: UserId): void {
+  adoptMachine(id: MachineId, newOwnerUserId: UserId): void {
     credentials.adoptMachine(this.enrollmentHost, id, newOwnerUserId)
   }
 
   /** Effective owner for authorization: ledger wins over the row (D19.4d rule 4).
    *  See {@link credentials.effectiveOwner}. */
-  effectiveOwner(machineId: MachineId): string | null | undefined {
+  effectiveOwner(machineId: MachineId): UserId | null | undefined {
     return credentials.effectiveOwner(this.enrollmentHost, machineId)
   }
 
@@ -643,7 +644,8 @@ export class MachinesService {
     return this.machineRecords().map((m) => ({
       id: m.id,
       name: m.name,
-      ownerUserId: this.effectiveOwner(m.id) ?? m.ownerUserId,
+      ownerUserId:
+        this.effectiveOwner(m.id) ?? (m.ownerUserId === null ? null : asUserId(m.ownerUserId)),
     }))
   }
 

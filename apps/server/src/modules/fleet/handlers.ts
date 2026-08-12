@@ -69,7 +69,7 @@ const badRequest = (e: unknown): never => {
 // ---------------------------------------------------------------------------
 
 export const machineRenameHandler = ({ ctx, input }: FleetArgs<{ id: string; name: string }>) => {
-  mods(ctx).machines.renameMachine(input.id, input.name)
+  mods(ctx).machines.renameMachine(asMachineId(input.id), input.name)
   return mods(ctx).machines.listMachines()
 }
 
@@ -78,7 +78,7 @@ export const machineSetUpdateChannelHandler = async ({
   input,
 }: FleetArgs<{ id: string; channel: UpdateChannel | null }>) => {
   const modules = mods(ctx)
-  modules.machines.setUpdateChannel(input.id, input.channel)
+  modules.machines.setUpdateChannel(asMachineId(input.id), input.channel)
   // Refresh the channel the machine ACTUALLY lands on, which after a `null` clear
   // is the fleet default rather than anything in the input (POD-1882).
   await modules.updates.refreshTarget(
@@ -107,7 +107,7 @@ export const machineShareHandler = ({
   if (attribution.onBehalfOf === null) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
   }
-  mods(ctx).machines.shareMachine(input.id, input.grantee, input.verb, {
+  mods(ctx).machines.shareMachine(asMachineId(input.id), input.grantee, input.verb, {
     actor: attribution.actor,
     onBehalfOf: attribution.onBehalfOf,
   })
@@ -122,7 +122,7 @@ export const machineUnshareHandler = ({
   if (owner === null) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
   }
-  mods(ctx).machines.unshareMachine(input.id, input.grantee, input.verb, owner)
+  mods(ctx).machines.unshareMachine(asMachineId(input.id), input.grantee, input.verb, owner)
   return mods(ctx).machines.listMachines()
 }
 
@@ -148,7 +148,7 @@ export const machineTransferOwnershipHandler = ({
     })
   }
   try {
-    mods(ctx).machines.transferMachineOwnership(input.id, input.newOwnerUserId, owner)
+    mods(ctx).machines.transferMachineOwnership(asMachineId(input.id), input.newOwnerUserId, owner)
   } catch (e) {
     return badRequest(e)
   }
@@ -175,7 +175,7 @@ export const machineAdoptHandler = ({
   input,
 }: FleetArgs<{ id: string; newOwnerUserId: UserId }>) => {
   try {
-    mods(ctx).machines.adoptMachine(input.id, input.newOwnerUserId)
+    mods(ctx).machines.adoptMachine(asMachineId(input.id), input.newOwnerUserId)
   } catch (e) {
     return badRequest(e)
   }
@@ -183,7 +183,7 @@ export const machineAdoptHandler = ({
 }
 
 export const machineRevokeHandler = ({ ctx, input }: FleetArgs<{ id: string }>) => {
-  mods(ctx).machines.revokeMachine(input.id)
+  mods(ctx).machines.revokeMachine(asMachineId(input.id))
   return mods(ctx).machines.listMachines()
 }
 

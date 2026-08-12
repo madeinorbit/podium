@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRuntimeState } from '@podium/model'
-import { asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type {
   AgentObservation,
   ControlMessage,
@@ -127,7 +127,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       const web: ServerMessage[] = []
       // A server restart reopens the same owned host machine; reminting here
       // would model a replacement machine and invalidate every durable binding.
-      const hostMachineId = randomUUID()
+      const hostMachineId = asMachineId(randomUUID())
       let store = new SessionStore(dbPath, hostMachineId)
       let registry = new SessionRegistry(store, { ntfy, telegram }, { instanceId: 'default' })
       registry.bus.on('notification.telegramRequested', telegramRequest)

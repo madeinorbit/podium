@@ -46,6 +46,7 @@
 import { type CommandDef, isExposedOn, sessionStateCommand } from '@podium/commands'
 import {
   asIssueId,
+  asMutationId,
   asSessionId,
   asUserId,
   type AuthTarget,
@@ -431,7 +432,8 @@ export class SessionStateRegistry {
     //    most once per mutationId and reports which happened. One implementation,
     //    shared with the command plane and the issue registry, and no per-handler
     //    seam to omit it from.
-    const mutationId = typeof input.mutationId === 'string' ? input.mutationId : undefined
+    const mutationId =
+      typeof input.mutationId === 'string' ? asMutationId(input.mutationId) : undefined
     const applied = this.deps.mutations.apply(mutationId, name, () =>
       registration.handler(input, principal, this.deps),
     )

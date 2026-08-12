@@ -112,7 +112,8 @@ export const SYSTEM_INBOX_PRINCIPAL: InboxPrincipalReference = {
 }
 
 export interface QueuedInboxMessage {
-  id: SessionId
+  /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
+  id: string
   text: string
   attempts: number
   inputOrigin: ObservationInputOrigin
@@ -131,8 +132,8 @@ export interface InboxQueuePort {
     sourceMessageId: string | null
   }): boolean
   list(sessionId: SessionId): QueuedInboxMessage[]
-  bumpAttempts(id: SessionId): void
-  delete(id: SessionId): void
+  bumpAttempts(id: string): void
+  delete(id: string): void
 }
 
 export interface InboxAuthorizationPort {
