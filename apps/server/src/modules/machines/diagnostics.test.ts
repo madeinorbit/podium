@@ -1,4 +1,4 @@
-import { asUserId } from '@podium/model'
+import { asMachineId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { type MachineDiagnosticRouterDeps, routeMachineDiagnostic } from './diagnostics'
 
