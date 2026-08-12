@@ -460,6 +460,7 @@
         "src/steward.test.ts",
         "src/steward.ts",
         "src/store-database.ts",
+        "src/store-issues-frame-cache.test.ts",
         "src/store-issues.test.ts",
         "src/store.changes.test.ts",
         "src/store.conversation-idle-writes.test.ts",
