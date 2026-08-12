@@ -39,6 +39,7 @@ import {
   REPRESENTATION_SUFFIXES,
   rawStringEntityIds,
   unbrandedByDecisionFields,
+  unbrandedDbColumns,
 } from './entity-id-audit'
 import type { AuditContext } from './rearch-audit'
 import { loadContext, stripComments } from './rearch-audit'
@@ -184,6 +185,30 @@ describe('classifyRhs', () => {
   it('names the other two forms', () => {
     expect(classifyRhs('text("session_id").notNull()')).toBe('db-column')
     expect(classifyRhs('string')).toBe('ts-string')
+  })
+
+  it('separates a branded drizzle column from a raw one', () => {
+    // The split POD-1199 exists for. Before it, both were `db-column`, so
+    // branding a column moved no number and no ratchet could drive the class.
+    expect(classifyRhs('text("session_id").$type<SessionId>().notNull()')).toBe('db-column-branded')
+    expect(classifyRhs('text().$type<SessionId>().primaryKey()')).toBe('db-column-branded')
+  })
+
+  it('reads $type placed AFTER a literal default', () => {
+    // Where it must go: before the default, the default's raw string stops
+    // typechecking against the brand.
+    expect(
+      classifyRhs('text("owner_user_id").default("user:sole").$type<UserId>().notNull()'),
+    ).toBe('db-column-branded')
+  })
+
+  it('is not fooled by a local helper that happens to be called text()', () => {
+    // `store/workflows.ts` coerces rows with its own `text(row.owner_user_id)`.
+    // A column's name argument is a string literal or absent; a call on an
+    // expression is a value, and there is no `$type<>()` to put on one — so
+    // counting it as a column would put it in a class it can never leave.
+    expect(classifyRhs('text(row.owner_user_id)')).toBe('other')
+    expect(classifyRhs('text(row.coordinator_session_id) as SessionId')).toBe('other')
   })
 })
 
@@ -424,6 +449,51 @@ describe('the UNBRANDED excuse', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// POD-1199 — the drizzle-column item
+// ---------------------------------------------------------------------------
+
+describe('the unbranded-db-columns item', () => {
+  const table = (col: string) =>
+    `${SCAFFOLD}export const sessions = sqliteTable('sessions', {\n  ${col}\n})`
+
+  it('FIRES on a raw column and goes quiet once it is branded', () => {
+    // Both halves matter. A detector that only fires proves nothing about the
+    // flip it is supposed to score; POD-363's walker "passed" everything.
+    expect(
+      unbrandedDbColumns(ctxOf(table(`sessionId: text('session_id').notNull(),`))),
+    ).toHaveLength(1)
+    expect(
+      unbrandedDbColumns(
+        ctxOf(table(`sessionId: text('session_id').$type<SessionId>().notNull(),`)),
+      ),
+    ).toHaveLength(0)
+  })
+
+  it('counts a column in NEITHER zod item', () => {
+    const ctx = ctxOf(table(`sessionId: text('session_id').notNull(),`))
+    expect(rawStringEntityIds(ctx)).toHaveLength(0)
+    expect(machineIdUnbrandedFields(ctx)).toHaveLength(0)
+  })
+
+  it('counts a machine-id COLUMN here, not in POD-318s item', () => {
+    // The MachineId carve-out is about zod fields and the sentinel retirement.
+    // A column is discharged by `$type<>()`, so splitting it out again would
+    // leave a class no key holds.
+    const ctx = ctxOf(table(`machineId: text('machine_id').notNull(),`))
+    expect(unbrandedDbColumns(ctx)).toHaveLength(1)
+    expect(machineIdUnbrandedFields(ctx)).toHaveLength(0)
+  })
+
+  it('moves an excused column to the excuse key rather than out of sight', () => {
+    const excused = table(
+      `/** UNBRANDED: a HARNESS-minted id, not Podium's. */\n  providerSessionId: text('provider_session_id'),`,
+    )
+    expect(unbrandedDbColumns(ctxOf(excused))).toHaveLength(0)
+    expect(unbrandedByDecisionFields(ctxOf(excused))).toHaveLength(1)
+  })
+})
+
 describe('the MachineId carve-out (ADR 1 Amendment 2 D16.2)', () => {
   it('keeps machine ids OUT of POD-301 count and IN their own', () => {
     const source = SCAFFOLD + 'export const A = z.object({ machineId: z.string() })'
@@ -479,8 +549,15 @@ describe('the population floor', () => {
     expect(sites.length).toBeGreaterThan(MIN_ID_FIELD_SITES)
     // Every counted form must be non-empty on the real tree. A form that has
     // silently stopped matching is invisible in a single total.
-    for (const form of ['zod-branded', 'db-column', 'ts-string'] as const) {
+    for (const form of ['zod-branded', 'ts-string'] as const) {
       expect(sites.filter((s) => s.form === form).length).toBeGreaterThan(20)
     }
+    // Columns are asserted as a FAMILY, not per form: the whole point of
+    // POD-1199's ratchet is to drive `db-column` to zero, so requiring it to be
+    // non-empty would make the win fail the test. What must stay true is that
+    // the scan can still SEE columns at all.
+    expect(
+      sites.filter((s) => s.form === 'db-column' || s.form === 'db-column-branded').length,
+    ).toBeGreaterThan(20)
   })
 })

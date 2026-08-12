@@ -44,6 +44,7 @@ import {
   machineIdUnbrandedFields,
   rawStringEntityIds,
   unbrandedByDecisionFields,
+  unbrandedDbColumns,
 } from './entity-id-audit'
 import {
   capabilitySnapshots,
@@ -1674,6 +1675,25 @@ export const CHECKS: AuditCheck[] = [
     phase: 'POD-1361',
     unit: 'one machine-id zod field declared as a bare z.string()',
     collect: (ctx) => machineIdUnbrandedFields(ctx),
+  },
+  {
+    // ADDED at POD-1199, and a RATCHET EXTENSION for the same reason the three
+    // above were: the class was measured and reported from the day the detector
+    // existed, but no key held it, so it drifted from 68 sites to 92 while
+    // reading as "known about". Worse, `db-column` was ONE form covering branded
+    // and unbranded columns alike, so branding one moved no number — there was
+    // nothing a ratchet could have driven. POD-1199 splits the form and holds
+    // the unbranded half.
+    //
+    // Not folded into `raw-string-entity-ids`: that item's unit is a ZOD field,
+    // and a column is discharged by a different act (drizzle's type-only
+    // `$type<Brand>()`, which emits no SQL). One key over two mechanisms would
+    // let progress on the easy one mask the other.
+    id: 'unbranded-db-columns',
+    title: 'Drizzle column for an entity id declared without $type<Brand>()',
+    phase: 'POD-1199',
+    unit: 'one drizzle column whose key names a branded entity id and which carries no $type<>()',
+    collect: (ctx) => unbrandedDbColumns(ctx),
   },
   {
     // The escape hatch, counted so it cannot be used quietly. Without this key

@@ -234,6 +234,56 @@ table is the defect.** The rule the rows apply:
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
 
+### 2026-08-12 — POD-1199 splits the drizzle-column form and adds `unbranded-db-columns` (+1 item, baseline 90)
+
+**A ratchet EXTENSION, in a commit that touches no product code** — the same act
+and the same disclosure as POD-301's three entity-id keys below. No debt was
+added; a class that was measured but not *drivable* became both.
+
+POD-301 classified drizzle columns from the day the detector existed and printed
+them under `--sites`, and its Limit 1 said plainly that they were in no baseline
+key. Two things followed from that, and the second is the one worth recording:
+
+1. **The class drifted.** 68 sites at POD-301's close, **90** here. Nothing was
+   wrong with anyone's work — an unratcheted count is free to rise, which is the
+   whole argument for the ratchet.
+2. **Branding a column moved no number at all.** `classifyRhs` had ONE form,
+   `db-column`, covering `text('session_id')` and a fully-branded
+   `text('session_id').$type<SessionId>()` alike. So the class could be *reported*
+   but not *discharged*: a ratchet pointed at it could never have reached zero,
+   and a sweep that branded every column in the repo would have left the printed
+   count unchanged. That is POD-423's "an item named but absent from the baseline
+   is an unmeasured claim" one level down — present in the baseline, but with a
+   unit that cannot register the fix. `db-column-branded` is the discharged form
+   the new key can fall to.
+
+| Key | Baseline | Phase | What one count is |
+|---|---|---|---|
+| `unbranded-db-columns` | 90 | POD-1199 | a drizzle column whose key names a branded entity id and which carries no `$type<>()` |
+
+Three decisions are recorded rather than left implicit:
+
+1. **Not folded into `raw-string-entity-ids`.** That item's unit is a ZOD field,
+   and a column is discharged by a different act — drizzle's `$type<Brand>()`,
+   which is type-only and emits no SQL (verified: `drizzle-kit generate` reports
+   no schema change across the flip). One key over two mechanisms lets progress
+   on the easier one mask the other.
+2. **Columns share the existing `UNBRANDED` hatch** rather than getting a second
+   one. `provider_session_id` and `harness_session_id` are HARNESS-minted, and
+   branding them `SessionId` would launder a foreign id into Podium's id space —
+   the identical judgement `entities/session.ts` already records on the zod side.
+   A second excuse key would let that one decision be spent twice at half the
+   visible price. `unbranded-by-decision-ids` therefore rises when a column is
+   excused, and stays at **17** on this commit, because this commit excuses none.
+3. **The `text()` anchor was tightened, and it cost two sites (92 → 90).**
+   `apps/server/src/store/workflows.ts` coerces rows with a local helper it calls
+   `text`, so `text(row.owner_user_id)` read as a column. It is a value
+   expression — there is no `$type<>()` to put on one — so counting it as a
+   column filed it in a class it could never leave. A column's name argument is a
+   string literal or absent; those two sites are now `other`. This is a
+   correction to the measurement, not a win, and it is why the key lands at 90
+   and not at the 92 the CLI printed the day before.
+
 ### 2026-08-03 — POD-333 re-anchors `cli-launch-plan-debt` onto the states it is named after (1 → 0)
 
 **A RE-ANCHOR PLUS A DELETION, and the re-anchor is the part to scrutinise:**

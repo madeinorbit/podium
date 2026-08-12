@@ -33,6 +33,7 @@
     "static-systemd-units": 0,
     "superagent-shadow-types": 0,
     "unbranded-by-decision-ids": 18,
+    "unbranded-db-columns": 90,
     "upstream-sync-forwarder": 0,
     "web-storage-keys": 0
   }
