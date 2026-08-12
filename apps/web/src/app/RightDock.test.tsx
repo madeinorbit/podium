@@ -90,11 +90,13 @@ vi.mock('./store', () => ({
 
 // The explorer owns which task is showing and what the trail says (POD-743);
 // the dock's job here is to mount it and give it the header.
-vi.mock('@/features/issues/explorer/IssueExplorer', () => ({
-  IssueExplorer: (props: { cwd: string; machineId?: string }) => (
-    <div data-testid="issue-explorer" data-cwd={props.cwd} data-machine-id={props.machineId} />
-  ),
-  IssueExplorerCrumbs: () => <nav data-testid="explorer-crumbs">Tasks</nav>,
+vi.mock('./RightDockIssuePanel', () => ({
+  default: (props: { kind: 'crumbs' | 'explorer'; cwd?: string; machineId?: string }) =>
+    props.kind === 'crumbs' ? (
+      <nav data-testid="explorer-crumbs">Tasks</nav>
+    ) : (
+      <div data-testid="issue-explorer" data-cwd={props.cwd} data-machine-id={props.machineId} />
+    ),
 }))
 
 afterEach(() => {
@@ -115,10 +117,10 @@ describe('RightDock task panel', () => {
   // The dock no longer resolves a task for itself: it hands the explorer the
   // active worktree — which is only where a task with no checkout of its own
   // has its artifacts served from — and the explorer decides what is showing.
-  it('mounts the explorer on the active worktree', () => {
+  it('mounts the explorer on the active worktree', async () => {
     render(<RightDock tab="issue" onClose={vi.fn()} />)
 
-    const panel = screen.getByTestId('issue-explorer')
+    const panel = await screen.findByTestId('issue-explorer')
     expect(panel.getAttribute('data-cwd')).toBe(otherSession.cwd)
     expect(screen.queryByTestId('dock-title')).toBeNull()
   })
@@ -126,10 +128,10 @@ describe('RightDock task panel', () => {
   // POD-743: the Task tab is the one panel whose header is not a name. What
   // belongs up there is where you are and how to get back; the task's own title
   // is the head of the panel below.
-  it('gives the Task tab header to the explorer trail', () => {
+  it('gives the Task tab header to the explorer trail', async () => {
     render(<RightDock tab="issue" onClose={vi.fn()} />)
 
-    expect(screen.getByTestId('explorer-crumbs')).toBeTruthy()
+    expect(await screen.findByTestId('explorer-crumbs')).toBeTruthy()
     expect(screen.queryByText('Selected closed issue')).toBeNull()
   })
 
@@ -141,7 +143,7 @@ describe('RightDock task panel', () => {
     expect(screen.queryByTestId('explorer-crumbs')).toBeNull()
   })
 
-  it('renders the active repository merge queue from the live lock projection', () => {
+  it('renders the active repository merge queue from the live lock projection', async () => {
     repoLocks.state = {
       locks: [
         {
@@ -168,8 +170,8 @@ describe('RightDock task panel', () => {
     render(<RightDock tab="merge-queue" onClose={vi.fn()} />)
 
     // One whole-repo reading, not a request per name the UI happens to know.
+    expect(await screen.findByRole('heading', { name: 'MERGING NOW' })).toBeTruthy()
     expect(repoLocks.query).toHaveBeenCalledWith('/other')
-    expect(screen.getByRole('heading', { name: 'MERGING NOW' })).toBeTruthy()
     const holder = screen.getByRole('button', { name: /Other live issue/ })
     expect(holder).toBeTruthy()
 
@@ -177,7 +179,7 @@ describe('RightDock task panel', () => {
     expect(state.setSelectedIssueId).toHaveBeenCalledWith(otherIssue.id)
   })
 
-  it('maps a first-read failure to the retry interaction', () => {
+  it('maps a first-read failure to the retry interaction', async () => {
     repoLocks.state = {
       locks: [],
       loading: false,
@@ -188,7 +190,7 @@ describe('RightDock task panel', () => {
 
     render(<RightDock tab="merge-queue" onClose={vi.fn()} />)
 
-    expect(screen.getByRole('alert').textContent).toContain('Lock authority unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Lock authority unavailable.')
     screen.getByRole('button', { name: 'Try again' }).click()
     expect(repoLocks.refresh).toHaveBeenCalledOnce()
   })

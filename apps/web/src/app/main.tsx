@@ -1,15 +1,18 @@
-import { StrictMode } from 'react'
+import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
 import { SetupGate } from '@/features/setup/SetupGate'
 import { startWebLogging } from '@/lib/logging'
-import { MotionDemo } from '@/lib/motion/MotionDemo'
 import { AppShell } from './AppShell'
 import '@/index.css'
 import '@/styles.css'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
+
+const MotionDemo = lazy(() =>
+  import('@/lib/motion/MotionDemo').then((module) => ({ default: module.MotionDemo })),
+)
 
 // FIRST, before anything can throw: the global handlers and the flight recorder
 // are what turn a crash during boot into a report on the user's own server
@@ -33,7 +36,9 @@ if (!redirectPhoneToMobileApp()) {
             the screens the skew has not already broken. */}
         <WireSkewBanner />
         {showMotionDemo ? (
-          <MotionDemo />
+          <Suspense fallback={<div className="app-loading" aria-hidden="true" />}>
+            <MotionDemo />
+          </Suspense>
         ) : (
           <LoginGate>
             <SetupGate>

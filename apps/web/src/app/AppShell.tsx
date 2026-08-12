@@ -2,17 +2,15 @@ import { shallowEqual } from '@podium/client-core/store'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
-import { SettingsView } from '@/features/settings/SettingsView'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
-import { UsageView } from '@/features/usage/UsageView'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
@@ -23,15 +21,15 @@ import { useFeature } from '@/lib/use-feature'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { AppErrorPage } from './AppErrorPage'
+import { AppSheet } from './AppSheet'
 import { ApprovalDialog } from './ApprovalDialog'
 import { AsciiLoader } from './AsciiLoader'
 import { AutoContinueDialog } from './AutoContinueDialog'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
-import { CommandPalette } from './CommandPalette'
+import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
-import { FlightDeck } from './FlightDeck'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { OperatorFocusProvider } from './operator-focus'
 import { RightDock } from './RightDock'
@@ -61,11 +59,45 @@ import { makeTrpc, serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
 import { Workspace } from './Workspace'
 
+const SettingsView = lazy(() =>
+  import('@/features/settings/SettingsView').then((module) => ({ default: module.SettingsView })),
+)
+const UsageView = lazy(() =>
+  import('@/features/usage/UsageView').then((module) => ({ default: module.UsageView })),
+)
+// FlightDeck already unmounts when folded. Deferring its module in exactly that
+// state changes no subscriptions or retained component state.
+const FlightDeck = lazy(() =>
+  import('./FlightDeck').then((module) => ({ default: module.FlightDeck })),
+)
+
 function LoadingScreen(): JSX.Element {
   return (
     <div className="app-loading" role="status" aria-live="polite">
       <AsciiLoader />
     </div>
+  )
+}
+
+function RouteFallback(): JSX.Element {
+  return <div className="flex min-h-0 min-w-0 flex-1" aria-hidden="true" />
+}
+
+function SheetFallback({
+  label,
+  title,
+  onClose,
+  className,
+}: {
+  label: string
+  title: string
+  onClose: () => void
+  className?: string
+}): JSX.Element {
+  return (
+    <AppSheet label={label} title={title} onClose={onClose} className={className}>
+      <div className="min-h-0 flex-1" aria-hidden="true" />
+    </AppSheet>
   )
 }
 
@@ -527,7 +559,9 @@ function AppBody(): JSX.Element {
                     handleLabel="Resize Flight Deck"
                     className="max-w-[45vw]"
                   >
-                    <FlightDeck onCollapse={collapseFlightDeck} />
+                    <Suspense fallback={<RouteFallback />}>
+                      <FlightDeck onCollapse={collapseFlightDeck} />
+                    </Suspense>
                   </ResizableColumn>
                 )}
               </div>
@@ -563,11 +597,37 @@ function AppBody(): JSX.Element {
         {/* The utility tier (POD-365): an inset sheet over a live shell. The mode
           underneath stays mounted, so closing is instant and the chrome never
           blinks out of existence. */}
-        {view === 'settings' && <SettingsView onClose={closeOverlay} />}
-        {view === 'usage' && <UsageView onClose={closeOverlay} />}
+        {view === 'settings' && (
+          <Suspense
+            fallback={
+              <SheetFallback
+                label="Settings"
+                title="Settings"
+                className="app-sheet-settings app-sheet-fit"
+                onClose={closeOverlay}
+              />
+            }
+          >
+            <SettingsView onClose={closeOverlay} />
+          </Suspense>
+        )}
+        {view === 'usage' && (
+          <Suspense
+            fallback={
+              <SheetFallback
+                label="Usage & analytics"
+                title="Usage & analytics"
+                className="app-sheet-fit"
+                onClose={closeOverlay}
+              />
+            }
+          >
+            <UsageView onClose={closeOverlay} />
+          </Suspense>
+        )}
         <AutoContinueDialog />
         <ApprovalDialog />
-        {commandPaletteEnabled && <CommandPalette />}
+        {commandPaletteEnabled && <CommandPaletteBoundary />}
         {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
           floating miniview. Both render nothing until there's something to show. */}
         <RefPrefixSync />

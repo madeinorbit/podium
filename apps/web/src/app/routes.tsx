@@ -1,17 +1,30 @@
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense } from 'react'
-import { AutomationsView } from '@/features/automations/AutomationsView'
-import { IssuesView } from '@/features/issues/IssuesView'
-import { WorkflowsView } from '@/features/workflows/WorkflowsView'
 import { useFeature } from '@/lib/use-feature'
 import { type MainView, useStoreSelector } from './store'
 
-// Lazy: BlockNote (the spec WYSIWYG editor) is a heavy chunk only Specs needs —
-// keeping it out of the shell bundle also keeps every precached file under
-// workbox's 2 MB per-file cap.
-const SpecsView = lazy(() =>
-  import('@/features/specs/SpecsView').then((m) => ({ default: m.SpecsView })),
+const AutomationsView = lazy(() =>
+  import('@/features/automations/AutomationsView').then((module) => ({
+    default: module.AutomationsView,
+  })),
 )
+const IssuesView = lazy(() =>
+  import('@/features/issues/IssuesView').then((module) => ({ default: module.IssuesView })),
+)
+const WorkflowsView = lazy(() =>
+  import('@/features/workflows/WorkflowsView').then((module) => ({ default: module.WorkflowsView })),
+)
+const SpecsView = lazy(() =>
+  import('@/features/specs/SpecsView').then((module) => ({ default: module.SpecsView })),
+)
+
+function ViewFallback(): JSX.Element {
+  return <div className="flex min-h-0 min-w-0 flex-1" aria-hidden="true" />
+}
+
+function lazyView(view: ReactNode): JSX.Element {
+  return <Suspense fallback={<ViewFallback />}>{view}</Suspense>
+}
 
 /**
  * The ONE route table (issue #15 Phase 4): the URL router resolves the current
@@ -35,7 +48,7 @@ export function MainViewOutlet({
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
-  const issuesView = <>{issues ?? <IssuesView />}</>
+  const issuesView = issues ?? lazyView(<IssuesView />)
   switch (view) {
     case 'settings':
     case 'usage':
@@ -43,18 +56,14 @@ export function MainViewOutlet({
       // outlet never sees them unless the base view was somehow one of them.
       return <>{workspace}</>
     case 'issues':
-      return issuesView
+      return <>{issuesView}</>
     case 'workflows':
-      return workflowsEnabled ? <WorkflowsView /> : issuesView
+      return workflowsEnabled ? lazyView(<WorkflowsView />) : <>{issuesView}</>
     case 'automations':
-      return automationsEnabled ? <AutomationsView /> : issuesView
+      return automationsEnabled ? lazyView(<AutomationsView />) : <>{issuesView}</>
     case 'specs':
-      if (!specsEnabled) return issuesView
-      return (
-        <Suspense fallback={<div className="flex flex-1 items-center justify-center" />}>
-          <SpecsView />
-        </Suspense>
-      )
+      if (!specsEnabled) return <>{issuesView}</>
+      return lazyView(<SpecsView />)
     case 'workspace':
       return <>{workspace}</>
   }

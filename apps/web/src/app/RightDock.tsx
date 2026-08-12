@@ -17,19 +17,42 @@ import {
   X,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
-import { GitPanelView } from '@/features/git/GitPanelView'
-import { IssueExplorer, IssueExplorerCrumbs } from '@/features/issues/explorer/IssueExplorer'
-import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
-import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
-import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useOperatorFocus } from './operator-focus'
 import type { RightPanelTab } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
+
+const WorktreeFileTree = lazy(() =>
+  import('@/features/files/WorktreeFileTree').then((module) => ({
+    default: module.WorktreeFileTree,
+  })),
+)
+const GitPanelView = lazy(() =>
+  import('@/features/git/GitPanelView').then((module) => ({ default: module.GitPanelView })),
+)
+const RightDockIssuePanel = lazy(() => import('./RightDockIssuePanel'))
+const MergeQueuePanel = lazy(() =>
+  import('@/features/merge-queue/MergeQueuePanel').then((module) => ({
+    default: module.MergeQueuePanel,
+  })),
+)
+const MessageLedgerView = lazy(() =>
+  import('@/features/messages/MessageLedgerView').then((module) => ({
+    default: module.MessageLedgerView,
+  })),
+)
+const SuperagentView = lazy(() =>
+  import('@/features/superagent/SuperagentView').then((module) => ({
+    default: module.SuperagentView,
+  })),
+)
+
+function DockPanelFallback(): JSX.Element {
+  return <div className="min-h-0 flex-1" aria-hidden="true" />
+}
 
 /** The right-panel surfaces, including the docked Superagent chat home. */
 export type { RightPanelTab } from './shell-state'
@@ -129,7 +152,9 @@ export function RightDock({
             // The one panel whose header is not a name. The explorer moves
             // between tasks, so what belongs up here is where you are and how
             // to get back — the task's own name is the head of the panel below.
-            <IssueExplorerCrumbs />
+            <Suspense fallback={<span className="min-w-0 flex-1" aria-hidden="true" />}>
+              <RightDockIssuePanel kind="crumbs" />
+            </Suspense>
           ) : (
             <span className="flex min-w-0 flex-1 items-center gap-[9px]">
               {/* Chrome ink, not signal ink: this glyph is lit on every panel, and a
@@ -157,72 +182,78 @@ export function RightDock({
             </Button>
           </span>
         </div>
-        {tab === 'files' &&
-          (active ? (
-            <WorktreeFileTree key={active.cwd} root={active.cwd} machineId={active.machineId} />
-          ) : (
-            <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
-          ))}
-        {tab === 'git' &&
-          (active ? (
-            // Keyed by cwd: switching worktrees re-roots status/log/diff state.
-            <GitPanelView
-              key={active.cwd}
-              cwd={active.cwd}
-              machineId={active.machineId}
-              issue={
-                (active.issueId ? issues.find((i) => i.id === active.issueId) : undefined) ??
-                issueForCwd(issues, active.cwd) ??
-                undefined
-              }
+        <Suspense fallback={<DockPanelFallback />}>
+          {tab === 'files' &&
+            (active ? (
+              <WorktreeFileTree key={active.cwd} root={active.cwd} machineId={active.machineId} />
+            ) : (
+              <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+            ))}
+          {tab === 'git' &&
+            (active ? (
+              // Keyed by cwd: switching worktrees re-roots status/log/diff state.
+              <GitPanelView
+                key={active.cwd}
+                cwd={active.cwd}
+                machineId={active.machineId}
+                issue={
+                  (active.issueId ? issues.find((i) => i.id === active.issueId) : undefined) ??
+                  issueForCwd(issues, active.cwd) ??
+                  undefined
+                }
+              />
+            ) : (
+              <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+            ))}
+          {tab === 'mail' &&
+            (active ? (
+              <MessageLedgerView
+                key={active.sessionId ?? active.cwd}
+                sessionId={active.sessionId}
+                issueId={
+                  sessions.find((s) => s.sessionId === active.sessionId)?.issueId ??
+                  issueForCwd(issues, active.cwd)?.id
+                }
+              />
+            ) : (
+              <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+            ))}
+          {tab === 'issue' &&
+            (active ? (
+              // Not keyed on the worktree: the explorer's whole point is that it
+              // outlives what the workspace is pointed at. `cwd` only tells it
+              // where to serve the artifacts of a task with no checkout of its own.
+              <RightDockIssuePanel
+                kind="explorer"
+                cwd={active.cwd}
+                machineId={active.machineId}
+              />
+            ) : (
+              <RightDockIssuePanel kind="explorer" cwd="" />
+            ))}
+          {tab === 'superagent' && <SuperagentView />}
+          {tab === 'shell' &&
+            (active ? (
+              // Kept eager: changing xterm's mount/attach timing belongs to POD-847.
+              <DockShellPanel key={active.cwd} cwd={active.cwd} machineId={active.machineId} />
+            ) : (
+              <div className="p-3 text-xs text-muted-foreground/70">No active worktree.</div>
+            ))}
+          {tab === 'merge-queue' && (
+            <MergeQueuePanel
+              issues={issues}
+              scope={mergeQueueScope}
+              // A queue entry can be any issue in the repo, including one outside
+              // the mission on screen — so this moves the MISSION, not just the
+              // focus inside it. Focusing alone would be discarded by
+              // `resolveFocus` as not-in-mission and silently snap back.
+              onSelectIssue={(issue) => {
+                setSelectedIssueId(issue.id)
+                setFocusedIssueId(issue.id)
+              }}
             />
-          ) : (
-            <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
-          ))}
-        {tab === 'mail' &&
-          (active ? (
-            <MessageLedgerView
-              key={active.sessionId ?? active.cwd}
-              sessionId={active.sessionId}
-              issueId={
-                sessions.find((s) => s.sessionId === active.sessionId)?.issueId ??
-                issueForCwd(issues, active.cwd)?.id
-              }
-            />
-          ) : (
-            <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
-          ))}
-        {tab === 'issue' &&
-          (active ? (
-            // Not keyed on the worktree: the explorer's whole point is that it
-            // outlives what the workspace is pointed at. `cwd` only tells it
-            // where to serve the artifacts of a task with no checkout of its own.
-            <IssueExplorer cwd={active.cwd} machineId={active.machineId} />
-          ) : (
-            <IssueExplorer cwd="" />
-          ))}
-        {tab === 'superagent' && <SuperagentView />}
-        {tab === 'shell' &&
-          (active ? (
-            // Keyed by cwd: switching worktrees swaps to THAT worktree's shell.
-            <DockShellPanel key={active.cwd} cwd={active.cwd} machineId={active.machineId} />
-          ) : (
-            <div className="p-3 text-xs text-muted-foreground/70">No active worktree.</div>
-          ))}
-        {tab === 'merge-queue' && (
-          <MergeQueuePanel
-            issues={issues}
-            scope={mergeQueueScope}
-            // A queue entry can be any issue in the repo, including one outside
-            // the mission on screen — so this moves the MISSION, not just the
-            // focus inside it. Focusing alone would be discarded by
-            // `resolveFocus` as not-in-mission and silently snap back.
-            onSelectIssue={(issue) => {
-              setSelectedIssueId(issue.id)
-              setFocusedIssueId(issue.id)
-            }}
-          />
-        )}
+          )}
+        </Suspense>
       </div>
     </DockHeaderSlotProvider>
   )
