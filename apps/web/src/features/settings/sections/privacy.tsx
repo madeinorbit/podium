@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
+import { DiagnosticLoggingSubsection } from './diagnostic-logging'
 import { Section } from './shared'
 
 /** Inlined so the web bundle never imports @podium/telemetry (node:fs/crypto).
@@ -193,6 +194,8 @@ export function PrivacySection(): JSX.Element {
           From a terminal: <code>podium telemetry show</code> · <code>podium telemetry off</code>
         </p>
       )}
+
+      <DiagnosticLoggingSubsection />
     </Section>
   )
 }
