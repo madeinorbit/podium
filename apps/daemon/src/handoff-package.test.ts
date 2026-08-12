@@ -168,7 +168,7 @@ describe('handoff package', () => {
       branch: 'ignored',
       baseShas: [foreign, base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: sourceHome,
     })
     expect(exported.manifest.bundleBase).toEqual([base])
@@ -181,7 +181,7 @@ describe('handoff package', () => {
         branch: 'ignored',
         baseShas: [foreign],
         repoId: asRepoId('repo'),
-        sourceMachineId: 'source',
+        sourceMachineId: asMachineId('source'),
         homeDir: sourceHome,
       }),
     ).rejects.toThrow(/no bundle base shared/)
@@ -210,7 +210,7 @@ describe('handoff package', () => {
       branch: 'ignored',
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: sourceHome,
     })
     const stage = join(targetHome, '.podium', 'handoff', 'handoff-dirty-only.tgz')
@@ -259,7 +259,7 @@ describe('handoff package', () => {
       branch: 'ignored',
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: sourceHome,
     })
     expect(exported.manifest.worktreeRelativePath).toBe('.claude/worktrees/path-preserved')
@@ -341,7 +341,7 @@ describe('handoff package', () => {
       baseShas: [base],
       repoId: asRepoId('repo'),
       issueId: asIssueId('1013'),
-      sourceMachineId: 'a',
+      sourceMachineId: asMachineId('a'),
       homeDir: homeA,
     })
     const stageB = join(homeB, '.podium', 'handoff', 'handoff-roundtrip.tgz')
@@ -438,7 +438,7 @@ describe('handoff package', () => {
       baseShas: [base],
       repoId: asRepoId('repo'),
       issueId: asIssueId('1013'),
-      sourceMachineId: 'b',
+      sourceMachineId: asMachineId('b'),
       homeDir: homeB,
     })
     const stageA = join(homeA, '.podium', 'handoff', 'handoff-roundtrip.tgz')
@@ -540,7 +540,7 @@ describe('handoff package', () => {
       branch: 'ignored',
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'b',
+      sourceMachineId: asMachineId('b'),
       homeDir: homeB,
     })
     const stageA = join(homeA, '.podium', 'handoff', 'handoff-legacy-return.tgz')
@@ -571,7 +571,7 @@ describe('handoff package', () => {
       branch: 'ignored',
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: sourceHome,
     })
     await writeFile(join(source, 'after-handoff.txt'), 'must survive\n')
@@ -604,7 +604,7 @@ describe('handoff package', () => {
       branch: 'ignored',
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: sourceHome,
     })
     const stage = join(targetHome, '.podium', 'handoff', 'handoff-occupied.tgz')
@@ -644,7 +644,7 @@ describe('handoff package', () => {
       branch: 'ignored',
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: sourceHome,
     })
     const targetArchive = join(targetHome, '.podium', 'handoff', 'handoff-roundtrip.tgz')
@@ -704,7 +704,7 @@ describe('handoff manifest read path across file formats ([POD-1153])', () => {
     snapshotFlattened: true,
     worktreeName: 'issue-498',
     bundleBase: ['c'.repeat(40)],
-    sourceMachineId: 'machine-1',
+    sourceMachineId: asMachineId('machine-1'),
     exportedAt: '2026-07-14T12:00:00.000Z',
   }
 
@@ -795,7 +795,7 @@ describe('handoff manifest read path across file formats ([POD-1153])', () => {
       branch: 'ignored',
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: sourceHome,
     })
     expect(exported.manifest).toMatchObject({
@@ -838,7 +838,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
       branch: 'ignored',
       baseShas: input.baseShas,
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: input.homeDir,
     })
 
@@ -1065,7 +1065,7 @@ describe('abandoned stage files ([POD-742])', () => {
       branch: 'ignored',
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: sourceHome,
     })
     expect(await exists(abandoned)).toBe(false)
@@ -1095,7 +1095,7 @@ describe('abandoned stage files ([POD-742])', () => {
       branch: 'ignored',
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source',
+      sourceMachineId: asMachineId('source'),
       homeDir: sourceHome,
     })
     const stage = join(targetHome, '.podium', 'handoff', 'wrong-session.tgz')

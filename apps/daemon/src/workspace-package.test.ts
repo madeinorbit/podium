@@ -71,7 +71,7 @@ describe('workspace package', () => {
       cwd: source,
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source-machine',
+      sourceMachineId: asMachineId('source-machine'),
       homeDir: sourceHome,
     })
     await stageFor(exported, fetcherHome, 'workspace-fetch-copy')
@@ -107,7 +107,7 @@ describe('workspace package', () => {
       cwd: source,
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source-machine',
+      sourceMachineId: asMachineId('source-machine'),
       homeDir: sourceHome,
     })
     expect(exported.manifest.branch).toBe('issue/ws')
@@ -157,7 +157,7 @@ describe('workspace package', () => {
       cwd: source,
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source-machine',
+      sourceMachineId: asMachineId('source-machine'),
       homeDir: sourceHome,
     })
     expect(exported.manifest.snapshotSha).toBeNull()
@@ -187,7 +187,7 @@ describe('workspace package', () => {
       cwd: source,
       baseShas: [base],
       repoId: asRepoId('repo'),
-      sourceMachineId: 'source-machine',
+      sourceMachineId: asMachineId('source-machine'),
       homeDir: sourceHome,
     })
     expect(exported.manifest.snapshotSha).toBeTruthy()
@@ -209,7 +209,7 @@ describe('workspace package', () => {
         cwd: source,
         baseShas: ['1234567890abcdef1234567890abcdef12345678'],
         repoId: asRepoId('repo'),
-        sourceMachineId: 'source-machine',
+        sourceMachineId: asMachineId('source-machine'),
         homeDir: sourceHome,
       }),
     ).rejects.toThrow(/no bundle base shared/)

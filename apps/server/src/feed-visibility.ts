@@ -239,7 +239,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       }
       if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)
-        return dep !== null && mayReadIssue(asUserId(userId), dep.fromId, prefetch)
+        return dep !== null && mayReadIssue(asUserId(userId), asIssueId(dep.fromId), prefetch)
       }
       if (ref.entity === 'issueEvent') {
         // THE SUBJECT IS IN THE ID (POD-1772), so this decision needs no read of
@@ -248,7 +248,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         try {
           return mayReadIssue(
             asUserId(userId),
-            parseIssueEventRowId(ref.entityId).subject,
+            asIssueId(parseIssueEventRowId(ref.entityId).subject),
             prefetch,
           )
         } catch {
