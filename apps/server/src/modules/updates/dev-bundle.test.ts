@@ -347,6 +347,24 @@ describe('buildDevBundle', () => {
     ])
   })
 
+  it('retains the exact advertised bytes when the build output is later overwritten', async () => {
+    const mutableBytes = new Uint8Array([1, 2, 3, 4])
+    const built = await buildDevBundle({
+      headSha: '123456789abcdef',
+      lock: lockFixture([]),
+      spawnBuild: async () => ({ bytes: mutableBytes, signature: 'signed' }),
+    })
+    const advertisedDigest = built.digest
+
+    mutableBytes.set([4, 3, 2, 1])
+
+    expect(Array.from(built.bytes)).toEqual([1, 2, 3, 4])
+    expect(built.digest).toBe(advertisedDigest)
+    expect(built.digest).toBe(
+      'sha256-' + createHash('sha256').update(built.bytes).digest('base64'),
+    )
+  })
+
   it('releases the lease and keeps a failed build unpublished', async () => {
     const events: string[] = []
     await expect(

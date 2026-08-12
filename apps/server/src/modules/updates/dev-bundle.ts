@@ -351,6 +351,7 @@ export const DEV_ARTIFACT_ROUTE = '/updates/dev-bundle'
 export interface BuiltDevBundle {
   version: string
   path: string
+  bytes: Uint8Array<ArrayBuffer>
   digest: string
   signature: string
 }
@@ -493,7 +494,7 @@ async function readExistingDevBundle(
     }
   }
 
-  return { version, path, digest: sha256Digest(bytes), signature }
+  return { version, path, bytes: new Uint8Array(bytes), digest: sha256Digest(bytes), signature }
 }
 
 /**
@@ -558,6 +559,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
     return {
       version,
       path: artifactPath,
+      bytes: new Uint8Array(bytes),
       digest: sha256Digest(bytes),
       signature,
     }

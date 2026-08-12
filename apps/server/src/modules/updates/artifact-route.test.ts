@@ -15,6 +15,7 @@ const signature = sign(null, bytes, privateKey)
 const built: BuiltDevBundle = {
   version: 'dev+abc1234',
   path: '/stage/dev.tar.gz',
+  bytes,
   digest: 'sha256-fixture',
   signature: signature.toString('base64'),
 }
@@ -25,10 +26,6 @@ function appFor(authenticated = true) {
     current: () => built,
     authenticate: (request) =>
       authenticated && request.headers.get('authorization') === 'Bearer machine-token',
-    readFile: async (path) => {
-      if (path !== built.path) throw new Error('unexpected path')
-      return bytes
-    },
   })
   return app
 }
@@ -122,7 +119,6 @@ describe('development artifact route', () => {
     registerDevArtifactRoute(app, {
       current: () => current,
       authenticate: () => true,
-      readFile: async () => bytes,
     })
 
     current = { ...built, version: 'dev+new1234', path: '/stage/new.tar.gz' }

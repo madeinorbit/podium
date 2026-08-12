@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import type { Hono } from 'hono'
 import type { Context } from 'hono'
 import type { BuiltDevBundle } from './dev-bundle'
@@ -10,8 +9,6 @@ export interface DevArtifactRouteDeps {
   current(): BuiltDevBundle | null
   /** Machine authentication is mandatory, even when the human UI is open-mode. */
   authenticate(request: Request, context: Context): boolean | Promise<boolean>
-  /** Test seam; production reads the exact path returned by the build. */
-  readFile?(path: string): Promise<Uint8Array>
 }
 
 /**
@@ -29,8 +26,7 @@ export function registerDevArtifactRoute(app: Hono, deps: DevArtifactRouteDeps):
     if (!current || requested !== current.version) return c.text('not found', 404)
 
     try {
-      const bytes = await (deps.readFile ?? readFile)(current.path)
-      return c.body(new Uint8Array(bytes), 200, {
+      return c.body(current.bytes, 200, {
         'content-type': DEV_BUNDLE_CONTENT_TYPE,
         'cache-control': 'no-store',
       })
