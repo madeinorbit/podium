@@ -19,6 +19,7 @@
     "./setup": "./src/setup.ts",
     "./transfer-lifecycle": "./src/transfer-lifecycle.ts",
     "./loop-metrics": "./src/loop-metrics.ts",
+    "./task-attribution": "./src/task-attribution.ts",
     "./time-budget": "./src/time-budget.ts",
     "./local-machine": "./src/local-machine.ts",
     "./auth-store": "./src/auth-store.ts",

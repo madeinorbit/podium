@@ -24,6 +24,13 @@ import {
 } from '@podium/runtime/local-machine'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import {
+  attributeTasks,
+  formatTopTasks,
+  resetTaskAttribution,
+  taskAttributionCoverage,
+  taskAttributionTotals,
+} from '@podium/runtime/task-attribution'
+import {
   formatTopQueries,
   queryAttributionTotals,
   queryCallerStacks,
@@ -717,7 +724,17 @@ export async function startServer(
       // POD-1630: the per-second window that scopes SQL attribution to the
       // stall rather than to all of uptime — the same cadence the daemon's
       // loop-attribution uses, and for the same reason.
-      const attributionWindow = setInterval(() => resetQueryAttribution(), 1000)
+      // POD-1931: the SAME question one level out. Query attribution names the
+      // statements; this names the SCHEDULED CALLBACKS, which is where the rest
+      // of a stall lives — after the query-shaped costs were fixed, the phases
+      // and statements together accounted for barely a third of the blocked
+      // time. Installed before the subsystems schedule anything, so their timers
+      // are wrapped at creation.
+      attributeTasks()
+      const attributionWindow = setInterval(() => {
+        resetQueryAttribution()
+        resetTaskAttribution()
+      }, 1000)
       attributionWindow.unref?.()
       // POD-1653: the window above answers "what stalled this second"; a bench
       // run asks "what ran over the last minute, and WHO issued it". Both
@@ -730,6 +747,15 @@ export async function startServer(
           .slice(0, 15)
           .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
         loopLog.warn('query totals', { totals: out })
+        loopLog.warn('task totals', {
+          totals: [...taskAttributionTotals()]
+            .sort((a, b) => b[1].wallMs - a[1].wallMs)
+            .slice(0, 20)
+            .map(
+              ([label, c]) =>
+                `${c.count}x/${c.wallMs.toFixed(0)}ms/max${c.maxMs.toFixed(0)} ${label}`,
+            ),
+        })
         for (const [key, samples] of queryCallerStacks()) {
           loopLog.warn('query caller stacks', {
             query: key,
@@ -746,6 +772,13 @@ export async function startServer(
           // tRPC and phase counters could not fill the gap because the work
           // is not on either path. The top statements are that missing name.
           const sql = formatTopQueries()
+          // ...and the work that runs NO statement, which is most of what is
+          // left. `taskCoverage` is reported next to it on purpose: the top
+          // tasks are only worth reading against how much of the tick they
+          // actually cover, or the largest named thing gets mistaken for the
+          // cause again.
+          const tasks = formatTopTasks()
+          const taskCoverage = taskAttributionCoverage(ms)
           loopLog.warn('server event-loop stall', {
             durationMs: ms,
             heapUsedBytes: mu.heapUsed,
@@ -760,6 +793,7 @@ export async function startServer(
                 }
               : {}),
             ...(sql ? { sql } : {}),
+            ...(tasks ? { tasks, taskCoverage } : {}),
           })
         },
       })
