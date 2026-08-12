@@ -40,7 +40,7 @@ import {
 import { shallowEqual } from '@podium/client-core/store'
 import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -98,13 +98,12 @@ function authoredAt(input: unknown): Authored | null {
   return null
 }
 
-/** The author's own text, pulled out of their own input for display and export.
- *  A best-effort projection over an opaque payload — when nothing reads as prose
- *  we show the input as JSON rather than showing nothing, because the entire
- *  point is that the user can get their words back. */
-function authoredText(input: unknown): string {
+/** The author's own prose, pulled out of their own input for recovery. Opaque
+ *  bookkeeping fields stay hidden; raw payload JSON made the old menu look like
+ *  a debugger and exposed ids that did not help the person decide what to do. */
+function authoredText(input: unknown): string | null {
   if (typeof input === 'string') return input
-  return authoredAt(input)?.value ?? JSON.stringify(input, null, 2)
+  return authoredAt(input)?.value ?? null
 }
 
 function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Element {
@@ -124,7 +123,8 @@ function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Eleme
     ? baseCopy
     : { ...baseCopy, detail: unsatisfiableConfirmationDetail(rule), retryLabel: undefined }
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(() => authoredText(parked.entry.input))
+  const authored = authoredText(parked.entry.input)
+  const [draft, setDraft] = useState(() => authored ?? '')
   const [failed, setFailed] = useState<string | null>(null)
 
   const onRetry = (): void => {
@@ -159,12 +159,19 @@ function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Eleme
   }
 
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-border bg-card p-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="font-medium text-sm">{copy.title}</span>
-        <span className="text-muted-foreground text-xs">{kindLabel(parked.entry.kind)}</span>
+    <li className="flex flex-col gap-3 rounded-lg border border-border/80 bg-card p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+          <AlertTriangle size={15} aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h3 className="font-medium text-sm">{kindLabel(parked.entry.kind)}</h3>
+            <span className="text-muted-foreground text-xs">{copy.title}</span>
+          </div>
+          <p className="mt-1 text-muted-foreground text-xs leading-relaxed">{copy.detail}</p>
+        </div>
       </div>
-      <p className="text-muted-foreground text-xs">{copy.detail}</p>
 
       {/* THE USER'S OWN WORDS. Never the target's. */}
       {editing ? (
@@ -172,18 +179,25 @@ function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Eleme
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={4}
-          className="text-xs"
+          className="text-sm"
           aria-label="Your text"
         />
-      ) : (
-        <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">
-          {authoredText(parked.entry.input)}
-        </pre>
+      ) : authored !== null ? (
+        <div className="rounded-md bg-muted/70 px-3 py-2.5">
+          <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+            Your change
+          </span>
+          <p className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words text-sm">
+            {authored}
+          </p>
+        </div>
+      ) : null}
+
+      {failed && (
+        <p className="rounded bg-destructive/10 px-2 py-1.5 text-destructive text-xs">{failed}</p>
       )}
 
-      {failed && <p className="text-destructive text-xs">{failed}</p>}
-
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2 border-border/60 border-t pt-3">
         {editing ? (
           <>
             <Button
@@ -197,7 +211,7 @@ function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Eleme
                 recover.edit(parked.entry.mutationId, next)
               }}
             >
-              Save and send
+              Send updated
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
               Cancel
@@ -211,25 +225,23 @@ function DeadLetterRow({ parked }: { parked: OutboxDeadLetterEntry }): JSX.Eleme
                 between two situations that share one. */}
             {copy.retryLabel && (
               <Button size="sm" data-testid="outbox-retry" onClick={onRetry}>
+                <RotateCcw size={14} aria-hidden="true" />
                 {copy.retryLabel}
               </Button>
             )}
-            <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-              Edit
-            </Button>
+            {authored !== null && (
+              <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+                <Pencil size={14} aria-hidden="true" />
+                Edit
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => navigator.clipboard?.writeText(authoredText(parked.entry.input))}
-            >
-              Copy my text
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive"
+              className="ml-auto text-muted-foreground hover:text-destructive"
               onClick={() => recover.discard(parked.entry.mutationId)}
             >
+              <Trash2 size={14} aria-hidden="true" />
               Discard
             </Button>
           </>
@@ -297,30 +309,34 @@ export function OutboxRecoveryIndicator({ compact }: { compact?: boolean }): JSX
                 'inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-destructive',
                 compact && 'min-w-[30px] justify-center px-1',
               )}
-              aria-label={`${count} ${count === 1 ? 'change needs' : 'changes need'} your attention`}
+              aria-label={`${count} ${count === 1 ? 'change needs' : 'changes need'} review`}
             >
               <AlertTriangle size={14} aria-hidden="true" />
-              {!compact && <span>{count} needs you</span>}
+              {!compact && <span>{count} needs review</span>}
             </button>
           }
         />
         <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
           <strong>
-            {count} {count === 1 ? 'change' : 'changes'} the server refused
+            {count} {count === 1 ? 'change needs' : 'changes need'} review
           </strong>
-          <span className="text-background/70">Your text is kept — click to recover it</span>
+          <span className="text-background/70">Review or discard each one</span>
         </TooltipContent>
       </Tooltip>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Changes that need you</DialogTitle>
+        <DialogContent className="max-w-xl gap-5">
+          <DialogHeader className="pr-8">
+            <div className="mb-1 flex size-9 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <AlertTriangle size={18} aria-hidden="true" />
+            </div>
+            <DialogTitle>
+              Review {count} {count === 1 ? 'change' : 'changes'}
+            </DialogTitle>
           </DialogHeader>
-          <p className="text-muted-foreground text-xs">
-            These were refused by the server, so they were not applied. Nothing you wrote has been
-            thrown away.
+          <p className="-mt-3 text-muted-foreground text-sm">
+            These changes couldn’t be applied. Choose what to do with each one.
           </p>
-          <ul className="flex max-h-[60vh] flex-col gap-2 overflow-auto">
+          <ul className="flex max-h-[60vh] flex-col gap-3 overflow-auto pr-1">
             {deadLetters.map((parked) => (
               <DeadLetterRow key={parked.entry.mutationId} parked={parked} />
             ))}

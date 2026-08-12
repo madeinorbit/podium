@@ -296,6 +296,13 @@ export interface OutboxInit<M extends Record<string, object>> {
    * older adapters keep compiling rather than silently losing the park.
    */
   deadLetterStorage?: OutboxStorage
+  /**
+   * Command-level licence to retire non-authored bookkeeping instead of asking
+   * a person to recover it. The callback must depend only on the entry kind (or
+   * other author-known input), never on target truth or refusal detail; returning
+   * false is the safe default that preserves the entry.
+   */
+  shouldDiscardDeadLetter?: (entry: OutboxEntry) => boolean
   /** Flat retry cadence while entries remain after a network failure. */
   retryMs?: number
   /** Injectable for tests/adapters; defaults to online when unknown. */
@@ -358,10 +365,14 @@ export class Outbox<M extends Record<string, object>> {
       this.storage.save(this.entries)
       this.saveAwaiting()
     }
-    this.deadLetterEntries = (this.deadLetterStorage?.load() ?? []).flatMap((e) => {
+    const restoredDeadLetters = (this.deadLetterStorage?.load() ?? []).flatMap((e) => {
       const parked = toDeadLetter(e)
       return parked ? [parked] : []
     })
+    this.deadLetterEntries = restoredDeadLetters.filter(
+      (parked) => !this.shouldDiscardDeadLetter(parked.entry),
+    )
+    if (this.deadLetterEntries.length !== restoredDeadLetters.length) this.saveDeadLetters()
     this.now = init.now ?? Date.now
     this.randomId = init.randomId ?? randomUUID
     this.attach()
@@ -522,7 +533,11 @@ export class Outbox<M extends Record<string, object>> {
     const aged = this.entries.filter((e) => e.queuedAt < cutoff)
     if (aged.length === 0) return []
     this.entries = this.entries.filter((e) => e.queuedAt >= cutoff)
-    const parked = aged.map((e) => this.park(e, MAX_AGE_REASON, 'expired'))
+    const parked = aged.flatMap((entry) =>
+      this.shouldDiscardDeadLetter(entry)
+        ? []
+        : [this.park(entry, MAX_AGE_REASON, 'expired')],
+    )
     this.persist()
     return parked
   }
@@ -601,11 +616,14 @@ export class Outbox<M extends Record<string, object>> {
         if (refusal) {
           // DEFINITIVE (D10: zero automatic retries). The entry leaves the drain
           // queue — it would refuse identically forever and block its partition —
-          // but it is PARKED, not dropped. D9 invariant 1: the only two licences
-          // to make user-authored work gone are a successful apply and the user's
-          // own discard, and neither of those is this.
+          // Authored intent is PARKED, not dropped. Explicitly classified,
+          // non-content bookkeeping may instead retire here: it has no words or
+          // decision for a person to recover, and surfacing it would misattribute
+          // a client reaction as their failed edit.
           this.entries.shift()
-          this.park(entry, normalizeRefusal(refusal), 'rejected')
+          if (!this.shouldDiscardDeadLetter(entry)) {
+            this.park(entry, normalizeRefusal(refusal), 'rejected')
+          }
           this.persist()
           this.init.onPoison?.(entry, err)
           continue
@@ -642,6 +660,15 @@ export class Outbox<M extends Record<string, object>> {
 
   private online(): boolean {
     return this.init.isOnline?.() ?? true
+  }
+
+  /** A failing policy callback cannot license data loss. */
+  private shouldDiscardDeadLetter(entry: OutboxEntry): boolean {
+    try {
+      return this.init.shouldDiscardDeadLetter?.(entry) === true
+    } catch {
+      return false
+    }
   }
 
   /**

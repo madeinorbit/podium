@@ -1,6 +1,7 @@
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { deadLetterHandlingFor } from './engine/wiring'
 import {
   createOutbox,
   type Outbox,
@@ -12,6 +13,7 @@ import {
 type Kinds = {
   rename: { sessionId: SessionId; name: string }
   snoozeClear: { sessionId: SessionId }
+  issueMarkRead: { id: string }
 }
 
 function memoryStorage(seed: string | null = null): {
@@ -45,7 +47,14 @@ function makeExecutors(
       calls.push({ kind, input })
       return impl(kind, input)
     }
-  return { calls, executors: { rename: wrap('rename'), snoozeClear: wrap('snoozeClear') } }
+  return {
+    calls,
+    executors: {
+      rename: wrap('rename'),
+      snoozeClear: wrap('snoozeClear'),
+      issueMarkRead: wrap('issueMarkRead'),
+    },
+  }
 }
 
 const outboxes: Outbox<Kinds>[] = []
@@ -656,6 +665,57 @@ describe('definitive refusals park for recovery instead of retrying forever', ()
     ])
     await second.drain()
     expect(calls).toEqual([])
+  })
+
+  it('retires refused automatic read receipts and cleans receipts parked by an older build', async () => {
+    const queued = memoryStorage()
+    const dead = memoryStorage()
+    const automatic = (entry: OutboxEntry) =>
+      deadLetterHandlingFor(entry.kind) === 'discard-automatic'
+    const first = createOutbox<Kinds>({
+      executors: makeExecutors(async () => {
+        throw refusal({ code: 'NOT_FOUND' })
+      }).executors,
+      storage: queued.storage,
+      deadLetterStorage: dead.storage,
+      randomId: deterministicIds(),
+    })
+    outboxes.push(first)
+    first.enqueue('issueMarkRead', { id: 'purged-issue' })
+    await first.drain()
+    expect(first.deadLetters()).toHaveLength(1)
+    first.dispose()
+
+    const surfaced: string[] = []
+    const second = createOutbox<Kinds>({
+      executors: makeExecutors().executors,
+      storage: queued.storage,
+      deadLetterStorage: dead.storage,
+      shouldDiscardDeadLetter: automatic,
+      onDeadLetter: (parked) => surfaced.push(parked.entry.mutationId),
+    })
+    outboxes.push(second)
+    expect(second.deadLetters()).toEqual([])
+    expect(parseOutboxEntries(dead.raw())).toEqual([])
+
+    // A separate live outbox asserts the policy at the rejection boundary as
+    // well as at startup adoption.
+    const live = createOutbox<Kinds>({
+      executors: makeExecutors(async () => {
+        throw refusal({ code: 'FORBIDDEN' })
+      }).executors,
+      storage: memoryStorage().storage,
+      deadLetterStorage: memoryStorage().storage,
+      shouldDiscardDeadLetter: automatic,
+      randomId: deterministicIds(),
+      onDeadLetter: (parked) => surfaced.push(parked.entry.mutationId),
+    })
+    outboxes.push(live)
+    live.enqueue('issueMarkRead', { id: 'invisible-issue' })
+    await live.drain()
+    expect(live.size()).toBe(0)
+    expect(live.deadLetters()).toEqual([])
+    expect(surfaced).toEqual([])
   })
 })
 

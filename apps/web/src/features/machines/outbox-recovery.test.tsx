@@ -25,6 +25,7 @@ type Kinds = {
   /** POD-781's shape: a command wrapping a PATCH, so the operator's prose sits
    *  one level down at `patch.title` rather than on the input itself. */
   issueUpdate: { id: string; patch: { title?: string } }
+  issueSetTucked: { id: string; tucked: boolean }
 }
 
 /** The refusal under test, in the shape a tRPC error really arrives in. */
@@ -69,6 +70,9 @@ beforeEach(() => {
       issueUpdate: async () => {
         throw refuse(refusalCode)
       },
+      issueSetTucked: async () => {
+        throw refuse(refusalCode)
+      },
     },
   })
 })
@@ -93,7 +97,7 @@ describe('dead-letter recovery, at runtime', () => {
     expect(chip).toBeTruthy()
     fireEvent.click(chip)
 
-    await waitFor(() => expect(screen.getByText('Changes that need you')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Review 1 change')).toBeTruthy())
     // The recoverable intent: the user's own input, verbatim.
     expect(screen.getByText(/my careful title/)).toBeTruthy()
   })
@@ -107,7 +111,7 @@ describe('dead-letter recovery, at runtime', () => {
     await outbox.drain()
     render(<OutboxRecoveryIndicator />)
     fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByText('Changes that need you')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Review 1 change')).toBeTruthy())
 
     const dialog = screen.getByRole('dialog')
     // The author's OWN input is shown verbatim and may legitimately contain the
@@ -135,6 +139,9 @@ describe('dead-letter recovery, at runtime', () => {
           throw refuse(refusalCode)
         },
         issueUpdate: async () => {
+          throw refuse(refusalCode)
+        },
+        issueSetTucked: async () => {
           throw refuse(refusalCode)
         },
       },
@@ -198,7 +205,7 @@ describe('dead-letter recovery, at runtime', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     const box = screen.getByLabelText('Your text') as HTMLTextAreaElement
     fireEvent.change(box, { target: { value: 'fixed title' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save and send' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send updated' }))
 
     expect(outbox.deadLetters().some((d) => d.entry.mutationId === original)).toBe(false)
   })
@@ -224,11 +231,26 @@ describe('dead-letter recovery, at runtime', () => {
     const box = screen.getByLabelText('Your text') as HTMLTextAreaElement
     expect(box.value).toBe('bad title')
     fireEvent.change(box, { target: { value: 'fixed title' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save and send' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send updated' }))
 
     // The edit landed WHERE THE COMMAND READS IT, and took nothing else with it:
     // the re-queued entry still names the same issue.
     const requeued = outbox.pending().find((e) => e.mutationId !== original.mutationId)
     expect(requeued?.input).toEqual({ id: 'i1', patch: { title: 'fixed title' } })
+  })
+
+  it('shows a concise action row without dumping bookkeeping payloads', async () => {
+    outbox.enqueue('issueSetTucked', { id: 'SECRET-BOOKKEEPING-ID', tucked: true })
+    await outbox.drain()
+    render(<OutboxRecoveryIndicator />)
+    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+
+    const dialog = screen.getByRole('dialog')
+    expect(screen.getByText('Issue visibility')).toBeTruthy()
+    expect(dialog.textContent).not.toContain('SECRET-BOOKKEEPING-ID')
+    expect(dialog.textContent).not.toContain('"tucked"')
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeTruthy()
   })
 })

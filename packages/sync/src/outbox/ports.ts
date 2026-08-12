@@ -210,6 +210,8 @@ export type OutboxEvent =
    * pending without ever having been sent.
    */
   | { readonly type: 'superseded'; readonly mutationId: MutationId }
+  /** Non-content client bookkeeping retired by an explicit command policy. */
+  | { readonly type: 'retired-automatic'; readonly mutationId: MutationId }
   /** Retired after covering truth landed (D9 invariant 1's second licence). */
   | { readonly type: 'retired'; readonly mutationId: MutationId }
   /**

@@ -244,6 +244,61 @@ export const OUTBOX_COMMANDS: Record<
 }
 
 /**
+ * Whether a definitive refusal represents authored intent that must wait for a
+ * person, or disposable client bookkeeping.
+ *
+ * This is deliberately keyed by COMMAND KIND, never by the authority's reason:
+ * a missing, invisible and forbidden target all take the same branch, so this
+ * policy cannot reopen the existence oracle by cleaning up one of them and
+ * surfacing another. Unknown commands fail closed into recovery.
+ *
+ * `issueMarkRead` is emitted eagerly by the foreground-issue reaction. It
+ * carries no content and, once its issue has been purged or moved out of scope,
+ * there is no useful repair a person can perform. Keeping that receipt as a
+ * permission failure misattributes automatic bookkeeping to the user.
+ */
+export type OutboxDeadLetterHandling = 'recover' | 'discard-automatic'
+
+export const OUTBOX_DEAD_LETTER_HANDLING: Record<
+  keyof OutboxKinds,
+  OutboxDeadLetterHandling
+> = {
+  pinSet: 'recover',
+  tabSetOrder: 'recover',
+  layoutSet: 'recover',
+  layoutClear: 'recover',
+  settingsUpdatePersonal: 'recover',
+  resumeAndSend: 'recover',
+  rename: 'recover',
+  setArchived: 'recover',
+  setWorkState: 'recover',
+  snoozeSet: 'recover',
+  snoozeClear: 'recover',
+  sessionMarkRead: 'recover',
+  sessionMarkUnread: 'recover',
+  issueMarkRead: 'discard-automatic',
+  issueMarkUnread: 'recover',
+  issueSetTucked: 'recover',
+  issueUpdate: 'recover',
+  issueArchive: 'recover',
+  issueDelete: 'recover',
+  issueClose: 'recover',
+  issueDefer: 'recover',
+  issueUndefer: 'recover',
+  issueSetLabels: 'recover',
+  issueSetPlacement: 'recover',
+  issueRestore: 'recover',
+}
+
+export function deadLetterHandlingFor(kind: string): OutboxDeadLetterHandling {
+  return (
+    OUTBOX_DEAD_LETTER_HANDLING[kind as keyof OutboxKinds] ??
+    // Unknown work may contain authored content. Preserve it for recovery.
+    'recover'
+  )
+}
+
+/**
  * POD-785 — WHERE each queued write sits in the queue, and WHETHER a later write
  * of the same kind makes it redundant.
  *
@@ -588,6 +643,8 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
     storage: args.replica.outboxStorage(),
     awaitingStorage: args.replica.outboxAwaitingStorage(),
     deadLetterStorage: args.replica.outboxDeadLetterStorage(),
+    shouldDiscardDeadLetter: (entry) =>
+      deadLetterHandlingFor(entry.kind) === 'discard-automatic',
     executors: outboxExecutors(api),
     onApplied: args.onApplied,
     // A definitively-refused entry can never sync AS IT IS — but it is no longer

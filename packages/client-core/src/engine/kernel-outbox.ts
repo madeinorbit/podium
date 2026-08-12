@@ -33,6 +33,7 @@ import {
   OUTBOX_COMMANDS,
   outboxExecutors,
   type OutboxKinds,
+  deadLetterHandlingFor,
   outboxRoutingFor,
 } from './wiring'
 
@@ -54,6 +55,18 @@ function kindFor(record: Pick<OutboxRecord, 'command'>): keyof OutboxKinds {
   const kind = kindByCommand.get(record.command.name)
   if (kind === undefined) throw new Error(`unknown kernel Outbox command: ${record.command.name}`)
   return kind
+}
+
+function shouldDiscardDeadLetter(record: Pick<OutboxRecord, 'command'>): boolean {
+  const kind = kindByCommand.get(record.command.name)
+  return kind !== undefined && deadLetterHandlingFor(kind) === 'discard-automatic'
+}
+
+async function discardAutomaticDeadLetters(kernel: KernelOutbox): Promise<void> {
+  for (const record of kernel.deadLetters()) {
+    if (!shouldDiscardDeadLetter(record)) continue
+    await kernel.retireAutomaticBookkeeping(record.mutationId)
+  }
 }
 
 /**
@@ -135,13 +148,16 @@ class KernelEngineOutbox implements EngineOutbox {
   }
 
   deadLetters(): OutboxDeadLetterEntry[] {
-    return this.kernel.deadLetters().map((record) => ({
-      entry: this.toEntry(record),
-      reason: record.reason,
-      parkedFrom: record.parkedFrom,
-      deadLetteredAt: record.deadLetteredAt,
-      attempts: record.attempts,
-    }))
+    return this.kernel
+      .deadLetters()
+      .filter((record) => !shouldDiscardDeadLetter(record))
+      .map((record) => ({
+        entry: this.toEntry(record),
+        reason: record.reason,
+        parkedFrom: record.parkedFrom,
+        deadLetteredAt: record.deadLetteredAt,
+        attempts: record.attempts,
+      }))
   }
 
   async enqueue<K extends keyof OutboxKinds & string>(
@@ -211,6 +227,13 @@ class KernelEngineOutbox implements EngineOutbox {
     } catch (error) {
       this.onDegraded(error)
     } finally {
+      try {
+        await discardAutomaticDeadLetters(this.kernel)
+      } catch (error) {
+        // A genuinely unwritable store stays loud. We suppress the ordinary
+        // recovery UI for bookkeeping, not durability failures.
+        this.onDegraded(error)
+      }
       this.scheduleRetry()
     }
   }
@@ -225,17 +248,20 @@ class KernelEngineOutbox implements EngineOutbox {
     } else if (event.type === 'dead-lettered') {
       const entry = this.toEntry(event.record)
       this.callbacks.onDropped?.(entry)
-      const parked = this.deadLetters().find(
-        (candidate) => candidate.entry.mutationId === event.record.mutationId,
-      )
-      if (parked !== undefined) {
-        this.callbacks.notices.error(
-          `A queued change (${entry.kind}) needs your attention — ${reasonSummary(parked.reason.code)}`,
+      if (deadLetterHandlingFor(entry.kind) !== 'discard-automatic') {
+        const parked = this.deadLetters().find(
+          (candidate) => candidate.entry.mutationId === event.record.mutationId,
         )
-        this.callbacks.onDeadLetter?.(parked)
+        if (parked !== undefined) {
+          this.callbacks.notices.error(
+            `A queued change (${entry.kind}) needs your attention — ${reasonSummary(parked.reason.code)}`,
+          )
+          this.callbacks.onDeadLetter?.(parked)
+        }
       }
     } else if (
       event.type === 'retired' ||
+      event.type === 'retired-automatic' ||
       event.type === 'cancelled' ||
       // POD-785: a collapsed entry leaves the queue without ever being sent, so
       // its side metadata has to go with it. Omitted, this Map would be a second
@@ -309,6 +335,15 @@ export async function openKernelEngineOutbox(
     onStoreUnreadable: options.onDegraded,
     onEvent: (event) => adapter?.onEvent(event),
   })
+  // Reconcile dead letters created by older builds before the runtime takes its
+  // first snapshot, so stale automatic receipts never flash in recovery.
+  try {
+    await discardAutomaticDeadLetters(kernel)
+  } catch (error) {
+    // Keep booting with the automatic entry filtered from recovery, while the
+    // real durability problem remains visible through the degraded-state path.
+    options.onDegraded(error)
+  }
   return (callbacks) => {
     if (adapter !== undefined) {
       throw new Error('kernel engine Outbox factory may only be consumed once')

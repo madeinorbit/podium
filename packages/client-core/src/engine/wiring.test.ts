@@ -2,8 +2,10 @@ import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 import {
+  deadLetterHandlingFor,
   isInitialConnectivityError,
   OUTBOX_COMMANDS,
+  OUTBOX_DEAD_LETTER_HANDLING,
   OUTBOX_ROUTING,
   type OutboxKinds,
   outboxRoutingFor,
@@ -74,6 +76,16 @@ const kinds = Object.keys(OUTBOX_COMMANDS) as (keyof OutboxKinds)[]
 
 const route = <K extends keyof OutboxKinds>(kind: K, input: OutboxKinds[K]) =>
   outboxRoutingFor(kind, input, 'mid-1')
+
+describe('automatic bookkeeping recovery policy', () => {
+  it('discards only automatic issue-read receipts and fails closed for unknown work', () => {
+    expect(Object.keys(OUTBOX_DEAD_LETTER_HANDLING).sort()).toEqual([...kinds].sort())
+    expect(kinds.filter((kind) => deadLetterHandlingFor(kind) === 'discard-automatic')).toEqual([
+      'issueMarkRead',
+    ])
+    expect(deadLetterHandlingFor('future-authored-command')).toBe('recover')
+  })
+})
 
 describe('POD-785 — outbox routing keys every write by its target', () => {
   it('routes every queued kind, with no kind left on a shared global partition', () => {

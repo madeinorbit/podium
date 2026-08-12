@@ -184,8 +184,10 @@ class OutboxConflict extends Error {
 const MUTATION_CONFLICT_ATTEMPTS = 5
 
 /**
- * The licences to make an entry gone. Every one of them is D9 invariant 1's
- * "user action or an applied retirement" — none is an exception to it.
+ * The licences to make an entry gone. Authored intent still has exactly D9
+ * invariant 1's two exits: user action or an applied retirement. The explicit
+ * bookkeeping arm is for commands whose contract contains no authored intent;
+ * callers must classify those commands before invoking it.
  */
 export type RemovalLicence =
   /** A successful `applied` retirement after covering truth landed. */
@@ -193,6 +195,8 @@ export type RemovalLicence =
   /** The user discarded it (or re-issued it under a fresh id, which is the same
    *  decision: they chose for this entry to stop existing). */
   | 'user-discarded'
+  /** Automatic, non-content bookkeeping that no person can meaningfully repair. */
+  | 'automatic-bookkeeping'
   /**
    * POD-785. A LATER write, authored by the same principal, still `queued` in the
    * same partition, carrying the same `collapseKey`, fully expresses this entry's
@@ -913,6 +917,26 @@ export class Outbox {
     }
     await this.mutate((draft) => {
       draft.remove(mutationId, 'user-discarded')
+    })
+  }
+
+  /**
+   * Retire a dead letter that the caller's command policy classifies as
+   * automatic, non-content bookkeeping. This is deliberately separate from
+   * `discard`: no user made this decision, and emitting a distinct event keeps
+   * telemetry and UI from misattributing it. The kernel verifies the lifecycle
+   * state; the command registry owns the authored-vs-bookkeeping classification.
+   */
+  async retireAutomaticBookkeeping(mutationId: MutationId): Promise<void> {
+    const record = this.require(mutationId)
+    if (record.state !== 'dead-letter') {
+      throw new OutboxUsageError(
+        `cannot retire automatic bookkeeping ${mutationId} from ${record.state}`,
+      )
+    }
+    await this.mutate((draft) => {
+      draft.remove(mutationId, 'automatic-bookkeeping')
+      draft.emit({ type: 'retired-automatic', mutationId })
     })
   }
 

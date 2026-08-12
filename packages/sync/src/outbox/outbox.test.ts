@@ -44,6 +44,11 @@ import {
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
 
 const CLOSE: OutboxCommand = { name: 'issues.close', version: 1, delivery: 'offline-eligible' }
+const MARK_READ: OutboxCommand = {
+  name: 'issues.markRead',
+  version: 1,
+  delivery: 'offline-eligible',
+}
 
 /** A human on `trpc`: actor and on-behalf-of are the same person, and the pair
  *  is still recorded as a pair (amendment D17.2). */
@@ -114,6 +119,13 @@ const close = (issue: string, extra: Partial<EnqueueRequest> = {}): EnqueueReque
   ...extra,
 })
 
+const markRead = (issue: string): EnqueueRequest => ({
+  command: MARK_READ,
+  input: { id: issue },
+  attribution: ADA,
+  partitionKey: `issue:${issue}`,
+})
+
 const types = (events: readonly OutboxEvent[]): string[] => events.map((e) => e.type)
 const state = (outbox: Outbox, id: MutationId): string | undefined => outbox.find(id)?.state
 
@@ -166,6 +178,22 @@ describe('local ack, acceptance and application are three distinct events', () =
     expect(outbox.all()).toEqual([])
     expect(store.durable()).toEqual([])
     expect(types(events)).toContain('retired')
+  })
+})
+
+describe('automatic bookkeeping retirement', () => {
+  it('retires a dead letter without recording a user discard', async () => {
+    const { outbox, events, store } = await harness(() => notFound)
+    const receipt = await outbox.enqueue(markRead('POD-gone'))
+    await outbox.drain()
+    expect(outbox.deadLetters()).toHaveLength(1)
+
+    await outbox.retireAutomaticBookkeeping(receipt.mutationId)
+
+    expect(outbox.find(receipt.mutationId)).toBeUndefined()
+    expect(store.durable()).toEqual([])
+    expect(types(events)).toContain('retired-automatic')
+    expect(types(events)).not.toContain('cancelled')
   })
 })
 

@@ -67,44 +67,37 @@ export function recoveryCopyFor(code: OutboxRejectionCode): RecoveryCopy {
   switch (code) {
     case 'unauthorized':
       return {
-        title: 'Refused',
+        title: 'Server refused it',
         // True for all three situations the code covers. It tells the user the
         // ONE thing that is actionable — retrying unchanged will not help,
         // something about permissions has to change first — without asserting
         // that the target exists.
-        detail:
-          'The server refused this change. Retrying it unchanged will not help; ' +
-          'it needs a permissions change first, or you can edit it or discard it.',
+        detail: 'Retry only after access has changed.',
         retryLabel: 'Retry after fixing access',
       }
     case 'conflict':
       return {
-        title: 'Someone else got there first',
-        detail:
-          'This was written against an older version. Retry to reapply it on top of the current one, ' +
-          'or edit it if their change means yours should read differently.',
-        retryLabel: 'Retry on the latest version',
+        title: 'Changed elsewhere',
+        detail: 'Retry to apply your change to the latest version.',
+        retryLabel: 'Retry on latest',
       }
     case 'invalid':
       return {
-        title: 'Not accepted as written',
-        detail: 'The server would not accept this. Edit it and send it again, or discard it.',
+        title: 'Needs editing',
+        detail: 'The server could not accept it as written.',
         retryLabel: undefined,
       }
     case 'confirmation-required':
       return {
         title: 'Needs confirming',
-        detail:
-          'This change reaches outside what you are working on, so it needs confirming before it applies.',
-        retryLabel: 'Confirm and retry',
+        detail: 'Confirm this change before sending it again.',
+        retryLabel: 'Confirm & retry',
       }
     case 'max-age':
       return {
-        title: 'Waited too long',
-        detail:
-          'This sat unsent for longer than the server remembers, so it cannot be sent under its ' +
-          'original identity. Retry to send it as a new change, or discard it.',
-        retryLabel: 'Send as a new change',
+        title: 'Too old to send',
+        detail: 'Send it again as a new change.',
+        retryLabel: 'Send again',
       }
   }
 }
@@ -114,16 +107,16 @@ export function recoveryCopyFor(code: OutboxRejectionCode): RecoveryCopy {
  *  has to be able to tell their queued changes apart. */
 export function kindLabel(kind: string): string {
   const labels: Record<string, string> = {
-    rename: 'Rename',
-    setArchived: 'Archive',
-    setWorkState: 'Work state',
-    snoozeSet: 'Snooze',
-    snoozeClear: 'Snooze cleared',
-    sessionMarkRead: 'Mark read',
-    sessionMarkUnread: 'Mark unread',
-    issueMarkRead: 'Issue marked read',
-    issueMarkUnread: 'Issue marked unread',
-    issueSetTucked: 'Issue tucked',
+    rename: 'Session rename',
+    setArchived: 'Session archive',
+    setWorkState: 'Session work state',
+    snoozeSet: 'Session snooze',
+    snoozeClear: 'Clear session snooze',
+    sessionMarkRead: 'Session read status',
+    sessionMarkUnread: 'Session unread status',
+    issueMarkRead: 'Issue read status',
+    issueMarkUnread: 'Issue unread status',
+    issueSetTucked: 'Issue visibility',
     // POD-781. `issueUpdate` is one kind carrying any of two dozen fields, so it
     // gets the honest generic label rather than a guess at which one the user
     // changed — the row already shows their own words for the fields that have
@@ -140,7 +133,7 @@ export function kindLabel(kind: string): string {
     issueSetLabels: 'Issue labels',
     issueSetPlacement: 'Issue moved',
     issueRestore: 'Issue restored',
-    resumeAndSend: 'Message',
+    resumeAndSend: 'Message to agent',
   }
   return labels[kind] ?? kind
 }
@@ -189,6 +182,6 @@ export function inlineConfirmationCanSatisfy(rule: ConfirmationRule): boolean {
 /** What to say when the refusal is real but this surface cannot resolve it. */
 export function unsatisfiableConfirmationDetail(rule: ConfirmationRule): string {
   return rule === 'broker'
-    ? 'This needs an approval from someone else before it can go through. Your text is kept here until it does.'
-    : 'The server asked for a confirmation this change is not set up to carry. Report it; your text is kept here.'
+    ? 'An approval is required before this can be sent.'
+    : 'This change cannot carry the confirmation the server requested.'
 }
