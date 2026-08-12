@@ -69,7 +69,13 @@ import {
   type RouteState,
   routeDefaults,
 } from '../ui-state'
-import { openTab, type RecentFileEntry, reposToViews, type WorkspaceKey } from '../viewmodels'
+import {
+  allTabIds,
+  openTab,
+  type RecentFileEntry,
+  reposToViews,
+  type WorkspaceKey,
+} from '../viewmodels'
 import { createEngineActions, type EngineActions } from './actions'
 import { BootFetches } from './boot'
 import { dedupeSessions, OptimismLedger } from './optimism'
@@ -768,10 +774,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private openWorkspaceTab(
     tabId: string,
     selection?: { selectedIssueId?: IssueId | null; selectedWorktree?: string | null },
+    permanent = true,
   ): WorkspacePatch {
     const st = { ...this.state, ...selection }
     const key = workspaceKeyForState(st)
-    const next = openTab(workspaceFor(st, key), tabId, { permanent: true })
+    const next = openTab(workspaceFor(st, key), tabId, { permanent })
     this.workspaceKey = key
     return workspaceWritePatch(st, key, next)
   }
@@ -938,28 +945,47 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   // Land a just-opened file/artifact tab on screen (#101) — the file-tab twin of
-  // navigateToSession: opening a tab from a non-workspace view (issues page,
-  // peek overlay) must switch to the workspace through the router. Selecting
-  // the tab's issue/worktree keeps fileTabsForWorkspace from dropping the tab
-  // and bouncing the pane; an open peek overlay is closed so the tab is visible.
-  private revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void {
+  // navigateToSession: opening a tab from a non-workspace view (the issues page,
+  // the issue explorer) must switch to the workspace through the router.
+  // Selecting the tab's issue/worktree keeps fileTabsForWorkspace from dropping
+  // the tab and bouncing the pane.
+  private revealFileTab(args: {
+    tabId: string
+    worktreePath?: string
+    issueId?: IssueId
+    permanent?: boolean
+  }): void {
     const selection = {
       ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
       ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
     }
     this.apply({
       ...selection,
-      ...(this.state.peekIssueId ? { peekIssueId: null } : {}),
       // The tab is a real member of the landing workspace, not just a pane
       // value — otherwise the strip would not show what the pane is rendering.
       // Its mirror sets paneA/focusedPane, so nothing here writes them twice.
-      ...this.openWorkspaceTab(args.tabId, selection),
+      ...this.openWorkspaceTab(args.tabId, selection, args.permanent !== false),
     })
+    // A PREVIEW open retires the temporary tab it replaces, and the layout is
+    // the only thing that knows which. `closeFileTab` drops the record with the
+    // layout entry for exactly this reason — a record with no tab anywhere is a
+    // file listed as open with nothing rendering it — so the retirement path
+    // owes the same sweep.
+    this.dropOrphanFileTabs()
     this.router.navigate({
       ...routeDefaults('workspace'),
       ...(args.worktreePath ? { worktree: args.worktreePath } : {}),
       pane: args.tabId,
     })
+  }
+
+  /** Forget `fileTabs` records no workspace layout still holds a tab for. */
+  private dropOrphanFileTabs(): void {
+    const live = new Set(
+      Object.values(this.state.workspaces).flatMap((ws) => (ws ? allTabIds(ws) : [])),
+    )
+    const kept = this.state.fileTabs.filter((tab) => live.has(tab.id))
+    if (kept.length !== this.state.fileTabs.length) this.apply({ fileTabs: kept })
   }
 
   // Remember an opened file for the "+"-menu Recent-files list (POD-149) —

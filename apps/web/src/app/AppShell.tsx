@@ -5,7 +5,6 @@ import type { CSSProperties, JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
-import { IssuePeekOverlay } from '@/components/IssuePeekOverlay'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -533,9 +532,6 @@ function AppBody(): JSX.Element {
           floating miniview. Both render nothing until there's something to show. */}
         <RefPrefixSync />
         <RefMiniviewHost />
-        {/* The issue peek drawer (POD-95): a chat ref's "open" — slides in OVER
-          the right edge (dock + rail included), above the normal UI. */}
-        <IssuePeekOverlay />
       </IssueExplorerProvider>
     </OperatorFocusProvider>
   )

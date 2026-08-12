@@ -74,7 +74,6 @@ export const UI_LOCAL_ACTIONS = [
   'setView',
   'setSettingsTab',
   'setOpenIssueId',
-  'setPeekIssueId',
   'setSuperThreadId',
   'setPaletteOpen',
   'setSelectedWorktree',
@@ -148,7 +147,6 @@ type ActionState = {
   sessions: SessionMeta[]
   issues: IssueWire[]
   repos: Store['repos']
-  peekIssueId: IssueId | null
   superThreadId: string
   superOpen: boolean
   dockTab: DockTab
@@ -186,7 +184,14 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
   enqueueOverlayed<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): void
-  revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void
+  revealFileTab(args: {
+    tabId: string
+    worktreePath?: string
+    issueId?: IssueId
+    /** Default true. False opens the file as the workspace's ONE preview tab —
+     *  the file tree's single click (POD-788). */
+    permanent?: boolean
+  }): void
   recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void
   spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
     sessionId: SessionId
@@ -344,7 +349,6 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         rt.router.navigate({ ...current, view: 'issues', issueId: id })
       }
     },
-    setPeekIssueId: (peekIssueId) => rt.apply({ peekIssueId }),
     setSuperThreadId: (superThreadId) => rt.apply({ superThreadId }),
     setSuperOpen: (superOpen) => rt.apply({ superOpen }),
     setDockTab: (dockTab) => rt.apply({ dockTab }),
@@ -547,7 +551,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
               },
             ],
       })
-      rt.revealFileTab({ tabId: id, worktreePath: args.root, ...(issueId ? { issueId } : {}) })
+      rt.revealFileTab({
+        tabId: id,
+        worktreePath: args.root,
+        ...(issueId ? { issueId } : {}),
+        ...(args.permanent === false ? { permanent: false } : {}),
+      })
       rt.recordRecentFile({
         path: args.path,
         worktreePath: args.root,

@@ -25,6 +25,7 @@ import { asClientPrincipal } from '../principal'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import type { RouterWindow } from '../ui-state'
+import { allTabIds } from '../viewmodels'
 import { COARSE_CLOCK_MS, createClientRuntime } from './runtime'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -1388,7 +1389,6 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
     engine.start()
     await settle()
-    engine.getSnapshot().setPeekIssueId(asIssueId('iss_1'))
     engine.getSnapshot().openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
@@ -1401,8 +1401,6 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     expect(st.selectedIssueId).toBe('iss_1')
     expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
     expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
-    // the peek overlay is closed so the opened tab is actually visible
-    expect(st.peekIssueId).toBeNull()
     // the URL landed on the workspace with the tab as the pane and STAYED there
     expect(rw.url()).toContain('/workspace')
     expect(decodeURIComponent(rw.url())).toContain('pane=file:a:iss_1:abc123:index.html')
@@ -1564,6 +1562,60 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     expect(st.fileTabs).toHaveLength(1)
     expect(st.fileTabs[0]?.issueId).toBe('iss_1')
     expect(st.selectedIssueId).toBe('iss_1')
+    engine.dispose()
+  })
+
+  it('opens a file as the workspace preview, and the next preview replaces it (POD-788)', async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    const preview = (path: string): void =>
+      engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path, permanent: false })
+
+    preview('a.md')
+    let st = engine.getSnapshot()
+    let ws = st.workspaces[st.workspaceKey()]
+    expect(ws?.previewTabId).toBe('file:w:/tmp/known-repo:a.md')
+
+    // The glance moves on: one temporary tab, in the same strip slot, and the
+    // record of the file nothing is rendering any more goes with it.
+    preview('b.md')
+    st = engine.getSnapshot()
+    ws = st.workspaces[st.workspaceKey()]
+    expect(ws?.previewTabId).toBe('file:w:/tmp/known-repo:b.md')
+    expect(ws ? allTabIds(ws) : []).toEqual(['file:w:/tmp/known-repo:b.md'])
+    expect(st.fileTabs.map((t) => t.path)).toEqual(['b.md'])
+    // Still reachable from the "+" menu — a glance is not a close.
+    expect(st.recentFiles.map((r) => r.path)).toEqual(['b.md', 'a.md'])
+
+    // A double click (and every caller that has not thought about it) keeps it.
+    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
+    st = engine.getSnapshot()
+    ws = st.workspaces[st.workspaceKey()]
+    expect(ws?.previewTabId).toBe(null)
+    expect(st.fileTabs.map((t) => t.path)).toEqual(['c.md'])
+    engine.dispose()
+  })
+
+  it('promotes the previewed file in place, so the next glance leaves it alone', async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine
+      .getSnapshot()
+      .openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', permanent: false })
+    // What `usePreviewPromotion` fires when the operator types into the panel.
+    engine.getSnapshot().promoteWorkspaceTab('file:w:/tmp/known-repo:a.md')
+    engine
+      .getSnapshot()
+      .openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md', permanent: false })
+    const st = engine.getSnapshot()
+    const ws = st.workspaces[st.workspaceKey()]
+    expect(ws ? allTabIds(ws) : []).toEqual([
+      'file:w:/tmp/known-repo:a.md',
+      'file:w:/tmp/known-repo:b.md',
+    ])
+    expect(st.fileTabs.map((t) => t.path)).toEqual(['a.md', 'b.md'])
     engine.dispose()
   })
 

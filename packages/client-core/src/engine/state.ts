@@ -78,7 +78,6 @@ export interface EngineState {
   view: MainView
   settingsTab: string | null
   openIssueId: IssueId | null
-  peekIssueId: IssueId | null
   superThreadId: string
   superOpen: boolean
   dockTab: DockTab
@@ -497,7 +496,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     view: seed.persisted.view,
     settingsTab: seed.route.settingsTab,
     openIssueId: asIssueIdOrNull(seed.route.issueId),
-    peekIssueId: null,
     superThreadId: 'global',
     // Default OPEN: the superagent is the desktop shell's center column now, not
     // an optional dock — only an explicit close ('0') keeps it collapsed.

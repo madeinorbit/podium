@@ -1,6 +1,6 @@
 /**
  * Startability gate for the "Run now" quick actions (POD-110): the ref
- * miniview, the peek drawer, and the row context menu all offer a one-click
+ * miniview, the issue explorer, and the row context menu all offer a one-click
  * agent start, and they must agree on when it applies.
  *
  * Startable ⇔ no worktree yet (the canonical "already started / live agent"

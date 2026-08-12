@@ -881,9 +881,8 @@ export function IssuePanelView({
    *
    * Inside the explorer this PUSHES a level — the operator is browsing, and a
    * relation row that silently re-pointed the workspace at another task would
-   * be a navigation the trail cannot show or undo. Without it (the peek
-   * overlay) a linked row keeps the old behaviour and moves the shell, because
-   * there is no trail there to walk back along.
+   * be a navigation the trail cannot show or undo. Without it a linked row
+   * moves the shell instead, because there is no trail to walk back along.
    */
   onNavigate?: (issueId: string) => void
 }): JSX.Element {

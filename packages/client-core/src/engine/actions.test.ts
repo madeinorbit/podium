@@ -39,7 +39,6 @@ function harness() {
     sessions: [],
     issues: [],
     repos: [],
-    peekIssueId: null,
     superThreadId: 'global',
     superOpen: false,
     dockTab: 'chat' as const,
@@ -137,7 +136,6 @@ describe('engine action ownership boundary', () => {
   it('navigation, pane, selection, focus, and transient view changes never touch the Outbox', () => {
     const h = harness()
     h.actions.setView('workspace')
-    h.actions.setPeekIssueId(asIssueId('issue-1'))
     h.actions.setSelectedWorktree('/worktree')
     h.actions.setSelectedIssueId(asIssueId('issue-1'))
     h.actions.setPane('A', sessionId)

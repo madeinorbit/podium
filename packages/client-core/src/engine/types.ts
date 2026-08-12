@@ -173,12 +173,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Issues tab), or null when closed. Ephemeral — not persisted. */
   openIssueId: IssueId | null
   setOpenIssueId: (id: IssueId | null) => void
-  /** The issue peeked in the right dock (POD-95): a chat ref's "open" that stays
-   *  in the conversation. A labeled transient surface beside the Task panel —
-   *  not routed, not persisted; the full /issues/:id page remains openIssueId.
-   *  One peek at a time: opening another ref replaces it. */
-  peekIssueId: IssueId | null
-  setPeekIssueId: (id: IssueId | null) => void
   /** Whether the Cmd/Ctrl+K command palette is open. In the store (not palette-
    *  local) so other surfaces (toolbar button, shell shortcut) can open it. */
   paletteOpen: boolean
@@ -278,12 +272,18 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   recentFiles: RecentFileEntry[]
   openFile: (sessionId: SessionId, path: string) => void
   /** `issueId` names the owning issue explicitly (issue pages, legacy
-   *  artifacts); omitted, the open is stamped to the selected issue (POD-149). */
+   *  artifacts); omitted, the open is stamped to the selected issue (POD-149).
+   *
+   *  `permanent: false` is the file tree's single click (POD-788): the file
+   *  lands as the workspace's ONE temporary tab, exactly as a session previewed
+   *  from the flight deck does. Defaults to permanent — a caller that has not
+   *  thought about it wants a tab that stays. */
   openFileInWorktree: (args: {
     machineId?: string
     root: string
     path: string
     issueId?: IssueId
+    permanent?: boolean
   }) => void
   /** Open a permanent artifact snapshot as a read-only file tab ([spec:SP-0fc9]
    *  #441). `path` is the relpath inside the artifact dir (bundle entry or the

@@ -6,6 +6,7 @@ import {
   type RefIssueLike,
   type RefSessionLike,
   resolveRef,
+  sessionForIssue,
   sessionWorkingIssueRef,
 } from './ref-miniview'
 
@@ -131,5 +132,99 @@ describe('sessionWorkingIssueRef', () => {
         { id: asIssueId('iss_9'), seq: 9, title: 'legacy, no displayRef' },
       ]),
     ).toBeNull()
+  })
+})
+
+describe('sessionForIssue (POD-786)', () => {
+  const epic: RefIssueLike = {
+    id: asIssueId('iss_epic'),
+    prefix: 'POD',
+    seq: 500,
+    displayRef: 'POD-500',
+    title: 'Epic',
+  }
+  const child: RefIssueLike = {
+    id: asIssueId('iss_child'),
+    prefix: 'POD',
+    seq: 517,
+    displayRef: 'POD-517',
+    title: 'Subtask',
+    parentId: asIssueId('iss_epic'),
+  }
+  const tree = [epic, child]
+  const live = (
+    over: Omit<Partial<RefSessionLike>, 'sessionId'> & { sessionId: string },
+  ): RefSessionLike => ({
+    cwd: '/repo',
+    lastActiveAt: '2026-08-01T00:00:00.000Z',
+    ...over,
+    sessionId: asSessionId(over.sessionId),
+  })
+
+  it('lands on the task’s own session, and says so by naming the task itself', () => {
+    const own = live({ sessionId: 's_child', issueId: 'iss_child', displayRef: 'POD-517-A' })
+    const target = sessionForIssue(child, tree, [own])
+    expect(target?.session.sessionId).toBe('s_child')
+    expect(target?.via.id).toBe('iss_child')
+  })
+
+  it('falls back to the ancestor that HAS a session for a sessionless subtask', () => {
+    const parentSession = live({
+      sessionId: 's_epic',
+      issueId: 'iss_epic',
+      displayRef: 'POD-500-A',
+    })
+    const target = sessionForIssue(child, tree, [parentSession])
+    expect(target?.session.sessionId).toBe('s_epic')
+    // `via` is the ancestor, which is how the card knows to say "parent session".
+    expect(target?.via.id).toBe('iss_epic')
+  })
+
+  it('prefers the designated coordinator over the more recent member', () => {
+    const issue = { ...epic, coordinatorSessionId: asSessionId('s_coord') }
+    const target = sessionForIssue(
+      issue,
+      [issue],
+      [
+        live({
+          sessionId: 's_coord',
+          issueId: 'iss_epic',
+          lastActiveAt: '2026-07-01T00:00:00.000Z',
+        }),
+        live({ sessionId: 's_new', issueId: 'iss_epic', lastActiveAt: '2026-08-09T00:00:00.000Z' }),
+      ],
+    )
+    expect(target?.session.sessionId).toBe('s_coord')
+  })
+
+  it('takes the most recently active member with no coordinator set', () => {
+    const target = sessionForIssue(
+      epic,
+      [epic],
+      [
+        live({ sessionId: 's_old', issueId: 'iss_epic', lastActiveAt: '2026-07-01T00:00:00.000Z' }),
+        live({ sessionId: 's_new', issueId: 'iss_epic', lastActiveAt: '2026-08-09T00:00:00.000Z' }),
+      ],
+    )
+    expect(target?.session.sessionId).toBe('s_new')
+  })
+
+  it('ignores exited, archived and shell sessions — they promise an agent that is not there', () => {
+    const dead = [
+      live({ sessionId: 's_exit', issueId: 'iss_epic', status: 'exited' }),
+      live({ sessionId: 's_arch', issueId: 'iss_epic', archived: true }),
+      live({ sessionId: 's_shell', issueId: 'iss_epic', agentKind: 'shell' }),
+    ]
+    expect(sessionForIssue(epic, [epic], dead)).toBeNull()
+  })
+
+  it('returns null when nothing in the chain has ever run', () => {
+    expect(sessionForIssue(child, tree, [])).toBeNull()
+  })
+
+  it('terminates on a cyclic parent chain', () => {
+    const a: RefIssueLike = { id: asIssueId('a'), seq: 1, title: 'a', parentId: asIssueId('b') }
+    const b: RefIssueLike = { id: asIssueId('b'), seq: 2, title: 'b', parentId: asIssueId('a') }
+    expect(sessionForIssue(a, [a, b], [])).toBeNull()
   })
 })
