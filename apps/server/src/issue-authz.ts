@@ -13,6 +13,7 @@ import {
   type Capability,
   type IssueAccessIndex,
   type IssueAction,
+  type UserId,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 
@@ -104,7 +105,7 @@ export function checkIssueAccess(
  * it could accidentally widen.
  */
 export function mayReadOwned(
-  userId: string | undefined,
+  userId: UserId | undefined,
   entity: { id: string; owner: string | null | undefined; grants?: readonly string[] },
 ): boolean {
   if (userId === undefined) return false

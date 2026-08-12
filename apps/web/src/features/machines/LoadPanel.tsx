@@ -10,7 +10,7 @@ import {
   placeReclaimable,
   residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
-import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
+import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId, MachineId } from '@podium/model'
 import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
@@ -49,7 +49,7 @@ export function LoadPanel({
   onOpenConnection,
   onOpenReclaim,
 }: {
-  machineId?: string
+  machineId?: MachineId
   pinned: boolean
   updateNote?: ReactNode
   onOpenConnection: () => void

@@ -30,8 +30,9 @@
  * a blank and a reader cannot mistake one for a configured secret.
  */
 
-import { createHash, randomUUID } from 'node:crypto'
-import { SERVER_SECRET_KEYS, type SecretPresenceWire, type ServerSecretKey } from '@podium/model'
+import { createHash, randomUUID
+} from 'node:crypto'
+import { SERVER_SECRET_KEYS, type SecretPresenceWire, type ServerSecretKey, type UserId } from '@podium/model'
 import { PortableCredentialBundle } from '@podium/protocol'
 import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
@@ -42,7 +43,7 @@ interface SecretRow {
   updated_at: string
 }
 
-function nativeLoginTransferKey(principalUserId: string, transferId: string): string {
+function nativeLoginTransferKey(principalUserId: UserId, transferId: string): string {
   const principal = createHash('sha256').update(principalUserId).digest('hex')
   return 'native-login-transfer:' + principal + ':' + transferId
 }
@@ -65,7 +66,7 @@ export class ServerSecretsRepository {
    * settings-secret vocabulary and are never part of presence().
    */
   putNativeLoginTransfer(
-    principalUserId: string,
+    principalUserId: UserId,
     bundle: PortableCredentialBundleValue,
     updatedAt = new Date().toISOString(),
   ): string {
@@ -75,7 +76,7 @@ export class ServerSecretsRepository {
   }
 
   getNativeLoginTransfer(
-    principalUserId: string,
+    principalUserId: UserId,
     transferId: string,
   ): PortableCredentialBundleValue | undefined {
     const row = this.db
@@ -90,14 +91,14 @@ export class ServerSecretsRepository {
     }
   }
 
-  clearNativeLoginTransfer(principalUserId: string, transferId: string): void {
+  clearNativeLoginTransfer(principalUserId: UserId, transferId: string): void {
     this.db
       .prepare('DELETE FROM server_secrets WHERE key = ?')
       .run(nativeLoginTransferKey(principalUserId, transferId))
   }
 
   private writeNativeLoginTransfer(
-    principalUserId: string,
+    principalUserId: UserId,
     transferId: string,
     bundle: PortableCredentialBundleValue,
     updatedAt: string,

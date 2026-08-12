@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { GitBranch, RefreshCw, WrapText } from 'lucide-react'
 import type { JSX } from 'react'
@@ -47,7 +48,7 @@ export function DiffSheet({
   refreshing,
 }: {
   cwd: string
-  machineId?: string
+  machineId?: MachineId
   /** The working-tree inventory, in the dock's own order. */
   entries: StatusEntry[]
   branch?: string | null
@@ -431,7 +432,7 @@ function useDiffs({
 }: {
   entries: StatusEntry[]
   cwd: string
-  machineId?: string
+  machineId?: MachineId
   selected: string
 }): Record<string, DiffState> {
   const { gitDiffFile, readFileScoped } = useStoreSelector(

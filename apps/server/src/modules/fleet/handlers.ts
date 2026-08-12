@@ -16,7 +16,7 @@
  * dependency does not drag the whole fleet module into the hub role.
  */
 
-import type { UpdateChannel } from '@podium/model'
+import type { UpdateChannel, UserId, MachineId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { Context } from '../../trpc'
@@ -136,7 +136,7 @@ export const machineUnshareHandler = ({
 export const machineTransferOwnershipHandler = ({
   ctx,
   input,
-}: FleetArgs<{ id: string; newOwnerUserId: string }>) => {
+}: FleetArgs<{ id: string; newOwnerUserId: UserId }>) => {
   const owner = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
   if (owner === null) {
     throw new TRPCError({
@@ -170,7 +170,7 @@ export const machineTransferOwnershipHandler = ({
 export const machineAdoptHandler = ({
   ctx,
   input,
-}: FleetArgs<{ id: string; newOwnerUserId: string }>) => {
+}: FleetArgs<{ id: string; newOwnerUserId: UserId }>) => {
   try {
     mods(ctx).machines.adoptMachine(input.id, input.newOwnerUserId)
   } catch (e) {
@@ -189,7 +189,7 @@ export const machineTransferServerHandler = ({
   ctx,
   input,
 }: FleetArgs<{
-  targetMachineId: string
+  targetMachineId: MachineId
   publicUrl: string
   port?: number
   confirmation: 'TRANSFER SERVER'
@@ -234,7 +234,7 @@ export const machinePairingCodeHandler = ({
 export const repoAddHandler = async ({
   ctx,
   input,
-}: FleetArgs<{ path: string; machineId?: string; prefix?: string }>) => {
+}: FleetArgs<{ path: string; machineId?: MachineId; prefix?: string }>) => {
   try {
     await ctx.repos.add(input.path, input.machineId, input.prefix)
   } catch (e) {
@@ -252,7 +252,7 @@ export const repoAddHandler = async ({
 export const repoAddManyHandler = async ({
   ctx,
   input,
-}: FleetArgs<{ paths: string[]; machineId?: string }>) => {
+}: FleetArgs<{ paths: string[]; machineId?: MachineId }>) => {
   const failed: { path: string; message: string }[] = []
   for (const path of input.paths) {
     try {
@@ -267,7 +267,7 @@ export const repoAddManyHandler = async ({
 export const repoRemoveHandler = async ({
   ctx,
   input,
-}: FleetArgs<{ path: string; machineId?: string }>) => {
+}: FleetArgs<{ path: string; machineId?: MachineId }>) => {
   await ctx.repos.remove(input.path, input.machineId)
   return ctx.repos.list()
 }
@@ -275,7 +275,7 @@ export const repoRemoveHandler = async ({
 export const repoSetPrefixHandler = ({
   ctx,
   input,
-}: FleetArgs<{ path: string; prefix: string; machineId?: string }>) => {
+}: FleetArgs<{ path: string; prefix: string; machineId?: MachineId }>) => {
   try {
     ctx.repos.setPrefix(input.path, input.prefix, input.machineId)
   } catch (e) {
@@ -305,7 +305,7 @@ export const discoveryRefreshReposHandler = ({ ctx }: FleetArgs<void>) =>
 export const discoveryScanFolderHandler = ({
   ctx,
   input,
-}: FleetArgs<{ path: string; maxDepth?: number; machineId?: string }>) =>
+}: FleetArgs<{ path: string; maxDepth?: number; machineId?: MachineId }>) =>
   ctx.registry.modules.rpc.scanRepos(
     [input.path],
     { includeHome: false, maxDepth: input.maxDepth ?? 6 },
@@ -315,7 +315,7 @@ export const discoveryScanFolderHandler = ({
 export const discoveryScanMachineHandler = ({
   ctx,
   input,
-}: FleetArgs<{ machineId: string; deep?: boolean; atPath?: string }>) => {
+}: FleetArgs<{ machineId: MachineId; deep?: boolean; atPath?: string }>) => {
   if (!ctx.discovery)
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'discovery unavailable' })
   return ctx.discovery.scan(input.machineId, {

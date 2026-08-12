@@ -14,7 +14,7 @@
  * Depends on nothing in `viewmodels/` except the shared view types.
  * Platform-neutral: no DOM, no storage.
  */
-import { isHeadlessSession, type AgentKind, type SessionMeta } from '@podium/model'
+import { isHeadlessSession, type AgentKind, type SessionMeta, type MachineId } from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ export interface SpawnRepoTarget {
   path: string
   name: string
   worktrees: readonly WorktreeView[]
-  machines?: readonly { machineId: string; path: string }[]
+  machines?: readonly { machineId: MachineId; path: string }[]
   repoId?: RepoView['repoId']
 }
 
@@ -54,7 +54,7 @@ export interface SpawnRepoTarget {
  */
 export function spawnTargetForRepo(
   repo: SpawnRepoTarget,
-  machineId?: string,
+  machineId?: MachineId,
 ): {
   worktree: WorktreeView
   repoName: string

@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import type { ServerTransferManifest, ServerTransferResultMessage } from '@podium/protocol'
 import type { ServerTransferRpc, ServerTransferRpcResult } from './types'
 
@@ -6,7 +7,7 @@ type WireReply = Omit<ServerTransferResultMessage, 'type' | 'requestId'>
 interface WireOwnedRpc {
   serverTransferPrepare(
     input: { transferId: string; manifest: ServerTransferManifest; manifestDigest: string },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<WireReply>
   serverTransferChunk(
     input: {
@@ -16,21 +17,21 @@ interface WireOwnedRpc {
       data: Buffer
       manifestDigest?: string
     },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<WireReply>
-  serverTransferValidate(id: string, digest: string, machineId: string): Promise<WireReply>
+  serverTransferValidate(id: string, digest: string, machineId: MachineId): Promise<WireReply>
   serverTransferPromote(
     id: string,
     digest: string,
     publicUrl: string,
-    machineId: string,
+    machineId: MachineId,
     port?: number,
   ): Promise<WireReply>
-  serverTransferAbort(id: string, reason: string | undefined, machineId: string): Promise<WireReply>
-  serverTransferAcknowledge(id: string, digest: string, machineId: string): Promise<WireReply>
+  serverTransferAbort(id: string, reason: string | undefined, machineId: MachineId): Promise<WireReply>
+  serverTransferAcknowledge(id: string, digest: string, machineId: MachineId): Promise<WireReply>
   serverTransferStatus(
     id: string | undefined,
-    machineId: string,
+    machineId: MachineId,
     digest?: string,
   ): Promise<WireReply>
 }

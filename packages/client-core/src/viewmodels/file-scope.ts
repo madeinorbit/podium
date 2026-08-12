@@ -1,7 +1,7 @@
-import type { ArtifactId, IssueId, SessionId } from '@podium/model'
+import type { ArtifactId, IssueId, SessionId, MachineId } from '@podium/model'
 export type FileScope =
   | { kind: 'session'; sessionId: SessionId }
-  | { kind: 'worktree'; machineId?: string; root: string }
+  | { kind: 'worktree'; machineId?: MachineId; root: string }
   /** A permanent issue-artifact snapshot ([spec:SP-0fc9] #441) — paths are
    *  relative to the artifact dir; served from the server-local store. */
   | { kind: 'artifact'; issueId: IssueId; artifactId: ArtifactId }

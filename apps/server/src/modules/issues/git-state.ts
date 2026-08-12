@@ -1,4 +1,4 @@
-import type { IssueGitState, IssueWire } from '@podium/model'
+import type { IssueGitState, IssueWire, MachineId } from '@podium/model'
 
 /**
  * Git-state probe [POD-98] — the pure half of the "has this task committed,
@@ -14,7 +14,7 @@ export interface GitProbeIo {
     op: string,
     cwd: string,
     args?: Record<string, string>,
-    machineId?: string,
+    machineId?: MachineId,
   ): Promise<{ ok: boolean; output: string }>
 }
 

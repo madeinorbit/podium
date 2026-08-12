@@ -112,7 +112,7 @@ export class IssueStore {
   }
 
   /** One issue's markers for the broadcast viewer, as the wire wants them. */
-  issueOverlay(issueId: string): IssueUserOverlay {
+  issueOverlay(issueId: IssueId): IssueUserOverlay {
     if (this.viewerState === null) {
       this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
     }
@@ -120,7 +120,7 @@ export class IssueStore {
   }
 
   /** The stored markers, for callers that need `pinnedAt` rather than `pinned`. */
-  issueUserState(issueId: string): StoredIssueUserState | undefined {
+  issueUserState(issueId: IssueId): StoredIssueUserState | undefined {
     if (this.viewerState === null) {
       this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
     }
@@ -135,7 +135,7 @@ export class IssueStore {
    * Bumps `issueInputsGen`: a marker change is an issue-side wire input, and
    * POD-723's memo would otherwise serve the pre-change payload.
    */
-  writeIssueUserState(issueId: string, patch: Partial<StoredIssueUserState>): void {
+  writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): void {
     const user = this.broadcastViewer()
     this.deps.store.issues.setIssueUserState(user, issueId, patch)
     if (this.viewerState === null) {

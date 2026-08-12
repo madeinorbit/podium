@@ -7,7 +7,7 @@
  * repository and injected here as `assignRepoIdToIssuesUnder`.
  */
 
-import type { RepoId } from '@podium/model'
+import type { RepoId, MachineId } from '@podium/model'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
@@ -120,7 +120,7 @@ export class ReposRepository {
   }
 
   /** Back-compat: flat list of paths across all machines. RepoRegistry.list() uses this. */
-  listRepoPaths(machineId?: string): string[] {
+  listRepoPaths(machineId?: MachineId): string[] {
     return this.listRepos(machineId).map((r) => r.path)
   }
 
@@ -139,7 +139,7 @@ export class ReposRepository {
     const prefixes = new Map(
       (
         this.db.prepare('SELECT repo_id, prefix FROM repo_prefixes').all() as {
-          repo_id: string
+          repo_id: RepoId
           prefix: string
         }[]
       ).map((r) => [r.repo_id, r.prefix] as const),
@@ -149,8 +149,8 @@ export class ReposRepository {
   }
 
   /** Full repo rows including machineId, originUrl, repoId and prefix (#474). */
-  listRepos(machineId?: string): {
-    machineId: string
+  listRepos(machineId?: MachineId): {
+    machineId: MachineId
     path: string
     originUrl: string | null
     repoId: RepoId | null
@@ -215,7 +215,7 @@ export class ReposRepository {
   repoForPrefix(prefix: string): { repoId: RepoId; path: string } | null {
     const row = this.db
       .prepare('SELECT repo_id FROM repo_prefixes WHERE prefix = ?')
-      .get(prefix) as { repo_id: string } | undefined
+      .get(prefix) as { repo_id: RepoId } | undefined
     if (!row) return null
     const pathRow = this.db
       .prepare('SELECT path FROM repos WHERE repo_id = ? LIMIT 1')
@@ -242,14 +242,14 @@ export class ReposRepository {
    * repo_id, so it applies to every checkout at once and internal ids never
    * change (previously written refs stop resolving — the UI warns on change).
    */
-  setRepoPrefix(machineId: string, path: string, prefix: string): void {
+  setRepoPrefix(machineId: MachineId, path: string, prefix: string): void {
     if (!isValidPrefix(prefix)) {
       throw new Error(`invalid repo prefix ${JSON.stringify(prefix)} — must match ^[A-Z]{2,5}$`)
     }
     const repoId = this.resolveRepoIdForPath(normalizeRepoPath(path))
     const owner = this.db
       .prepare('SELECT repo_id FROM repo_prefixes WHERE prefix = ?')
-      .get(prefix) as { repo_id: string } | undefined
+      .get(prefix) as { repo_id: RepoId } | undefined
     if (owner && owner.repo_id !== repoId) {
       throw new Error(`prefix ${prefix} is already used by another repo`)
     }
@@ -288,7 +288,7 @@ export class ReposRepository {
   // readLocalOriginUrl is a no-op (null) for paths that don't exist on this host, so remote-machine
   // repos simply get the path-fallback id until a scan reports their origin (updateRepoOrigin then
   // upgrades it). An explicit `prefix` overrides derivation (validated + uniqueness-checked, #474).
-  addRepo(path: string, machineId: string, originUrl?: string, prefix?: string): void {
+  addRepo(path: string, machineId: MachineId, originUrl?: string, prefix?: string): void {
     const normalizedPath = normalizeRepoPath(path)
     const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
     const repoName = normalizedPath.split('/').pop() ?? null
@@ -322,7 +322,7 @@ export class ReposRepository {
    * onto issues bucketed under that repo) — but never rewrites an id that was
    * already origin-derived, so identities stay stable if the remote moves.
    */
-  updateRepoOrigin(machineId: string, path: string, originUrl: string): void {
+  updateRepoOrigin(machineId: MachineId, path: string, originUrl: string): void {
     const normalizedPath = normalizeRepoPath(path)
     const rows = this.db
       .prepare('SELECT path, repo_id FROM repos WHERE machine_id = ?')
@@ -400,7 +400,7 @@ export class ReposRepository {
     )
   }
 
-  removeRepo(path: string, machineId: string): void {
+  removeRepo(path: string, machineId: MachineId): void {
     const normalizedPath = normalizeRepoPath(path)
     const rows = this.db.prepare('SELECT path FROM repos WHERE machine_id = ?').all(machineId) as {
       path: string
@@ -434,7 +434,7 @@ export class ReposRepository {
   migrateLegacyRepoRows(): void {
     const withoutRepoId = this.db
       .prepare('SELECT machine_id, path, origin_url FROM repos WHERE repo_id IS NULL')
-      .all() as { machine_id: string; path: string; origin_url: string | null }[]
+      .all() as { machine_id: MachineId; path: string; origin_url: string | null }[]
     const setRepo = this.db.prepare(
       'UPDATE repos SET repo_id = ? WHERE machine_id = ? AND path = ?',
     )
@@ -457,7 +457,7 @@ export class ReposRepository {
     // every boot, for the life of the install, to find what it found last time.
     const originless = this.db
       .prepare('SELECT machine_id, path FROM repos WHERE origin_url IS NULL')
-      .all() as { machine_id: string; path: string }[]
+      .all() as { machine_id: MachineId; path: string }[]
     for (const r of originless) {
       const origin = readLocalOriginUrl(r.path)
       if (origin) this.updateRepoOrigin(r.machine_id, r.path, origin)
@@ -507,7 +507,7 @@ export class ReposRepository {
    * when this reports an import, so the upgrade's bound does not rest on the
    * assumption that a legacy import can only ever precede the marker.
    */
-  importReposJson(dbPath: string, machineId: string): number {
+  importReposJson(dbPath: string, machineId: MachineId): number {
     if (dbPath === ':memory:') return 0
     const count = (this.db.prepare('SELECT COUNT(*) AS c FROM repos').get() as { c: number }).c
     if (count > 0) return 0

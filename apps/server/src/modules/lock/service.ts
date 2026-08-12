@@ -1,4 +1,4 @@
-import type { IssueId, SessionId } from '@podium/model'
+import type { IssueId, SessionId, RepoId } from '@podium/model'
 import type { LockAcquireResultWire, LockHolderWire, LockWire } from '@podium/protocol'
 import type { LockRow, LockSessionKey, LocksRepository, LockWaiterRow } from '../../store/locks'
 import { isSystemLockSession, OPERATOR_LOCK_SESSION } from '../../store/locks'
@@ -72,7 +72,7 @@ export interface LockServiceDeps {
    */
   sessionWorkspace(sessionId: LockHolderId): string | null
   /** Best-effort agent mail to an issue (IssueService.sendMail); never throws. */
-  sendMail(issueId: string, from: string, body: string): void
+  sendMail(issueId: IssueId, from: string, body: string): void
   /** Durable event log append (steal audit trail). Best-effort. */
   appendEvent(e: { ts: string; kind: string; subject: string; payload?: unknown }): void
 }
@@ -250,7 +250,7 @@ export class LockService {
   /** Grant `lock.name` to a waiter/caller: write the lease and notify by mail
    *  when the new holder has a bound issue. */
   private grantTo(
-    repoId: string,
+    repoId: RepoId,
     name: string,
     holder: LockCallerIdentity,
     ttlSeconds: number,
@@ -285,7 +285,7 @@ export class LockService {
    * one (with a grant-notification mail), or delete the lock row when the
    * queue is empty. Returns the new holder row, or null when the lock is free.
    */
-  private advanceQueue(repoId: string, name: string): LockRow | null {
+  private advanceQueue(repoId: RepoId, name: string): LockRow | null {
     for (const w of this.deps.locks.listWaiters(repoId, name)) {
       // Skip/prune waiters whose sessions are gone. Operator and in-process
       // system identities have no session and are never pruned — they discover
@@ -321,7 +321,7 @@ export class LockService {
 
   /** Lazy expiry: retire every expired lease in the repo, advancing each queue
    *  (with grant-notification mail). Runs first on every lock operation. */
-  private sweepExpired(repoId: string): void {
+  private sweepExpired(repoId: RepoId): void {
     for (const lock of this.deps.locks.listExpiredLocks(repoId, this.nowIso())) {
       this.advanceQueue(lock.repoId, lock.name)
     }

@@ -6,7 +6,7 @@
  */
 
 import { nextAfter, parseCron } from '@podium/commands'
-import type { AutomationScheduleKind } from '@podium/model'
+import type { AutomationScheduleKind, AutomationId } from '@podium/model'
 
 /** How late a fire may be and still run. Past this, the occurrence is recorded as
  *  `missed` and skipped [spec:SP-17db]: an outage must not ambush the user with a
@@ -18,7 +18,7 @@ export const GRACE_MS = 60 * 60 * 1000
  *  the decision needs only the schedule, the arm state, and the previous run's
  *  session — everything else (prompt, agent, cwd) belongs to the spawn, not here. */
 export interface Schedulable {
-  id: string
+  id: AutomationId
   enabled: boolean
   scheduleKind: AutomationScheduleKind
   cron: string | null
@@ -32,7 +32,7 @@ export interface Schedulable {
  *  first occurrence STRICTLY after `now`, in every branch, so an outage collapses
  *  any number of skipped occurrences into at most ONE late fire [spec:SP-17db]. */
 export interface AutomationDecision {
-  automationId: string
+  automationId: AutomationId
   /** 'spawn' is an intent; the service turns it into a `spawned` or `error` run. */
   kind: 'spawn' | 'missed' | 'skipped_overlap' | 'error'
   /** The occurrence this decision is about (the due time, not the wall clock). */

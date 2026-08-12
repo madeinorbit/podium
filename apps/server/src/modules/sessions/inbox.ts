@@ -17,6 +17,7 @@ import type {
   Attribution,
   SessionId,
   UserId,
+  MutationId,
 } from '@podium/model'
 import { actorAgent, actorSystem, actorUser, asAgentIdentityId, asUserId } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
@@ -300,7 +301,7 @@ export class SessionInbox {
     return this.typeText(input)
   }
 
-  resumeAndSend(input: InboxSendInput & { mutationId?: string }): {
+  resumeAndSend(input: InboxSendInput & { mutationId?: MutationId }): {
     ok: boolean
     queued?: boolean
     reason?: string
@@ -333,7 +334,7 @@ export class SessionInbox {
     return { ok: true }
   }
 
-  queueText(input: InboxSendInput & { mutationId?: string }): {
+  queueText(input: InboxSendInput & { mutationId?: MutationId }): {
     ok: boolean
     queued?: boolean
     reason?: string

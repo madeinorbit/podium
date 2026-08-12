@@ -37,6 +37,7 @@
  * every map and enum here.
  */
 
+import type { UserId } from '@podium/model'
 import { z } from 'zod'
 import { UserIdField } from '../ids'
 import { perUserKeyOfString } from './session-state'
@@ -276,7 +277,7 @@ const LAYOUT_ROW_SEP = '\n'
  * Change-log / feed id for one layout row. Escaped join so a hostile key or
  * userId that contains the separator cannot collide with another pair.
  */
-export function layoutRowId(userId: string, key: string): string {
+export function layoutRowId(userId: UserId, key: string): string {
   // Local import-free join: escape \ and sep, then join. Same rules as
   // joinKeyParts — duplicated as two lines so this file stays free of a
   // circular import with ids/keys (layout is a consumer of perUserKey only).
@@ -285,7 +286,7 @@ export function layoutRowId(userId: string, key: string): string {
 }
 
 /** Inverse of {@link layoutRowId}. Throws on a malformed id. */
-export function parseLayoutRowId(id: string): { userId: string; key: string } {
+export function parseLayoutRowId(id: string): { userId: UserId; key: string } {
   const parts: string[] = []
   let current = ''
   for (let i = 0; i < id.length; i++) {

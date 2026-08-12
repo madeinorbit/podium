@@ -9,6 +9,7 @@ import {
   type SessionMeta,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
+  type MachineId,
 } from '@podium/model'
 import {
   AlarmClock,
@@ -235,7 +236,7 @@ export function SessionContextMenu({
   // the operator who is looking somewhere else: it names WHICH session landed
   // WHERE, and a failure names the target it never reached (the server rolls the
   // session back to where it was).
-  const handoff = (machineId: string, machineName: string): void => {
+  const handoff = (machineId: MachineId, machineName: string): void => {
     onClose()
     void trpc.sessions.handoff.mutate({ sessionId: id, machineId }).then(
       () => toast.success(`${sessionDisplayName(session)} resumed on ${machineName}`),

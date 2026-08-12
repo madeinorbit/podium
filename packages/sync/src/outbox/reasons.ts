@@ -1,3 +1,4 @@
+import type { MutationId } from '@podium/model'
 /**
  * Rejection reason codes and the recovery affordances they license — ADR 3 D9
  * invariants 2 and 3, D10, and the amendment's D16.4 / property 15.
@@ -164,7 +165,7 @@ export type RetrySatisfaction =
   | { readonly rightsFixed: true }
   | { readonly expectedRevision: number }
   | { readonly confirmed: true }
-  | { readonly mutationId: string }
+  | { readonly mutationId: MutationId }
 
 export const satisfies = (
   precondition: RetryPrecondition,

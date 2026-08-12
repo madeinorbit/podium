@@ -7,7 +7,7 @@
  * `listParkedUpstreamMutations`).
  */
 
-import type { SessionId } from '@podium/model'
+import type { SessionId, MutationId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import { type SqlDatabase, type SqlParam, transaction } from '@podium/runtime/sqlite'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
@@ -234,14 +234,14 @@ export class SyncRepository {
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----
 
   /** The stored result of an already-applied mutation, or undefined if new. */
-  getAppliedMutation(mutationId: string): string | undefined {
+  getAppliedMutation(mutationId: MutationId): string | undefined {
     const row = this.db
       .prepare('SELECT result FROM applied_mutations WHERE mutation_id = ?')
       .get(mutationId) as { result: string } | undefined
     return row?.result
   }
 
-  recordAppliedMutation(mutationId: string, proc: string, result: string, appliedAt: number): void {
+  recordAppliedMutation(mutationId: MutationId, proc: string, result: string, appliedAt: number): void {
     this.db
       .prepare(
         'INSERT OR IGNORE INTO applied_mutations (mutation_id, proc, result, applied_at) VALUES (?, ?, ?, ?)',
@@ -368,7 +368,7 @@ export class SyncRepository {
    * boot) tells the operator they exist. A read with no writer cannot resurrect the
    * forwarding path; a table quietly dropped would have taken the evidence with it.
    */
-  listParkedUpstreamMutations(): { mutationId: string; proc: string; queuedAt: number }[] {
+  listParkedUpstreamMutations(): { mutationId: MutationId; proc: string; queuedAt: number }[] {
     const rows = this.db
       .prepare(
         'SELECT mutation_id, proc, queued_at FROM upstream_outbox ORDER BY queued_at ASC, rowid ASC',

@@ -258,7 +258,7 @@ export class AutomationsRepository {
   }
 
   /** Most recent runs first — the tab's "Recent runs" list. */
-  listRuns(automationId: string, limit = 20): AutomationRunRow[] {
+  listRuns(automationId: AutomationId, limit = 20): AutomationRunRow[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM automation_runs

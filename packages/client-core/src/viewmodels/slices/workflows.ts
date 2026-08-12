@@ -48,6 +48,7 @@
  * for placement. Imports no other slice.
  * Platform-neutral: no DOM, no storage.
  */
+import type { MachineId } from '@podium/model'
 import type {
   ExecutionProfileWire,
   WorkflowDetailWire,
@@ -296,7 +297,7 @@ export type ProfilePlacementState =
 
 export interface ProfilePlacement {
   readonly profileId: string
-  readonly machineId: string | null
+  readonly machineId: MachineId | null
   readonly state: ProfilePlacementState
 }
 

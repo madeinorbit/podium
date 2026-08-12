@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { basename } from '@podium/client-core/viewmodels'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw } from 'lucide-react'
@@ -109,7 +110,7 @@ export function WorktreeFileTree({
   machineId,
 }: {
   root: string
-  machineId?: string
+  machineId?: MachineId
 }): JSX.Element {
   const { listDir, openFileInWorktree } = useStoreSelector(
     (s) => ({ listDir: s.listDir, openFileInWorktree: s.openFileInWorktree }),

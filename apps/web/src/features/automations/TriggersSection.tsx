@@ -1,3 +1,4 @@
+import type { AutomationId } from '@podium/model'
 import { Bell, CircleCheck, LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -106,7 +107,7 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
     reload()
   }, [reload])
 
-  const setEnabled = (id: string, enabled: boolean): void => {
+  const setEnabled = (id: AutomationId, enabled: boolean): void => {
     setBusyId(id)
     trpc.issues.subscriptionSetEnabled
       .mutate({ id, enabled })
@@ -115,7 +116,7 @@ export function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
       .finally(() => setBusyId(null))
   }
 
-  const remove = (id: string): void => {
+  const remove = (id: AutomationId): void => {
     setBusyId(id)
     trpc.issues.subscriptionRemove
       .mutate({ id })

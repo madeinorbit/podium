@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { SERVER_TRANSFER_FORMAT_VERSION } from '@podium/protocol'
 import type {
   ServerTransferManifest as ProtocolServerTransferManifest,
@@ -39,10 +40,10 @@ export interface TransferRecord {
   bytesCopied: number
   totalBytes: number
   transferId: string
-  targetMachineId: string
+  targetMachineId: MachineId
   publicUrl: string
   port?: number
-  sourceMachineId: string
+  sourceMachineId: MachineId
   sourceInstanceId: string
   packageDir: string
   manifest: ServerTransferManifest | null
@@ -63,7 +64,7 @@ export interface TransferJournalEntry {
 }
 
 export interface ServerTransferInput {
-  targetMachineId: string
+  targetMachineId: MachineId
   publicUrl: string
   port?: number
   confirmation: typeof SERVER_TRANSFER_CONFIRMATION
@@ -79,7 +80,7 @@ export interface ServerTransferOutcome {
   ok: boolean
   transferId: string
   state: ServerTransferOutcomeState
-  targetMachineId: string
+  targetMachineId: MachineId
   publicUrl: string
   error?: { code: string; message: string }
   cleanup?: { result: 'cleaned' | 'pending'; detail?: string }
@@ -91,8 +92,8 @@ export type TargetHealthProof = ServerTransferServingProof
 /** Safe projection of target-owned durable promotion metadata. */
 export interface PromotedTargetMetadata {
   transferId: string
-  sourceMachineId: string
-  targetMachineId: string
+  sourceMachineId: MachineId
+  targetMachineId: MachineId
   publicUrl: string
   manifestDigest: string
   state: 'promoted'
@@ -113,16 +114,16 @@ export interface ServerTransferRpc {
   serverTransferPrepare(
     input: {
       transferId: string
-      sourceMachineId: string
+      sourceMachineId: MachineId
       manifest: ServerTransferManifest
       packageLimits: { totalBytes: number; maxChunkBytes: number }
     },
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<
     ServerTransferRpcResult<{
       state: 'prepared'
       manifestDigest: string
-      targetMachineId: string
+      targetMachineId: MachineId
       targetCapability: 'server-only'
       buildVersion: string
       wireSchemaDigest: string
@@ -138,7 +139,7 @@ export interface ServerTransferRpc {
       expectedLength: number
       data: Buffer
     },
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<
     ServerTransferRpcResult<{
       state: 'staging'
@@ -150,7 +151,7 @@ export interface ServerTransferRpc {
   >
   serverTransferValidate(
     input: { transferId: string; manifestDigest: string },
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<ServerTransferRpcResult<{ state: 'validated'; proof: TransferProof }>>
   serverTransferPromote(
     input: {
@@ -161,7 +162,7 @@ export interface ServerTransferRpc {
       targetMode: 'server'
       idempotencyKey: string
     },
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<
     ServerTransferRpcResult<{
       state: 'prepared' | 'promoted' | 'uncertain'
@@ -170,7 +171,7 @@ export interface ServerTransferRpc {
   >
   serverTransferAcknowledge(
     input: { transferId: string; manifestDigest: string },
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<
     ServerTransferRpcResult<{
       state: 'promoted'
@@ -181,7 +182,7 @@ export interface ServerTransferRpc {
   >
   serverTransferAbort(
     input: { transferId: string; manifestDigest: string; reason: string },
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<
     ServerTransferRpcResult<{
       state: 'aborted'
@@ -192,7 +193,7 @@ export interface ServerTransferRpc {
   >
   serverTransferStatus(
     input: { transferId: string; manifestDigest: string },
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<
     ServerTransferRpcResult<{
       state: 'idle' | 'prepared' | 'staging' | 'validated' | 'promoted' | 'aborted' | 'uncertain'

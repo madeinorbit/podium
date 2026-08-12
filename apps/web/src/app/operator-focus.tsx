@@ -1,3 +1,4 @@
+import type { IssueId } from '@podium/model'
 import {
   createContext,
   type ReactElement,
@@ -25,7 +26,7 @@ import {
  * pointer that no longer belongs simply falls back.
  */
 type OperatorFocusValue = {
-  focusedIssueId: string | null
+  focusedIssueId: IssueId | null
   setFocusedIssueId: (id: string | null) => void
 }
 
@@ -56,7 +57,7 @@ export function useOperatorFocus(): OperatorFocusValue {
  * just navigated away from resolves to the new root rather than to nothing.
  */
 export function resolveFocus(
-  focusedIssueId: string | null,
+  focusedIssueId: IssueId | null,
   memberIds: ReadonlySet<string>,
   rootId: string | null | undefined,
 ): string | null {

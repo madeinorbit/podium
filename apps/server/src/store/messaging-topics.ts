@@ -3,10 +3,11 @@
  * ↔ superagent thread for the messaging bridge across restarts.
  */
 
+import type { IssueId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export interface MessagingIssueTopicRow {
-  issueId: string
+  issueId: IssueId
   chatId: string
   threadRef: string
   superagentThreadId: string
@@ -26,7 +27,7 @@ export class MessagingTopicsRepository {
     return rows.map((r) => this.map(r))
   }
 
-  getByIssue(chatId: string, issueId: string): MessagingIssueTopicRow | undefined {
+  getByIssue(chatId: string, issueId: IssueId): MessagingIssueTopicRow | undefined {
     const r = this.db
       .prepare(
         `SELECT issue_id, chat_id, thread_ref, superagent_thread_id, updated_at

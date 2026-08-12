@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 export interface MirrorIncarnation {
@@ -12,7 +13,7 @@ export interface MirrorIncarnation {
 export class TranscriptMirrorRepository {
   constructor(private readonly db: SqlDatabase) {}
 
-  segmentsToMirror(machineId: string): { nativeId: string; path: string; mirroredBytes: number }[] {
+  segmentsToMirror(machineId: MachineId): { nativeId: string; path: string; mirroredBytes: number }[] {
     return this.rows(
       'SELECT native_id,path,mirrored_bytes FROM conversation_segments WHERE machine_id=? AND path IS NOT NULL',
       machineId,
@@ -20,7 +21,7 @@ export class TranscriptMirrorRepository {
   }
 
   segmentsToMirrorDirty(
-    machineId: string,
+    machineId: MachineId,
   ): { nativeId: string; path: string; mirroredBytes: number }[] {
     return this.rows(
       `SELECT native_id,path,mirrored_bytes FROM conversation_segments
@@ -30,7 +31,7 @@ export class TranscriptMirrorRepository {
     )
   }
 
-  private rows(sql: string, machineId: string) {
+  private rows(sql: string, machineId: MachineId) {
     const rows = this.db.prepare(sql).all(machineId) as Record<string, unknown>[]
     return rows.map((row) => ({
       nativeId: row.native_id as string,
@@ -39,7 +40,7 @@ export class TranscriptMirrorRepository {
     }))
   }
 
-  setReportedBytes(machineId: string, nativeId: string, bytes: number): void {
+  setReportedBytes(machineId: MachineId, nativeId: string, bytes: number): void {
     this.db
       .prepare(
         'UPDATE conversation_segments SET reported_bytes=? WHERE machine_id=? AND native_id=?',
@@ -47,7 +48,7 @@ export class TranscriptMirrorRepository {
       .run(bytes, machineId, nativeId)
   }
 
-  reportedBytes(machineId: string, nativeId: string): number | undefined {
+  reportedBytes(machineId: MachineId, nativeId: string): number | undefined {
     const row = this.db
       .prepare(
         'SELECT reported_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?',
@@ -56,7 +57,7 @@ export class TranscriptMirrorRepository {
     return row?.reported_bytes ?? undefined
   }
 
-  mirrorCursor(machineId: string, nativeId: string): number {
+  mirrorCursor(machineId: MachineId, nativeId: string): number {
     const row = this.db
       .prepare(
         'SELECT mirrored_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?',
@@ -65,7 +66,7 @@ export class TranscriptMirrorRepository {
     return row?.mirrored_bytes ?? 0
   }
 
-  setMirrorCursor(machineId: string, nativeId: string, bytes: number, at: string): void {
+  setMirrorCursor(machineId: MachineId, nativeId: string, bytes: number, at: string): void {
     this.db
       .prepare(
         'UPDATE conversation_segments SET mirrored_bytes=?,mirrored_at=? WHERE machine_id=? AND native_id=?',
@@ -74,7 +75,7 @@ export class TranscriptMirrorRepository {
   }
 
   activeIncarnation(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
   ): Omit<MirrorIncarnation, 'mirroredBytes' | 'active'> | undefined {
     return this.db
@@ -88,7 +89,7 @@ export class TranscriptMirrorRepository {
 
   /** Record identity for a legacy/current lake file without disturbing its cursor. */
   startIncarnation(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     identity: { device: string; inode: string },
     at: string,
@@ -112,7 +113,7 @@ export class TranscriptMirrorRepository {
   /** Retire the current file identity after its lake bytes have been archived,
    *  then start a clean cursor for the replacement file. */
   rotateIncarnation(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     identity: { device: string; inode: string },
     archivedBytes: number,
@@ -148,7 +149,7 @@ export class TranscriptMirrorRepository {
     })
   }
 
-  incarnations(machineId: string, nativeId: string): MirrorIncarnation[] {
+  incarnations(machineId: MachineId, nativeId: string): MirrorIncarnation[] {
     const currentBytes = this.mirrorCursor(machineId, nativeId)
     const rows = this.db
       .prepare(

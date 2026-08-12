@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 /**
  * FUZZY PATH RANKING FOR THE COMPOSER @-MENU (POD-412).
  *
@@ -166,7 +167,7 @@ export class PathIndex {
    *  is passed per call rather than held: the daemon RPC it goes through belongs
    *  to the request's state, not to this cache. */
   async paths(
-    key: { machineId?: string; root: string },
+    key: { machineId?: MachineId; root: string },
     load: () => Promise<{ ok: boolean; output: string }>,
   ): Promise<readonly string[]> {
     const cacheKey = `${key.machineId ?? ''}\0${key.root}`

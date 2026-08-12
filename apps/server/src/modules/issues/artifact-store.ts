@@ -1,4 +1,4 @@
-import { asArtifactId, type ArtifactId, type IssueId } from '@podium/model'
+import { asArtifactId, type ArtifactId, type IssueId, type MachineId } from '@podium/model'
 import { randomBytes } from 'node:crypto'
 import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -71,7 +71,7 @@ export interface ArtifactSnapshot {
 export interface ArtifactSnapshotInput {
   issueId: IssueId
   root: string
-  machineId?: string
+  machineId?: MachineId
   sourcePath: string
   extraPaths?: string[]
 }
@@ -79,7 +79,7 @@ export interface ArtifactSnapshotInput {
 /** The two daemon RPCs the snapshotter rides (DaemonRpcService, structurally). */
 export interface ArtifactRpc {
   readAsset(input: {
-    machineId?: string
+    machineId?: MachineId
     root: string
     path: string
     offset?: number
@@ -92,7 +92,7 @@ export interface ArtifactRpc {
     size?: number
     error?: string
   }>
-  listDir(input: { machineId?: string; root: string; path?: string }): Promise<{
+  listDir(input: { machineId?: MachineId; root: string; path?: string }): Promise<{
     ok: boolean
     path: string
     entries: { name: string; isDir: boolean }[]
@@ -173,7 +173,7 @@ export class IssueArtifactStore {
   /** Recursive sandboxed walk rooted at `dirAbs`; relpaths are relative to it. */
   private async walkDir(
     root: string,
-    machineId: string | undefined,
+    machineId: MachineId | undefined,
     dirAbs: string,
   ): Promise<Array<{ src: string; rel: string }>> {
     const machine = machineId ? { machineId } : {}
@@ -198,7 +198,7 @@ export class IssueArtifactStore {
 
   /** Chunked daemon pull of one file → durable local write. Returns byte size. */
   private async pullFile(
-    target: { machineId?: string; root: string },
+    target: { machineId?: MachineId; root: string },
     srcAbs: string,
     destAbs: string,
   ): Promise<number> {

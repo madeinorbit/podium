@@ -7,6 +7,7 @@
  * issues table, crash-loop the server at boot). Quarantine the bad value to `[]`
  * and warn so it stays observable.
  */
+import type { UserId } from '@podium/model'
 import { createLogger } from '@podium/logger'
 
 const log = createLogger('server:store')
@@ -49,6 +50,6 @@ export function parseJsonColumn<T>(raw: unknown, label: string): T | undefined {
  * is §3.1.6 S4's rule: an unidentified principal fails CLOSED, it does not fall
  * back to an operator identity.
  */
-export function requireUserId(userId: string): void {
+export function requireUserId(userId: UserId): void {
   if (userId.trim() === '') throw new Error('per-user state write has no user id')
 }

@@ -3,7 +3,7 @@ import { mkdir, stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
-import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type SessionId, type MachineId } from '@podium/model'
 import type { ControlMessage, DaemonMessage, PeerBuild } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
 import { killAbducoSession, killTmuxServer, listLiveAbducoLabels, reapStaleAbducoBindTemps } from '@podium/pty'
@@ -66,7 +66,7 @@ const log = createLogger('daemon:host')
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 
 export interface DaemonHostRuntime {
-  readonly machineId: string
+  readonly machineId: MachineId
   readonly identity: { token?: string; updatePubkey?: string }
   readonly backend: DurableBackend
   readonly frameGuard: FrameGuard

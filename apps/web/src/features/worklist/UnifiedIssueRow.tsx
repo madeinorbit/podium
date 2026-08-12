@@ -38,7 +38,7 @@ import { WorkRowShell } from './WorkRowShell'
  *  a gesture when a spin-off is selected, not persistent chrome. DOM-level on
  *  purpose: the origin row is a sibling React branch, and a one-shot class
  *  beats threading transient state through the whole list. */
-function flashLineage(issueId: string): void {
+function flashLineage(issueId: IssueId): void {
   const el = document.querySelector(`[data-issue-row="${CSS.escape(issueId)}"]`)
   if (!(el instanceof HTMLElement)) return
   el.classList.remove('morph-lineage')
@@ -90,7 +90,7 @@ export function UnifiedIssueRow({
   /** Whole issue list — the context menu's label pool / duplicate targets. */
   issues: IssueNavigationModel[]
   allWorktreePaths: string[]
-  selectedIssueId: string | null
+  selectedIssueId: IssueId | null
   paneA: string | null
   now: number
   onSelectIssue: (issue: IssueNavigationModel) => void
@@ -100,7 +100,7 @@ export function UnifiedIssueRow({
   onRenameIssue: (id: string, title: string) => void
   onColorChangeIssue: (id: string, color: IssueColorSlot | null) => unknown
   /** Manual-sort drag start (POD-168); absent = row not draggable. */
-  onGripDown?: (e: ReactPointerEvent, issueId: string) => void
+  onGripDown?: (e: ReactPointerEvent, issueId: IssueId) => void
   /** Dismiss a finished row into the Closed fold (POD-293); absent = not a
    *  tuckable done row, so the control is hidden. */
   onTuck?: () => void

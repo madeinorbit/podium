@@ -34,6 +34,8 @@ import type {
   MachineId,
   ResumeRef,
   SessionId,
+  RepoId,
+  IssueId,
 } from '@podium/model'
 import type {
   ControlMessage,
@@ -67,7 +69,7 @@ export type ExportableAgentKind = HandoffManifestV1['agentKind']
  */
 export interface HandoffInput {
   sessionId: SessionId
-  machineId: string
+  machineId: MachineId
 }
 
 export type HandoffResult = { ok: true; newCwd: string }
@@ -85,7 +87,7 @@ export interface HandoffRpcPort {
     op: 'revParseVerify',
     repoPath: string,
     args: { ref: string },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<{ ok: boolean; output: string }>
   handoffExport(
     input: {
@@ -96,13 +98,13 @@ export interface HandoffRpcPort {
       resume: ResumeRef
       branch: string
       baseShas: string[]
-      repoId: string
+      repoId: RepoId
       title?: string
-      issueId?: string
-      sourceMachineId: string
+      issueId?: IssueId
+      sourceMachineId: MachineId
       binding: HandoffBindingExportInstruction
     },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<{
     ok: boolean
     error?: string
@@ -115,7 +117,7 @@ export interface HandoffRpcPort {
     stagePath: string,
     offset: number,
     length: number,
-    machineId: string,
+    machineId: MachineId,
   ): Promise<{ ok: boolean; data?: string; error?: string }>
   /** A STAGE TOKEN, not a session id (POD-1171) — this port is what `workspace.ts`
    *  hands to `transferHandoffPackage`, so it must admit the `ws-`/`ref-` tokens
@@ -125,13 +127,13 @@ export interface HandoffRpcPort {
     stageToken: HandoffStageToken,
     offset: number,
     data: Buffer,
-    machineId: string,
+    machineId: MachineId,
   ) => Promise<{ ok: boolean; sizeBytes?: number; error?: string }>
   handoffImport(
     sessionId: SessionId,
     repoPath: string,
     worktreeName: string,
-    machineId: string,
+    machineId: MachineId,
     occupiedWorktreePaths?: string[],
     binding?: HandoffBindingImportInstruction,
   ): Promise<{
@@ -152,16 +154,16 @@ export interface HandoffRpcPort {
       fromMachineId: MachineId
       toMachineId: MachineId
     },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<{ ok: boolean; error?: string; observationGeneration?: number }>
 }
 
 /** One registered repository, as `store.repos.listRepos()` reports it. */
 export interface HandoffRepo {
-  machineId: string
+  machineId: MachineId
   path: string
   originUrl: string | null
-  repoId: string | null
+  repoId: RepoId | null
   prefix: string | null
 }
 
@@ -178,7 +180,7 @@ export interface HandoffMachine {
  *  are the same fact here (this issue has no machine-local home), and flattening
  *  them to `?: string` would have made the port lie about its source. */
 export interface HandoffIssue {
-  machineId?: string | null
+  machineId?: MachineId | null
   worktreePath?: string | null
   branch?: string | null
   parentBranch?: string | null
@@ -202,7 +204,7 @@ export interface HandoffIssue {
  * and apply) — a list signature would make the second call read as a repeat of the
  * first rather than as apply-time re-authorization.
  */
-export type AssertMachineUse = (machineId: string) => void
+export type AssertMachineUse = (machineId: MachineId) => void
 
 /** Everything the handoff choreography does to the world, as one surface. */
 export interface HandoffPorts {
@@ -210,26 +212,26 @@ export interface HandoffPorts {
   /** The live row, or undefined. Absence maps to this command's pinned throw. */
   getSession(sessionId: SessionId): Session | undefined
   /** Every session, for the target worktree-occupancy guard. */
-  listSessions(): { sessionId: SessionId; machineId: string; cwd: string; status: string }[]
+  listSessions(): { sessionId: SessionId; machineId: MachineId; cwd: string; status: string }[]
   listRepos(): HandoffRepo[]
   listMachines(): HandoffMachine[]
-  issueMeta(issueId: string): HandoffIssue | undefined
-  rehomeIssue(issueId: string, where: IssueRehomeTarget): void
-  ensureTargetRepo(sourceRepo: HandoffRepo, targetMachineId: string): Promise<{ path: string }>
+  issueMeta(issueId: IssueId): HandoffIssue | undefined
+  rehomeIssue(issueId: IssueId, where: IssueRehomeTarget): void
+  ensureTargetRepo(sourceRepo: HandoffRepo, targetMachineId: MachineId): Promise<{ path: string }>
   persist(session: Session): void
   mutateSessionView(sessionId: SessionId, mutate: (session: Session) => void): void
   broadcastSessions(): void
   /** Cancel any armed auto-continue for a session that is about to stop. */
   onSessionGone(sessionId: SessionId): void
-  toMachine(machineId: string, message: ControlMessage): void
-  onWorktreesChanged(repoPath: string, machineId: string): void
+  toMachine(machineId: MachineId, message: ControlMessage): void
+  onWorktreesChanged(repoPath: string, machineId: MachineId): void
   resumeSession(input: {
     agentKind: ExportableAgentKind
     cwd: string
     resume: ResumeRef
     conversationId: string
     title?: string
-    machineId: string
+    machineId: MachineId
   }): Promise<{ sessionId: SessionId }>
   resurrectSession(input: {
     sessionId: SessionId

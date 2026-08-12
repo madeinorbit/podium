@@ -10,7 +10,7 @@
  * without React or the store.
  */
 
-import type { IssuePanelArtifact, IssuePanelTodo, IssueWire, SessionId } from '@podium/model'
+import type { IssuePanelArtifact, IssuePanelTodo, IssueWire, SessionId, IssueId } from '@podium/model'
 import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
@@ -74,7 +74,7 @@ export interface RefSessionLike {
   sessionId: SessionId
   displayRef?: string
   cwd: string
-  issueId?: string
+  issueId?: IssueId
   title?: string
   name?: string
   /** Liveness + recency, for {@link sessionForIssue}'s pick. All optional: a

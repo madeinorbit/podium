@@ -104,7 +104,7 @@ export interface TerminalCandidateFacts {
     queueDrainActive: boolean
   }
   resumable: boolean
-  machineId: string
+  machineId: MachineId
 }
 
 export interface TerminalCandidateRecord {
@@ -242,7 +242,7 @@ export interface MachineRecord {
    * an optional field lets a caller forget it and read "not evaluated" as
    * "unowned", and the two must not look alike at the type level.
    */
-  ownerUserId: string | null
+  ownerUserId: UserId | null
   /**
    * PER-MACHINE PIN, or `null` for "follow the fleet default" (POD-1882).
    * PRESENT-AND-NULL rather than optional, for the same reason as `ownerUserId`
@@ -603,7 +603,7 @@ export interface ConversationIndexRow {
   /** Which machine owns this conversation. Optional in the WIRE shape a daemon reports
    *  (it names itself in the frame, not per row); the store stamps the reporting machine
    *  on every row it writes. */
-  machineId?: string
+  machineId?: MachineId
   /** Set when this conversation is a subagent (sidechain) of another — the resume
    *  picker filters these out so only top-level sessions are offered. */
   parentConversationId?: string

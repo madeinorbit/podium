@@ -5,11 +5,12 @@
  * kernel.
  */
 
+import type { IssueId } from '@podium/model'
 import type { ArbitrationRejection } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 
 export interface IssueRevisionConflictDetail {
-  issueId: string
+  issueId: IssueId
   /** The command whose precondition failed, dotted (for example issues.update). */
   command: string
   expectedRevision: number
@@ -45,7 +46,7 @@ function describeConflict(d: IssueRevisionConflictDetail): string {
 /** Surface an Authority exp-rev rejection as the existing structured 409. */
 export function throwIssueRevisionConflict(args: {
   command: string
-  issueId: string
+  issueId: IssueId
   expectedRevision: number | undefined
   actualRevision: number | undefined
   rejection: ArbitrationRejection

@@ -1,4 +1,4 @@
-import type { ArtifactId, IssueId, IssueWire, SessionMeta } from '@podium/model'
+import type { ArtifactId, IssueId, IssueWire, SessionMeta, MachineId } from '@podium/model'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
@@ -25,7 +25,7 @@ export interface FileTab {
 export interface RecentFileEntry {
   path: string
   worktreePath: string
-  machineId?: string
+  machineId?: MachineId
   artifact?: { issueId: IssueId; artifactId: ArtifactId }
   openedAt: number
 }
@@ -39,14 +39,14 @@ export function readStoredDockTab(raw: string | null): DockTab {
 
 export interface ActiveWorktree {
   cwd: string
-  machineId?: string
+  machineId?: MachineId
   /** The session the dock resolved its worktree FROM, when it came from a
    *  session (paneA or the recency fallback) — lets the Issue tab fall back to
    *  that session's explicit issue attachment. Absent for file-tab resolution. */
   sessionId?: string
   /** Explicit issue carried from an artifact file tab ([spec:SP-0fc9] #441) —
    *  wins over cwd containment when the Issue tab resolves its issue. */
-  issueId?: string
+  issueId?: IssueId
 }
 
 /** True when `cwd` sits at or under `root` (path containment, POSIX). */
@@ -120,7 +120,7 @@ export function issueForPanel<T extends IssuePanelLike>(args: {
   sessionId?: string
   /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — beats both the
    *  session attachment and cwd containment when it names a live issue. */
-  issueId?: string
+  issueId?: IssueId
 }): T | null {
   if (args.issueId !== undefined) {
     const explicit = args.issues.find((i) => i.id === args.issueId && !i.archived && !i.deletedAt)
@@ -172,10 +172,10 @@ export function basename(path: string): string {
  *  fall back to the live /files/asset worktree route (null without a root). */
 export function artifactUrl(args: {
   httpOrigin: string
-  issueId: string
-  artifact: { path: string; artifactId?: string; entry?: string }
+  issueId: IssueId
+  artifact: { path: string; artifactId?: ArtifactId; entry?: string }
   root?: string
-  machineId?: string
+  machineId?: MachineId
 }): string | null {
   const origin = args.httpOrigin.replace(/\/+$/, '')
   const a = args.artifact
@@ -199,7 +199,7 @@ export function worktreeAssetUrl(args: {
   httpOrigin: string
   root: string
   path: string
-  machineId?: string
+  machineId?: MachineId
 }): string {
   const qs = new URLSearchParams({ root: args.root, path: args.path })
   if (args.machineId) qs.set('machineId', args.machineId)

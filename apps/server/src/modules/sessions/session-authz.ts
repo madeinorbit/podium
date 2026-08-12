@@ -5,7 +5,7 @@
  */
 
 
-import type { SessionId, UserId } from '@podium/model'
+import type { SessionId, UserId, IssueId } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type CommandPrincipal,
@@ -285,7 +285,7 @@ export class SessionAuthz {
     }
   }
 
-  private memoIssueOwner(issueId: string, memo?: SessionOwnerMemo): UserId | undefined {
+  private memoIssueOwner(issueId: IssueId, memo?: SessionOwnerMemo): UserId | undefined {
     if (!memo) return this.ports.store.issues.getIssue(issueId)?.ownerUserId ?? undefined
     if (!memo.issues.has(issueId)) {
       memo.issues.set(issueId, this.ports.store.issues.getIssue(issueId))

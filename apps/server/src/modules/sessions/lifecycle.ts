@@ -8,6 +8,7 @@ import type {
   SessionMeta,
   TranscriptItem,
   WorkState,
+  MachineId,
 } from '@podium/model'
 import { type AgentKind, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { spawnedByParentSessionId } from '@podium/model'
@@ -194,7 +195,7 @@ export class SessionLifecycle {
   private readonly now!: () => number
   private readonly bus!: EventBus
   private readonly machines!: MachinesService
-  private readonly toMachine = (machineId: string, msg: ControlMessage): void =>
+  private readonly toMachine = (machineId: MachineId, msg: ControlMessage): void =>
     this.machines.toMachine(machineId, msg)
   private readonly rpc!: DaemonRpcService
   readonly headless!: HeadlessService
@@ -309,7 +310,7 @@ export class SessionLifecycle {
    *  see {@link SessionView.listForIssue}. */
   listSessionsForIssue(
     worktreePath: string | null,
-    issueId: string | undefined,
+    issueId: IssueId | undefined,
     forPrincipal?: SessionWirePrincipal,
   ): SessionMeta[] {
     return this.view.listForIssue(worktreePath, issueId, forPrincipal)
@@ -385,7 +386,7 @@ export class SessionLifecycle {
       resume: ResumeRef
       conversationId: string
       title?: string
-      machineId?: string
+      machineId?: MachineId
       spawnedBy?: string
       use?: MachineUseResolver
     },
@@ -474,7 +475,7 @@ export class SessionLifecycle {
   }
   async stopIssue(
     input: {
-      issueId: string
+      issueId: IssueId
       force?: boolean
       callerSessionId?: string
       principal?: CommandPrincipal
@@ -517,7 +518,7 @@ export class SessionLifecycle {
   }
   /** Move one resumable worktree session to another machine ([spec:SP-3f7a]). */
   handoffSession(
-    input: { sessionId: SessionId; machineId: string },
+    input: { sessionId: SessionId; machineId: MachineId },
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
@@ -550,7 +551,7 @@ export class SessionLifecycle {
   ): Promise<{ ok: boolean; reason?: string }> {
     return this.sessionRevival.resurrectSession(input, issues)
   }
-  private maybeReapDraftIssue(issueId: string | null | undefined): void {
+  private maybeReapDraftIssue(issueId: IssueId | null | undefined): void {
     this.sessionKill.maybeReapDraftIssue(issueId)
   }
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {

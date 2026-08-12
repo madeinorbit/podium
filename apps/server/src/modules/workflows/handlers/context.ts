@@ -37,7 +37,7 @@
  * survive this function.
  */
 
-import type { SessionId } from '@podium/model'
+import type { SessionId, MachineId, IssueId } from '@podium/model'
 import {
   canReadWorkflowEntity,
   type PlacementDecision,
@@ -99,9 +99,9 @@ export const NO_RUN = 'no active workflow run for this session'
  * result and an operator cannot tell a permissions problem from a dead machine.
  * D20.2 and M5 disagree on purpose and are decided separately.
  */
-export const machineUnauthorized = (machineId: string): string =>
+export const machineUnauthorized = (machineId: MachineId): string =>
   `not authorized to run work on machine ${machineId}`
-export const machineUnreachable = (machineId: string): string =>
+export const machineUnreachable = (machineId: MachineId): string =>
   `machine ${machineId} is unreachable`
 
 // ---------------------------------------------------------------------------
@@ -119,8 +119,8 @@ export const machineUnreachable = (machineId: string): string =>
  * separate list.
  */
 export interface WorkflowMachineAccess {
-  mayUse(machineId: string): boolean
-  isReachable(machineId: string): boolean
+  mayUse(machineId: MachineId): boolean
+  isReachable(machineId: MachineId): boolean
 }
 
 /**
@@ -429,7 +429,7 @@ export class WorkflowAccess {
   /** The issue-target arm of `assign`. Unchanged apart from its operator early
    *  return; the issue's own authority is `checkIssueAccess`'s and is not
    *  restated here. */
-  assertIssueScope(caller: WorkflowCaller, issueId: string): void {
+  assertIssueScope(caller: WorkflowCaller, issueId: IssueId): void {
     if (!this.hasAgentScope(caller) || caller.overrideScope) return
     const scope = caller.capability?.scope
     if (scope?.kind === 'subtree' && scope.rootId === issueId) return
@@ -575,7 +575,7 @@ export class WorkflowAccess {
    * between the two and a run is long-lived. Never silently retargeted: placing
    * a caller's code on a machine they did not choose is worse than refusing.
    */
-  assertMayPlaceOn(caller: WorkflowCaller, machineId: string | null | undefined): void {
+  assertMayPlaceOn(caller: WorkflowCaller, machineId: MachineId | null | undefined): void {
     if (!machineId) return
     const decision: PlacementDecision = placementDecision(
       machineId,

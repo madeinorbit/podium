@@ -23,7 +23,7 @@
  * signature), so the table contributes no runtime edge back to this module.
  */
 
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta, IssueId, MutationId } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
@@ -105,7 +105,7 @@ export interface IssueCommandDeps {
   /** Stop every session on an issue and free its worktree (keep branch)
    *  [spec:SP-9904]. Injected from SessionLifecycle; optional in bare tests. */
   stopIssueSessions?(input: {
-    issueId: string
+    issueId: IssueId
     force?: boolean
     callerSessionId?: string
     /** Who asked for the stop — stamped onto the free-worktree audit comment (POD-1344). */
@@ -235,7 +235,7 @@ export class IssueCommandCtx {
   }
 
   /** Framework idempotency, bound to this command's wire name (issues.<name>). */
-  withMutation<T>(mutationId: string | undefined, fn: () => T): T {
+  withMutation<T>(mutationId: MutationId | undefined, fn: () => T): T {
     return this.deps.mutations.once(mutationId, `issues.${this.name}`, fn)
   }
 

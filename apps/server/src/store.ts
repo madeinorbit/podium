@@ -159,7 +159,7 @@ export class SessionStore {
 
   constructor(
     private readonly path: string = defaultDbPath(),
-    hostMachineId: string = randomUUID(),
+    hostMachineId: MachineId = randomUUID(),
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
@@ -454,7 +454,7 @@ export class SessionStore {
    * and grant edges survive the change of id; a fresh insert would have left a
    * second row and split the fleet in half.
    */
-  migrateLegacyMachineIdentity(hostMachineId: string): void {
+  migrateLegacyMachineIdentity(hostMachineId: MachineId): void {
     const LEGACY = ["'local'", "'__local__'"].join(', ')
     /** Every `(table, column)` in THIS database that holds a machine id. */
     const machineColumns = (): { table: string; column: string }[] => {

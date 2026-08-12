@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { asConversationId, type ConversationId } from '@podium/model'
+import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 /** Stable Podium identities and the machine-native artifacts that evidence them. */
@@ -12,14 +12,14 @@ export class ConversationRegistryRepository {
     )
   }
 
-  podiumId(machineId: string, nativeId: string): ConversationId | undefined {
+  podiumId(machineId: MachineId, nativeId: string): ConversationId | undefined {
     const row = this.db
       .prepare('SELECT podium_id FROM conversation_segments WHERE machine_id=? AND native_id=?')
       .get(machineId, nativeId) as { podium_id: ConversationId } | undefined
     return row?.podium_id
   }
 
-  segmentPath(machineId: string, nativeId: string): string | undefined {
+  segmentPath(machineId: MachineId, nativeId: string): string | undefined {
     const row = this.db
       .prepare('SELECT path FROM conversation_segments WHERE machine_id=? AND native_id=?')
       .get(machineId, nativeId) as { path: string | null } | undefined
@@ -27,7 +27,7 @@ export class ConversationRegistryRepository {
   }
 
   ensure(opts: {
-    machineId: string
+    machineId: MachineId
     nativeId: string
     providerId: string
     parentPodiumId?: ConversationId
@@ -91,7 +91,7 @@ export class ConversationRegistryRepository {
   }
 
   linkSegment(opts: {
-    machineId: string
+    machineId: MachineId
     newNativeId: string
     priorNativeId: string
     providerId: string
@@ -124,7 +124,7 @@ export class ConversationRegistryRepository {
     return podiumId
   }
 
-  podiumIds(machineId: string, nativeIds: string[]): Map<string, ConversationId> {
+  podiumIds(machineId: MachineId, nativeIds: string[]): Map<string, ConversationId> {
     const out = new Map<string, ConversationId>()
     const query = this.db.prepare(
       'SELECT podium_id FROM conversation_segments WHERE machine_id=? AND native_id=?',
@@ -136,14 +136,14 @@ export class ConversationRegistryRepository {
     return out
   }
 
-  siblingSegments(machineId: string, nativeId: string): { machineId: string; nativeId: string }[] {
+  siblingSegments(machineId: MachineId, nativeId: string): { machineId: MachineId; nativeId: string }[] {
     const podiumId = this.podiumId(machineId, nativeId)
     if (!podiumId) return []
     const rows = this.db
       .prepare(
         'SELECT machine_id,native_id FROM conversation_segments WHERE podium_id=? ORDER BY seq_in_conv',
       )
-      .all(podiumId) as { machine_id: string; native_id: string }[]
+      .all(podiumId) as { machine_id: MachineId; native_id: string }[]
     return rows.map((row) => ({ machineId: row.machine_id, nativeId: row.native_id }))
   }
 }

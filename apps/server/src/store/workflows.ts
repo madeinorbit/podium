@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId, UserId, MachineId } from '@podium/model'
 import {
   type ExecutionProfileWire as ExecutionProfile,
   ExecutionProfileWire,
@@ -42,7 +42,7 @@ export interface WorkflowRunRow {
   supersedesRunId: string | null
   startedAt: string
   completedAt: string | null
-  ownerUserId: string
+  ownerUserId: UserId
 }
 
 type Raw = Record<string, unknown>
@@ -163,7 +163,7 @@ export class WorkflowsRepository {
   constructor(private readonly db: SqlDatabase) {}
 
   ownerOf(kind: string, id: string): string | null {
-    let row: { owner_user_id?: string | null } | undefined
+    let row: { owner_user_id?: UserId | null } | undefined
     if (kind === 'workflow-definition' || kind === 'workflow-library-entry') {
       row = this.db
         .prepare('SELECT owner_user_id FROM workflows WHERE id = ?')
@@ -239,7 +239,7 @@ export class WorkflowsRepository {
     scope: WorkflowScope
     scopeRef: string | null
     actor: WorkflowActor
-    ownerUserId: string
+    ownerUserId: UserId
     now: string
   }): void {
     this.db
@@ -342,7 +342,7 @@ export class WorkflowsRepository {
     targetId: string
     revisionId: string
     actor: WorkflowActor
-    ownerUserId: string
+    ownerUserId: UserId
     now: string
   }): WorkflowBindingWire {
     this.db
@@ -390,12 +390,12 @@ export class WorkflowsRepository {
     id: string
     name: string
     accountId: string
-    machineId: string | null
+    machineId: MachineId | null
     harness: string
     model: string
     effort: string
     actor: WorkflowActor
-    ownerUserId: string
+    ownerUserId: UserId
     now: string
   }): ExecutionProfile {
     this.db

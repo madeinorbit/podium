@@ -63,7 +63,7 @@ import {
   type SessionRenameOutcome,
   sessionRenameContract,
 } from '@podium/commands'
-import { authorize, type AuthTarget, type SessionId, type UserId } from '@podium/model'
+import { authorize, type AuthTarget, type SessionId, type UserId, type MutationId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { onBehalfOfUser } from '../../command-principal'
 import type { MutationLedgerPort } from '@podium/sync'
@@ -230,7 +230,7 @@ export function renameOnTargetPath(
   //    a caller may have put on the wire are stripped here and are inert.
   const parsed = sessionRenameContract.input.safeParse(rawInput)
   if (!parsed.success) return { outcome: 'invalid-input' }
-  const input = parsed.data as SessionRenameInput & { mutationId?: string }
+  const input = parsed.data as SessionRenameInput & { mutationId?: MutationId }
 
   // 3. AUTHORIZATION — LIVE, over the delegation chain, BEFORE idempotency.
   const target = ownedTarget(deps, input.sessionId)

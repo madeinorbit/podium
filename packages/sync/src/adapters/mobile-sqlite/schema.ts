@@ -41,6 +41,7 @@
  * the round trip is asserted rather than assumed (`store.test.ts`).
  */
 
+import type { MutationId } from '@podium/model'
 import type { SqlDatabaseLike } from './sql'
 
 /** The database file name a mobile client opens. Composition chooses the directory. */
@@ -100,7 +101,7 @@ export interface StoredEntity {
  */
 export interface StoredOutboxRecord {
   readonly principal: string
-  readonly mutationId: string
+  readonly mutationId: MutationId
   readonly ordinal: number
   readonly record: unknown
 }

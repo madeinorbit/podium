@@ -40,6 +40,7 @@
  * command's recorded attribution, never chosen (see `provisionalOwner`).
  */
 
+import type { MutationId } from '@podium/model'
 import type { OptimisticEffect, PendingAttribution, PendingMutation } from './overlay'
 import type { EntityRecord, ExitKind } from './types'
 
@@ -74,7 +75,7 @@ export interface OverlayInputs {
  * from the ordinary one, which is how a rejection gets silently swallowed.
  */
 export interface RejectedPrediction {
-  readonly mutationId: string
+  readonly mutationId: MutationId
   readonly reason: string
 }
 

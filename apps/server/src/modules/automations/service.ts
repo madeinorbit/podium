@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
 import { createLogger } from '@podium/logger'
-import type { IssueId, SessionId } from '@podium/model'
+import type { IssueId, SessionId, MutationId, AutomationId } from '@podium/model'
 import {
   type AgentKind,
   type AutomationScheduleKind,
@@ -60,14 +60,14 @@ export interface AutomationsDeps {
   queueText(input: {
     sessionId: SessionId
     text: string
-    mutationId?: string
+    mutationId?: MutationId
     inputOrigin?: 'system'
   }): {
     ok: boolean
     reason?: string
   }
   /** Wake and deliver to the previous run's session in resume mode. */
-  resumeAndSend(input: { sessionId: SessionId; text: string; mutationId?: string }): {
+  resumeAndSend(input: { sessionId: SessionId; text: string; mutationId?: MutationId }): {
     ok: boolean
     reason?: string
   }
@@ -198,11 +198,11 @@ export class AutomationsService {
     return this.deps.store.list().filter((row) => row.ownerUserId === userId)
   }
 
-  runs(automationId: string, limit?: number): AutomationRunRow[] {
+  runs(automationId: AutomationId, limit?: number): AutomationRunRow[] {
     return this.deps.store.listRuns(automationId, limit)
   }
 
-  runsForUser(userId: UserId, automationId: string, limit?: number): AutomationRunRow[] {
+  runsForUser(userId: UserId, automationId: AutomationId, limit?: number): AutomationRunRow[] {
     const automation = this.deps.store.get(automationId)
     return automation?.ownerUserId === userId ? this.deps.store.listRuns(automationId, limit) : []
   }
@@ -524,7 +524,7 @@ export class AutomationsService {
    * resumed, not treated as already-applied.
    */
   applyObservedOccurrence(input: {
-    automationId: string
+    automationId: AutomationId
     nextRunAt: string
     enabled: true
     liveSessionIds: Set<string>

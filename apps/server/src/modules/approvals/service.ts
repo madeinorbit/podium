@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { asMachineId, asSessionId, type IssueId, type SessionId } from '@podium/model'
+import { asMachineId, asSessionId, type IssueId, type SessionId, type MachineId } from '@podium/model'
 import {
   ApprovalOp,
   type ApprovalWire,
@@ -32,17 +32,17 @@ import type { ApprovalRow, ApprovalsRepository } from '../../store/approvals'
 export interface ApprovalServiceDeps {
   store: ApprovalsRepository
   now(): string
-  toMachine(machineId: string, msg: ControlMessage): void
+  toMachine(machineId: MachineId, msg: ControlMessage): void
   clients(): Iterable<{ send(msg: LiveServerMessage): void }>
   /** The issue the requesting session is attached to (explicit or cwd-derived). */
   sessionIssueId(sessionId: SessionId): IssueId | null
-  issueInfo(issueId: string): { seq: number; title: string; displayRef?: string } | null
-  machineName(machineId: string): string | undefined
+  issueInfo(issueId: IssueId): { seq: number; title: string; displayRef?: string } | null
+  machineName(machineId: MachineId): string | undefined
   /** Append to the durable event log (renders in the issue activity feed). */
-  logEvent(kind: string, issueId: string | null, payload: Record<string, unknown>): void
+  logEvent(kind: string, issueId: IssueId | null, payload: Record<string, unknown>): void
   /** Push the outcome to the requesting agent via issue mail (stop-hook/nudge
    *  delivery) — the agent must not have to poll to learn the decision. */
-  notifyIssue(issueId: string, body: string): void
+  notifyIssue(issueId: IssueId, body: string): void
   /** Server-owned operations return a result string. null means this operation
    * belongs to the daemon executor. */
   executeServerOp?(op: ApprovalOp, sessionId: SessionId): string | null

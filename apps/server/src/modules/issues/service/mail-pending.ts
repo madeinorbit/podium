@@ -1,3 +1,4 @@
+import type { IssueId } from '@podium/model'
 import type { SessionStore } from '../../../store'
 
 /**
@@ -17,7 +18,7 @@ import type { SessionStore } from '../../../store'
  */
 export function countContextAwarePendingMail(
   store: Pick<SessionStore, 'messages' | 'issues'>,
-  issueId: string,
+  issueId: IssueId,
   formatFromIssue: (fromIssue: string) => string = (id) => id,
   /** The READING session [POD-1379]. Given one, the count is per-reader: it
    *  never includes that session's own sends, never counts what it has already

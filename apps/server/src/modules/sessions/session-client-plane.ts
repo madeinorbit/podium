@@ -5,7 +5,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { SessionId } from '@podium/model'
+import type { SessionId, MachineId } from '@podium/model'
 import type {
   ControlMessage,
   LiveServerMessage,
@@ -59,7 +59,7 @@ export class SessionClientPlane {
    * `machineId` and the machines ownership snapshot, and the caller's loop is
    * synchronous, so nothing can change between iterations.
    */
-  reattachMessageFor(session: Session, machineId: string): ControlMessage {
+  reattachMessageFor(session: Session, machineId: MachineId): ControlMessage {
     const recoveryMachineAccess =
       machineUseDecision(
         systemPrincipal('session-rebind'),
@@ -148,7 +148,7 @@ export class SessionClientPlane {
   /** Route a control message to the daemon that owns `machineId` (modules/machines);
    *  queued if that machine is briefly offline. Kept as a property so Session
    *  toDaemon closures and every internal call site bind through one seam. */
-  private readonly toMachine = (machineId: string, msg: ControlMessage): void =>
+  private readonly toMachine = (machineId: MachineId, msg: ControlMessage): void =>
     this.ports.machines.toMachine(machineId, msg)
 
   /**
@@ -160,7 +160,7 @@ export class SessionClientPlane {
    * lastPriority) so a viewState/attach churn never re-floods the whole map.
    */
 
-  sessionsChangedForMachine(machineId: string): void {
+  sessionsChangedForMachine(machineId: MachineId): void {
     this.ports.repository.sessionsChangedForMachine(machineId)
   }
 

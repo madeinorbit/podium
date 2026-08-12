@@ -1,6 +1,6 @@
 import { acceptAgentObservation } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
-import { type AgentRuntimeState, idleVerdictNeedsHuman, type SessionId } from '@podium/model'
+import { type AgentRuntimeState, idleVerdictNeedsHuman, type SessionId, type MachineId, type IssueId } from '@podium/model'
 import type {
   ControlMessage,
   LiveServerMessage,
@@ -38,9 +38,9 @@ export interface SessionDaemonLifecyclePorts {
   onSessionActivity(sessionId: SessionId): void
   onSessionAttention(sessionId: SessionId): void
   onSessionTurnEnd(sessionId: SessionId): void
-  maybeReapDraftIssue(issueId: string | null | undefined): void
+  maybeReapDraftIssue(issueId: IssueId | null | undefined): void
   emitSessionExited(sessionId: SessionId, code: number, spawnedBy?: string): void
-  toMachine(machineId: string, message: ControlMessage): void
+  toMachine(machineId: MachineId, message: ControlMessage): void
   now(): number
   terminalCandidateFacts(
     session: Session,
@@ -121,14 +121,14 @@ export class SessionDaemonLifecycle {
   private readonly persist = (session: Session, additionalWrite?: () => void): void =>
     this.ports.persist(session, additionalWrite)
   private readonly broadcastSessions = (): void => this.ports.broadcastSessions()
-  private readonly maybeReapDraftIssue = (issueId: string | null | undefined): void =>
+  private readonly maybeReapDraftIssue = (issueId: IssueId | null | undefined): void =>
     this.ports.maybeReapDraftIssue(issueId)
   private readonly emitSessionExited = (
     sessionId: SessionId,
     code: number,
     spawnedBy?: string,
   ): void => this.ports.emitSessionExited(sessionId, code, spawnedBy)
-  private readonly toMachine = (machineId: string, message: ControlMessage): void =>
+  private readonly toMachine = (machineId: MachineId, message: ControlMessage): void =>
     this.ports.toMachine(machineId, message)
   private readonly now = (): number => this.ports.now()
   private readonly terminalCandidateFacts = (

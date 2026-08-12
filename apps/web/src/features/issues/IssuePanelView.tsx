@@ -15,7 +15,7 @@ import {
   sessionNeedsHuman,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import type { IssueComment, SessionMeta } from '@podium/model'
+import type { IssueComment, SessionMeta, MachineId, IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowDown,
@@ -555,7 +555,7 @@ function EvidenceAndChecks({
   machineId,
 }: {
   issue: IssueViewModel
-  machineId?: string
+  machineId?: MachineId
 }): JSX.Element | null {
   const { trpc, httpOrigin, openFileInWorktree, openArtifact } = useStoreSelector(
     (s) => ({
@@ -870,11 +870,11 @@ export function IssuePanelView({
   onNavigate,
 }: {
   cwd: string
-  machineId?: string
+  machineId?: MachineId
   sessionId?: string
   /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — wins over the
    *  session attachment and cwd containment. */
-  issueId?: string
+  issueId?: IssueId
   /**
    * Where a linked task goes when it is clicked (POD-743).
    *
@@ -883,7 +883,7 @@ export function IssuePanelView({
    * be a navigation the trail cannot show or undo. Without it a linked row
    * moves the shell instead, because there is no trail to walk back along.
    */
-  onNavigate?: (issueId: string) => void
+  onNavigate?: (issueId: IssueId) => void
 }): JSX.Element {
   const { sessions, setPane, setView, setOpenIssueId, markIssueRead, markSessionRead } =
     useStoreSelector(

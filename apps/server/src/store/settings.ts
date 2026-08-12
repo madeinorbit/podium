@@ -31,7 +31,7 @@
  */
 
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
-import type { UserId } from '@podium/model'
+import type { UserId, MachineId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
@@ -180,8 +180,8 @@ export class SettingsRepository {
   //      (ADR 1 Amendment 1 D13.5). The meta key is `model_catalog:<machineId>`
   //      so two machines never share a row. Pre-split unkeyed `model_catalog`
   //      rows are left inert — MODEL_CATALOG_VERSION bumps discard them. ----
-  getModelCatalog(machineId: string): {
-    machineId: string
+  getModelCatalog(machineId: MachineId): {
+    machineId: MachineId
     byAgent: Record<string, Array<{ value: string; label: string; efforts?: string[] }>>
     fetchedAt: number
     version?: number
@@ -202,7 +202,7 @@ export class SettingsRepository {
       // unkeyed snapshot must not be served as if it applied here.
       if (parsed.machineId !== machineId) return null
       return parsed as {
-        machineId: string
+        machineId: MachineId
         byAgent: Record<string, Array<{ value: string; label: string; efforts?: string[] }>>
         fetchedAt: number
         version?: number
@@ -213,7 +213,7 @@ export class SettingsRepository {
   }
 
   setModelCatalog(snapshot: {
-    machineId: string
+    machineId: MachineId
     byAgent: Record<string, unknown>
     fetchedAt: number
     version?: number

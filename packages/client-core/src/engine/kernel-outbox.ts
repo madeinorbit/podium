@@ -196,21 +196,21 @@ class KernelEngineOutbox implements EngineOutbox {
     }
   }
 
-  retireAwaiting(mutationId: string): void {
+  retireAwaiting(mutationId: MutationId): void {
     void this.kernel.retireApplied(mutationId as MutationId).catch(this.onDegraded)
   }
 
-  async retry(mutationId: string, satisfaction: RetrySatisfaction): Promise<void> {
+  async retry(mutationId: MutationId, satisfaction: RetrySatisfaction): Promise<void> {
     await this.kernel.retry(mutationId as MutationId, satisfaction)
     if (platformIsOnline()) await this.drain()
   }
 
-  async edit(mutationId: string, input: unknown): Promise<void> {
+  async edit(mutationId: MutationId, input: unknown): Promise<void> {
     await this.kernel.edit(mutationId as MutationId, { input })
     if (platformIsOnline()) await this.drain()
   }
 
-  async discard(mutationId: string): Promise<void> {
+  async discard(mutationId: MutationId): Promise<void> {
     await this.kernel.discard(mutationId as MutationId)
     await this.kernel.purgeCancelled(mutationId as MutationId)
     this.metadata.delete(mutationId)

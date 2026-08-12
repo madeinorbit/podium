@@ -2,6 +2,7 @@
  * Memory persistence composition. No forwarding methods: consumers must name
  * whether they need summaries, stable identity, mirror cursors, or transcript FTS.
  */
+import type { MachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { ConversationIndexRepository } from './conversations/index'
 import { TranscriptMirrorRepository } from './conversations/mirror'
@@ -18,7 +19,7 @@ export class ConversationsRepository {
     db: SqlDatabase,
     /** This host's minted machine id — the machine a row this composition has to
      *  CONJURE belongs to (POD-318). See {@link ConversationIndexRepository.setMeta}. */
-    hostMachineId: string,
+    hostMachineId: MachineId,
   ) {
     this.index = new ConversationIndexRepository(db, hostMachineId)
     this.registry = new ConversationRegistryRepository(db)

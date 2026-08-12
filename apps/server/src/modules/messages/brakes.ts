@@ -25,6 +25,7 @@
  *    scheduler decides what to do with them.
  */
 
+import type { IssueId } from '@podium/model'
 import type { EventsRepository } from '../../store/events'
 import type { MessagesRepository } from '../../store/messages'
 import { type DeliveryTarget, deliveryTargetKey } from './targets'
@@ -156,7 +157,7 @@ export class DeliveryBrakes {
    *  the same per-issue daily budget as the spawn-on-wake seam, or a looping
    *  agent could fork-bomb the host with full PTY sessions the wake budget
    *  never sees [spec:SP-34d7 containment]. Consumes one unit when available. */
-  takeSpawnBudget(issueId: string | null): { ok: boolean; count: number } {
+  takeSpawnBudget(issueId: IssueId | null): { ok: boolean; count: number } {
     const key = issueId ?? 'no-issue'
     const day = this.deps.now().slice(0, 10)
     const count = this.spawnCountFor(key, day)

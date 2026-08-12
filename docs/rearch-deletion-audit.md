@@ -292,6 +292,22 @@ The planted fixture proves both halves of the mechanism:
 `id: text().$type<SessionId>().primaryKey()` leaves it. A detector that matched
 both as one form would make the key reportable but impossible to discharge—the
 exact defect POD-1199 found in the original drizzle-column classifier.
+### 2026-08-12 — POD-1937 brands seven unambiguous id spaces: `unbranded-ts-id-members` 1,229 → 264
+
+The first product tranche writes the model brands on **965** hand-written
+members: Machine 564, Issue 203, User 91, Mutation 62, Repo 33, Automation 10,
+and Artifact 2. The independently rerun installed-tree audit reports 264 raw
+members afterward, exactly the arithmetic sum of the four deliberately held
+spaces: Session 189, Thread 51, Account 17 and Conversation 7.
+
+Those four are not held because the mechanism differs. They contain the known
+foreign-id carve-outs: provider/harness-native sessions and threads, native
+conversation parents, and provider account ids. The canonical zod schemas and
+drizzle columns already mark those values `UNBRANDED`; their hand-written
+TypeScript carriers must receive the same counted decision before the remaining
+Podium-owned members are flipped. Mechanically branding all 264 would make the
+audit green by laundering foreign ids into Podium principal spaces.
+
 ### 2026-08-12 — POD-1937 adds `unbranded-ts-id-members` (+1 item, baseline 1,229)
 
 **A ratchet EXTENSION, in a commit that touches no product code.** The

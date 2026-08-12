@@ -29,7 +29,7 @@
  *
  * Platform-neutral: no DOM, no storage.
  */
-import type { AgentKind, HostMetricsWire, MachineQuotaWire } from '@podium/model'
+import type { AgentKind, HostMetricsWire, MachineQuotaWire, MachineId } from '@podium/model'
 import {
   type AccountQuotaGroup,
   agentLabel,
@@ -61,7 +61,7 @@ const SPENT_PERCENT = 90
 /** The host closest to its parking threshold. */
 export interface TightestLoad extends HostLoadView {
   hostname: string
-  machineId: string | undefined
+  machineId: MachineId | undefined
 }
 
 export interface CapacityView {

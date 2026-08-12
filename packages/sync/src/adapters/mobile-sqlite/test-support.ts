@@ -39,6 +39,7 @@
  * this file exists to rule out.
  */
 
+import type { MutationId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -142,7 +143,7 @@ export function freshDatabaseFile(): { file: string; cleanup: () => void } {
 export function readDurable(file: string): {
   entities: { principal: string; entity: string; entityId: string; value: unknown }[]
   cursors: { principal: string; cursor: unknown }[]
-  outbox: { principal: string; mutationId: string; ordinal: number; record: unknown }[]
+  outbox: { principal: string; mutationId: MutationId; ordinal: number; record: unknown }[]
 } {
   const db = sqliteEngine.open(file)
   try {
@@ -179,7 +180,7 @@ export function readDurable(file: string): {
         .prepare(
           `SELECT principal, mutation_id, ordinal, record FROM ${OUTBOX_TABLE} ORDER BY ordinal ASC`,
         )
-        .all() as { principal: string; mutation_id: string; ordinal: number; record: string }[]
+        .all() as { principal: string; mutation_id: MutationId; ordinal: number; record: string }[]
     ).map((row) => ({
       principal: row.principal,
       mutationId: row.mutation_id,

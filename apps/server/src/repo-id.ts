@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
-import { asRepoId, type RepoId } from '@podium/model'
+import { asRepoId, type RepoId, type MachineId } from '@podium/model'
 
 /** Stable repo identity (#74). A repo's `repo_id` is derived from its normalized
  *  origin URL when one is known — so the same repository cloned at different paths
@@ -74,7 +74,7 @@ function sha1_16(input: string): string {
  *  (machineId, path) fallback that a later `updateRepoOrigin` may upgrade. */
 export function deriveRepoId(input: {
   originUrl?: string | null
-  machineId: string
+  machineId: MachineId
   path: string
 }): RepoId {
   // MINT SITE for a RepoId — derived here from an origin URL or a (machine, path)
@@ -88,7 +88,7 @@ export function deriveRepoId(input: {
  *  NOT derived from an origin URL and may be upgraded when an origin is learned. */
 export function isPathFallbackRepoId(
   repoId: RepoId | null | undefined,
-  machineId: string,
+  machineId: MachineId,
   path: string,
 ): boolean {
   return repoId == null || repoId === deriveRepoId({ machineId, path })

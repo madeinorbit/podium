@@ -1,4 +1,4 @@
-import type { ConversationSummaryWire, GitRepositoryWire, RepoId, SessionMeta } from '@podium/model'
+import type { ConversationSummaryWire, GitRepositoryWire, RepoId, SessionMeta, MachineId } from '@podium/model'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -17,7 +17,7 @@ export interface WorktreeView {
   /** Stable cross-machine repo identity (#74); undefined on older servers. */
   repoId?: RepoId
   /** Which machine this worktree lives on (undefined = single-machine or unknown). */
-  machineId?: string
+  machineId?: MachineId
 }
 
 export interface RepoView {
@@ -26,7 +26,7 @@ export interface RepoView {
   worktrees: WorktreeView[]
   /** All machines that have this repo, with each machine's local repo path.
    *  Single-machine deployments will always have exactly one entry. */
-  machines: { machineId: string; path: string }[]
+  machines: { machineId: MachineId; path: string }[]
   /** Normalized origin URL used as the cross-machine identity key.
    *  Undefined for repos without a git remote. */
   originUrl?: string

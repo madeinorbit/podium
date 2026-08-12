@@ -9,7 +9,7 @@
  * decision lives.
  */
 
-import type { MachineWire } from '@podium/model'
+import type { MachineWire, MachineId } from '@podium/model'
 
 /**
  * What a principal may do with a machine beyond seeing that it exists: `use` is the
@@ -55,7 +55,7 @@ export function machinesWithUse(machines: MachineWire[]): MachineWithUse[] {
 
 /** One registered checkout, as the fleet view reports it. */
 export interface FleetRepoRow {
-  machineId: string
+  machineId: MachineId
   path: string
 }
 
@@ -75,7 +75,7 @@ export interface FleetView {
  */
 export function fleetViewFor(
   machines: MachineWire[],
-  allRepos: readonly { machineId: string; path: string }[],
+  allRepos: readonly { machineId: MachineId; path: string }[],
 ): FleetView {
   const scoped = machinesWithUse(machines)
   // `Set<string>`, not the inferred `Set<MachineId>`: the repo rows this is asked

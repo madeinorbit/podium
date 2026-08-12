@@ -1,3 +1,4 @@
+import type { IssueId } from '@podium/model'
 import type { WorktreeGcObservation } from '@podium/protocol'
 import type { CommandPrincipal } from '../../../command-principal'
 import { liveSessionsUsingWorktree } from '../../../issue-util'
@@ -78,7 +79,7 @@ export class IssueWorktreeGcModule {
   /** Apply the current proposal without enabling standing automatic consent. */
   async releaseReclaimableWorktrees(principal: CommandPrincipal, nowMs: number = Date.now()) {
     const freed: string[] = []
-    const refused: Array<{ issueId: string; reason: string }> = []
+    const refused: Array<{ issueId: IssueId; reason: string }> = []
     for (const candidate of this.listReclaimableWorktrees(nowMs)) {
       const result = await this.releaseWorktreeIfIdle(candidate.issueId, principal)
       if (result.freed) freed.push(candidate.issueId)

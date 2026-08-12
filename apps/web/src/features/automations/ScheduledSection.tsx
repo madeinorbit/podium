@@ -1,3 +1,4 @@
+import type { AutomationId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   ChevronDown,
@@ -100,7 +101,7 @@ export function ScheduledSection({
 }): JSX.Element {
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  const mutate = (id: string, run: () => Promise<unknown>): void => {
+  const mutate = (id: AutomationId, run: () => Promise<unknown>): void => {
     setBusyId(id)
     run()
       .then(() => onError(''))

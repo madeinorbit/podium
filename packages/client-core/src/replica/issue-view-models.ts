@@ -6,7 +6,7 @@
  * React into a platform-neutral slice, and it must not restate unread
  * derivation (POD-843).
  */
-import type { IssueProjection, IssueWire } from '@podium/model'
+import type { IssueProjection, IssueWire, IssueId } from '@podium/model'
 import {
   buildIssueTree,
   deriveIssueRollups,
@@ -25,7 +25,7 @@ export interface IssueViewsSnapshot {
   tree: IssueTreeNode[]
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
-  rollupsFor: (issueId: string) => IssueSessionRollups
+  rollupsFor: (issueId: IssueId) => IssueSessionRollups
 }
 
 const EMPTY_ROLLUPS: IssueSessionRollups = {

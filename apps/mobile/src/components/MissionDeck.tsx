@@ -16,7 +16,7 @@ import {
   sessionTitle,
   treeGuides,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionId, SessionMeta, IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronsDownUp, Plus } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
@@ -165,7 +165,7 @@ export function MissionDeck({
     return led
   }, [rows])
   const leadTone = useCallback(
-    (issueId: string | undefined): RailTone =>
+    (issueId: IssueId | undefined): RailTone =>
       issueId === undefined || !ledIssueIds.has(issueId)
         ? null
         : issueId === root.id

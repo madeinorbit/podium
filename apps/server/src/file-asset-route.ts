@@ -1,11 +1,11 @@
 // apps/server/src/file-asset-route.ts
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId, type SessionId, type MachineId } from '@podium/model'
 import type { Hono } from 'hono'
 import { rawFileHeaders } from './raw-file-headers'
 
 export interface AssetReader {
   readAsset(
-    a: { sessionId: SessionId; path: string } | { machineId?: string; root: string; path: string },
+    a: { sessionId: SessionId; path: string } | { machineId?: MachineId; root: string; path: string },
   ): Promise<{
     ok: boolean
     dataBase64?: string

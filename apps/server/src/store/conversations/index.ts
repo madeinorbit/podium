@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import type { ConversationIndexRow } from '../types'
 
@@ -47,7 +48,7 @@ export class ConversationIndexRepository {
    * like any other value. A row that would change still changes; only a write
    * with nothing to say is skipped.
    */
-  upsert(rows: (ConversationIndexRow & { machineId: string })[]): void {
+  upsert(rows: (ConversationIndexRow & { machineId: MachineId })[]): void {
     if (rows.length === 0) return
     const stmt = this.db.prepare(`INSERT INTO conversations
       (id,agent_kind,title,project_path,provider_id,resume_kind,resume_value,created_at,

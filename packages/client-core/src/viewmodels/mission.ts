@@ -1,4 +1,4 @@
-import { type AgentKind, type SessionMeta, spawnedByParentSessionId } from '@podium/model'
+import { type AgentKind, type SessionMeta, spawnedByParentSessionId, type IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
 import { sessionsForIssueNav } from './session-ownership'
@@ -137,7 +137,7 @@ export function issueNeedsHuman(
 
 export function missionRootFor(
   issues: readonly IssueNavigationModel[],
-  selectedIssueId: string | null,
+  selectedIssueId: IssueId | null,
 ): IssueNavigationModel | undefined {
   if (!selectedIssueId) return undefined
   const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
@@ -1211,7 +1211,7 @@ export function portfolioActionableCount(
   sessions: readonly SessionMeta[],
 ): number {
   const byIssue = new Map<string, SessionMeta[]>()
-  const add = (issueId: string, session: SessionMeta): void => {
+  const add = (issueId: IssueId, session: SessionMeta): void => {
     const list = byIssue.get(issueId) ?? []
     list.push(session)
     byIssue.set(issueId, list)

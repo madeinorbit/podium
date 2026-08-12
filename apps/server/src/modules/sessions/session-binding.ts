@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { SessionId, UserId } from '@podium/model'
+import type { SessionId, UserId, MachineId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { harnessRequiresExclusiveInteractiveResume } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
@@ -23,7 +23,7 @@ export interface SessionBindingReceiptsDeps {
   sessionOwner(sessionId: SessionId): SessionOwnership | undefined
   persist(session: Session): void
   broadcastSessions(): void
-  toMachine(machineId: string, message: ControlMessage): void
+  toMachine(machineId: MachineId, message: ControlMessage): void
 }
 
 /**
@@ -41,7 +41,7 @@ export class SessionBindingReceipts {
 
   constructor(private readonly deps: SessionBindingReceiptsDeps) {}
 
-  observeResumeRef(machineId: string, message: ResumeObservation): void {
+  observeResumeRef(machineId: MachineId, message: ResumeObservation): void {
     const session = this.deps.session(message.sessionId)
     if (!session) return
     // A daemon may bind only sessions owned by its authenticated machine.

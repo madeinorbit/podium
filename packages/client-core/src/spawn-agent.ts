@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { AgentKind, IssueId, RepoId, SessionId } from '@podium/model'
+import type { AgentKind, IssueId, RepoId, SessionId, MachineId } from '@podium/model'
 import type { PodiumClientApi } from './api'
 
 const log = createLogger('client-core:spawn')
@@ -11,7 +11,7 @@ export interface SpawnTarget {
   /* Stable project identity used to keep optimistic sidebar rows in the same
    * group as their reconciled server row. */
   repoId?: RepoId
-  machineId?: string
+  machineId?: MachineId
   placement?: 'allowed' | 'unauthorized' | 'unreachable'
 }
 

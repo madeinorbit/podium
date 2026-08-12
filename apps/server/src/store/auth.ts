@@ -83,7 +83,7 @@ export class AuthRepository {
   ): { userId: UserId; expiresAt: string; label: string } | undefined {
     const row = this.db
       .prepare('SELECT user_id, expires_at, label FROM client_sessions WHERE token_hash = ?')
-      .get(tokenHash) as { user_id: string; expires_at: string; label: string } | undefined
+      .get(tokenHash) as { user_id: UserId; expires_at: string; label: string } | undefined
     return row
       ? { userId: row.user_id as UserId, expiresAt: row.expires_at, label: row.label }
       : undefined

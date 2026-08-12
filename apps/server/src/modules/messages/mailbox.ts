@@ -30,7 +30,7 @@
  * This is the shape POD-320 established for `issues/service`.
  */
 
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta, IssueId } from '@podium/model'
 import type { MessageKind, MessageLifecycle, MessageRow, MessageUrgency } from '../../store'
 import type { MessagesRepository } from '../../store/messages'
 import type { NotificationArbiter } from '../../store/notification-facts'
@@ -81,7 +81,7 @@ export interface MessageMailboxDeps {
   /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
    *  substrate inbox read must consume the mirror row's unread status too, or
    *  mailPending's legacy fallback keeps nagging. Drop with the table. */
-  mirrorMarkIssueMailRead?(issueId: string, ids: string[]): void
+  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): void
   /** THE send path. A reply is an ordinary send with a server-computed
    *  recipient, so it goes through the same clamps, brakes and ledger. */
   send(from: MessageSender, input: MessageSendInput): MessageSendResult
@@ -266,7 +266,7 @@ export class MessageMailbox {
 
   /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web] —
    *  a pure read (never consumes queued status). */
-  ledger(q: { issueId?: string; sessionId?: string; limit?: number }): MessageRow[] {
+  ledger(q: { issueId?: IssueId; sessionId?: string; limit?: number }): MessageRow[] {
     return this.deps.messages.listLedger(q)
   }
 

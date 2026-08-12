@@ -34,7 +34,7 @@ export class NativeLoginService {
     })
   }
 
-  markRequired(machineId: string, harness: HarnessAgent): void {
+  markRequired(machineId: MachineId, harness: HarnessAgent): void {
     this.required.add(`${machineId}:${harness}`)
   }
 
@@ -118,7 +118,7 @@ export class NativeLoginService {
     this.deps.machines.toMachine(attempt.machineId, { type: 'inventoryRequest' })
   }
 
-  private onInventory(machineId: string): void {
+  private onInventory(machineId: MachineId): void {
     for (const [harness, attempt] of this.attempts) {
       if (attempt.machineId !== machineId || attempt.status !== 'refreshing') continue
       const machine = this.deps.machines.listMachines().find((row) => row.id === machineId)

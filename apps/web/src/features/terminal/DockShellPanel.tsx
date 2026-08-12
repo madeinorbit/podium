@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { resolveIssueReference } from '@podium/client-core/viewmodels'
-import type { MachineWire, SessionId, SessionMeta } from '@podium/model'
+import type { MachineWire, SessionId, SessionMeta, MachineId } from '@podium/model'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
@@ -26,7 +26,7 @@ export function DockShellPanel({
   machineId,
 }: {
   cwd: string
-  machineId?: string
+  machineId?: MachineId
 }): JSX.Element {
   const {
     hub,
@@ -153,7 +153,7 @@ export function DockShellPanel({
 export function resolveShellMachineLabel(
   session: Pick<SessionMeta, 'machineId' | 'machineName'> | undefined,
   machines: Pick<MachineWire, 'id' | 'name'>[],
-  requestedMachineId?: string,
+  requestedMachineId?: MachineId,
 ): string | undefined {
   if (session?.machineName) return session.machineName
   const id = session?.machineId ?? requestedMachineId

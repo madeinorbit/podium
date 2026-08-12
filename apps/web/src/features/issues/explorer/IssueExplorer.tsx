@@ -1,3 +1,4 @@
+import type { IssueId, MachineId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronRight, ListTree } from 'lucide-react'
 import type { JSX } from 'react'
@@ -23,7 +24,7 @@ function prefersReducedMotion(): boolean {
 
 interface Frame {
   key: number
-  id: string | null
+  id: IssueId | null
   move: 'push' | 'pop' | null
   leaving?: boolean
 }
@@ -45,7 +46,7 @@ export function IssueExplorer({
   /** The active worktree — artifacts of a task with no checkout of its own are
    *  served from it, exactly as the old panel did. */
   cwd: string
-  machineId?: string
+  machineId?: MachineId
 }): JSX.Element {
   const { current, seq, motion, push } = useIssueExplorer()
   const [frames, setFrames] = useState<Frame[]>([{ key: seq, id: current, move: null }])

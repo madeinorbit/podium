@@ -21,6 +21,7 @@
  * a span extends it in time rather than replacing it.
  */
 
+import type { MutationId } from '@podium/model'
 import type { RetirementIntent } from './overlay'
 import type {
   CacheMutation,
@@ -41,7 +42,7 @@ const key = (entity: string, entityId: string): string => `${entity}\u0000${enti
  * only enough of it to prove that no D7 rung can reach it.
  */
 export interface OutboxEntry {
-  readonly mutationId: string
+  readonly mutationId: MutationId
   readonly entity: string
   readonly entityId: string
   readonly command: unknown
@@ -69,7 +70,7 @@ export class InMemoryOutbox {
     return [...this.entries]
   }
 
-  retire(mutationId: string): void {
+  retire(mutationId: MutationId): void {
     this.entries = this.entries.filter((e) => e.mutationId !== mutationId)
   }
 

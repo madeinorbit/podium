@@ -9,6 +9,7 @@
  * in exactly the cases it always did.
  */
 
+import type { UserId } from '@podium/model'
 import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
 import { AUTH_QUERIES, SETUP_QUERIES, TELEMETRY_QUERIES } from './queries'
 import { AUTH_COMMANDS_TRPC, SETUP_COMMANDS_TRPC, TELEMETRY_COMMANDS_TRPC } from './registry'
@@ -23,7 +24,7 @@ const instanceService = (state: {
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
   users?: InstanceAccountStore | undefined
   loginRequired?: (() => boolean) | undefined
-  caller: { userId: string }
+  caller: { userId: UserId }
   modules?:
     | {
         machines: { refreshFleetChannel(): void }

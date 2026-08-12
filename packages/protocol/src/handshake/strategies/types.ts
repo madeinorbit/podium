@@ -181,7 +181,7 @@ export interface PeerObservations {
  * rebind an existing row (server refuses pair when the id is already registered).
  */
 export interface PairingRequest {
-  readonly machineId?: string
+  readonly machineId?: MachineId
   readonly name?: string
   readonly hostname?: string
 }

@@ -8,7 +8,8 @@
  * second answer to "who is calling", which is the failure D7 exists to prevent.
  */
 
-import type { TransportTag } from '@podium/commands'
+import type { TransportTag   MachineId,
+} from '@podium/commands'
 import type { Capability, MachineUseDecision } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import {
@@ -175,7 +176,7 @@ export function machinesForPrincipal(
 
 /** One registered checkout, as the fleet view reports it. */
 export interface FleetRepoRow {
-  machineId: string
+  machineId: MachineId
   path: string
 }
 

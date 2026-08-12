@@ -19,7 +19,7 @@
  * Depends on F2, F3 and the machines slice.
  * Platform-neutral: no DOM, no storage.
  */
-import type { GitRepositoryWire, RepoId, SessionMeta } from '@podium/model'
+import type { GitRepositoryWire, RepoId, SessionMeta, MachineId } from '@podium/model'
 import { indexSessionOwnership, sessionsForWorktree, type SessionOwnershipIndex } from '../../session-ownership'
 import { sortSessionsForSidebar } from '../../session-urgency'
 import type { PinState, RepoView, WorktreeView } from '../../types'
@@ -38,7 +38,7 @@ export interface RepoNavView {
   path: string
   name: string
   worktrees: WorktreeNavView[]
-  machines?: { machineId: string; path: string }[]
+  machines?: { machineId: MachineId; path: string }[]
   originUrl?: string
   repoId?: RepoId
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueWire } from '@podium/model'
+import type { IssueWire, IssueId } from '@podium/model'
 import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import type { IssueStore } from './core'
@@ -57,7 +57,7 @@ export class IssueCommentsMailModule {
   /** Create a mail message on the target issue, then fire the delivery hook
    *  (send-time nudge). Delivery failures never fail the send — the message is
    *  durable and will surface via prime / inbox regardless. */
-  sendMail(targetIssueId: string, fromAuthor: string, body: string): IssueMessageRow {
+  sendMail(targetIssueId: IssueId, fromAuthor: string, body: string): IssueMessageRow {
     const id = this.store.resolveRef(targetIssueId)
     const row = this.store.rowOrThrow(id)
     const message: IssueMessageRow = {
@@ -89,7 +89,7 @@ export class IssueCommentsMailModule {
    *  advances (it is what stops the push/retry sweep re-injecting a message the
    *  issue has now pulled) — it just no longer decides who gets nagged. */
   mailInbox(
-    issueId: string,
+    issueId: IssueId,
     opts?: { markRead?: boolean; sessionId?: string },
   ): Array<IssueMessageRow & { wasUnread: boolean }> {
     const id = this.store.resolveRef(issueId)
@@ -206,7 +206,7 @@ export class IssueCommentsMailModule {
    *  the nag when the mirror lags. `senders` lets the stop-hook render the
    *  coalesced pointer ("N messages from X, Y"). */
   mailPending(
-    issueId: string,
+    issueId: IssueId,
     opts?: { sessionId?: string },
   ): { unread: number; senders: string[] } {
     const id = this.store.resolveRef(issueId)

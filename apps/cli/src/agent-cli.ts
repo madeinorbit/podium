@@ -17,7 +17,7 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
-import type { SessionId } from '@podium/model'
+import type { SessionId, IssueId } from '@podium/model'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { MailCliError, parseMailArgs } from './mail-cli'
 import { makeOperatorIssueClient } from './operator-client'
@@ -124,7 +124,7 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
       })) as {
         ok: boolean
         sessionId: SessionId
-        issueId: string
+        issueId: IssueId
         issueSeq: number
         cwd: string
         agentId: string

@@ -105,7 +105,7 @@ export interface TranscriptSlice {
 export interface RpcSessionView {
   id: SessionId
   cwd: string
-  machineId: string
+  machineId: MachineId
   agentKind: AgentKind
   resume?: ResumeRef
   transcriptItems(): TranscriptItem[]
@@ -117,11 +117,11 @@ interface DaemonRpcDeps {
     MemoryService,
     'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake' | 'transcriptHasPredecessors'
   >
-  toMachine(machineId: string, msg: ControlMessage): void
+  toMachine(machineId: MachineId, msg: ControlMessage): void
   defaultMachine(): MachineId
   resolveMachine(requested: string | undefined, cwd: string): string
-  hasDaemon(machineId: string): boolean
-  machineName(id: string): string
+  hasDaemon(machineId: MachineId): boolean
+  machineName(id: MachineId): string
   onlineMachineIds(): MachineId[]
   getSession(sessionId: SessionId): RpcSessionView | undefined
   portableStateFence?: PortableStateWriteFence
@@ -174,7 +174,7 @@ const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>(
  *  to the correlator along with the machine that answered. */
 type ReplySettler<K extends RpcDaemonFrameType> = (
   broker: DaemonRequestPort,
-  machineId: string,
+  machineId: MachineId,
   msg: Extract<DaemonMessage, { type: K }>,
 ) => void
 
@@ -306,7 +306,7 @@ export class DaemonRpcService {
     timeoutMs: number,
     onTimeout: () => T,
     build: (requestId: string) => ControlMessage,
-    machineId?: string,
+    machineId?: MachineId,
   ): Promise<T> {
     return this.broker.request({ kind, timeoutMs, onTimeout, build, machineId })
   }
@@ -328,7 +328,7 @@ export class DaemonRpcService {
   scanRepos(
     roots: string[],
     opts: { includeHome?: boolean; maxDepth?: number } = {},
-    machineId?: string,
+    machineId?: MachineId,
   ): Promise<ScanReposResult> {
     return this.request(
       SCAN_REPOS,
@@ -354,7 +354,7 @@ export class DaemonRpcService {
   browseDirs(
     path?: string,
     opts: { includeHidden?: boolean } = {},
-    machineId?: string,
+    machineId?: MachineId,
   ): Promise<BrowseDirsResult> {
     return this.request(
       BROWSE_DIRS,
@@ -389,7 +389,7 @@ export class DaemonRpcService {
    *  `machineId` targets a specific machine; omitted → the default online machine. */
   agentQuota(
     refresh?: boolean,
-    machineId?: string,
+    machineId?: MachineId,
   ): Promise<{ hostname: string; agents: AgentQuotaWire[] }> {
     return this.request(
       AGENT_QUOTA,
@@ -417,7 +417,7 @@ export class DaemonRpcService {
    * `cursor-agent models` plus the Anthropic model list can take several seconds,
    * and this read is stale-while-revalidate — no client is blocked on it.
    */
-  modelProbe(machineId: string): Promise<Record<string, ModelChoiceWire[]>> {
+  modelProbe(machineId: MachineId): Promise<Record<string, ModelChoiceWire[]>> {
     return this.request(
       MODEL_PROBE,
       20_000,
@@ -451,7 +451,7 @@ export class DaemonRpcService {
     op: RepoOp,
     cwd: string,
     args?: Record<string, string>,
-    machineId?: string,
+    machineId?: MachineId,
   ): Promise<OpResult> {
     return this.request(
       REPO_OP,
@@ -465,7 +465,7 @@ export class DaemonRpcService {
   /** Read only allowlisted native auth files from one authenticated daemon. */
   credentialExport(
     kinds: PortableCredentialKind[],
-    machineId: string,
+    machineId: MachineId,
     options?: { propagation?: boolean },
   ): Promise<Omit<CredentialExportResultMessage, 'type' | 'requestId'>> {
     return this.request(
@@ -485,7 +485,7 @@ export class DaemonRpcService {
   /** Atomically install allowlisted auth files on one authenticated daemon. */
   credentialInstall(
     bundles: PortableCredentialBundle[],
-    machineId: string,
+    machineId: MachineId,
     options?: { propagation?: boolean },
   ): Promise<Omit<CredentialInstallResultMessage, 'type' | 'requestId'>> {
     return this.request(
@@ -517,7 +517,7 @@ export class DaemonRpcService {
       sourceMachineId: MachineId
       binding: HandoffBindingExportInstruction
     },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Omit<HandoffExportResultMessage, 'type' | 'requestId'>> {
     return this.request(
       HANDOFF_EXPORT,
@@ -532,7 +532,7 @@ export class DaemonRpcService {
     stagePath: string,
     offset: number,
     length: number,
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Omit<HandoffChunkReadResultMessage, 'type' | 'requestId'>> {
     return this.request(
       HANDOFF_READ,
@@ -558,7 +558,7 @@ export class DaemonRpcService {
     stageToken: HandoffStageToken,
     offset: number,
     data: Buffer,
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Omit<HandoffImportChunkResultMessage, 'type' | 'requestId'>> {
     return this.request(
       HANDOFF_WRITE,
@@ -579,7 +579,7 @@ export class DaemonRpcService {
     sessionId: SessionId,
     repoPath: string,
     worktreeName: string,
-    machineId: string,
+    machineId: MachineId,
     occupiedWorktreePaths: string[] = [],
     binding?: HandoffBindingImportInstruction,
   ): Promise<Omit<HandoffImportResultMessage, 'type' | 'requestId'>> {
@@ -611,7 +611,7 @@ export class DaemonRpcService {
       fromMachineId: MachineId
       toMachineId: MachineId
     },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Omit<HandoffBindingFinalizeResultMessage, 'type' | 'requestId'>> {
     return this.request(
       HANDOFF_BINDING_FINALIZE,
@@ -635,7 +635,7 @@ export class DaemonRpcService {
       repoId: RepoId
       sourceMachineId: MachineId
     },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Omit<WorkspaceExportResultMessage, 'type' | 'requestId'>> {
     return this.request(
       WORKSPACE_EXPORT,
@@ -650,7 +650,7 @@ export class DaemonRpcService {
   workspaceImport(
     fetchId: string,
     repoPath: string,
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Omit<WorkspaceImportResultMessage, 'type' | 'requestId'>> {
     return this.request(
       WORKSPACE_IMPORT,
@@ -664,7 +664,7 @@ export class DaemonRpcService {
   /** Remove every peek worktree under a repo [POD-658]. */
   workspaceClean(
     repoPath: string,
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Omit<WorkspaceCleanResultMessage, 'type' | 'requestId'>> {
     return this.request(
       WORKSPACE_CLEAN,
@@ -748,7 +748,7 @@ export class DaemonRpcService {
     reader: TranscriptReader,
     session: {
       id: SessionId
-      machineId: string
+      machineId: MachineId
       resume?: { value: string }
     },
   ): { pathHint: string } | undefined {
@@ -877,7 +877,7 @@ export class DaemonRpcService {
   }
 
   listDir(input: {
-    machineId?: string
+    machineId?: MachineId
     root: string
     path?: string
   }): Promise<Omit<DirListResultMessage, 'type' | 'requestId'>> {
@@ -894,7 +894,7 @@ export class DaemonRpcService {
   readFile(
     input:
       | { sessionId: SessionId; path: string }
-      | { machineId?: string; root: string; path: string },
+      | { machineId?: MachineId; root: string; path: string },
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)
@@ -933,7 +933,7 @@ export class DaemonRpcService {
     input:
       | { sessionId: SessionId; path: string }
       | {
-          machineId?: string
+          machineId?: MachineId
           root: string
           path: string
           /** Ranged pull ([spec:SP-0fc9]) — artifact snapshotting reads large files in chunks. */
@@ -983,7 +983,7 @@ export class DaemonRpcService {
   writeFile(
     input:
       | { sessionId: SessionId; path: string; content: string; baseHash?: string }
-      | { machineId?: string; root: string; path: string; content: string; baseHash?: string },
+      | { machineId?: MachineId; root: string; path: string; content: string; baseHash?: string },
   ): Promise<Omit<FileWriteResultMessage, 'type' | 'requestId'>> {
     const build = (requestId: string, cwd: string) => ({
       type: 'fileWriteRequest' as const,
@@ -1019,12 +1019,12 @@ export class DaemonRpcService {
       | { transferId: string; manifest: ServerTransferManifest; manifestDigest: string }
       | {
           transferId: string
-          sourceMachineId?: string
+          sourceMachineId?: MachineId
           manifest: ServerTransferManifestEntry[]
           manifestDigest: string
           totalBytes: number
         },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     if (Array.isArray(input.manifest))
       return Promise.resolve({
@@ -1083,7 +1083,7 @@ export class DaemonRpcService {
       data: Buffer
       manifestDigest?: string
     },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     const manifestDigest =
       input.manifestDigest ?? this.serverTransferDigests.get(machineId + ':' + input.transferId)
@@ -1140,7 +1140,7 @@ export class DaemonRpcService {
   serverTransferValidate(
     transferId: string,
     manifestDigest: string,
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return this.request(
@@ -1169,7 +1169,7 @@ export class DaemonRpcService {
     transferId: string,
     manifestDigest: string,
     publicUrl: string,
-    machineId: string,
+    machineId: MachineId,
     port?: number,
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
@@ -1202,7 +1202,7 @@ export class DaemonRpcService {
   serverTransferAbort(
     transferId: string,
     reason: string | undefined,
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     const manifestDigest = this.serverTransferDigests.get(machineId + ':' + transferId)
     if (!manifestDigest)
@@ -1241,7 +1241,7 @@ export class DaemonRpcService {
   serverTransferAcknowledge(
     transferId: string,
     manifestDigest: string,
-    machineId: string,
+    machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return this.request(
@@ -1269,7 +1269,7 @@ export class DaemonRpcService {
   /** Read target-side recovery state through the same authenticated machine broker. */
   serverTransferStatus(
     transferId: string | undefined,
-    machineId: string,
+    machineId: MachineId,
     manifestDigest?: string,
   ): Promise<Payload<ServerTransferResultMessage>> {
     return this.request(
@@ -1303,7 +1303,7 @@ export class DaemonRpcService {
    * that request pending (POD-1175). Putting the check anywhere else would mean
    * writing it twenty-three times, which is how it came to be missing.
    */
-  settleDaemonReply(machineId: string, msg: RpcDaemonFrame): void {
+  settleDaemonReply(machineId: MachineId, msg: RpcDaemonFrame): void {
     const settle = RPC_REPLY_SETTLERS[msg.type] as ReplySettler<RpcDaemonFrameType>
     settle(this.broker, machineId, msg)
   }

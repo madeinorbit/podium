@@ -31,7 +31,7 @@
  * bus emits are fire-and-forget through ports.
  */
 
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta, MachineId, IssueId, UserId } from '@podium/model'
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
   type ControlMessage,
@@ -83,7 +83,7 @@ export interface SessionTeardownPorts {
   listSessions(): SessionMeta[]
   setArchived(input: { sessionId: SessionId; archived: boolean }): void
   rearmUnread(sessionId: SessionId): void
-  toMachine(machineId: string, message: ControlMessage): void
+  toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
   /** Issue meta / cwd ownership for stop/stopIssue. */
   issueAccess: DurableIssueAccessIndex
@@ -201,9 +201,9 @@ export class SessionTeardown {
   tryAutoArchiveStoppedObserved(
     observed: {
       sessionId: SessionId
-      issueId: string | null
+      issueId: IssueId | null
       stoppedAt: string
-      readerUserId: string
+      readerUserId: UserId
       archived: false
     },
     nowMs: number,
@@ -407,7 +407,7 @@ export class SessionTeardown {
    */
   async stopIssue(
     input: {
-      issueId: string
+      issueId: IssueId
       force?: boolean
       /** Session performing the stop (for self-stop deferral when it is a member). */
       callerSessionId?: string

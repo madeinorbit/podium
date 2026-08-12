@@ -1,6 +1,6 @@
 import { open } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
-import { machineScopedKey } from '@podium/model'
+import { machineScopedKey, type MachineId } from '@podium/model'
 import { claudeRecordToItems } from '@podium/transcript'
 import type { TranscriptMirrorRepository } from '../../store/conversations/mirror'
 import type { TranscriptIndexRepository } from '../../store/conversations/transcript-index'
@@ -87,7 +87,7 @@ export class TranscriptIndexer {
   }
 
   /** Mirror hook: new bytes landed in the lake for this segment. */
-  onBytes(machineId: string, nativeId: string, lakePath: string): void {
+  onBytes(machineId: MachineId, nativeId: string, lakePath: string): void {
     if (this.stopped) return
     const key = machineScopedKey(machineId, nativeId)
     const active = this.running.get(key)
@@ -103,7 +103,7 @@ export class TranscriptIndexer {
   /** Mirror hook: the lake copy was truncated for a re-mirror — the indexed
    *  content is invalid. Synchronous, so an in-flight run's cursor check below
    *  observes the reset before it can append stale rows. */
-  onTruncate(machineId: string, nativeId: string): void {
+  onTruncate(machineId: MachineId, nativeId: string): void {
     this.lastBackfillGap.delete(machineScopedKey(machineId, nativeId))
     this.deps.index.drop(machineId, nativeId)
   }
@@ -112,7 +112,7 @@ export class TranscriptIndexer {
    *  current file starts at byte zero. FTS rows are rebuilt from the current
    *  incarnation today because the index is still keyed by native id; transcript
    *  history itself remains lossless in the lake chain. */
-  onIncarnation(machineId: string, nativeId: string): void {
+  onIncarnation(machineId: MachineId, nativeId: string): void {
     this.lastBackfillGap.delete(machineScopedKey(machineId, nativeId))
     this.deps.index.drop(machineId, nativeId)
   }
@@ -124,7 +124,7 @@ export class TranscriptIndexer {
    * whatever a budget-stopped earlier pass left behind. Cheap no-op when nothing
    * is behind; single-flight per machine.
    */
-  backfillMachine(machineId: string, lakePathFor: (nativeId: string) => string): void {
+  backfillMachine(machineId: MachineId, lakePathFor: (nativeId: string) => string): void {
     if (this.stopped) return
     if (this.backfilling.has(machineId)) return
     if (!this.deps.index.isAvailable) return
@@ -149,7 +149,7 @@ export class TranscriptIndexer {
   }
 
   private async backfill(
-    machineId: string,
+    machineId: MachineId,
     nativeIds: string[],
     lakePathFor: (nativeId: string) => string,
   ): Promise<void> {
@@ -209,7 +209,7 @@ export class TranscriptIndexer {
    *  per iteration with a breather in between. Owns the `running` entry. */
   private async run(
     key: string,
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     pass?: { remainingBytes: number },
   ): Promise<void> {
@@ -250,7 +250,7 @@ export class TranscriptIndexer {
   /** Index one bounded window from the segment's cursor; returns the bytes
    *  consumed (0 = caught up, or only a partial trailing line remains). */
   private async indexWindow(
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
     lakePath: string,
   ): Promise<number> {

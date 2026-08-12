@@ -49,7 +49,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { asMachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import type { DaemonMessage, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import {
@@ -75,7 +75,7 @@ export type DaemonPeer = MachinePrincipal | string
  * (ADR 3 Amendment 1 D14.1), and `in-process` is the honest name for a link with
  * no socket. Nothing here can produce a user, agent or system principal.
  */
-export const inProcessMachinePrincipal = (machineId: string): MachinePrincipal => ({
+export const inProcessMachinePrincipal = (machineId: MachineId): MachinePrincipal => ({
   kind: 'machine',
   machine: asMachineId(machineId),
   device: asDeviceId(`in-process:${machineId}`),
@@ -221,8 +221,8 @@ const DISPATCH: Dispatcher = {
 
 /** Bus emits the mux owns (machine reachability is a gateway fact, not a session one). */
 export interface DaemonMuxBus {
-  emit(event: 'machine.connected', payload: { machineId: string }): void
-  emit(event: 'machine.disconnected', payload: { machineId: string }): void
+  emit(event: 'machine.connected', payload: { machineId: MachineId }): void
+  emit(event: 'machine.disconnected', payload: { machineId: MachineId }): void
 }
 
 export interface DaemonMuxDeps {

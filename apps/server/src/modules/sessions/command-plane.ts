@@ -37,7 +37,7 @@ import {
   sessionCommandPlane,
   type sessionCommandPlaneInputs,
 } from '@podium/commands'
-import type { AgentKind, Attribution, IssueId, SessionId, UserId } from '@podium/model'
+import type { AgentKind, Attribution, IssueId, SessionId, UserId, MachineId, MutationId } from '@podium/model'
 import { actorAgent, actorSystem, actorUser, asAgentIdentityId } from '@podium/model'
 import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
 
@@ -186,7 +186,7 @@ export class SessionCommandCtx {
    * so a re-check at apply time reads as the re-authorization it is rather than
    * as a repeat.
    */
-  assertMachineUse(machineId: string): void {
+  assertMachineUse(machineId: MachineId): void {
     // No sentinel exemption here: `machine-access.ts` resolves the local
     // sentinels to a SYNTHESIZED host row owned by the instance owner, so they
     // go through the same rules as any other machine. An early return here
@@ -207,7 +207,7 @@ export class SessionCommandCtx {
   target(
     sessionId: SessionId,
     proc: string,
-  ): (SessionTargetRow & { machineId?: string }) | undefined {
+  ): (SessionTargetRow & { machineId?: MachineId }) | undefined {
     const resolved = resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
     assertMayCommandSession(
@@ -387,7 +387,7 @@ export function createdOwnership(
  */
 type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
 type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
-type SendInput = { sessionId: SessionId; text: string; mutationId?: string }
+type SendInput = { sessionId: SessionId; text: string; mutationId?: MutationId }
 type TargetInput = { sessionId: SessionId }
 type AnswerInput = { sessionId: SessionId; choices?: AnswerChoice[]; skip?: true }
 

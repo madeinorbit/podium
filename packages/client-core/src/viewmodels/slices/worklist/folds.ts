@@ -7,7 +7,7 @@
  * changes sibling order — the incoming order is preserved in every bucket
  * except the closed fold, which is history ordered by the moment of closing.
  */
-import { isIssueDeferred, type IssueWire } from '@podium/model'
+import { isIssueDeferred, type IssueWire, type IssueId } from '@podium/model'
 import {
   isClosedTopLevelIssue,
   issueAwaitingMerge,
@@ -95,7 +95,7 @@ function finishedIssueSettled(row: UnifiedWorkRow): row is UnifiedIssueRow {
  *  a settled top-level closure with nothing still asked of the human. */
 function closedFoldEligible(
   row: UnifiedWorkRow,
-  selectedIssueId: string | null,
+  selectedIssueId: IssueId | null,
   selectedIssueWasFolded: boolean,
 ): row is UnifiedIssueRow {
   if (!finishedIssueSettled(row)) return false
@@ -107,7 +107,7 @@ function closedFoldEligible(
 
 export function rowInClosedFold(
   row: UnifiedWorkRow,
-  selectedIssueId: string | null,
+  selectedIssueId: IssueId | null,
   selectedIssueWasFolded = false,
   now: number = Date.now(),
 ): row is UnifiedIssueRow {
@@ -129,7 +129,7 @@ export function rowInClosedFold(
  *  Selection and read state do not hide the control — only tuck or grace does. */
 export function rowAwaitsTuck(
   row: UnifiedWorkRow,
-  _selectedIssueId: string | null = null,
+  _selectedIssueId: IssueId | null = null,
   _selectedIssueWasFolded = false,
   now: number = Date.now(),
 ): row is UnifiedIssueRow {
@@ -146,7 +146,7 @@ export function rowAwaitsTuck(
  */
 export function groupUnifiedWorkRows(
   rows: UnifiedWorkRow[],
-  selectedIssueId: string | null = null,
+  selectedIssueId: IssueId | null = null,
   selectedIssueWasFolded = false,
   now: number = Date.now(),
 ): UnifiedWorkGroup[] {

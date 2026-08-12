@@ -1,4 +1,5 @@
-import type { agentLaunchCommand } from '@podium/harness'
+import type { agentLaunchCommand   MachineId,
+} from '@podium/harness'
 import type { SessionId, UsageBucketWire } from '@podium/model'
 import type { ControlMessage, DaemonMessage, ServerTransferServingProof } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
@@ -31,7 +32,7 @@ export interface DaemonContext {
 
   // -- configuration ---------------------------------------------------------
   /** The machine identity this daemon registers as (inventory reports carry it). */
-  machineId: string
+  machineId: MachineId
   /** Selected Podium instance that owns every runtime/session in this daemon. */
   instanceId: string
   /** Exact labels retained for reattached legacy/adopted sessions. */

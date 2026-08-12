@@ -10,7 +10,7 @@ import {
   usableMachines,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, MachineId } from '@podium/model'
 import { machinesWithRepo } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
 import { ChevronLeft, ChevronRight, GitBranch, Plus, Settings2 } from 'lucide-react-native'
@@ -98,7 +98,7 @@ export function NewWorkButton() {
    */
   const resolveSpawnMachine = (
     repo: RepoNavView,
-    machineId?: string,
+    machineId?: MachineId,
   ): string | undefined | null => {
     if (machineId !== undefined)
       return usableMachines(machineViews).some((m) => m.id === machineId) ? machineId : null
@@ -120,7 +120,7 @@ export function NewWorkButton() {
 
   const close = () => setStep(null)
 
-  const start = (repo: RepoNavView, machineId?: string) => {
+  const start = (repo: RepoNavView, machineId?: MachineId) => {
     const targetMachine = resolveSpawnMachine(repo, machineId)
     if (targetMachine === null) return
     const { worktree } = spawnTargetForRepo(repo, targetMachine)

@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -63,8 +64,8 @@ export interface MaintenanceServiceOptions {
   /** Steward poll: deliveries durable before cursor advance. */
   stewardTick?: () => void | Promise<void>
   /** Automatic shallow connect-scan; server rechecks connectivity. */
-  connectScan?: (machineId: string) => void | Promise<void>
-  localMachineId?: string
+  connectScan?: (machineId: MachineId) => void | Promise<void>
+  localMachineId?: MachineId
 }
 
 /**

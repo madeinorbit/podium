@@ -1,4 +1,5 @@
-import type { PodiumClientApi } from '@podium/client-core/api'
+import type { PodiumClientApi   MutationId,
+} from '@podium/client-core/api'
 import {
   parseServerOrigin,
   resolveServerConfig,
@@ -45,7 +46,7 @@ interface MobileTrpcExtras {
       { sessionId: SessionId; anchor?: string; direction: 'before' | 'after'; limit: number },
       TranscriptPage
     >
-    sendText: MutationProcedure<{ sessionId: SessionId; text: string; mutationId?: string }>
+    sendText: MutationProcedure<{ sessionId: SessionId; text: string; mutationId?: MutationId }>
     answerAskUserQuestion: MutationProcedure<
       {
         sessionId: SessionId
@@ -79,7 +80,7 @@ interface MobileTrpcExtras {
         priority?: number
         type?: IssueType
         startNow: boolean
-        mutationId?: string
+        mutationId?: MutationId
       },
       IssueWire
     >
@@ -98,7 +99,7 @@ interface MobileTrpcExtras {
     /** Operator-only: accept an agent proposal into the backlog [spec:SP-6144]. */
     promote: MutationProcedure<{ id: string }, IssueWire>
     /** Close an issue — the server writes stage `done` + the closure reason. */
-    close: MutationProcedure<{ id: string; reason?: string; mutationId?: string }, IssueWire>
+    close: MutationProcedure<{ id: string; reason?: string; mutationId?: MutationId }, IssueWire>
     update: MutationProcedure<{
       id: string
       patch: {
@@ -119,13 +120,13 @@ interface MobileTrpcExtras {
          *  be settable only at the desk. */
         color?: IssueColorSlot | null
       }
-      mutationId?: string
+      mutationId?: MutationId
     }>
     addComment: MutationProcedure<{
       id: string
       author: string
       body: string
-      mutationId?: string
+      mutationId?: MutationId
     }>
     /** Toggle one agent-published todo; the positional API is 1-based. */
     panelApply: MutationProcedure<

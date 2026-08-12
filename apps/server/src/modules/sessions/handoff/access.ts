@@ -40,7 +40,7 @@
  * "may this caller use it".
  */
 
-import type { Capability, SessionId } from '@podium/model'
+import type { Capability, SessionId, MachineId } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal } from '../../../command-principal'
 import {
   checkMachineUse,
@@ -64,7 +64,7 @@ export const machineUseGateFor = (deps: {
   principal: CommandPrincipal
   ownership: MachineOwnershipIndex
 }): AssertMachineUse => {
-  return (machineId: string) => {
+  return (machineId: MachineId) => {
     const failure = checkMachineUse(deps.principal, machineId, deps.ownership)
     if (!failure) return
     // The message is UNCHANGED; what is new (POD-1079, for POD-643) is that the

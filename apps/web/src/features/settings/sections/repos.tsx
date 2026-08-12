@@ -5,6 +5,7 @@
  * server-wide uniqueness) errors surface next to the editor; changing an
  * existing prefix warns that previously written refs stop resolving.
  */
+import type { MachineId, RepoId } from '@podium/model'
 import { isValidPrefix } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -16,10 +17,10 @@ import { Section } from './shared'
 
 /** One row from `repos.listDetailed`. */
 export interface RepoDetailRow {
-  machineId: string
+  machineId: MachineId
   path: string
   originUrl?: string
-  repoId?: string
+  repoId?: RepoId
   prefix: string | null
 }
 

@@ -6,6 +6,7 @@ import {
   MachineIdField,
   SessionIdField,
   UserIdField,
+  type AutomationId,
 } from '@podium/model'
 import { z } from 'zod'
 
@@ -517,7 +518,7 @@ export function worktreeGcRunKey(observed: WorktreeGcObservation): string {
   ].join('/')
 }
 
-export function automationOccurrenceRunId(automationId: string, firedAt: string): AutomationRunId {
+export function automationOccurrenceRunId(automationId: AutomationId, firedAt: string): AutomationRunId {
   return asAutomationRunId(`arun_${encode(automationId)}_${encode(firedAt)}`.slice(0, 128))
 }
 

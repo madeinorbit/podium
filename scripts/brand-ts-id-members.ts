@@ -11,6 +11,7 @@
  *   bun scripts/brand-ts-id-members.ts --brand Conversation,Automation --write
  */
 
+import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,6 +21,7 @@ import { loadContext } from './rearch-audit'
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const argv = process.argv.slice(2)
 const write = argv.includes('--write')
+const repairImports = argv.includes('--repair-imports')
 const brandArg = argv.includes('--brand') ? argv[argv.indexOf('--brand') + 1] : undefined
 const selectedBrands = brandArg ? new Set(brandArg.split(',').filter(Boolean)) : undefined
 
@@ -28,32 +30,18 @@ if (!write) {
   process.exit(2)
 }
 
-const sites = entityIdSites(loadContext(REPO_ROOT)).filter(
-  (site) =>
-    site.form === 'ts-string' &&
-    !site.excused &&
-    (selectedBrands === undefined || selectedBrands.has(site.brand)),
-)
-
-const byFile = new Map<string, typeof sites>()
-for (const site of sites) {
-  const list = byFile.get(site.file) ?? []
-  list.push(site)
-  byFile.set(site.file, list)
-}
-
 const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 function addModelImports(source: string, names: readonly string[]): string {
   const needed = [...new Set(names)].filter(
     (name) =>
       !new RegExp(
-        `import(?:\\s+type)?\\s*\\{[\\s\\S]*?\\b(?:type\\s+)?${escapeRegex(name)}\\b[\\s\\S]*?\\}\\s*from\\s*['\"]@podium/model['\"]`,
+        `import(?:\\s+type)?\\s*\\{[^}]*\\b(?:type\\s+)?${escapeRegex(name)}\\b[^}]*\\}\\s*from\\s*['\"]@podium/model['\"]`,
       ).test(source),
   )
   if (needed.length === 0) return source
 
-  const typeImport = /import\s+type\s*\{([\s\S]*?)\}\s*from\s*(['"])@podium\/model\2/
+  const typeImport = /import\s+type\s*\{([^}]*)\}\s*from\s*(['"])@podium\/model\2/
   const typed = source.match(typeImport)
   if (typed?.index !== undefined) {
     const body = typed[1] ?? ''
@@ -63,7 +51,7 @@ function addModelImports(source: string, names: readonly string[]): string {
     return source.slice(0, typed.index) + replacement + source.slice(typed.index + typed[0].length)
   }
 
-  const valueImport = /import\s*\{([\s\S]*?)\}\s*from\s*(['"])@podium\/model\2/
+  const valueImport = /import\s*\{([^}]*)\}\s*from\s*(['"])@podium\/model\2/
   const valued = source.match(valueImport)
   if (valued?.index !== undefined) {
     const body = valued[1] ?? ''
@@ -81,6 +69,89 @@ function addModelImports(source: string, names: readonly string[]): string {
     : declaration + source
 }
 
+function normalizeNamedImport(statement: string): string {
+  const parsed = statement.match(
+    /^import(\s+type)?\s*\{([^}]*)\}\s*from\s*(['"])([^'"]+)\3$/,
+  )
+  if (!parsed) return statement
+  const [, typeOnly = '', body = '', quote, module] = parsed
+  const specifiers = body
+    .split(',')
+    .map((specifier) => specifier.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  const multiline = body.includes('\n') && specifiers.length > 1
+  const normalizedBody = multiline
+    ? `\n${specifiers.map((specifier) => `  ${specifier},`).join('\n')}\n`
+    : ` ${specifiers.join(', ')} `
+  return `import${typeOnly} {${normalizedBody}} from ${quote}${module}${quote}`
+}
+
+const selectedIdTypes = [
+  'MachineId',
+  'IssueId',
+  'UserId',
+  'MutationId',
+  'RepoId',
+  'AutomationId',
+  'ArtifactId',
+] as const
+
+if (repairImports) {
+  const changed = spawnSync('git', ['diff', '--name-only', '--', '*.ts', '*.tsx'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  })
+  if (changed.status !== 0) throw new Error(changed.stderr || 'git diff --name-only failed')
+  let repaired = 0
+  for (const file of changed.stdout.split('\n').filter(Boolean)) {
+    const path = join(REPO_ROOT, file)
+    const originalSource = readFileSync(path, 'utf8')
+    let source = originalSource
+    const names: string[] = []
+    source = source.replace(
+      /import\s*\{[^}]*\}\s*from\s*(['"])([^'"]+)\1/g,
+      (statement, _quote: string, module: string) => {
+        if (module === '@podium/model') return normalizeNamedImport(statement)
+        let fixed = statement
+        for (const name of selectedIdTypes) {
+          const inserted = new RegExp(`\\s+type\\s+${name}\\s*,`)
+          if (!inserted.test(fixed)) continue
+          fixed = fixed.replace(inserted, '')
+          names.push(name)
+          repaired++
+        }
+        return fixed === statement ? statement : normalizeNamedImport(fixed)
+      },
+    )
+    source = source.replace(
+      /import\s*\{[^},\n]+\n\}\s*from\s*(['"])[^'"]+\1/g,
+      normalizeNamedImport,
+    )
+    if (names.length > 0) source = addModelImports(source, names)
+    source = source.replace(
+      /import(?:\s+type)?\s*\{[^}]*\}\s*from\s*(['"])@podium\/model\1/g,
+      normalizeNamedImport,
+    )
+    if (source !== originalSource) writeFileSync(path, source)
+  }
+  console.log(`repaired ${repaired} misplaced model type imports`)
+  process.exit(0)
+}
+
+const sites = entityIdSites(loadContext(REPO_ROOT)).filter(
+  (site) =>
+    site.form === 'ts-string' &&
+    !site.excused &&
+    (selectedBrands === undefined || selectedBrands.has(site.brand)),
+)
+
+const byFile = new Map<string, typeof sites>()
+for (const site of sites) {
+  const list = byFile.get(site.file) ?? []
+  list.push(site)
+  byFile.set(site.file, list)
+}
+
 let changedSites = 0
 const outputs = new Map<string, string>()
 for (const [file, fileSites] of byFile) {
@@ -93,16 +164,23 @@ for (const [file, fileSites] of byFile) {
 
   const edits: { start: number; end: number; replacement: string; label: string }[] = []
   const imported: string[] = []
+  const seenOnLine = new Map<string, number>()
   for (const site of fileSites) {
     const lineStart = lineStarts[site.line - 1]
     const lineEnd = lineStarts[site.line] ?? source.length
     if (lineStart === undefined) throw new Error(`${file}:${site.line}: line is absent`)
     const key = escapeRegex(site.key)
     const declaration = new RegExp(`(?:['\"]${key}['\"]|\\b${key}\\b)\\??[ \\t]*:[ \\t\\n]*`, 'g')
+    const occurrenceKey = `${site.line}:${site.key}`
+    const occurrence = seenOnLine.get(occurrenceKey) ?? 0
+    seenOnLine.set(occurrenceKey, occurrence + 1)
     declaration.lastIndex = lineStart
-    const match = declaration.exec(source)
+    let match: RegExpExecArray | null = null
+    for (let index = 0; index <= occurrence; index++) match = declaration.exec(source)
     if (!match || match.index >= lineEnd) {
-      throw new Error(`${file}:${site.line}: cannot find declaration for ${site.key}`)
+      throw new Error(
+        `${file}:${site.line}: cannot find occurrence ${occurrence + 1} of ${site.key}`,
+      )
     }
     const rhs = match.index + match[0].length
     const raw = source.slice(rhs)

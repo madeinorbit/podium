@@ -20,7 +20,7 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
-import { asUserId } from '@podium/model'
+import { asUserId, type UserId } from '@podium/model'
 import type { z } from 'zod'
 import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
@@ -32,7 +32,7 @@ export interface AccountState {
   readonly machineService: RegistryModules['machines']
   readonly settings: RegistryModules['settings']
   readonly nativeLogin: RegistryModules['nativeLogin']
-  readonly callerUserId: string
+  readonly callerUserId: UserId
 }
 
 export type AccountHandler<In, Out> = (state: AccountState, input: In) => Out

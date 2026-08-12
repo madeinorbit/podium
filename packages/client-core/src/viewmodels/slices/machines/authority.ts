@@ -27,6 +27,7 @@ import {
   type RecentSession,
   type RepoMachines,
   type SelectableMachine,
+  type MachineId,
 } from '@podium/model'
 
 // ---------------------------------------------------------------------------
@@ -144,7 +145,7 @@ export type SpawnTargetRefusal =
   | 'unreachable'
 
 export interface SpawnTargetResolution {
-  readonly machineId?: string
+  readonly machineId?: MachineId
   readonly refusal?: SpawnTargetRefusal
 }
 

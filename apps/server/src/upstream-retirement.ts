@@ -44,6 +44,7 @@
  * feature that has been retired.
  */
 
+import type { MutationId } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import type { SyncRepository } from '@podium/sync'
 
@@ -76,7 +77,7 @@ export function reportParkedUpstreamMutations(
   events: RetirementEventSink,
   now: () => number = Date.now,
 ): number {
-  let parked: { mutationId: string; proc: string; queuedAt: number }[]
+  let parked: { mutationId: MutationId; proc: string; queuedAt: number }[]
   try {
     parked = sync.listParkedUpstreamMutations()
   } catch {

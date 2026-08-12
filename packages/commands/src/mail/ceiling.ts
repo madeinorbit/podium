@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type IssueId, type SessionId, type MachineId } from '@podium/model'
 
 /**
  * THE human ceiling, and the consistent-error rule that keeps it from becoming
@@ -160,9 +160,9 @@ export type PlacementDecision = 'allowed' | 'unauthorized' | 'unreachable'
 export interface PlacementDeps {
   /** Does the effective principal hold `use` on this machine? Fails closed —
    *  an owner-less machine grants `use` to nobody (D18.6, the all-in-one guard). */
-  mayUse(machineId: string): boolean
+  mayUse(machineId: MachineId): boolean
   /** Is the machine currently reachable? */
-  isReachable(machineId: string): boolean
+  isReachable(machineId: MachineId): boolean
 }
 
 /**
@@ -170,7 +170,7 @@ export interface PlacementDeps {
  * must not be able to probe which of a colleague's machines are online by
  * reading the difference between the two errors.
  */
-export function placementDecision(machineId: string, deps: PlacementDeps): PlacementDecision {
+export function placementDecision(machineId: MachineId, deps: PlacementDeps): PlacementDecision {
   if (!deps.mayUse(machineId)) return 'unauthorized'
   return deps.isReachable(machineId) ? 'allowed' : 'unreachable'
 }

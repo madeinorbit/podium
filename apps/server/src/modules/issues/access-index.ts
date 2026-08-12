@@ -25,11 +25,11 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
     private readonly repos: ReposRepository,
   ) {}
 
-  has(id: string): boolean {
+  has(id: IssueId): boolean {
     return this.issues.getIssue(id) !== null
   }
 
-  ancestorIds(id: string): string[] {
+  ancestorIds(id: IssueId): string[] {
     const ancestors: string[] = []
     const seen = new Set<string>()
     let parent = this.issues.getIssue(id)?.parentId ?? null
@@ -41,7 +41,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
     return ancestors
   }
 
-  ownedTarget(id: string, action: IssueAction) {
+  ownedTarget(id: IssueId, action: IssueAction) {
     const row = this.issues.getIssue(id)
     if (!row) return undefined
     const covers = (verb: string): boolean =>
@@ -61,7 +61,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
     }
   }
 
-  getMeta(id: string) {
+  getMeta(id: IssueId) {
     return this.issues.getIssue(id)
   }
 

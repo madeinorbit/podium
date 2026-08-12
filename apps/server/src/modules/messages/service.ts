@@ -25,7 +25,7 @@
  *    operator is an invariant).
  */
 
-import { isSpawnedBy } from '@podium/model'
+import { isSpawnedBy, type IssueId, type MachineId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   exemptFromBrakes,
@@ -137,7 +137,7 @@ interface DeliveryOutcome {
  *  the message as the first prompt after prime); the default (absent) marks the
  *  ledger and surfaces needs-attention instead. */
 export interface SpawnOnWake {
-  spawn(input: { issueId: string | null; message: MessageRow }): {
+  spawn(input: { issueId: IssueId | null; message: MessageRow }): {
     ok: boolean
     sessionId?: SessionId
     reason?: string
@@ -179,7 +179,7 @@ export interface MessageDeliveryDeps {
      *  answer — the same predicate applied after the pass rather than instead of
      *  it — so an unwired fixture is slow, never wrong. */
     sessionById?(sessionId: SessionId): SessionMeta | undefined
-    listSessionsForIssue?(worktreePath: string | null, issueId: string): SessionMeta[]
+    listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): SessionMeta[]
     sendText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
@@ -205,7 +205,7 @@ export interface MessageDeliveryDeps {
   /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
    *  substrate inbox read must consume the mirror row's unread status too, or
    *  mailPending's legacy fallback keeps nagging. Drop with the table. */
-  mirrorMarkIssueMailRead?(issueId: string, ids: string[]): void
+  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): void
   /** Spawn-on-wake seam; absent = unresumable wakes surface needs-attention. */
   spawnOnWake?: SpawnOnWake
   /** Transaction seam (store.transact): an ack's row insert + acked_by stamp on
@@ -266,7 +266,7 @@ export interface MessageDeliveryDeps {
    *
    * Absent = allow. Same honest single-user default as authorizeAtApply.
    */
-  placementAtWake?(message: MessageRow, machineId: string): PlacementDecision
+  placementAtWake?(message: MessageRow, machineId: MachineId): PlacementDecision
   now(): string
 }
 
@@ -393,7 +393,7 @@ export class MessageDeliveryService {
       now: deps.now,
       ...(deps.mirrorMarkIssueMailRead
         ? {
-            mirrorMarkIssueMailRead: (issueId: string, ids: string[]) =>
+            mirrorMarkIssueMailRead: (issueId: IssueId, ids: string[]) =>
               deps.mirrorMarkIssueMailRead?.(issueId, ids),
           }
         : {}),
@@ -481,7 +481,7 @@ export class MessageDeliveryService {
    *  so a departed coordinator can never strand its issue's mail. Undefined
    *  preference = no preference, which is the caller's "let attemptDelivery
    *  decide" path. */
-  private mayDrainIssueMail(issueId: string, session?: SessionMeta): SessionMeta | undefined {
+  private mayDrainIssueMail(issueId: IssueId, session?: SessionMeta): SessionMeta | undefined {
     if (!session) return undefined
     const coordinatorId = this.deps.issues.get(issueId)?.coordinatorSessionId
     if (typeof coordinatorId !== 'string' || coordinatorId === session.sessionId) return session
@@ -496,7 +496,7 @@ export class MessageDeliveryService {
   /** Issue-side target changes can alter inferred session membership and the
    * cooldown key of session-addressed wakes. Recompute affected sessions and
    * queue their principals plus both old/new issues. */
-  onIssueEligibilityChanged(issueId: string): void {
+  onIssueEligibilityChanged(issueId: IssueId): void {
     this.onIssuesEligibilityChanged([issueId])
   }
 
@@ -1179,7 +1179,7 @@ export class MessageDeliveryService {
   /** Brake 2 + the spawn seam: unresumable wake → spawn a fresh agent on the
    *  target issue (deferred wiring) within the per-issue daily budget; no seam
    *  or budget exhausted → ledger + needs-attention, row stays queued. */
-  private trySpawn(message: MessageRow, issueId: string | null): DeliveryOutcome {
+  private trySpawn(message: MessageRow, issueId: IssueId | null): DeliveryOutcome {
     const key = issueId ?? 'no-issue'
     const day = this.deps.now().slice(0, 10)
     const count = this.brakes.spawnCountFor(key, day)
@@ -1485,7 +1485,7 @@ export class MessageDeliveryService {
   }
 
   /** The per-issue / per-session delivery ledger (#237) — a pure read. */
-  ledger(q: { issueId?: string; sessionId?: string; limit?: number }): MessageRow[] {
+  ledger(q: { issueId?: IssueId; sessionId?: string; limit?: number }): MessageRow[] {
     return this.mailbox.ledger(q)
   }
 
@@ -1662,7 +1662,7 @@ export class MessageDeliveryService {
    *  the same per-issue daily budget as the spawn-on-wake seam. Delegated: the
    *  budget lives with the brake that enforces it, but the seam is on this
    *  service because that is what the gate holds. */
-  takeSpawnBudget(issueId: string | null): { ok: boolean; count: number } {
+  takeSpawnBudget(issueId: IssueId | null): { ok: boolean; count: number } {
     return this.brakes.takeSpawnBudget(issueId)
   }
 
@@ -1902,7 +1902,7 @@ export class MessageDeliveryService {
    */
   private refuseWakeUnlessUsable(
     message: MessageRow,
-    machineId: string | undefined,
+    machineId: MachineId | undefined,
     notifySender: boolean,
   ): DeliveryOutcome | null {
     if (!machineId) return null

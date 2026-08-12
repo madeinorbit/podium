@@ -10,6 +10,7 @@
  * frame the server sent (ADR 3 D7 — payload identity is inert).
  */
 
+import type { UserId } from '@podium/model'
 import type { PresenceMember } from '@podium/protocol'
 
 /** How many chips the strip shows before collapsing the rest into "+N". */
@@ -55,7 +56,7 @@ export const watcherFocus = (payload: unknown): string | null => {
  */
 export function watchersOf(
   members: readonly PresenceMember[],
-  selfUserId: string | null,
+  selfUserId: UserId | null,
 ): readonly Watcher[] {
   const out: Watcher[] = []
   for (const member of members) {

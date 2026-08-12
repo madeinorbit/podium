@@ -1,4 +1,4 @@
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta, MachineId } from '@podium/model'
 import { AgentKind } from '@podium/model'
 
 /**
@@ -50,7 +50,7 @@ export interface SessionRepositoryPorts {
   state: SessionStateService
   observationLeases: SessionObservationLeases
   autoContinue(): AutoContinueController
-  toMachine(machineId: string, message: ControlMessage): void
+  toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
   flushBroadcasts(): void
   listSessions(): SessionMeta[]
@@ -93,7 +93,7 @@ export class SessionRepository {
   private get autoContinue(): AutoContinueController {
     return this.ports.autoContinue()
   }
-  private readonly toMachine = (machineId: string, message: ControlMessage): void =>
+  private readonly toMachine = (machineId: MachineId, message: ControlMessage): void =>
     this.ports.toMachine(machineId, message)
   private readonly broadcastSessions = (): void => this.ports.broadcastSessions()
   private readonly listSessions = (): SessionMeta[] => this.ports.listSessions()
@@ -229,7 +229,7 @@ export class SessionRepository {
   }
 
   /** Machine-owned derived fields changed (machineId and/or machineName). */
-  sessionsChangedForMachine(machineId: string): void {
+  sessionsChangedForMachine(machineId: MachineId): void {
     for (const session of this.sessions.values()) {
       if (session.machineId === machineId)
         this.markVolatileSessionDirty(session.sessionId, ['machineId'])

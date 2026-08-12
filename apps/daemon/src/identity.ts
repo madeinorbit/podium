@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -10,7 +11,7 @@ function dirFor(dir?: string): string {
 
 export interface DaemonIdentity {
   /** Stable UUID join key — the cross-restart machine identity. */
-  machineId: string
+  machineId: MachineId
   /** The paired auth token, once issued (absent until the first successful pair). */
   token?: string
   /** The server update-signing key pinned during pairing. */
@@ -27,7 +28,7 @@ export interface DaemonIdentity {
 export function loadIdentity(opts: { dir?: string } = {}): DaemonIdentity {
   const base = dirFor(opts.dir)
   const path = join(base, 'daemon.json')
-  let data: { machineId?: string; token?: string; updatePubkey?: string } = {}
+  let data: { machineId?: MachineId; token?: string; updatePubkey?: string } = {}
   try {
     data = JSON.parse(readFileSync(path, 'utf8'))
   } catch {

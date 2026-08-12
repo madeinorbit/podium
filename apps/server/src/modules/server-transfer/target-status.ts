@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PromotedTargetMetadata, TargetHealthProof } from './types'
@@ -12,7 +13,7 @@ function proof(
   value: unknown,
   transferId: string,
   digest: string,
-  targetMachineId: string,
+  targetMachineId: MachineId,
   publicUrl: string,
 ): TargetHealthProof | undefined {
   if (typeof value !== 'object' || value === null) return undefined

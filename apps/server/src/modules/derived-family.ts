@@ -56,6 +56,7 @@
  * objects, not by grepping for an absence.
  */
 
+import type { UserId } from '@podium/model'
 import type { AnyCommandContract, TransportTag } from '@podium/commands'
 import {
   asAgentIdentityId,
@@ -165,7 +166,7 @@ export interface FamilyState {
    * should grow back toward the capability.
    */
   readonly caller: {
-    readonly userId: string
+    readonly userId: UserId
     /** Passed opaque to SessionStateService, which owns the visibility decision. */
     readonly sessionState: ReturnType<typeof sessionStatePrincipalFor>
     /** The capability's OWN field type, not a widened `string | null`. The first

@@ -10,6 +10,8 @@ import type {
   SessionMeta,
   TranscriptItem,
   UserId,
+  IssueId,
+  MachineId,
 } from '@podium/model'
 import type {
   AgentObservation,
@@ -57,10 +59,10 @@ export interface EventMap {
   'issue.sessionDerived':
     | { kind: 'gitActivity'; sessionId: SessionId; commits?: string[]; touched?: string[] }
     | { kind: 'activity' | 'attention' | 'turnEnd' | 'removedOrArchived'; sessionId: SessionId }
-    | { kind: 'reapDraft'; issueId: string }
+    | { kind: 'reapDraft'; issueId: IssueId }
     | {
         kind: 'adoptWorktree'
-        issueId: string
+        issueId: IssueId
         message: Extract<DaemonMessage, { type: 'sessionCwd' }>
       }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
@@ -68,21 +70,21 @@ export interface EventMap {
   /** One issue changed and was published (single-issue fast path, issue #22). */
   'issue.updated': { issue: IssueWire }
   /** An issue reached the closed stage. */
-  'issue.closed': { issueId: string }
+  'issue.closed': { issueId: IssueId }
   /** A closed issue was reopened. */
-  'issue.reopened': { issueId: string }
+  'issue.reopened': { issueId: IssueId }
   /** New transcript items were applied to a session's live delta buffer. */
   'transcript.delta': { sessionId: SessionId; items: TranscriptItem[] }
   /** A machine's daemon socket attached. */
-  'machine.connected': { machineId: string }
+  'machine.connected': { machineId: MachineId }
   /** A machine's daemon socket detached. */
-  'machine.disconnected': { machineId: string }
+  'machine.disconnected': { machineId: MachineId }
   /** Durable machine metadata changed; session machine-name projections recapture.
    * `inventory` distinguishes a fresh daemon report from rename/grant changes. */
-  'machine.metadataChanged': { machineId: string; inventory?: true }
+  'machine.metadataChanged': { machineId: MachineId; inventory?: true }
   /** Host integration degradation, scoped from the authenticated daemon principal. */
   'machine.diagnostic': {
-    machineId: string
+    machineId: MachineId
     code: string
     title: string
     body: string

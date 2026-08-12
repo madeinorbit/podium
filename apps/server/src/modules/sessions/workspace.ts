@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
-import { AgentKind, repoNameFromOrigin, type SessionId, type UserId } from '@podium/model'
+import { AgentKind, repoNameFromOrigin, type SessionId, type UserId, type MachineId, type RepoId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { SessionStore } from '../../store'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
@@ -23,7 +23,7 @@ export interface SessionWorkspacePorts {
   issueAccess: DurableIssueAccessIndex
   getSession: SessionLookup
   settingsViewer(): UserId
-  onWorktreesChanged(repoPath: string, machineId?: string): void
+  onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
 /** Machine-scoped repository and worktree operations used by lifecycle and handoff. */
@@ -33,9 +33,9 @@ export class SessionWorkspace {
   async prepareTarget(input: {
     agentKind?: AgentKind
     cwd: string
-    machineId?: string
+    machineId?: MachineId
     use?: MachineUseResolver
-  }): Promise<{ cwd: string; machineId?: string }> {
+  }): Promise<{ cwd: string; machineId?: MachineId }> {
     if (!input.machineId) return { cwd: input.cwd }
     const parsed = AgentKind.safeParse(input.agentKind)
     const agentKind = parsed.success
@@ -73,7 +73,7 @@ export class SessionWorkspace {
    * Same machine in and out is a no-op returning the source path, so a caller does
    * not have to ask whether a move is needed.
    */
-  async resolveRepoOnMachine(sourceRepoPath: string, targetMachineId: string): Promise<string> {
+  async resolveRepoOnMachine(sourceRepoPath: string, targetMachineId: MachineId): Promise<string> {
     const sourceRepo = this.ports.store.repos
       .listRepos()
       .filter((repo) => sourceRepoPath === repo.path || sourceRepoPath.startsWith(`${repo.path}/`))
@@ -119,7 +119,7 @@ export class SessionWorkspace {
      *  derived by repoId: an unidentified checkout (no origin) has no repoId, and
      *  deriving would silently make this a no-op for it. */
     sourceRepoPath: string
-    targetMachineId: string
+    targetMachineId: MachineId
     targetRepoPath: string
     /** The start point a worktree will be created from — a branch name or sha. */
     ref: string
@@ -291,9 +291,9 @@ export class SessionWorkspace {
    * repoId is NOT an identity: unidentified checkouts would all match each other, so
    * they match nothing here and the caller falls back to refusing.
    */
-  private repoOnMachineByIdentity<T extends { repoId: string | null }>(
+  private repoOnMachineByIdentity<T extends { repoId: RepoId | null }>(
     sourceRepo: T,
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ) {
     if (!sourceRepo.repoId) return undefined
     return this.ports.store.repos
@@ -312,7 +312,7 @@ export class SessionWorkspace {
    * actionable message. A resolver that clones on absence would make that refusal
    * impossible.
    */
-  findRepoOnMachine(sourceRepoPath: string, targetMachineId: string): string | null {
+  findRepoOnMachine(sourceRepoPath: string, targetMachineId: MachineId): string | null {
     const source = this.ports.store.repos
       .listRepos()
       .find((repo) => repo.path === sourceRepoPath)
@@ -323,18 +323,18 @@ export class SessionWorkspace {
 
   async ensureTargetRepo(
     sourceRepo: {
-      machineId: string
+      machineId: MachineId
       path: string
       originUrl: string | null
-      repoId: string | null
+      repoId: RepoId | null
       prefix: string | null
     },
-    targetMachineId: string,
+    targetMachineId: MachineId,
   ): Promise<{
-    machineId: string
+    machineId: MachineId
     path: string
     originUrl: string | null
-    repoId: string | null
+    repoId: RepoId | null
     prefix: string | null
   }> {
     // ONE IDENTITY RULE, shared with findRepoOnMachine (POD-1571). Fork it and the

@@ -40,8 +40,9 @@
  * distinction (M5) compatible with the consistent-error rule.
  */
 
-import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
-import { isAdminGrade, spawnedByParentSessionId, type UserRole } from '@podium/model'
+import { FLEET_CONTRACTS, type FleetContractName
+} from '@podium/commands'
+import { isAdminGrade, spawnedByParentSessionId, type UserRole, type MachineId } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
@@ -70,7 +71,7 @@ import { mods } from '../../trpc'
  */
 export type FleetTarget =
   /** A machine named by the caller. */
-  | { readonly kind: 'machine'; readonly machineId: string }
+  | { readonly kind: 'machine'; readonly machineId: MachineId }
   /** The selector was omitted: the handler resolves `machines.defaultMachine()`,
    *  so that is what must be gated — not "nothing". */
   | { readonly kind: 'default' }
@@ -81,7 +82,7 @@ export type FleetTarget =
    *  `machines.pairingCode` is the only one: no machine exists yet. */
   | { readonly kind: 'none' }
 
-const named = (machineId: string | undefined): FleetTarget =>
+const named = (machineId: MachineId | undefined): FleetTarget =>
   machineId === undefined ? { kind: 'default' } : { kind: 'machine', machineId }
 
 /**
@@ -107,18 +108,18 @@ export const FLEET_TARGETS = {
   'machines.adopt': (input: unknown) => named((input as { id: string }).id),
   'machines.revoke': (input: unknown) => named((input as { id: string }).id),
   'machines.transferServer': (input: unknown) =>
-    named((input as { targetMachineId: string }).targetMachineId),
+    named((input as { targetMachineId: MachineId }).targetMachineId),
   // No machine exists yet, so there is no owner column that could admit anyone —
   // the `admin` floor is the only gate, exactly as POD-384's rationale says.
   'machines.pairingCode': () => ({ kind: 'none' }) as FleetTarget,
-  'repos.add': (input: unknown) => named((input as { machineId?: string }).machineId),
-  'repos.addMany': (input: unknown) => named((input as { machineId?: string }).machineId),
-  'repos.remove': (input: unknown) => named((input as { machineId?: string }).machineId),
-  'repos.setPrefix': (input: unknown) => named((input as { machineId?: string }).machineId),
+  'repos.add': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
+  'repos.addMany': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
+  'repos.remove': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
+  'repos.setPrefix': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
   // Input is `z.void()`: it refreshes every online machine.
   'discovery.refreshRepos': () => ({ kind: 'fleet-wide' }) as FleetTarget,
-  'discovery.scanFolder': (input: unknown) => named((input as { machineId?: string }).machineId),
-  'discovery.scanMachine': (input: unknown) => named((input as { machineId: string }).machineId),
+  'discovery.scanFolder': (input: unknown) => named((input as { machineId?: MachineId }).machineId),
+  'discovery.scanMachine': (input: unknown) => named((input as { machineId: MachineId }).machineId),
 } satisfies Record<FleetContractName, (input: unknown) => FleetTarget>
 
 // ---------------------------------------------------------------------------
@@ -168,7 +169,7 @@ export interface FleetAuthzDeps {
   defaultMachine: () => string
   /** Every machine id this principal might touch on a fleet-wide command. */
   allMachineIds: () => string[]
-  machineName: (machineId: string) => string | undefined
+  machineName: (machineId: MachineId) => string | undefined
   /**
    * The machine's owner AS THE LEDGER HAS IT — `machines.effectiveOwner`, which
    * reads the enrollment ledger first and falls back to the row (D19.4d rule 4).
@@ -183,7 +184,7 @@ export interface FleetAuthzDeps {
    * absent too — it is unowned, not unknown, and `machineRefusal` has already
    * decided the unknown-machine case before this ever runs.
    */
-  effectiveOwner: (machineId: string) => string | null | undefined
+  effectiveOwner: (machineId: MachineId) => string | null | undefined
 }
 
 /**
@@ -263,10 +264,10 @@ export function fleetAuthzFailure(
   }
 }
 
-const mayUse = (machineId: string, verb: MachineVerb, deps: FleetAuthzDeps): boolean =>
+const mayUse = (machineId: MachineId, verb: MachineVerb, deps: FleetAuthzDeps): boolean =>
   checkMachineVerb(deps.principal, machineId, deps.ownership, verb) === undefined
 
-function machineOwnerRefusal(machineId: string, deps: FleetAuthzDeps): TRPCError | undefined {
+function machineOwnerRefusal(machineId: MachineId, deps: FleetAuthzDeps): TRPCError | undefined {
   const row = deps.ownership.rowFor(machineId)
   const human = onBehalfOfUser(deps.principal)
   if (!row || row.owner === null || human === null) {
@@ -303,7 +304,7 @@ function machineOwnerRefusal(machineId: string, deps: FleetAuthzDeps): TRPCError
  * they differ in how the machine got here, not in whether anybody's claim is
  * being overridden, and in all three there is nobody to override.
  */
-function machineUnownedRefusal(machineId: string, deps: FleetAuthzDeps): TRPCError | undefined {
+function machineUnownedRefusal(machineId: MachineId, deps: FleetAuthzDeps): TRPCError | undefined {
   const owner = deps.effectiveOwner(machineId)
   if (owner === null || owner === undefined) return undefined
   return new TRPCError({
@@ -313,7 +314,7 @@ function machineUnownedRefusal(machineId: string, deps: FleetAuthzDeps): TRPCErr
 }
 
 function machineRefusal(
-  machineId: string,
+  machineId: MachineId,
   verb: MachineVerb,
   deps: FleetAuthzDeps,
 ): TRPCError | undefined {
@@ -359,5 +360,5 @@ export function fleetAuthzDeps(ctx: Context): FleetAuthzDeps {
 /** The `use` predicate for a fleet-wide fan-out, so the command touches only the
  *  machines the principal may actually place work on. */
 export function fleetUsePredicate(deps: FleetAuthzDeps, verb: MachineVerb) {
-  return (machineId: string): boolean => mayUse(machineId, verb, deps)
+  return (machineId: MachineId): boolean => mayUse(machineId, verb, deps)
 }

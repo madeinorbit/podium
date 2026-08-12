@@ -1,3 +1,4 @@
+import type { MutationId } from '@podium/model'
 /**
  * FRAMEWORK IDEMPOTENCY — the ONE implementation (POD-382, closing POD-312's
  * "idempotency is framework-owned" clause).
@@ -71,8 +72,8 @@
  */
 export interface AppliedMutationStore {
   /** The stored result of an already-applied mutation, or undefined if new. */
-  getAppliedMutation(mutationId: string): string | undefined
-  recordAppliedMutation(mutationId: string, proc: string, result: string, appliedAt: number): void
+  getAppliedMutation(mutationId: MutationId): string | undefined
+  recordAppliedMutation(mutationId: MutationId, proc: string, result: string, appliedAt: number): void
 }
 
 /** Whether a call APPLIED its body or REPLAYED a recorded result. */
@@ -105,7 +106,7 @@ export class MutationLedger {
    * and a proc-qualified key would let the same queued write apply twice by
    * arriving on two transports.
    */
-  apply<T>(mutationId: string | undefined, proc: string, body: () => T): MutationApplication<T> {
+  apply<T>(mutationId: MutationId | undefined, proc: string, body: () => T): MutationApplication<T> {
     if (!mutationId) return { outcome: 'applied', value: body() }
 
     const prior = this.store.getAppliedMutation(mutationId)
@@ -140,11 +141,11 @@ export class MutationLedger {
   }
 
   /** {@link apply} when the caller does not need the outcome — the common case. */
-  once<T>(mutationId: string | undefined, proc: string, body: () => T): T {
+  once<T>(mutationId: MutationId | undefined, proc: string, body: () => T): T {
     return this.apply(mutationId, proc, body).value
   }
 
-  private record(mutationId: string, proc: string, value: unknown): void {
+  private record(mutationId: MutationId, proc: string, value: unknown): void {
     this.store.recordAppliedMutation(mutationId, proc, JSON.stringify(value ?? null), this.now())
   }
 }

@@ -5,7 +5,7 @@
  * modules/lock/service.ts.
  */
 
-import type { IssueId, SessionId } from '@podium/model'
+import type { IssueId, SessionId, RepoId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 /** Waiter session sentinel for direct-HTTP operator callers (no session id). */
@@ -36,7 +36,7 @@ export function isSystemLockSession(value: LockSessionKey): value is SystemLockS
 }
 
 export interface LockRow {
-  repoId: string
+  repoId: RepoId
   name: string
   /** NULL = held by the operator (no session to bind the lease to). */
   holderSessionId: LockSessionKey | null
@@ -50,7 +50,7 @@ export interface LockRow {
 export interface LockWaiterRow {
   /** rowid — FIFO queue order. */
   id: number
-  repoId: string
+  repoId: RepoId
   name: string
   sessionId: LockSessionKey
   issueId: IssueId | null
@@ -92,14 +92,14 @@ export class LocksRepository {
     }
   }
 
-  getLock(repoId: string, name: string): LockRow | null {
+  getLock(repoId: RepoId, name: string): LockRow | null {
     const r = this.db
       .prepare('SELECT * FROM locks WHERE repo_id = ? AND name = ?')
       .get(repoId, name) as Record<string, unknown> | undefined
     return r ? this.mapLock(r) : null
   }
 
-  listLocks(repoId: string): LockRow[] {
+  listLocks(repoId: RepoId): LockRow[] {
     const rows = this.db
       .prepare('SELECT * FROM locks WHERE repo_id = ? ORDER BY name')
       .all(repoId) as Record<string, unknown>[]
@@ -107,7 +107,7 @@ export class LocksRepository {
   }
 
   /** Locks in `repoId` whose lease has expired at `nowIso` (lazy-expiry sweep). */
-  listExpiredLocks(repoId: string, nowIso: string): LockRow[] {
+  listExpiredLocks(repoId: RepoId, nowIso: string): LockRow[] {
     const rows = this.db
       .prepare('SELECT * FROM locks WHERE repo_id = ? AND expires_at <= ?')
       .all(repoId, nowIso) as Record<string, unknown>[]
@@ -152,7 +152,7 @@ export class LocksRepository {
   /** Extend the current lease. Guarded on the holder session (atomic renew —
    *  same shape as claimIssueMessage): false when the caller no longer holds it. */
   renewLock(
-    repoId: string,
+    repoId: RepoId,
     name: string,
     holderSessionId: LockSessionKey | null,
     expiresAt: string,
@@ -166,12 +166,12 @@ export class LocksRepository {
     return r.changes === 1
   }
 
-  deleteLock(repoId: string, name: string): void {
+  deleteLock(repoId: RepoId, name: string): void {
     this.db.prepare('DELETE FROM locks WHERE repo_id = ? AND name = ?').run(repoId, name)
   }
 
   /** FIFO queue for one lock, in grant order. */
-  listWaiters(repoId: string, name: string): LockWaiterRow[] {
+  listWaiters(repoId: RepoId, name: string): LockWaiterRow[] {
     const rows = this.db
       .prepare('SELECT * FROM lock_waiters WHERE repo_id = ? AND name = ? ORDER BY id')
       .all(repoId, name) as Record<string, unknown>[]
@@ -198,7 +198,7 @@ export class LocksRepository {
     this.db.prepare('DELETE FROM lock_waiters WHERE id = ?').run(id)
   }
 
-  removeWaiterBySession(repoId: string, name: string, sessionId: LockSessionKey): void {
+  removeWaiterBySession(repoId: RepoId, name: string, sessionId: LockSessionKey): void {
     this.db
       .prepare('DELETE FROM lock_waiters WHERE repo_id = ? AND name = ? AND session_id = ?')
       .run(repoId, name, sessionId)

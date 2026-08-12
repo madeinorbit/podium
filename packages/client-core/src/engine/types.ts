@@ -6,7 +6,9 @@
  * client).
  */
 
-import type { IssueUpdatePatch } from '@podium/commands'
+import type { IssueUpdatePatch   MachineId,
+  MutationId,
+} from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
@@ -87,7 +89,7 @@ export interface UserFocus {
    *  two session ids but left `issueId` a plain `z.string().max(128)`. Branding
    *  only this side would make the mirror drift, which is worse than the widening
    *  — the pair must move together, server-side first. */
-  issueId?: string
+  issueId?: IssueId
   focusedSessionId?: SessionId
   visibleSessionIds?: SessionId[]
   filePath?: string
@@ -95,7 +97,7 @@ export interface UserFocus {
   openFilePaths?: string[]
   /** The issue detail drawer open over the workspace, when there is one. Not
    *  branded, for the same mirror-fidelity reason as `issueId` above. */
-  openIssueId?: string
+  openIssueId?: IssueId
 }
 
 /**
@@ -290,7 +292,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  from the flight deck does. Defaults to permanent — a caller that has not
    *  thought about it wants a tab that stays. */
   openFileInWorktree: (args: {
-    machineId?: string
+    machineId?: MachineId
     root: string
     path: string
     issueId?: IssueId
@@ -317,22 +319,22 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     baseHash?: string
   }) => Promise<Awaited<ReturnType<TApi['files']['write']['mutate']>>>
   listDir: (args: {
-    machineId?: string
+    machineId?: MachineId
     root: string
     path?: string
   }) => Promise<Awaited<ReturnType<TApi['files']['list']['query']>>>
   /** Git dock panel [POD-114] — read-only checkout inspection (raw git output;
    *  parsing lives in the web viewmodels). */
   gitStatus: (args: {
-    machineId?: string
+    machineId?: MachineId
     root: string
   }) => Promise<Awaited<ReturnType<TApi['git']['status']['query']>>>
   gitLog: (args: {
-    machineId?: string
+    machineId?: MachineId
     root: string
   }) => Promise<Awaited<ReturnType<TApi['git']['log']['query']>>>
   gitDiffFile: (args: {
-    machineId?: string
+    machineId?: MachineId
     root: string
     path: string
   }) => Promise<Awaited<ReturnType<TApi['git']['diffFile']['query']>>>
@@ -506,9 +508,9 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  the reason's precondition, so a surface cannot offer a button that would
    *  reproduce the same refusal. */
   recoverOutbox: {
-    retry: (mutationId: string, satisfaction: RetrySatisfaction) => void
-    edit: (mutationId: string, input: unknown) => void
-    discard: (mutationId: string) => void
+    retry: (mutationId: MutationId, satisfaction: RetrySatisfaction) => void
+    edit: (mutationId: MutationId, input: unknown) => void
+    discard: (mutationId: MutationId) => void
   }
   /** What the user is LOOKING AT right now (#225): the screen, selected issue/
    *  worktree, session(s) on screen. Ids only — the server resolves them to

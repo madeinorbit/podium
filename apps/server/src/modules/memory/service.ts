@@ -2,6 +2,7 @@ import type {
   ConversationDiagnosticWire,
   ConversationId,
   ConversationSummaryWire,
+  MachineId,
 } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -77,7 +78,7 @@ export class MemoryService {
   }
 
   onDiscovery(
-    machineId: string,
+    machineId: MachineId,
     conversations: ConversationSummaryWire[],
     diagnostics: ConversationDiagnosticWire[],
     removed: string[] = [],
@@ -92,7 +93,7 @@ export class MemoryService {
 
   private indexConversations(
     conversations: ConversationSummaryWire[],
-    machineId: string,
+    machineId: MachineId,
     removed: string[],
   ): ConversationSummaryWire[] {
     const podiumIds = new Map<string, ConversationId>()
@@ -273,7 +274,7 @@ export class MemoryService {
 
   conversationPodiumId(
     reader: MemoryReader,
-    machineId: string,
+    machineId: MachineId,
     nativeId: string,
   ): ConversationId | undefined {
     if (!this.visibility.mayRead(reader, { class: 'conversation', machineId, nativeId })) {
@@ -288,14 +289,14 @@ export class MemoryService {
 
   transcriptPathHint(
     reader: MemoryReader,
-    session: { id: string; machineId: string; resume?: { value: string } },
+    session: { id: string; machineId: MachineId; resume?: { value: string } },
   ): { pathHint: string } | undefined {
     if (!this.canReadSession(reader, session.id)) return undefined
     const nativeId = session.resume?.value
     return nativeId ? this.lake.pathHint(session.machineId, nativeId) : undefined
   }
 
-  triggerLakeSweep(machineId: string): void {
+  triggerLakeSweep(machineId: MachineId): void {
     this.lake.triggerSweep(machineId)
   }
 
@@ -339,7 +340,7 @@ export class MemoryService {
    *  never a frame body): the broker refuses a reply from any machine other than
    *  the one the ranged read was sent to (POD-1175). */
   onTranscriptMirrorResult(
-    machineId: string,
+    machineId: MachineId,
     message: {
       requestId: string
       data: string

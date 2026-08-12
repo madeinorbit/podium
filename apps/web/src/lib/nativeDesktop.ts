@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 export type NativeDesktopPlatform = 'macos' | 'windows' | 'linux'
 
 /** The shell's resolved launch mode (bootstrap.rs LaunchAction). Older shells omit it. */
@@ -15,7 +16,7 @@ export interface NativeDesktopBridge {
   platform: NativeDesktopPlatform
   launchMode?: NativeDesktopLaunchMode
   /** This device's paired machine id (~/.podium/daemon.json), if it ever paired. [spec:SP-3701] */
-  machineId?: string
+  machineId?: MachineId
   minimize: () => Promise<void>
   toggleMaximize: () => Promise<void>
   close: () => Promise<void>

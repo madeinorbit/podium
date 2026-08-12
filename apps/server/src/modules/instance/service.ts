@@ -19,6 +19,7 @@
  * shipped function; there is no logic in this file, deliberately.
  */
 
+import type { UserId } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import {
   type FleetUpdateChannel,
@@ -60,7 +61,7 @@ export interface InstanceDeps {
    * this seam — `callerUserId(ctx)` in derived-family.ts is the only one.
    */
   readonly users?: InstanceAccountStore | undefined
-  readonly callerUserId?: string | undefined
+  readonly callerUserId?: UserId | undefined
   /** `credentialsRequired()` from the composition root — see AuthRouteOptions.loginRequired. */
   readonly loginRequired?: (() => boolean) | undefined
   /**
@@ -79,9 +80,9 @@ export interface InstanceDeps {
 
 /** The slice of `UsersRepository` the auth commands need. */
 export interface InstanceAccountStore {
-  get(userId: string): { role: string } | undefined
-  credentialFor(userId: string): { passwordHash: string | null } | undefined
-  setPasswordHash(userId: string, passwordHash: string, updatedAt: string): void
+  get(userId: UserId): { role: string } | undefined
+  credentialFor(userId: UserId): { passwordHash: string | null } | undefined
+  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void
 }
 
 export class InstanceService {

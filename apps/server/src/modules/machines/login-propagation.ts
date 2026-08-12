@@ -3,7 +3,7 @@ import {
   harnessSupportsCredentialPropagation,
 } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
-import type { AgentKind, HarnessAgent } from '@podium/model'
+import type { AgentKind, HarnessAgent, MachineId, UserId } from '@podium/model'
 import type { PortableCredentialBundle } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness } from '../../login-catalog'
 import type { SessionStore } from '../../store'
@@ -18,16 +18,16 @@ export const LOGIN_PROPAGATION_INITIAL_BACKOFF_MS = 1_000
 type PropagatableHarness = Extract<HarnessAgent, 'claude-code' | 'codex'>
 
 export interface LoginPropagationTrigger {
-  targetMachineId: string
+  targetMachineId: MachineId
   agentKind: AgentKind
   /** The server principal that owns the target machine/session. */
-  principalUserId?: string
+  principalUserId?: UserId
   /** Used only for the explicit enrollment relay and harness-error retry. */
   force?: boolean
 }
 
 export type LoginPropagationResult =
-  | { status: 'propagated'; donorMachineId: string }
+  | { status: 'propagated'; donorMachineId: MachineId }
   | { status: 'skipped'; reason: string }
   | { status: 'failed'; reason: string }
 
@@ -44,7 +44,7 @@ interface LoginPropagationDeps {
   now?: () => number
 }
 
-function propagationKey(input: LoginPropagationTrigger, ownerUserId: string): string {
+function propagationKey(input: LoginPropagationTrigger, ownerUserId: UserId): string {
   return ownerUserId + ':' + input.targetMachineId + ':' + input.agentKind
 }
 
@@ -135,7 +135,7 @@ export class LoginPropagationService {
   private async run(input: {
     input: LoginPropagationTrigger
     harness: PropagatableHarness
-    ownerUserId: string
+    ownerUserId: UserId
     targetInventory: import('@podium/model').Inventory | undefined
   }): Promise<LoginPropagationResult> {
     const portable = harnessPortableCredential(input.harness)

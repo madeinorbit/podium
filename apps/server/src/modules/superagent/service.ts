@@ -11,7 +11,9 @@
 
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import type { SuperagentUserFocus } from '@podium/commands'
+import type { SuperagentUserFocus   MachineId,
+  IssueId,
+} from '@podium/commands'
 import {
   asThreadId,
   FIRST_ADMIN_USER_ID,
@@ -753,7 +755,7 @@ export class SuperagentService {
    * with a live turn AND a waiting message from starting a second turn against
    * the same harness session.
    */
-  private resumePendingTurns(machineId?: string): void {
+  private resumePendingTurns(machineId?: MachineId): void {
     for (const pending of this.store.superagent.listPendingTurns()) {
       const session = this.sessionById(pending.podiumSessionId)
       if (!session || (machineId !== undefined && session.machineId !== machineId)) continue
@@ -1384,7 +1386,7 @@ export class SuperagentService {
   }
 
   /** An issue by id, across every registered repo (ids are globally unique). */
-  private issueById(issueId: string): IssueWire | undefined {
+  private issueById(issueId: IssueId): IssueWire | undefined {
     for (const repoPath of this.repos.list()) {
       const found = this.modules.issues.list(repoPath).find((i) => i.id === issueId)
       if (found) return found

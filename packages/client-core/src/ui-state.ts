@@ -525,7 +525,7 @@ export type MainView =
 
 export interface RouteState {
   view: MainView
-  issueId: string | null
+  issueId: IssueId | null
   settingsTab: string | null
   worktree: string | null
   pane: string | null

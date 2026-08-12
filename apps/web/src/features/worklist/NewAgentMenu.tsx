@@ -33,7 +33,8 @@
  * Gating here is UX only — the Authority re-authorizes at apply (ADR 3 D8).
  * Nothing in this file DECIDES anything; it only declines to offer.
  */
-import type { MachineView, RepoNavView } from '@podium/client-core/viewmodels'
+import type { MachineView, RepoNavView   MachineId,
+} from '@podium/client-core/viewmodels'
 import type { AgentKind, MachineWire } from '@podium/model'
 import { Circle, Lock, Plus } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
@@ -121,7 +122,7 @@ function RepoItems({
   kind: AgentKind
   menuRepos: RepoNavView[]
   machineViews: readonly MachineView<MachineWire>[]
-  onPick: (kind: AgentKind, repo: RepoNavView, machineId?: string) => void
+  onPick: (kind: AgentKind, repo: RepoNavView, machineId?: MachineId) => void
 }): JSX.Element {
   if (menuRepos.length === 0) return <DropdownMenuItem disabled>No repos</DropdownMenuItem>
   return (
@@ -177,13 +178,13 @@ export function NewAgentMenu({
   menuRepos: RepoNavView[]
   machineViews: readonly MachineView<MachineWire>[]
   defaultRepo: RepoNavView | undefined
-  onSpawn: (kind: AgentKind, repo: RepoNavView, machineId?: string) => void
+  onSpawn: (kind: AgentKind, repo: RepoNavView, machineId?: MachineId) => void
   onPersistDefaultAgent: (kind: AgentKind) => void
   onNewIssue: () => void
 }): JSX.Element {
   /** A menu pick both persists the agent as the sticky default and spawns it —
    *  the two always travelled together, so they are one call here. */
-  const pick = (kind: AgentKind, repo: RepoNavView, machineId?: string): void => {
+  const pick = (kind: AgentKind, repo: RepoNavView, machineId?: MachineId): void => {
     onPersistDefaultAgent(kind)
     onSpawn(kind, repo, machineId)
   }

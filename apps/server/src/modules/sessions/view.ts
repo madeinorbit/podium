@@ -5,6 +5,7 @@ import {
   type SessionMeta,
   type SessionUserOverlay,
   type UserId,
+  type IssueId,
 } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { userCommandPrincipal } from '../../command-principal'
@@ -93,7 +94,7 @@ export class SessionView {
    */
   listForIssue(
     worktreePath: string | null,
-    issueId: string | undefined,
+    issueId: IssueId | undefined,
     forPrincipal?: SessionStatePrincipal,
   ): SessionMeta[] {
     const startedAt = performance.now()

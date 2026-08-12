@@ -10,7 +10,7 @@ import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
-import type { AgentInventory, Inventory, ToolInventory } from '@podium/model'
+import type { AgentInventory, Inventory, ToolInventory, MachineId } from '@podium/model'
 import { type AgentManifest, declaredValue } from '../manifest.js'
 import { AGENT_MANIFESTS } from '../registry.js'
 
@@ -129,14 +129,14 @@ export interface BuildInventoryOptions {
  */
 export interface MachineHarnessInventory {
   /** The machine this fact is ABOUT — the scoping key, not decoration. */
-  readonly machineId: string
+  readonly machineId: MachineId
   readonly inventory: Inventory
 }
 
 export interface BuildMachineInventoryOptions extends BuildInventoryOptions {
   /** REQUIRED: the machine being probed. There is no "current machine" default on
    *  purpose — an implicit one is how an instance-global singleton gets born. */
-  machineId: string
+  machineId: MachineId
 }
 
 /**

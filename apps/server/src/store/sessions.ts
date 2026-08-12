@@ -119,7 +119,7 @@ export class SessionsRepository {
   }
 
   /** Recoverable session tombstones created by one issue deletion. */
-  loadDeletedSessionsForIssue(issueId: string): SessionRow[] {
+  loadDeletedSessionsForIssue(issueId: IssueId): SessionRow[] {
     return this.readSessions(
       "deleted_at IS NOT NULL AND deletion_source = 'issue' AND deleted_by_issue_id = ?",
       issueId,
@@ -382,7 +382,7 @@ export class SessionsRepository {
     ids: string[],
     deletedAt: string,
     source: SessionDeletionSource,
-    deletedByIssueId: string | null = null,
+    deletedByIssueId: IssueId | null = null,
   ): void {
     const update = this.db.prepare(
       `UPDATE sessions SET deleted_at = ?, deletion_source = ?, deleted_by_issue_id = ?
@@ -392,12 +392,12 @@ export class SessionsRepository {
   }
 
   /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
-  softDeleteForIssue(ids: string[], issueId: string, deletedAt: string): void {
+  softDeleteForIssue(ids: string[], issueId: IssueId, deletedAt: string): void {
     this.softDeleteSessions(ids, deletedAt, 'issue', issueId)
   }
 
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
-  restoreDeletedForIssue(issueId: string): void {
+  restoreDeletedForIssue(issueId: IssueId): void {
     this.db
       .prepare(
         `UPDATE sessions
@@ -433,7 +433,7 @@ export class SessionsRepository {
    * `refIssueId` is set — leaving the session permanently unable to earn the draft
    * ref it should now get.
    */
-  detachTombstonesFromIssue(issueId: string): void {
+  detachTombstonesFromIssue(issueId: IssueId): void {
     this.db
       .prepare(
         `UPDATE sessions
@@ -490,7 +490,7 @@ export class SessionsRepository {
   // caller must say whose state it is touching. Server-internal paths that have no
   // principal pass SOLE_USER_ID explicitly, which makes them greppable for
   // POD-1077 (the scoped feed that finally makes the broadcast per-principal).
-  listPins(userId: string): PinState {
+  listPins(userId: UserId): PinState {
     const rows = this.db
       .prepare('SELECT kind, id FROM pins WHERE user_id = ? ORDER BY rowid ASC')
       .all(userId) as {
@@ -506,7 +506,7 @@ export class SessionsRepository {
     return pins
   }
 
-  setPin(userId: string, kind: PinKind, id: string, pinned: boolean): void {
+  setPin(userId: UserId, kind: PinKind, id: string, pinned: boolean): void {
     if (!PIN_KINDS.has(kind)) throw new Error(`invalid pin kind: ${kind}`)
     requireUserId(userId)
     const cleanId = id.trim()
@@ -531,7 +531,7 @@ export class SessionsRepository {
    * Returns only sessions this user has opened. An absent key is "never opened",
    * which is the ONLY spelling — see {@link markSessionUnread}.
    */
-  listReadAt(userId: string): Record<string, string | null> {
+  listReadAt(userId: UserId): Record<string, string | null> {
     requireUserId(userId)
     const rows = this.db
       .prepare('SELECT session_id, read_at FROM session_user_state WHERE user_id = ?')
@@ -541,7 +541,7 @@ export class SessionsRepository {
     return out
   }
 
-  getReadAt(userId: string, sessionId: SessionId): string | null {
+  getReadAt(userId: UserId, sessionId: SessionId): string | null {
     requireUserId(userId)
     const row = this.db
       .prepare('SELECT read_at FROM session_user_state WHERE user_id = ? AND session_id = ?')
@@ -549,7 +549,7 @@ export class SessionsRepository {
     return row?.read_at ?? null
   }
 
-  markSessionRead(userId: string, sessionId: SessionId, readAt: string): void {
+  markSessionRead(userId: UserId, sessionId: SessionId, readAt: string): void {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('read-state session id is empty')
@@ -564,7 +564,7 @@ export class SessionsRepository {
   /** DELETES the row rather than writing a null. Absence and `read_at IS NULL`
    *  would be two spellings of "never opened", and a table with two spellings of
    *  one fact acquires a second meaning nobody documented. */
-  markSessionUnread(userId: string, sessionId: SessionId): void {
+  markSessionUnread(userId: UserId, sessionId: SessionId): void {
     requireUserId(userId)
     this.db
       .prepare('DELETE FROM session_user_state WHERE user_id = ? AND session_id = ?')
@@ -588,7 +588,7 @@ export class SessionsRepository {
   /** Active snoozes. Lazily deletes any timed snooze whose deadline has passed
    *  (the client clock also ignores lapsed ones at render time; this is just
    *  housekeeping). `null` snoozes (until-next-message) never lapse by time. */
-  listSnoozes(userId: string, now: number = Date.now()): SnoozeMap {
+  listSnoozes(userId: UserId, now: number = Date.now()): SnoozeMap {
     const rows = this.db
       .prepare('SELECT session_id, snoozed_until FROM snoozes WHERE user_id = ?')
       .all(userId) as {
@@ -614,7 +614,7 @@ export class SessionsRepository {
 
   /** Snooze a session for one user. `until` = null → until next message; ISO
    *  string → timed. PER-USER STATE (POD-380) — see the note on {@link listPins}. */
-  setSnooze(userId: string, sessionId: SessionId, until: string | null): void {
+  setSnooze(userId: UserId, sessionId: SessionId, until: string | null): void {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
@@ -627,7 +627,7 @@ export class SessionsRepository {
   }
 
   /** Un-snooze a session for one user (no-op if not snoozed). */
-  clearSnooze(userId: string, sessionId: SessionId): void {
+  clearSnooze(userId: UserId, sessionId: SessionId): void {
     this.db
       .prepare('DELETE FROM snoozes WHERE user_id = ? AND session_id = ?')
       .run(userId, sessionId.trim())
@@ -726,7 +726,7 @@ export class SessionsRepository {
 
   // ---- tab order ----
   /** Manual tab order per worktree path. Worktrees never reordered are absent. */
-  listTabOrders(userId: string): Record<string, string[]> {
+  listTabOrders(userId: UserId): Record<string, string[]> {
     const rows = this.db
       .prepare('SELECT worktree, ids FROM tab_order WHERE user_id = ?')
       .all(userId) as {
@@ -745,7 +745,7 @@ export class SessionsRepository {
     return out
   }
 
-  setTabOrder(userId: string, worktree: string, sessionIds: string[]): void {
+  setTabOrder(userId: UserId, worktree: string, sessionIds: string[]): void {
     requireUserId(userId)
     const cleanWorktree = worktree.trim()
     if (!cleanWorktree) throw new Error('worktree path is empty')
@@ -772,7 +772,7 @@ export class SessionsRepository {
    */
   private scrubTabOrders(sessionId: SessionId): void {
     const rows = this.db.prepare('SELECT user_id, worktree, ids FROM tab_order').all() as {
-      user_id: string
+      user_id: UserId
       worktree: string
       ids: string
     }[]

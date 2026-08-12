@@ -94,7 +94,7 @@ export const LEGACY_IMPORT_PARTITION = 'legacy-import'
 /** Why an entry could not be carried across. Reported, never swallowed. */
 export interface LegacyImportRejection {
   readonly key: string
-  readonly mutationId?: string
+  readonly mutationId?: MutationId
   readonly reason: 'unreadable-blob' | 'malformed-entry' | 'unknown-command'
   readonly detail: string
 }
@@ -132,7 +132,7 @@ export interface LegacyReplicaImportOptions {
 
 /** One legacy queued mutation, as `packages/client-core/src/outbox.ts` writes it. */
 interface LegacyOutboxEntry {
-  mutationId: string
+  mutationId: MutationId
   kind: string
   input: unknown
   queuedAt: number

@@ -32,6 +32,7 @@
  * one alone is a half-migration.
  */
 
+import type { MachineId } from '@podium/model'
 import type {
   AccountId,
   ArtifactId,
@@ -322,7 +323,7 @@ const MACHINE_SCOPED_SEP = '\n'
  * The key's real value — escaping the separator, so the `\n`-collision assumption
  * at every ad-hoc site goes away — never depended on the brand at all.
  */
-export const machineScopedKey = (machineId: string, nativeId: string): string =>
+export const machineScopedKey = (machineId: MachineId, nativeId: string): string =>
   joinKeyParts(MACHINE_SCOPED_SEP, [machineId, nativeId])
 
 /** Inverse of {@link machineScopedKey}. Throws on a string that is not a well-formed key. */

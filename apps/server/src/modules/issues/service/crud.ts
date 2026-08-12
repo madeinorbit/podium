@@ -12,6 +12,8 @@ import {
   type SessionMeta,
   sortKeyBetween,
   type UserId,
+  type IssueId,
+  type RepoId,
 } from '@podium/model'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -38,7 +40,7 @@ function isOrganizationalOnlyPatch(patch: IssuePatch): boolean {
 
 /** Prepared half of the atomic issue/session lifecycle transaction. */
 export interface IssueLifecyclePlan {
-  issueId: string
+  issueId: IssueId
   worktreePath: string | null
   /** The committed wire projection. Valid ONLY after {@link write} — throws
    *  before it, deliberately loudly.
@@ -291,7 +293,7 @@ export class IssueCrudModule {
    *  "new appears at top" (R2) is the sort's natural behavior, no special case.
    *  Scope = a parent's children when parentId is set, else the repo's
    *  top-level non-pinned rows. Corrupt/legacy keys are ignored for the min. */
-  private mintSortKey(repoId: string, repoPath: string, parentId: string | null): string {
+  private mintSortKey(repoId: RepoId, repoPath: string, parentId: string | null): string {
     let min: string | null = null
     for (const r of this.store.rows.values()) {
       if (r.deletedAt) continue

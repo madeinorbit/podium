@@ -11,7 +11,7 @@
  * drive the automatic path cannot test D6's buffering rule at all.
  */
 
-import { asMutationId } from '@podium/model'
+import { asMutationId, type MutationId } from '@podium/model'
 import type { AuthorityReadPort } from './ports'
 import type { BootstrapChunk, ChangeEnvelope, ChangesSinceReply, Cursor, DeltaFrame } from './types'
 
@@ -24,7 +24,7 @@ export const EPOCH = 'epoch-1'
  * {@link ChangeEnvelope} carries the model's MutationId brand (POD-1251).
  */
 export type ChangeEnvelopeExtra = Omit<Partial<ChangeEnvelope>, 'mutationId'> & {
-  readonly mutationId?: string
+  readonly mutationId?: MutationId
 }
 
 export function upsertChange(

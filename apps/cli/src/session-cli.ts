@@ -8,6 +8,7 @@ import type {
   SessionReadResult,
   SessionRecapResult,
   SessionStatusResult,
+  IssueId,
 } from '@podium/model'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
@@ -77,7 +78,7 @@ interface AskWire {
   ackId?: string
   reason?: string
   clamped?: boolean
-  snapshot: { sessionId: SessionId; status: string; phase?: string; issueId?: string } | null
+  snapshot: { sessionId: SessionId; status: string; phase?: string; issueId?: IssueId } | null
 }
 
 function contextLabel(percent: number | null | undefined): string {

@@ -1,3 +1,4 @@
+import type { IssueId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
@@ -6,7 +7,7 @@ interface FactClaim {
   factKey: string
   target: string
   source: string | null
-  issueId: string | null
+  issueId: IssueId | null
   createdAt: string
   expiresAt: string | null
 }
@@ -87,7 +88,7 @@ export class NotificationFactsRepository {
     return Number(row.changes)
   }
 
-  retireByIssue(issueId: string): void {
+  retireByIssue(issueId: IssueId): void {
     this.db.prepare('DELETE FROM notification_facts WHERE issue_id = ?').run(issueId)
   }
 
@@ -112,7 +113,7 @@ export class NotificationArbiter {
   claim(
     factKey: string,
     target: string,
-    opts: { source?: string; issueId?: string; ttlMs?: number } = {},
+    opts: { source?: string; issueId?: IssueId; ttlMs?: number } = {},
   ): boolean {
     const createdAt = this.now()
     const ttlMs = opts.ttlMs ?? this.defaultTtlMs
@@ -144,7 +145,7 @@ export class NotificationArbiter {
     return this.facts.retireFactKeyPrefix(prefix, at)
   }
 
-  retireByIssue(issueId: string): void {
+  retireByIssue(issueId: IssueId): void {
     this.facts.retireByIssue(issueId)
   }
 

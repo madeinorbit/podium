@@ -44,6 +44,7 @@
  * that exists only to be looked at.
  */
 
+import type { MachineId } from '@podium/model'
 import type { LogsSetLevelInput } from '@podium/commands'
 import { createLogger } from '@podium/logger'
 import type { ClientLogOrigin, ServerMessage } from '@podium/protocol'
@@ -69,7 +70,7 @@ export interface RaisedClient {
   clientId: string
   role?: string
   v?: string
-  machineId?: string
+  machineId?: MachineId
 }
 
 export interface SetLevelResult {

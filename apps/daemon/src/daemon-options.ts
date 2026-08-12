@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import type { agentLaunchCommand } from '@podium/harness'
 import type { LocalDaemonLink, ServerTransferServingProof } from '@podium/protocol'
 import type { DurableBackend } from './control/context'
@@ -50,7 +51,7 @@ export interface DaemonOptions {
   name?: string
   onBlocked?: (info: { type: string; reason: string }) => void
   identityDir?: string
-  machineId?: string
+  machineId?: MachineId
   launch?: typeof agentLaunchCommand
   backend?: DurableBackend
   tmux?: boolean

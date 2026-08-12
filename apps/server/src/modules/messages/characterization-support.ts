@@ -22,7 +22,8 @@
  *    predicate-driven `sleep` seam.
  */
 
-import { type HumanCeiling, placementDecision } from '@podium/commands'
+import { type HumanCeiling, placementDecision
+} from '@podium/commands'
 import {
   FIRST_ADMIN_USER_ID,
   asSessionId,
@@ -30,6 +31,7 @@ import {
   type IssueId,
   type SessionId,
   type SessionMeta,
+  type MachineId,
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
@@ -72,7 +74,7 @@ export interface SessionFixture {
   /** Composer-draft presence [POD-865]; any value = a hold. */
   draftUpdatedAt?: string
   queuedMessageCount?: number
-  machineId?: string
+  machineId?: MachineId
   busy?: boolean
   title?: string
 }
@@ -170,8 +172,8 @@ export interface MailHarness {
   /** Attach a worktree path to an issue (issue-membership by cwd). Goes through
    *  the IssueService, not the raw store: the service holds the authoritative
    *  in-memory rows and a direct store write is invisible to it. */
-  setWorktree(issueId: string, worktreePath: string): void
-  archive(issueId: string): void
+  setWorktree(issueId: IssueId, worktreePath: string): void
+  archive(issueId: IssueId): void
   put(...fixtures: SessionFixture[]): SessionMeta[]
   /** A capability for an agent bound to an issue subtree. */
   agentCap(issueId: IssueId, sessionId?: SessionId): Capability

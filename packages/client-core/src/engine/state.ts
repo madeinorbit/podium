@@ -484,7 +484,7 @@ export function userFocus(st: EngineState): UserFocus {
  *  home. */
 export interface EngineStateSeed {
   readonly persisted: WorkspaceUiSnapshot
-  readonly route: { settingsTab: string | null; issueId?: string | null }
+  readonly route: { settingsTab: string | null; issueId?: IssueId | null }
   readonly sessions: SessionMeta[]
   readonly issues: IssueWire[]
   readonly issueProjections: IssueProjectionRow[]

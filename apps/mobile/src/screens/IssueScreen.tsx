@@ -1,6 +1,6 @@
 import { withoutShells } from '@podium/client-core/focus'
 import { ISSUE_STAGE_LABELS, subIssuesOf } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES, IssueType, type IssueWire, type SessionId } from '@podium/model'
+import { ISSUE_STAGES, IssueType, type IssueWire, type SessionId, type IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react-native'
@@ -81,7 +81,7 @@ import { color, space } from '../theme/theme'
  * would mean first travelling past everything you were replying to.
  */
 export function IssueScreen() {
-  const params = useLocalSearchParams<{ issueId: string | string[] }>()
+  const params = useLocalSearchParams<{ issueId: IssueId | string[] }>()
   const issueId = decodeURIComponent(
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
   )

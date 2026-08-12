@@ -1,4 +1,4 @@
-import type { Attribution, SessionId, UserId } from '@podium/model'
+import type { Attribution, SessionId, UserId, MachineId } from '@podium/model'
 import { actorSystem, actorUser } from '@podium/model'
 import type {
   ClientMessage,
@@ -11,7 +11,7 @@ import { asSubscriberId, roomRoutingKey } from '@podium/protocol'
 import type { ClientConn, ClientRegistry } from './client-registry'
 
 interface BrowserOpenSession {
-  machineId: string
+  machineId: MachineId
 }
 
 interface BrowserOpenOwnership {
@@ -25,7 +25,7 @@ export interface BrowserOpenGatewayDeps {
   subscriptions: SubscriptionRegistry
   session(sessionId: SessionId): BrowserOpenSession | undefined
   sessionOwner(sessionId: SessionId): BrowserOpenOwnership | undefined
-  toMachine(machineId: string, message: ControlMessage): void
+  toMachine(machineId: MachineId, message: ControlMessage): void
 }
 
 /**
@@ -78,7 +78,7 @@ export class BrowserOpenGateway {
     }
   }
 
-  onOpenUrlResult(machineId: string, message: SessionOpenUrlResultMessage): void {
+  onOpenUrlResult(machineId: MachineId, message: SessionOpenUrlResultMessage): void {
     const session = this.deps.session(message.sessionId)
     if (!session || session.machineId !== machineId) return
     const requestKey = this.key(message.sessionId, message.requestId)

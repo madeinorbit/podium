@@ -6,7 +6,8 @@
  * shares ONE construction path with zero React involvement.
  */
 
-import type { ConfirmationRule } from '@podium/commands'
+import type { ConfirmationRule   MutationId,
+} from '@podium/commands'
 import type { SessionId, WorkState } from '@podium/model'
 import {
   ENQUEUEABLE_DELIVERY,
@@ -126,10 +127,10 @@ export interface EngineOutbox {
     input: OutboxKinds[K],
     opts?: { baseline?: string; chained?: boolean },
   ): OutboxEntry | Promise<OutboxEntry>
-  retireAwaiting(mutationId: string): void
-  retry(mutationId: string, satisfaction: RetrySatisfaction): unknown
-  edit(mutationId: string, input: unknown): unknown
-  discard(mutationId: string): unknown
+  retireAwaiting(mutationId: MutationId): void
+  retry(mutationId: MutationId, satisfaction: RetrySatisfaction): unknown
+  edit(mutationId: MutationId, input: unknown): unknown
+  discard(mutationId: MutationId): unknown
   notifyConnected(): void
   drain(): Promise<void>
 }
@@ -506,7 +507,7 @@ export const OUTBOX_ROUTING: {
 export const outboxRoutingFor = <K extends keyof OutboxKinds & string>(
   kind: K,
   input: OutboxKinds[K],
-  mutationId: string,
+  mutationId: MutationId,
 ): OutboxRouting => {
   const route = OUTBOX_ROUTING[kind] as ((i: OutboxKinds[K]) => OutboxRouting) | undefined
   return route ? route(input) : { partitionKey: `create:${mutationId}` }

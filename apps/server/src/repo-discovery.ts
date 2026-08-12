@@ -1,5 +1,5 @@
 import { dirname } from 'node:path'
-import type { GitDiscoveryDiagnosticWire, GitRepositoryWire } from '@podium/model'
+import type { GitDiscoveryDiagnosticWire, GitRepositoryWire, MachineId } from '@podium/model'
 import type { ScanReposResult } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
 import { normalizeRepoPath } from './store'
@@ -39,7 +39,7 @@ export type DiscoveredRepo = {
 }
 
 export type MachineDiscoveryResult = {
-  machineId: string
+  machineId: MachineId
   startedAt: number
   durationMs: number
   deep: boolean
@@ -47,7 +47,7 @@ export type MachineDiscoveryResult = {
   diagnostics: GitDiscoveryDiagnosticWire[]
 }
 
-type RepoRow = { machineId: string; path: string; originUrl: string | null }
+type RepoRow = { machineId: MachineId; path: string; originUrl: string | null }
 
 /** `/home/u/src/x` | `/Users/u/src/x` → `~/src/x` (undefined when not under a home). */
 export function homeRelativePath(path: string): string | undefined {
@@ -57,7 +57,7 @@ export function homeRelativePath(path: string): string | undefined {
 
 /** T1 probe roots for `machineId`: paths of repos on OTHER machines, raw + `~`-form,
  *  minus paths already registered on the target. Order-stable and deduped. */
-export function probeRootsFor(machineId: string, rows: RepoRow[]): string[] {
+export function probeRootsFor(machineId: MachineId, rows: RepoRow[]): string[] {
   const registered = new Set(
     rows.filter((r) => r.machineId === machineId).map((r) => normalizeRepoPath(r.path)),
   )
@@ -99,10 +99,10 @@ export function adjacentRootsFor(knownPaths: string[], cap = 12): string[] {
 
 export interface RepoDiscoveryDeps {
   listRepos(): RepoRow[]
-  addRepo(path: string, machineId: string, originUrl?: string): Promise<void> | void
+  addRepo(path: string, machineId: MachineId, originUrl?: string): Promise<void> | void
   /** Deregister a path on a machine. Used ONLY by the moved-repo heal (POD-1498),
    *  and only after {@link RepoDiscoveryDeps.pathExists} says the path is gone. */
-  removeRepo?(path: string, machineId: string): Promise<void> | void
+  removeRepo?(path: string, machineId: MachineId): Promise<void> | void
   /**
    * Does `path` exist on THAT machine's filesystem, right now?
    *
@@ -112,14 +112,14 @@ export interface RepoDiscoveryDeps {
    * would deregister healthy repos across the fleet. Absent (undefined) = we cannot
    * tell, and the heal must then do nothing.
    */
-  pathExists?(path: string, machineId: string): Promise<boolean>
+  pathExists?(path: string, machineId: MachineId): Promise<boolean>
   scanRepos(
     roots: string[],
     opts: { includeHome?: boolean; maxDepth?: number },
-    machineId: string,
+    machineId: MachineId,
   ): Promise<ScanReposResult>
-  machineName(machineId: string): string
-  localMachineId: string
+  machineName(machineId: MachineId): string
+  localMachineId: MachineId
   log?: (message: string) => void
   now?: () => number
 }
@@ -159,7 +159,7 @@ export class MachineRepoDiscovery {
    * No probe wired, or a probe that cannot answer, means do nothing.
    */
   private async healMovedRepos(
-    machineId: string,
+    machineId: MachineId,
     rows: RepoRow[],
     found: Map<string, { originUrl?: string | null }>,
   ): Promise<boolean> {
@@ -210,7 +210,7 @@ export class MachineRepoDiscovery {
 
   /** Fire-and-forget connect trigger: delayed (reattach settles first), throttled
    *  per machine, never awaited by the attach path, shallow tiers only. */
-  onMachineConnected(machineId: string): void {
+  onMachineConnected(machineId: MachineId): void {
     if (machineId === this.deps.localMachineId) return // local repos are adopted at boot
     const now = this.deps.now?.() ?? Date.now()
     const last = this.lastConnectScanAt.get(machineId)
@@ -226,7 +226,7 @@ export class MachineRepoDiscovery {
   }
 
   /** Most recent finished result for a machine (auto or explicit). */
-  lastResult(machineId: string): MachineDiscoveryResult | undefined {
+  lastResult(machineId: MachineId): MachineDiscoveryResult | undefined {
     return this.lastResults.get(machineId)
   }
 
@@ -236,7 +236,7 @@ export class MachineRepoDiscovery {
    *  other machines' paths + the shallow walk around this machine's known repos,
    *  which is the "known repo locations" the user asked to always include). */
   scan(
-    machineId: string,
+    machineId: MachineId,
     opts: { deep: boolean; atPath?: string },
   ): Promise<MachineDiscoveryResult> {
     // Coalesce only IDENTICAL scans: a plain connect-scan must not hand its result
@@ -250,7 +250,7 @@ export class MachineRepoDiscovery {
   }
 
   private async runScan(
-    machineId: string,
+    machineId: MachineId,
     opts: { deep: boolean; atPath?: string },
   ): Promise<MachineDiscoveryResult> {
     const startedAt = this.deps.now?.() ?? Date.now()

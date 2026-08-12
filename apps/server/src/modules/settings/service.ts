@@ -10,6 +10,7 @@ import {
   type TelegramClaimCode,
   telegramClaimCodeIsLive,
   type UserId,
+  type MachineId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import type { CommandPrincipal } from '../../command-principal'
@@ -583,12 +584,12 @@ export class SettingsService {
   /** Live per-agent model lists for ONE machine (SWR — returns cached instantly,
    *  refreshes in the background). The web merges these over its static catalog.
    *  `machineId` is required: the catalog is a per-machine fact (ADR 1 D13.5). */
-  getModelCatalog(machineId: string): ModelCatalogSnapshot {
+  getModelCatalog(machineId: MachineId): ModelCatalogSnapshot {
     return this.modelCatalog.get(machineId)
   }
 
   /** Force a fresh probe for one machine and return the updated snapshot. */
-  async refreshModelCatalog(machineId: string): Promise<ModelCatalogSnapshot> {
+  async refreshModelCatalog(machineId: MachineId): Promise<ModelCatalogSnapshot> {
     await this.modelCatalog.refresh(machineId)
     return this.modelCatalog.get(machineId)
   }

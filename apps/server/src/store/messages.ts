@@ -203,7 +203,7 @@ export class MessagesRepository {
   /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
    *  every row the principal SENT or was ADDRESSED (issue box / session box /
    *  delivered-to), newest first — the "what happened to my message" view. */
-  listLedger(q: { issueId?: string; sessionId?: string; limit?: number }): MessageRow[] {
+  listLedger(q: { issueId?: IssueId; sessionId?: string; limit?: number }): MessageRow[] {
     const ors: string[] = []
     const params: unknown[] = []
     if (q.issueId) {
@@ -387,7 +387,7 @@ export class MessagesRepository {
     )`
 
   /** Count and group one reader-scoped pending slice in one statement. */
-  pendingSummaryForSession(issueId: string, sessionId: string): PendingMessageSummary {
+  pendingSummaryForSession(issueId: IssueId, sessionId: string): PendingMessageSummary {
     return this.pendingSummaryForPredicate(MessagesRepository.PENDING_FOR_SESSION, [
       issueId,
       sessionId,
@@ -424,7 +424,7 @@ export class MessagesRepository {
     }
   }
 
-  countPendingForSession(issueId: string, sessionId: string): number {
+  countPendingForSession(issueId: IssueId, sessionId: string): number {
     const r = this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM messages
@@ -434,7 +434,7 @@ export class MessagesRepository {
     return r.n
   }
 
-  listPendingSendersForSession(issueId: string, sessionId: string): PendingMessageSender[] {
+  listPendingSendersForSession(issueId: IssueId, sessionId: string): PendingMessageSender[] {
     const rows = this.db
       .prepare(
         `SELECT DISTINCT from_kind, from_issue, from_session FROM messages

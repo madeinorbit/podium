@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import type { AdvanceIdempotencyPort } from '@podium/commands'
+import type { AdvanceIdempotencyPort   IssueId,
+  MachineId,
+} from '@podium/commands'
 import { AgentKind, type SessionId } from '@podium/model'
 import type {
   ExecutionProfileWire,
@@ -80,9 +82,9 @@ export interface WorkflowCaller {
 interface SessionInfo {
   sessionId: SessionId
   cwd: string
-  issueId?: string
+  issueId?: IssueId
   agentKind: string
-  machineId?: string
+  machineId?: MachineId
 }
 
 /**
@@ -107,7 +109,7 @@ export interface WorkflowServiceDeps {
   store: WorkflowsRepository
   now(): string
   session(sessionId: SessionId): SessionInfo | undefined
-  issue(issueId: string): IssueInfo | undefined
+  issue(issueId: IssueId): IssueInfo | undefined
   repoIdForPath(path: string): string | null
   notifyCoordinator?(sessionId: SessionId, text: string): void
 }
@@ -143,12 +145,12 @@ export interface WorkflowEngine {
   ): string[]
   assertRevisionMatchesStart(
     revision: WorkflowRevisionWire,
-    input: { sessionId: string; cwd: string; issueId?: string },
+    input: { sessionId: string; cwd: string; issueId?: IssueId },
   ): void
   startRun(input: {
     sessionId: string
     cwd: string
-    issueId?: string
+    issueId?: IssueId
     revisionId: string
     supersedesRunId?: string
     startStepId?: string
@@ -334,7 +336,7 @@ export class WorkflowService implements WorkflowEngine {
 
   assertRevisionMatchesStart(
     revision: WorkflowRevisionWire,
-    input: { sessionId: SessionId; cwd: string; issueId?: string },
+    input: { sessionId: SessionId; cwd: string; issueId?: IssueId },
   ): void {
     const workflow = this.deps.store.getWorkflow(revision.workflowId)
     if (!workflow) throw new Error(`workflow revision ${revision.id} lost its workflow`)
@@ -352,7 +354,7 @@ export class WorkflowService implements WorkflowEngine {
   resolveRevision(input: {
     sessionId: SessionId
     cwd: string
-    issueId?: string
+    issueId?: IssueId
     explicitRevisionId?: string
   }): WorkflowRevisionWire | null {
     if (input.explicitRevisionId) {
@@ -375,7 +377,7 @@ export class WorkflowService implements WorkflowEngine {
   prepareStart(input: {
     sessionId: SessionId
     cwd: string
-    issueId?: string
+    issueId?: IssueId
     explicitRevisionId?: string
   }): { revision: WorkflowRevisionWire; prompt: string } | null {
     const existing = input.issueId ? this.deps.store.findLiveRun('issue', input.issueId) : null
@@ -393,7 +395,7 @@ export class WorkflowService implements WorkflowEngine {
 
   prepareExistingSession(input: {
     sessionId: SessionId
-    issueId?: string
+    issueId?: IssueId
   }): { revision: WorkflowRevisionWire; prompt: string } | null {
     const existing =
       this.deps.store.findLiveRunForSession(input.sessionId) ??
@@ -407,7 +409,7 @@ export class WorkflowService implements WorkflowEngine {
   startRun(input: {
     sessionId: SessionId
     cwd: string
-    issueId?: string
+    issueId?: IssueId
     revisionId: string
     supersedesRunId?: string
     startStepId?: string

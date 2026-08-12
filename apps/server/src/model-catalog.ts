@@ -1,3 +1,4 @@
+import type { MachineId } from '@podium/model'
 import type { ModelChoiceWire } from '@podium/protocol'
 
 /** Bumped whenever the probe's output SHAPE changes (e.g. per-model `efforts`
@@ -24,7 +25,7 @@ export const MODEL_CATALOG_VERSION = 4
  */
 export interface ModelCatalogSnapshot {
   /** The machine this fact is ABOUT — the scoping key, not decoration. */
-  machineId: string
+  machineId: MachineId
   /** Live models keyed by agent kind (grok/cursor/opencode). Absent agents fall
    *  back to the web's static catalog. */
   byAgent: Record<string, ModelChoiceWire[]>
@@ -38,9 +39,9 @@ export interface ModelCatalogSnapshot {
  *  cannot write an unkeyed catalog — and since POD-1466 it also SELECTS the host
  *  that answers: the real probe relays to that machine's own daemon, because a
  *  probe only ever sees the agent CLIs installed on the host it executes on. */
-export type ModelProbe = (machineId: string) => Promise<Record<string, ModelChoiceWire[]>>
+export type ModelProbe = (machineId: MachineId) => Promise<Record<string, ModelChoiceWire[]>>
 
-function emptySnapshot(machineId: string): ModelCatalogSnapshot {
+function emptySnapshot(machineId: MachineId): ModelCatalogSnapshot {
   return { machineId, byAgent: {}, fetchedAt: 0 }
 }
 
@@ -67,7 +68,7 @@ export class ModelCatalog {
       /** Persist across restarts: `load` seeds one machine's cache at first read
        *  (→ instant, non-cold first open after a redeploy); `save` writes each
        *  successful refresh. Both take/return a machine-keyed snapshot. */
-      load?: (machineId: string) => ModelCatalogSnapshot | null
+      load?: (machineId: MachineId) => ModelCatalogSnapshot | null
       save?: (snapshot: ModelCatalogSnapshot) => void
     } = {},
   ) {}
@@ -84,7 +85,7 @@ export class ModelCatalog {
   /** Seed (or return) the in-memory entry for `machineId`. Only a persisted
    *  snapshot of the CURRENT shape that names the SAME machine is accepted —
    *  an older unkeyed or cross-machine snapshot is discarded so `get` re-probes. */
-  private ensure(machineId: string): ModelCatalogSnapshot {
+  private ensure(machineId: MachineId): ModelCatalogSnapshot {
     const cached = this.snapshots.get(machineId)
     if (cached) return cached
     const persisted = this.opts.load?.(machineId)
@@ -100,7 +101,7 @@ export class ModelCatalog {
 
   /** SWR read for one machine: returns that machine's snapshot immediately,
    *  refreshing in the background when it's empty or stale. Never blocks. */
-  get(machineId: string): ModelCatalogSnapshot {
+  get(machineId: MachineId): ModelCatalogSnapshot {
     const snapshot = this.ensure(machineId)
     if (this.isStale(snapshot)) void this.refresh(machineId)
     return snapshot
@@ -110,7 +111,7 @@ export class ModelCatalog {
    *  probe; a throwing probe keeps the last good snapshot for that machine (so a
    *  transiently-broken CLI doesn't wipe the cache). Different machines probe
    *  independently. */
-  refresh(machineId: string): Promise<void> {
+  refresh(machineId: MachineId): Promise<void> {
     const existing = this.inflight.get(machineId)
     if (existing) return existing
     const pending = (async () => {

@@ -8,7 +8,7 @@ import {
   placeReclaimable,
   residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
-import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
+import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId, MachineId, IssueId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -87,7 +87,7 @@ export function HostInfoView({
 }: {
   onClose: () => void
   initialTab?: HostInfoTab
-  machineId?: string
+  machineId?: MachineId
 }): JSX.Element {
   const [tab, setTab] = useState<HostInfoTab>(initialTab)
   const isMobile = useIsMobile()
@@ -185,7 +185,7 @@ function MemoryPanel({
   machineId,
 }: {
   onClose: () => void
-  machineId?: string
+  machineId?: MachineId
 }): JSX.Element {
   const { trpc, sessions, hostMetrics, setView, setSettingsTab } = useStoreSelector(
     (s) => ({
@@ -484,7 +484,7 @@ function LegendSwatch({ className, label }: { className: string; label: string }
  * Freeing keeps the branch (`issues.stop`); a dirty tree refuses and lands in
  * "held" with the server's reason.
  */
-function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
+function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
   const { trpc, sessions, hostMetrics } = useStoreSelector(
     (s) => ({ trpc: s.trpc, sessions: s.sessions, hostMetrics: s.hostMetrics }),
     shallowEqual,
@@ -515,17 +515,17 @@ function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
   /** Issue ids the confirm dialog is currently asking about; null = closed. */
   const [confirming, setConfirming] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
-  const [held, setHeld] = useState<Array<{ issueId: string; reason: string }>>([])
+  const [held, setHeld] = useState<Array<{ issueId: IssueId; reason: string }>>([])
   const [freed, setFreed] = useState<string[]>([])
 
   const remaining = candidates.filter((c) => !freed.includes(c.issueId))
-  const titleOf = (issueId: string): string =>
+  const titleOf = (issueId: IssueId): string =>
     candidates.find((c) => c.issueId === issueId)?.title ?? issueId
   // Ticks for rows that have since been freed (or dropped out of the list) must
   // not keep counting toward the button.
   const selectedIds = remaining.filter((c) => selected.has(c.issueId)).map((c) => c.issueId)
 
-  const toggle = (issueId: string): void =>
+  const toggle = (issueId: IssueId): void =>
     setSelected((prev) => {
       const next = new Set(prev)
       if (!next.delete(issueId)) next.add(issueId)
@@ -538,7 +538,7 @@ function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
    * not take the disk — so the outcome is read off `worktreeFreed`, never off
    * "the call did not throw".
    */
-  const freeOne = async (issueId: string): Promise<void> => {
+  const freeOne = async (issueId: IssueId): Promise<void> => {
     const record = (reason: string): void =>
       setHeld((prev) => [...prev.filter((h) => h.issueId !== issueId), { issueId, reason }])
     try {

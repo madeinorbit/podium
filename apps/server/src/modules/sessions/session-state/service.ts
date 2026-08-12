@@ -37,6 +37,7 @@ import {
   type SessionUserOverlay,
   type UserId,
   type WorkState,
+  type MachineId,
 } from '@podium/model'
 import type { ControlMessage, DraftEditMessage, LiveServerMessage } from '@podium/protocol'
 import type { ClientConn } from '../../../gateway/client-registry'
@@ -132,7 +133,7 @@ export interface SessionStatePorts {
     options?: { exceptClientId?: string },
   ) => void
   readonly deliverToClient: (clientId: string, message: LiveServerMessage) => void
-  readonly toMachine: (machineId: string, message: ControlMessage) => void
+  readonly toMachine: (machineId: MachineId, message: ControlMessage) => void
   /** Lifecycle owns process parking and issue cleanup after archive. */
   readonly onArchived: (sessionId: SessionId) => void
 }
@@ -524,7 +525,7 @@ export class SessionStateService {
     }
   }
 
-  maybeCatchupInject(sessionId: SessionId, machineId: string): void {
+  maybeCatchupInject(sessionId: SessionId, machineId: MachineId): void {
     if (!this.draftSyncEnabled_) return
     const doc = this.draftDocs.get(sessionId)
     if (!doc?.text) return
