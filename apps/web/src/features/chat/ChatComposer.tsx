@@ -120,6 +120,7 @@ export function ChatComposer({
   onInterrupt,
   offer,
   onOfferAction,
+  onOfferDismiss,
   session,
   queuedTotal,
   turnError,
@@ -144,6 +145,8 @@ export function ChatComposer({
   onInterrupt: () => void
   offer: SessionMeta['offer'] | null
   onOfferAction: (prompt: string, offerAt: string) => Promise<void>
+  /** "None of these" — clears the offer without sending a turn. */
+  onOfferDismiss: (offerAt: string) => Promise<void>
   session: SessionMeta | undefined
   queuedTotal: number
   turnError: string | null
@@ -258,6 +261,7 @@ export function ChatComposer({
             offer={offer}
             disabled={!enabled}
             onAction={onOfferAction}
+            onDismiss={onOfferDismiss}
             {...(session ? { session } : {})}
           />
         </div>

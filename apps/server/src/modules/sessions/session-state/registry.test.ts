@@ -239,6 +239,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
     'sessions.setArchived',
     'sessions.setWorkState',
     'sessions.setIssueId',
+    'sessions.dismissOffer',
   ]
 
   const inputFor = (name: string, sessionId: SessionId) => {
@@ -249,6 +250,8 @@ describe('owner-or-grant policy on the shared session writes', () => {
         return { sessionId, archived: true }
       case 'sessions.setWorkState':
         return { sessionId, workState: 'testing' as const }
+      case 'sessions.dismissOffer':
+        return { sessionId, offerCreatedAt: '2026-01-01T00:00:00.000Z' }
       default:
         return { sessionId, issueId: null }
     }

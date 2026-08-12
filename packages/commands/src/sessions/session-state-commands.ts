@@ -118,6 +118,47 @@ const setArchived: CommandDef = {
     'Archived is a shared session-owned fact: parking the process is true for every authorized viewer. It therefore follows the session owner and grants and uses the matrix’s exp-rev class, never a viewer row.',
 }
 
+/**
+ * THE OFFER THE USER DECLINES TO ANSWER [spec:SP-c7f1].
+ *
+ * Until now an offer left the screen exactly two ways: the user pressed one of
+ * its buttons, or the conversation moved past it (a user turn auto-clears it
+ * server-side). "None of these, and stop asking" was not expressible, so the
+ * block sat in the composer until somebody answered a question they had already
+ * decided against.
+ *
+ * SHARED SESSION STATE, not a per-user row: the offer itself is a fact about the
+ * session — it is replayed at boot, it feeds the mobile tray and it is cleared by
+ * anyone's next turn — so dismissing it has to be the same fact for every
+ * authorized viewer, not one person's hidden overlay.
+ *
+ * `offerCreatedAt` IS THE GUARD, and it is why this is not a bare `clearOffer`.
+ * An agent may post a NEW offer between the render and the click; a dismissal
+ * that named only the session would then eat an offer the user has never seen.
+ * The stamp makes the command mean "dismiss THIS offer", and a mismatch is a
+ * no-op rather than a clear — the same shape as the composer draft's stale
+ * `baseRevision`, for the same reason.
+ */
+const dismissOfferInput = z.object({
+  sessionId: SessionIdField,
+  /** `SessionOffer.createdAt` as rendered — the offer this dismissal is about. */
+  offerCreatedAt: z.string().min(1).max(64),
+  mutationId,
+})
+
+const dismissOffer: CommandDef = {
+  input: dismissOfferInput,
+  action: 'write',
+  policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
+  visibility: PERSONAL,
+  exposure: ['trpc'],
+  offline: 'direct-only',
+  redaction: { fields: [] },
+  conflict: 'exp-rev',
+  decision:
+    'direct-only, matching POD-379’s outbox oracle: the covered set is exactly what createEngineOutbox enqueues today and this is not in it. It is also the right answer on its own terms — a queued dismissal draining hours later would clear whatever offer is standing then, and the offerCreatedAt guard turns that into a silent no-op rather than into a correct write.',
+}
+
 const setWorkStateInput = z.object({
   sessionId: SessionIdField,
   workState: workState.nullable(),
@@ -355,6 +396,7 @@ export const sessionStateCommands = defineCommands('sessions', {
   markUnread,
   setWorkState,
   setIssueId,
+  dismissOffer,
   setDraft: sessionDraft,
 })
 
@@ -390,6 +432,7 @@ export const sessionStateInputs = {
   'sessions.setArchived': setArchivedInput,
   'sessions.setWorkState': setWorkStateInput,
   'sessions.setIssueId': setIssueIdInput,
+  'sessions.dismissOffer': dismissOfferInput,
   'sessions.markRead': markReadInput,
   // markUnread is `{ ...markRead }`, so it IS markRead's schema instance — the
   // mirror-action pair shares one input by construction rather than by copy.

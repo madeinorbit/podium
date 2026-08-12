@@ -134,6 +134,8 @@ export interface ChatSurface {
   ctxSeq: number | null
   offer: SessionMeta['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
+  /** Decline the offer without answering it — see `useChatSend`. */
+  dismissOffer: (offerAt: string) => Promise<void>
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
 
@@ -527,6 +529,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     ctxSeq: send.ctxSeq,
     offer,
     sendOfferPrompt: send.sendOfferPrompt,
+    dismissOffer: send.dismissOffer,
     answerAsk,
     activity,
 

@@ -328,7 +328,7 @@ describe('the compatibility adapter moves ONE command and defaults to the target
     expect(renamePath({ [RENAME_PATH_ENV]: 'lgeacy' })).toBe('target')
   })
 
-  it('has migrated EXACTLY sessions.rename, and left the other ten alone', () => {
+  it('has migrated EXACTLY sessions.rename, and left the other eleven alone', () => {
     // "The legacy path is unchanged for all other commands" as an assertion
     // rather than as a claim in a commit message. A list that grew without this
     // failing is how one low-risk command becomes a broad migration.
@@ -339,6 +339,7 @@ describe('the compatibility adapter moves ONE command and defaults to the target
       'sessions.setArchived',
       'sessions.setWorkState',
       'sessions.setIssueId',
+      'sessions.dismissOffer',
       'sessions.markRead',
       'sessions.markUnread',
       'snoozes.set',
@@ -467,7 +468,7 @@ describe('rename is served by the derived surface, on the target envelope', () =
     expect(rows[0]?.key).toBe('rename')
   })
 
-  it('is the ONLY command on that envelope — its ten siblings stay on presence', () => {
+  it('is the ONLY command on that envelope — its eleven siblings stay on presence', () => {
     // The counterfactual for the assertion above: `source` would also read
     // 'walking-skeleton' for rename if the walk had put EVERY session-state command on
     // it. This is the "legacy path unchanged for all other commands" criterion,
@@ -482,6 +483,7 @@ describe('rename is served by the derived surface, on the target envelope', () =
       'sessions.setArchived',
       'sessions.setWorkState',
       'sessions.setIssueId',
+      'sessions.dismissOffer',
       'sessions.markRead',
       'sessions.markUnread',
       'snoozes.set',

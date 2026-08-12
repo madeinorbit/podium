@@ -153,6 +153,73 @@ describe('OfferBar', () => {
     expect(onAction).not.toHaveBeenCalled()
   })
 
+  it('offers no dismissal at all when the host cannot write one', () => {
+    act(() => root.render(<OfferBar offer={offer} disabled={false} onAction={() => {}} />))
+    expect(container.querySelector('[data-testid="offer-dismiss"]')).toBeNull()
+  })
+
+  it('dismisses the offer it names, without sending anything', () => {
+    const onAction = vi.fn()
+    const onDismiss = vi.fn()
+    act(() =>
+      root.render(
+        <OfferBar offer={offer} disabled={false} onAction={onAction} onDismiss={onDismiss} />,
+      ),
+    )
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.click()
+    })
+    expect(onDismiss).toHaveBeenCalledWith('2026-07-17T07:00:00.000Z')
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('dismissal stays available on a session that can no longer take a turn', () => {
+    // `disabled` is "this session cannot be sent to" — an exited, unresumable
+    // one. That is exactly where a stuck offer needs its way out, so the x is
+    // the one control in this bar that survives it.
+    const onDismiss = vi.fn()
+    act(() =>
+      root.render(
+        <OfferBar offer={offer} disabled={true} onAction={() => {}} onDismiss={onDismiss} />,
+      ),
+    )
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.click()
+    })
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed dismissal says so and leaves the offer standing', async () => {
+    let reject: ((cause: Error) => void) | undefined
+    const onDismiss = vi.fn(
+      () =>
+        new Promise<void>((_resolve, r) => {
+          reject = r
+        }),
+    )
+    await act(async () => {
+      root.render(
+        <OfferBar offer={offer} disabled={false} onAction={() => {}} onDismiss={onDismiss} />,
+      )
+    })
+    const x = container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')
+    await act(async () => {
+      x?.click()
+      await Promise.resolve()
+    })
+    // A second click while the first is in flight must not fire twice.
+    x?.click()
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      reject?.(new Error('offline'))
+      await Promise.resolve()
+    })
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Try again')
+    expect(container.textContent).toContain('Tests are red on main')
+    expect(x?.disabled).toBe(false)
+  })
+
   it('renders no button row for an action-less offer', () => {
     act(() =>
       root.render(

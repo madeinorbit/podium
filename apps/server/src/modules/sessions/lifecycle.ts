@@ -357,6 +357,9 @@ export class SessionLifecycle {
   clearOffer(...args: any[]): void {
     ;(this.sessionMetaOps as any).clearOffer(...args)
   }
+  dismissOffer(sessionId: SessionId, offerCreatedAt: string): boolean {
+    return (this.sessionMetaOps as any).dismissOffer(sessionId, offerCreatedAt)
+  }
   createSession(input: Parameters<SessionStart['create']>[0]): SessionSpawnResult {
     return this.sessionStart.create(input)
   }

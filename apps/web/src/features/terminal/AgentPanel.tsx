@@ -306,6 +306,17 @@ export function AgentPanel({
       throw cause
     }
   }
+  /** "None of these" [spec:SP-c7f1] — the same optimistic hide as an answer,
+   *  over a write that clears the offer everywhere instead of sending a turn. */
+  const dismissOffer = async (offerAt: string) => {
+    setDismissedOfferAt(offerAt)
+    try {
+      await trpc.sessions.dismissOffer.mutate({ sessionId, offerCreatedAt: offerAt })
+    } catch (cause) {
+      setDismissedOfferAt(null)
+      throw cause
+    }
+  }
   // Dock <-> PTY resize sync [POD-201]: the 340ms slide used to fight the
   // mount's debounced ResizeObserver — the PTY re-gridded at an arbitrary
   // mid-animation size, then again after transitionEnd. Instead the terminal
@@ -1046,6 +1057,7 @@ export function AgentPanel({
                     offer={dockOffer}
                     disabled={!nativeOffer}
                     onAction={sendOfferPrompt}
+                    onDismiss={dismissOffer}
                     {...(session ? { session } : {})}
                   />
                 </div>

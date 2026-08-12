@@ -93,6 +93,50 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     expect(metaOffer(reg, sessionId)).toBeUndefined()
   })
 
+  /**
+   * THE USER'S DISMISSAL, and the race it must not lose.
+   *
+   * `dismissOffer` names the offer it dismisses, so the interesting case is not
+   * the happy one — it is the click that lands after the agent has already
+   * replaced the offer. That click must do NOTHING: the operator has not seen
+   * the new offer, so consuming it would drop a question nobody answered.
+   */
+  it('dismissOffer clears the offer it names, and leaves one that replaced it', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
+    // The clock is pinned so the two offers cannot share a millisecond — the
+    // whole test is about telling them apart by their stamps.
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-08-12T10:00:00.000Z'))
+      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      const first = metaOffer(reg, sessionId)?.createdAt as string
+
+      // A stamp nobody posted is not a licence to clear whatever is standing.
+      expect(reg.modules.sessions.dismissOffer(sessionId, '1999-01-01T00:00:00.000Z')).toBe(false)
+      expect(metaOffer(reg, sessionId)?.createdAt).toBe(first)
+
+      vi.setSystemTime(new Date('2026-08-12T10:00:05.000Z'))
+      reg.modules.sessions.setOffer({ sessionId, message: 'Ready to land', actions: [] })
+      const second = metaOffer(reg, sessionId)?.createdAt as string
+      expect(second).not.toBe(first)
+
+      // The click aimed at the FIRST offer arrives late; the second survives it.
+      expect(reg.modules.sessions.dismissOffer(sessionId, first)).toBe(false)
+      expect(metaOffer(reg, sessionId)?.message).toBe('Ready to land')
+
+      expect(reg.modules.sessions.dismissOffer(sessionId, second)).toBe(true)
+      expect(metaOffer(reg, sessionId)).toBeUndefined()
+      // Dismissing nothing is a no-op, not a throw.
+      expect(reg.modules.sessions.dismissOffer(sessionId, second)).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('persists the offer across a restart (reload from the same store file)', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')

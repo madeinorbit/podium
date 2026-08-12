@@ -78,6 +78,7 @@ async function mount(
         onInterrupt={() => {}}
         offer={null}
         onOfferAction={async () => {}}
+        onOfferDismiss={async () => {}}
         session={undefined}
         queuedTotal={opts.queuedTotal ?? 0}
         turnError={opts.turnError ?? null}

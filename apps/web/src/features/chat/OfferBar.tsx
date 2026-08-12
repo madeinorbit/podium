@@ -1,5 +1,5 @@
 import type { SessionMeta, SessionOffer } from '@podium/model'
-import { Lightbulb } from 'lucide-react'
+import { Lightbulb, X } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
@@ -39,16 +39,25 @@ function OfferActionLabel({ label, pending }: { label: string; pending: boolean 
  * (sessions.sendText) makes the server clear the offer. An `input` action
  * (agent-declared, e.g. "Send back") first swaps the buttons for a feedback
  * field and sends prompt + feedback together.
+ *
+ * `onDismiss` is the THIRD answer, and the one the block used to lack: none of
+ * these. Until it existed an offer could only leave by being answered or by the
+ * conversation moving past it, so a question the operator had already decided
+ * against sat in the composer until they typed something else to be rid of it.
  */
 export function OfferBar({
   offer,
   disabled,
   onAction,
+  onDismiss,
   session,
 }: {
   offer: SessionOffer
   disabled: boolean
   onAction: (prompt: string, offerCreatedAt: string) => Promise<void> | void
+  /** Take the offer off every surface without answering it. Absent on a host
+   *  that cannot write (the offer then keeps its two original exits). */
+  onDismiss?: (offerCreatedAt: string) => Promise<void> | void
   /** When given, the offer's issue-artifact evidence renders as a thumbnail
    *  strip [POD-120] (needs the session to find its issue + input recency). */
   session?: SessionMeta
@@ -57,6 +66,7 @@ export function OfferBar({
   const [pending, setPending] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
   const [submitting, setSubmitting] = useState<number | null>(null)
+  const [dismissing, setDismissing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const pendingAction = pending === null ? undefined : offer.actions[pending]
 
@@ -78,6 +88,20 @@ export function OfferBar({
   const send = (): void => {
     if (pending === null || !pendingAction || !feedback.trim()) return
     void invoke(pending, composeOfferPrompt(pendingAction.prompt, feedback))
+  }
+
+  const dismiss = async (): Promise<void> => {
+    if (!onDismiss || dismissing || submitting !== null) return
+    setDismissing(true)
+    setError(null)
+    try {
+      await onDismiss(offer.createdAt)
+    } catch {
+      setError('Could not dismiss this offer. Try again.')
+      setDismissing(false)
+    }
+    // No `finally`: a dismissal that WORKED unmounts this bar, and clearing the
+    // flag on the way out would flash the control live again first.
   }
 
   return (
@@ -102,6 +126,30 @@ export function OfferBar({
       <div className="flex items-baseline gap-2 font-mono text-[9px] tracking-[0.16em] text-attention uppercase">
         <Lightbulb size={11} aria-hidden="true" className="self-center" />
         Offer · needs you
+        {/* THE DECLINE, AT THE EYEBROW'S FAR END. It belongs on the label row
+            and not among the actions: the buttons are answers to the question,
+            and this is the one control that says the question does not need
+            one. Faint, and it takes no accent — an offer's single yellow is
+            spent on the action the operator is meant to press, so a dismissal
+            that also wore attention ink would be arguing with it.
+            NOT gated on `disabled`, unlike every button below it: `disabled`
+            means this session cannot take a turn — exited and unresumable —
+            and that is exactly the case where an offer would otherwise stand
+            forever, unanswerable and with no way out. */}
+        {onDismiss && (
+          <button
+            data-pressable
+            data-testid="offer-dismiss"
+            type="button"
+            disabled={dismissing || submitting !== null}
+            onClick={() => void dismiss()}
+            aria-label="Dismiss offer"
+            title="Dismiss — takes it off every surface without answering"
+            className="-my-1 ml-auto self-center rounded p-1 text-text-faint transition-colors hover:text-text-strong disabled:cursor-default disabled:opacity-50"
+          >
+            <X size={12} aria-hidden="true" />
+          </button>
+        )}
       </div>
       {/* First line = the five-second headline; the rest is supporting detail. */}
       <div className="mt-2.5 text-[15px] leading-[1.5] font-semibold text-text-strong">

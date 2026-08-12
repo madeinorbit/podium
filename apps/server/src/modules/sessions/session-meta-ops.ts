@@ -81,6 +81,28 @@ export class SessionMetaOps {
     this.ports.broadcastSessions()
   }
 
+  /**
+   * The USER's dismissal of one named offer [spec:SP-c7f1] — "none of these".
+   *
+   * Distinct from {@link clearOffer} by the STAMP, not by the effect. `clearOffer`
+   * is the system's own clear: the agent replaced the offer, or the conversation
+   * moved past it, and whatever is standing goes. A dismissal names the offer the
+   * user was looking at, so an offer posted between the render and the click
+   * survives instead of being swallowed by a click aimed at its predecessor.
+   *
+   * Returns whether anything was dismissed, so a stale click is a no-op the caller
+   * can see rather than an indistinguishable success.
+   */
+  dismissOffer(sessionId: SessionId, offerCreatedAt: string): boolean {
+    const session = this.ports.sessions.get(sessionId)
+    // The in-memory session is the live truth; the row behind it is what a
+    // session that has left memory still has (`setOffer` writes it either way).
+    const stamp = session?.offer?.createdAt ?? this.ports.store.sessions.offerCreatedAt(sessionId)
+    if (stamp !== offerCreatedAt) return false
+    this.clearOffer(sessionId)
+    return true
+  }
+
   /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code).
    *  `initialPrompt` hands the fresh session the human's first prompt: for argv-capable
    *  agents (claude/codex/grok) it rides the launch command (`claude "<prompt>"`,

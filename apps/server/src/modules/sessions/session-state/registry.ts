@@ -147,7 +147,7 @@ export interface SessionStateResult {
 export interface SessionStateDeps {
   sessions: Pick<
     SessionLifecycle,
-    'renameSession' | 'setAgentName' | 'setSessionIssueId' | 'sessionOwner'
+    'renameSession' | 'setAgentName' | 'setSessionIssueId' | 'sessionOwner' | 'dismissOffer'
   >
   state: SessionStateService
   /**
@@ -296,6 +296,15 @@ const REGISTRATIONS: Record<string, Registration> = {
     target: ownedSession,
     handler: (input, _principal, deps) => {
       deps.sessions.setSessionIssueId(sessionIdOf(input.sessionId), issueIdOrNull(input.issueId))
+    },
+  },
+  'sessions.dismissOffer': {
+    target: ownedSession,
+    handler: (input, _principal, deps) => {
+      // The stale-stamp case returns false and writes nothing — see the contract:
+      // a dismissal names ONE offer, so a click aimed at a replaced offer must not
+      // clear the one that replaced it.
+      deps.sessions.dismissOffer(sessionIdOf(input.sessionId), str(input.offerCreatedAt))
     },
   },
   'sessions.markRead': {

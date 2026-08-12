@@ -709,6 +709,16 @@ export class SessionsRepository {
       )
   }
 
+  /** The stamp of one session's live offer, or undefined when it has none. The
+   *  guard a dismissal checks itself against — one row, not the whole table,
+   *  because `listOffers` exists to rebuild every session at boot. */
+  offerCreatedAt(sessionId: SessionId): string | undefined {
+    const row = this.db
+      .prepare('SELECT created_at FROM offers WHERE session_id = ?')
+      .get(sessionId.trim()) as { created_at: string } | undefined
+    return row?.created_at
+  }
+
   /** Remove a session's offer (no-op if none). */
   clearOffer(sessionId: SessionId): void {
     this.db.prepare('DELETE FROM offers WHERE session_id = ?').run(sessionId.trim())

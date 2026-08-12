@@ -275,7 +275,7 @@ export const appRouter = t.router({
     // WRITES — THE DERIVED SURFACE (POD-382). create · resume · kill · handoff ·
     // continue · sendText · answerAskUserQuestion · resumeAndSend · hibernate ·
     // stop · resurrect · uploadImage · rename · setArchived · markRead ·
-    // markUnread · setIssueId · setWorkState, every one built from its contract
+    // markUnread · setIssueId · setWorkState · dismissOffer, every one built from its contract
     // by modules/sessions/trpc.ts. Which commands exist is the CONTRACT TABLE's
     // answer, including which transports serve them — which is why `setDraft` is
     // absent (it declares `ws`).

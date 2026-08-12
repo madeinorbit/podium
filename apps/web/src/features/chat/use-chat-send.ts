@@ -83,6 +83,9 @@ export interface UseChatSendResult {
   /** Send an agent-authored offer prompt as a normal turn. Throws on failure so
    *  the offer bar can un-hide itself. */
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
+  /** Decline the offer outright: clears it for every surface and every viewer,
+   *  no turn sent. Throws on failure so the bar can un-hide itself. */
+  dismissOffer: (offerAt: string) => Promise<void>
   /** Optimistic hide of the offer bar, keyed by the offer's createdAt. */
   dismissedOfferAt: string | null
   setDismissedOfferAt: (at: string | null) => void
@@ -352,6 +355,26 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     [deliver, pinToBottom],
   )
 
+  /**
+   * "None of these" [spec:SP-c7f1]. The optimistic hide is the same one a click
+   * takes, so the bar leaves at the same speed either way; the write behind it
+   * is `sessions.dismissOffer`, which clears the offer for every viewer rather
+   * than hiding it in this tab. A failure restores the bar and rethrows, so the
+   * operator is never told an offer is gone while the server still holds it.
+   */
+  const dismissOffer = useCallback(
+    async (offerAt: string) => {
+      setDismissedOfferAt(offerAt)
+      try {
+        await trpc.sessions.dismissOffer.mutate({ sessionId, offerCreatedAt: offerAt })
+      } catch (cause) {
+        setDismissedOfferAt(null)
+        throw cause
+      }
+    },
+    [trpc, sessionId],
+  )
+
   return {
     pending,
     queuedMessages,
@@ -359,6 +382,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     ctxSeq,
     send,
     sendOfferPrompt,
+    dismissOffer,
     dismissedOfferAt,
     setDismissedOfferAt,
   }

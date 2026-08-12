@@ -109,6 +109,7 @@ const TRPC_SESSION_STATE_NAMES = [
   'sessions.setArchived',
   'sessions.setWorkState',
   'sessions.setIssueId',
+  'sessions.dismissOffer',
   'sessions.markRead',
   'sessions.markUnread',
   'snoozes.set',
@@ -136,6 +137,7 @@ interface SessionStateOutputs extends Record<SessionStateName, unknown> {
   'sessions.setArchived': void
   'sessions.setWorkState': void
   'sessions.setIssueId': void
+  'sessions.dismissOffer': void
   'sessions.markRead': void
   'sessions.markUnread': void
   'sessions.setDraft': void

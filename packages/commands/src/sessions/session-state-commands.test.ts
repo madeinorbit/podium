@@ -25,10 +25,11 @@ const contracts = sessionStateCommandNames().map((name) => {
 })
 
 describe('the session-state inventory', () => {
-  it('covers exactly the eleven writes POD-380 migrates', () => {
+  it('covers the eleven writes POD-380 migrates, plus the offer dismissal', () => {
     expect(sessionStateCommandNames().sort()).toEqual(
       [
         'pins.set',
+        'sessions.dismissOffer',
         'sessions.markRead',
         'sessions.markUnread',
         'sessions.rename',
@@ -117,6 +118,7 @@ describe('the visibility-class split (§3.1.1 / §3.3)', () => {
     'sessions.setArchived',
     'sessions.setWorkState',
     'sessions.setIssueId',
+    'sessions.dismissOffer',
     'sessions.setDraft',
   ]
 
