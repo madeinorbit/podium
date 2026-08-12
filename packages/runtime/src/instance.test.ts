@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   applyInstanceRuntimeEnv,
@@ -66,7 +67,7 @@ describe('instance namespaces', () => {
     expect(instanceServiceName('update', 'default')).toBe('podium-update-user.service')
     expect(instanceUpdateTimerName('default')).toBe('podium-update-user.timer')
     expect(instanceTimerName('health', 'default')).toBe('podium-health.timer')
-    expect(durableSessionLabel('s1', 'default')).toBe('podium-s1')
+    expect(durableSessionLabel(asSessionId('s1'), 'default')).toBe('podium-s1')
 
     expect(instanceStateDir('blue', env)).toBe('/home/u/.local/state/podium/blue')
     expect(instanceInstallDir('blue', env)).toBe('/home/u/.local/share/podium-instances/blue')
@@ -75,7 +76,7 @@ describe('instance namespaces', () => {
     expect(instanceServiceName('janitor', 'blue')).toBe('podium-blue-janitor.service')
     expect(instanceUpdateTimerName('blue')).toBe('podium-blue-update.timer')
     expect(instanceTimerName('health', 'blue')).toBe('podium-blue-health.timer')
-    expect(durableSessionLabel('s1', 'blue')).toBe('podium-blue-s1')
+    expect(durableSessionLabel(asSessionId('s1'), 'blue')).toBe('podium-blue-s1')
   })
 
   it('honors explicit state/XDG roots and gives named ids stable port triplets', () => {

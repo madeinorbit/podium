@@ -8,7 +8,7 @@
  * nothing wrong, and the two have been confused on this codebase before.
  */
 
-import { OWNERSHIP_MATRIX, visibilityClassOf } from '@podium/model'
+import { asMutationId, OWNERSHIP_MATRIX, visibilityClassOf } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   type AnyCommandContract,
@@ -235,9 +235,9 @@ describe('run-scoped idempotency', () => {
     // ACCEPTED, so the check is the intersection it claims to be and not a
     // blanket requirement wearing a narrower name.
     expect(() => assertAdvanceIsDeliverable({ ...stepped, stepId: 's1' })).not.toThrow()
-    expect(() => assertAdvanceIsDeliverable({ ...stepped, mutationId: 'm1' })).not.toThrow()
+    expect(() => assertAdvanceIsDeliverable({ ...stepped, mutationId: asMutationId('m1') })).not.toThrow()
     expect(() =>
-      assertAdvanceIsDeliverable({ ...stepped, stepId: 's1', mutationId: 'm1' }),
+      assertAdvanceIsDeliverable({ ...stepped, stepId: 's1', mutationId: asMutationId('m1') }),
     ).not.toThrow()
   })
 
@@ -258,20 +258,20 @@ describe('run-scoped idempotency', () => {
     const a = advanceIdempotencyKey({
       contract: 'workflows.checkpoint',
       runId: 'r1',
-      mutationId: 'm',
+      mutationId: asMutationId('m'),
     })
     const b = advanceIdempotencyKey({
       contract: 'workflows.checkpoint',
       runId: 'r2',
-      mutationId: 'm',
+      mutationId: asMutationId('m'),
     })
     expect(a).not.toBe(b)
     // …and to the COMMAND, so a skip and a retry replayed under one id differ.
-    const c = advanceIdempotencyKey({ contract: 'workflows.skip', runId: 'r1', mutationId: 'm' })
+    const c = advanceIdempotencyKey({ contract: 'workflows.skip', runId: 'r1', mutationId: asMutationId('m') })
     expect(c).not.toBe(a)
     // Same command, same run, same id — the one case that MUST collide.
     expect(
-      advanceIdempotencyKey({ contract: 'workflows.checkpoint', runId: 'r1', mutationId: 'm' }),
+      advanceIdempotencyKey({ contract: 'workflows.checkpoint', runId: 'r1', mutationId: asMutationId('m') }),
     ).toBe(a)
   })
 })

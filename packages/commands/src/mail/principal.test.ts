@@ -11,7 +11,7 @@
  * one value the test happened to be handed.
  */
 
-import type { UserId } from '@podium/model'
+import { asSessionId, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   deliversUnwrapped,
@@ -28,7 +28,7 @@ const bo = 'usr_bo' as UserId
 
 const human = (user: UserId | null): MailSenderPrincipal => ({ kind: 'operator', user })
 const superagent = (user: UserId | null): MailSenderPrincipal => ({ kind: 'superagent', user })
-const agent = (sessionId: string): MailSenderPrincipal => ({ kind: 'agent', user: ada, sessionId })
+const agent = (sessionId: string): MailSenderPrincipal => ({ kind: 'agent', user: ada, sessionId: asSessionId(sessionId) })
 const system = (name: string): MailSenderPrincipal => ({ kind: 'system', user: null, name })
 
 describe('who is a human', () => {

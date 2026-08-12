@@ -1,6 +1,7 @@
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   CRASH_MAX_AGE_MS,
@@ -22,7 +23,7 @@ afterEach(() => {
 })
 
 const event = (message: string): CrashEventInput => ({
-  origin: { role: 'web', v: '0.1.3', machineId: 'm1' },
+  origin: { role: 'web', v: '0.1.3', machineId: asMachineId('m1') },
   err: { name: 'TypeError', message, stack: 'at x (/app/x.ts:1:1)' },
   snapshot: [{ ts: '2026-08-11T14:03:22.847Z', level: 'debug', ns: 'web:x', msg: 'before' }],
 })
