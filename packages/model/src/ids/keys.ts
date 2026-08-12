@@ -32,7 +32,6 @@
  * one alone is a half-migration.
  */
 
-import type { MachineId } from '@podium/model'
 import type {
   AccountId,
   ArtifactId,

@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { asUserId } from '../ids/brands'
 import { PER_USER_STATE_FAMILY } from './family'
 import {
   advanceReadPosition,
@@ -16,8 +17,8 @@ import {
   parseReadPositionRowId,
 } from './read-position-state'
 
-const ALICE = 'user:alice'
-const BOB = 'user:bob'
+const ALICE = asUserId('user:alice')
+const BOB = asUserId('user:bob')
 
 describe('the closed stream vocabulary', () => {
   it('admits the issue-event log and refuses anything else', () => {
@@ -106,7 +107,7 @@ describe('the composite row id', () => {
   })
 
   it('a userId containing the separator cannot collide with another pair', () => {
-    const sneaky = `${BOB}\nissueEvents`
+    const sneaky = asUserId(`${BOB}\nissueEvents`)
     expect(readPositionRowId(sneaky, 'x')).not.toBe(readPositionRowId(BOB, 'issueEvents'))
     expect(parseReadPositionRowId(readPositionRowId(sneaky, 'x'))).toEqual({
       userId: sneaky,

@@ -37,9 +37,8 @@
  * every map and enum here.
  */
 
-import type { UserId } from '@podium/model'
 import { z } from 'zod'
-import { UserIdField } from '../ids'
+import { asUserId, type UserId, UserIdField } from '../ids'
 import { perUserKeyOfString } from './session-state'
 
 // ---------------------------------------------------------------------------
@@ -309,7 +308,7 @@ export function parseLayoutRowId(id: string): { userId: UserId; key: string } {
   if (parts.length !== 2 || parts[0] === '' || parts[1] === '') {
     throw new Error(`malformed layout row id: ${JSON.stringify(id)}`)
   }
-  return { userId: parts[0]!, key: parts[1]! }
+  return { userId: asUserId(parts[0]!), key: parts[1]! }
 }
 
 /**

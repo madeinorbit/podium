@@ -15,10 +15,10 @@
  * 4, its `use` decision) as INPUT and stay pure; they never resolve a principal,
  * and no type in this file grows an owner field.
  */
-import type { MachineId, RepoId } from '@podium/model'
 import type { z } from 'zod'
 import type { MachineUseDecision } from '../entities/machine'
 import type { IssueWorkspace } from '../fields/issue'
+import type { MachineId, RepoId } from '../ids/brands'
 import { worktreeForCwd, worktreeSubpath } from '../identity/worktree'
 
 export interface RepoMachines {
@@ -77,7 +77,7 @@ export function machinesWithRepo<M extends SelectableMachine>(
   repo: RepoMachines,
   machines: M[],
 ): M[] {
-  const repoMachineIds = new Set((repo.machines ?? []).map((m) => m.machineId))
+  const repoMachineIds = new Set<string>((repo.machines ?? []).map((m) => m.machineId))
   return machines.filter((m) => repoMachineIds.has(m.id))
 }
 
@@ -357,7 +357,9 @@ export function handoffAvailability<M extends HandoffMachine>(
   const source = handoffSource(session, repos, issue)
   if (!source) return { blocker: 'no-worktree', candidates: [] }
   if (!source.repo.repoId) return { blocker: 'repo-unregistered', candidates: [] }
-  const repoMachineIds = new Set((source.repo.machines ?? []).map((entry) => entry.machineId))
+  const repoMachineIds = new Set<string>(
+    (source.repo.machines ?? []).map((entry) => entry.machineId),
+  )
   const candidates = machines
     .filter((machine) => machine.id !== session.machineId)
     .map((machine) => {

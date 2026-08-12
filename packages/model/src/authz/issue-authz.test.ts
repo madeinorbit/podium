@@ -208,8 +208,8 @@ describe('owner-or-grant scope (the personal class)', () => {
   })
 
   it('does not reach ANY per-user row, including its own (§3.3 non-grantable)', () => {
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'alice' })).toBe('forbidden')
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe('forbidden')
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('alice') })).toBe('forbidden')
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe('forbidden')
   })
 
   /**
@@ -253,13 +253,13 @@ describe('self scope (per-user state)', () => {
   const alice = cap({ kind: 'self', userId: asUserId('alice') })
 
   it('allows a principal to write its OWN row', () => {
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'alice' })).toBe('allow')
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('alice') })).toBe('allow')
   })
 
   it('DENIES writing another principal’s row — the self-scoping property', () => {
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe('forbidden')
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe('forbidden')
     expect(
-      authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' }, { override: true }),
+      authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') }, { override: true }),
     ).toBe('forbidden')
   })
 
@@ -272,12 +272,12 @@ describe('self scope (per-user state)', () => {
 
   it('an admin ROLE does not widen a self scope — role and scope are independent gates', () => {
     const adminSelf = cap({ kind: 'self', userId: asUserId('alice') }, 'admin')
-    expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: 'bob' })).toBe(
+    expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: asUserId('bob') })).toBe(
       'forbidden',
     )
     // The counterfactual: the same admin capability CAN manage its own row, so the
     // denial above is the scope talking and not a blanket refusal.
-    expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: 'alice' })).toBe('allow')
+    expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: asUserId('alice') })).toBe('allow')
   })
 })
 
@@ -287,7 +287,7 @@ describe('the unconstrained admin capability keeps its reach across the new targ
     // change that: the migration is behaviour-preserving. `scope: 'all'`
     // short-circuits before target kind is read.
     expect(authorize(UNCONSTRAINED_ADMIN, 'write', session('somebody-else'))).toBe('allow')
-    expect(authorize(UNCONSTRAINED_ADMIN, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe(
+    expect(authorize(UNCONSTRAINED_ADMIN, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe(
       'allow',
     )
   })

@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '../ids/brands'
 /**
  * Session READ projections (ADR 4 R4) — the tier-1/2/3 session read models, in
  * the one place both the server that produces them and the CLI that renders

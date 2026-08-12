@@ -30,7 +30,7 @@
  * into it, or derives from it, so no call site has to change when it goes.
  */
 
-import type { MachineId, SessionId } from '@podium/model'
+import type { MachineId, SessionId } from '../ids/brands'
 import type { IssueTreeSession } from './session-read'
 
 /**

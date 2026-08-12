@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '../ids/brands'
 import { resumeKey } from '../ids/keys'
 /**
  * Pure session-identity predicates: what counts as a "real" (generic-surface)
