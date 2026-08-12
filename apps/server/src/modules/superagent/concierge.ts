@@ -11,7 +11,7 @@ export function conciergeThreadId(repoPath: string): ThreadId {
   return asThreadId(`concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`)
 }
 
-export function conciergeRepoPath(threadId: string): string | undefined {
+export function conciergeRepoPath(threadId: ThreadId): string | undefined {
   if (!threadId.startsWith('concierge_')) return undefined
   try {
     return Buffer.from(threadId.slice('concierge_'.length), 'base64url').toString('utf8')

@@ -56,7 +56,7 @@
  * O(world) rebuild back, just on the client.
  */
 
-import type { SessionMeta, IssueId } from '@podium/model'
+import type { SessionMeta, IssueId, SessionId } from '@podium/model'
 import type { IssueProjectionRow } from './contract'
 import type { Replica } from './replica'
 
@@ -121,7 +121,7 @@ export interface IssueViewInput {
 
 /** The session fields these derivations read. Ids and scalars only. */
 export interface SessionViewInput {
-  sessionId: string
+  sessionId: SessionId
   issueId?: IssueId | null
   agentKind?: string | null
   phase?: string | null

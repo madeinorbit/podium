@@ -103,9 +103,11 @@ export class ObservationCheckpointsRepository {
 
   private readRebindReceipt(sessionId: SessionId): {
     provider: ObservationLeaseRecord['provider']
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     fromProviderSessionId: string | null
     fromBindingVersion: number
     fromObservationGeneration: number
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     toProviderSessionId: string
     resultingBindingVersion: number
     resultingObservationGeneration: number
@@ -156,6 +158,7 @@ export class ObservationCheckpointsRepository {
   advanceGeneration(
     sessionId: SessionId,
     provider: ObservationLeaseRecord['provider'],
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     providerSessionId: string | null,
   ): ObservationLeaseRecord {
     return transaction(this.db, () => {
@@ -203,9 +206,11 @@ export class ObservationCheckpointsRepository {
   rebindExact(input: {
     sessionId: SessionId
     provider: ObservationLeaseRecord['provider']
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     providerSessionId: string | null
     bindingVersion: number
     observationGeneration: number
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     nextProviderSessionId: string
   }): ObservationRebindResult {
     return transaction(this.db, () => {

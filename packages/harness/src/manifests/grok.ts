@@ -249,6 +249,7 @@ export const grokManifest: AgentManifest = {
     let stopped = false
     let pendingRebind:
       | {
+          /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
           sessionId: string
           rebindId: string
           observerGeneration: number

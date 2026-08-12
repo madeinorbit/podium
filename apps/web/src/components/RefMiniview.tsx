@@ -5,7 +5,7 @@ import {
   issueReferenceModel,
   missionRootFor,
 } from '@podium/client-core/viewmodels'
-import type { IssueId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import {
   ArchiveRestore,
@@ -206,7 +206,7 @@ export function RefCard({
   onClose: () => void
   onOpenFull: () => void
   /** Jump to the session running this task (or the ancestor's that covers it). */
-  onGoToSession?: (sessionId: string) => void
+  onGoToSession?: (sessionId: SessionId) => void
   /** Start an agent on the issue (POD-110) — `trpc.issues.start` in the host. */
   onStart?: (issueId: IssueId) => Promise<unknown>
   /** Approve an agent proposal into backlog without starting it. */
@@ -710,7 +710,7 @@ function IssueEscalations({
   issues: readonly RefIssueLike[]
   sessions: readonly RefSessionLike[]
   onOpenFull: () => void
-  onGoToSession?: (sessionId: string) => void
+  onGoToSession?: (sessionId: SessionId) => void
 }): JSX.Element {
   const target: IssueSessionTarget | null = onGoToSession
     ? sessionForIssue(issue, issues, sessions)

@@ -92,7 +92,7 @@ export class Reactions {
 
   /** Seed the worktree-follow diff: rows present at construction are "first
    *  sight", not moves (matches the old effect's first observed snapshot). */
-  seedCwds(sessions: { sessionId: string; cwd: string }[]): void {
+  seedCwds(sessions: { sessionId: SessionId; cwd: string }[]): void {
     this.prevCwds = Object.fromEntries(sessions.map((s) => [s.sessionId, s.cwd]))
   }
 

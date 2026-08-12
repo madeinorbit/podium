@@ -36,7 +36,7 @@ import {
   issueOwnContentUnread,
   treeGuides,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, SessionMeta, IssueId } from '@podium/model'
+import type { AgentKind, SessionMeta, IssueId, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,
@@ -727,7 +727,7 @@ const ROLE_LABEL: Record<Exclude<SessionRole, { kind: 'spawned' }>['kind'], stri
  *  id is not. An unresolvable parent gets no word rather than an id. */
 function roleLabel(
   role: SessionRole | null,
-  nameOf: (sessionId: string) => string | undefined,
+  nameOf: (sessionId: SessionId) => string | undefined,
 ): string | null {
   if (role === null) return null
   if (role.kind !== 'spawned') return ROLE_LABEL[role.kind]
@@ -1084,8 +1084,8 @@ interface HungContext {
   sessions: SessionMeta[]
   rootId: string | undefined
   inMission: ReadonlySet<string>
-  nameOf: (sessionId: string) => string | undefined
-  activeSessionId: string | null
+  nameOf: (sessionId: SessionId) => string | undefined
+  activeSessionId: SessionId | null
   /** Session ids that appeared since the deck settled — see `useArrivals`. */
   arrivals: ReadonlySet<string>
   settle: (key: string) => void
@@ -1193,9 +1193,9 @@ function TaskRow({
   mode: FlightDeckMode
   rootId: string | undefined
   inMission: ReadonlySet<string>
-  nameOf: (sessionId: string) => string | undefined
+  nameOf: (sessionId: SessionId) => string | undefined
   selected: boolean
-  activeSessionId: string | null
+  activeSessionId: SessionId | null
   arrivals: ReadonlySet<string>
   settle: (key: string) => void
   collapsed: boolean
@@ -1863,7 +1863,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     return names
   }, [rows])
   const nameOf = useCallback(
-    (sessionId: string): string | undefined => missionSessionNames.get(sessionId),
+    (sessionId: SessionId): string | undefined => missionSessionNames.get(sessionId),
     [missionSessionNames],
   )
   /**

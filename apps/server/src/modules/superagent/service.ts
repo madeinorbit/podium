@@ -866,6 +866,7 @@ export class SuperagentService {
 
   private finishPendingTurn(
     pending: PendingSuperagentTurnRow,
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     result: { ok: boolean; error?: string; harnessSessionId?: string; output?: string },
   ): void {
     const agent = HarnessAgent.safeParse(pending.payload.agent)
@@ -1177,7 +1178,7 @@ export class SuperagentService {
     return this.modules.sessions.listSessions()
   }
   /** ONE session, without wiring the other 1100 [POD-1646]. */
-  private sessionById(sessionId: string) {
+  private sessionById(sessionId: SessionId) {
     return this.modules.sessions.sessionById(sessionId as SessionId)
   }
 

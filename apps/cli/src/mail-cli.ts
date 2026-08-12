@@ -14,6 +14,7 @@
  * dual-write mirror rows with the SAME ids).
  */
 
+import type { ThreadId } from '@podium/model'
 import { makeRelayIssueClient } from '@podium/issue-client'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
@@ -119,7 +120,7 @@ interface MessageWire {
   createdAt: string
   status: string
   ackedBy: string | null
-  threadId: string
+  threadId: ThreadId
   inReplyTo: string | null
   // Lifecycle timestamps (#834) — present on show/status.
   deliveredAt?: string | null

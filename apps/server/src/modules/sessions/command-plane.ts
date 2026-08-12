@@ -351,7 +351,7 @@ export interface CreatedOwnership {
 
 export function createdOwnership(
   principal: CommandPrincipal,
-  parentIssue: { id: string; owner?: string | null } | undefined,
+  parentIssue: { id: SessionId; owner?: string | null } | undefined,
 ): CreatedOwnership {
   const attribution = attributionOf(principal)
   if (parentIssue) {

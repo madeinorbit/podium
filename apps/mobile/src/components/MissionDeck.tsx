@@ -199,7 +199,7 @@ export function MissionDeck({
   /** A session's name, for the roles that are named by another session (a spawn
    *  edge) rather than by the issue. */
   const nameOf = useCallback(
-    (sessionId: string) => {
+    (sessionId: SessionId) => {
       const found = sessions.find((s) => s.sessionId === sessionId)
       return found ? sessionTitle(found) : undefined
     },
@@ -403,7 +403,7 @@ function SpineRow({
   childFollows: boolean
   mode: FlightDeckMode
   byId: ReadonlyMap<string, IssueWire>
-  nameOf: (sessionId: string) => string | undefined
+  nameOf: (sessionId: SessionId) => string | undefined
   folded: boolean
   currentSessionId: SessionId | undefined
   onToggleFold: () => void
@@ -491,7 +491,7 @@ function Band({
   carries: readonly boolean[]
   rails: readonly RailTone[]
   accent: string
-  nameOf: (sessionId: string) => string | undefined
+  nameOf: (sessionId: SessionId) => string | undefined
   stops: boolean
   current: boolean
   onPress: () => void

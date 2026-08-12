@@ -32,7 +32,7 @@
  */
 
 import { isExposedOn, sessionCommandPlane, sessionHandoffInput } from '@podium/commands'
-import { asSessionId, isSpawnedBy, type SessionMeta } from '@podium/model'
+import { asSessionId, isSpawnedBy, type SessionMeta, type SessionId } from '@podium/model'
 import { bareSelfRefCount, selfRefNudge, sessionTitleRule } from '@podium/protocol'
 import type { getFeatureStates, isFeatureEnabled } from '../../features'
 import { type Capability, checkIssueAccess } from '../../issue-authz'
@@ -111,7 +111,7 @@ function sessionLabel(session: SessionMeta): string | undefined {
 function sessionTitlePrime(
   sessionsSvc: SessionLifecycle,
   issues: IssueService,
-  actorSessionId: string,
+  actorSessionId: SessionId,
 ): string {
   const all = sessionsSvc.listSessions()
   const actor = all.find((s) => s.sessionId === actorSessionId)

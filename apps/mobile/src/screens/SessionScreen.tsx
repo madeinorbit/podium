@@ -5,7 +5,7 @@ import {
   sessionDotTone,
   sessionTitle,
 } from '@podium/client-core/viewmodels'
-import type { WorkState } from '@podium/model'
+import type { WorkState, SessionId } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from 'lucide-react-native'
@@ -47,7 +47,7 @@ export function SessionScreen() {
   // Route params are RAW URL values, so the type stays `string` and the brand is
   // applied once here — the DECODE EDGE for this screen (POD-362).
   const params = useLocalSearchParams<{
-    sessionId: string | string[]
+    sessionId: SessionId | string[]
     backTo?: string | string[]
   }>()
   const rawSessionId = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId

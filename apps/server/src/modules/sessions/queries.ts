@@ -19,7 +19,7 @@
  * able to decide whether they may have them.
  */
 
-import { asUserId, SessionIdField } from '@podium/model'
+import { asUserId, SessionIdField, type SessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { mayReadOwned } from '../../issue-authz'
@@ -33,7 +33,7 @@ const q = defineQuery<FamilyState>()
 // a second authorization surface (docs/multi-user-readiness.md §3.2) and, over
 // an absent owner and an absent caller, compared `undefined === undefined` and
 // answered ALLOW. `mayReadOwned` refuses an unowned entity by construction.
-function mayReadSession(state: FamilyState, sessionId: string): boolean {
+function mayReadSession(state: FamilyState, sessionId: SessionId): boolean {
   const target = state.modules.sessions.sessionOwner(sessionId as never)
   if (target === undefined) return false
   return mayReadOwned(state.caller.userId, {
@@ -43,7 +43,7 @@ function mayReadSession(state: FamilyState, sessionId: string): boolean {
   })
 }
 
-function assertMayReadSession(state: FamilyState, sessionId: string): void {
+function assertMayReadSession(state: FamilyState, sessionId: SessionId): void {
   if (!mayReadSession(state, sessionId)) throw new TRPCError({ code: 'NOT_FOUND' })
 }
 

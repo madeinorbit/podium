@@ -4,7 +4,7 @@
  * 'concierge' intake threads).
  */
 
-import { asThreadId, FIRST_ADMIN_USER_ID, type SessionId, type UserId } from '@podium/model'
+import { asThreadId, FIRST_ADMIN_USER_ID, type SessionId, type UserId, type ThreadId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseJsonColumn } from './helpers'
 import type {
@@ -52,7 +52,7 @@ export class SuperagentRepository {
   }
 
   appendSuperagentMessage(
-    threadId: string,
+    threadId: ThreadId,
     m: Omit<SuperagentMessageRow, 'id' | 'createdAt' | 'ownerUserId'> & { ownerUserId?: UserId },
   ): SuperagentMessageRow {
     const createdAt = new Date().toISOString()
@@ -149,7 +149,9 @@ export class SuperagentRepository {
       // null clears the binding — used on a harness switch to force a fresh
       // session on the next turn (#199).
       podiumSessionId?: SessionId | null
+      /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
       harnessSessionId?: string | null
+      /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
       terminalSessionId?: string | null
       /** null clears the per-thread override and returns the thread to the
        *  `superagent` settings role (POD-782). */
@@ -217,7 +219,7 @@ export class SuperagentRepository {
   /** Queued inputs oldest-first — every thread's, or one thread's. The order is
    *  the delivery order: the pump takes the head and only ever runs one turn per
    *  thread, so a burst of sends reaches the harness in the order it was typed. */
-  listQueuedInputs(threadId?: string): QueuedSuperagentInputRow[] {
+  listQueuedInputs(threadId?: ThreadId): QueuedSuperagentInputRow[] {
     const rows = (
       threadId
         ? this.db

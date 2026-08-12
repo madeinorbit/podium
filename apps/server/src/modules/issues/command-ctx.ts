@@ -107,7 +107,7 @@ export interface IssueCommandDeps {
   stopIssueSessions?(input: {
     issueId: IssueId
     force?: boolean
-    callerSessionId?: string
+    callerSessionId?: SessionId
     /** Who asked for the stop — stamped onto the free-worktree audit comment (POD-1344). */
     principal: CommandPrincipal
   }): Promise<{

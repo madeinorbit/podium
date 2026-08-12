@@ -62,6 +62,7 @@ export function fileChainSource(
 // ---------------------------------------------------------------------------
 
 /** Stable file-id tag for an opencode session's cursor namespace. */
+/** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
 function opencodeFileId(sessionId: string): string {
   return `opencode:${sessionId}`
 }
@@ -90,6 +91,7 @@ function opencodeFileId(sessionId: string): string {
  */
 export function stampOpencodeItems(
   rows: OpencodeMessagePartRow[],
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string,
 ): TranscriptItem[] {
   const fileId = opencodeFileId(sessionId)

@@ -31,6 +31,7 @@ import type {
   SessionId,
   UsageBucketWire,
   WorkState,
+  ThreadId,
 } from '@podium/model'
 import type { LockWire, SyncChangesSinceResult } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
@@ -267,14 +268,14 @@ export interface PodiumClientApi {
     listThreads: ApiQuery<void, SuperThreadView[]>
     startBtw: ApiMutation<{ sessionId: SessionId }>
     sendTurn: ApiMutation<
-      { threadId: string; text: string },
-      { threadId: string; podiumSessionId?: SessionId }
+      { threadId: ThreadId; text: string },
+      { threadId: ThreadId; podiumSessionId?: SessionId }
     >
     /** Mint the thread's headless session without running a turn (POD-782), so
      *  the pane can mount the ordinary chat before the first message. */
     ensureSession: ApiMutation<
-      { threadId: string },
-      { threadId: string; podiumSessionId?: SessionId }
+      { threadId: ThreadId },
+      { threadId: ThreadId; podiumSessionId?: SessionId }
     >
   }
 }

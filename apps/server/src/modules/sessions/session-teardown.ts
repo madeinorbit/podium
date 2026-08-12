@@ -410,7 +410,7 @@ export class SessionTeardown {
       issueId: IssueId
       force?: boolean
       /** Session performing the stop (for self-stop deferral when it is a member). */
-      callerSessionId?: string
+      callerSessionId?: SessionId
       /**
        * Who asked for the stop (POD-1344). Stamped onto free-worktree audit
        * comments. Absent only on genuinely caller-less paths — those fall back

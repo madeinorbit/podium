@@ -8,6 +8,7 @@ import type { TranscriptItem } from '@podium/model'
 export type OpencodeMessagePartRow = {
   messageId: string
   partId: string
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string
   timeCreated: number
   timeUpdated: number

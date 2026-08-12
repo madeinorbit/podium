@@ -12,6 +12,7 @@ import type {
   UserId,
   IssueId,
   MachineId,
+  ThreadId,
 } from '@podium/model'
 import type {
   AgentObservation,
@@ -125,8 +126,8 @@ export interface EventMap {
   'superagent.turnEnded': {
     /** Owner of the personal superagent thread; outbound reactions route by it. */
     ownerUserId?: UserId
-    threadId: string
-    podiumSessionId: string
+    threadId: ThreadId
+    podiumSessionId: SessionId
     ok: boolean
     output?: string
     error?: string

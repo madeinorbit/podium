@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueWire, IssueId } from '@podium/model'
+import type { IssueWire, IssueId, SessionId } from '@podium/model'
 import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import type { IssueStore } from './core'
@@ -90,7 +90,7 @@ export class IssueCommentsMailModule {
    *  issue has now pulled) — it just no longer decides who gets nagged. */
   mailInbox(
     issueId: IssueId,
-    opts?: { markRead?: boolean; sessionId?: string },
+    opts?: { markRead?: boolean; sessionId?: SessionId },
   ): Array<IssueMessageRow & { wasUnread: boolean }> {
     const id = this.store.resolveRef(issueId)
     this.store.rowOrThrow(id)
@@ -165,7 +165,7 @@ export class IssueCommentsMailModule {
   mailClaim(
     messageId: string,
     claimedBy: string,
-    opts?: { sessionId?: string },
+    opts?: { sessionId?: SessionId },
   ): { claimed: boolean; message: IssueMessageRow } {
     const claimed = this.store.deps.funnel.run({
       write: () => {
@@ -207,7 +207,7 @@ export class IssueCommentsMailModule {
    *  coalesced pointer ("N messages from X, Y"). */
   mailPending(
     issueId: IssueId,
-    opts?: { sessionId?: string },
+    opts?: { sessionId?: SessionId },
   ): { unread: number; senders: string[] } {
     const id = this.store.resolveRef(issueId)
     this.store.rowOrThrow(id)

@@ -100,6 +100,7 @@ export class SessionRevival {
       agentKind: AgentKind
       cwd: string
       resume: ResumeRef
+      /** UNBRANDED BY DECISION: the harness-native conversation id, not Podium's stable ConversationId. */
       conversationId: string
       title?: string
       machineId?: MachineId

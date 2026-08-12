@@ -29,6 +29,7 @@ import type {
   MachineWire,
   SessionId,
   SessionMeta,
+  ThreadId,
 } from '@podium/model'
 import { asIssueId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
@@ -82,7 +83,7 @@ export interface EngineState {
   view: MainView
   settingsTab: string | null
   openIssueId: IssueId | null
-  superThreadId: string
+  superThreadId: ThreadId
   superOpen: boolean
   dockTab: DockTab
   /** The signed-in user's superagent threads, published by the store (POD-330,

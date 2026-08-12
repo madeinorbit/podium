@@ -53,6 +53,7 @@ export type SessionDeletionSource = 'issue' | 'standalone'
 export interface ObservationLeaseRecord {
   sessionId: SessionId
   provider: ObservationProvider
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string | null
   bindingVersion: number
   observationGeneration: number
@@ -66,6 +67,7 @@ export interface TerminalCandidateFacts {
   terminalTransitionId: string
   terminalTurnEpoch: number
   provider: ObservationProvider
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string | null
   bindingVersion: number
   observerGeneration: number
@@ -145,6 +147,7 @@ export interface SessionRow {
    *  schema could not hold it either). The stable Podium `ConversationId` is a
    *  DIFFERENT FACT and lives on `conversationPodiumId`. Type-identical, encodes
    *  identically, different id space. */
+  /** UNBRANDED BY DECISION: the harness-native conversation id, not Podium's stable ConversationId. */
   conversationId: string | null
   resumeKind: string | null
   resumeValue: string | null
@@ -502,7 +505,7 @@ export type MessageStatus =
 export interface MessageRow {
   id: string
   /** = id for a new thread; replies inherit the original's threadId. */
-  threadId: string
+  threadId: ThreadId
   inReplyTo: string | null
   fromKind: MessageFromKind
   fromSession: SessionId | null
@@ -606,6 +609,7 @@ export interface ConversationIndexRow {
   machineId?: MachineId
   /** Set when this conversation is a subagent (sidechain) of another — the resume
    *  picker filters these out so only top-level sessions are offered. */
+  /** UNBRANDED BY DECISION: the harness-native conversation id, not Podium's stable ConversationId. */
   parentConversationId?: string
 }
 
@@ -647,9 +651,11 @@ export interface SuperagentThreadRow {
   /** The Podium headless session rendering this thread (concierge unification). */
   podiumSessionId?: SessionId
   /** The harness's own session id — the resume value for every later turn. */
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   harnessSessionId?: string
   /** PTY session holding the "open in terminal" one-writer lock; sendTurn
    *  rejects while this session is live (lazily checked, lazily cleared). */
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   terminalSessionId?: string
   /** The thread's own model / effort (POD-782). Undefined = follow the
    *  `superagent` settings role; a value OVERRIDES it, including the role's

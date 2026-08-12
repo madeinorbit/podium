@@ -97,6 +97,7 @@ export interface HarnessLaunchOptions {
    *  Mutually exclusive with `resume`: it names the session the CLI is about to
    *  create, so the host knows the native id — and its transcript path — from the
    *  spawn instead of discovering it after the first turn. [POD-386] */
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   newSessionId?: string
   /** Model override from settings; absent (or 'auto') = the CLI's own default. */
   model?: string
@@ -172,6 +173,7 @@ export interface HarnessBins {
 export interface LoginIdentity {
   fingerprint: string
   email?: string
+  /** UNBRANDED BY DECISION: a provider account id, not a server-minted Podium AccountId. */
   providerAccountId?: string
 }
 
@@ -229,6 +231,7 @@ export interface HeadlessExecOptions {
   /** Harness session id to resume; absent = first turn. */
   resumeValue?: string
   /** The pinned harness session id (pre-minted for grok/cursor). */
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId?: string
 }
 
@@ -271,6 +274,7 @@ export interface HarnessHeadless {
  * outer input only for mixed-version controls and non-causal adapters. */
 export interface HarnessObservationLease {
   provider: ObservationProvider
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string | null
   bindingVersion: number
   observerGeneration: number
@@ -280,6 +284,7 @@ export interface HarnessObservationLease {
 /** Provider-confirmed native-session replacement. The host fences this request
  * against the current lease and returns the resulting +1/+1 lease by ack. */
 export interface HarnessProviderRebind {
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   nextProviderSessionId: string
   resumeKind: string
   rebindId: string
@@ -359,6 +364,7 @@ export interface HarnessObservation {
    *  Re-pins the observation only when its current binding disagrees — every
    *  later POST is a cheap comparison. Absent for harnesses without a hook
    *  re-pin policy. */
+  /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   bindHookThread?(threadId: string): void
   /** Server durability acknowledgement, routed only to the exact live lease. */
   onObservationAck?(ack: AgentObservationAckMessage): void

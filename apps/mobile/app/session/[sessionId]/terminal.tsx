@@ -1,5 +1,5 @@
 import { panelLabel, sessionDotTone, sessionTitle } from '@podium/client-core/viewmodels'
-import { asSessionId } from '@podium/model'
+import { asSessionId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
@@ -31,7 +31,7 @@ export default function TerminalRoute() {
   const router = useRouter()
   // Route params are RAW URL values, so the brand is applied once here — the
   // DECODE EDGE for this screen, mirroring SessionScreen (POD-362).
-  const params = useLocalSearchParams<{ sessionId: string | string[] }>()
+  const params = useLocalSearchParams<{ sessionId: SessionId | string[] }>()
   const raw = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
   const sessionId = raw ? asSessionId(raw) : undefined
   const session = useSession(sessionId)

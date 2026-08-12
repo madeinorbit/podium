@@ -56,7 +56,7 @@
  * each with an id, a label, a predicate and a run — rather than pre-empting its
  * type.
  */
-import type { MachineId } from '@podium/model'
+import type { MachineId, AccountId } from '@podium/model'
 import type { WorkflowContractName } from '@podium/commands'
 
 /** What the principal may do on this surface. Supplied by the view from what the
@@ -200,7 +200,7 @@ export const workflowCommands = {
 
   profileSave: command<{
     name: string
-    accountId: string
+    accountId: AccountId
     harness: string
     model: string
     effort: string

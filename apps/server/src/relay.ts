@@ -1149,7 +1149,7 @@ export class SessionRegistry {
     // carries a session-derived field, so the tail had nothing to reconcile — and
     // the one time the gate did open, boot reconciliation had already published
     // the same rows (modules/issues/service/index.ts).
-    const sessionWorkspace = (sessionId: string): string | null => {
+    const sessionWorkspace = (sessionId: SessionId): string | null => {
       // LockSessionKey may be a sentinel; miss → null (no co-location key).
       const s = (liveSessions as ReadonlyMap<string, { cwd?: string; status: string }>).get(
         sessionId,

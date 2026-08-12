@@ -43,6 +43,7 @@
  * is a frozen UI rather than a missed watchdog. Same rule, different loop.
  */
 
+import type { SessionId } from '@podium/model'
 import type { MetadataChangeLenient } from '@podium/protocol'
 import { isKnownMetadataChange } from '@podium/protocol'
 import type { FeedCursor } from './feed'
@@ -248,7 +249,7 @@ export function snapshotToChunks(
   chunkRows = BOOTSTRAP_BATCH_ROWS,
 ): BootstrapChunk[] {
   const entities: Array<[string, unknown[] | undefined, (row: unknown) => string]> = [
-    ['session', snapshot.sessions, (r) => (r as { sessionId: string }).sessionId],
+    ['session', snapshot.sessions, (r) => (r as { sessionId: SessionId }).sessionId],
     ['issue', snapshot.issues, (r) => (r as { id: string }).id],
     ['issueProjection', snapshot.issueProjections, (r) => (r as { id: string }).id],
     ['issueDep', snapshot.issueDeps, (r) => (r as { id: string }).id],

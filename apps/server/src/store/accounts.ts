@@ -7,10 +7,11 @@
  * via accountViews().
  */
 
+import type { AccountId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export interface ManagedAccountRow {
-  id: string
+  id: AccountId
   provider: string
   kind: 'api-key' | 'oauth'
   credential: string
@@ -22,7 +23,7 @@ export interface ManagedAccountRow {
 }
 
 interface Row {
-  id: string
+  id: AccountId
   provider: string
   kind: string
   credential: string

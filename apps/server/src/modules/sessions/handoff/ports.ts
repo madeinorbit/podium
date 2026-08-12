@@ -169,7 +169,7 @@ export interface HandoffRepo {
 
 /** The slice of a machine row the handoff decision reads. */
 export interface HandoffMachine {
-  id: string
+  id: SessionId
   name?: string
   online: boolean
   inventory?: { agents: { kind: string; installed: boolean; login: { state: string } }[] }
@@ -229,6 +229,7 @@ export interface HandoffPorts {
     agentKind: ExportableAgentKind
     cwd: string
     resume: ResumeRef
+    /** UNBRANDED BY DECISION: the harness-native conversation id, not Podium's stable ConversationId. */
     conversationId: string
     title?: string
     machineId: MachineId

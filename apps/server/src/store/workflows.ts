@@ -1,4 +1,4 @@
-import type { SessionId, UserId, MachineId } from '@podium/model'
+import type { SessionId, UserId, MachineId, AccountId } from '@podium/model'
 import {
   type ExecutionProfileWire as ExecutionProfile,
   ExecutionProfileWire,
@@ -389,7 +389,7 @@ export class WorkflowsRepository {
   upsertProfile(input: {
     id: string
     name: string
-    accountId: string
+    accountId: AccountId
     machineId: MachineId | null
     harness: string
     model: string
@@ -564,7 +564,7 @@ export class WorkflowsRepository {
     runId: string
     stepId: string
     status: WorkflowRunStepStatus
-    assignedSessionId: string | null
+    assignedSessionId: SessionId | null
     summary: string
     evidence: StepEvidence
     observation: GitObservation | null

@@ -19,6 +19,7 @@ const TAIL_BYTES = 128 * 1024
 export const PODIUM_GROK_HOOK_URL_ENV = 'PODIUM_GROK_HOOK_URL'
 
 export interface GrokSessionPaths {
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string
   sessionDir: string
   summaryPath: string
@@ -33,6 +34,7 @@ export interface GrokStateObserver {
 }
 
 type GrokCausalOptions = Omit<GrokObservationLease, 'providerSessionId'> & {
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId?: string | null
 }
 
@@ -48,6 +50,7 @@ export const grokStateProvider: AgentStateProvider = {
 
 export function grokSessionPaths(opts: {
   cwd: string
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string
   homeDir?: string
 }): GrokSessionPaths {
@@ -361,8 +364,10 @@ export function observeGrokState(opts: {
   startedAtMs?: number
   pollMs?: number
   statTick?: StatTick
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   onSession?: (sessionId: string) => void
   /** Rejecting a candidate prevents every resume, transcript, and bootstrap side effect. */
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   onSessionCandidate?: (sessionId: string) => boolean
   /** Fires after history is folded through the captured complete-record EOF. */
   onBootstrap?: (lastCompleteRecordOffset: number) => void

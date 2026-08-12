@@ -14,6 +14,7 @@ import {
   LayoutWire,
   RepoProjection,
   SessionMeta,
+  type SessionId,
 } from '@podium/model'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
@@ -409,7 +410,7 @@ export function parseChangesSinceResult(
       }
       const embeddedId =
         change.entity === 'session'
-          ? (change.value as { sessionId: string }).sessionId
+          ? (change.value as { sessionId: SessionId }).sessionId
           : (change.value as { id: string }).id
       if (embeddedId !== change.id) return null
     }
@@ -437,7 +438,7 @@ export function parseChangesSinceResult(
     }
     const embeddedId =
       change.entity === 'session'
-        ? (change.value as { sessionId: string }).sessionId
+        ? (change.value as { sessionId: SessionId }).sessionId
         : (change.value as { id: string }).id
     if (embeddedId !== change.id) return null
   }

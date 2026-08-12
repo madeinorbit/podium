@@ -61,6 +61,7 @@ export interface SessionObserverInit {
    *  starting, so the observer binds it directly instead of polling for whatever
    *  appears in the cwd — which for grok is nothing at all until the first turn.
    *  Spawn-only; a reattach carries the recorded resume ref instead. [POD-386] */
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   newSessionId?: string
 }
 
@@ -151,6 +152,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
   type ClaudeCausalTracker = {
     observerGeneration: number
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     providerSessionId: string
     transcriptPath: string
     observer: ClaudeCausalObserver
@@ -203,7 +205,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   >()
 
   const liveConfirmationSignature = (
-    sessionId: string,
+    sessionId: SessionId,
     providerCursor: AgentObservation['providerCursor'],
   ): string | undefined => {
     const lease = causalLeases.get(sessionId)
@@ -218,7 +220,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   const isLiveConfirmationDue = (
-    sessionId: string,
+    sessionId: SessionId,
     providerCursor: AgentObservation['providerCursor'],
   ): boolean => {
     const signature = liveConfirmationSignature(sessionId, providerCursor)
@@ -232,7 +234,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   const recordLiveConfirmationAttempt = (
-    sessionId: string,
+    sessionId: SessionId,
     providerCursor: AgentObservation['providerCursor'],
   ): void => {
     const signature = liveConfirmationSignature(sessionId, providerCursor)

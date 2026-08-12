@@ -8,6 +8,7 @@ import type {
   SessionId,
   SessionMeta,
   MachineId,
+  AccountId,
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
@@ -173,7 +174,7 @@ export interface IssueDeps {
     agentKind?: string
     model?: string
     effort?: string
-    accountId?: string
+    accountId?: AccountId
     /** Deliberately spawn with a model slug the live catalog doesn't list [spec:SP-cc60]. */
     forceUnknownModel?: boolean
     initialPrompt?: string

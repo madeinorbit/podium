@@ -73,6 +73,7 @@ export class HeadlessService {
       resolve: (r: {
         ok: boolean
         error?: string
+        /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
         harnessSessionId?: string
         output?: string
         retryable?: boolean
@@ -196,6 +197,7 @@ export class HeadlessService {
   ): Promise<{
     ok: boolean
     error?: string
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     harnessSessionId?: string
     output?: string
     retryable?: boolean

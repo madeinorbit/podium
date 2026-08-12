@@ -23,7 +23,7 @@
  *
  * Platform-neutral: no DOM, no storage, no tRPC.
  */
-import type { SessionId } from '@podium/model'
+import type { SessionId, ThreadId } from '@podium/model'
 import { defineSlice, type SliceDefinition } from './publish'
 
 /** One superagent thread, as the client renders it. The shape the VIEW may
@@ -32,12 +32,13 @@ import { defineSlice, type SliceDefinition } from './publish'
 export interface SuperThreadView {
   id: string
   kind: 'global' | 'btw' | 'concierge'
-  originSessionId?: string
+  originSessionId?: SessionId
   title?: string
   repoPath?: string
   /** The headless Podium session rendering this thread (set on the first turn). */
   podiumSessionId?: SessionId
   /** The harness's own session id — present once the thread has a real session. */
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   harnessSessionId?: string
   /** Query-backed running state for reloads and late joiners; live events keep
    *  the embedded chat current after mount. */
@@ -57,7 +58,7 @@ export interface SuperThreadView {
  *  on the engine's Store type (and mobile can satisfy it too). */
 export interface SuperagentSource {
   readonly superThreads: readonly SuperThreadView[]
-  readonly superThreadId: string
+  readonly superThreadId: ThreadId
 }
 
 export interface SuperagentSliceValue {

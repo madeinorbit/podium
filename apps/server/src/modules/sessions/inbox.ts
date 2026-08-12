@@ -105,7 +105,7 @@ export const SYSTEM_INBOX_PRINCIPAL: InboxPrincipalReference = {
 }
 
 export interface QueuedInboxMessage {
-  id: string
+  id: SessionId
   text: string
   attempts: number
   inputOrigin: ObservationInputOrigin
@@ -124,8 +124,8 @@ export interface InboxQueuePort {
     sourceMessageId: string | null
   }): boolean
   list(sessionId: SessionId): QueuedInboxMessage[]
-  bumpAttempts(id: string): void
-  delete(id: string): void
+  bumpAttempts(id: SessionId): void
+  delete(id: SessionId): void
 }
 
 export interface InboxAuthorizationPort {

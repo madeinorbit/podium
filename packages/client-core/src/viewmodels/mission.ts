@@ -1,4 +1,4 @@
-import { type AgentKind, type SessionMeta, spawnedByParentSessionId, type IssueId } from '@podium/model'
+import { type AgentKind, type SessionMeta, spawnedByParentSessionId, type IssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
 import { sessionsForIssueNav } from './session-ownership'
@@ -767,7 +767,7 @@ export type SessionRole =
   | { kind: 'coordinator' }
   | { kind: 'phase-lead' }
   | { kind: 'peer' }
-  | { kind: 'spawned'; parentSessionId: string }
+  | { kind: 'spawned'; parentSessionId: SessionId }
 
 export function sessionRole(
   issue: IssueNavigationModel,

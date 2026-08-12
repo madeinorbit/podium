@@ -103,7 +103,7 @@ export interface AutomationInput {
   cron?: string | null
   runAt?: string | null
   /** Existing session to wake and message; null uses the selected session mode. */
-  targetSessionId?: string | null
+  targetSessionId?: SessionId | null
   agentKind: string
   model?: string
   effort?: string

@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf, type MachineId, type UserId, type IssueId } from '@podium/model'
+import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf, type MachineId, type UserId, type IssueId, type SessionId } from '@podium/model'
 import { mayReadOwned } from '../../issue-authz'
 import type { IssueRow, SessionRow, SessionStore } from '../../store'
 import type { GrantRow } from '../../store/grants'
@@ -195,14 +195,14 @@ export class MemoryVisibilityPolicy {
     }
   }
 
-  mayReadSession(reader: MemoryReader, sessionId: string): boolean {
+  mayReadSession(reader: MemoryReader, sessionId: SessionId): boolean {
     if (reader.kind === 'system') return true
     const row = this.sessionById(sessionId)
     if (!row) return false
     return this.mayReadSessionRow(reader.kind === 'user' ? reader.id : reader.onBehalfOf, row)
   }
 
-  private sessionById(sessionId: string): SessionRow | undefined {
+  private sessionById(sessionId: SessionId): SessionRow | undefined {
     return (
       this.request?.sessionsById.get(sessionId) ??
       this.store.sessions.getSession(asSessionId(sessionId))

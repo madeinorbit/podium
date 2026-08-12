@@ -184,6 +184,7 @@ export interface LegacyBindingSnapshot {
   }
   /** `session-observers.ts`: the current lease/provider identity. */
   observer?: {
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     providerSessionId?: string | null
     resumeKind?: string
     pathHint?: string

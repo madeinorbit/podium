@@ -62,7 +62,7 @@ const PODIUM_SESSION_MARKER_RE = /<podium-session-id>([0-9a-f-]{36})<\/podium-se
 /** Legacy correlation metadata persisted in Codex's developer-context record. It is
  *  deliberately not a resume id: the Podium row exists before Codex creates a
  *  native thread. New launches use native hooks and never inject this marker. */
-export function codexPodiumSessionMarker(sessionId: string): string {
+export function codexPodiumSessionMarker(sessionId: SessionId): string {
   return `<podium-session-id>${sessionId}</podium-session-id>`
 }
 
@@ -434,6 +434,7 @@ function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
 }
 
 export interface CodexRolloutBootstrap {
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string | null
   providerTurnId: string | null
   providerPromptId: string | null
@@ -702,7 +703,9 @@ export async function foldCodexRolloutBootstrap(
 
 export interface CodexCausalObserverConfig {
   podiumSessionId: SessionId
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   onRebindRequired?: (providerSessionId: string, cursor: ProviderCursor) => void
   observerGeneration: number
   bindingVersion: number
@@ -1077,12 +1080,14 @@ export const PODIUM_CODEX_HOOK_SOCKET_ENV = 'PODIUM_CODEX_HOOK_SOCKET'
 
 export interface CodexCausalStateOptions {
   podiumSessionId: SessionId
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   providerSessionId: string | null
   observerGeneration: number
   bindingVersion: number
   acceptedCheckpoint: SessionObservationCheckpointV1 | null
   onObservation(observation: AgentObservation): void
   onLivePollComplete?(providerCursor: ProviderCursor): void
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   onRebindRequired(providerSessionId: string): void
   retryMs?: number
   retryNow?: () => number
@@ -1114,9 +1119,11 @@ export function observeCodexState(opts: {
   /** Test override for platform-specific exact-correlation policy. */
   platform?: NodeJS.Platform
   /** Test seam for the indexed single-thread Codex state lookup. */
+  /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>
   /** Test override for native-title polling cadence. */
   nativeTitlePollMs?: number
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   onSession?: (sessionId: string, rolloutPath: string, confidence: 'exact' | 'heuristic') => void
   // Fires with a human-readable title whenever it changes (deduped on the last
   // value, never re-emitting an unchanged one). Codex's own OSC terminal title is
@@ -1210,6 +1217,7 @@ export function observeCodexState(opts: {
     causal.onObservation(observation)
   }
   const readThreadState =
+    /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
     opts.readThreadState ?? ((threadId: string) => readCodexThreadMetadata(codexHome, threadId))
   let nextNativeTitlePollAt = 0
 
@@ -1271,6 +1279,7 @@ export function observeCodexState(opts: {
     }
   }
 
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   const requestCausalRebind = (providerSessionId: string): void => {
     const causal = opts.causal
     if (!causal) return
@@ -1945,6 +1954,7 @@ export async function findLiveCodexRollout(
 export async function resolvePinnedCodexRollout(
   resumeValue: string,
   homeDir: string | undefined,
+  /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>,
 ): Promise<{ path: string; id: string; createdMs: number; confidence: 'exact' } | undefined> {
   const path = await findCodexRolloutPath({
@@ -1969,6 +1979,7 @@ export async function resolvePinnedCodexRollout(
 export async function findCodexRolloutPath(opts: {
   resumeValue: string
   homeDir?: string
+  /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>
 }): Promise<string | undefined> {
   const root = join(opts.homeDir ?? homedir(), '.codex')

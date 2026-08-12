@@ -3,6 +3,7 @@ import type {
   ConversationId,
   ConversationSummaryWire,
   MachineId,
+  SessionId,
 } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -283,7 +284,7 @@ export class MemoryService {
     return this.deps.store.conversations.registry.podiumId(machineId, nativeId)
   }
 
-  canReadSession(reader: MemoryReader, sessionId: string): boolean {
+  canReadSession(reader: MemoryReader, sessionId: SessionId): boolean {
     return this.visibility.mayReadSession(reader, sessionId)
   }
 

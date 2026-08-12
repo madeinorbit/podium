@@ -153,7 +153,7 @@ const registries: SessionRegistry[] = []
 
 /** A machine row that exists but has NO daemon attached — i.e. offline. */
 export interface OfflineMachine {
-  id: string
+  id: SessionId
   name: string
   /** Harnesses the machine reported before it went away. */
   agents?: { kind: string; installed: boolean; login: { state: 'in' | 'out' } }[]

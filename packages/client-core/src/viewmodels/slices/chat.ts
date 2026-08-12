@@ -49,7 +49,7 @@
  *    the classification and the reason this slice deliberately has no draft
  *    field at all.
  */
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import type { SessionMeta, TranscriptItem, SessionId, ThreadId } from '@podium/model'
 import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE } from '../chat'
 import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
 import { type ChatActivity, chatActivity, sessionWaking } from '../session-status'
@@ -221,7 +221,7 @@ export interface ChatSessionReference {
 }
 
 export function chatSessionReference(
-  sessionId: string,
+  sessionId: SessionId,
   sessions: readonly SessionMeta[],
   exitOf: (id: string) => ReferentExit | undefined = () => undefined,
 ): ChatSessionReference {
@@ -525,7 +525,7 @@ export function composerState(input: {
 
 /** The superagent thread an embedded (headless) chat fronts. */
 export interface SuperThreadRef {
-  readonly threadId: string
+  readonly threadId: ThreadId
   readonly kind: 'global' | 'btw' | 'concierge'
   readonly repoPath?: string
 }
@@ -543,9 +543,9 @@ export interface SuperThreadRef {
  * is UX gating, not authorization.
  */
 export type ChatSendRoute =
-  | { readonly kind: 'session'; readonly sessionId: string }
-  | { readonly kind: 'resume'; readonly sessionId: string }
-  | { readonly kind: 'superagent-turn'; readonly threadId: string }
+  | { readonly kind: 'session'; readonly sessionId: SessionId }
+  | { readonly kind: 'resume'; readonly sessionId: SessionId }
+  | { readonly kind: 'superagent-turn'; readonly threadId: ThreadId }
   | { readonly kind: 'concierge'; readonly repoPath: string }
   | { readonly kind: 'refused'; readonly reason: string }
 
@@ -554,7 +554,7 @@ export type ChatSendRoute =
 export const UNKNOWN_THREAD_REFUSAL = 'That conversation is not available.'
 
 export function chatSendRoute(input: {
-  sessionId: string
+  sessionId: SessionId
   headless: boolean
   superThread: SuperThreadRef | undefined
   composer: Pick<ComposerState, 'sendable' | 'canResume'>

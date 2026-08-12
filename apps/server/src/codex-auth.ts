@@ -26,6 +26,7 @@ interface AuthFile {
     access_token?: string
     id_token?: string
     refresh_token?: string
+    /** UNBRANDED BY DECISION: a provider account id, not a server-minted Podium AccountId. */
     account_id?: string
   }
   last_refresh?: string
@@ -35,6 +36,7 @@ interface AuthFile {
 export interface CodexAuth {
   accessToken: string
   /** Sent as the `chatgpt-account-id` header — the backend requires it. */
+  /** UNBRANDED BY DECISION: a provider account id, not a server-minted Podium AccountId. */
   accountId: string
 }
 

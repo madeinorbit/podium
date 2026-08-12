@@ -203,7 +203,7 @@ export class MessagesRepository {
   /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
    *  every row the principal SENT or was ADDRESSED (issue box / session box /
    *  delivered-to), newest first — the "what happened to my message" view. */
-  listLedger(q: { issueId?: IssueId; sessionId?: string; limit?: number }): MessageRow[] {
+  listLedger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): MessageRow[] {
     const ors: string[] = []
     const params: unknown[] = []
     if (q.issueId) {
@@ -331,7 +331,7 @@ export class MessagesRepository {
   // per-reader ledger the nag counts instead; the delivery ledger is untouched.
 
   /** Record that `sessionId` has now seen `messageId` (idempotent). */
-  recordRead(messageId: string, sessionId: string, readAt: string): void {
+  recordRead(messageId: string, sessionId: SessionId, readAt: string): void {
     this.db
       .prepare(
         `INSERT INTO message_reads (message_id, session_id, read_at) VALUES (?, ?, ?)
@@ -341,7 +341,7 @@ export class MessagesRepository {
   }
 
   /** Which of `messageIds` this session has already seen. */
-  readReceipts(sessionId: string, messageIds: string[]): Set<string> {
+  readReceipts(sessionId: SessionId, messageIds: string[]): Set<string> {
     if (messageIds.length === 0) return new Set()
     const rows = this.db
       .prepare(
@@ -354,7 +354,7 @@ export class MessagesRepository {
 
   /** Which of `messageIds` this session SENT — never its own unread mail
    *  [POD-1379], the same notion of self delivery already applies. */
-  selfSentIds(sessionId: string, messageIds: string[]): Set<string> {
+  selfSentIds(sessionId: SessionId, messageIds: string[]): Set<string> {
     if (messageIds.length === 0) return new Set()
     const rows = this.db
       .prepare(
@@ -387,7 +387,7 @@ export class MessagesRepository {
     )`
 
   /** Count and group one reader-scoped pending slice in one statement. */
-  pendingSummaryForSession(issueId: IssueId, sessionId: string): PendingMessageSummary {
+  pendingSummaryForSession(issueId: IssueId, sessionId: SessionId): PendingMessageSummary {
     return this.pendingSummaryForPredicate(MessagesRepository.PENDING_FOR_SESSION, [
       issueId,
       sessionId,
@@ -424,7 +424,7 @@ export class MessagesRepository {
     }
   }
 
-  countPendingForSession(issueId: IssueId, sessionId: string): number {
+  countPendingForSession(issueId: IssueId, sessionId: SessionId): number {
     const r = this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM messages
@@ -434,7 +434,7 @@ export class MessagesRepository {
     return r.n
   }
 
-  listPendingSendersForSession(issueId: IssueId, sessionId: string): PendingMessageSender[] {
+  listPendingSendersForSession(issueId: IssueId, sessionId: SessionId): PendingMessageSender[] {
     const rows = this.db
       .prepare(
         `SELECT DISTINCT from_kind, from_issue, from_session FROM messages

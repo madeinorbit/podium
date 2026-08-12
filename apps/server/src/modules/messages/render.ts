@@ -17,7 +17,7 @@
  */
 
 import { deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 
@@ -167,7 +167,7 @@ export class MessageRenderer {
   /** The exact text the receiver sees: enveloped for every principal EXCEPT the
    *  operator — only the human's own words land unwrapped. Oversized
    *  issue-addressed bodies render as an inbox pointer instead of inline. */
-  renderFor(message: MessageRow, receiverSessionId?: string): string {
+  renderFor(message: MessageRow, receiverSessionId?: SessionId): string {
     if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
       return this.pointerText([message])
     }
@@ -218,7 +218,7 @@ export class MessageRenderer {
    *  DIFFERENT machine than the receiver, say so and how to inspect its working
    *  state — built only from what podium already knows (session machineIds),
    *  zero storage. */
-  private crossMachineNote(message: MessageRow, receiverSessionId?: string): string | undefined {
+  private crossMachineNote(message: MessageRow, receiverSessionId?: SessionId): string | undefined {
     if (!receiverSessionId || message.fromKind !== 'agent' || !message.fromSession) return undefined
     const sessions = this.deps.listSessions()
     const senderMachine = sessions.find((s) => s.sessionId === message.fromSession)?.machineId

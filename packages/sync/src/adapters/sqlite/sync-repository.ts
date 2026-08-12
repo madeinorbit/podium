@@ -259,7 +259,7 @@ export class SyncRepository {
    *  Returns false when the id already existed (replay). */
   enqueueMessage(row: {
     id: string
-    sessionId: string
+    sessionId: SessionId
     text: string
     queuedAt: number
     inputOrigin?: ObservationInputOrigin
@@ -297,7 +297,7 @@ export class SyncRepository {
   }
 
   /** FIFO head-first queue for one session. */
-  listQueuedMessages(sessionId: string): {
+  listQueuedMessages(sessionId: SessionId): {
     id: string
     text: string
     attempts: number
@@ -351,7 +351,7 @@ export class SyncRepository {
   }
 
   /** Drop a dead session's queue (kill without resume ref, permanent delete). */
-  deleteQueuedMessagesForSession(sessionId: string): void {
+  deleteQueuedMessagesForSession(sessionId: SessionId): void {
     this.db.prepare('DELETE FROM queued_messages WHERE session_id = ?').run(sessionId)
   }
 

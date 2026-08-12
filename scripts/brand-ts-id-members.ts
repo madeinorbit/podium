@@ -22,6 +22,7 @@ const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const argv = process.argv.slice(2)
 const write = argv.includes('--write')
 const repairImports = argv.includes('--repair-imports')
+const markForeign = argv.includes('--mark-foreign')
 const brandArg = argv.includes('--brand') ? argv[argv.indexOf('--brand') + 1] : undefined
 const selectedBrands = brandArg ? new Set(brandArg.split(',').filter(Boolean)) : undefined
 
@@ -94,7 +95,80 @@ const selectedIdTypes = [
   'RepoId',
   'AutomationId',
   'ArtifactId',
+  'SessionId',
+  'ThreadId',
+  'AccountId',
+  'ConversationId',
 ] as const
+
+const providerAccountFiles = new Set([
+  'apps/daemon/src/quota-codex.ts',
+  'apps/server/src/codex-auth.ts',
+  'apps/server/src/login-catalog.ts',
+  'packages/harness/src/manifest.ts',
+  'packages/harness/src/manifests/codex.ts',
+])
+
+function foreignReason(site: ReturnType<typeof entityIdSites>[number]): string | undefined {
+  if (site.brand === 'Conversation')
+    return "the harness-native conversation id, not Podium's stable ConversationId"
+  if (site.brand === 'Account' && providerAccountFiles.has(site.file))
+    return 'a provider account id, not a server-minted Podium AccountId'
+  if (
+    site.brand === 'Thread' &&
+    (site.file.startsWith('packages/harness/') ||
+      site.file === 'apps/daemon/src/durable-headless.ts' ||
+      site.file === 'apps/daemon/src/headless-drivers.ts')
+  )
+    return 'a provider/harness-native thread id, not a Podium messaging ThreadId'
+  if (site.brand !== 'Session') return undefined
+  if (site.file.startsWith('packages/harness/')) {
+    const sourceLine = readFileSync(join(REPO_ROOT, site.file), 'utf8').split('\n')[site.line - 1]
+    if (sourceLine?.includes('codexPodiumSessionMarker')) return undefined
+    return 'a provider/harness-native session id, not a Podium SessionId'
+  }
+  if (
+    site.file.startsWith('packages/transcript/') ||
+    site.file === 'apps/daemon/src/durable-headless.ts' ||
+    /^(?:providerSessionId|harnessSessionId|terminalSessionId|nextProviderSessionId|fromProviderSessionId|toProviderSessionId|newSessionId|knownSessionId)$/.test(
+      site.key,
+    )
+  )
+    return 'a provider/harness-native session id, not a Podium SessionId'
+  return undefined
+}
+
+if (markForeign) {
+  const foreignSites = entityIdSites(loadContext(REPO_ROOT)).filter(
+    (site) => site.form === 'ts-string' && !site.excused && foreignReason(site) !== undefined,
+  )
+  if (foreignSites.length !== 83)
+    throw new Error(`expected 83 foreign TypeScript id members, found ${foreignSites.length}`)
+  const byForeignFile = new Map<string, typeof foreignSites>()
+  for (const site of foreignSites) {
+    const sites = byForeignFile.get(site.file) ?? []
+    sites.push(site)
+    byForeignFile.set(site.file, sites)
+  }
+  for (const [file, fileSites] of byForeignFile) {
+    const path = join(REPO_ROOT, file)
+    const lines = readFileSync(path, 'utf8').split('\n')
+    const byLine = new Map(fileSites.map((site) => [site.line, site]))
+    for (const [line, site] of [...byLine].sort(([left], [right]) => right - left)) {
+      const sourceLine = lines[line - 1]
+      if (sourceLine === undefined) throw new Error(`${file}:${line}: line is absent`)
+      const indent = sourceLine.match(/^\s*/)?.[0] ?? ''
+      lines.splice(
+        line - 1,
+        0,
+        `${indent}/** UNBRANDED BY DECISION: ${foreignReason(site)}. */`,
+      )
+    }
+    writeFileSync(path, lines.join('\n'))
+  }
+  console.log(`marked ${foreignSites.length} foreign TypeScript id members`)
+  process.exit(0)
+}
 
 if (repairImports) {
   const changed = spawnSync('git', ['diff', '--name-only', '--', '*.ts', '*.tsx'], {

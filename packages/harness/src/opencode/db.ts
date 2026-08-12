@@ -94,6 +94,7 @@ export function listOpencodeSessions(db: SqlDatabase): OpencodeSessionRow[] {
 
 export function getOpencodeSession(
   db: SqlDatabase,
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string,
 ): OpencodeSessionRow | undefined {
   return db
@@ -132,6 +133,7 @@ export function findLatestOpencodeSession(
 
 export function loadOpencodeMessageParts(
   db: SqlDatabase,
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string,
   sinceTimeUpdated = 0,
   sincePartId?: string,
@@ -160,6 +162,7 @@ export function loadOpencodeMessageParts(
 
 export function loadOpencodeTranscriptTail(
   db: SqlDatabase,
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string,
   maxParts = 8000,
 ): OpencodeMessagePartRow[] {

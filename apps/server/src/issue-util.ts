@@ -62,7 +62,7 @@ export function isIssueMember(
 export function liveSessionsUsingWorktree(
   worktreePath: string | null,
   sessions: SessionMeta[],
-  exceptSessionId?: string,
+  exceptSessionId?: SessionId,
 ): SessionMeta[] {
   if (!worktreePath) return []
   return sessions.filter(

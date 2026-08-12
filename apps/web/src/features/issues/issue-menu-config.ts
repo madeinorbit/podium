@@ -1,5 +1,5 @@
 import { discoveredPlacement, type ProposalShape } from '@podium/client-core/viewmodels'
-import { ISSUE_COLOR_SLOTS, ISSUE_STAGES, type IssueStage } from '@podium/model'
+import { ISSUE_COLOR_SLOTS, ISSUE_STAGES, type IssueStage, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 import {
@@ -85,7 +85,7 @@ export interface IssueMenuTarget {
 }
 
 export interface IssueHandoffMenuData {
-  sessionId?: string
+  sessionId?: SessionId
   /** A blocker is rendered as a disabled first-level item by the menu host. */
   blocker?: string
   options: readonly IssueMenuOption[]

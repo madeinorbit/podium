@@ -1,6 +1,7 @@
+import type { SessionId } from '@podium/model'
 export interface TranscriptAssetContext {
   httpOrigin: string
-  sessionId: string
+  sessionId: SessionId
   cwd: string
 }
 

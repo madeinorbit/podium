@@ -15,7 +15,7 @@ import {
   sessionNeedsHuman,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import type { IssueComment, SessionMeta, MachineId, IssueId } from '@podium/model'
+import type { IssueComment, SessionMeta, MachineId, IssueId, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowDown,
@@ -871,7 +871,7 @@ export function IssuePanelView({
 }: {
   cwd: string
   machineId?: MachineId
-  sessionId?: string
+  sessionId?: SessionId
   /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — wins over the
    *  session attachment and cwd containment. */
   issueId?: IssueId

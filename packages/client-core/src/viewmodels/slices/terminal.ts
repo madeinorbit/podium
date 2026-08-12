@@ -56,7 +56,7 @@ function orderMap(ids: string[]): Map<string, number> {
 export function orderTabs(
   sessions: SessionMeta[],
   manualOrder: string[] | undefined,
-  coordinatorSessionId?: string | null,
+  coordinatorSessionId?: SessionId | null,
 ): SessionMeta[] {
   const base = elevateCoordinatorSession(sessions, coordinatorSessionId)
   if (!manualOrder || manualOrder.length === 0) return base

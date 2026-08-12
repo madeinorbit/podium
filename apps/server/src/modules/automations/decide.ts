@@ -6,7 +6,7 @@
  */
 
 import { nextAfter, parseCron } from '@podium/commands'
-import type { AutomationScheduleKind, AutomationId } from '@podium/model'
+import type { AutomationScheduleKind, AutomationId, SessionId } from '@podium/model'
 
 /** How late a fire may be and still run. Past this, the occurrence is recorded as
  *  `missed` and skipped [spec:SP-17db]: an outage must not ambush the user with a
@@ -25,7 +25,7 @@ export interface Schedulable {
   /** ISO; null = not armed. */
   nextRunAt: string | null
   /** Session of this automation's most recent `spawned` run; null = never spawned. */
-  lastSessionId: string | null
+  lastSessionId: SessionId | null
 }
 
 /** What the tick decided for one automation. `nextRunAt` is the re-arm — always the
