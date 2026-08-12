@@ -1,7 +1,6 @@
 import type { IssueReferenceModel as IssueReferenceView } from '@podium/client-core/viewmodels'
-import { CircleDashed } from 'lucide-react'
 import type { JSX } from 'react'
-import { StageGlyph } from '@/features/issues/issue-glyphs'
+import { StageGlyph, UnknownRefGlyph } from '@/features/issues/issue-glyphs'
 import { cn } from '@/lib/utils'
 
 /**
@@ -40,7 +39,7 @@ export function IssueReference({
         {model.stage ? (
           <StageGlyph stage={model.stage} size={size} />
         ) : (
-          <CircleDashed size={size} className="text-muted-foreground/60" />
+          <UnknownRefGlyph size={size} />
         )}
       </span>
       <span

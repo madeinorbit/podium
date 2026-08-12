@@ -1,6 +1,6 @@
 import type { IssueStage } from '@podium/model'
 import Svg, { Circle, Path, Rect } from 'react-native-svg'
-import { STAGE_LABEL, stageColor } from '../theme/stage'
+import { STAGE_LABEL, STAGE_UNKNOWN, stageColor } from '../theme/stage'
 import { color } from '../theme/theme'
 
 /**
@@ -82,6 +82,38 @@ export function StageGlyph({
         {...(stage === 'backlog' ? { strokeDasharray: '2.2 2.2' } : {})}
       />
       {fill > 0 ? <Path d={`M7 7 L7 3.8 A3.2 3.2 0 ${largeArc} 1 ${x} ${y} Z`} fill={ink} /> : null}
+    </Svg>
+  )
+}
+
+/**
+ * A ref this client cannot answer for — the phone's copy of the web's
+ * `UnknownRefGlyph` (POD-676), same 14-unit viewBox and r=6 ring.
+ *
+ * The phone previously drew NO glyph at all for an unresolved ref, so the only
+ * thing separating it from a real task was the grey — and `backlog` is grey. A
+ * ring carrying a question mark is a shape no stage has.
+ */
+export function UnknownRefGlyph({ size = 14, tint }: { size?: number; tint?: string }) {
+  const ink = tint ?? STAGE_UNKNOWN
+  return (
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 14 14"
+      accessibilityRole="image"
+      accessibilityLabel="Unknown"
+    >
+      <Circle cx="7" cy="7" r="6" fill="none" stroke={ink} strokeWidth="1.6" />
+      <Path
+        d="M5.3 5.0a1.75 1.75 0 0 1 3.4 0.58c0 1.17-1.75 1.75-1.75 1.75"
+        fill="none"
+        stroke={ink}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Circle cx="7" cy="9.7" r="0.85" fill={ink} />
     </Svg>
   )
 }

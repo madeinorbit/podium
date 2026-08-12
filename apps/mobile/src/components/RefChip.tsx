@@ -6,7 +6,7 @@ import { useIssues } from '../client/hooks'
 import { alpha, mix } from '../theme/mix'
 import { stageColor } from '../theme/stage'
 import { color, font, mono } from '../theme/theme'
-import { StageGlyph } from './StageGlyph'
+import { StageGlyph, UnknownRefGlyph } from './StageGlyph'
 
 /**
  * A `POD-529` mention inside agent output, carrying the task's LIVE workflow
@@ -131,6 +131,13 @@ export function RefChip({
           <StageGlyph stage={stage} size={11} ground={ground} />
           {/* A hair of air between glyph and token; padding on inline text is
               not honoured on every target, a space always is. */}{' '}
+        </>
+      ) : refKind === 'issue' ? (
+        // Unresolved, and it says so (POD-676). A session ref gets nothing: it
+        // is not a task whose state we failed to learn, so a question mark
+        // would be claiming a gap that is not there.
+        <>
+          <UnknownRefGlyph size={11} tint={ink} />{' '}
         </>
       ) : null}
       {token}

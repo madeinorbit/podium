@@ -59,16 +59,27 @@ describe('RefChip', () => {
     // A parseable token whose row has not arrived (or is not visible to this
     // principal) must not borrow a stage colour, and must never take the brand
     // accent — that would read as "waiting on you".
-    render(<RefChip token="POD-9999" refKind="issue" prefix="POD" onPress={vi.fn()} />)
+    const { container } = render(
+      <RefChip token="POD-9999" refKind="issue" prefix="POD" onPress={vi.fn()} />,
+    )
 
     expect(inkOf(/POD-9999 is unavailable/i)).toBe(rgb(STAGE_UNKNOWN))
     expect(inkOf(/POD-9999 is unavailable/i)).not.toBe(rgb(color.accent))
+    // …and SAYS unresolved rather than only going quiet: `backlog` is muted
+    // too, so grey alone left the two states one indistinguishable colour.
+    expect(container.querySelector('[aria-label="Unknown"]')).toBeTruthy()
   })
 
   it('never paints a session ref with a workflow stage', () => {
-    render(<RefChip token="POD-529-A" refKind="session" prefix="POD" />)
+    // Scoped to this render's own container, not `screen`: renders in this file
+    // accumulate in the document, so a document-wide query would find the
+    // previous test's glyph.
+    const { container } = render(<RefChip token="POD-529-A" refKind="session" prefix="POD" />)
 
     expect(inkOf(/Session POD-529-A/i)).toBe(rgb(color.textDim))
+    // A session ref is not a task whose state we failed to learn, so it gets no
+    // unknown glyph — that would claim a gap that is not there.
+    expect(container.querySelector('[aria-label="Unknown"]')).toBeNull()
   })
 
   it('leaves a ref-shaped token from an unknown prefix as prose', () => {

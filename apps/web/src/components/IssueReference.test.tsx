@@ -25,7 +25,7 @@ describe('IssueReference', () => {
     expect(reference.querySelector('svg')).toBeTruthy()
   })
 
-  it('uses a quiet fallback and no stale stage for an unavailable issue', () => {
+  it('names the unavailable issue unknown, in a shape no stage wears', () => {
     render(
       <IssueReference
         model={{
@@ -43,5 +43,9 @@ describe('IssueReference', () => {
     expect(reference.dataset.issueStage).toBeUndefined()
     expect(reference.dataset.issueAvailability).toBe('unavailable')
     expect(reference.textContent).toBe('POD-99')
+    // The glyph is the question-mark ring, not the dashed one it used to draw:
+    // dashed IS the backlog glyph, and backlog is muted too, so a replica gap
+    // and a real backlog task were one shape in one colour (POD-676).
+    expect(reference.querySelector('svg')?.getAttribute('aria-label')).toBe('Unknown')
   })
 })

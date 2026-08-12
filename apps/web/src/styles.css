@@ -4435,6 +4435,15 @@ a.ref-link--issue:not([data-issue-stage]),
 a.ref-link--issue[data-issue-stage=""] {
   --ref-accent: var(--muted-foreground);
 }
+/* …and it says so, rather than only going quiet: a ring carrying a question
+   mark, matching `UnknownRefGlyph`. The old fallback here was the generic
+   circle-dot, which is the shape a ref wears when nothing is known about its
+   KIND — a reader had only the grey to tell "not received yet" from a muted
+   stage, and backlog is muted too. */
+a.ref-link--issue:not([data-issue-stage])::before,
+a.ref-link--issue[data-issue-stage=""]::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20stroke-width='1.6'/%3E%3Cpath%20d='M5.3%205.0a1.75%201.75%200%200%201%203.4%200.58c0%201.17-1.75%201.75-1.75%201.75'%20stroke-width='1.5'/%3E%3Ccircle%20cx='7'%20cy='9.7'%20r='0.85'%20fill='black'%20stroke='none'/%3E%3C/svg%3E");
+}
 /* Session refs (POD-13-A / POD-DRAFT-3): lucide terminal. */
 a.ref-link--session::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolyline%20points='4%2017%2010%2011%204%205'/%3E%3Cline%20x1='12'%20x2='20'%20y1='19'%20y2='19'/%3E%3C/svg%3E");
