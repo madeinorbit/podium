@@ -3,6 +3,7 @@ import {
   asUserId,
   type CredentialSource,
   FIRST_ADMIN_USER_ID,
+  type ServerReadiness,
   type UserId,
   type UserRole,
 } from '@podium/model'
@@ -292,6 +293,8 @@ export interface AuthRouteOptions {
    * Defaults to the credential half alone when not supplied (tests, embedded servers).
    */
   loginRequired?: () => boolean
+  /** Same public lifecycle projection served by GET /readiness. */
+  readiness?: () => ServerReadiness
   throttle?: { maxFailures?: number; lockoutMs?: number }
   now?: () => number
   /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
@@ -326,7 +329,12 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         ? requestUserId(store, headers.cookieHeader, now(), headers.authorizationHeader)
         : undefined
     const authed = userId !== undefined
-    return c.json({ needsAuth, authed, ...(userId ? { userId } : {}) })
+    return c.json({
+      needsAuth,
+      authed,
+      ...(userId ? { userId } : {}),
+      ...(opts.readiness ? { readiness: opts.readiness() } : {}),
+    })
   })
 
   app.post('/auth/login', async (c) => {

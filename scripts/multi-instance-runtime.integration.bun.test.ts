@@ -7,7 +7,15 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { type ChildProcess, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -132,6 +140,11 @@ function startInstance(
   spec: InstanceSpec,
   overrides: Record<string, string | undefined> = {},
 ): RunningInstance {
+  // This lane proves independent configured deployments, not first-run setup.
+  // Say so explicitly now that an unconfigured process intentionally withholds
+  // the operator data plane.
+  mkdirSync(spec.stateDir, { recursive: true })
+  writeFileSync(join(spec.stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
   const child = spawn(
     process.execPath,
     ['--conditions=@podium/source', CLI, '--instance', spec.id, 'all'],

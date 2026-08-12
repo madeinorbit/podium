@@ -36,11 +36,11 @@ export function BootTroubleScreen({
     <View style={styles.root}>
       <Text style={styles.label}>{failed ? 'CANNOT START' : 'STILL STARTING'}</Text>
       <Text style={styles.headline}>
-        {failed ? 'Podium could not open its local data.' : 'This is taking longer than it should.'}
+        {failed ? 'Podium could not finish starting.' : 'This is taking longer than it should.'}
       </Text>
       <Text style={styles.body}>
         {failed
-          ? 'The app stopped before it could load anything. Retrying usually clears it.'
+          ? 'The server connection or on-device storage stopped before the app could load. Your on-device data has not been changed.'
           : 'The app is still trying to start. You can wait, or retry now.'}
       </Text>
       {detail ? (

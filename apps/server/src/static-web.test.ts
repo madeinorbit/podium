@@ -355,6 +355,21 @@ describe('registerWebStatic', () => {
     expect(root.status).toBe(302)
     expect(root.headers.get('location')).toBe('/mobile?server=wss://x&e2e=1')
   })
+  it('withholds the operator mobile entry until the server data plane is ready', async () => {
+    const app = new Hono()
+    registerMobileRouting(app, {
+      expoMobilePresent: () => true,
+      operatorEntryAvailable: () => false,
+    })
+    app.get('/', (c) => c.text('setup-safe desktop shell'))
+    app.get('/mobile', (c) => c.text('operator mobile shell'))
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+
+    const root = await app.request('/?e2e=1', { headers: { 'user-agent': iphone } })
+    expect(root.status).toBe(302)
+    expect(root.headers.get('location')).toBe('/setup/mobile')
+    expect((await app.request('/mobile')).headers.get('location')).toBe('/setup/mobile')
+  })
   it('can serve Expo without redirecting the phone root (dual-client browser harness)', async () => {
     const app = new Hono()
     registerMobileRouting(app, { expoMobilePresent: () => true, redirectPhoneRoot: false })

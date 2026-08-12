@@ -10,6 +10,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AuthGate } from '../src/client/AuthGate'
 import { LaunchBoundary, LaunchReadyView } from '../src/client/launch'
 import { MobileClientProvider } from '../src/client/MobileClientProvider'
+import { ReadinessGate } from '../src/client/ReadinessGate'
 import { ServerProfileGate, useServerProfile } from '../src/client/ServerProfileGate'
 import { activeServerBearer, activeServerHttpOrigin } from '../src/client/trpc'
 import { AgentOutcomeHaptics } from '../src/components/AgentOutcomeHaptics'
@@ -75,24 +76,26 @@ export default function RootLayout() {
             installs its pointer listeners on this element [POD-402]. */}
         <GestureHandlerRootView style={styles.fill}>
           <ServerProfileGate>
-            {/*
-              The JS stack, not the default native one [POD-402].
+            <ReadinessGate>
+              {/*
+                The JS stack, not the default native one [POD-402].
 
-              `expo-router`'s `Stack` is native-stack, and its WEB view is a hard
-              `display: none` → `flex` swap: tapping a row replaced the screen
-              between two frames, with nothing to say a push had happened.
-              react-native-screens' web build is a no-op `View`, so there was
-              nothing to configure — the animation did not exist to turn on.
-              `expo-router/js-stack` is the same router over react-navigation's
-              CardStack, which animates on web off RN's `Animated`.
+                `expo-router`'s `Stack` is native-stack, and its WEB view is a hard
+                `display: none` → `flex` swap: tapping a row replaced the screen
+                between two frames, with nothing to say a push had happened.
+                react-native-screens' web build is a no-op `View`, so there was
+                nothing to configure — the animation did not exist to turn on.
+                `expo-router/js-stack` is the same router over react-navigation's
+                CardStack, which animates on web off RN's `Animated`.
 
-              Both options below have to be spelled out. `animation` defaults to
-              `'none'` on web (CardStack's `getDefaultAnimation`), and
-              `gestureEnabled` defaults to iOS-only — see metro.config.js for the
-              other half of making the gesture real on web. The options and sheet
-              presentation are owned by ConnectedApp above.
+                Both options below have to be spelled out. `animation` defaults to
+                `'none'` on web (CardStack's `getDefaultAnimation`), and
+                `gestureEnabled` defaults to iOS-only — see metro.config.js for the
+                other half of making the gesture real on web. The options and sheet
+                presentation are owned by ConnectedApp above.
               */}
-            <ConnectedApp reduceMotion={reduceMotion} />
+              <ConnectedApp reduceMotion={reduceMotion} />
+            </ReadinessGate>
           </ServerProfileGate>
         </GestureHandlerRootView>
         <StatusBar style="light" />

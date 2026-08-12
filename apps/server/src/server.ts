@@ -76,11 +76,19 @@ import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
+import {
+  authReadinessBoundary,
+  isHostLocalRequest,
+  isHostSetupBootstrap,
+  readinessBoundary,
+} from './readiness-boundary'
+import { registerReadinessRoute } from './readiness-route'
 import { RepoRegistry } from './repo-registry'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
+import { createServerReadiness } from './server-readiness'
 import { closeServerFast } from './shutdown'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
@@ -532,6 +540,10 @@ export async function startServer(
   })
 
   const requestPeerAddresses = new WeakMap<Request, string>()
+  const readiness = createServerReadiness({
+    bootConfig: config,
+    hasLiveAgentMachine: () => registry.modules.machines.onlineMachineIds().length > 0,
+  })
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   devPublisher.registerRoute(app)
@@ -595,21 +607,27 @@ export async function startServer(
     loginRequired: credentialsRequired,
     trustedProxyHops,
   })
+  const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
   app.use('/setup/*', cors())
+  app.use('/readiness', cors())
+  registerReadinessRoute(app, readiness)
   registerSetupRoute(app)
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
+  app.use('/auth/*', authReadinessBoundary(readiness))
   let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
     store: store.auth,
     users: store.users,
     // One principal resolver for every human-client transport. The status route
     // reports this result; it does not recreate the open/dev bootstrap fallback.
-    resolveUserId: (headers) => requestPrincipal(headers)?.user,
+    resolveUserId: (headers) =>
+      readiness().dataPlane === 'available' ? requestPrincipal(headers)?.user : undefined,
     loginRequired: credentialsRequired,
     trustedProxyHops,
+    readiness,
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
   registerMobilePairingRoutes(app, {
@@ -625,6 +643,7 @@ export async function startServer(
     requestPeerAddress: (request) => requestPeerAddresses.get(request),
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
+  app.use('/files/*', boundary)
   app.use('/files/*', guard)
   registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
@@ -652,7 +671,14 @@ export async function startServer(
     { resolveThread: (token) => superagent.threadForMcpToken(token) },
   )
   app.use('/trpc/*', cors())
-  app.use('/trpc/*', guard)
+  app.use('/trpc/*', boundary)
+  app.use('/trpc/*', async (c, next) => {
+    // A host-local first run must remain possible when PODIUM_PASSWORD already
+    // provisioned a credential. Login itself is not a bootstrap surface, so the
+    // exact setup allowlist bypasses the ordinary login guard only while blocked.
+    if (isHostSetupBootstrap(readiness(), c.req.path, c.req.raw)) return next()
+    return guard(c, next)
+  })
   app.use(
     '/trpc/*',
     trpcServer({
@@ -673,10 +699,17 @@ export async function startServer(
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
       createContext: (_request, hono) => {
-        const principal = requestPrincipal({
-          cookieHeader: hono.req.header('cookie'),
-          authorizationHeader: hono.req.header('authorization'),
-        })
+        const bootstrapAccount = isHostSetupBootstrap(readiness(), hono.req.path, hono.req.raw)
+          ? store.users.get(FIRST_ADMIN_USER_ID)
+          : undefined
+        const principal =
+          requestPrincipal({
+            cookieHeader: hono.req.header('cookie'),
+            authorizationHeader: hono.req.header('authorization'),
+          }) ??
+          (bootstrapAccount
+            ? userCommandPrincipal(FIRST_ADMIN_USER_ID, bootstrapAccount.role)
+            : undefined)
         if (principal === undefined) throw new Error('authenticated account is unavailable')
         return {
           registry,
@@ -733,6 +766,7 @@ export async function startServer(
   registerMobileRouting(app, {
     expoMobilePresent: () => mobileIndex !== '' && existsSync(mobileIndex),
     redirectPhoneRoot: opts.redirectPhoneRootToMobile ?? true,
+    operatorEntryAvailable: () => readiness().dataPlane === 'available',
   })
   // crossOriginIsolated: expo-sqlite web needs SharedArrayBuffer for durable
   // OPFS persistence (POD-541). Without these headers the replica degrades to
@@ -782,6 +816,7 @@ export async function startServer(
     }
 
     const ws = attachWebSockets(registry, {
+      readinessForClient: readiness,
       validateClientCredential: (credentialId) =>
         maintainClientCredentialByHash(store.auth, credentialId) !== undefined,
       principalForClient: (request) => {
@@ -825,7 +860,12 @@ export async function startServer(
           if (peerAddress) requestPeerAddresses.set(request, peerAddress)
           const upgrade = ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
-          return compressHttpResponse(request, await app.fetch(request))
+          const headers = new Headers(request.headers)
+          const peer = nativeServer.requestIP(request)?.address
+          if (peer) headers.set('x-podium-peer-address', peer)
+          else headers.delete('x-podium-peer-address')
+          const observedRequest = new Request(request, { headers })
+          return compressHttpResponse(request, await app.fetch(observedRequest))
         },
       })
     } catch (err) {

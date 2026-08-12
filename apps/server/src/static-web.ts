@@ -22,6 +22,7 @@ const BACKEND_PREFIXES = [
   '/trpc',
   '/health',
   '/version',
+  '/readiness',
   '/setup',
   '/auth',
   '/files',
@@ -426,7 +427,11 @@ function appleTouchIcon(webDir: string, inside: string): string | null {
  */
 export function registerMobileRouting(
   app: Hono,
-  opts: { expoMobilePresent: () => boolean; redirectPhoneRoot?: boolean },
+  opts: {
+    expoMobilePresent: () => boolean
+    redirectPhoneRoot?: boolean
+    operatorEntryAvailable?: () => boolean
+  },
 ): void {
   const present = opts.expoMobilePresent
   // Carries the ?desktop marker, which tells apps/web's browser-side redirect
@@ -441,12 +446,17 @@ export function registerMobileRouting(
         userAgent: c.req.header('user-agent'),
         mobilePresent: present(),
       })
-      if (target) return c.redirect(target)
+      if (target) {
+        // A fresh server must never route a phone into either operator SPA.
+        if (opts.operatorEntryAvailable?.() === false) return c.redirect('/setup/mobile')
+        return c.redirect(target)
+      }
     }
     await next()
   })
   app.get('/desktop', toDesktopShell)
   const mobileFallback = async (c: Context, next: () => Promise<void>) => {
+    if (opts.operatorEntryAvailable?.() === false) return c.redirect('/setup/mobile')
     if (!present()) return toDesktopShell(c)
     await next()
   }

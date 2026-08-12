@@ -67,6 +67,30 @@ async function start(
   return `ws://127.0.0.1:${server.port}/client`
 }
 
+async function startNotReady() {
+  store = new SessionStore(':memory:')
+  registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  handle = attachWebSockets(registry, {
+    readinessForClient: () => ({
+      state: 'activation_pending',
+      reason: 'restart_required',
+      dataPlane: 'blocked',
+    }),
+    userForClient: () => FIRST_ADMIN_USER_ID,
+    roleForClient: () => 'admin',
+  })
+  server = serveNative({
+    port: 0,
+    hostname: '127.0.0.1',
+    websocket: handle.websocket,
+    fetch(request, nativeServer) {
+      const result = handle?.handleRequest(request, nativeServer)
+      return result === null ? new Response('not found', { status: 404 }) : result
+    },
+  })
+  return `ws://127.0.0.1:${server.port}/client`
+}
+
 function attempt(url: string, headers?: Record<string, string>): Promise<'open' | 'rejected'> {
   return new Promise((resolve) => {
     const ws = new WebSocket(url, { headers })
@@ -118,6 +142,30 @@ describe('/client WS auth gate', () => {
   test('rejects the client upgrade when the gate denies it', async () => {
     const url = await start(() => false)
     expect(await attempt(url)).toBe('rejected')
+  })
+
+  test('rejects a blocked-readiness client with an explicit 503 handshake', async () => {
+    const url = await startNotReady()
+    const response = await new Promise<{ status: number; body: string }>((resolve) => {
+      const ws = new WebSocket(url)
+      ws.on('unexpected-response', (_request, incoming) => {
+        let body = ''
+        incoming.on('data', (chunk) => {
+          body += String(chunk)
+        })
+        incoming.on('end', () => resolve({ status: incoming.statusCode ?? 0, body }))
+      })
+      ws.on('error', () => {})
+    })
+    expect(response.status).toBe(503)
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'server_not_ready',
+      readiness: {
+        state: 'activation_pending',
+        reason: 'restart_required',
+        dataPlane: 'blocked',
+      },
+    })
   })
 
   test('the gate sees the upgrade request cookie header', async () => {

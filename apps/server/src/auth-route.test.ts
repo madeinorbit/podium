@@ -85,6 +85,19 @@ describe('auth-route', () => {
     })
   })
 
+  test('status carries readiness and no open-mode principal while the data plane is blocked', async () => {
+    const readiness = {
+      state: 'unconfigured',
+      reason: 'setup_required',
+      dataPlane: 'blocked',
+    } as const
+    const res = await makeApp({
+      readiness: () => readiness,
+      resolveUserId: () => undefined,
+    }).request('/auth/status')
+    expect(await res.json()).toEqual({ needsAuth: false, authed: false, readiness })
+  })
+
   test('status reports needsAuth=true once a password is set', async () => {
     await setPassword('hunter2')
     const res = await makeApp().request('/auth/status')

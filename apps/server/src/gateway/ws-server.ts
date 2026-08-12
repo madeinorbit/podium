@@ -7,7 +7,7 @@
  * gateway's already-tested client and daemon protocol layers.
  */
 
-import type { UserId, UserRole } from '@podium/model'
+import type { ServerReadiness, UserId, UserRole } from '@podium/model'
 import { versionSupport } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
@@ -16,6 +16,7 @@ export interface NativeServer<T> {
   upgrade(request: Request, options: { data: T }): boolean
   requestIP?(request: Request): { address: string } | null
   stop(closeActiveConnections?: boolean): void | Promise<void>
+  requestIP(request: Request): { address: string; port: number; family: string } | null
 }
 
 interface NativeServerWebSocket<T> {
@@ -78,6 +79,7 @@ export interface WsHandle {
 }
 
 export interface WsAuthOptions {
+  readinessForClient?: () => ServerReadiness
   authorizeClient?: (request: Request) => boolean
   userForClient?: (request: Request) => UserId | undefined
   roleForClient?: (request: Request) => UserRole | undefined
@@ -299,6 +301,13 @@ export function attachWebSockets(
 
       let data: SocketData
       if (pathname === '/client') {
+        const readiness = auth.readinessForClient?.()
+        if (readiness?.dataPlane === 'blocked') {
+          return new Response(JSON.stringify({ error: 'server_not_ready', readiness }), {
+            status: 503,
+            headers: { connection: 'close', 'content-type': 'application/json' },
+          })
+        }
         const resolved = auth.principalForClient?.(request)
         const userId = resolved?.userId ?? auth.userForClient?.(request)
         const userRole = resolved?.userRole ?? auth.roleForClient?.(request)
