@@ -98,7 +98,7 @@ test('shows 12-hour peaks beside the live state without duplicating the idle mes
   const popup = await popupPromise
   await popup.waitForLoadState('domcontentloaded')
   expect(popup.url()).toContain('https://x.com/intent/post?text=')
-  expect(decodeURIComponent(popup.url())).toContain('0 agents working right now')
+  expect(decodeURIComponent(popup.url())).toContain('0 agents working in @podium_ade')
   await popup.close()
 
   const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')

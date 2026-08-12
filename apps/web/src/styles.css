@@ -1277,22 +1277,28 @@ html[data-density="balanced"] .header-quota-pools {
   background: currentColor;
 }
 .status-strip-history-tooltip {
+  /* Size to the reading, not a guessed 226px — long asides and feet overflowed
+     that box (and the window) because the strip's nowrap leaked in. --tip-shift
+     then slides the card back inside the viewport. */
   position: absolute;
   z-index: 30;
   bottom: 21px;
   left: -4px;
   display: grid;
-  width: 226px;
-  padding: 10px 11px;
+  width: max-content;
+  min-width: 200px;
+  max-width: min(22rem, calc(100vw - 16px));
+  padding: 10px 12px;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
   background: var(--popover);
   box-shadow: 0 12px 34px var(--carve-popover-far, rgb(0 0 0 / 0.65));
   color: var(--foreground);
   letter-spacing: 0;
+  white-space: normal;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(2px);
+  transform: translate(var(--tip-shift, 0px), 2px);
   transition:
     opacity 120ms ease,
     transform 120ms ease;
@@ -1301,16 +1307,18 @@ html[data-density="balanced"] .header-quota-pools {
 .status-strip-metric:hover .status-strip-history-tooltip,
 .status-strip-history:focus-within .status-strip-history-tooltip {
   opacity: 1;
-  transform: translateY(0);
+  transform: translate(var(--tip-shift, 0px), 0);
   visibility: visible;
 }
 .status-strip-history-tip-head,
 .status-strip-history-reading {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
 }
 .status-strip-history-tip-head {
   justify-content: space-between;
+  gap: 8px 12px;
   margin-bottom: 8px;
 }
 .status-strip-history-tip-head b {
@@ -1319,25 +1327,29 @@ html[data-density="balanced"] .header-quota-pools {
   font-size: 11px;
 }
 .status-strip-history-tip-head span {
+  flex: none;
   color: var(--text-faint);
   font-size: var(--shell-type-micro);
   text-transform: uppercase;
 }
 .status-strip-history-reading {
-  gap: 6px;
+  gap: 6px 10px;
 }
 .status-strip-history-reading b {
+  flex: none;
   color: var(--metric-color);
   font-size: 18px;
   line-height: 1;
 }
 .status-strip-history-reading span {
+  min-width: 0;
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: var(--shell-type-micro);
   font-weight: 500;
 }
 .status-strip-history-reading time {
+  flex: none;
   margin-left: auto;
   color: var(--text-dim);
   font-size: var(--shell-type-micro);
@@ -1348,6 +1360,7 @@ html[data-density="balanced"] .header-quota-pools {
   border-top: 1px solid var(--hairline-soft);
   color: var(--text-faint);
   font-size: var(--shell-type-micro);
+  white-space: normal;
 }
 .status-strip-share {
   display: inline-flex;

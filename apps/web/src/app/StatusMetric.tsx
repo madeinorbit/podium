@@ -4,11 +4,26 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  useCallback,
+  useLayoutEffect,
+  useRef,
   useState,
 } from 'react'
 import { Share2 } from 'lucide-react'
 
 const GRAPH_HEIGHT = 12
+const TIP_PAD_PX = 8
+
+/** Shift (px) that keeps a laid-out tooltip inside the viewport. */
+export function tooltipShiftPx(
+  rect: { left: number; right: number },
+  viewportWidth: number,
+  pad = TIP_PAD_PX,
+): number {
+  if (rect.left < pad) return pad - rect.left
+  if (rect.right > viewportWidth - pad) return viewportWidth - pad - rect.right
+  return 0
+}
 
 export interface StatusMetricBucket {
   startMs: number
@@ -68,6 +83,19 @@ export function StatusMetric({
   const peak = Math.max(0, ...buckets.map((bucket) => bucket.value))
   const chartMax = Math.max(scaleMax ?? peak, Number.EPSILON)
   const activeTime = timeLabel(active, safeIndex, buckets.length)
+  const tipRef = useRef<HTMLSpanElement>(null)
+  const placeTip = useCallback(() => {
+    const tip = tipRef.current
+    if (!tip) return
+    tip.style.setProperty('--tip-shift', '0px')
+    const shift = tooltipShiftPx(tip.getBoundingClientRect(), window.innerWidth)
+    tip.style.setProperty('--tip-shift', `${shift}px`)
+  }, [])
+  useLayoutEffect(() => {
+    placeTip()
+    window.addEventListener('resize', placeTip)
+    return () => window.removeEventListener('resize', placeTip)
+  }, [placeTip, title, aside, activeReading.value, activeReading.label, activeTime, foot])
 
   const move = (event: MouseEvent<HTMLSpanElement>): void => {
     const bounds = event.currentTarget.getBoundingClientRect()
@@ -86,7 +114,12 @@ export function StatusMetric({
   }
 
   return (
-    <span className="status-strip-metric" data-tone={tone}>
+    <span
+      className="status-strip-metric"
+      data-tone={tone}
+      onFocusCapture={placeTip}
+      onMouseEnter={placeTip}
+    >
       {current}
       {shareText && (
         <a
@@ -149,7 +182,7 @@ export function StatusMetric({
             )
           })}
         </span>
-        <span className="status-strip-history-tooltip" aria-hidden="true">
+        <span ref={tipRef} className="status-strip-history-tooltip" aria-hidden="true">
           <span className="status-strip-history-tip-head">
             <b>{title}</b>
             <span>{aside}</span>

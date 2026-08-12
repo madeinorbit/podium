@@ -132,7 +132,9 @@ describe('StatusStrip agent concurrency history', () => {
     const share = screen.getByLabelText('Share agent concurrency on X') as HTMLAnchorElement
     expect(share.target).toBe('_blank')
     expect(share.rel).toContain('noreferrer')
-    expect(decodeURIComponent(share.href)).toContain('1 AI agent is working in parallel')
+    expect(decodeURIComponent(share.href)).toContain(
+      '1 agent is mid-session in @podium_ade right now',
+    )
   })
 
   it('keeps the existing spinner and count while adding the capped pixel history', async () => {
@@ -188,9 +190,11 @@ describe('StatusStrip burn and ship rates', () => {
     expect(
       screen.getByTestId('token-burn-history').querySelectorAll('.status-strip-history-stack'),
     ).toHaveLength(12)
-    expect(screen.getByLabelText('Share token burn on X').getAttribute('href')).toContain(
-      'x.com/intent/post',
+    const burnShare = decodeURIComponent(
+      screen.getByLabelText('Share token burn on X').getAttribute('href') ?? '',
     )
+    expect(burnShare).toContain('x.com/intent/post')
+    expect(burnShare).toContain('@podium_ade is burning $0.10/hr in tokens')
   })
 
   it('counts only confirmed landed issues, including PR-backed merges', () => {
@@ -231,6 +235,6 @@ describe('StatusStrip burn and ship rates', () => {
     )
     expect(
       decodeURIComponent(screen.getByLabelText('Share ship rate on X').getAttribute('href') ?? ''),
-    ).toContain('We shipped 1 merge with Podium')
+    ).toContain('1 merge landed in the last 12h on @podium_ade')
   })
 })

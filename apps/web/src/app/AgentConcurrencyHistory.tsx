@@ -1,5 +1,6 @@
 import { type JSX, useEffect, useMemo, useState } from 'react'
 import { StatusMetric } from './StatusMetric'
+import { shareAgentConcurrency } from './status-share'
 import type { Trpc } from './trpc'
 
 const BUCKETS = 24
@@ -113,11 +114,7 @@ export function AgentConcurrencyHistory({
       })}
       foot="Last 12 hours · 30-minute peaks"
       scaleMax={PIXEL_CAP}
-      shareText={
-        working === 0
-          ? 'My Podium agent fleet is taking a breather — 0 agents working right now.'
-          : `${working} AI ${working === 1 ? 'agent is' : 'agents are'} working in parallel in Podium right now. ⚡`
-      }
+      shareText={shareAgentConcurrency(working)}
     />
   )
 }

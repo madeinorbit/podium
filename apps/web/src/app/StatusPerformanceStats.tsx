@@ -3,6 +3,7 @@ import type { IssueWire, UsageBucketWire } from '@podium/model'
 import type { JSX } from 'react'
 import { useUsageFeed } from '@/features/usage/useUsageFeed'
 import { StatusMetric, type StatusMetricBucket } from './StatusMetric'
+import { shareShipRate, shareTokenBurn } from './status-share'
 import { useReplicaIssues } from './store'
 import type { Trpc } from './trpc'
 
@@ -68,10 +69,7 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
   const shipped = shipBuckets.reduce((sum, bucket) => sum + bucket.value, 0)
   const shipsPerHour = shipped / WINDOW_HOURS
   const burnValue = feed.buckets === null ? '—/h' : `${money(burnPerHour)}/h`
-  const burnShare =
-    feed.buckets === null
-      ? undefined
-      : `My Podium agent fleet is burning ${money(burnPerHour)}/hour in API-equivalent tokens. 🔥`
+  const burnShare = feed.buckets === null ? undefined : shareTokenBurn(money(burnPerHour))
 
   return (
     <>
@@ -109,7 +107,7 @@ export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
           label: value === 1 ? 'confirmed merge' : 'confirmed merges',
         })}
         foot="Last 12h · landed branches; a PR URL alone is excluded"
-        shareText={`We shipped ${shipped} ${shipped === 1 ? 'merge' : 'merges'} with Podium in the last 12 hours — ${rate(shipsPerHour)} ships/hour. 🚢`}
+        shareText={shareShipRate(shipped, rate(shipsPerHour))}
       />
     </>
   )
