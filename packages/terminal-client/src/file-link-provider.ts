@@ -3,7 +3,8 @@ import { type BufferLike, type Cell, stitchLogicalLine } from './buffer-line'
 
 export interface FileLinkConfig {
   cwd: string
-  knownPaths: Set<string>
+  /** Read-only, caller-owned path index. The provider never mutates it. */
+  knownPaths: ReadonlySet<string>
   onOpen: (absPath: string) => void
 }
 

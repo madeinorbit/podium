@@ -48,7 +48,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChatView } from '@/features/chat/ChatView'
-import { accumulateFileLinkPaths } from '@/features/chat/chat'
+import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { agentBrandDot } from '@/lib/agent-tone'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
@@ -387,7 +387,7 @@ export function AgentPanel({
     if (dockUnpinFallbackRef.current !== undefined) clearTimeout(dockUnpinFallbackRef.current)
     dockUnpinFallbackRef.current = setTimeout(() => dockUnpinRef.current?.(), 700)
   }, [dockOpen, dockOpenTarget, gates.ptySizingAllowed])
-  const knownPathsRef = useRef<Set<string>>(new Set())
+  const fileLinkPathsRef = useRef(new FileLinkPathIndex())
   // Latest shared chat draft for this session, mirrored into a ref so the
   // draft-flush machinery (onMounted, below) can read it at flush time
   // (chat→native sync, #17/#62) WITHOUT depending on `drafts` directly — a dep
@@ -492,7 +492,7 @@ export function AgentPanel({
       // Without this the provider is a no-op until the next transcript callback.
       mounted.view.setFileLinks({
         cwd: session?.cwd ?? '/',
-        knownPaths: knownPathsRef.current,
+        knownPaths: fileLinkPathsRef.current.knownPaths,
         onOpen: (abs) => openFile(sessionId, abs),
       })
       // Human-facing ref links (#474 / POD-529): PREFIX-N tokens in agent output
@@ -593,26 +593,36 @@ export function AgentPanel({
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
 
-  // Subscribe to the transcript to build the set of known absolute paths for
-  // the file-link provider. Updates mountedRef.current?.view.setFileLinks so
-  // links stay fresh as new tool calls land. The hub now forwards per-frame
-  // DELTAS, so accumulate paths into a growing set (a reset re-seeds it empty).
+  // Subscribe to the transcript to build the bounded, incrementally-maintained
+  // path index for the file-link provider. The hub forwards per-frame DELTAS;
+  // reset/re-attach starts the index over, while ordinary frames mutate one
+  // owned Set instead of cloning the entire transcript history.
   // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession, not app state
   useEffect(() => {
-    knownPathsRef.current = new Set()
+    fileLinkPathsRef.current.reset()
     return hub.subscribeTranscript(sessionId, undefined, (delta, meta) => {
-      // accumulateFileLinkPaths returns a fresh Set each frame, so we hand the
-      // view a copy (not the live ref identity) — defensive against the view
-      // mutating or aliasing our accumulator.
-      const set = accumulateFileLinkPaths(knownPathsRef.current, delta, meta.reset)
-      knownPathsRef.current = set
+      if (meta.reset) fileLinkPathsRef.current.reset()
+      fileLinkPathsRef.current.add(delta)
       mountedRef.current?.view.setFileLinks({
         cwd: session?.cwd ?? '/',
-        knownPaths: new Set(set),
+        // TerminalView/file-link-provider only reads this set. Its stable
+        // identity lets each delta update membership without another full copy.
+        knownPaths: fileLinkPathsRef.current.knownPaths,
         onOpen: (abs) => openFile(sessionId, abs),
       })
     })
   }, [hub, sessionId, session?.cwd, openFile])
+
+  // Keep the provider's cwd and open callback current even when the session's
+  // transcript has not emitted a new delta yet (for example after a reconnect
+  // that changes its worktree). The path Set remains owned by the index.
+  useEffect(() => {
+    mountedRef.current?.view.setFileLinks({
+      cwd: session?.cwd ?? '/',
+      knownPaths: fileLinkPathsRef.current.knownPaths,
+      onOpen: (abs) => openFile(sessionId, abs),
+    })
+  }, [mountedRef, openFile, session?.cwd, sessionId])
 
   // Re-paint stage-coloured underlines when the issue replica changes (POD-529).
   // resolveStage always reads issuesRef; setRefLinks only needs to schedule.

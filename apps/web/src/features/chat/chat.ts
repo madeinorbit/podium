@@ -30,6 +30,58 @@ export {
   toolVerdict,
 } from '@podium/client-core/viewmodels'
 
+/**
+ * Maximum number of transcript paths retained for terminal link matching.
+ *
+ * The transcript window can be paged much deeper than the rendered chat, and a
+ * long-running session may mention an unbounded number of files. Keeping a
+ * bounded recent index prevents path metadata from becoming a second, hidden
+ * transcript. The terminal's cwd-relative extension fallback still links
+ * ordinary paths that fall outside this recent index.
+ */
+export const FILE_LINK_PATH_CAP = 4_096
+
+/**
+ * Incrementally owns the path set consumed by the terminal file-link provider.
+ *
+ * `knownPaths` deliberately exposes a read-only view with stable identity. The
+ * provider only performs membership/iteration reads, so handing it this set
+ * avoids copying the full history for every transcript delta. Repeated paths
+ * are moved to the newest end before the oldest entries are evicted.
+ */
+export class FileLinkPathIndex {
+  private readonly paths = new Set<string>()
+
+  constructor(private readonly cap = FILE_LINK_PATH_CAP) {
+    if (!Number.isInteger(cap) || cap < 1) throw new RangeError('file-link path cap must be positive')
+  }
+
+  get knownPaths(): ReadonlySet<string> {
+    return this.paths
+  }
+
+  reset(): void {
+    this.paths.clear()
+  }
+
+  add(delta: readonly TranscriptItem[]): void {
+    for (const item of delta) {
+      for (const path of item.toolPaths ?? []) {
+        if (path.length === 0) continue
+        // Set insertion order is our cheap LRU: refreshing a path keeps a
+        // frequently mentioned file alive while the cap is under pressure.
+        this.paths.delete(path)
+        this.paths.add(path)
+      }
+    }
+    while (this.paths.size > this.cap) {
+      const oldest = this.paths.values().next().value
+      if (oldest === undefined) break
+      this.paths.delete(oldest)
+    }
+  }
+}
+
 /** Identity key for dedup/merge: the opaque cursor when present (stable across
  *  re-reads), else the synthesized `id` (a few items have no cursor). */
 export function itemKey(item: TranscriptItem): string {
@@ -116,24 +168,6 @@ export function sameItems(a: readonly TranscriptItem[], b: readonly TranscriptIt
     if (itemKey(x) !== itemKey(y) || !sameItemContent(x, y)) return false
   }
   return true
-}
-
-/**
- * Accumulate the file paths a transcript references (for the terminal file-link
- * provider) across the hub's per-frame DELTAS. Each non-reset frame folds its
- * items' `toolPaths` into the growing set; a `reset` frame (file roll / reattach
- * re-seed) starts the set over from empty. Returns a FRESH `Set` every call (never
- * the `prev` identity) so callers can hand it straight to React state / a view
- * setter without aliasing the accumulator they keep.
- */
-export function accumulateFileLinkPaths(
-  prev: ReadonlySet<string>,
-  delta: TranscriptItem[],
-  reset: boolean,
-): Set<string> {
-  const set = reset ? new Set<string>() : new Set(prev)
-  for (const it of delta) for (const p of it.toolPaths ?? []) set.add(p)
-  return set
 }
 
 /**

@@ -1,7 +1,8 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
-  accumulateFileLinkPaths,
+  FileLinkPathIndex,
+  FILE_LINK_PATH_CAP,
   buildChatRows,
   dedupeByCursor,
   freshOlderPage,
@@ -361,38 +362,40 @@ const pathItem = (id: string, paths: string[]): TranscriptItem => ({
   toolPaths: paths,
 })
 
-describe('accumulateFileLinkPaths (AgentPanel file-link delta contract)', () => {
-  it('ACCUMULATES toolPaths across two non-reset delta frames (second does not replace first)', () => {
-    // Frame 1: the hub forwards a delta, not the full list.
-    const afterFirst = accumulateFileLinkPaths(new Set(), [pathItem('a', ['/repo/a.ts'])], false)
-    expect([...afterFirst]).toEqual(['/repo/a.ts'])
-    // Frame 2: a SECOND delta. The regression we guard against ("treat the delta
-    // as the whole list") would drop /repo/a.ts here — assert both survive.
-    const afterSecond = accumulateFileLinkPaths(afterFirst, [pathItem('b', ['/repo/b.ts'])], false)
-    expect([...afterSecond].sort()).toEqual(['/repo/a.ts', '/repo/b.ts'])
+describe('FileLinkPathIndex (AgentPanel file-link delta contract)', () => {
+  it('ACCUMULATES toolPaths across two non-reset delta frames without changing set identity', () => {
+    const index = new FileLinkPathIndex()
+    const paths = index.knownPaths
+    index.add([pathItem('a', ['/repo/a.ts'])])
+    index.add([pathItem('b', ['/repo/b.ts'])])
+    expect(index.knownPaths).toBe(paths)
+    expect([...paths].sort()).toEqual(['/repo/a.ts', '/repo/b.ts'])
   })
 
-  it('a reset frame CLEARS the set — only the reset frame paths remain', () => {
-    const accumulated = accumulateFileLinkPaths(
-      new Set(['/repo/a.ts', '/repo/b.ts']),
-      [pathItem('c', ['/repo/c.ts'])],
-      true,
-    )
-    expect([...accumulated]).toEqual(['/repo/c.ts'])
+  it('reset clears the set before reseeding from the next frame', () => {
+    const index = new FileLinkPathIndex()
+    index.add([pathItem('a', ['/repo/a.ts']), pathItem('b', ['/repo/b.ts'])])
+    index.reset()
+    index.add([pathItem('c', ['/repo/c.ts'])])
+    expect([...index.knownPaths]).toEqual(['/repo/c.ts'])
   })
 
-  it('returns a FRESH Set (never the prev identity) so callers can hand it on safely', () => {
-    const prev = new Set(['/repo/a.ts'])
-    const next = accumulateFileLinkPaths(prev, [pathItem('b', ['/repo/b.ts'])], false)
-    expect(next).not.toBe(prev)
-    // Mutating the result must not bleed back into the accumulator we were given.
-    expect([...prev]).toEqual(['/repo/a.ts'])
+  it('dedupes paths and refreshes their recency', () => {
+    const index = new FileLinkPathIndex(2)
+    index.add([pathItem('a', ['/x.ts']), pathItem('b', ['/y.ts'])])
+    index.add([pathItem('a', ['/x.ts']), pathItem('c', ['/z.ts'])])
+    expect([...index.knownPaths]).toEqual(['/x.ts', '/z.ts'])
   })
 
-  it('folds multiple paths per item and dedupes a path seen across frames', () => {
-    const f1 = accumulateFileLinkPaths(new Set(), [pathItem('a', ['/x.ts', '/y.ts'])], false)
-    const f2 = accumulateFileLinkPaths(f1, [pathItem('b', ['/y.ts', '/z.ts'])], false)
-    expect([...f2].sort()).toEqual(['/x.ts', '/y.ts', '/z.ts'])
+  it('caps retained history so a marathon transcript cannot grow the index forever', () => {
+    const index = new FileLinkPathIndex(3)
+    index.add([
+      pathItem('a', ['/1.ts', '/2.ts']),
+      pathItem('b', ['/3.ts', '/4.ts']),
+    ])
+    expect(index.knownPaths.size).toBe(3)
+    expect([...index.knownPaths]).toEqual(['/2.ts', '/3.ts', '/4.ts'])
+    expect(FILE_LINK_PATH_CAP).toBeGreaterThan(3)
   })
 })
 
