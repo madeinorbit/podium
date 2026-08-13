@@ -104,7 +104,6 @@ function sameFlightDeckRow(a: FlightDeckRow, b: FlightDeckRow): boolean {
   return (
     a.issue === b.issue &&
     a.depth === b.depth &&
-    a.activityAt === b.activityAt &&
     sameRefs(a.sessions, b.sessions) &&
     sameRefs(a.descendantIds, b.descendantIds) &&
     a.actionableCount === b.actionableCount &&
