@@ -66,8 +66,14 @@ export class IssuesRepository {
     private readonly resolveRepoIdForPath: (repoPath: string) => string,
   ) {}
 
-  /** Every issue-row WRITE calls this: the frame stops caching, and whatever it
-   *  had already cached is dropped. */
+  /** Every issue-row WRITE calls this BEFORE the write: the frame stops caching,
+   *  and whatever it had already cached is dropped.
+   *
+   *  Enforced, not remembered (POD-1939): `store-issues-row-cache-writers.test.ts`
+   *  reads this file, finds every statement writing the `issues` table, and fails
+   *  unless the enclosing method invalidates first — so a NEW write path is
+   *  caught the day it is added. It also explains why the handle is not wrapped
+   *  to do this automatically. */
   private invalidateRowCache(): void {
     this.rowCache = undefined
     if (this.rowCacheDisabledForFrame) return
