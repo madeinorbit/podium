@@ -397,6 +397,17 @@ describe('FileLinkPathIndex (AgentPanel file-link delta contract)', () => {
     expect([...index.knownPaths]).toEqual(['/2.ts', '/3.ts', '/4.ts'])
     expect(FILE_LINK_PATH_CAP).toBeGreaterThan(3)
   })
+
+  it('keeps paths visible in the 5,000-line terminal scrollback after 4,096 unique mentions', () => {
+    const index = new FileLinkPathIndex()
+    const items = Array.from({ length: 5_000 }, (_, i) =>
+      pathItem(`line-${i}`, [`/external/generated-${i}`]),
+    )
+    index.add(items)
+    expect(index.knownPaths.size).toBe(5_000)
+    expect(index.knownPaths.has('/external/generated-0')).toBe(true)
+    expect(index.knownPaths.has('/external/generated-4,999')).toBe(true)
+  })
 })
 
 describe('dedupeByCursor', () => {

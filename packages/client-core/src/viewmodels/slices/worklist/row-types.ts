@@ -102,8 +102,8 @@ export function reuseUnifiedWorkRows(
   let unchanged = previous.length === next.length
   const reused = next.map((row, index) => {
     const stable = reuseRow(byKey.get(rowKey(row)), row)
+    if (stable !== previous[index]) unchanged = false
     if (stable !== row) return stable
-    if (previous[index] !== row) unchanged = false
     return row
   })
   return unchanged ? (previous as UnifiedWorkRow[]) : reused

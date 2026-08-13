@@ -2,6 +2,8 @@ import { type SessionId } from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { computeWarmSet, updateRecency } from './warm-set'
 
+const MOBILE_QUERY = '(max-width: 768px)'
+
 /**
  * A mounted AgentPanel is a heavy residency unit: the real-browser probe shows
  * that each unit retains one xterm/WebGL renderer, one PTY hub attachment, one
@@ -19,9 +21,30 @@ function residencyBudget(): number {
   if (typeof window === 'undefined' || !window.matchMedia) {
     return HEAVY_PANEL_RESIDENCY_BUDGET.desktop
   }
-  return window.matchMedia('(max-width: 768px)').matches
+  return window.matchMedia(MOBILE_QUERY).matches
     ? HEAVY_PANEL_RESIDENCY_BUDGET.mobile
     : HEAVY_PANEL_RESIDENCY_BUDGET.desktop
+}
+
+function useResidencyBudget(): number {
+  const [budget, setBudget] = useState(residencyBudget)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const query = window.matchMedia(MOBILE_QUERY)
+    const onChange = (): void => setBudget(
+      query.matches ? HEAVY_PANEL_RESIDENCY_BUDGET.mobile : HEAVY_PANEL_RESIDENCY_BUDGET.desktop,
+    )
+    onChange()
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', onChange)
+      return () => query.removeEventListener('change', onChange)
+    }
+    query.addListener?.(onChange)
+    return () => query.removeListener?.(onChange)
+  }, [])
+
+  return budget
 }
 
 /**
@@ -33,12 +56,13 @@ function residencyBudget(): number {
 export function useWarmSet(allSessionIds: SessionId[], activeIds: SessionId[]): Set<SessionId> {
   const recency = useRef<SessionId[]>([])
   const [warm, setWarm] = useState<Set<SessionId>>(() => new Set(activeIds))
+  const budget = useResidencyBudget()
   // Recompute whenever the active pane(s) or the open-session set changes.
   const key = `${activeIds.join(',')}|${allSessionIds.join(',')}`
   useEffect(() => {
     recency.current = updateRecency(recency.current, activeIds, allSessionIds)
-    setWarm(computeWarmSet(recency.current, activeIds, residencyBudget()))
+    setWarm(computeWarmSet(recency.current, activeIds, budget))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  }, [key, budget])
   return warm
 }

@@ -13,14 +13,22 @@ function P({ all, active }: { all: SessionId[]; active: SessionId[] }): JSX.Elem
 
 let container: HTMLDivElement
 let root: Root
+let media: {
+  matches: boolean
+  listeners: Set<() => void>
+}
 
 beforeEach(() => {
   // Force the narrow-device residency budget: max-width:768px matches. This is
   // the hook's only non-redundant behavior over warm-set.test.ts.
-  vi.stubGlobal(
-    'matchMedia',
-    vi.fn(() => ({ matches: true })),
-  )
+  media = { matches: true, listeners: new Set() }
+  vi.stubGlobal('matchMedia', vi.fn(() => ({
+    get matches() {
+      return media.matches
+    },
+    addEventListener: (_event: string, listener: () => void) => media.listeners.add(listener),
+    removeEventListener: (_event: string, listener: () => void) => media.listeners.delete(listener),
+  })))
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -75,5 +83,21 @@ describe('useWarmSet', () => {
       [20, 3],
     ])
     expect([...warm].sort()).toEqual(['s18', 's19', 's20'])
+  })
+
+  it('recomputes residency immediately when the viewport crosses the breakpoint', () => {
+    const all = Array.from({ length: 5 }, (_, i) => asSessionId(`s${i + 1}`))
+    media.matches = false
+    for (let i = 1; i <= 3; i++) {
+      act(() => root.render(<P all={all} active={[asSessionId(`s${i}`)]} />))
+    }
+    expect(new Set(warmAttr().split(',').filter(Boolean)).size).toBe(3)
+
+    media.matches = true
+    act(() => {
+      for (const listener of media.listeners) listener()
+    })
+
+    expect(new Set(warmAttr().split(',').filter(Boolean)).size).toBe(2)
   })
 })

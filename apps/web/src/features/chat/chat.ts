@@ -36,10 +36,11 @@ export {
  * The transcript window can be paged much deeper than the rendered chat, and a
  * long-running session may mention an unbounded number of files. Keeping a
  * bounded recent index prevents path metadata from becoming a second, hidden
- * transcript. The terminal's cwd-relative extension fallback still links
- * ordinary paths that fall outside this recent index.
+ * transcript. Keep more entries than the terminal's 5,000-line scrollback can
+ * display so a path still visible in the buffer is not evicted merely because
+ * the transcript mentioned more than 4,096 unique paths.
  */
-export const FILE_LINK_PATH_CAP = 4_096
+export const FILE_LINK_PATH_CAP = 8_192
 
 /**
  * Incrementally owns the path set consumed by the terminal file-link provider.
