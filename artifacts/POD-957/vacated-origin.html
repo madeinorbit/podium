@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vacated origin — POD-959 as signpost</title>
+    <style>
+      :root {
+        --ink: #16171a;
+        --panel: #1b1d21;
+        --column: #191a1e;
+        --card: #23262d;
+        --chip: #252830;
+        --strong: #f2f3f5;
+        --text: #d7dae0;
+        --muted: #a8adb6;
+        --dim: #848a94;
+        --faint: #6f7580;
+        --seam: #26292f;
+        --hair: #24272d;
+        --border: #3a3f48;
+        --yellow: #f5c518;
+        --gold: #e3ba52;
+        --live: #6f9dff;
+        --success: #1d4ed8;
+        --issue: #6f9dff;
+        font-family: "Geist", "IBM Plex Sans", "Segoe UI", sans-serif;
+        font-size: 13px;
+        color: var(--text);
+        background: #101114;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(900px 420px at 10% -10%, color-mix(in oklab, var(--issue) 12%, transparent), transparent 60%),
+          #101114;
+      }
+      .page { max-width: 1180px; margin: 0 auto; padding: 28px 22px 64px; }
+      h1 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+        color: var(--strong);
+        letter-spacing: -0.02em;
+      }
+      .lede {
+        max-width: 62ch;
+        margin: 8px 0 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+      .switch {
+        display: inline-flex;
+        margin: 22px 0 18px;
+        padding: 3px;
+        border-radius: 8px;
+        background: #111215;
+        box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.45);
+      }
+      .switch button {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--dim);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 550;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .switch button[aria-pressed="true"] {
+        background: var(--chip);
+        color: var(--strong);
+      }
+      .stage {
+        display: grid;
+        grid-template-columns: 220px 300px minmax(280px, 1fr);
+        gap: 10px;
+        align-items: stretch;
+      }
+      @media (max-width: 900px) {
+        .stage { grid-template-columns: 1fr; }
+      }
+      .col {
+        background: var(--column);
+        border: 1px solid var(--seam);
+        border-radius: 10px;
+        min-height: 520px;
+        overflow: hidden;
+        position: relative;
+      }
+      .col.deck {
+        background:
+          linear-gradient(180deg, color-mix(in oklab, var(--issue) 14%, var(--column)) 0%, var(--column) 220px);
+      }
+      .col-label {
+        font-family: ui-monospace, "Geist Mono", monospace;
+        font-size: 9px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--faint);
+        padding: 10px 12px 6px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        font-size: 12px;
+      }
+      .row.sel { background: color-mix(in oklab, var(--issue) 10%, transparent); }
+      .row .ref { font-family: ui-monospace, monospace; font-size: 11px; color: var(--dim); }
+      .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pill {
+        font-family: ui-monospace, monospace;
+        font-size: 9.5px;
+        color: var(--gold);
+        border: 1px solid color-mix(in oklab, var(--gold) 45%, transparent);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      .pill.quiet { color: var(--faint); border-color: var(--border); }
+      .pill.live { color: var(--live); border-color: color-mix(in oklab, var(--live) 45%, transparent); }
+      .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 32px;
+        padding: 0 16px;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .title {
+        margin: 0;
+        padding: 4px 16px 0;
+        font-size: 17px;
+        font-weight: 600;
+        color: var(--strong);
+        letter-spacing: -0.02em;
+      }
+      .desc {
+        margin: 8px 16px 0;
+        color: var(--muted);
+        line-height: 1.6;
+        font-size: 12px;
+      }
+      .gauge {
+        margin: 12px 16px 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .track {
+        flex: 1;
+        height: 24px;
+        border-radius: 8px;
+        background: #101114;
+        box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.5);
+        padding: 2px;
+      }
+      .band {
+        height: 100%;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: ui-monospace, monospace;
+        font-size: 9px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: color-mix(in oklab, var(--live) 26%, transparent);
+        box-shadow: inset 0 -2px 0 var(--live);
+        color: var(--strong);
+      }
+      .crew {
+        font-family: ui-monospace, monospace;
+        font-size: 10.5px;
+        color: var(--dim);
+        background: var(--chip);
+        border-radius: 8px;
+        padding: 5px 8px;
+        white-space: nowrap;
+      }
+      .modes {
+        display: flex;
+        align-items: center;
+        height: 32px;
+        border-top: 1px solid var(--hair);
+        border-bottom: 1px solid var(--hair);
+        padding-left: 24px;
+        gap: 4px;
+        color: var(--faint);
+        font-size: 11px;
+      }
+      .modes .on {
+        color: var(--strong);
+        box-shadow: inset 0 -2px 0 var(--issue);
+        padding: 0 8px;
+        align-self: stretch;
+        display: flex;
+        align-items: center;
+      }
+      .body {
+        padding: 18px 16px;
+        color: var(--dim);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+      .card {
+        margin: 12px 12px 0;
+        border: 1px solid var(--border);
+        background: color-mix(in oklab, var(--card) 70%, transparent);
+        border-radius: 8px;
+        padding: 12px;
+      }
+      .card h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--strong); }
+      .card p { margin: 6px 0 0; font-size: 11px; color: var(--dim); line-height: 1.5; }
+      .actions { display: flex; gap: 8px; margin-top: 12px; }
+      .btn {
+        appearance: none;
+        border: 0;
+        height: 28px;
+        padding: 0 10px;
+        border-radius: 6px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 550;
+        cursor: pointer;
+      }
+      .btn.primary { background: var(--yellow); color: var(--ink); }
+      .btn.ghost { background: var(--chip); color: var(--text); }
+      .depart {
+        margin: 16px 16px 0;
+        padding-top: 8px;
+        border-top: 1px solid var(--hair);
+        font-family: ui-monospace, monospace;
+        font-size: 10.5px;
+        color: var(--faint);
+      }
+      .depart .item {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 6px;
+        color: var(--muted);
+      }
+      .depart .item b { font-weight: 500; color: var(--text); }
+      .tabs {
+        display: flex;
+        gap: 2px;
+        padding: 8px 10px 0;
+        border-bottom: 1px solid var(--hair);
+        min-height: 36px;
+      }
+      .tab {
+        font-size: 12px;
+        padding: 6px 10px;
+        color: var(--dim);
+        border-radius: 6px 6px 0 0;
+      }
+      .tab.on { background: var(--card); color: var(--strong); }
+      .empty {
+        padding: 48px 20px;
+        color: var(--faint);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+      .callout {
+        margin-top: 18px;
+        max-width: 70ch;
+        color: var(--muted);
+        line-height: 1.55;
+        font-size: 12.5px;
+      }
+      .callout strong { color: var(--strong); font-weight: 600; }
+      .hidden { display: none !important; }
+      .note {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--faint);
+        font-family: ui-monospace, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>A vacated origin is a signpost</h1>
+      <p class="lede">
+        Opening POD-959 after the agent hopscotched to POD-963. The session never
+        ended. The origin should send you to the live tip, not ask you to review emptiness.
+      </p>
+
+      <div class="switch" role="tablist" aria-label="State">
+        <button type="button" id="now" aria-pressed="true">Now</button>
+        <button type="button" id="next" aria-pressed="false">Proposed</button>
+      </div>
+
+      <div class="stage" data-mode="now">
+        <section class="col" aria-label="Sidebar">
+          <div class="col-label">Work</div>
+          <div class="row">
+            <span class="ref">956</span>
+            <span class="name">Ignore artifact dumps</span>
+            <span class="pill">review</span>
+          </div>
+          <div class="row sel" data-now>
+            <span class="ref">959</span>
+            <span class="name">Dest converge missing target</span>
+            <span class="pill">needs review</span>
+          </div>
+          <div class="row sel hidden" data-next>
+            <span class="ref">959</span>
+            <span class="name">Dest converge missing target</span>
+            <span class="pill quiet">→ 963</span>
+          </div>
+          <div class="row">
+            <span class="ref">963</span>
+            <span class="name">Dest web rebuild exit</span>
+            <span class="pill live">working</span>
+          </div>
+        </section>
+
+        <section class="col deck" aria-label="Flight deck">
+          <div class="eyebrow">
+            <span>◆</span>
+            <span>POD-959</span>
+            <span>review</span>
+          </div>
+          <h2 class="title">Dest converge missing target</h2>
+          <p class="desc">
+            Update Podium fails with no dest target because dest identity is shown
+            on /version but never copied into the update service.
+          </p>
+          <div class="gauge" data-now>
+            <div class="track"><div class="band">1 running</div></div>
+            <div class="crew">0 agents</div>
+          </div>
+          <div class="modes"><span class="on">Full spine</span><span>Active</span><span>Needs you</span></div>
+          <div class="body" data-now>Review ready · session ended</div>
+          <div class="card hidden" data-next>
+            <h3>Work continued in POD-963</h3>
+            <p>No session remains here. Dest web rebuild is in progress.</p>
+            <div class="actions">
+              <button class="btn primary" type="button">Open POD-963</button>
+              <button class="btn ghost" type="button">Tuck away</button>
+            </div>
+          </div>
+          <div class="depart hidden" data-next>
+            Left this mission
+            <div class="item">↗ <b>POD-963</b> Dest web rebuild exit <span style="margin-left:auto;color:var(--live)">working</span></div>
+          </div>
+        </section>
+
+        <section class="col" aria-label="Workspace">
+          <div class="col-label">Tabs</div>
+          <div class="tabs" data-now>
+            <div class="tab on">POD-945-A · Dest bun path</div>
+          </div>
+          <div class="tabs hidden" data-next></div>
+          <div class="empty" data-now>
+            The session on this tab belongs to POD-963. Its birth name is still
+            POD-945-A, so 959 looks occupied when it is not.
+          </div>
+          <div class="empty hidden" data-next>
+            No views on this task. Opening the origin does not keep a foreign session.
+          </div>
+          <div class="card hidden" data-next style="margin: 12px">
+            <h3>Checkout follows pending work</h3>
+            <p>
+              Dirty or unmerged → the existing tree is re-keyed onto the new
+              issue. Already merged and clean → mint from main, and release the
+              old checkout so it does not sit five behind.
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <p class="callout" id="caption">
+        <strong>Now.</strong> Review-ready, empty, “1 running / 0 agents,” and a leftover
+        tab for a session that lives two hops away. Nothing names POD-963.
+      </p>
+      <p class="note">
+        Chain: POD-945-A was born on 945, then 959 → 962 (done) → 963 (working).
+        The live tip is 963.
+      </p>
+    </div>
+    <script>
+      const now = document.getElementById("now");
+      const next = document.getElementById("next");
+      const caption = document.getElementById("caption");
+      const apply = (mode) => {
+        now.setAttribute("aria-pressed", String(mode === "now"));
+        next.setAttribute("aria-pressed", String(mode === "next"));
+        document.querySelectorAll("[data-now]").forEach((el) => el.classList.toggle("hidden", mode !== "now"));
+        document.querySelectorAll("[data-next]").forEach((el) => el.classList.toggle("hidden", mode !== "next"));
+        caption.innerHTML =
+          mode === "now"
+            ? "<strong>Now.</strong> Review-ready, empty, “1 running / 0 agents,” and a leftover tab for a session that lives two hops away. Nothing names POD-963."
+            : "<strong>Proposed.</strong> 959 is a quiet signpost. The deck’s one action is Open POD-963. The gauge and leftover tab are gone. Archive stays your choice.";
+      };
+      now.addEventListener("click", () => apply("now"));
+      next.addEventListener("click", () => apply("next"));
+    </script>
+  </body>
+</html>

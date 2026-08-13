@@ -19,8 +19,11 @@ import {
   coordinatorCount,
   deckIssueState,
   type FlightDeckRow,
+  issueContinuation,
   issueNeedsHuman,
   issueNote,
+  isVacatedOrigin,
+  liveSpinOffTip,
   type MissionProgress,
   missionCrewLabel,
   missionDepartures,
@@ -377,6 +380,24 @@ describe('missionDepartures', () => {
     expect(
       missionDepartures([...base, departed({ closedReason: 'wontfix' })], sessions, 'root'),
     ).toEqual([])
+  })
+
+  it('on an empty origin, names the live tip even when the first hop is done', () => {
+    const empty = [issue('root'), issue('c1', { parentId: 'root' })]
+    const mid = departed({
+      id: 'mid',
+      seq: 962,
+      stage: 'done',
+      closedReason: 'done',
+      deps: [{ id: 'c1', type: 'discovered-from' }],
+    })
+    const tip = issue('tip', {
+      seq: 963,
+      stage: 'in_progress',
+      deps: [{ id: 'mid', type: 'discovered-from' }],
+    })
+    const out = missionDepartures([...empty, mid, tip], [sess('s-tip', { issueId: 'tip' })], 'root')
+    expect(out.map((d) => [d.issue.id, d.originId])).toEqual([['tip', 'c1']])
   })
 
   it('ignores work discovered from some OTHER mission', () => {
@@ -790,6 +811,24 @@ describe('missionProgress', () => {
 
   it.each(cases)('reports %s', (_name, issues, expected) => {
     expect(missionProgress(issues, [], issues[0]?.id ?? null)).toEqual(expected)
+  })
+
+  it('does not count an empty hopscotch origin as a running unit', () => {
+    const origin = issue('root', {
+      stage: 'review',
+      dependents: [{ id: 'tip', type: 'discovered-from' }],
+    })
+    const tip = issue('tip', {
+      stage: 'in_progress',
+      deps: [{ id: 'root', type: 'discovered-from' }],
+    })
+    expect(missionProgress([origin, tip], [sess('s-tip', { issueId: 'tip' })], 'root')).toEqual({
+      total: 0,
+      done: 0,
+      run: 0,
+      block: 0,
+      wait: 0,
+    })
   })
 
   it('the segments always sum to the total, so the bar can never overflow', () => {
@@ -1499,6 +1538,40 @@ describe('presenceNote', () => {
       text: 'Work continued in #15',
       attention: false,
     })
+  })
+
+  it('names the live spin-off tip instead of calling an empty review ended', () => {
+    const origin = issue('a', {
+      seq: 959,
+      stage: 'review',
+      dependents: [{ id: 'mid', type: 'discovered-from' }],
+    })
+    const mid = issue('mid', {
+      seq: 962,
+      stage: 'done',
+      closedReason: 'done',
+      deps: [{ id: 'a', type: 'discovered-from' }],
+    })
+    const tip = issue('tip', {
+      seq: 963,
+      stage: 'in_progress',
+      deps: [{ id: 'mid', type: 'discovered-from' }],
+    })
+    const sessions = [sess('s-tip', { issueId: 'tip' })]
+    const byId = index([origin, mid, tip])
+    expect(presenceNote(origin, [], byId)).toEqual({
+      kind: 'moved',
+      text: 'Work continued in #963',
+      attention: false,
+    })
+    expect(issueContinuation(origin, byId, sessions)).toMatchObject({
+      kind: 'spinoff',
+      short: '#963',
+      full: 'Work continued in #963',
+    })
+    expect(isVacatedOrigin(origin, [], byId)).toBe(true)
+    expect(issueNeedsHuman(origin, [], byId)).toBe(false)
+    expect(liveSpinOffTip(origin, byId, sessions)?.id).toBe('tip')
   })
 
   // Total over the stage vocabulary: an unhandled stage used to fall through to

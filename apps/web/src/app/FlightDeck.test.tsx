@@ -378,6 +378,46 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     expect(harness.setIssueTucked).toHaveBeenCalledWith('root', true)
   })
 
+  it('turns a hopscotch-empty origin into a signpost to the live tip', () => {
+    harness.issues = [
+      issue('root', {
+        seq: 959,
+        displayRef: 'POD-959',
+        title: 'Dest converge missing target',
+        stage: 'review',
+        dependents: [{ id: 'mid', type: 'discovered-from' }],
+      }),
+      issue('mid', {
+        seq: 962,
+        displayRef: 'POD-962',
+        title: 'Dest web bun path',
+        stage: 'done',
+        closedReason: 'done',
+        deps: [{ id: 'root', type: 'discovered-from' }],
+      }),
+      issue('tip', {
+        seq: 963,
+        displayRef: 'POD-963',
+        title: 'Dest web rebuild exit',
+        stage: 'in_progress',
+        deps: [{ id: 'mid', type: 'discovered-from' }],
+      }),
+    ]
+    harness.sessions = [session('s-tip', { issueId: 'tip', name: 'Dest web rebuild' })]
+
+    deck()
+
+    const card = screen.getByTestId('flight-continuation')
+    expect(card.textContent).toContain('Work continued in POD-963')
+    expect(card.textContent).toContain('No session remains here.')
+    expect(card.textContent).not.toContain('session ended')
+    expect(screen.getByText('Left this mission')).toBeTruthy()
+    expect(screen.getByTestId('flight-departure').textContent).toContain('POD-963')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open POD-963' }))
+    expect(harness.setSelectedIssueId).toHaveBeenCalledWith('tip')
+  })
+
   it('sinks proposals into their own tail, with no tree guide', () => {
     deck()
     const proposed = screen.getByTestId('flight-proposed')

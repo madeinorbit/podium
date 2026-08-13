@@ -411,7 +411,7 @@ function SpineRow({
   onOpenSession: (s: SessionMeta) => void
 }) {
   const state = deckIssueState(row.issue, row.sessions, byId)
-  const note = issueNote(row.issue, byId)
+  const note = issueNote(row.issue, byId, row.sessions)
   const bands = folded ? [] : deckSessions(row, mode)
   // The seat is held for work that could be picked up — never under a proposal,
   // and never to restate a dependency the strip has already named above it.

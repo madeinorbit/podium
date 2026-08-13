@@ -1219,7 +1219,7 @@ const TaskRow = memo(function TaskRow({
   const proposed = row.issue.stage === 'proposed'
   const bandHeight = proposed ? PROPOSED_BAND : BAND_HEIGHT
   const mid = proposed ? PROPOSED_MID : BAND_MID
-  const note = issueNote(row.issue, byId)
+  const note = issueNote(row.issue, byId, row.sessions)
   // The seat is held for work that could be picked up — never under a proposal,
   // and never to restate a dependency the strip has already named above it.
   const seat = proposed ? null : seatFor(presenceNote(row.issue, row.sessions, byId))
@@ -1660,7 +1660,9 @@ export function ContinuationCard({
         <div className="min-w-0 flex-1">
           <p className="shell-type-secondary font-semibold text-text-strong">{continuation.full}</p>
           <p className="shell-type-micro mt-1 text-text-dim">
-            No session remains on this closed task.
+            {continuation.kind === 'spinoff'
+              ? 'No session remains here.'
+              : 'No session remains on this closed task.'}
             {target ? ` Continue with ${target.title}.` : ''}
           </p>
         </div>
@@ -1900,8 +1902,8 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * hiding what that view had just promised to show.
    */
   const rootRow = rows[0]
-  const rootContinuation = root ? issueContinuation(root, byId) : null
-  const rootNote = root ? issueNote(root, byId) : null
+  const rootContinuation = root ? issueContinuation(root, byId, sessions) : null
+  const rootNote = root ? issueNote(root, byId, sessions) : null
   const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
   const rootSeat = rootRow ? seatFor(presenceNote(rootRow.issue, rootRow.sessions, byId)) : null
   /**
@@ -2169,7 +2171,8 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const menuIssue = issueMenu ? issues.find((issue) => issue.id === issueMenu.id) : undefined
 
   const tuckResolvedRoot = (): void => {
-    if (!root || (!root.closedReason && root.stage !== 'done')) return
+    if (!root) return
+    if (!rootContinuation && !root.closedReason && root.stage !== 'done') return
     void setIssueTucked(root.id, true)
   }
   const selectSession = (
@@ -2506,12 +2509,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   onOpen={openDeparture}
                   onTuck={tuckResolvedRoot}
                 />
-              ) : (
+              ) : rootSessions.length > 0 ? null : (
                 <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                  {rootRow && rootRow.sessions.length > 0
-                    ? 'No sub-tasks yet — this mission is the whole of it.'
-                    : presenceNote(root, rootRow?.sessions ?? [], byId)?.text ||
-                      'No sessions or sub-tasks are attached.'}
+                  {presenceNote(root, rootRow?.sessions ?? [], byId)?.text ||
+                    'No sessions or sub-tasks are attached.'}
                 </p>
               ))}
             {/* THE SECTIONS BELOW THE TREE. Siblings, in a flat stack, so the

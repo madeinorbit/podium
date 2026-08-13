@@ -176,7 +176,7 @@ export function UnifiedIssueRow({
   // A closed handoff points FORWARD. That answer outranks the provenance tick:
   // an old row saying only "done ⤷ 766" explains its ancestry but gives no
   // route to the task where the work actually continued.
-  const continuation = issueContinuation(issue, issueById)
+  const continuation = issueContinuation(issue, issueById, allSessions)
   const continuationStatus = continuation
     ? continuation.full.charAt(0).toLowerCase() + continuation.full.slice(1)
     : null

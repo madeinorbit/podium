@@ -195,12 +195,13 @@ export function sessionNeedsHuman(session: SessionMeta): boolean {
 export function issueNeedsHuman(
   issue: IssueNavigationModel,
   sessions: readonly SessionMeta[],
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): boolean {
-  return (
-    issue.needsHuman === true ||
-    issue.stage === 'review' ||
-    sessions.some((session) => !session.archived && sessionNeedsHuman(session))
-  )
+  if (issue.needsHuman === true) return true
+  if (sessions.some((session) => !session.archived && sessionNeedsHuman(session))) return true
+  // An empty review whose session hopscotched is a signpost, not a review item.
+  if (issue.stage === 'review' && isVacatedOrigin(issue, sessions, byId)) return false
+  return issue.stage === 'review'
 }
 
 export function missionRootFor(
@@ -254,6 +255,71 @@ const UNSTARTED = new Set(['proposed', 'backlog'])
  */
 export function hasLeftMission(issue: IssueNavigationModel): boolean {
   return !UNSTARTED.has(issue.stage) && spinOffOriginId(issue) !== null
+}
+
+function spinOffDescendants(
+  originId: string,
+  byId: ReadonlyMap<string, IssueNavigationModel>,
+): IssueNavigationModel[] {
+  const out: IssueNavigationModel[] = []
+  const seen = new Set<string>()
+  const stack = [originId]
+  while (stack.length > 0) {
+    const id = stack.pop() as string
+    for (const issue of byId.values()) {
+      if (seen.has(issue.id) || issue.archived || issue.deletedAt) continue
+      if (spinOffOriginId(issue) !== id) continue
+      seen.add(issue.id)
+      out.push(issue)
+      stack.push(issue.id)
+    }
+  }
+  return out
+}
+
+function lastActiveAt(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): string {
+  let latest = issue.updatedAt ?? ''
+  for (const session of sessions) {
+    if (session.issueId !== issue.id || session.archived) continue
+    if (session.lastActiveAt > latest) latest = session.lastActiveAt
+  }
+  return latest
+}
+
+/**
+ * Where the work went after a hopscotch spin-off.
+ *
+ * Walks outgoing `discovered-from` edges that have LEFT the origin (started
+ * spin-offs). Prefers a descendant that still has a live session, then an
+ * unfinished one, then the latest hop even if it is done — so an empty origin
+ * always has a name to print instead of a blank deck.
+ */
+export function liveSpinOffTip(
+  origin: Pick<IssueNavigationModel, 'id'>,
+  byId: ReadonlyMap<string, IssueNavigationModel> | undefined,
+  sessions: readonly SessionMeta[] = [],
+): IssueNavigationModel | null {
+  if (!byId) return null
+  const left = spinOffDescendants(origin.id, byId).filter(hasLeftMission)
+  if (left.length === 0) return null
+  const staffed = left.filter((issue) =>
+    sessions.some((session) => session.issueId === issue.id && openSession(session)),
+  )
+  const pool = staffed.length > 0 ? staffed : left.filter((issue) => !issue.closedReason && issue.stage !== 'done')
+  const pick = (pool.length > 0 ? pool : left).slice()
+  pick.sort((a, b) => lastActiveAt(b, sessions).localeCompare(lastActiveAt(a, sessions)))
+  return pick[0] ?? null
+}
+
+/** Sessionless, and the work continued on a started spin-off. A signpost, not a task. */
+export function isVacatedOrigin(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionMeta[],
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): boolean {
+  if (sessions.some((session) => session.issueId === issue.id && openSession(session))) return false
+  if (liveSpinOffTip(issue, byId, sessions)) return true
+  return (issue.dependents ?? []).some((dep) => dep.type === 'discovered-from')
 }
 
 export function missionIssueIds(
@@ -382,8 +448,14 @@ export function missionProgress(
   // remaining — leaving it in `members` is how a working parent with three
   // discoveries read as "3 to go". A root that is itself archived is already
   // out of `scope`, so the fallback never resurrects it.
+  const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
   const members = scope.filter((issue) => issue.id !== rootId && issue.stage !== 'proposed')
-  const units = members.length > 0 ? members : scope.filter((issue) => issue.id === rootId)
+  const units = (members.length > 0 ? members : scope.filter((issue) => issue.id === rootId)).filter(
+    (issue) => {
+      const own = sessions.filter((session) => session.issueId === issue.id)
+      return !isVacatedOrigin(issue, own, byId)
+    },
+  )
   let done = 0
   let run = 0
   let block = 0
@@ -428,10 +500,12 @@ export interface MissionDeparture {
  * departure — provenance without membership. It is not a task: it holds no
  * seat, wears no mark, and carries no weight in `missionProgress`.
  *
- * FINISHED DEPARTURES ARE DROPPED. The tick exists so the operator can find
- * work that is still happening somewhere else; a done spin-off is answered by
- * the issue's own Relations block, and keeping it here would grow the mission's
- * footer forever with rows nobody can act on.
+ * FINISHED DEPARTURES ARE DROPPED when the origin still has a session — the
+ * tick exists so the operator can find work that is still happening somewhere
+ * else, and a done spin-off is then answered by the issue's own Relations
+ * block. An EMPTY origin is different: dropping the finished hop is what left
+ * POD-959 silent after the session moved on to a grandchild. In that case the
+ * tick names the live tip, even if every hop in between is done.
  */
 export function missionDepartures(
   issues: readonly IssueNavigationModel[],
@@ -445,15 +519,19 @@ export function missionDepartures(
   const worktreePaths = [...allWorktreePaths]
   const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
   const out: MissionDeparture[] = []
-  for (const issue of issues) {
-    if (issue.archived || issue.deletedAt || ids.has(issue.id)) continue
-    if (issue.stage === 'done' || issue.closedReason) continue
-    const originId = hasLeftMission(issue) ? spinOffOriginId(issue) : null
-    if (!originId || !ids.has(originId)) continue
+  const seen = new Set<string>()
+  for (const origin of issues) {
+    if (!ids.has(origin.id) || origin.archived || origin.deletedAt) continue
+    const tip = liveSpinOffTip(origin, byId, sessions)
+    if (!tip || ids.has(tip.id) || seen.has(tip.id)) continue
+    const originSessions = sessionsForIssue(origin, sessionList, worktreePaths)
+    const originEmpty = !originSessions.some(openSession)
+    if (!originEmpty && (tip.stage === 'done' || tip.closedReason)) continue
+    seen.add(tip.id)
     out.push({
-      issue,
-      originId,
-      state: deckIssueState(issue, sessionsForIssue(issue, sessionList, worktreePaths), byId),
+      issue: tip,
+      originId: origin.id,
+      state: deckIssueState(tip, sessionsForIssue(tip, sessionList, worktreePaths), byId),
     })
   }
   return out.sort((a, b) => a.issue.seq - b.issue.seq)
@@ -1012,7 +1090,7 @@ export interface PresenceNote {
  * still explains the lifecycle without leaking an internal id.
  */
 export interface IssueContinuation {
-  kind: 'superseded' | 'duplicate'
+  kind: 'superseded' | 'duplicate' | 'spinoff'
   target?: IssueNavigationModel
   short: string
   full: string
@@ -1021,24 +1099,41 @@ export interface IssueContinuation {
 export function issueContinuation(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
+  sessions: readonly SessionMeta[] = [],
 ): IssueContinuation | null {
   const targetId = issue.supersededBy ?? issue.duplicateOf
-  if (!targetId) return null
-  const target = byId?.get(targetId)
-  const ref = target ? issueDisplayRef(target) : 'another task'
-  return issue.supersededBy
-    ? {
-        kind: 'superseded',
-        ...(target ? { target } : {}),
-        short: ref,
-        full: `Work continued in ${ref}`,
-      }
-    : {
-        kind: 'duplicate',
-        ...(target ? { target } : {}),
-        short: ref,
-        full: `The same work is tracked in ${ref}`,
-      }
+  if (targetId) {
+    const target = byId?.get(targetId)
+    const ref = target ? issueDisplayRef(target) : 'another task'
+    return issue.supersededBy
+      ? {
+          kind: 'superseded',
+          ...(target ? { target } : {}),
+          short: ref,
+          full: `Work continued in ${ref}`,
+        }
+      : {
+          kind: 'duplicate',
+          ...(target ? { target } : {}),
+          short: ref,
+          full: `The same work is tracked in ${ref}`,
+        }
+  }
+  // Hopscotch: the session left, and a started spin-off is where it went.
+  // Do not fire while an agent is still on THIS task — that is a real mission
+  // that also discovered something, not a signpost. `sessions` may be the
+  // replica-wide slice (the flight deck passes that), so membership is
+  // issueId, not "any live session in the list".
+  if (sessions.some((session) => session.issueId === issue.id && openSession(session))) return null
+  const tip = liveSpinOffTip(issue, byId, sessions)
+  if (!tip) return null
+  const ref = issueDisplayRef(tip)
+  return {
+    kind: 'spinoff',
+    target: tip,
+    short: ref,
+    full: `Work continued in ${ref}`,
+  }
 }
 
 /**
@@ -1068,7 +1163,7 @@ export function presenceNote(
   if (moved) {
     return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
   }
-  const continuation = issueContinuation(issue, byId)
+  const continuation = issueContinuation(issue, byId, sessions)
   if (continuation) {
     return { kind: 'moved', text: continuation.full, attention: false }
   }
@@ -1221,8 +1316,9 @@ export interface IssueNote {
 export function issueNote(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
+  sessions: readonly SessionMeta[] = [],
 ): IssueNote | null {
-  const continuation = issueContinuation(issue, byId)
+  const continuation = issueContinuation(issue, byId, sessions)
   if (continuation) {
     return { kind: 'continued', short: continuation.short, full: continuation.full }
   }
