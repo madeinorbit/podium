@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FirstTaskActivation } from './FirstTaskActivation'
 
 const create = vi.fn()
+const start = vi.fn()
 const login = vi.fn()
 const navigateToSession = vi.fn()
 const uiValues = new Map<string, string>()
@@ -60,7 +61,7 @@ function store() {
         },
       },
       accounts: { login: { mutate: login } },
-      issues: { create: { mutate: create } },
+      issues: { create: { mutate: create }, start: { mutate: start } },
     },
   }
 }
@@ -87,6 +88,7 @@ afterEach(() => {
   uiValues.clear()
   uiSet.mockClear()
   create.mockReset()
+  start.mockReset()
   login.mockReset()
   navigateToSession.mockClear()
   codexLogin = 'in'
@@ -155,6 +157,7 @@ describe('FirstTaskActivation', () => {
     seedDraft()
     const issueId = asIssueId('issue-first')
     create.mockResolvedValue({ id: issueId })
+    start.mockResolvedValue({ id: issueId })
     const onComplete = vi.fn()
 
     render(
@@ -185,16 +188,20 @@ describe('FirstTaskActivation', () => {
         defaultAgent: 'codex',
         defaultModel: 'gpt-5.6-sol',
         defaultEffort: 'high',
-        startNow: true,
+        startNow: false,
+        mutationId: expect.any(String),
       }),
     )
+    expect(start).toHaveBeenCalledWith({ id: issueId, mutationId: expect.any(String) })
     expect(onComplete).toHaveBeenCalledWith(issueId)
     expect(uiSet).toHaveBeenLastCalledWith('podium.firstTaskActivation.draft', null)
   })
 
   it('keeps the composer and activation incomplete when task start fails', async () => {
     seedDraft({ title: 'Retry me', description: 'This must survive.' })
-    create.mockRejectedValue(new Error('agent did not start'))
+    const issueId = asIssueId('issue-retry')
+    create.mockResolvedValue({ id: issueId })
+    start.mockRejectedValueOnce(new Error('agent did not start')).mockResolvedValue({ id: issueId })
     const onComplete = vi.fn()
 
     render(
@@ -211,5 +218,11 @@ describe('FirstTaskActivation', () => {
     expect((screen.getByLabelText('Task title') as HTMLInputElement).value).toBe('Retry me')
     expect(onComplete).not.toHaveBeenCalled()
     expect(uiValues.get('podium.firstTaskActivation.draft')).toContain('This must survive.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry starting task' }))
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(issueId))
+    expect(create).toHaveBeenCalledOnce()
+    expect(start).toHaveBeenCalledTimes(2)
+    expect(start.mock.calls[1]?.[0]).toEqual(start.mock.calls[0]?.[0])
   })
 })

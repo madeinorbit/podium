@@ -130,7 +130,7 @@ export function OnboardingWizard({
       description="Add a project, connect this device to an existing installation, or look around first. Activation will keep your place until you choose."
       onExplore={onExplore}
     >
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="max-w-[860px] divide-y divide-border/70">
         <LocalProjectChoice onSelect={() => onRouteChange('local-project')} />
         <ExistingPodiumChoice onSelect={() => onRouteChange('existing-podium')} />
         <AlwaysOnVpsChoice onSelect={() => void onEnterVps('welcome').catch(() => {})} />

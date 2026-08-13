@@ -593,13 +593,15 @@ const defs = {
           assertNotProposedForAgent(ctx, anc, 'start work under')
         }
       }
-      return ctx.gitWorkflow.start(input.id, input.agentKind, {
-        spawnedBy: ctx.spawnProvenance(),
-        // Explicit per-launch choice (POD-1545); persists onto the issue profile.
-        ...(input.defaultModel ? { model: input.defaultModel } : {}),
-        ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
-        ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
-      })
+      return ctx.withMutation(input.mutationId, () =>
+        ctx.gitWorkflow.start(input.id, input.agentKind, {
+          spawnedBy: ctx.spawnProvenance(),
+          // Explicit per-launch choice (POD-1545); persists onto the issue profile.
+          ...(input.defaultModel ? { model: input.defaultModel } : {}),
+          ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
+          ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+        }),
+      )
     },
   }),
   update: def('update', {

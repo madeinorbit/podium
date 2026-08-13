@@ -61,8 +61,10 @@ export function readBooleanState(value: string | null, fallback = false): boolea
  * layout, which a new spelling would not be (`uiStateRoute` is default-closed).
  */
 export function readFlightDeckCollapsed(value: string | null): boolean {
-  // Pre-#65 'closed' persistence folds; absent/corrupt opens.
-  return value === 'folded' || value === 'closed'
+  // New installs start with the deck folded so activation and the first task get
+  // the full stage. Existing explicit preferences still win, including the
+  // legacy `closed` spelling.
+  return value === null || value === 'folded' || value === 'closed'
 }
 
 export function readRightPanel(value: string | null): RightPanelTab | null {

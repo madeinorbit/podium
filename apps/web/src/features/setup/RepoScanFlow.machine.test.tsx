@@ -31,6 +31,7 @@ const browse = vi.fn(async (input?: { path?: string; machineId?: string }) => {
   }
 })
 const refreshRepos = vi.fn(async () => undefined)
+const uiValues = new Map<string, string>()
 
 const store = {
   machines: [
@@ -61,6 +62,13 @@ const store = {
     },
   },
   refreshRepos,
+  uiState: {
+    get: (key: string) => uiValues.get(key) ?? null,
+    set: (key: string, value: string | null) => {
+      if (value === null) uiValues.delete(key)
+      else uiValues.set(key, value)
+    },
+  },
 }
 
 vi.mock('@/app/store', () => {
@@ -74,6 +82,7 @@ vi.mock('@/app/store', () => {
 
 afterEach(() => {
   cleanup()
+  uiValues.clear()
   vi.clearAllMocks()
 })
 
@@ -188,5 +197,36 @@ describe('RepoScanFlow machine selection', () => {
     )
     await waitFor(() => expect(onDone).toHaveBeenCalledWith(1))
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('restores the onboarding machine and browsed folder after unmount', async () => {
+    const first = render(
+      <RepoScanFlow onClose={() => {}} onDone={() => {}} intro={<span>Start here</span>} />,
+    )
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+    fireEvent.click(screen.getByRole('button', { name: 'This machine' }))
+    fireEvent.click(await screen.findByRole('button', { name: /src/ }))
+    await waitFor(() =>
+      expect(browse).toHaveBeenCalledWith({
+        path: '/home/vmi34/src',
+        includeHidden: false,
+        machineId: 'vmi34',
+      }),
+    )
+    first.unmount()
+    browse.mockClear()
+
+    render(
+      <RepoScanFlow onClose={() => {}} onDone={() => {}} intro={<span>Start here</span>} />,
+    )
+
+    expect(((await screen.findByLabelText('Machine')) as HTMLSelectElement).value).toBe('vmi34')
+    await waitFor(() =>
+      expect(browse).toHaveBeenCalledWith({
+        path: '/home/vmi34/src',
+        includeHidden: false,
+        machineId: 'vmi34',
+      }),
+    )
   })
 })

@@ -1,8 +1,9 @@
 import { asMachineId } from '@podium/model'
 import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
+import { LOCAL_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useStoreSelector } from '@/app/store'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -11,6 +12,51 @@ import { RepoScanResults } from './RepoScanResults'
 import { type MachineScanRepo, type RepoCandidate, rankMachineScanRepos } from './ranking'
 
 type Results = { path: string; candidates: RepoCandidate[] }
+type LocalProjectDraft = {
+  selectedMachineId?: string
+  browsePath?: string
+  source?: 'github' | 'local'
+  results?: Results
+  selectedPaths?: string[]
+}
+
+function readLocalProjectDraft(raw: string | null | undefined): LocalProjectDraft {
+  if (!raw) return {}
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>
+    const results = value.results as Partial<Results> | undefined
+    const candidates = Array.isArray(results?.candidates)
+      ? results.candidates.filter(
+          (candidate): candidate is RepoCandidate =>
+            candidate !== null &&
+            typeof candidate === 'object' &&
+            typeof (candidate as { path?: unknown }).path === 'string' &&
+            typeof (candidate as { name?: unknown }).name === 'string',
+        )
+      : undefined
+    return {
+      ...(typeof value.selectedMachineId === 'string'
+        ? { selectedMachineId: value.selectedMachineId }
+        : {}),
+      ...(typeof value.browsePath === 'string' && value.browsePath.startsWith('/')
+        ? { browsePath: value.browsePath }
+        : {}),
+      ...(value.source === 'github' || value.source === 'local' ? { source: value.source } : {}),
+      ...(typeof results?.path === 'string' && candidates
+        ? { results: { path: results.path, candidates } }
+        : {}),
+      ...(Array.isArray(value.selectedPaths)
+        ? {
+            selectedPaths: value.selectedPaths.filter(
+              (path): path is string => typeof path === 'string',
+            ),
+          }
+        : {}),
+    }
+  } catch {
+    return {}
+  }
+}
 
 /**
  * The reusable scan-and-select flow: pick a machine, browse ITS directories, and
@@ -35,21 +81,51 @@ export function RepoScanFlow({
   /** Preselect a machine (e.g. the machines panel's per-row "Find repos"). */
   initialMachineId?: MachineId
 }): JSX.Element {
-  const { trpc, refreshRepos, machines } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, refreshRepos: s.refreshRepos, machines: s.machines }),
+  const { trpc, refreshRepos, machines, uiState } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, refreshRepos: s.refreshRepos, machines: s.machines, uiState: s.uiState }),
     shallowEqual,
   )
-  const [results, setResults] = useState<Results | null>(null)
+  const onboarding = intro !== undefined
+  const [initialDraft] = useState<LocalProjectDraft>(() =>
+    onboarding ? readLocalProjectDraft(uiState?.get(LOCAL_PROJECT_INTAKE_DRAFT_KEY)) : {},
+  )
+  const [draft, setDraftState] = useState<LocalProjectDraft>(initialDraft)
+  const [results, setResults] = useState<Results | null>(() => initialDraft.results ?? null)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
-  const [selectedMachineId, setSelectedMachineId] = useState<string | undefined>(initialMachineId)
+  const [selectedMachineId, setSelectedMachineIdState] = useState<string | undefined>(
+    initialMachineId ?? initialDraft.selectedMachineId,
+  )
   // RepoPickerModal closes after a successful direct add/clone. Remember that
   // the close belongs to completion so it cannot also drive the caller's
   // cancel/back route after onDone has advanced activation.
   const committed = useRef(false)
 
+  const persistDraft = useCallback(
+    (patch: Partial<LocalProjectDraft>): void => {
+      if (!onboarding) return
+      setDraftState((current) => {
+        const next = { ...current, ...patch }
+        uiState?.set(LOCAL_PROJECT_INTAKE_DRAFT_KEY, JSON.stringify(next))
+        return next
+      })
+    },
+    [onboarding, uiState],
+  )
+
+  function setSelectedMachineId(machineId: string | undefined): void {
+    setSelectedMachineIdState(machineId)
+    persistDraft({
+      selectedMachineId: machineId,
+      browsePath: undefined,
+      results: undefined,
+      selectedPaths: undefined,
+    })
+  }
+
   function finish(changedCount: number): void {
     committed.current = true
+    if (onboarding) uiState?.set(LOCAL_PROJECT_INTAKE_DRAFT_KEY, null)
     onDone(changedCount)
   }
 
@@ -59,7 +135,13 @@ export function RepoScanFlow({
   // knows its own machineId), then any online machine, then the first known one.
   // A single-machine install has exactly one, and lands on it.
   useEffect(() => {
-    if (selectedMachineId !== undefined || machines.length === 0) return
+    if (
+      machines.length === 0 ||
+      (selectedMachineId !== undefined &&
+        machines.some((machine) => machine.id === selectedMachineId))
+    ) {
+      return
+    }
     const thisDevice = nativeDesktopBridge()?.machineId
     const preferred =
       machines.find((m) => m.id === thisDevice && m.online) ??
@@ -85,7 +167,9 @@ export function RepoScanFlow({
     await refreshRepos()
     const fatal = res.diagnostics.find((d) => d.severity === 'error')
     if (res.repos.length === 0 && fatal) throw new Error(fatal.message || 'Scan failed')
-    setResults({ path, candidates: rankMachineScanRepos(res.repos as MachineScanRepo[]) })
+    const next = { path, candidates: rankMachineScanRepos(res.repos as MachineScanRepo[]) }
+    setResults(next)
+    persistDraft({ results: next, selectedPaths: undefined, browsePath: path })
   }
 
   // Direct add of the browsed repo. The picker closes itself afterward (its
@@ -150,7 +234,10 @@ export function RepoScanFlow({
         onBack={() => {
           setResults(null)
           setAddError(null)
+          persistDraft({ results: undefined, selectedPaths: undefined })
         }}
+        initialSelectedPaths={draft.selectedPaths}
+        onSelectionChange={(selectedPaths) => persistDraft({ selectedPaths })}
       />
     )
   }
@@ -163,7 +250,9 @@ export function RepoScanFlow({
       onPick={addThisFolder}
       onScan={scanFrom}
       onCloneGithub={cloneFromGitHub}
-      initialSource={intro ? 'github' : 'local'}
+      initialSource={draft.source ?? (intro ? 'github' : 'local')}
+      initialPath={draft.browsePath}
+      onProgress={persistDraft}
       machines={machines}
       selectedMachineId={
         selectedMachineId === undefined ? undefined : asMachineId(selectedMachineId)

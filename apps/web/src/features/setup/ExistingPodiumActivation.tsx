@@ -1,6 +1,12 @@
+import {
+  EXISTING_PODIUM_CLIENT_DRAFT_KEY,
+  EXISTING_PODIUM_MACHINE_DRAFT_KEY,
+  type UiState,
+} from '@podium/client-core/ui-state'
 import { ArrowLeft, ArrowRight, Laptop, MonitorUp, Network } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
+import { useStoreSelector } from '@/app/store'
 import { parseServerOrigin, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +30,23 @@ export function normalizeExistingPodiumUrl(value: string): string | null {
   const parsed = parseServerOrigin(value.trim())
   if (!parsed) return null
   return parsed.wsClientUrl.replace(/\/client\?.*$/, '')
+}
+
+/**
+ * Accept either the raw token consumed by setup.join or the ready-to-paste
+ * shell command emitted by MachinePairing. This only reads an argument: the
+ * pasted command is never evaluated or interpolated.
+ */
+export function existingPodiumJoinToken(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (!/\s/u.test(trimmed) && !trimmed.startsWith('--join')) return trimmed
+
+  const matches = [
+    ...trimmed.matchAll(/(?:^|\s)--join(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s'";]+))/gu),
+  ]
+  if (matches.length !== 1) return null
+  return matches[0]?.[1] ?? matches[0]?.[2] ?? matches[0]?.[3] ?? null
 }
 
 function ConnectionError({ error }: { error: string | null }): JSX.Element | null {
@@ -57,10 +80,13 @@ export function ExistingPodiumActivation({
   onExplore: () => void
   onConfigured: () => Promise<void>
 }): JSX.Element {
+  const uiState = useStoreSelector((store) => store.uiState)
+
   if (route === 'existing-client') {
     return (
       <ExistingClientStep
         trpc={trpc}
+        uiState={uiState}
         onBack={() => onRouteChange('existing-podium')}
         onLocalSetup={() => onRouteChange('local-project')}
         onExplore={onExplore}
@@ -73,6 +99,7 @@ export function ExistingPodiumActivation({
     return (
       <ExistingMachineStep
         trpc={trpc}
+        uiState={uiState}
         onBack={() => onRouteChange('existing-podium')}
         onLocalSetup={() => onRouteChange('local-project')}
         onExplore={onExplore}
@@ -149,18 +176,22 @@ function ConnectionChoice({
 
 function ExistingClientStep({
   trpc,
+  uiState,
   onBack,
   onLocalSetup,
   onExplore,
   onConfigured,
 }: {
   trpc: Trpc
+  uiState: Pick<UiState, 'get' | 'set'>
   onBack: () => void
   onLocalSetup: () => void
   onExplore: () => void
   onConfigured: () => Promise<void>
 }): JSX.Element {
-  const [serverUrl, setServerUrl] = useState('')
+  const [serverUrl, setServerUrl] = useState(
+    () => uiState.get(EXISTING_PODIUM_CLIENT_DRAFT_KEY) ?? '',
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -174,6 +205,7 @@ function ExistingClientStep({
     setError(null)
     try {
       await trpc.setup.connect.mutate({ mode: 'client', serverUrl: normalized })
+      uiState.set(EXISTING_PODIUM_CLIENT_DRAFT_KEY, null)
       try {
         await onConfigured()
       } catch {
@@ -209,7 +241,9 @@ function ExistingClientStep({
             value={serverUrl}
             disabled={busy}
             onChange={(event) => {
-              setServerUrl(event.currentTarget.value)
+              const value = event.currentTarget.value
+              setServerUrl(value)
+              uiState.set(EXISTING_PODIUM_CLIENT_DRAFT_KEY, value || null)
               if (error) setError(null)
             }}
           />
@@ -250,18 +284,22 @@ function ExistingClientStep({
 
 function ExistingMachineStep({
   trpc,
+  uiState,
   onBack,
   onLocalSetup,
   onExplore,
   onConfigured,
 }: {
   trpc: Trpc
+  uiState: Pick<UiState, 'get' | 'set'>
   onBack: () => void
   onLocalSetup: () => void
   onExplore: () => void
   onConfigured: () => Promise<void>
 }): JSX.Element {
-  const [joinCode, setJoinCode] = useState('')
+  const [joinCode, setJoinCode] = useState(
+    () => uiState.get(EXISTING_PODIUM_MACHINE_DRAFT_KEY) ?? '',
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
@@ -279,11 +317,17 @@ function ExistingMachineStep({
   }
 
   const join = async (): Promise<void> => {
+    const token = existingPodiumJoinToken(joinCode)
+    if (!token) {
+      setError('Paste a join token or the complete one-line join command.')
+      return
+    }
     setBusy(true)
     setError(null)
     setWarning(null)
     try {
-      const result = await trpc.setup.join.mutate({ code: joinCode.trim() })
+      const result = await trpc.setup.join.mutate({ code: token })
+      uiState.set(EXISTING_PODIUM_MACHINE_DRAFT_KEY, null)
       setMachineName(result.name)
       if (result.warning) {
         setWarning(result.warning)
@@ -315,7 +359,7 @@ function ExistingMachineStep({
                 htmlFor="existing-podium-join"
                 className="text-[13px] font-medium text-foreground"
               >
-                Join code
+                Join token or command
               </label>
               <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
                 In the existing Podium, open Machines, add a machine, and paste its one-line code
@@ -329,11 +373,13 @@ function ExistingMachineStep({
             type="text"
             autoComplete="off"
             spellCheck={false}
-            placeholder="Paste the join code"
+            placeholder="Paste the join token or one-line command"
             value={joinCode}
             disabled={busy || warning !== null}
             onChange={(event) => {
-              setJoinCode(event.currentTarget.value)
+              const value = event.currentTarget.value
+              setJoinCode(value)
+              uiState.set(EXISTING_PODIUM_MACHINE_DRAFT_KEY, value || null)
               if (error) setError(null)
             }}
           />

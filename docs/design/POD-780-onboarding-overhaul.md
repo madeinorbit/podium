@@ -105,13 +105,35 @@ draft throughout detection and authentication.
 The complete product is integrated in this issue worktree as one test target. The implemented
 journey now includes trusted local all-in-one defaults, the revealed and resumable activation
 shell, local and GitHub CLI project intake, truthful agent readiness, the production model and
-effort controls, real `issues.create({ startNow: true })` first-task creation, existing-Podium
-client and joined-machine routes, guided VPS pairing and server transfer, and server-enforced
-mobile readiness gating.
+effort controls, duplicate-safe tracked-task creation followed by idempotent agent start,
+existing-Podium client and joined-machine routes, guided VPS pairing and server transfer, and
+server-enforced mobile readiness gating.
 
-The final combined `bun run test` gate passed on 2026-08-12: 24 of 24 workspace typecheck tasks
-and 72 of 72 configured smoke tests passed. The required multi-instance lane was also attempted by
-the local and mobile boundary workstreams. It reached independent runtimes but then failed at
+The final coordinator audit also exercised the seams between those workstreams rather than
+accepting child completion reports independently. It closed the integration gaps found there:
+
+- GitHub CLI recovery now refreshes automatically when the app regains focus, with missing,
+  logged-out, ready, and draft-preserving recovery states.
+- Remote desktop client/daemon mode consumes the public readiness fact without exposing remote
+  setup mutations, so blocked servers direct users back to the host instead of opening an empty
+  operator shell.
+- Existing-Podium machine setup accepts the actual one-line pairing command, persists URL and join
+  drafts, and retires the old activation URL before restart.
+- Local project discovery restores the selected machine, repository source, browsed folder, scan
+  results, and checkbox selection; successful repository registration clears that checkpoint.
+- VPS exits consume the persisted return route, and safe pre-cutover cancellation waits for
+  authoritative checkpoint removal before navigating.
+- First-task activation creates one tracked issue, stores its identity, and retries an idempotent
+  start command against that same issue. A partial launch failure therefore cannot create a second
+  onboarding task.
+- The activation presentation now gives the first-run stage the available width, starts new
+  Flight Decks folded, uses structured action rows instead of squeezed cards, and keeps VPS
+  recovery explicit with saved-pairing copy and an Explore path.
+
+The final combined `bun run test` gate passed after the coordinator audit on 2026-08-12: 24 of 24
+workspace typecheck tasks and 72 of 72 configured smoke tests passed. The required multi-instance
+lane was also attempted by the local and mobile boundary workstreams. It reached independent
+runtimes but then failed at
 unrelated runner infrastructure points (a Bun 1.3.14/node-pty panic and non-deterministic lifecycle
 request resets), tracked separately as POD-893 and POD-894; no workaround or weakened readiness
 boundary was folded into this feature.

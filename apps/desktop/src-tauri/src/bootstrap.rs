@@ -402,11 +402,10 @@ pub fn server_injection_script(server_url: &str) -> String {
     format!("window.__PODIUM_SERVER__ = {lit};")
 }
 
-/// Remote-mode (client/daemon) injection: point the window at `server_url` AND mark setup as
-/// already done. Without the flag the web SetupGate would probe the REMOTE `/setup/config` —
-/// a cross-origin call an older relay answers without CORS (→ a "can't reach backend" screen),
-/// and SetupView there would POST setup config to the remote. This install's mode is already
-/// chosen, so the client must not gate on (or mutate) the remote's setup state.
+/// Remote-mode (client/daemon) injection: point the window at `server_url` AND tell SetupGate not
+/// to expose the remote's setup mutations. The gate may still read the public readiness fact so
+/// an unconfigured server directs this client back to its host; older relays without that
+/// CORS-enabled endpoint keep their historical pass-through behavior.
 pub fn remote_injection_script(server_url: &str) -> String {
     format!(
         "{}\nwindow.__PODIUM_SKIP_SETUP__ = true;",

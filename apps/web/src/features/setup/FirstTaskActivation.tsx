@@ -1,6 +1,7 @@
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
+import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
-import type { GitRepositoryWire, HarnessAgent, IssueId } from '@podium/model'
+import { asMutationId, type GitRepositoryWire, type HarnessAgent, type IssueId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { ArrowLeft, ArrowRight, Check, FolderGit2, LoaderCircle } from 'lucide-react'
 import type { JSX } from 'react'
@@ -195,20 +196,38 @@ export function FirstTaskActivation({
   }
 
   const startTask = async (): Promise<void> => {
-    if (!selectedRepo || !draft.agent || !ready || !draft.title.trim() || busy) return
+    if (busy) return
+    if (draft.pendingIssueId && !ready) return
+    if (!draft.pendingIssueId && (!selectedRepo || !draft.agent || !ready || !draft.title.trim())) {
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const created = await trpc.issues.create.mutate({
-        repoPath: selectedRepo.path,
-        title: draft.title.trim(),
-        description: draft.description.trim() || undefined,
-        parentBranch: selectedRepo.branch?.trim() || undefined,
-        defaultAgent: draft.agent,
-        defaultModel: draft.model !== AUTO ? draft.model : undefined,
-        defaultEffort: draft.effort !== AUTO ? draft.effort : undefined,
-        startNow: true,
-      })
+      const createMutationId = draft.createMutationId || asMutationId(randomUUID())
+      if (!draft.createMutationId) setDraft({ ...draft, createMutationId })
+      const created = draft.pendingIssueId
+        ? { id: draft.pendingIssueId }
+        : await trpc.issues.create.mutate({
+            repoPath: selectedRepo?.path ?? '',
+            title: draft.title.trim(),
+            description: draft.description.trim() || undefined,
+            parentBranch: selectedRepo?.branch?.trim() || undefined,
+            defaultAgent: draft.agent,
+            defaultModel: draft.model !== AUTO ? draft.model : undefined,
+            defaultEffort: draft.effort !== AUTO ? draft.effort : undefined,
+            startNow: false,
+            mutationId: createMutationId,
+          })
+      const startMutationId = draft.startMutationId || asMutationId(randomUUID())
+      const resumableDraft = {
+        ...draft,
+        createMutationId,
+        pendingIssueId: created.id,
+        startMutationId,
+      }
+      setDraft(resumableDraft)
+      await trpc.issues.start.mutate({ id: created.id, mutationId: startMutationId })
       clearFirstTaskDraft(uiState)
       onComplete(created.id)
     } catch (cause) {
@@ -362,7 +381,7 @@ export function FirstTaskActivation({
         <Input
           aria-label="Task title"
           value={draft.title}
-          disabled={busy}
+          disabled={busy || Boolean(draft.pendingIssueId)}
           onChange={(event) => setDraft({ ...draft, title: event.currentTarget.value })}
           placeholder="What should the agent accomplish?"
           className="border-none px-0 text-[15px] font-medium shadow-none focus-visible:ring-0"
@@ -371,27 +390,37 @@ export function FirstTaskActivation({
         <Textarea
           aria-label="Task context"
           value={draft.description}
-          disabled={busy}
+          disabled={busy || Boolean(draft.pendingIssueId)}
           onChange={(event) => setDraft({ ...draft, description: event.currentTarget.value })}
           placeholder="Add context, constraints, or a clear definition of done…"
           className="mt-2 min-h-36 border-none px-0 shadow-none focus-visible:ring-0"
         />
         <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-3">
-          <ModelPicker
-            agentKind={selectedAgent}
-            value={draft.model}
-            onChange={(model) => setDraft({ ...draft, model, effort: AUTO })}
-          />
-          <EffortPicker
-            agentKind={selectedAgent}
-            model={draft.model}
-            value={draft.effort}
-            onChange={(effort) => setDraft({ ...draft, effort })}
-          />
+          {!draft.pendingIssueId && (
+            <>
+              <ModelPicker
+                agentKind={selectedAgent}
+                value={draft.model}
+                onChange={(model) => setDraft({ ...draft, model, effort: AUTO })}
+              />
+              <EffortPicker
+                agentKind={selectedAgent}
+                model={draft.model}
+                value={draft.effort}
+                onChange={(effort) => setDraft({ ...draft, effort })}
+              />
+            </>
+          )}
           <span className="text-[11px] text-muted-foreground">
             Model and effort come from the same live catalog used by every task composer.
           </span>
         </div>
+        {draft.pendingIssueId && (
+          <p className="mt-3 text-[12px] text-muted-foreground">
+            The tracked task already exists. Retry starts that same task, so a failed launch cannot
+            create a duplicate.
+          </p>
+        )}
         {error && (
           <p role="alert" className="mt-3 text-[12px] text-destructive">
             {error} Your project, agent, and task draft are still saved.
@@ -401,7 +430,7 @@ export function FirstTaskActivation({
           <Button
             type="button"
             variant="ghost"
-            disabled={busy}
+            disabled={busy || Boolean(draft.pendingIssueId)}
             onClick={() => onRouteChange('agent')}
           >
             <ArrowLeft aria-hidden="true" />
@@ -409,12 +438,17 @@ export function FirstTaskActivation({
           </Button>
           <Button
             type="button"
-            disabled={!selectedRepo || !draft.agent || !ready || !draft.title.trim() || busy}
+            disabled={
+              busy ||
+              !ready ||
+              (!draft.pendingIssueId &&
+                (!selectedRepo || !draft.agent || !draft.title.trim()))
+            }
             pending={busy}
             pendingLabel="Starting first task…"
             onClick={() => void startTask()}
           >
-            Start first task
+            {draft.pendingIssueId ? 'Retry starting task' : 'Start first task'}
             <ArrowRight data-icon="inline-end" aria-hidden="true" />
           </Button>
         </div>

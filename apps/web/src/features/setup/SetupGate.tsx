@@ -107,6 +107,26 @@ async function probeSetup(httpOrigin: string): Promise<Exclude<Phase, 'loading' 
   return classifySetupStatus(data, window.location, undefined, localSetupHint)
 }
 
+/** Remote desktop modes must not expose setup mutations, but they still need the server-owned
+ * readiness boundary. Older servers predate the public CORS-enabled endpoint, so an absent,
+ * invalid, or unreachable probe retains their historical pass-through behavior. */
+async function probeRemoteReadiness(
+  httpOrigin: string,
+): Promise<Exclude<Phase, 'loading' | 'unreachable'>> {
+  try {
+    const response = await fetch(`${httpOrigin}/readiness`)
+    if (!response.ok) return 'ready'
+    const status: unknown = await response.json()
+    if (!isServerReadiness(status)) {
+      return status && typeof status === 'object' && 'state' in status ? 'remote-setup' : 'ready'
+    }
+    if (status.state === 'ready' || status.state === 'degraded') return 'ready'
+    return status.state === 'activation_pending' ? 'restart-required' : 'remote-setup'
+  } catch {
+    return 'ready'
+  }
+}
+
 /** Shown after retries are exhausted: the backend never answered, so we cannot tell whether
  *  setup is needed. Better to say so than to silently render the app in an unknown state. */
 /** Gates the app on setup: shows SetupView until a deployment mode is configured. */
@@ -119,12 +139,18 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   // unreachable error. It isn't read in the body, so biome flags it as an extra dependency.
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt only re-triggers the probe on retry
   useEffect(() => {
-    // Client/daemon desktop: the shell already chose this install's mode and pointed us at a
-    // remote server. The remote's setup state is not this client's to read (cross-origin, often
-    // no CORS) or to change (SetupView would POST to the remote), so skip the probe entirely.
+    // Client/daemon desktop: never expose the remote's setup mutations. New servers publish a
+    // CORS-enabled readiness fact so this client can fail closed with host-directed recovery;
+    // older servers without that fact retain the pre-readiness pass-through behavior.
     if ((window as unknown as { __PODIUM_SKIP_SETUP__?: boolean }).__PODIUM_SKIP_SETUP__) {
-      setPhase('ready')
-      return
+      let alive = true
+      setPhase('loading')
+      void probeRemoteReadiness(httpOrigin).then((next) => {
+        if (alive) setPhase(next)
+      })
+      return () => {
+        alive = false
+      }
     }
 
     let alive = true

@@ -46,6 +46,8 @@ export function RepoScanResults({
   error,
   onApply,
   onBack,
+  initialSelectedPaths,
+  onSelectionChange,
 }: {
   scannedPath: string
   candidates: RepoCandidate[]
@@ -53,12 +55,17 @@ export function RepoScanResults({
   error: string | null
   onApply: (changes: { add: string[]; remove: string[] }) => void
   onBack: () => void
+  initialSelectedPaths?: string[]
+  onSelectionChange?: (selectedPaths: string[]) => void
 }): JSX.Element {
   const isMobile = useIsMobile()
   // Registered rows start checked because that IS their state. Nothing else does:
   // a scan should never volunteer repos you did not ask for.
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(candidates.filter(isRegistered).map((c) => c.path)),
+    () =>
+      new Set(
+        initialSelectedPaths ?? candidates.filter(isRegistered).map((candidate) => candidate.path),
+      ),
   )
 
   const groups = useMemo(() => {
@@ -84,23 +91,21 @@ export function RepoScanResults({
   }, [candidates, groups.already, selected])
 
   function toggle(path: string): void {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      return next
-    })
+    const next = new Set(selected)
+    if (next.has(path)) next.delete(path)
+    else next.add(path)
+    setSelected(next)
+    onSelectionChange?.([...next])
   }
 
   function setGroup(group: RepoCandidate[], on: boolean): void {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      for (const c of group) {
-        if (on) next.add(c.path)
-        else next.delete(c.path)
-      }
-      return next
-    })
+    const next = new Set(selected)
+    for (const c of group) {
+      if (on) next.add(c.path)
+      else next.delete(c.path)
+    }
+    setSelected(next)
+    onSelectionChange?.([...next])
   }
 
   const changeLabel = [

@@ -26,11 +26,11 @@ describe('desktop shell persistence readers', () => {
   // The Flight Deck inherited the Superagent column's slot AND its persisted
   // mode key, so a user's saved 'folded' still folds and the pre-#65 'closed'
   // spelling still resolves to folded rather than removing the column.
-  it('folds the Flight Deck on folded/closed and opens on anything else', () => {
+  it('folds the Flight Deck by default and respects explicit preferences', () => {
+    expect(readFlightDeckCollapsed(null)).toBe(true)
     expect(readFlightDeckCollapsed('folded')).toBe(true)
     expect(readFlightDeckCollapsed('closed')).toBe(true)
     expect(readFlightDeckCollapsed('open')).toBe(false)
-    expect(readFlightDeckCollapsed(null)).toBe(false)
     expect(readFlightDeckCollapsed('invalid')).toBe(false)
   })
 

@@ -60,6 +60,39 @@ describe('GitHub project intake', () => {
     expect(screen.queryByText('GitHub CLI is not installed')).toBeNull()
   })
 
+  it('checks again when focus returns after GitHub CLI recovery', async () => {
+    const missing = {
+      ...machine,
+      inventory: { ...machine.inventory, tools: [{ name: 'gh', installed: false }] },
+    }
+    render(<GitHubProjectIntake machine={missing} homePath="/Users/me" onClone={vi.fn()} />)
+
+    expect(await screen.findByText('GitHub CLI is not installed')).toBeTruthy()
+    githubList.mockResolvedValue({ status: { state: 'ready', login: 'octocat' }, repositories: [] })
+
+    fireEvent.focus(window)
+
+    await waitFor(() => expect(githubList).toHaveBeenCalledWith({ machineId: 'laptop' }))
+    expect(await screen.findByText('Signed in as octocat')).toBeTruthy()
+  })
+
+  it('keeps a logged-out GitHub CLI recoverable without discarding the draft', async () => {
+    values.set(
+      GITHUB_PROJECT_INTAKE_DRAFT_KEY,
+      JSON.stringify({ query: 'podium', repository: '', destination: '/Users/me/src/podium' }),
+    )
+    githubList.mockResolvedValue({ status: { state: 'logged-out' }, repositories: [] })
+    render(<GitHubProjectIntake machine={machine} homePath="/Users/me" onClone={vi.fn()} />)
+
+    expect(await screen.findByText('Sign in to GitHub CLI')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Copy sign-in command' })).toBeTruthy()
+    expect(
+      (screen.getByRole('textbox', { name: 'Search GitHub repositories' }) as HTMLInputElement)
+        .value,
+    ).toBe('podium')
+    expect(uiState.set).not.toHaveBeenCalledWith(GITHUB_PROJECT_INTAKE_DRAFT_KEY, null)
+  })
+
   it('restores search, selection, and destination drafts and clears them only after clone', async () => {
     values.set(
       GITHUB_PROJECT_INTAKE_DRAFT_KEY,

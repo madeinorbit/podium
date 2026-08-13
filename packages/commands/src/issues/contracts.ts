@@ -292,6 +292,7 @@ export const startInput = z.object({
   defaultModel: z.string().min(1).optional(),
   defaultEffort: z.string().min(1).optional(),
   forceUnknownModel: z.boolean().optional(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 export const updateInput = z.object({

@@ -2270,6 +2270,41 @@ html[data-density="balanced"] .header-quota-pools {
   background: var(--card);
   box-shadow: var(--shadow-sheet);
 }
+
+/* Activation is a focused first-run surface. On a phone, persistent desktop
+   columns are not merely cramped — they steal the reading width from the one
+   action the user came to take. Keep the shell bar, give activation the whole
+   stage, and restore the desktop instruments as soon as the workspace returns. */
+@media (max-width: 720px) {
+  .desktop-shell-row[data-activation-visible="true"] > :not(:nth-child(3)) {
+    display: none;
+  }
+
+  .desktop-shell-row[data-activation-visible="true"] > :nth-child(3) {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .desktop-shell-row[data-activation-visible="true"] .native-agents-pane {
+    padding: 8px;
+  }
+
+  .desktop-shell-row[data-activation-visible="true"] .workspace-sheet {
+    border-radius: 9px;
+  }
+
+  .desktop-shell-row[data-activation-visible="true"] .workspace-sheet > div {
+    justify-content: flex-start;
+    padding-top: 24px;
+    padding-bottom: 24px;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1080px) {
+  .desktop-shell-row[data-activation-visible="true"] [data-flight-deck-shell] {
+    display: none;
+  }
+}
 /* The right dock is a DARK DEFAULT surface (POD-516 item 9), not an
    issue-tinted one. It used to wear `issue-base-card issue-fade`, but a tint
    only means something when the surface IS that issue — and this dock also

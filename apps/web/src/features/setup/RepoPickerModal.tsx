@@ -61,6 +61,8 @@ export function RepoPickerModal({
   onScan,
   onCloneGithub,
   initialSource = 'local',
+  initialPath,
+  onProgress,
   intro,
   machines = [],
   selectedMachineId,
@@ -76,6 +78,10 @@ export function RepoPickerModal({
   onCloneGithub?: (repository: string, destination: string) => Promise<void>
   /** First-run enters through GitHub; ordinary add-repo flows retain local browsing. */
   initialSource?: 'github' | 'local'
+  /** Restored onboarding folder on the selected machine. */
+  initialPath?: string
+  /** Device-local progress sink used by first-run activation. */
+  onProgress?: (progress: { browsePath?: string; source?: 'github' | 'local' }) => void
   /** Optional header content (used by the onboarding wizard for a welcome line). */
   intro?: ReactNode
   /** Machines that can own a repo. Offline ones are listed but not selectable. */
@@ -94,6 +100,7 @@ export function RepoPickerModal({
   const [manualPath, setManualPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [source, setSource] = useState<'github' | 'local'>(initialSource)
+  const restoredPath = useRef({ machineId: selectedMachineId, path: initialPath })
 
   const selectedMachine = selectedMachineId
     ? machines.find((machine) => machine.id === selectedMachineId)
@@ -125,13 +132,13 @@ export function RepoPickerModal({
       setLoading(true)
       setError(null)
       try {
-        setListing(
-          await trpc.repos.browse.query({
-            ...(path ? { path } : {}),
-            includeHidden: includeHidden ?? showHiddenRef.current,
-            machineId: selectedMachineId,
-          }),
-        )
+        const next = await trpc.repos.browse.query({
+          ...(path ? { path } : {}),
+          includeHidden: includeHidden ?? showHiddenRef.current,
+          machineId: selectedMachineId,
+        })
+        setListing(next)
+        onProgress?.({ browsePath: next.path })
       } catch (e) {
         setListing(null)
         setError(browseError(e, selectedMachine?.name))
@@ -139,15 +146,22 @@ export function RepoPickerModal({
         setLoading(false)
       }
     },
-    [trpc, selectedMachineId, selectedMachine?.name],
+    [trpc, selectedMachineId, selectedMachine?.name, onProgress],
   )
 
   // Land on the selected machine's home. Re-homes on every machine change: a path
   // from one machine's disk means nothing on another's.
   useEffect(() => {
     setListing(null)
-    if (machineReady) void load()
-  }, [load, machineReady])
+    if (machineReady) {
+      const path =
+        restoredPath.current.machineId === selectedMachineId
+          ? restoredPath.current.path
+          : undefined
+      restoredPath.current = { machineId: selectedMachineId, path: undefined }
+      void load(path)
+    }
+  }, [load, machineReady, selectedMachineId])
 
   function toggleHidden(): void {
     const next = !showHidden
@@ -284,7 +298,10 @@ export function RepoPickerModal({
                 size="sm"
                 className="flex-1"
                 aria-pressed={source === 'github'}
-                onClick={() => setSource('github')}
+                onClick={() => {
+                  setSource('github')
+                  onProgress?.({ source: 'github' })
+                }}
               >
                 GitHub
               </Button>
@@ -293,7 +310,10 @@ export function RepoPickerModal({
                 size="sm"
                 className="flex-1"
                 aria-pressed={source === 'local'}
-                onClick={() => setSource('local')}
+                onClick={() => {
+                  setSource('local')
+                  onProgress?.({ source: 'local' })
+                }}
               >
                 This machine
               </Button>

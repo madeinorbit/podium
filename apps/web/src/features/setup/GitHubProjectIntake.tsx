@@ -93,6 +93,14 @@ export function GitHubProjectIntake({
     void refresh()
   }, [refresh])
 
+  useEffect(() => {
+    const refreshAfterRecovery = (): void => {
+      void refresh(true)
+    }
+    window.addEventListener('focus', refreshAfterRecovery)
+    return () => window.removeEventListener('focus', refreshAfterRecovery)
+  }, [refresh])
+
   const filtered = useMemo(() => {
     const query = draft.query.trim().toLocaleLowerCase()
     if (!query) return repositories

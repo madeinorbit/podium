@@ -31,6 +31,21 @@ function runSafely(operation: Promise<unknown>): void {
   void operation.catch(() => {})
 }
 
+export async function clearVpsCheckpointAndReturn(
+  vps: Pick<ConfirmedVpsActivation, 'clear'>,
+  returnRoute: VpsActivationState['returnRoute'],
+  onRouteChange: (route: ActivationRoute) => void,
+): Promise<void> {
+  // Clearing is the navigation fence: do not leave this flow until the server has confirmed that
+  // the durable checkpoint is gone, otherwise a reload could unexpectedly resume VPS setup.
+  await vps.clear()
+  onRouteChange(returnRoute)
+}
+
+function returnActionLabel(returnRoute: VpsActivationState['returnRoute']): string {
+  return returnRoute === 'welcome' ? 'Back to welcome' : 'Back to local setup'
+}
+
 export function GuidedVpsActivation({
   route,
   vps,
@@ -87,31 +102,41 @@ export function GuidedVpsActivation({
   }, [route, vps.state])
 
   const finishDaemonOnly = async (): Promise<void> => {
+    const returnRoute = vps.state?.returnRoute
+    if (!returnRoute) return
     await vps.clear()
     pairing.reset()
-    onRouteChange('local-project')
+    onRouteChange(returnRoute)
   }
 
   if (!vps.ready || !vps.state) {
     return (
       <ActivationShell
         eyebrow="Always-on Podium"
-        title={vps.ready ? 'VPS setup needs a fresh start.' : 'Restoring your VPS setup…'}
+        title={vps.ready ? 'VPS setup needs a fresh start.' : 'Checking your saved VPS setup'}
         description={
           vps.ready
-            ? 'No durable VPS checkpoint was found. Return to activation and start the assisted route again.'
-            : 'Podium is checking the server-owned activation checkpoint before continuing.'
+            ? 'No saved pairing was found. Return to activation and start the assisted route again.'
+            : 'Podium is checking the saved pairing before continuing. Nothing is being transferred yet.'
         }
+        onExplore={onExplore}
       >
-        {vps.ready && (
-          <Button type="button" onClick={() => onRouteChange('welcome')}>
-            Return to activation
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={() => onRouteChange('welcome')}>
+            <ArrowLeft aria-hidden="true" />
+            Back to activation
           </Button>
-        )}
+          {vps.ready && (
+            <Button type="button" onClick={() => onRouteChange('vps-intro')}>
+              Start VPS setup
+            </Button>
+          )}
+        </div>
         <PersistError error={vps.error} />
       </ActivationShell>
     )
   }
+  const returnRoute = vps.state.returnRoute
 
   if (route === 'vps-intro') {
     const startPairing = async (moveServer: boolean): Promise<void> => {
@@ -174,6 +199,20 @@ export function GuidedVpsActivation({
             >
               Pair as a worker
               <ArrowRight data-icon="inline-end" aria-hidden="true" />
+            </Button>
+          </div>
+          <div className="border-t border-border/70 pt-4">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={vps.saving}
+              onClick={() =>
+                runSafely(clearVpsCheckpointAndReturn(vps, returnRoute, onRouteChange))
+              }
+            >
+              <ArrowLeft data-icon="inline-start" aria-hidden="true" />
+              {returnActionLabel(returnRoute)}
             </Button>
           </div>
           <PersistError error={vps.error} />
@@ -286,8 +325,8 @@ export function GuidedVpsActivation({
           <div className="rounded-lg border border-border px-4 py-3">
             <p className="settings-label">{pairedMachine.name} is paired as a daemon</p>
             <p className="settings-prose mt-1">
-              Advanced mode keeps the current machine as the server and returns you to project
-              activation.
+              Advanced mode keeps the current machine as the server and returns you to the
+              activation step where you started.
             </p>
             <Button
               type="button"
@@ -346,6 +385,17 @@ export function GuidedVpsActivation({
           >
             <ArrowLeft data-icon="inline-start" aria-hidden="true" />
             VPS overview
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={vps.saving}
+            onClick={() =>
+              runSafely(clearVpsCheckpointAndReturn(vps, returnRoute, onRouteChange))
+            }
+          >
+            {returnActionLabel(returnRoute)}
           </Button>
         </div>
         <PersistError error={vps.error ?? status.error} />
@@ -426,8 +476,11 @@ function VpsTransferStep({
   }
 
   const finishOnDestination = async (): Promise<void> => {
-    await vps.clear()
-    onRouteChange('local-project')
+    await clearVpsCheckpointAndReturn(vps, state.returnRoute, onRouteChange)
+  }
+
+  const abandonBeforeTransfer = async (): Promise<void> => {
+    await clearVpsCheckpointAndReturn(vps, state.returnRoute, onRouteChange)
   }
 
   const returnToPairing = async (): Promise<void> => {
@@ -438,7 +491,14 @@ function VpsTransferStep({
 
   const progressState = transfer.displayState ?? 'preparing'
   const detail = transferErrorMessage(transfer.transfer)
-  const cutoverStarted = transfer.showProgress || transfer.displayState === 'commit-uncertain'
+  const cutoverStarted =
+    transfer.showProgress ||
+    transfer.displayState === 'preparing' ||
+    transfer.displayState === 'copying' ||
+    transfer.displayState === 'validating' ||
+    transfer.displayState === 'switching' ||
+    transfer.displayState === 'connected' ||
+    transfer.displayState === 'commit-uncertain'
 
   return (
     <ActivationShell
@@ -462,8 +522,8 @@ function VpsTransferStep({
           <div className="rounded-xl border border-success/30 bg-success/5 p-4">
             <h2 className="settings-h">The VPS is now your Podium server</h2>
             <p className="settings-prose mt-1">
-              Continue with project activation. This VPS stays available while your other machines
-              run agents.
+              Continue where you left activation. This VPS stays available while your other
+              machines run agents.
             </p>
             <Button
               type="button"
@@ -472,7 +532,7 @@ function VpsTransferStep({
               pendingLabel="Finishing activation…"
               onClick={() => runSafely(finishOnDestination())}
             >
-              Continue with a project
+              {state.returnRoute === 'welcome' ? 'Continue activation' : 'Continue with a project'}
               <ArrowRight data-icon="inline-end" aria-hidden="true" />
             </Button>
           </div>
@@ -500,7 +560,7 @@ function VpsTransferStep({
           </div>
         )}
 
-        {!transfer.showProgress && transfer.displayState !== 'connected' && (
+        {!cutoverStarted && transfer.displayState !== 'connected' && (
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={() => setReviewOpen(true)}>
               {transfer.displayState === 'aborted' ? 'Review and retry' : 'Review server transfer'}
@@ -513,6 +573,14 @@ function VpsTransferStep({
             >
               <ArrowLeft data-icon="inline-start" aria-hidden="true" />
               Back to pairing
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={vps.saving}
+              onClick={() => runSafely(abandonBeforeTransfer())}
+            >
+              {returnActionLabel(state.returnRoute)}
             </Button>
           </div>
         )}

@@ -580,7 +580,11 @@ function AppBody(): JSX.Element {
               onResume={resumeActivation}
             />
           )}
-          <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
+          <div
+            className="desktop-shell-row"
+            data-sidebar-collapsed={sidebarCollapsed}
+            data-activation-visible={activationVisible ? 'true' : 'false'}
+          >
             {/* The work list is persistent chrome: it stays mounted in every mode,
               so switching modes swaps the CONTENT REGION rather than the window
               (POD-365). The engraved column, dock and rail are workspace
@@ -649,7 +653,12 @@ function AppBody(): JSX.Element {
                     onRouteChange={navigateActivation}
                     onExplore={explorePodium}
                     onComplete={completeActivation}
-                    onConnectionConfigured={restartPodiumShell}
+                    onConnectionConfigured={async () => {
+                      // The saved topology survives a restart; the old activation URL must not.
+                      // Retire it synchronously before Tauri or reload can terminate this page.
+                      clearActivation()
+                      await restartPodiumShell()
+                    }}
                     onEnterVps={enterVpsActivation}
                     trpc={trpc}
                     vps={vpsActivation}

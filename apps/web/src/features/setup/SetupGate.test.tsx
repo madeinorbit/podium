@@ -51,13 +51,44 @@ describe('SetupGate', () => {
     ).toBe(false)
   })
 
-  it('skips the probe and renders the app when __PODIUM_SKIP_SETUP__ is set (client/daemon)', async () => {
-    const fetchMock = vi.fn()
+  it('uses only public readiness for a ready remote desktop client', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ state: 'ready', reason: null, dataPlane: 'available' }),
+    })
     vi.stubGlobal('fetch', fetchMock)
     ;(globalThis as { __PODIUM_SKIP_SETUP__?: boolean }).__PODIUM_SKIP_SETUP__ = true
     render(<SetupGate>{child}</SetupGate>)
     expect(await screen.findByText('APP-READY')).toBeTruthy()
-    expect(fetchMock).not.toHaveBeenCalled() // must not probe the remote's /setup/config
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toMatch(/\/readiness$/)
+  })
+
+  it('directs an unconfigured remote desktop client back to its host without mutations', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        state: 'unconfigured',
+        reason: 'setup_required',
+        dataPlane: 'blocked',
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    ;(globalThis as { __PODIUM_SKIP_SETUP__?: boolean }).__PODIUM_SKIP_SETUP__ = true
+    render(<SetupGate>{child}</SetupGate>)
+
+    expect(await screen.findByText(/finish setup on the server/i)).toBeTruthy()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+    expect(connect).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls[0]?.[0]).toMatch(/\/readiness$/)
+  })
+
+  it('keeps compatibility with a remote server that predates public readiness', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('CORS unavailable')))
+    ;(globalThis as { __PODIUM_SKIP_SETUP__?: boolean }).__PODIUM_SKIP_SETUP__ = true
+    render(<SetupGate>{child}</SetupGate>)
+
+    expect(await screen.findByText('APP-READY')).toBeTruthy()
   })
 
   it('shows onboarding when the backend reports needsSetup', async () => {
