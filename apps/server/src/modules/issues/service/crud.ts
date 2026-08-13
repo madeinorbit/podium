@@ -14,6 +14,7 @@ import {
   type SessionMeta,
   sortKeyBetween,
   type UserId,
+  type ArtifactId,
   type IssueId,
   type RepoId,
 } from '@podium/model'
@@ -38,6 +39,44 @@ const ORGANIZATIONAL_PATCH_KEYS = new Set<keyof IssuePatch>(['pinned', 'sortKey'
 function isOrganizationalOnlyPatch(patch: IssuePatch): boolean {
   const keys = Object.keys(patch) as (keyof IssuePatch)[]
   return keys.length > 0 && keys.every((k) => ORGANIZATIONAL_PATCH_KEYS.has(k))
+}
+
+/**
+ * Cap on a SINGLE artifact read served as one command result (POD-1999). The
+ * store itself admits files up to 100MB, but a command result travels as
+ * base64 inside one JSON envelope over both transports — so past this size the
+ * answer is the URL, which streams, rather than the bytes. The refusal names
+ * that URL so the caller is never left without a way through.
+ */
+export const ARTIFACT_READ_CAP_BYTES = 16 * 1024 * 1024
+
+/** The server-local route that serves the same snapshot as a stream — the path
+ *  `file-artifact-route.ts` registers. Relative, because the caller knows which
+ *  server it is talking to and the server does not know its own public origin. */
+function artifactUrl(issueId: IssueId, artifactId: string, file: string): string {
+  const rel = file.split('/').map(encodeURIComponent).join('/')
+  return `/files/artifact/${issueId}/${artifactId}/${rel}`
+}
+
+/** One artifact's stored content, as `panelArtifactRead` answers it. */
+export interface IssueArtifactContent {
+  /** 1-based position in the issue's artifact list — what the CLI prints. */
+  index: number
+  /** Source path the artifact was added from. */
+  path: string
+  title?: string
+  addedAt: string
+  artifactId: ArtifactId
+  /** Primary file of the snapshot bundle. */
+  entry: string
+  files: { path: string; size: number }[]
+  /** Relpath actually read (`entry` unless the caller asked for another). */
+  file: string
+  contentType: string
+  size: number
+  /** Streaming alternative to `dataBase64`, on the same server. */
+  url: string
+  dataBase64: string
 }
 
 /** Prepared half of the atomic issue/session lifecycle transaction. */
@@ -225,6 +264,84 @@ export class IssueCrudModule {
       void this.store.deps.artifacts.remove(row.id, removed.artifactId).catch(() => {})
     }
     return wire
+  }
+
+  /**
+   * READ ONE ARTIFACT'S STORED BYTES BACK (POD-1999, [spec:SP-0fc9]).
+   *
+   * `panelArtifactAdd` snapshots the bytes into the server's permanent store and
+   * the panel then only carries the source path — so an agent that did not
+   * create the artifact (or created it in a worktree that is now gone) could see
+   * that it exists and not open it. This serves the SNAPSHOT, not the source: it
+   * reads the server's own disk, so the answer does not depend on the authoring
+   * machine being reachable, which is what makes it work for a daemon that is
+   * not the server's.
+   *
+   * Selection is by 1-based `index` (what the CLI prints) or by source `path`.
+   * `file` picks one member of a bundle; omitted, the bundle's entry file wins.
+   */
+  async panelArtifactRead(
+    id: string,
+    input: { index?: number; path?: string; file?: string },
+  ): Promise<IssueArtifactContent> {
+    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    const artifacts = this.store.parsePanel(row).artifacts
+    if (artifacts.length === 0) throw new Error('this issue has no artifacts')
+    const at =
+      input.index != null
+        ? input.index - 1
+        : input.path != null
+          ? artifacts.findIndex((a) => a.path === input.path)
+          : -1
+    if (input.index == null && input.path == null) {
+      throw new Error('name the artifact to read: an index or a path')
+    }
+    const entryRow = at >= 0 ? artifacts[at] : undefined
+    if (!entryRow) {
+      throw new Error(
+        input.path != null
+          ? `no artifact with path ${input.path} (issue has ${artifacts.length})`
+          : `no artifact ${input.index} (issue has ${artifacts.length})`,
+      )
+    }
+    const store = this.store.deps.artifacts
+    // A pre-snapshot entry (or a deployment with no store wired) has a path and
+    // nothing behind it — say so rather than 404ing as if the file were missing.
+    if (!store || !entryRow.artifactId) {
+      throw new Error(
+        `artifact ${at + 1} (${entryRow.path}) has no stored snapshot — re-add it ` +
+          'with `podium issue artifact <id> --add <path>` to capture its content',
+      )
+    }
+    const file = input.file ?? entryRow.entry ?? entryRow.path.split('/').pop() ?? entryRow.path
+    const found = await store.read(row.id, entryRow.artifactId, file)
+    if (!found) {
+      const known = (entryRow.files ?? []).map((f) => f.path).join(', ')
+      throw new Error(
+        `artifact ${at + 1} has no stored file ${file}${known ? ` (bundle holds: ${known})` : ''}`,
+      )
+    }
+    if (found.bytes.length > ARTIFACT_READ_CAP_BYTES) {
+      throw new Error(
+        `${file} is ${found.bytes.length} bytes — over the ${
+          ARTIFACT_READ_CAP_BYTES / (1024 * 1024)
+        }MB command-read cap; fetch it from the server at ${artifactUrl(row.id, entryRow.artifactId, file)}`,
+      )
+    }
+    return {
+      index: at + 1,
+      path: entryRow.path,
+      ...(entryRow.title ? { title: entryRow.title } : {}),
+      addedAt: entryRow.addedAt,
+      artifactId: entryRow.artifactId,
+      entry: entryRow.entry ?? file,
+      files: entryRow.files ?? [{ path: file, size: found.bytes.length }],
+      file,
+      contentType: found.contentType,
+      size: found.bytes.length,
+      url: artifactUrl(row.id, entryRow.artifactId, file),
+      dataBase64: found.bytes.toString('base64'),
+    }
   }
 
   /** Dependents of `closed` that its close just unblocked (their ONLY open blocker

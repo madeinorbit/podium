@@ -18,6 +18,7 @@ import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { type IssueDeps, IssueService } from './modules/issues/service'
+import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
 
@@ -4202,9 +4203,15 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       files: [{ path: o.sourcePath.split('/').pop() as string, size: 3 }],
     }))
     const remove = vi.fn(async () => {})
-    h.deps.artifacts = { snapshot, remove, removeIssue: vi.fn(async () => {}) }
+    // Stands in for the on-disk snapshot dir: keyed by the same
+    // (artifactId, relpath) pair `IssueArtifactStore.read` resolves.
+    const stored = new Map<string, { bytes: Buffer; contentType: string }>()
+    const read = vi.fn(async (_issueId: IssueId, artifactId: string, relPath: string) => {
+      return stored.get(`${artifactId}/${relPath}`) ?? null
+    })
+    h.deps.artifacts = { snapshot, read, remove, removeIssue: vi.fn(async () => {}) }
     const svc = new IssueService(h.deps)
-    return { ...h, svc, snapshot, remove }
+    return { ...h, svc, snapshot, remove, read, stored }
   }
 
   it('add snapshots from the issue worktree and stores artifactId/entry/files', async () => {
@@ -4282,6 +4289,130 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     svc.panelApply(w.id, { op: 'artifact-add', path: 'old.png' }) // legacy, no artifactId
     svc.panelArtifactRemove(w.id, 1)
     expect(remove).not.toHaveBeenCalled()
+  })
+})
+
+describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)', () => {
+  function readHarness() {
+    const h = harness([sess('/wt')])
+    let n = 0
+    const snapshot = vi.fn(async (o: { sourcePath: string; extraPaths?: string[] }) => {
+      const files = [o.sourcePath, ...(o.extraPaths ?? [])].map((p) => ({
+        path: p.split('/').pop() as string,
+        size: 3,
+      }))
+      return { artifactId: asArtifactId(`art${++n}`), entry: files[0]?.path as string, files }
+    })
+    const stored = new Map<string, { bytes: Buffer; contentType: string }>()
+    const read = vi.fn(
+      async (_issueId: IssueId, artifactId: string, relPath: string) =>
+        stored.get(`${artifactId}/${relPath}`) ?? null,
+    )
+    h.deps.artifacts = {
+      snapshot,
+      read,
+      remove: vi.fn(async () => {}),
+      removeIssue: vi.fn(async () => {}),
+    }
+    const svc = new IssueService(h.deps)
+    const issue = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(issue.id, { worktreePath: '/wt/issue-1' })
+    return { svc, issue, stored, read, snapshot }
+  }
+
+  const text = (s: string, contentType = 'text/markdown; charset=utf-8') => ({
+    bytes: Buffer.from(s, 'utf8'),
+    contentType,
+  })
+
+  it('answers the entry file by 1-based index, with its content type, size and URL', async () => {
+    const { svc, issue, stored } = readHarness()
+    await svc.panelArtifactAdd(issue.id, { path: 'docs/plan.md', title: 'Plan' })
+    stored.set('art1/plan.md', text('# the plan'))
+    const got = await svc.panelArtifactRead(issue.id, { index: 1 })
+    expect(Buffer.from(got.dataBase64, 'base64').toString('utf8')).toBe('# the plan')
+    expect(got).toMatchObject({
+      index: 1,
+      path: 'docs/plan.md',
+      title: 'Plan',
+      file: 'plan.md',
+      contentType: 'text/markdown; charset=utf-8',
+      size: 10,
+      url: `/files/artifact/${issue.id}/art1/plan.md`,
+    })
+  })
+
+  it('selects the same entry by its source path', async () => {
+    const { svc, issue, stored } = readHarness()
+    await svc.panelArtifactAdd(issue.id, { path: 'a.md' })
+    await svc.panelArtifactAdd(issue.id, { path: 'docs/b.md' })
+    stored.set('art2/b.md', text('second'))
+    const got = await svc.panelArtifactRead(issue.id, { path: 'docs/b.md' })
+    expect(got.index).toBe(2)
+    expect(Buffer.from(got.dataBase64, 'base64').toString('utf8')).toBe('second')
+  })
+
+  /** The point of the permanent store: the read must not depend on the source. */
+  it('still answers after the issue loses its worktree (nothing is pulled from the source)', async () => {
+    const { svc, issue, stored, snapshot } = readHarness()
+    await svc.panelArtifactAdd(issue.id, { path: 'plan.md' })
+    stored.set('art1/plan.md', text('durable'))
+    svc.update(issue.id, { worktreePath: null })
+    snapshot.mockClear()
+    const got = await svc.panelArtifactRead(issue.id, { index: 1 })
+    expect(Buffer.from(got.dataBase64, 'base64').toString('utf8')).toBe('durable')
+    expect(snapshot).not.toHaveBeenCalled()
+  })
+
+  it('reads one member of a bundle with `file`, and names the bundle when it is missing', async () => {
+    const { svc, issue, stored } = readHarness()
+    await svc.panelArtifactAdd(issue.id, { path: 'index.html', extraPaths: ['app.css'] })
+    stored.set('art1/app.css', text('body{}', 'text/css; charset=utf-8'))
+    const got = await svc.panelArtifactRead(issue.id, { index: 1, file: 'app.css' })
+    expect(got.file).toBe('app.css')
+    expect(got.entry).toBe('index.html')
+    await expect(svc.panelArtifactRead(issue.id, { index: 1, file: 'nope.css' })).rejects.toThrow(
+      /bundle holds: index\.html, app\.css/,
+    )
+  })
+
+  it('a legacy path-only entry says to re-add it rather than reporting a missing file', async () => {
+    const { svc, issue } = readHarness()
+    svc.panelApply(issue.id, { op: 'artifact-add', path: 'old.png' })
+    await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
+      /has no stored snapshot/,
+    )
+  })
+
+  it('refuses an index or path that names no artifact, and an unselected read', async () => {
+    const { svc, issue, stored } = readHarness()
+    await svc.panelArtifactAdd(issue.id, { path: 'a.md' })
+    stored.set('art1/a.md', text('a'))
+    await expect(svc.panelArtifactRead(issue.id, { index: 2 })).rejects.toThrow(
+      /no artifact 2 \(issue has 1\)/,
+    )
+    await expect(svc.panelArtifactRead(issue.id, { path: 'nope.md' })).rejects.toThrow(
+      /no artifact with path nope\.md/,
+    )
+    await expect(svc.panelArtifactRead(issue.id, {})).rejects.toThrow(/an index or a path/)
+  })
+
+  it('an issue with no artifacts says so', async () => {
+    const { svc, issue } = readHarness()
+    await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(/no artifacts/)
+  })
+
+  /** Past the cap the answer is the streaming URL, not a truncated body. */
+  it('refuses a file over the command-read cap and names the URL that streams it', async () => {
+    const { svc, issue, stored } = readHarness()
+    await svc.panelArtifactAdd(issue.id, { path: 'big.mp4' })
+    stored.set('art1/big.mp4', {
+      bytes: Buffer.alloc(ARTIFACT_READ_CAP_BYTES + 1),
+      contentType: 'video/mp4',
+    })
+    await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
+      new RegExp(`/files/artifact/${issue.id}/art1/big\\.mp4`),
+    )
   })
 })
 

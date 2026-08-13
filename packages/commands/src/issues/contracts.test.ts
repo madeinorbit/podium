@@ -38,8 +38,8 @@ const rowExists = (row: string): boolean => OWNERSHIP_MATRIX.some((r) => (r.id a
 
 describe('the issue contract table', () => {
   it('is populated, is keyed by its own names, and every name is dotted `issues.*`', () => {
-    expect(ISSUE_CONTRACT_LIST).toHaveLength(71)
-    expect(ISSUE_COMMAND_NAMES).toHaveLength(71)
+    expect(ISSUE_CONTRACT_LIST).toHaveLength(72)
+    expect(ISSUE_COMMAND_NAMES).toHaveLength(72)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
     for (const key of ISSUE_COMMAND_NAMES) {
       expect(ISSUE_CONTRACTS[key].name, key).toBe(`issues.${key}`)
@@ -125,10 +125,10 @@ describe('transport exposure', () => {
     'subscriptionSetEnabled',
   ]
 
-  it('tRPC and relay serve all seventy-one; CLI and MCP serve sixty-two', () => {
+  it('tRPC and relay serve all seventy-two; CLI and MCP serve sixty-three', () => {
     const onCli = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
     const onMcp = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('mcp'))
-    expect(onCli).toHaveLength(62)
+    expect(onCli).toHaveLength(63)
     // CLI and MCP are the SAME table (issue-mcp.ts derives its tools from
     // ISSUE_COMMANDS), so they must be the same set — not merely the same size.
     expect(onCli).toEqual(onMcp)
@@ -249,7 +249,7 @@ describe('redaction', () => {
     const mutations = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) !== 'n/a')
     const nonMutating = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === 'n/a')
     expect(mutations.length).toBe(46)
-    expect(nonMutating.length).toBe(25)
+    expect(nonMutating.length).toBe(26)
     // The named case, kept from the original: write-grade authority, no row.
     expect(classOf('linearSearch')).toBe('n/a')
   })

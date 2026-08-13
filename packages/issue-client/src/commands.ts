@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import {
   IssueColor,
   type IssueShowWire,
@@ -109,6 +111,90 @@ async function machineIdForRef(c: IssueTrpc, ref: string): Promise<string> {
       ? `no visible machine named '${ref}' (visible: ${known}) — see \`podium machine list\``
       : `no visible machine named '${ref}' — see \`podium machine list\``,
   )
+}
+
+/**
+ * ARTIFACT CONTENT AS THE `artifactRead` COMMAND ANSWERS IT — the bytes plus
+ * enough of the entry to render them (POD-1999).
+ */
+interface ArtifactContentWire {
+  index: number
+  path: string
+  title?: string
+  addedAt: string
+  artifactId: string
+  entry: string
+  files: { path: string; size: number }[]
+  file: string
+  contentType: string
+  size: number
+  url: string
+  dataBase64: string
+}
+
+/** Content types whose bytes are worth printing into a terminal as-is. Anything
+ *  else is offered as `--out`/URL rather than sprayed at the reader. */
+function isPrintable(contentType: string): boolean {
+  const type = contentType.split(';')[0]?.trim() ?? ''
+  return (
+    type.startsWith('text/') ||
+    type === 'application/json' ||
+    type === 'image/svg+xml' ||
+    type === 'application/xml'
+  )
+}
+
+/**
+ * `artifact <id> --get <n|path>` — READ A STORED ARTIFACT BACK OUT (POD-1999).
+ *
+ * The bytes come from the SERVER's permanent snapshot, not from the worktree the
+ * artifact was made in, so this answers for an agent that did not create it, on
+ * a machine that is not the authoring one, after that worktree is gone.
+ *
+ * Text prints. Anything else would corrupt the terminal, so it reports what the
+ * artifact is and the two ways to get it: `--out <path>` (written HERE, by this
+ * process — on the MCP surface that means the server's disk) or the URL, which
+ * also streams the files this command's size cap refuses.
+ */
+async function readArtifact(
+  c: IssueTrpc,
+  a: Record<string, unknown>,
+): Promise<IssueCommandResult> {
+  const ref = a.get as string
+  const selector = /^\d+$/.test(ref) ? { index: Number(ref) } : { path: ref }
+  const art = (await c.issues.artifactRead.query({
+    id: a.id as string,
+    ...selector,
+    ...(a.file != null ? { file: a.file as string } : {}),
+  })) as ArtifactContentWire
+  const bytes = Buffer.from(art.dataBase64, 'base64')
+  const { dataBase64: _bytes, ...meta } = art
+  const siblings =
+    art.files.length > 1
+      ? `\n(bundle of ${art.files.length}: ${art.files
+          .map((f) => f.path)
+          .join(', ')} — read one with --file <rel>)`
+      : ''
+  if (a.out != null) {
+    const dest = a.out as string
+    await mkdir(dirname(resolve(dest)), { recursive: true })
+    await writeFile(dest, bytes)
+    return {
+      text: `wrote ${art.file} (${art.size} bytes, ${art.contentType}) to ${dest}${siblings}`,
+      data: { ...meta, out: dest },
+    }
+  }
+  if (!isPrintable(art.contentType)) {
+    return {
+      text:
+        `artifact ${art.index} ${art.title ? `"${art.title}" ` : ''}(${art.path}) → ${art.file}: ` +
+        `${art.contentType}, ${art.size} bytes. Pass --out <path> to save it, or fetch ${art.url} ` +
+        `from the server.${siblings}`,
+      data: meta,
+    }
+  }
+  const text = bytes.toString('utf8')
+  return { text: text + siblings, data: { ...meta, text } }
 }
 
 // One-line summary of an issue for list/ready/blocked output.
@@ -1594,15 +1680,26 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'artifact',
     summary:
-      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--remove n]. Paths relative to the issue worktree or absolute. No flags = print.',
+      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--remove n] [--get <n|path> [--file <rel>] [--out <path>]]. Paths relative to the issue worktree or absolute. --get reads a stored artifact BACK (any agent, any machine, even after the worktree is gone): text prints, anything else needs --out. No flags = print the list.',
     args: z.strictObject({
       id: idArg,
       add: z.string().optional(),
       title: z.string().optional(),
       remove: z.coerce.number().int().min(1).optional(),
+      /** Which artifact to read back: the printed 1-based index, or its path. */
+      get: z.union([z.string(), z.number()]).transform(String).optional(),
+      /** One member of a bundle artifact; default is the bundle's entry file. */
+      file: z.string().optional(),
+      /** Write the bytes here instead of printing them — required for binaries.
+       *  The file lands on the machine RUNNING the command, not the server's. */
+      out: z.string().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
+      if (a.get != null) return readArtifact(c, a)
+      if (a.file != null || a.out != null) {
+        throw new Error('--file and --out only apply to --get')
+      }
       const op =
         a.add != null
           ? { op: 'artifact-add', path: a.add, ...(a.title ? { title: a.title as string } : {}) }

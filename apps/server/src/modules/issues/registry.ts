@@ -373,6 +373,20 @@ const defs = {
         return { ...issue, sessions }
       }),
   }),
+  /** Read one artifact's stored bytes back (POD-1999). A read of issue content,
+   *  so it rides `readIssue` like `get` — and it is served from the server's own
+   *  snapshot dir, so it answers with the authoring machine offline. */
+  artifactRead: def('artifactRead', {
+    kind: 'query',
+    handler: (ctx, input) =>
+      ctx.readIssue(input.id, () =>
+        ctx.crud.panelArtifactRead(input.id, {
+          ...(input.index != null ? { index: input.index } : {}),
+          ...(input.path != null ? { path: input.path } : {}),
+          ...(input.file != null ? { file: input.file } : {}),
+        }),
+      ),
+  }),
   /** Lazy comment fetch (#175) — bodies left IssueWire (commentCount rides it).
    *  A read (like get/list). Hub-mirrored issues have no local thread: their
    *  comments live on the hub, so this returns []. */

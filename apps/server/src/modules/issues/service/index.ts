@@ -19,6 +19,7 @@ export type IssueCrudCapability = Pick<
   | 'panelApply'
   | 'panelArtifactAdd'
   | 'panelArtifactRemove'
+  | 'panelArtifactRead'
   | 'create'
   | 'update'
   | 'markIssueRead'

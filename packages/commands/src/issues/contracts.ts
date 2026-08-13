@@ -185,6 +185,26 @@ export const getInput = byIssueId
 
 export const commentsInput = byIssueId
 
+/**
+ * READ ONE SNAPSHOTTED ARTIFACT'S BYTES BACK OUT ([spec:SP-0fc9], POD-1999).
+ *
+ * The panel only ever said WHICH files an agent attached; the content lived in
+ * the server's permanent store with no command to read it, so a later agent —
+ * or the same one after its worktree was freed — could list an artifact and not
+ * open it. The read is served from the server-local snapshot, so it works with
+ * the authoring machine offline and from a daemon that is not the server's.
+ *
+ * `index` is the 1-based position the CLI prints; `path` selects the same entry
+ * by its source path (stable across list edits). `file` picks one member of a
+ * bundle — omitted, the bundle's `entry` is read.
+ */
+export const artifactReadInput = z.object({
+  id: IssueIdField,
+  index: z.number().int().min(1).optional(),
+  path: z.string().min(1).optional(),
+  file: z.string().min(1).optional(),
+})
+
 export const eventsInput = z.object({
   since: z.number().int().min(0).default(0),
   kinds: z.array(z.string()).optional(),
@@ -560,7 +580,7 @@ export const subscriptionSetEnabledInput = z.object({
 export const subscriptionListInput = z.void()
 
 // -------------------------------------------------------------------------
-// READS — 24 queries, role-gated only
+// READS — 25 queries, role-gated only
 // -------------------------------------------------------------------------
 
 export const issueListContract = {
@@ -868,6 +888,23 @@ export const issueCommentsContract = {
   version: 1,
   visibility: ISSUE_VISIBILITY,
   input: commentsInput,
+  policy: READ_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: READ_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
+} as const satisfies CommandContract
+
+/** Reads one artifact's stored bytes back — see {@link artifactReadInput}. A read
+ *  of issue-owned content, so it is gated exactly like `get`/`comments`. */
+export const issueArtifactReadContract = {
+  name: 'issues.artifactRead',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: artifactReadInput,
   policy: READ_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: READ_DELIVERY,
@@ -1808,6 +1845,7 @@ export const ISSUE_CONTRACTS = {
   answerQuestion: issueAnswerQuestionContract,
   applySuggestion: issueApplySuggestionContract,
   archive: issueArchiveContract,
+  artifactRead: issueArtifactReadContract,
   attachSession: issueAttachSessionContract,
   blocked: issueBlockedContract,
   children: issueChildrenContract,
@@ -1905,7 +1943,7 @@ export const ISSUE_CONTRACT_LIST = Object.values(ISSUE_CONTRACTS)
  * STILL LOAD-BEARING AFTER POD-1250, which made `conflict` required on
  * `CommandContractBase` fleet-wide. That change asks every contract for an
  * ANSWER; it cannot ask this family's mutations for a NON-`'n/a'` answer, because
- * nothing on the shared base knows which commands mutate. The 25 reads below now
+ * nothing on the shared base knows which commands mutate. The 26 reads below now
  * declare `'n/a'` — a positive claim that they have no ADR 1 row, not a silence —
  * and this tripwire is what still stops a mutation from joining them by writing
  * the same three characters. The division of labour is unchanged: the base makes
@@ -1947,7 +1985,8 @@ export const ISSUE_CONTRACT_LIST = Object.values(ISSUE_CONTRACTS)
  * mutate and must declare, and exempting one is an edit a reviewer sees.
  */
 const NON_MUTATING_NAMES = [
-  // The 24 reads.
+  // The 25 reads.
+  'artifactRead',
   'blocked',
   'children',
   'closeEligibleEpics',

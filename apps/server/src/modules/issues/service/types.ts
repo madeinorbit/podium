@@ -276,6 +276,13 @@ export interface IssueDeps {
       sourcePath: string
       extraPaths?: string[]
     }): Promise<{ artifactId: ArtifactId; entry: string; files: { path: string; size: number }[] }>
+    /** Read one snapshotted file back out (POD-1999) — server-local, so it
+     *  answers with the owning machine offline. Null = no such stored file. */
+    read(
+      issueId: IssueId,
+      artifactId: ArtifactId,
+      relPath: string,
+    ): Promise<{ bytes: Buffer; contentType: string } | null>
     remove(issueId: IssueId, artifactId: ArtifactId): Promise<void>
     removeIssue(issueId: IssueId): Promise<void>
   }

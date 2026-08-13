@@ -93,6 +93,21 @@ The artifact renders in the issue's sidebar and survives across sessions. Two ru
   the review trail for visual work; publishing somewhere else (chat upload, external artifact
   link) does not replace attaching it here.
 
+### Reading one back
+
+An artifact's bytes are snapshotted onto the server when you add it, so any agent can read it
+back later — including one on another machine, and after the authoring worktree is gone:
+
+```
+podium issue artifact 12 --get 1                       # by the printed index (text prints)
+podium issue artifact 12 --get e2e/login-final.png     # or by its source path
+podium issue artifact 12 --get 1 --out /tmp/shot.png   # anything not text needs --out
+podium issue artifact 12 --get 3 --file app.css        # one member of a bundle
+```
+
+`--out` writes on the machine running the command. Files past the command's 16MB read cap are
+refused with the `/files/artifact/…` URL that streams them instead.
+
 ## Offering next actions
 
 `podium offer` posts your suggested next steps as clickable buttons [spec:SP-c7f1]:
