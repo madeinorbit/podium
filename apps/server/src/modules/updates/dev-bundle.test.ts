@@ -12,6 +12,7 @@ import {
   devBundleFileName,
   devBundleKeyFingerprint,
   devBundleStamp,
+  devIdentityTarget,
   devTarget,
   listDevBundles,
   parseDevBundleName,
@@ -610,6 +611,16 @@ describe('buildDevBundle', () => {
     expect(target.artifacts.web).toEqual({ digest: '1234567' })
   })
 
+  it('advertises dev+HEAD with a web digest when there is no tarball yet', () => {
+    const identity = devIdentityTarget('f9485d31b', { sourceRoot: '/repo/podium' })
+    expect(identity.version).toBe('dev+f9485d3')
+    expect(identity.artifacts.web).toEqual({ digest: 'f9485d3' })
+    expect(identity.artifacts.headless).toBeUndefined()
+    expect(identity.artifacts.headlessAlternatives).toEqual([
+      { delivery: 'git', repo: '/repo/podium', sha: 'f9485d3' },
+    ])
+  })
+
   it('never holds the bundle, and says how big the one on disk is', async () => {
     const big = new Uint8Array(4096).fill(7)
     const store = memoryFs()
@@ -919,7 +930,9 @@ describe('buildDevBundle', () => {
     // can still restore them — but they are no longer offered as the target,
     // because they are not what this server is running.
     expect(publisher.current()?.version).toBe('dev+aaaaaaa')
-    expect(publisher.target()).toBeUndefined()
+    expect(publisher.target()?.version).toBe('dev+bbbbbbb')
+    expect(publisher.target()?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
+    expect(publisher.target()?.artifacts.headless).toBeUndefined()
   })
 
   it('refuses to build or restore anything from a dirty checkout', async () => {
@@ -1097,7 +1110,9 @@ describe('development bundle readiness', () => {
     // The bundle still exists and is still dev+aaaaaaa; it is simply not the
     // target for the commit this server is now running.
     expect(publisher.current()?.version).toBe('dev+aaaaaaa')
-    expect(publisher.target()).toBeUndefined()
+    expect(publisher.target()?.version).toBe('dev+bbbbbbb')
+    expect(publisher.target()?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
+    expect(publisher.target()?.artifacts.headless).toBeUndefined()
     expect(publisher.readiness()).toEqual({ state: 'idle', headSha: 'bbbbbbb' })
   })
 
@@ -1115,7 +1130,8 @@ describe('development bundle readiness', () => {
       reason: 'compile blew up',
       publicReason: 'Building the development bundle for dev+bbbbbbb failed. See the server log.',
     })
-    expect(publisher.target()).toBeUndefined()
+    expect(publisher.target()?.version).toBe('dev+bbbbbbb')
+    expect(publisher.target()?.artifacts.web).toEqual({ digest: 'bbbbbbb' })
   })
 
   it('keeps a dirty checkout out of the public reason while the log gets the paths', async () => {

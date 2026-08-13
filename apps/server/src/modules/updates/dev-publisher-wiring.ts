@@ -113,17 +113,20 @@ export function wireDevBundlePublisher(deps: {
   /**
    * Push the publisher's readiness into the shared read model.
    *
-   * `preparing` deliberately retracts too. A build is in flight precisely
-   * because the existing bundle is not this HEAD, so continuing to advertise it
-   * would be the stale-target problem wearing a progress spinner.
+   * A dev identity (web digest, no tarball) is still a target. Retracting it
+   * because the headless compile failed hides Update — operators then have no
+   * button to rebuild yesterday's website.
    */
   const publishReadiness = (): void => {
-    if (!publisher || !artifactOrigin || !deps.setTargetUnavailable) return
-    const readiness = publisher.readiness()
-    if (readiness.state === 'ready') {
+    if (!publisher || !artifactOrigin) return
+    const identity = publisher.target()
+    if (identity) {
+      deps.setTarget(identity)
       publishedReason = undefined
       return
     }
+    if (!deps.setTargetUnavailable) return
+    const readiness = publisher.readiness()
     const reason =
       readiness.state === 'failed'
         ? readiness.publicReason

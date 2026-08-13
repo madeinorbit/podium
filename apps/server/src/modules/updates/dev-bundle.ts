@@ -849,6 +849,33 @@ export function devTarget(
   }
 }
 
+
+/**
+ * dev+<sha> as an install identity when there is not yet an honest headless
+ * tarball for this HEAD. Update still has something to compare and can rebuild
+ * the website. Do not advertise a previous commit's tarball under this label.
+ */
+export function devIdentityTarget(
+  headSha: string,
+  opts: { sourceRoot?: string } = {},
+): UpdateTarget {
+  const sha = shortSha(headSha)
+  return {
+    version: 'dev+' + sha,
+    critical: false,
+    artifacts: {
+      web: { digest: sha },
+      headlessAlternatives: [
+        {
+          delivery: 'git',
+          repo: opts.sourceRoot ?? DEVELOPMENT_SOURCE_ROOT,
+          sha,
+        },
+      ],
+    },
+  }
+}
+
 export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSha'> {
   isSourceRun: boolean | (() => boolean)
   headSha: () => string
@@ -1007,20 +1034,26 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       return { state: 'idle', headSha }
     },
     target: () => {
-      if (!current) return undefined
-      // HEAD moved and this bundle is the previous commit's: there is no target
-      // for the code this server is now running, and saying otherwise would
-      // hand a daemon an artifact whose version names a commit it is not on.
-      if (builtSha !== currentHeadSha()) return undefined
-      const artifactUrl =
-        typeof deps.artifactUrl === 'function'
-          ? deps.artifactUrl(current.version)
-          : deps.artifactUrl
-      return devTarget(current, {
-        artifactUrl,
-        platform: deps.platform,
-        sourceRoot: deps.root,
-      })
+      const headSha = currentHeadSha()
+      if (headSha === null) return undefined
+      // A dev+<sha> label names this commit. A dirty tree is not that commit,
+      // so do not advertise one. Any other failure (stale web dist, compile)
+      // still needs the identity so Update can rebuild.
+      if (failure?.sha === headSha && failure.reason.includes('does not match HEAD')) {
+        return undefined
+      }
+      if (current && builtSha === headSha) {
+        const artifactUrl =
+          typeof deps.artifactUrl === 'function'
+            ? deps.artifactUrl(current.version)
+            : deps.artifactUrl
+        return devTarget(current, {
+          artifactUrl,
+          platform: deps.platform,
+          sourceRoot: deps.root,
+        })
+      }
+      return devIdentityTarget(headSha, { sourceRoot: deps.root })
     },
   }
 }
