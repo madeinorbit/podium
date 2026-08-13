@@ -14,8 +14,12 @@ export interface ShippingPanelRow {
 
 export interface ShippingWaitingLane {
   destination: string
-  targetBranch: string
   rows: ShippingPanelRow[]
+}
+
+export interface ShippingElapsed {
+  label: string
+  duration: string
 }
 
 export interface ShippingPanelModel {
@@ -65,7 +69,7 @@ export function shippingPanelModel(
   const waitingRows = rows.filter((row) => row.order.humanState === 'waiting')
   const laneRows = new Map<string, ShippingPanelRow[]>()
   for (const row of waitingRows) {
-    const key = `${row.order.destination}\u0000${row.order.targetBranch}`
+    const key = row.order.destination
     const lane = laneRows.get(key) ?? []
     lane.push(row)
     laneRows.set(key, lane)
@@ -74,16 +78,12 @@ export function shippingPanelModel(
     .map(
       (lane): ShippingWaitingLane => ({
         destination: lane[0]?.order.destination ?? '',
-        targetBranch: lane[0]?.order.targetBranch ?? '',
         rows: lane.sort(byQueueRank),
       }),
     )
     // Independent lanes have no honest global rank. A stable name sort makes
     // no scheduling claim while each lane retains its server-stamped order.
-    .sort(
-      (a, b) =>
-        a.destination.localeCompare(b.destination) || a.targetBranch.localeCompare(b.targetBranch),
-    )
+    .sort((a, b) => a.destination.localeCompare(b.destination))
   const recentlyShipped = rows
     .filter((row) => row.order.humanState === 'shipped' && row.order.receiptId !== undefined)
     .sort(byChangedAt)
@@ -117,12 +117,20 @@ export function shippingActivityLabel(activity: ShipOrderProjection['activity'])
   return ACTIVITY_LABELS[activity]
 }
 
-export function formatShippingElapsed(queuedAt: string, now: number): string {
+export function shippingElapsed(queuedAt: string, now: number): ShippingElapsed {
   const start = Date.parse(queuedAt)
-  const minutes = Number.isFinite(start) ? Math.max(0, Math.floor((now - start) / 60_000)) : 0
-  if (minutes < 1) return '<1 min'
-  if (minutes < 60) return `${minutes} min`
+  const seconds = Number.isFinite(start) ? Math.max(0, Math.floor((now - start) / 1_000)) : 0
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 1) return { label: '<1 min', duration: `PT${seconds}S` }
+  if (minutes < 60) return { label: `${minutes} min`, duration: `PT${minutes}M` }
   const hours = Math.floor(minutes / 60)
   const remainder = minutes % 60
-  return remainder === 0 ? `${hours} hr` : `${hours} hr ${remainder} min`
+  return {
+    label: remainder === 0 ? `${hours} hr` : `${hours} hr ${remainder} min`,
+    duration: `PT${hours}H${remainder > 0 ? `${remainder}M` : ''}`,
+  }
+}
+
+export function formatShippingElapsed(queuedAt: string, now: number): string {
+  return shippingElapsed(queuedAt, now).label
 }

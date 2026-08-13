@@ -1,6 +1,11 @@
 import type { ShipOrderProjection } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { formatShippingElapsed, shippingActivityLabel, shippingPanelModel } from './shipping-panel'
+import {
+  formatShippingElapsed,
+  shippingActivityLabel,
+  shippingElapsed,
+  shippingPanelModel,
+} from './shipping-panel'
 
 const order = (id: string, over: Partial<ShipOrderProjection> = {}): ShipOrderProjection => ({
   id: id as ShipOrderProjection['id'],
@@ -53,12 +58,13 @@ describe('shippingPanelModel', () => {
     expect(model.recentlyShipped.map((row) => row.order.id)).toEqual(['4'])
   })
 
-  it('keeps waiting ranks inside destination lanes and bounds verified history', () => {
+  it('keeps waiting ranks inside authoritative destination lanes and bounds verified history', () => {
     const model = shippingPanelModel(
       [
         order('1', { queueRank: 2 }),
         order('2', { queueRank: 1 }),
         order('3', { destination: 'upstream/release', targetBranch: 'release', queueRank: 1 }),
+        order('6', { targetBranch: 'release', queueRank: 3 }),
         order('4', {
           humanState: 'shipped',
           state: 'shipped',
@@ -74,13 +80,18 @@ describe('shippingPanelModel', () => {
           stateChangedAt: '2026-08-13T10:05:00.000Z',
         }),
       ],
-      ['1', '2', '3', '4', '5'].map(issue),
+      ['1', '2', '3', '4', '5', '6'].map(issue),
       'repo-a',
       1,
     )
 
     expect(model.waiting).toHaveLength(2)
-    expect(model.waiting[0]?.rows.map((row) => row.order.id)).toEqual(['2', '1'])
+    expect(model.waiting[0]?.rows.map((row) => row.order.id)).toEqual(['2', '1', '6'])
+    expect(model.waiting[0]?.rows.map((row) => row.order.targetBranch)).toEqual([
+      'main',
+      'main',
+      'release',
+    ])
     expect(model.recentlyShipped.map((row) => row.order.id)).toEqual(['5'])
   })
 })
@@ -96,5 +107,10 @@ describe('shipping display language', () => {
     const now = Date.parse('2026-08-13T11:35:00.000Z')
     expect(formatShippingElapsed('2026-08-13T11:30:00.000Z', now)).toBe('5 min')
     expect(formatShippingElapsed('2026-08-13T10:00:00.000Z', now)).toBe('1 hr 35 min')
+    expect(shippingElapsed('2026-08-13T11:30:00.000Z', now)).toEqual({
+      label: '5 min',
+      duration: 'PT5M',
+    })
+    expect(shippingElapsed('2026-08-13T10:00:00.000Z', now).duration).toBe('PT1H35M')
   })
 })

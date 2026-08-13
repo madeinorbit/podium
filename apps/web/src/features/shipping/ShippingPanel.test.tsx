@@ -2,7 +2,7 @@
 
 import type { ShipOrderProjection } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { ShippingPanel } from './ShippingPanel'
 
@@ -38,7 +38,6 @@ describe('ShippingPanel', () => {
         issues={[issue]}
         repoId="repo-a"
         now={Date.parse('2026-08-13T12:00:00.000Z')}
-        onSelectIssue={vi.fn()}
       />,
     )
 
@@ -55,8 +54,8 @@ describe('ShippingPanel', () => {
     )
   })
 
-  it('renders server-ranked waiting work as an ordered list with elapsed time', () => {
-    render(
+  it('keeps different target branches in one destination lane with semantic elapsed time', () => {
+    const { container } = render(
       <ShippingPanel
         orders={[
           order({
@@ -65,23 +64,48 @@ describe('ShippingPanel', () => {
             humanState: 'waiting',
             activity: 'waiting',
             queueRank: 2,
+            targetBranch: 'release',
           }),
           order({ state: 'queued', humanState: 'waiting', activity: 'waiting', queueRank: 1 }),
+          order({
+            id: 'order-c' as never,
+            state: 'queued',
+            humanState: 'waiting',
+            activity: 'waiting',
+            destination: 'upstream/release',
+            targetBranch: 'release',
+            queueRank: 1,
+          }),
         ]}
         issues={[issue]}
         repoId="repo-a"
         now={Date.parse('2026-08-13T12:00:00.000Z')}
-        onSelectIssue={vi.fn()}
       />,
     )
 
-    const list = screen.getByRole('list')
-    expect(list.tagName).toBe('OL')
-    expect(screen.getAllByText(/waiting 10 min/)).toHaveLength(2)
+    const headings = screen.getAllByRole('heading', { name: /WAITING ·/ })
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      'WAITING · origin/main',
+      'WAITING · upstream/release',
+    ])
+    expect(new Set(headings.map((heading) => heading.id)).size).toBe(headings.length)
+    expect(container.querySelectorAll('ol')).toHaveLength(2)
+    expect(screen.getAllByText(/waiting 10 min/)).toHaveLength(3)
+    expect([...container.querySelectorAll('time')].map((time) => time.dateTime)).toEqual([
+      'PT10M',
+      'PT10M',
+      'PT10M',
+    ])
+    expect(screen.getByText(/POD-835 · main → origin\/main/)).toBeTruthy()
+    expect(screen.getByText(/POD-835 · release → origin\/main/)).toBeTruthy()
     expect(screen.queryByText(/ETA/i)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Position 1.*main.*origin\/main/ }))
+    expect(screen.getByRole('button', { name: 'All shipping' })).toBe(document.activeElement)
+    expect(screen.getByText(/Next/).parentElement?.querySelector('time')?.dateTime).toBe('PT10M')
   })
 
-  it('shows typed hold choices without creating a second live alert', () => {
+  it('does not present compact hold actions as inert or misleading controls', () => {
     render(
       <ShippingPanel
         orders={[
@@ -101,17 +125,18 @@ describe('ShippingPanel', () => {
         issues={[issue]}
         repoId="repo-a"
         now={Date.parse('2026-08-13T12:00:00.000Z')}
-        onSelectIssue={vi.fn()}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Shipping sidebar panel/ }))
-    expect(screen.getByText('Retry shipping')).toBeTruthy()
-    expect(screen.getByText('Open repair')).toBeTruthy()
+    expect(screen.getByText('DECISION REQUIRED')).toBeTruthy()
+    expect(screen.queryByText('Retry shipping')).toBeNull()
+    expect(screen.queryByText('Open repair')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Return to issue' })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('keeps a shipped row attached to its own receipt identity', () => {
+  it('shows receipt availability and identity without claiming to load its proof body', () => {
     render(
       <ShippingPanel
         orders={[
@@ -125,12 +150,14 @@ describe('ShippingPanel', () => {
         issues={[issue]}
         repoId="repo-a"
         now={Date.parse('2026-08-13T12:00:00.000Z')}
-        onSelectIssue={vi.fn()}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Shipping sidebar panel/ }))
-    expect(screen.getByText('DELIVERY RECEIPT')).toBeTruthy()
+    expect(screen.getByText('RECEIPT AVAILABLE')).toBeTruthy()
     expect(screen.getByText('receipt-a')).toBeTruthy()
+    expect(screen.getByText('order-a')).toBeTruthy()
+    expect(screen.queryByText('Verified')).toBeNull()
+    expect(screen.queryByText('DELIVERY RECEIPT')).toBeNull()
   })
 })

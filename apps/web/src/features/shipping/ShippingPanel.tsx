@@ -1,11 +1,11 @@
 import {
-  formatShippingElapsed,
   shippingActivityLabel,
+  shippingElapsed,
   shippingPanelModel,
   type ShippingPanelRow,
   type ShippingWaitingLane,
 } from '@podium/client-core/viewmodels'
-import type { ShipHoldAction, ShipOrderProjection } from '@podium/model'
+import type { ShipOrderProjection } from '@podium/model'
 import { ChevronLeft, Circle, CircleCheck, TriangleAlert } from 'lucide-react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -17,7 +17,6 @@ interface ShippingPanelProps {
   issues: readonly IssueViewModel[]
   repoId: string | null
   now: number
-  onSelectIssue: (issue: IssueViewModel) => void
 }
 
 function Section({
@@ -74,7 +73,7 @@ function IssueIdentity({ row }: { row: ShippingPanelRow }): JSX.Element {
           Task unavailable
         </span>
         <span className="block truncate font-mono shell-type-micro text-text-dim">
-          {row.order.destination}
+          {row.order.targetBranch} → {row.order.destination}
         </span>
       </span>
     )
@@ -85,9 +84,22 @@ function IssueIdentity({ row }: { row: ShippingPanelRow }): JSX.Element {
         {row.issue.title}
       </span>
       <span className="block truncate font-mono shell-type-micro text-text-dim">
-        {issueRefLabel(row.issue)} → {row.order.destination}
+        {issueRefLabel(row.issue)} · {row.order.targetBranch} → {row.order.destination}
       </span>
     </span>
+  )
+}
+
+function ElapsedWait({ queuedAt, now }: { queuedAt: string; now: number }): JSX.Element {
+  const elapsed = shippingElapsed(queuedAt, now)
+  const queued = new Date(queuedAt)
+  return (
+    <time
+      dateTime={elapsed.duration}
+      title={Number.isFinite(queued.getTime()) ? `Queued ${queued.toLocaleString()}` : undefined}
+    >
+      waiting {elapsed.label}
+    </time>
   )
 }
 
@@ -96,9 +108,7 @@ function WaitingState({ row, now }: { row: ShippingPanelRow; now: number }): JSX
   return (
     <span className="ml-auto flex-none text-right font-mono shell-type-micro tabular-nums text-text-dim">
       <span>{rank === 1 ? 'Next' : rank ? `#${rank}` : 'Waiting'} · </span>
-      <time dateTime={row.order.queuedAt}>
-        waiting {formatShippingElapsed(row.order.queuedAt, now)}
-      </time>
+      <ElapsedWait queuedAt={row.order.queuedAt} now={now} />
     </span>
   )
 }
@@ -162,13 +172,6 @@ function ShippingRow({
   )
 }
 
-const holdActionLabel = (action: ShipHoldAction): string => {
-  if (action === 'retry') return 'Retry shipping'
-  if (action === 'return-to-issue') return 'Return to issue'
-  if (action === 'open-repair') return 'Open repair'
-  return action.slice('policy:'.length).replaceAll('-', ' ')
-}
-
 function ProofRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {
   return (
     <div className="grid min-h-8 grid-cols-[76px_minmax(0,1fr)] items-center gap-2 border-b border-hairline-soft px-3.5 text-[10px]">
@@ -183,13 +186,11 @@ function ShipmentDetail({
   now,
   backRef,
   onBack,
-  onSelectIssue,
 }: {
   row: ShippingPanelRow
   now: number
   backRef: RefObject<HTMLButtonElement | null>
   onBack: () => void
-  onSelectIssue: (issue: IssueViewModel) => void
 }): JSX.Element {
   const { order, issue } = row
   const stateLabel =
@@ -199,7 +200,6 @@ function ShipmentDetail({
         ? 'IN PROGRESS'
         : order.humanState.toUpperCase()
   const ref = issue ? issueRefLabel(issue) : 'SHIPPING'
-  const elapsed = formatShippingElapsed(order.queuedAt, now)
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scroll-none">
@@ -241,9 +241,13 @@ function ShipmentDetail({
         </p>
         <div className="mt-3 flex items-center gap-2 text-[11px] font-medium">
           <StateMarker state={order.humanState} />
-          {order.humanState === 'waiting'
-            ? `${order.queueRank === 1 ? 'Next' : order.queueRank ? `#${order.queueRank}` : 'Waiting'} · waiting ${elapsed}`
-            : shippingActivityLabel(order.activity)}
+          {order.humanState === 'waiting' ? null : shippingActivityLabel(order.activity)}
+          {order.humanState === 'waiting' && (
+            <>
+              {order.queueRank === 1 ? 'Next' : order.queueRank ? `#${order.queueRank}` : 'Waiting'}{' '}
+              · <ElapsedWait queuedAt={order.queuedAt} now={now} />
+            </>
+          )}
         </div>
       </section>
 
@@ -256,47 +260,29 @@ function ShipmentDetail({
             id="shipping-actions-title"
             className="font-mono shell-type-micro font-medium tracking-[0.12em] text-label"
           >
-            SAFE CHOICES
+            DECISION REQUIRED
           </h4>
           <p className="mt-2 text-[11px] leading-[1.5] text-muted-foreground">
-            Podium stopped before making this choice. These actions belong to hold generation{' '}
-            {order.hold.generation}.
+            Podium stopped before making this choice. This panel does not offer a resolution until
+            the secure hold action is available.
           </p>
-          <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Available hold actions">
-            {order.hold.actions.map((action) => (
-              <li
-                key={action}
-                className="rounded-md border border-destructive/25 bg-destructive/5 px-2 py-1 text-[10px] text-foreground"
-              >
-                {holdActionLabel(action)}
-              </li>
-            ))}
-          </ul>
-          {issue && (
-            <button
-              data-pressable
-              type="button"
-              className="mt-3 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-              onClick={() => onSelectIssue(issue)}
-            >
-              Return to issue
-            </button>
-          )}
         </section>
       ) : order.humanState === 'shipped' ? (
-        <section className="border-t border-hairline-soft" aria-labelledby="delivery-receipt-title">
+        <section
+          className="border-t border-hairline-soft"
+          aria-labelledby="receipt-available-title"
+        >
           <h4
-            id="delivery-receipt-title"
+            id="receipt-available-title"
             className="px-3.5 py-2 font-mono shell-type-micro font-medium tracking-[0.12em] text-label"
           >
-            DELIVERY RECEIPT
+            RECEIPT AVAILABLE
           </h4>
-          <ProofRow label="Receipt">{order.receiptId ?? 'Unavailable'}</ProofRow>
-          <ProofRow label="Destination">{order.destination}</ProofRow>
-          <ProofRow label="Branch">{order.targetBranch}</ProofRow>
-          <ProofRow label="Verified">{new Date(order.stateChangedAt).toLocaleString()}</ProofRow>
+          <ProofRow label="Receipt ID">{order.receiptId ?? 'Unavailable'}</ProofRow>
+          <ProofRow label="Order ID">{order.id}</ProofRow>
           <p className="px-3.5 py-3 text-[10.5px] leading-[1.5] text-muted-foreground/75">
-            This receipt belongs to this shipment and remains available with the task history.
+            The compact shipping feed confirms a receipt exists for this order. Verified proof
+            details are not loaded in this panel yet.
           </p>
         </section>
       ) : (
@@ -342,7 +328,7 @@ function WaitingLane({
   rowRef: (id: string, node: HTMLButtonElement | null) => void
   onOpen: (row: ShippingPanelRow) => void
 }): JSX.Element {
-  const id = `shipping-waiting-${lane.destination.replace(/[^a-z0-9]+/gi, '-')}`
+  const id = `shipping-waiting-${lane.rows[0]?.order.id ?? 'empty'}`
   return (
     <Section id={id} label={`WAITING · ${lane.destination}`} count={lane.rows.length}>
       <ol className="px-2.5 pb-2.5">
@@ -362,13 +348,7 @@ function WaitingLane({
   )
 }
 
-export function ShippingPanel({
-  orders,
-  issues,
-  repoId,
-  now,
-  onSelectIssue,
-}: ShippingPanelProps): JSX.Element {
+export function ShippingPanel({ orders, issues, repoId, now }: ShippingPanelProps): JSX.Element {
   const model = useMemo(() => shippingPanelModel(orders, issues, repoId), [issues, orders, repoId])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [returnFocusId, setReturnFocusId] = useState<string | null>(null)
@@ -414,7 +394,6 @@ export function ShippingPanel({
           setReturnFocusId(selected.order.id)
           setSelectedId(null)
         }}
-        onSelectIssue={onSelectIssue}
       />
     )
   }
@@ -475,7 +454,7 @@ export function ShippingPanel({
       ) : (
         model.waiting.map((lane) => (
           <WaitingLane
-            key={`${lane.destination}:${lane.targetBranch}`}
+            key={lane.destination}
             lane={lane}
             now={now}
             rowRef={setRowRef}

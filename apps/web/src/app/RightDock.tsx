@@ -91,28 +91,19 @@ export function RightDock({
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const {
-    paneA,
-    fileTabs,
-    sessions,
-    repos,
-    shipOrders,
-    coarseNow,
-    setSelectedIssueId,
-    setOpenIssueId,
-  } = useStoreSelector(
-    (s) => ({
-      paneA: s.paneA,
-      fileTabs: s.fileTabs,
-      sessions: s.sessions,
-      repos: s.repos,
-      shipOrders: s.shipOrders,
-      coarseNow: s.coarseNow,
-      setSelectedIssueId: s.setSelectedIssueId,
-      setOpenIssueId: s.setOpenIssueId,
-    }),
-    shallowEqual,
-  )
+  const { paneA, fileTabs, sessions, repos, shipOrders, coarseNow, setSelectedIssueId } =
+    useStoreSelector(
+      (s) => ({
+        paneA: s.paneA,
+        fileTabs: s.fileTabs,
+        sessions: s.sessions,
+        repos: s.repos,
+        shipOrders: s.shipOrders,
+        coarseNow: s.coarseNow,
+        setSelectedIssueId: s.setSelectedIssueId,
+      }),
+      shallowEqual,
+    )
   const issues = useReplicaIssues()
   const { setFocusedIssueId } = useOperatorFocus()
   const active = useMemo(
@@ -274,11 +265,6 @@ export function RightDock({
               issues={issues}
               repoId={mergeQueueScope?.repoId ?? null}
               now={coarseNow}
-              onSelectIssue={(issue) => {
-                setSelectedIssueId(issue.id)
-                setFocusedIssueId(issue.id)
-                setOpenIssueId(issue.id)
-              }}
             />
           )}
         </Suspense>
