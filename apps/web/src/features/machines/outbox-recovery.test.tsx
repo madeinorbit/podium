@@ -17,6 +17,7 @@ import { asMutationId } from '@podium/model'
  *    a revoked-while-offline entry from leaking back the content the revocation
  *    removed.
  */
+import { shouldParkDeadLetter } from '@podium/client-core/engine'
 import { createOutbox, type Outbox } from '@podium/client-core/outbox'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,7 +26,7 @@ type Kinds = {
   rename: { sessionId: string; name: string }
   /** POD-781's shape: a command wrapping a PATCH, so the operator's prose sits
    *  one level down at `patch.title` rather than on the input itself. */
-  issueUpdate: { id: string; patch: { title?: string } }
+  issueUpdate: { id: string; patch: { title?: string; stage?: string } }
   issueSetTucked: { id: string; tucked: boolean }
 }
 
@@ -64,6 +65,7 @@ beforeEach(() => {
   refusalCode = 'UNAUTHORIZED'
   outbox = createOutbox<Kinds>({
     storage: { load: () => [], save: () => {} },
+    shouldDiscardDeadLetter: (entry) => !shouldParkDeadLetter(entry.kind, entry.input),
     executors: {
       rename: async () => {
         throw refuse(refusalCode)
@@ -98,9 +100,10 @@ describe('dead-letter recovery, at runtime', () => {
     expect(chip).toBeTruthy()
     fireEvent.click(chip)
 
-    await waitFor(() => expect(screen.getByText('Review 1 change')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Couldn’t save this change')).toBeTruthy())
     // The recoverable intent: the user's own input, verbatim.
     expect(screen.getByText(/my careful title/)).toBeTruthy()
+    expect(screen.getByTestId('outbox-change-label').textContent).toBe('Session rename')
   })
 
   it('says NOTHING about the target — no id, no title, no existence claim', async () => {
@@ -112,7 +115,7 @@ describe('dead-letter recovery, at runtime', () => {
     await outbox.drain()
     render(<OutboxRecoveryIndicator />)
     fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByText('Review 1 change')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Couldn’t save this change')).toBeTruthy())
 
     const dialog = screen.getByRole('dialog')
     // The author's OWN input is shown verbatim and may legitimately contain the
@@ -135,6 +138,7 @@ describe('dead-letter recovery, at runtime', () => {
     refusalCode = 'NOT_FOUND'
     outbox = createOutbox<Kinds>({
       storage: { load: () => [], save: () => {} },
+      shouldDiscardDeadLetter: (entry) => !shouldParkDeadLetter(entry.kind, entry.input),
       executors: {
         rename: async () => {
           throw refuse(refusalCode)
@@ -240,18 +244,20 @@ describe('dead-letter recovery, at runtime', () => {
     expect(requeued?.input).toEqual({ id: 'i1', patch: { title: 'fixed title' } })
   })
 
-  it('shows a concise action row without dumping bookkeeping payloads', async () => {
+  it('does not surface a review chip for a click that left no typed words', async () => {
     outbox.enqueue('issueSetTucked', { id: 'SECRET-BOOKKEEPING-ID', tucked: true })
     await outbox.drain()
     render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    expect(screen.queryByTestId('outbox-recovery-chip')).toBeNull()
+    expect(outbox.deadLetters()).toHaveLength(0)
+  })
 
-    const dialog = screen.getByRole('dialog')
-    expect(screen.getByText('Issue visibility')).toBeTruthy()
-    expect(dialog.textContent).not.toContain('SECRET-BOOKKEEPING-ID')
-    expect(dialog.textContent).not.toContain('"tucked"')
-    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Discard' })).toBeTruthy()
+  it('does not park a field-only issue update — the overlay reverts and nothing is left to review', async () => {
+    refusalCode = 'BAD_REQUEST'
+    outbox.enqueue('issueUpdate', { id: 'SECRET-ISSUE-ID', patch: { stage: 'review' } })
+    await outbox.drain()
+    render(<OutboxRecoveryIndicator />)
+    expect(screen.queryByTestId('outbox-recovery-chip')).toBeNull()
+    expect(outbox.deadLetters()).toHaveLength(0)
   })
 })

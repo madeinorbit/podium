@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   deadLetterHandlingFor,
+  shouldParkDeadLetter,
   isInitialConnectivityError,
   OUTBOX_COMMANDS,
   OUTBOX_DEAD_LETTER_HANDLING,
@@ -84,6 +85,15 @@ describe('automatic bookkeeping recovery policy', () => {
       'issueMarkRead',
     ])
     expect(deadLetterHandlingFor('future-authored-command')).toBe('recover')
+  })
+
+  it('parks only writes that carry the author’s own words', () => {
+    expect(shouldParkDeadLetter('rename', { sessionId: 's1', name: 'mine' })).toBe(true)
+    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { title: 'Renamed' } })).toBe(true)
+    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { stage: 'review' } })).toBe(false)
+    expect(shouldParkDeadLetter('issueSetTucked', { id: 'i1', tucked: true })).toBe(false)
+    expect(shouldParkDeadLetter('issueMarkRead', { id: 'i1' })).toBe(false)
+    expect(shouldParkDeadLetter('future-authored-command', { id: 'i1' })).toBe(true)
   })
 })
 

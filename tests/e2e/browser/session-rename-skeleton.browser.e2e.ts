@@ -501,7 +501,7 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     const retried = `phase3-retry-${Date.now()}`
     await parkRevokedGrant(retried)
     await chip.click()
-    await expect(memberPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
+    await expect(memberPage.getByRole('dialog', { name: 'Couldn’t save this change' })).toBeVisible()
     await phase3Shot(memberPage, '01-live-authorization-dead-letter')
     await restore()
     await memberPage.getByTestId('outbox-retry').click()
@@ -512,7 +512,7 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     const edited = `phase3-edit-recovered-${Date.now()}`
     await parkRevokedGrant(originalEdit)
     await chip.click()
-    await expect(memberPage.getByRole('dialog', { name: 'Changes that need you' })).toBeVisible()
+    await expect(memberPage.getByRole('dialog', { name: 'Couldn’t save this change' })).toBeVisible()
     await memberPage.getByRole('button', { name: 'Edit', exact: true }).click()
     await memberPage.getByRole('textbox', { name: 'Your text' }).fill(edited)
     await phase3Shot(memberPage, '02-edit-recovery-before-send')

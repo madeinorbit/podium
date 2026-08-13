@@ -26,6 +26,15 @@
  *     grant was revoked, the entity was deleted, or the id never existed;
  *   - silent AT THE TARGET level — no title, no id, no existence claim.
  *
+ * `describeQueuedChange` is allowed to name WHAT THE AUTHOR SENT — their own
+ * title, stage, labels — because that is the parked input, not a read of the
+ * target. It must never echo identifiers (`id`, `sessionId`, `parentId`,
+ * `machineId`, `originId`, `assignee`) or claim that the target exists.
+ *
+ * Recovery is only for TYPED WORDS. A refused stage click is reverted and
+ * toasted; parking it would ask the user to "review" a change they can just
+ * make again. The scan below reads the author's input only.
+ *
  * Whether the product may ever say "the share was revoked" as distinct from "the
  * entity was deleted" stays OPEN (ADR 3 Amendment 1 §3 O1) and is a human's call
  * to make there, not a default to settle here. The safe wording is picked; the
@@ -33,7 +42,9 @@
  */
 
 import type { ConfirmationRule } from '@podium/commands'
+import type { IssueStage } from '@podium/model'
 import type { OutboxRejectionCode } from '@podium/sync/outbox'
+import { ISSUE_STAGE_LABELS } from './viewmodels/issue-reference'
 
 /** One clause naming what happened, for a toast. */
 export function reasonSummary(code: OutboxRejectionCode): string {
@@ -42,7 +53,7 @@ export function reasonSummary(code: OutboxRejectionCode): string {
       // Deliberately says nothing about the target. See the header.
       return 'it was refused'
     case 'conflict':
-      return 'someone else changed it first'
+      return 'someone else saved first'
     case 'invalid':
       return 'it was not accepted as written'
     case 'confirmation-required':
@@ -67,7 +78,7 @@ export function recoveryCopyFor(code: OutboxRejectionCode): RecoveryCopy {
   switch (code) {
     case 'unauthorized':
       return {
-        title: 'Server refused it',
+        title: 'Needs access first',
         // True for all three situations the code covers. It tells the user the
         // ONE thing that is actionable — retrying unchanged will not help,
         // something about permissions has to change first — without asserting
@@ -77,28 +88,41 @@ export function recoveryCopyFor(code: OutboxRejectionCode): RecoveryCopy {
       }
     case 'conflict':
       return {
-        title: 'Changed elsewhere',
-        detail: 'Retry to apply your change to the latest version.',
+        title: 'Someone else saved first',
+        detail: 'Retry to apply your change on top of the latest version.',
         retryLabel: 'Retry on latest',
       }
     case 'invalid':
       return {
-        title: 'Needs editing',
-        detail: 'The server could not accept it as written.',
+        title: 'Not accepted as written',
+        detail: 'Edit the text and send it again, or discard this change.',
         retryLabel: undefined,
       }
     case 'confirmation-required':
       return {
-        title: 'Needs confirming',
-        detail: 'Confirm this change before sending it again.',
-        retryLabel: 'Confirm & retry',
+        title: 'Needs confirmation',
+        detail: 'Confirm this change, then send it again.',
+        retryLabel: 'Confirm and retry',
       }
     case 'max-age':
       return {
-        title: 'Too old to send',
+        title: 'Took too long to send',
         detail: 'Send it again as a new change.',
         retryLabel: 'Send again',
       }
+  }
+}
+
+export function recoveryDialogCopy(count: number): { title: string; detail: string } {
+  if (count === 1) {
+    return {
+      title: 'Couldn’t save this change',
+      detail: 'It didn’t reach the server.',
+    }
+  }
+  return {
+    title: `Couldn’t save ${count} changes`,
+    detail: 'They didn’t reach the server. Decide what to do with each one.',
   }
 }
 
@@ -119,9 +143,7 @@ export function kindLabel(kind: string): string {
     issueSetTucked: 'Issue visibility',
     // POD-781. `issueUpdate` is one kind carrying any of two dozen fields, so it
     // gets the honest generic label rather than a guess at which one the user
-    // changed — the row already shows their own words for the fields that have
-    // any (`authoredText` reads `title`), and naming a field the entry may not
-    // carry would be worse than naming none.
+    // changed — `describeQueuedChange` specializes it from the patch keys.
     issueUpdate: 'Issue change',
     issueArchive: 'Issue archived',
     issueDelete: 'Issue deleted',
@@ -136,6 +158,166 @@ export function kindLabel(kind: string): string {
     resumeAndSend: 'Message to agent',
   }
   return labels[kind] ?? kind
+}
+
+/** What the author tried to send, named from THEIR input only. Never a target
+ *  read: no fetched title, no existence claim, no identifier echoed. */
+export interface QueuedChangeView {
+  readonly label: string
+  /** A short, ID-free description when the author's prose is not already on
+   *  screen. Null when the label plus the prose preview is enough. */
+  readonly summary: string | null
+}
+
+const PATCH_FIELD_NOUNS: Record<string, string> = {
+  title: 'title',
+  description: 'description',
+  brief: 'brief',
+  stage: 'stage',
+  parentBranch: 'branch',
+  defaultAgent: 'agent',
+  defaultModel: 'model',
+  defaultEffort: 'effort',
+  machineId: 'assigned machine',
+  archived: 'archive state',
+  priority: 'priority',
+  type: 'type',
+  assignee: 'assignee',
+  parentId: 'parent',
+  design: 'design',
+  acceptance: 'acceptance',
+  notes: 'notes',
+  dueAt: 'due date',
+  deferUntil: 'snooze',
+  closedReason: 'close reason',
+  pinned: 'pin',
+  sortKey: 'order',
+  color: 'color',
+  estimateMin: 'estimate',
+}
+
+export function describeQueuedChange(kind: string, input: unknown): QueuedChangeView {
+  switch (kind) {
+    case 'issueUpdate':
+      return describeIssueUpdate(input)
+    case 'issueSetTucked':
+      return {
+        label: kindLabel(kind),
+        summary: record(input)?.tucked === true ? 'Hidden from the list' : 'Shown in the list',
+      }
+    case 'issueSetLabels': {
+      const labels = record(input)?.labels
+      return {
+        label: kindLabel(kind),
+        summary: Array.isArray(labels) ? formatLabels(labels) : null,
+      }
+    }
+    case 'issueSetPlacement': {
+      const placement = record(input)?.placement
+      return {
+        label: kindLabel(kind),
+        summary:
+          placement === 'own'
+            ? 'Moved to your board'
+            : placement === 'mission'
+              ? 'Moved to the mission'
+              : null,
+      }
+    }
+    case 'issueClose': {
+      const reason = record(input)?.reason
+      return {
+        label: kindLabel(kind),
+        summary: typeof reason === 'string' && reason.length > 0 ? reason : null,
+      }
+    }
+    case 'issueDefer': {
+      const until = record(input)?.until
+      return {
+        label: kindLabel(kind),
+        summary: until == null ? 'Snooze cleared' : formatWhen(until),
+      }
+    }
+    case 'snoozeSet': {
+      const until = record(input)?.until
+      return {
+        label: kindLabel(kind),
+        summary: until == null ? 'Snooze cleared' : formatWhen(until),
+      }
+    }
+    default:
+      return { label: kindLabel(kind), summary: null }
+  }
+}
+
+/** Toast line: names the change from the author's input, never the target. */
+export function deadLetterNotice(kind: string, input: unknown, code: OutboxRejectionCode): string {
+  return `${describeQueuedChange(kind, input).label} didn’t sync — ${reasonSummary(code)}`
+}
+
+/** Short toast, Linear-shaped: what failed, not why in protocol terms. */
+export function couldNotSaveNotice(kind: string, input: unknown): string {
+  const label = describeQueuedChange(kind, input).label
+  const named = label.length === 0 ? 'this change' : label[0]!.toLowerCase() + label.slice(1)
+  return `Couldn’t save ${named}`
+}
+
+/** The keys an author's own prose can arrive under, in the order we prefer them. */
+const AUTHORED_KEYS = [
+  'text',
+  'name',
+  'title',
+  'body',
+  'description',
+  'brief',
+  'notes',
+  'design',
+  'acceptance',
+  'closedReason',
+  'reason',
+] as const
+
+export interface AuthoredText {
+  readonly outer: string
+  readonly inner?: string
+  readonly value: string
+}
+
+function authoredIn(value: Record<string, unknown>): { key: string; value: string } | null {
+  for (const key of AUTHORED_KEYS) {
+    const found = value[key]
+    if (typeof found === 'string' && found.length > 0) return { key, value: found }
+  }
+  return null
+}
+
+/** Where the author's prose sits in a queued input. One level of nesting, so
+ *  `issues.update` finds `patch.title` without walking into ids. */
+export function findAuthoredText(input: unknown): AuthoredText | null {
+  if (typeof input === 'string') return { outer: 'text', value: input }
+  if (!input || typeof input !== 'object') return null
+  const rec = input as Record<string, unknown>
+  const top = authoredIn(rec)
+  if (top) return { outer: top.key, value: top.value }
+  for (const [outer, nested] of Object.entries(rec)) {
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) continue
+    const found = authoredIn(nested as Record<string, unknown>)
+    if (found) return { outer, inner: found.key, value: found.value }
+  }
+  return null
+}
+
+export function recoverableAuthoredText(input: unknown): string | null {
+  return findAuthoredText(input)?.value ?? null
+}
+
+/** Put edited prose back on the field it came from. */
+export function replaceAuthoredText(input: unknown, next: string): Record<string, unknown> {
+  const found = findAuthoredText(input)
+  if (!found || typeof input !== 'object' || input === null) return {}
+  if (found.inner === undefined) return { [found.outer]: next }
+  const nested = (input as Record<string, unknown>)[found.outer] as Record<string, unknown>
+  return { [found.outer]: { ...nested, [found.inner]: next } }
 }
 
 /**
@@ -184,4 +366,140 @@ export function unsatisfiableConfirmationDetail(rule: ConfirmationRule): string 
   return rule === 'broker'
     ? 'An approval is required before this can be sent.'
     : 'This change cannot carry the confirmation the server requested.'
+}
+
+function describeIssueUpdate(input: unknown): QueuedChangeView {
+  const patch = record(record(input)?.patch)
+  if (!patch) return { label: kindLabel('issueUpdate'), summary: null }
+  const keys = Object.keys(patch).filter((key) => patch[key] !== undefined)
+  if (keys.length === 0) return { label: kindLabel('issueUpdate'), summary: null }
+  if (keys.length === 1) {
+    const key = keys[0]!
+    return describeSinglePatchField(key, patch[key])
+  }
+  const nouns = keys.map((key) => PATCH_FIELD_NOUNS[key]).filter((noun): noun is string => Boolean(noun))
+  return {
+    label: 'Issue update',
+    summary: nouns.length > 0 ? capitalize(listEnglish(nouns)) : null,
+  }
+}
+
+function describeSinglePatchField(key: string, value: unknown): QueuedChangeView {
+  switch (key) {
+    case 'title':
+      return { label: 'Issue title', summary: null }
+    case 'description':
+      return { label: 'Issue description', summary: null }
+    case 'brief':
+      return { label: 'Issue brief', summary: null }
+    case 'notes':
+      return { label: 'Issue notes', summary: null }
+    case 'design':
+      return { label: 'Issue design', summary: null }
+    case 'acceptance':
+      return { label: 'Issue acceptance', summary: null }
+    case 'closedReason':
+      return { label: 'Issue close reason', summary: null }
+    case 'stage':
+      return { label: 'Issue stage', summary: stageSummary(value) }
+    case 'priority':
+      return {
+        label: 'Issue priority',
+        summary: typeof value === 'number' && Number.isInteger(value) ? `Set to P${value}` : null,
+      }
+    case 'type':
+      return {
+        label: 'Issue type',
+        summary: typeof value === 'string' && value.length > 0 ? `Set to ${value}` : null,
+      }
+    case 'parentBranch':
+      return {
+        label: 'Issue branch',
+        summary: typeof value === 'string' && value.length > 0 ? value : null,
+      }
+    case 'defaultAgent':
+      return {
+        label: 'Default agent',
+        summary: typeof value === 'string' && value.length > 0 ? value : null,
+      }
+    case 'defaultModel':
+      return {
+        label: 'Default model',
+        summary: typeof value === 'string' && value.length > 0 ? value : null,
+      }
+    case 'defaultEffort':
+      return {
+        label: 'Default effort',
+        summary: typeof value === 'string' && value.length > 0 ? value : null,
+      }
+    case 'archived':
+      return { label: value === true ? 'Issue archived' : 'Issue unarchived', summary: null }
+    case 'pinned':
+      return { label: value === true ? 'Issue pinned' : 'Issue unpinned', summary: null }
+    case 'color':
+      return {
+        label: 'Issue color',
+        summary: value == null ? 'Color cleared' : typeof value === 'string' ? `Set to ${value}` : null,
+      }
+    case 'dueAt':
+      return { label: 'Issue due date', summary: formatWhen(value) }
+    case 'deferUntil':
+      return { label: 'Issue snooze', summary: formatWhen(value) }
+    case 'estimateMin':
+      return {
+        label: 'Issue estimate',
+        summary: typeof value === 'number' ? `${value} min` : null,
+      }
+    case 'machineId':
+      return { label: 'Assigned machine', summary: 'Changed the assigned machine' }
+    case 'parentId':
+      return { label: 'Issue moved', summary: 'Moved under another issue' }
+    case 'assignee':
+      return { label: 'Issue assignee', summary: 'Changed the assignee' }
+    case 'sortKey':
+      return { label: 'Issue order', summary: 'Reordered' }
+    default:
+      return { label: kindLabel('issueUpdate'), summary: null }
+  }
+}
+
+function stageSummary(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const label = ISSUE_STAGE_LABELS[value as IssueStage]
+  return label ? `Moved to ${label}` : null
+}
+
+function formatLabels(labels: unknown[]): string {
+  const names = labels.filter((item): item is string => typeof item === 'string' && item.length > 0)
+  return names.length > 0 ? names.join(', ') : 'Cleared labels'
+}
+
+function formatWhen(value: unknown): string | null {
+  if (value == null) return null
+  if (typeof value !== 'string' || value.length === 0) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function listEnglish(items: string[]): string {
+  if (items.length === 0) return ''
+  if (items.length === 1) return items[0]!
+  if (items.length === 2) return `${items[0]} and ${items[1]}`
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`
+}
+
+function capitalize(value: string): string {
+  if (value.length === 0) return value
+  return value[0]!.toUpperCase() + value.slice(1)
 }

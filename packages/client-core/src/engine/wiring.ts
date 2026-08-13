@@ -21,7 +21,7 @@ import {
   platformIsOnline,
   platformOnlineEvents,
 } from '../outbox'
-import { reasonSummary } from '../outbox-recovery-copy'
+import { couldNotSaveNotice, recoverableAuthoredText } from '../outbox-recovery-copy'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
 import type { Replica } from '../replica/replica'
@@ -293,6 +293,16 @@ export function deadLetterHandlingFor(kind: string): OutboxDeadLetterHandling {
     // Unknown work may contain authored content. Preserve it for recovery.
     'recover'
   )
+}
+
+/** Park only when the author typed words we would lose by reverting.
+ *  A refused stage click, tuck, or pin just snaps back — Linear-shaped.
+ *  Unknown kinds fail closed into recovery. The decision reads the author's
+ *  input only, never the target, so it cannot reopen the existence oracle. */
+export function shouldParkDeadLetter(kind: string, input: unknown): boolean {
+  if (deadLetterHandlingFor(kind) === 'discard-automatic') return false
+  if (!(kind in OUTBOX_DEAD_LETTER_HANDLING)) return true
+  return recoverableAuthoredText(input) !== null
 }
 
 /**
@@ -640,21 +650,23 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
     storage: args.replica.outboxStorage(),
     awaitingStorage: args.replica.outboxAwaitingStorage(),
     deadLetterStorage: args.replica.outboxDeadLetterStorage(),
-    shouldDiscardDeadLetter: (entry) => deadLetterHandlingFor(entry.kind) === 'discard-automatic',
+    shouldDiscardDeadLetter: (entry) => !shouldParkDeadLetter(entry.kind, entry.input),
     executors: outboxExecutors(api),
     onApplied: args.onApplied,
-    // A definitively-refused entry can never sync AS IT IS — but it is no longer
-    // dropped (POD-316), so the old copy ("and dropped") had become a lie about
-    // work that is in fact sitting in the recovery surface. A toast that tells
-    // you your writing is gone, when it is recoverable two clicks away, is worse
-    // than no toast: it teaches people to re-type instead of to look.
+    // A refused write with no typed words is reverted (overlay drops) and
+    // toasted. Authored prose is parked so the words are not lost — a toast
+    // that said they were gone would teach people to re-type instead of look.
     onPoison: (entry) => {
       args.onDropped?.(entry)
+      if (
+        !shouldParkDeadLetter(entry.kind, entry.input) &&
+        deadLetterHandlingFor(entry.kind) !== 'discard-automatic'
+      ) {
+        args.notices.error(couldNotSaveNotice(entry.kind, entry.input))
+      }
     },
     onDeadLetter: (parked) => {
-      args.notices.error(
-        `A queued change (${parked.entry.kind}) needs your attention — ${reasonSummary(parked.reason.code)}`,
-      )
+      args.notices.error(couldNotSaveNotice(parked.entry.kind, parked.entry.input))
       args.onDeadLetter?.(parked)
     },
   })
