@@ -151,8 +151,8 @@ Single `agentFrame` is retained for the trivial one-frame case / back-compat.
 client focus/visibility change ─viewState─▶ server (per-client view sets)
    └─ computePriorities (union) ─sessionPriority delta─▶ daemon scheduler
 PTY onData ▶ session.onFrame ▶ output-scheduler.enqueue(sid, seq, data)
-   P0/P1: setImmediate flush ─agentFrameBatch─▶ server.onFrame per frame ─▶ ring + fan-out
-   P2/P3: 75ms / 64KB flush  ─agentFrameBatch─▶ server.onFrame per frame ─▶ ring + fan-out
+   P0/P1: setImmediate flush ─agentFrameBatch─▶ server byte-concatenates batch ─▶ ring + fan-out
+   P2/P3: 75ms / 64KB flush  ─agentFrameBatch─▶ server byte-concatenates batch ─▶ ring + fan-out
 ```
 
 ### Error handling
@@ -174,8 +174,10 @@ PTY onData ▶ session.onFrame ▶ output-scheduler.enqueue(sid, seq, data)
 3. **Loop-isolation regression** (bun, real-ish): a P3 session enqueuing a flood of
    frames does NOT delay a P0 session's flush, and the daemon main-loop max lag stays
    low while the flood runs (mirrors the existing worker-isolation test).
-4. **Wire round-trip**: `agentFrameBatch` encodes/parses; the server unpacks N frames
-   to N `onFrame` calls with correct seqs; a single-frame send still works.
+4. **Wire round-trip**: `agentFrameBatch` encodes/parses; the server preserves its
+   byte stream in one client frame and retains the source-frame activity count; a
+   single-frame send still works. (POD-1002 carries the original daemon coalescing
+   through the client WebSocket instead of expanding it again at the server.)
 5. **Live**: with `PODIUM_LOOP_PROFILE` on, the frame-attributed stalls
    (`frames=NNN`) should drop sharply; background-session floods no longer hitch the
    focused echo.

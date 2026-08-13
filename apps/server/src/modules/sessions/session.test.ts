@@ -438,6 +438,19 @@ describe('Session', () => {
     ])
   })
 
+  it('coalesces a source batch without losing byte order or activity counts', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    s.terminal.attachClient(a)
+    s.terminal.onFrames(['ZDE=', 'ZDI='])
+
+    const frames = a.sent.filter((m) => m.type === 'outputFrame')
+    expect(frames).toHaveLength(1)
+    expect(Buffer.from(frames[0]!.data, 'base64').toString()).toBe('d1d2')
+    expect(frames[0]!.seq).toBe(0)
+    expect(s.terminal.outputCount).toBe(2)
+  })
+
   it('tells the attaching client whether the PTY has ever produced output', () => {
     // POD-385: an empty screen means either "the child has printed nothing yet"
     // (a CLI still booting) or "we no longer hold its replay". Only the server

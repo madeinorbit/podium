@@ -1473,6 +1473,7 @@ describe('foldCodexRolloutBootstrap', () => {
     let retryNow = 0
     const livePolls: unknown[] = []
     let boundaryScans = 0
+    let rolloutOpens = 0
     const legacyEvents: unknown[] = []
     const rebinds: string[] = []
     const observation = observeCodexState({
@@ -1482,6 +1483,9 @@ describe('foldCodexRolloutBootstrap', () => {
       pollMs: 10,
       onCausalBoundaryScan: () => {
         boundaryScans += 1
+      },
+      onRolloutOpen: () => {
+        rolloutOpens += 1
       },
       causal: {
         podiumSessionId: asSessionId('podium-poll'),
@@ -1566,12 +1570,15 @@ describe('foldCodexRolloutBootstrap', () => {
       })
       await vi.waitFor(() => expect(livePolls.length).toBeGreaterThan(0))
       const scansAtUnchangedEof = boundaryScans
+      const opensAtUnchangedEof = rolloutOpens
       const afterTerminal = livePolls.length
       await vi.waitFor(() => expect(livePolls.length).toBeGreaterThan(afterTerminal))
       expect(boundaryScans).toBe(scansAtUnchangedEof)
+      expect(rolloutOpens).toBe(opensAtUnchangedEof)
       const afterUnchangedPoll = livePolls.length
       await appendFile(livePath, event('agent_message', '2026-07-19T10:02:01.000Z'))
       await vi.waitFor(() => expect(boundaryScans).toBeGreaterThan(scansAtUnchangedEof))
+      expect(rolloutOpens).toBeGreaterThan(opensAtUnchangedEof)
       await vi.waitFor(() => expect(livePolls.length).toBeGreaterThan(afterUnchangedPoll))
       const afterLateOutput = livePolls.length
       await appendFile(

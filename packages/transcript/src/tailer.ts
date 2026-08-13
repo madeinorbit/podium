@@ -1,4 +1,4 @@
-import { open } from 'node:fs/promises'
+import { open, stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/model'
 import {
   claudeRecordColor,
@@ -79,6 +79,8 @@ export interface TranscriptTailOptions {
   maxInitialItems?: number
   /** Chunk size for backfill reads (test seam); defaults to READ_CHUNK_BYTES. */
   readChunkBytes?: number
+  /** Test/attribution seam: fires only when a changed file requires a descriptor. */
+  onReadOpen?: () => void
 }
 
 /** Metadata accompanying each `onItems` delta. */
@@ -198,6 +200,15 @@ export function tailTranscript(
     if (reading || stopped) return
     reading = true
     try {
+      // The shared daemon tick fans this across every retained session. Opening,
+      // fstat'ing and closing an unchanged transcript on every 700 ms tick made
+      // the idle path descriptor- and Promise-heavy. A path stat is enough to
+      // reject the overwhelmingly common unchanged case; changed files still use
+      // one descriptor snapshot below so truncation and bounded reads stay
+      // coherent if an append races this check.
+      const observed = await stat(path)
+      if (!first && observed.size === offset + leftover.length) return
+      opts.onReadOpen?.()
       const handle = await open(path, 'r')
       try {
         const { size } = await handle.stat()

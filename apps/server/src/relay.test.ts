@@ -4343,7 +4343,7 @@ describe('output-relay priority + frame batch', () => {
     })
   })
 
-  it('agentFrameBatch unpacks into one outputFrame broadcast per coalesced frame', () => {
+  it('agentFrameBatch stays coalesced through the client broadcast', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -4364,10 +4364,9 @@ describe('output-relay priority + frame batch', () => {
     const frames = c.sent.filter(
       (m): m is Extract<ServerMessage, { type: 'outputFrame' }> => m.type === 'outputFrame',
     )
-    // Each coalesced frame becomes its own outputFrame, in order, each with its own
-    // server-assigned seq — clients are unaffected by the daemon's coalescing.
-    expect(frames.map((f) => f.data)).toEqual(['ZDE=', 'ZDI='])
-    expect(frames.map((f) => f.seq)).toEqual([0, 1])
+    expect(frames).toHaveLength(1)
+    expect(Buffer.from(frames[0]!.data, 'base64').toString()).toBe('d1d2')
+    expect(frames[0]!.seq).toBe(0)
   })
 })
 

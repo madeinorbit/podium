@@ -1138,6 +1138,8 @@ export function observeCodexState(opts: {
   /** Test/attribution seam: fires only when changed rollout bytes require a
    * complete-record boundary scan. Unchanged polls must not fire it. */
   onCausalBoundaryScan?: () => void
+  /** Test/attribution seam: fires only when a changed rollout needs opening. */
+  onRolloutOpen?: () => void
   /** Test/attribution seam for the expensive unbound corpus fallback. */
   onFilesystemRolloutScan?: () => void
 }): CodexStateObservation {
@@ -1472,6 +1474,45 @@ export function observeCodexState(opts: {
       if (!activeRolloutPath) return
       const causalReady = await ensureCausalObserver()
       if (causalReady && !causalObserver) return
+      // An observation awaiting acknowledgement has no file work to do. Retry
+      // delivery without touching the rollout; the next ack drives an immediate
+      // tick and resumes the tail from its accepted cursor.
+      if (causalReady && causalObserver) {
+        if (awaitingCausalBootstrapAck) {
+          if (causalBootstrapObservation) sendCausalObservation(causalBootstrapObservation)
+          return
+        }
+        if (causalObserver.waitingForAck) {
+          const pending = causalObserver.pendingObservation
+          if (pending) sendCausalObservation(pending)
+          return
+        }
+      }
+      // Reject an unchanged tick with one path stat. Previously every retained
+      // Codex session paid open + fstat + close here even at EOF, in addition to
+      // the transcript tailer's identical descriptor cycle on the same file.
+      const observed = await stat(activeRolloutPath)
+      if (causalReady && causalObserver) {
+        const device = String(observed.dev)
+        const inode = String(observed.ino)
+        const cursor = causalObserver.acceptedSnapshot.providerCursor
+        const cached = causalBoundaryCache
+        if (
+          cursor.device === device &&
+          cursor.inode === inode &&
+          observed.size >= causalObserver.readOffset &&
+          cached?.device === device &&
+          cached.inode === inode &&
+          cached.size === observed.size &&
+          causalObserver.readOffset === cached.completeEnd
+        ) {
+          opts.causal?.onLivePollComplete?.(cursor)
+          return
+        }
+      } else if (!first && observed.size === offset) {
+        return
+      }
+      opts.onRolloutOpen?.()
       const handle = await open(activeRolloutPath, 'r')
       try {
         const info = await handle.stat()

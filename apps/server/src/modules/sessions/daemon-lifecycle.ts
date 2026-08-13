@@ -218,11 +218,10 @@ export class SessionDaemonLifecycle {
         this.sessions.get(msg.sessionId)?.terminal.onFrame(msg.data)
         break
       case 'agentFrameBatch': {
-        // The daemon coalesced several PTY frames for a lower-priority session into
-        // one batch. Unpack back into per-frame onFrame so each still gets its own
-        // server seq + outputFrame broadcast (clients are unchanged by coalescing).
-        const session = this.sessions.get(msg.sessionId)
-        if (session) for (const data of msg.frames) session.terminal.onFrame(data)
+        // Keep the daemon's coalescing across the server→client boundary. Terminal
+        // output is a byte stream, so concatenating the batch is byte-exact while
+        // avoiding one JSON encode + websocket send per tiny PTY read.
+        this.sessions.get(msg.sessionId)?.terminal.onFrames(msg.frames)
         break
       }
       case 'agentExit': {

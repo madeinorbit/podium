@@ -460,8 +460,26 @@ export class SessionTerminal {
   }
 
   onFrame(data: string): void {
+    this.acceptFrames(data, 1)
+  }
+
+  /** Preserve the daemon's scheduling batch through the client websocket.
+   * PTY output is a byte stream, so frame boundaries carry no semantics; one
+   * server sequence and one client send represent the concatenated bytes while
+   * the durable activity counter still records every source frame. */
+  onFrames(frames: readonly string[]): void {
+    if (frames.length === 0) return
+    if (frames.length === 1) {
+      this.onFrame(frames[0]!)
+      return
+    }
+    const bytes = Buffer.concat(frames.map((data) => Buffer.from(data, 'base64')))
+    this.acceptFrames(bytes.toString('base64'), frames.length, bytes)
+  }
+
+  private acceptFrames(data: string, count: number, bytes?: Buffer): void {
     const seq = this.nextSeq++
-    this.bufferFrame(seq, data)
+    this.bufferFrame(seq, data, bytes)
     this.broadcast({
       type: 'outputFrame',
       sessionId: this.init.sessionId,
@@ -470,7 +488,7 @@ export class SessionTerminal {
       data,
     })
     this.outputAtMs_ = Date.now()
-    this.outputCount_ += 1
+    this.outputCount_ += count
     this.activityDirty_ = true
     if (this.init.agentKind === 'shell' && this.shellCommandRunning) this.markShellBusy()
   }
@@ -569,8 +587,8 @@ export class SessionTerminal {
     this.shellBusyTimer.unref?.()
   }
 
-  private bufferFrame(seq: number, data: string): void {
-    if (SCREEN_RESET.test(Buffer.from(data, 'base64').toString('latin1'))) {
+  private bufferFrame(seq: number, data: string, bytes?: Buffer): void {
+    if (SCREEN_RESET.test((bytes ?? Buffer.from(data, 'base64')).toString('latin1'))) {
       this.outputLog.length = 0
       this.outputLogBytes = 0
     }

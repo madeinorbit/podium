@@ -81,6 +81,48 @@ function makeTailHarness(path: string, pollMs = 10, opts: TranscriptTailOptions 
 }
 
 describe('tailTranscript — cursor stamping + flush (B4)', () => {
+  it('stats unchanged files without reopening their descriptors', async () => {
+    const path = join(dir, 'tail-unchanged-open.jsonl')
+    writeFileSync(path, `${userRecord('o1', 'seed')}\n`)
+    const emissions: Emission[] = []
+    let watcher = (): void => {}
+    let opens = 0
+    const tailer = tailTranscript(
+      path,
+      (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
+      {
+        statTick: {
+          subscribe(next) {
+            watcher = next
+            return () => {
+              watcher = (): void => {}
+            }
+          },
+        },
+        onReadOpen: () => {
+          opens += 1
+        },
+      },
+    )
+    try {
+      await waitFor(() => textsOf(emissions).includes('seed'))
+      expect(opens).toBe(1)
+
+      for (let i = 0; i < 3; i++) {
+        watcher()
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      expect(opens).toBe(1)
+
+      appendFileSync(path, `${userRecord('o2', 'changed')}\n`)
+      watcher()
+      await waitFor(() => textsOf(emissions).includes('changed'))
+      expect(opens).toBe(2)
+    } finally {
+      tailer.stop()
+    }
+  })
+
   it('stamps tailed items with decodable cursors anchored to the right file + offset', async () => {
     const path = join(dir, 'tail-cursors.jsonl')
     const r1 = userRecord('c1', 'alpha')

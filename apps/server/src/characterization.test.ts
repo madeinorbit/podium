@@ -108,8 +108,8 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     )
 
     // Post-reconnect frames arrive with the bridge seq RESET to 0 (that is what a
-    // fresh PTY bridge does). One frame arrives batched — agentFrameBatch unpacks
-    // into per-frame server seqs exactly like single agentFrame messages.
+    // fresh PTY bridge does). A single-frame batch remains one server frame; a
+    // multi-frame batch is byte-concatenated under one server seq (POD-1002).
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentFrame',
       sessionId,
