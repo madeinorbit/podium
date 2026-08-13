@@ -233,6 +233,21 @@
         "workbox-window": "^7.4.1",
       },
     },
+    "packages/agent-runtime": {
+      "name": "@podium/agent-runtime",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/harness": "workspace:*",
+        "@podium/model": "workspace:*",
+        "@podium/protocol": "workspace:*",
+        "@podium/pty": "workspace:*",
+        "zod": "^3.24.1",
+      },
+      "devDependencies": {
+        "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/client-core": {
       "name": "@podium/client-core",
       "version": "0.0.0",
@@ -1156,6 +1171,8 @@
     "@oxc-project/types": ["@oxc-project/types@0.133.0", "", {}, "sha512-KzkdCd6Uxqnf6l3HOw1xfatAlUURA0g14cvBYFyJ5SaNOQbOUvBr9PKArcPcrNIeRsBdgcUzOGrhKveVpvOIGA=="],
 
     "@playwright/test": ["@playwright/test@1.60.0", "", { "dependencies": { "playwright": "1.60.0" }, "bin": { "playwright": "cli.js" } }, "sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag=="],
+
+    "@podium/agent-runtime": ["@podium/agent-runtime@workspace:packages/agent-runtime"],
 
     "@podium/cli": ["@podium/cli@workspace:apps/cli"],
 

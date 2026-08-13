@@ -430,6 +430,16 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       } as unknown as AgentManifest['discovery'],
       exec: unsupported('no one-shot mode'),
       headless: unsupported('no headless mode yet'),
+      // The runtime axis is IRREDUCIBLE, not degradable: a harness Podium can
+      // spawn is a harness that can be driven, and the terminal family is
+      // always one of the ways (POD-1761 §2). What a minimal manifest may
+      // decline is the two PROTOCOL families — which is what this declares.
+      runtime: {
+        server: unsupported('no server mode'),
+        embedded: unsupported('no library to host'),
+        terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+        select: () => 'generic-pty',
+      },
       state: unsupported('no state instrumentation yet'),
       stateChannels: [],
       observer: unsupported('no native store to observe yet'),

@@ -9,7 +9,13 @@ import { observeOpencodeState, opencodeStateProvider } from '../agent-state/open
 import { withStateChannel } from '../agent-state/types.js'
 import { createOpencodeConversationProvider } from '../discovery/providers/opencode.js'
 import { composeAgentInstructions } from '../instructions.js'
-import { type AgentManifest, isSet, supported, unsupported } from '../manifest.js'
+import {
+  type AgentManifest,
+  isSet,
+  selectRuntimeDriver,
+  supported,
+  unsupported,
+} from '../manifest.js'
 import { detectOpencodeLogin } from '../opencode/auth.js'
 import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
 
@@ -145,6 +151,29 @@ export const opencodeManifest: AgentManifest = {
     }
   }),
 
+  // The PILOT server driver (W5): the simplest protocol to client — HTTP +
+  // OpenAPI 3.1 + SSE — and the intended host for background executors on
+  // non-Claude/non-Codex models.
+  runtime: {
+    server: supported({
+      driverId: 'opencode-server',
+      kind: 'http-sse',
+      spawn: ['opencode', 'serve', '--port', '0'],
+      // Loopback TCP, so a per-session secret is MANDATORY rather than advisory:
+      // every local process and user can reach a loopback port, and this one
+      // fronts a credentialed agent (spec §6). The variable it rides in is left
+      // for W5 to fill once it has verified it against the pinned version.
+      transport: 'loopback-tcp',
+      requiresPerSessionSecret: true,
+      openapiPath: '/doc',
+      versionRange: unsupported(
+        'W5 pins the range against recorded fixtures once the client exists; the API is still settling and a guessed range would read as a citation',
+      ),
+    }),
+    embedded: unsupported('opencode ships a server, not a library to host in-process'),
+    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    select: (ctx) => selectRuntimeDriver(ctx, ['opencode-server', 'generic-pty']),
+  },
   headless: supported({
     driver: 'resume-exec',
     outputFormat: 'opencode-jsonl',

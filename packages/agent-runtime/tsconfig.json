@@ -1,0 +1,13 @@
+{
+  "extends": "../../tooling/tsconfig/node.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "ignoreDeprecations": "6.0"
+  },
+  // `test/` sits beside `src/` rather than inside it because the conformance
+  // corpus is a PRODUCT of this package, not a test of it: W3/W5 import it to
+  // prove their own drivers. Keeping it out of `src` keeps it out of the built
+  // entrypoints while still being typechecked here. No `rootDir` — one would
+  // have to name a directory that contains both, which is just the package root.
+  "include": ["src", "test"]
+}

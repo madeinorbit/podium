@@ -442,7 +442,11 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     // HOST CAPABILITY (legacy rule 2). Importing this package means spawning
     // PTYs. The machine host and the build tier may; nothing else may, and there
     // is no open entrypoint because every export here drives a process.
-    consumers: ['apps/daemon', 'scripts'],
+    // POD-2019 adds `packages/agent-runtime`: its terminal-family driver wraps
+    // this stack rather than reimplementing it, which is the whole point of that
+    // item — the heuristics become internals of one driver instead of semantics
+    // smeared across server, daemon and web.
+    consumers: ['apps/daemon', 'packages/agent-runtime', 'scripts'],
   },
   // The home for coding-agent CLI variance: one AgentManifest per CLI
   // (launch/exec/headless/state/discovery/transcript), the native-state
@@ -487,8 +491,55 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     // action on a host. `./browser` is open for the same reason AND bundlable,
     // which `./metadata` is not: openness is a statement about the SURFACE, and
     // POD-2176 is what it cost to read it as a statement about the closure.
-    consumers: ['apps/daemon', 'scripts'],
     openEntrypoints: ['@podium/harness/metadata', '@podium/harness/browser'],
+    // `packages/agent-runtime` joins the consumer set in POD-2019: the drivers
+    // behind the runtime contract ARE the thing that reads manifests to launch
+    // and observe a harness, so it takes the capability rather than routing
+    // around it. See that package's entry below for the argument.
+    consumers: ['apps/daemon', 'packages/agent-runtime', 'scripts'],
+  },
+  // The Agent Runtime contract (POD-1761 W1): the typed primitive surface every
+  // harness driver sits behind — lifecycle, turns, interactions, observation,
+  // transcript, attach, export — plus the driver-conformance corpus.
+  //
+  // WHY IT IS L2 AND NOT L3. It is a PORT, not a feature: it defines what a
+  // session IS and owns no engine of its own. That puts it in the same family as
+  // `packages/pty` (the PTY port) and `packages/harness` (the manifest port),
+  // and it composes both — which is why the two same-layer edges below exist and
+  // why the ordinal alone could not have expressed this.
+  //
+  // WHY IT TAKES THE HOST CAPABILITY. The whole point of the package is that its
+  // drivers spawn things: abduco masters (terminal family), harness server
+  // processes (server family) and SDK worker children (embedded family). That is
+  // the same capability `packages/pty` and `packages/harness` carry, and the
+  // same consumer restriction applies for the same reason — an ordinal cannot
+  // say it, because the edges it forbids (apps/server L4 → here L2) all point
+  // correctly DOWN.
+  //
+  // WHY THERE IS AN OPEN ENTRYPOINT ANYWAY. `apps/server` genuinely needs part
+  // of this package and never wanted the capability: it projects RuntimeEvents
+  // onto the wire, stores PendingInteractions, renders a session's driver and
+  // family, and reads the permitted-failures table to decide whether a weak
+  // outcome is a bug. All of that is DESCRIPTION, none of it is an action on a
+  // host — exactly the distinction `@podium/harness/metadata` was built to make,
+  // and the same enforcement (`manifest-open-entrypoint`: no `export *`, no
+  // process-driving export names, no process-API import) holds it.
+  //
+  // PRINCIPAL-FREE, like its two neighbours: `SessionSpec`'s account selector
+  // names a harness-native login, never a user, grant or visibility class.
+  // Authorization lives at the server projection boundary (POD-1079).
+  'packages/agent-runtime': {
+    layer: 2,
+    platform: 'node-only',
+    features: ['agent-runtime-contract'],
+    deps: [
+      'packages/protocol',
+      'packages/model',
+      'packages/harness',
+      'packages/pty',
+    ],
+    consumers: ['apps/daemon', 'scripts'],
+    openEntrypoints: ['@podium/agent-runtime/metadata'],
   },
   'packages/terminal-client': {
     layer: 2,
@@ -565,6 +616,15 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // the half that actually uses them (POD-397).
   'packages/harness -> packages/runtime',
   'packages/harness -> packages/transcript',
+  // L2 (POD-2019): the Agent Runtime contract composes the two ports it sits in
+  // front of. `harness` supplies the manifests a driver reads to launch and
+  // observe a CLI (and the `Declared<T>` vocabulary `DriverCapabilities` is
+  // built on); `pty` supplies the durable-host machinery the terminal-family
+  // driver wraps rather than reimplements. Both are DELIBERATE: the whole
+  // premise of the package is that today's heuristics become internals of one
+  // driver, which is only possible if that driver can reach them.
+  'packages/agent-runtime -> packages/harness',
+  'packages/agent-runtime -> packages/pty',
   // L3: the React adapter binds hooks to client-core's transport port; it owns no
   // socket protocol state of its own.
   'packages/terminal-client-react -> packages/client-core',

@@ -22,11 +22,12 @@ import {
   accountIdentity,
   fileTranscript,
   type HarnessObservationLease,
-  unsupported,
   isSet,
   promptArgv,
+  selectRuntimeDriver,
   supported,
   type TranscriptSourceInput,
+  unsupported,
 } from '../manifest.js'
 
 const log = createLogger('harness:codex')
@@ -307,6 +308,29 @@ export const codexManifest: AgentManifest = {
     }
   }),
 
+  // The one harness where the server family is the default for EVERY auth mode:
+  // ChatGPT subscription auth works headless (`~/.codex/auth.json` serves `exec`
+  // and `app-server` alike), so there is no auth mode that forces the terminal.
+  runtime: {
+    server: supported({
+      driverId: 'codex-app-server',
+      kind: 'jsonrpc',
+      spawn: ['codex', 'app-server'],
+      // A unix socket at mode 0600 authenticates by filesystem permission: no
+      // secret to leak and no port another local user can reach. Codex never
+      // speaks TCP for this (spec §6).
+      transport: 'unix-socket',
+      requiresPerSessionSecret: false,
+      versionRange: unsupported(
+        'W6 pins the range against recorded fixtures; app-server has already renamed its approval methods once, and an unverified range would let a driver start against a protocol nobody checked',
+      ),
+    }),
+    embedded: unsupported('Codex ships a server, not a library to host in-process'),
+    // The permanent fallback: a protocol break degrades Codex sessions to the
+    // terminal driver instead of stranding them (spec §3, churn stance).
+    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    select: (ctx) => selectRuntimeDriver(ctx, ['codex-app-server', 'generic-pty']),
+  },
   headless: supported({
     driver: 'codex-json',
     outputFormat: 'codex-jsonl',

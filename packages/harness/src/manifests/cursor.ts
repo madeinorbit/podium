@@ -9,6 +9,7 @@ import {
   type AgentManifest,
   fileTranscript,
   isSet,
+  selectRuntimeDriver,
   supported,
   type TranscriptSourceInput,
   transcriptFileExists,
@@ -117,6 +118,18 @@ export const cursorManifest: AgentManifest = {
     return { cmd: 'agent', args: ['-p', '--model', model, prompt] }
   }),
 
+  // TERMINAL TODAY, and unlike grok the reason is IGNORANCE rather than a
+  // deferred driver: nobody has probed cursor-agent for an ACP mode. Recorded as
+  // an open question in the reason below rather than asserted as an absence,
+  // because POD-2025 has just shown how easily that assertion turns out wrong.
+  runtime: {
+    server: unsupported(
+      'no verified server mode: the public ACP registry lists Cursor as an agent, but nobody has probed cursor-agent the way POD-2025 probed grok — verify before turning this into a spec',
+    ),
+    embedded: unsupported('cursor-agent ships no library to host in-process'),
+    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
+  },
   headless: supported({
     driver: 'resume-exec',
     outputFormat: 'text',

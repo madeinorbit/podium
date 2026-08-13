@@ -362,6 +362,15 @@ function resolveTsSibling(repoRoot: string, fromFile: string, specifier: string)
  * and for whom".
  */
 const PRINCIPAL_FREE_WORKSPACES: readonly string[] = [
+  // POD-2019 joins `packages/agent-runtime` to the set, for the same reason and
+  // at the same layer as the other three. The contract describes how a session
+  // is DRIVEN, never who may drive it: `SessionSpec`'s account selector names a
+  // harness-native login (which `~/.codex/auth.json` to spawn under), not a
+  // principal, and carries no user id, grant or visibility class. Authorization
+  // belongs at the server projection boundary (POD-1079), which is above this
+  // package — and stating it as a lint keeps a future driver from reaching for
+  // an authz type when what it actually wants is an account.
+  'packages/agent-runtime',
   'packages/harness',
   'packages/pty',
   'packages/transcript',

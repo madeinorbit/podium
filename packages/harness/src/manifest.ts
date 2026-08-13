@@ -473,6 +473,195 @@ export function fileTranscript(
 }
 
 // ---------------------------------------------------------------------------
+// The runtime axis — how this CLI can be DRIVEN (POD-1761 W1).
+// docs/2026-08-07-agent-runtime-architecture.html §2, §3 "Manifest integration".
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE AXIS INSTEAD OF MORE FLAGS.
+ *
+ * The manifest already answers "how do I launch this CLI interactively"
+ * (`launch`), "how do I run one shot" (`exec`) and "does it have a persistent
+ * headless mode" (`headless`). Those three grew independently and each carries
+ * its own launch shape. `runtime` is the axis they fold INTO: it says which
+ * DRIVER FAMILIES this harness supports and how to reach each one, so that
+ * codex-terminal → codex-server becomes a `select()` result rather than a new
+ * flag every consumer has to learn.
+ *
+ * DECLARATIONS ONLY IN W1. Nothing reads this yet — W3 wires the terminal
+ * driver behind it and W5 the opencode server driver. It lands now, ahead of
+ * both, because a manifest field that arrives WITH its first consumer gets
+ * shaped by that consumer's convenience; one that arrives first has to be
+ * argued from the harnesses.
+ *
+ * WHY `terminal` IS REQUIRED AND THE OTHER TWO ARE NOT. Every harness Podium
+ * ships can be driven by emulating a user at a TUI — that is the current stack,
+ * and §2's decision is that it is a PERMANENT tier, not a deprecation path: it
+ * is the only subscription-preserving way to run Claude Code and the only way to
+ * run harnesses that never grow a protocol. A `server` or `embedded` spec is a
+ * capability a vendor either shipped or did not, so both are `Declared<T>` and
+ * say WHY when absent.
+ */
+export interface AgentRuntimeAxis {
+  /**
+   * The harness's own server, and how to launch and address it. Unsupported ⇒
+   * this CLI has no server mode, so the server family is simply unavailable and
+   * `select()` must never return one of its ids.
+   */
+  server: Declared<ServerRuntimeSpec>
+  /**
+   * The harness ships a library rather than a server, and the runtime hosts the
+   * agent loop in a worker child it owns. Unsupported ⇒ no SDK to host.
+   */
+  embedded: Declared<EmbeddedRuntimeSpec>
+  /** ALWAYS PRESENT: today's `launch()` + composer + state providers, named as a
+   *  driver family rather than as "the way sessions work". */
+  terminal: TerminalRuntimeSpec
+  /**
+   * Which driver to use for one session. A PURE function of the selection
+   * context — no clock, no filesystem, no network — because the server plans a
+   * spawn with it and the machine performs one with it, and the two must agree.
+   *
+   * It must return an id present in `ctx.available`: a policy that names an
+   * unavailable driver is a bug in the policy, not a runtime fallback.
+   */
+  select(ctx: RuntimeSelectionContext): RuntimeDriverId
+}
+
+/** Mirrors `DriverId` in `@podium/agent-runtime`. Restated here rather than
+ *  imported because that package sits ABOVE this one — the manifest names the
+ *  driver it wants; the runtime package owns what a driver IS. The conformance
+ *  package asserts the two lists agree. */
+export type RuntimeDriverId =
+  | 'codex-app-server'
+  | 'opencode-server'
+  | 'claude-sdk'
+  | 'claude-pty'
+  | 'generic-pty'
+  | 'fake'
+
+/** What `select()` is allowed to decide on. `auth` is the load-bearing axis:
+ *  Claude on a subscription is terminal (the compliant path) and on an API key
+ *  is embedded. */
+export interface RuntimeSelectionContext {
+  auth: 'subscription' | 'api-key' | 'bedrock' | 'vertex' | 'unknown'
+  platform: NodeJS.Platform
+  /** Driver ids this machine can actually run right now. */
+  available: readonly RuntimeDriverId[]
+  /** The operator's explicit choice, honoured over the policy's own preference —
+   *  but still only if it is available. */
+  preference?: RuntimeDriverId
+  role?: 'interactive' | 'executor'
+}
+
+/**
+ * How to launch and address the harness's own server.
+ *
+ * `transport` is not decoration: it is the security posture. A unix socket at
+ * mode 0600 authenticates by filesystem permission; a loopback TCP port
+ * authenticates by NOTHING unless a secret is required, and an unauthenticated
+ * per-session HTTP server holding a credentialed agent is not acceptable even on
+ * loopback — every local process and user can reach it (spec §6). Hence
+ * `requiresPerSessionSecret`, which the opencode driver must honour and the
+ * conformance suite tests.
+ */
+export interface ServerRuntimeSpec {
+  driverId: RuntimeDriverId
+  kind: 'jsonrpc' | 'http-sse'
+  /** argv that starts the server. The port/socket is chosen per session by the
+   *  driver, so this is the STEM, not a complete command line. */
+  spawn: readonly string[]
+  transport: 'unix-socket' | 'loopback-tcp'
+  /**
+   * MANDATORY for loopback TCP: an unauthenticated per-session HTTP server
+   * holding a credentialed agent is reachable by every local process and user,
+   * which is not acceptable even on loopback. This is the POLICY, declared in
+   * W1 because it is an architectural commitment rather than a protocol detail.
+   */
+  requiresPerSessionSecret: boolean
+  /**
+   * The env var the secret rides in — SPAWN ENV, NEVER ARGV (the hook-port
+   * discipline, unchanged), and named here so a driver cannot invent one.
+   *
+   * ABSENT UNTIL THE DRIVER VERIFIES IT. The exact variable is a fact about a
+   * vendor's pre-1.0 CLI, and W1 has no client with which to check it; writing a
+   * plausible name here would be a guess that reads as a citation.
+   */
+  secretEnvVar?: string
+  /** Where the OpenAPI document lives, for the drivers that generate a client. */
+  openapiPath?: string
+  /**
+   * The harness versions this driver speaks. The server family's crown jewels
+   * ride pre-1.0, vendor-internal protocols — codex app-server has already
+   * renamed its approval methods once. The stance is the codex-hooks
+   * minor-version gate: refuse loudly with a machine diagnostic, never guess.
+   *
+   * `Declared<T>`, and UNSUPPORTED in W1 for every harness, because a range is a
+   * claim about which wire shapes this build has actually been tested against.
+   * The driver items (W5, W6) pin it against recorded fixtures. An invented
+   * range would be worse than none: it would let a driver start against a
+   * protocol nobody verified while looking like it had been checked.
+   */
+  versionRange: Declared<string>
+}
+
+/** The harness ships a library; the runtime hosts the loop in a worker child it
+ *  owns — deliberately NOT in the supervisor's heap, so a runaway embedded
+ *  session cannot OOM the daemon (spec §6). */
+export interface EmbeddedRuntimeSpec {
+  driverId: RuntimeDriverId
+  module: string
+  /** Auth modes the SDK actually supports headlessly. Subscription OAuth is
+   *  absent from every entry today, which is exactly why Claude-on-subscription
+   *  selects terminal. */
+  auth: readonly ('api-key' | 'bedrock' | 'vertex')[]
+}
+
+/** Today's stack, named. There is no new mechanism here — `launch()` above is
+ *  still the spawn — but the family needs an id and needs to say what it can
+ *  prove about a send. */
+export interface TerminalRuntimeSpec {
+  driverId: RuntimeDriverId
+  /**
+   * How this harness's terminal driver proves a send was accepted, in preference
+   * order. `hook` is available only where a CAUSAL hook exists — Claude's
+   * `UserPromptSubmit` — and where it does not, `transcript-echo` is the
+   * fallback and `unverified` is the honest outcome when even that times out.
+   */
+  sendProof: readonly ('hook' | 'transcript-echo')[]
+}
+
+/**
+ * The shared body of every `select()`: honour an available preference, else take
+ * the first available driver in the harness's own ranked order.
+ *
+ * `ranked` MUST end with this harness's terminal driver id, and that is not a
+ * convention — it is what makes the function total. The terminal family is
+ * always present (§2), so it is always a legal answer, and a selection policy
+ * that could return "nothing" would push a fallback decision into every caller.
+ * The last entry is returned even when `available` does not list it: a machine
+ * reporting no runnable driver at all is an inventory problem, and answering it
+ * with a driver id that then fails to start is a better diagnostic than
+ * answering it with silence.
+ *
+ * Five one-line `select()` implementations rather than five copies of this
+ * logic — the per-harness variance is the ORDER, which is the thing worth
+ * reading in each manifest.
+ */
+export function selectRuntimeDriver(
+  ctx: RuntimeSelectionContext,
+  ranked: readonly [...RuntimeDriverId[], RuntimeDriverId],
+): RuntimeDriverId {
+  const available = new Set(ctx.available)
+  // An explicit operator choice wins over the policy — but only if the machine
+  // can actually run it. Honouring an unavailable preference would turn a
+  // settings toggle into a broken session.
+  if (ctx.preference && available.has(ctx.preference)) return ctx.preference
+  for (const id of ranked) if (available.has(id)) return id
+  return ranked[ranked.length - 1] as RuntimeDriverId
+}
+
+// ---------------------------------------------------------------------------
 // Browser-open classification — harness-specific intent, ahead of the daemon's
 // generic redirect_uri fallback. [spec:SP-a43e]
 // ---------------------------------------------------------------------------
@@ -550,8 +739,17 @@ export interface AgentManifest {
    *  harness cannot serve superagent/work-LLM turns; callers pick another. */
   exec: Declared<(opts: HarnessExecOptions) => HarnessExecSpec>
   /** Persistent headless sessions. Unsupported ⇒ no headless driver; the session
-   *  must run interactively over a PTY. */
+   *  must run interactively over a PTY.
+   *  SUPERSEDED IN DIRECTION by `runtime` below (POD-1761): a superagent thread
+   *  becomes an ordinary runtime session with no attach, and this axis retires
+   *  once server drivers carry the harnesses that use it. Still authoritative
+   *  today — nothing reads `runtime` yet. */
   headless: Declared<HarnessHeadless>
+  /** WHICH DRIVER FAMILIES this CLI supports and how to reach each (POD-1761).
+   *  Required, so a new harness cannot land without saying how it is driven —
+   *  the same totality argument as every other field here. Declarations only in
+   *  W1: W3 wires the terminal driver behind it, W5 the opencode server one. */
+  runtime: AgentRuntimeAxis
   /** Hook/observer state provider. Unsupported ⇒ phase stays 'unknown' rather
    *  than being guessed from another harness's output conventions. */
   state: Declared<AgentStateProvider>

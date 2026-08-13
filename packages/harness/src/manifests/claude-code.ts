@@ -17,6 +17,7 @@ import {
   fileTranscript,
   isSet,
   promptArgv,
+  selectRuntimeDriver,
   supported,
   type TranscriptSourceInput,
   unsupported,
@@ -188,6 +189,36 @@ export const claudeCodeManifest: AgentManifest = {
     }
   }),
 
+  // §2's load-bearing selection: subscription auth is TERMINAL (the only
+  // compliant path for Claude Code), while an API-key / Bedrock / Vertex
+  // principal can run the Agent SDK in a runtime-owned worker child instead.
+  runtime: {
+    server: unsupported(
+      'Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot',
+    ),
+    embedded: supported({
+      driverId: 'claude-sdk',
+      module: 'claude-agent-sdk',
+      // Subscription OAuth is deliberately ABSENT. The official position is that
+      // headless/SDK use wants an API key, and Anthropic's third-party-
+      // subscription policy is the binding constraint either way — which is
+      // exactly what keeps subscription sessions on the terminal driver below.
+      auth: ['api-key', 'bedrock', 'vertex'],
+    }),
+    terminal: {
+      driverId: 'claude-pty',
+      // Claude's hook channel is the richest of any harness, so `UserPromptSubmit`
+      // anchors an accept the way a protocol ack would — the same signal
+      // reattachment-design anchors turn epochs to. Transcript echo is the
+      // fallback, and `unverified` is the honest answer when even that times out.
+      sendProof: ['hook', 'transcript-echo'],
+    },
+    select: (ctx) =>
+      selectRuntimeDriver(
+        ctx,
+        ctx.auth === 'subscription' ? ['claude-pty'] : ['claude-sdk', 'claude-pty'],
+      ),
+  },
   headless: supported({
     // One turn through the Claude Agent SDK; the first turn mints the session id
     // via the SDK's `sessionId` (a server-minted UUID) so the thread ↔ transcript
