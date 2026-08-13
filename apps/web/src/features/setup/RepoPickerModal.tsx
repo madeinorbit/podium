@@ -1,4 +1,4 @@
-import { asMachineId, type MachineWire, repoNameFromOrigin, type MachineId } from '@podium/model/browser'
+import { asMachineId, type MachineWire, type MachineId } from '@podium/model/browser'
 import {
   Check,
   ChevronLeft,
@@ -44,10 +44,6 @@ type DirectoryListing = {
 }
 
 type RepoPickerMachine = Pick<MachineWire, 'id' | 'name' | 'hostname' | 'online' | 'inventory'>
-
-function basename(path: string): string {
-  return path.split('/').filter(Boolean).pop() ?? path
-}
 
 /**
  * Pick a repo on a machine (POD-814/POD-855) [spec:SP-5eb6]: choose a machine,
@@ -102,6 +98,7 @@ export function RepoPickerModal({
   const [scanning, setScanning] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
   const [manualPath, setManualPath] = useState('')
+  const [browserPath, setBrowserPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [source, setSource] = useState<'github' | 'local'>(initialSource)
   const [history, setHistory] = useState<string[]>([])
@@ -121,13 +118,6 @@ export function RepoPickerModal({
     : selectedMachine.online
       ? (listing?.path ?? 'Loading...')
       : `${selectedMachine.name} is offline`
-
-  // The add target: the browsed folder, but ONLY when it is a git repo (strict —
-  // POD-855). Named by origin, falling back to the folder name.
-  const addRepoName =
-    listing?.isRepo === true
-      ? (repoNameFromOrigin(listing.originUrl) ?? basename(listing.path))
-      : null
 
   // Read through a ref so `load`'s identity tracks the MACHINE only: toggling
   // hidden re-lists the folder you are standing in instead of bouncing to home.
@@ -150,6 +140,7 @@ export function RepoPickerModal({
           machineId: selectedMachineId,
         })
         setListing(next)
+        setBrowserPath(next.path)
         if (historyMode === 'replace') {
           historyRef.current = [next.path]
           historyIndexRef.current = 0
@@ -182,6 +173,7 @@ export function RepoPickerModal({
   // from one machine's disk means nothing on another's.
   useEffect(() => {
     setListing(null)
+    setBrowserPath('')
     historyRef.current = []
     historyIndexRef.current = -1
     setHistory([])
@@ -217,11 +209,6 @@ export function RepoPickerModal({
     } finally {
       setSaving(false)
     }
-  }
-
-  async function pickCurrent(): Promise<void> {
-    if (!listing?.isRepo) return
-    await pickPath(listing.path)
   }
 
   function visitHistory(nextIndex: number): void {
@@ -285,23 +272,23 @@ export function RepoPickerModal({
     >
       {/* sm:max-w-* overrides DialogContent's base sm:max-w-sm; a plain max-w loses
           to it at desktop width and pins the modal to 384px (POD-832). */}
-      <DialogContent className="flex max-h-[min(760px,calc(100dvh-2rem))] w-full max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[900px]">
+      <DialogContent className="flex max-h-[calc(100dvh-48px)] w-full max-w-[calc(100%-24px)] flex-col gap-0 overflow-hidden rounded-[14px] border-0 bg-[#22262d] p-0 text-[#f2f3f5] shadow-[0_30px_70px_-20px_rgba(0,0,0,.75),inset_0_0_0_1px_#2f343d] sm:max-w-[1100px] [&>button]:right-6 [&>button]:top-[22px] [&>button]:size-7 [&>button]:rounded-lg [&>button]:text-[#9ba1ab]">
         {resultPanel ? (
           resultPanel
         ) : (
           <>
-            <DialogHeader className="gap-1 border-b border-border px-4 py-4 pr-10">
-              <DialogTitle className="text-base font-semibold text-foreground">
+            <DialogHeader className="gap-[7px] px-6 pt-[22px] pr-16 pb-[18px]">
+              <DialogTitle className="text-[21px] leading-[1.15] font-semibold tracking-[-0.015em] text-[#f2f3f5]">
                 {onScan ? 'Find a repository' : 'Add a repository'}
               </DialogTitle>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-[13.5px] leading-[1.5] text-[#9ba1ab]">
                 Choose a repository already on this machine, or bring one in from GitHub.
               </p>
             </DialogHeader>
 
             {onCloneGithub && (
-              <fieldset className="grid gap-2 border-b border-border p-4 sm:grid-cols-2">
-                <legend className="col-span-full mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              <fieldset className="grid gap-3.5 border-t border-[#2b2f37] px-6 pb-4 sm:grid-cols-2">
+                <legend className="col-span-full w-full pt-3.5 pb-[11px] font-mono text-[10px] leading-none font-semibold tracking-[0.2em] text-[#8a9099] uppercase">
                   Where from?
                 </legend>
                 <button
@@ -309,20 +296,29 @@ export function RepoPickerModal({
                   data-pressable
                   aria-pressed={source === 'local'}
                   className={cn(
-                    'flex min-h-16 items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors',
+                    'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
                     source === 'local'
-                      ? 'border-primary bg-primary/10 text-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                      ? 'bg-[#2a2718] text-[#e3ba52] shadow-[inset_0_0_0_1.5px_#e3ba52]'
+                      : 'bg-[#1b1e24] text-[#8a9099] shadow-[inset_0_0_0_1px_#2f343d] hover:bg-[#252a31]',
                   )}
                   onClick={() => {
                     setSource('local')
                     onProgress?.({ source: 'local' })
                   }}
                 >
-                  <HardDrive size={18} className="flex-none" aria-hidden="true" />
+                  <HardDrive size={21} className="flex-none" aria-hidden="true" />
                   <span>
-                    <span className="block text-sm font-semibold">On this machine</span>
-                    <span className="block text-xs">Browse folders already on its disk</span>
+                    <span className="block text-[14.5px] leading-none font-semibold text-[#f2f3f5]">
+                      On this machine
+                    </span>
+                    <span
+                      className={cn(
+                        'mt-1 block text-[12.5px] leading-[1.4]',
+                        source === 'local' ? 'text-[#b9bec6]' : 'text-[#9ba1ab]',
+                      )}
+                    >
+                      Browse folders already on its disk
+                    </span>
                   </span>
                 </button>
                 <button
@@ -330,20 +326,27 @@ export function RepoPickerModal({
                   data-pressable
                   aria-pressed={source === 'github'}
                   className={cn(
-                    'flex min-h-16 items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors',
+                    'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
                     source === 'github'
-                      ? 'border-primary bg-primary/10 text-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                      ? 'bg-[#2a2718] text-[#e3ba52] shadow-[inset_0_0_0_1.5px_#e3ba52]'
+                      : 'bg-[#1b1e24] text-[#8a9099] shadow-[inset_0_0_0_1px_#2f343d] hover:bg-[#252a31]',
                   )}
                   onClick={() => {
                     setSource('github')
                     onProgress?.({ source: 'github' })
                   }}
                 >
-                  <GitFork size={18} className="flex-none" aria-hidden="true" />
+                  <GitFork size={21} className="flex-none" aria-hidden="true" />
                   <span>
-                    <span className="block text-sm font-semibold">From GitHub</span>
-                    <span className="block text-xs">
+                    <span className="block text-[14.5px] leading-none font-semibold text-[#f2f3f5]">
+                      From GitHub
+                    </span>
+                    <span
+                      className={cn(
+                        'mt-1 block text-[12.5px] leading-[1.4]',
+                        source === 'github' ? 'text-[#b9bec6]' : 'text-[#9ba1ab]',
+                      )}
+                    >
                       Sign in, choose a repository, then clone it
                     </span>
                   </span>
@@ -352,7 +355,7 @@ export function RepoPickerModal({
             )}
 
             {(source === 'local' || showMachinePicker) && (
-              <div className="flex min-h-12 flex-wrap items-center gap-2 border-b border-border-strong px-4 py-2">
+              <div className="flex min-h-16 flex-wrap items-center gap-3 border-t border-[#2b2f37] bg-[#1f2329] px-6 py-3.5">
                 {showMachinePicker ? (
                   <div className="flex min-w-48 flex-col gap-1 max-md:w-full">
                     <label htmlFor="repo-machine-select" className="text-xs text-muted-foreground">
@@ -382,58 +385,69 @@ export function RepoPickerModal({
                 ) : null}
                 {source === 'local' && (
                   <>
-                    <div className="flex h-8 flex-none items-center gap-0.5 rounded-md border border-border bg-muted/20 p-0.5">
+                    <div className="flex flex-none items-center gap-0.5">
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="icon-sm"
+                        className="size-[30px] border-0 rounded-lg"
                         disabled={historyIndex <= 0 || busy}
                         onClick={() => visitHistory(historyIndex - 1)}
                         aria-label="Back"
                         title="Back"
                       >
-                        <ChevronLeft size={16} />
+                        <ChevronLeft size={18} />
                       </Button>
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="icon-sm"
+                        className="size-[30px] border-0 rounded-lg"
                         disabled={historyIndex < 0 || historyIndex >= history.length - 1 || busy}
                         onClick={() => visitHistory(historyIndex + 1)}
                         aria-label="Forward"
                         title="Forward"
                       >
-                        <ChevronRight size={16} />
+                        <ChevronRight size={18} />
                       </Button>
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="icon-sm"
+                        className="size-[30px] border-0 rounded-lg"
                         disabled={!listing || busy}
                         onClick={() => listing && void load(listing.homePath)}
                         aria-label="Home"
                         title="Home"
                       >
-                        <Home size={16} />
+                        <Home size={17} />
                       </Button>
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="icon-sm"
+                        className="size-[30px] border-0 rounded-lg"
                         disabled={!listing || busy}
                         onClick={() => listing && void load(listing.path, undefined, 'preserve')}
                         aria-label="Refresh"
                         title="Refresh"
                       >
-                        <RefreshCw size={16} />
+                        <RefreshCw size={17} />
                       </Button>
                     </div>
-                    <span
-                      className="flex h-8 min-w-0 flex-1 items-center truncate rounded-md border border-border bg-background px-2.5 font-mono text-xs text-foreground"
-                      title={headerPath}
-                    >
-                      {headerPath}
-                    </span>
+                    <Input
+                      aria-label="Folder path"
+                      className="h-9 min-w-0 flex-1 rounded-[9px] border-0 bg-[#15171b] px-[13px] font-mono text-[13px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d]"
+                      value={machineReady ? browserPath : headerPath}
+                      disabled={!machineReady || busy}
+                      onChange={(event) => setBrowserPath(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void load(browserPath)
+                      }}
+                    />
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className={cn(showHidden && 'border-primary text-foreground')}
+                      className={cn(
+                        'h-9 rounded-[9px] border-0 px-[13px] text-[12.5px] font-semibold text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842]',
+                        showHidden && 'text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56]',
+                      )}
                       disabled={!machineReady || busy}
                       onClick={toggleHidden}
                       aria-pressed={showHidden}
@@ -443,7 +457,9 @@ export function RepoPickerModal({
                     </Button>
                     {onScan && (
                       <Button
+                        variant="ghost"
                         size="sm"
+                        className="h-9 rounded-[9px] border-0 px-[15px] text-[12.5px] font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56]"
                         disabled={!listing || busy}
                         onClick={() => void scanCurrent()}
                       >
@@ -456,7 +472,7 @@ export function RepoPickerModal({
               </div>
             )}
             {source === 'local' && error && (
-              <div className="border-b border-border-strong px-4 py-3">
+              <div className="border-t border-[#2b2f37] px-6 py-3">
                 <SetupError>{error}</SetupError>
               </div>
             )}
@@ -471,20 +487,10 @@ export function RepoPickerModal({
               />
             )}
             <div hidden={source === 'github'} className="flex min-h-0 flex-1 flex-col">
-              {addRepoName && (
-                <div className="flex items-center justify-between gap-3 border-b border-border-strong bg-primary/[0.06] px-4 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-foreground">{addRepoName}</p>
-                    <p className="text-xs text-muted-foreground">
-                      The current folder is a Git repository.
-                    </p>
-                  </div>
-                  <Button size="sm" disabled={busy} onClick={() => void pickCurrent()}>
-                    <Check size={16} /> Use repository
-                  </Button>
-                </div>
-              )}
-              <div className="min-h-[160px] flex-1 overflow-y-auto p-1.5" aria-busy={loading}>
+              <div
+                className="min-h-[260px] flex-1 overflow-y-auto overscroll-contain"
+                aria-busy={loading}
+              >
                 {!selectedMachine && (
                   <div className="p-3 text-xs text-muted-foreground/70">
                     No machines are connected. Pair a machine to add repos.
@@ -505,18 +511,14 @@ export function RepoPickerModal({
                   <button
                     type="button"
                     data-pressable
-                    className="flex min-h-10 w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm text-foreground hover:bg-muted/60 disabled:pointer-events-none disabled:opacity-50"
+                    className="flex min-h-[46px] w-full items-center gap-[13px] border-t border-[#272b33] px-6 py-[13px] text-left disabled:pointer-events-none disabled:opacity-50"
                     onClick={() => void load(listing.parentPath ?? undefined)}
                     disabled={busy}
                     aria-label={`Open parent folder ${listing.parentPath}`}
                   >
-                    <Folder
-                      size={16}
-                      className="flex-none text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                    <span className="font-mono font-medium">..</span>
-                    <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                    <Folder size={19} className="flex-none text-[#8a9099]" aria-hidden="true" />
+                    <span className="font-mono text-[13px] text-[#8a9099]">..</span>
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] text-[#9ba1ab]">
                       {listing.parentPath}
                     </span>
                   </button>
@@ -525,63 +527,67 @@ export function RepoPickerModal({
                   !loading &&
                   listing?.entries.map((entry) => (
                     <div
-                      className="group flex min-h-11 items-center gap-2 rounded-md px-1 hover:bg-muted/60"
+                      className="group flex min-h-[46px] items-center gap-[13px] border-t border-[#272b33] px-6 hover:bg-[#252a31]"
                       key={entry.path}
                     >
                       <button
                         type="button"
                         data-pressable
-                        className="flex min-w-0 flex-1 items-center gap-2.5 px-1 py-2 text-left text-sm text-foreground disabled:pointer-events-none disabled:opacity-50"
+                        className="flex min-w-0 flex-1 items-center gap-[13px] py-[11px] text-left disabled:pointer-events-none disabled:opacity-50"
                         onClick={() => void load(entry.path)}
                         disabled={busy}
                         aria-label={`Open folder ${entry.name}`}
                       >
                         {entry.isRepo ? (
                           <FolderGit2
-                            size={16}
-                            className="flex-none text-primary"
+                            size={19}
+                            className="flex-none text-[#e3ba52]"
                             aria-hidden="true"
                           />
                         ) : (
                           <Folder
-                            size={16}
-                            className="flex-none text-muted-foreground"
+                            size={19}
+                            className="flex-none text-[#8a9099]"
                             aria-hidden="true"
                           />
                         )}
-                        <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                        <span
+                          className={cn(
+                            'min-w-0 flex-1 truncate text-[14px]',
+                            entry.isRepo ? 'font-semibold text-[#f2f3f5]' : 'text-[#e6e8ec]',
+                          )}
+                        >
+                          {entry.name}
+                        </span>
                         <ChevronRight
-                          size={15}
-                          className="flex-none text-muted-foreground/60"
+                          size={18}
+                          className="flex-none text-[#6f757f]"
                           aria-hidden="true"
                         />
                       </button>
                       {entry.isRepo && (
-                        <Button
-                          size="sm"
-                          className="mr-1 flex-none"
+                        <button
+                          type="button"
+                          className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] group-hover:bg-[#e3ba52] group-hover:text-[#1a1408] group-hover:shadow-none"
                           disabled={busy}
                           onClick={() => void pickPath(entry.path)}
                           aria-label={`Use repository ${entry.name}`}
                         >
                           Use repository
-                        </Button>
+                        </button>
                       )}
                     </div>
                   ))}
               </div>
-              <div className="border-t-2 border-border-strong bg-muted/[0.12] px-4 pt-4 pb-5">
-                <div className="mb-3 flex items-center gap-3">
-                  <span className="text-xs font-semibold text-foreground">
-                    Or use a repository path
-                  </span>
-                  <span className="h-px flex-1 bg-border-strong" aria-hidden="true" />
-                </div>
-                <div className="flex gap-2 max-sm:flex-col">
+              <div className="border-t border-[#2b2f37] bg-[#1f2329] px-6 pt-[18px] pb-[22px]">
+                <p className="text-[12.5px] leading-none font-semibold text-[#a8adb6]">
+                  Or use a repository path
+                </p>
+                <div className="mt-[11px] flex gap-3 max-sm:flex-col">
                   <Input
                     id="repo-machine-path"
                     aria-label={machinePathLabel}
-                    className="h-8 text-sm"
+                    className="h-[38px] rounded-[9px] border-0 bg-[#15171b] px-[13px] font-mono text-[13px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
                     value={manualPath}
                     placeholder="/home/user/project"
                     disabled={writing || !machineReady}
@@ -591,9 +597,7 @@ export function RepoPickerModal({
                     }}
                   />
                   <Button
-                    variant="outline"
-                    size="sm"
-                    className="max-sm:w-full"
+                    className="h-[38px] rounded-[9px] border-0 bg-[#e3ba52] px-[15px] text-[12.5px] font-semibold text-[#1a1408] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37] max-sm:w-full"
                     disabled={writing || !machineReady || manualPath.trim() === ''}
                     onClick={() => void pickManual()}
                   >
@@ -609,7 +613,7 @@ export function RepoPickerModal({
                 detail={
                   scanning
                     ? 'Podium is scanning this folder and will update this dialog when it finishes.'
-                    : 'Podium is registering the repository and preparing the project list.'
+                    : `Podium is registering ${listing?.path ?? manualPath.trim()} and preparing the project list.`
                 }
               />
             )}

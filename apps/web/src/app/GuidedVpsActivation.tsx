@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire } from '@podium/model'
-import { ArrowLeft, ArrowRight, ExternalLink, Server } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -47,6 +47,96 @@ export async function clearVpsCheckpointAndReturn(
 
 function returnActionLabel(returnRoute: VpsActivationState['returnRoute']): string {
   return returnRoute === 'welcome' ? 'Back to welcome' : 'Back to local setup'
+}
+
+function VpsOverview({
+  onContinue,
+  onBack,
+  onExplore,
+  busy,
+  error,
+}: {
+  onContinue: () => void
+  onBack: () => void
+  onExplore: () => void
+  busy: boolean
+  error: string | null
+}): JSX.Element {
+  return (
+    <ActivationShell
+      eyebrow="Always-on Podium"
+      title="Set up an always-on VPS."
+      description="You get one secure command to run on a new VPS. Once it connects, Podium can move its shared server state there while your projects, credentials, and agents stay on their own machines."
+      contentClassName="mt-[38px]"
+      onExplore={onExplore}
+    >
+      <div className="grid gap-4 md:grid-cols-[1.05fr_1fr]">
+        <section className="rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d]">
+          <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">What you need</h2>
+          <ul className="mt-3.5 flex flex-col gap-[11px]">
+            {[
+              'A fresh Linux VPS you can reach over SSH.',
+              'Permission to install and run Podium on it.',
+              'About five minutes. No project or agent credentials are transferred.',
+            ].map((item) => (
+              <li key={item} className="flex gap-[11px] text-[13.5px] leading-[1.5] text-[#b9bec6]">
+                <CheckCircle2
+                  size={17}
+                  className="mt-0.5 flex-none text-[#e3ba52]"
+                  aria-hidden="true"
+                />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d]">
+          <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">How it goes</h2>
+          <ol className="mt-3.5 flex flex-col gap-[13px]">
+            {[
+              ['01', 'Copy the install command Podium generates.', true],
+              ['02', 'Run it on the VPS; it registers itself as a machine.', true],
+              ['03', 'Choose whether shared state moves there now or later.', false],
+            ].map(([step, text, active]) => (
+              <li key={String(step)} className="flex items-baseline gap-3">
+                <span
+                  className={`w-[18px] flex-none font-mono text-[11px] leading-[1.4] font-semibold ${active ? 'text-[#e3ba52]' : 'text-[#8a9099]'}`}
+                >
+                  {step}
+                </span>
+                <span
+                  className={`text-[13.5px] leading-[1.5] ${active ? 'text-[#b9bec6]' : 'text-[#9ba1ab]'}`}
+                >
+                  {text}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      </div>
+      <div className="mt-[22px] flex flex-wrap items-center gap-3.5">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onContinue}
+          className="inline-flex h-9 items-center gap-2 rounded-[9px] bg-[#e3ba52] px-4 text-[13px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] disabled:opacity-50"
+        >
+          Show the VPS command
+          <ArrowRight size={17} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onBack}
+          className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
+        >
+          <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
+          Back to activation choices
+        </button>
+      </div>
+      <PersistError error={error} />
+    </ActivationShell>
+  )
 }
 
 export function GuidedVpsActivation({
@@ -114,44 +204,22 @@ export function GuidedVpsActivation({
 
   if (!vps.ready || !vps.state) {
     const beginFreshSetup = async (): Promise<void> => {
-      const next = vpsIntroState('welcome')
+      const next = vpsPairingState(
+        vpsIntroState('welcome'),
+        machines.map((machine) => machine.id),
+        true,
+      )
       await vps.persist(next)
       onRouteChange(next.route)
     }
     return (
-      <ActivationShell
-        eyebrow="Always-on Podium"
-        title="Set up an always-on VPS."
-        description="You will get one secure command to run on a new VPS. Once it connects, Podium can move its shared server state there while your projects, credentials, and agents stay on their own machines."
+      <VpsOverview
+        onContinue={() => runSafely(beginFreshSetup())}
+        onBack={() => onRouteChange('welcome')}
         onExplore={onExplore}
-      >
-        <div className="max-w-[640px] space-y-4">
-          <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-4">
-            <h2 className="text-sm font-semibold text-foreground">What you need</h2>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-[12.5px] leading-5 text-muted-foreground">
-              <li>A fresh Linux VPS you can access over SSH.</li>
-              <li>Permission to install and run Podium on that VPS.</li>
-              <li>About five minutes; no project or agent credentials are transferred.</li>
-            </ul>
-            <Button
-              type="button"
-              className="mt-4"
-              disabled={!vps.ready || vps.saving}
-              pending={vps.saving}
-              pendingLabel="Preparing setup…"
-              onClick={() => runSafely(beginFreshSetup())}
-            >
-              Show VPS setup
-              <ArrowRight data-icon="inline-end" aria-hidden="true" />
-            </Button>
-          </div>
-          <Button type="button" variant="outline" onClick={() => onRouteChange('welcome')}>
-            <ArrowLeft aria-hidden="true" />
-            Back to activation
-          </Button>
-        </div>
-        <PersistError error={vps.error} />
-      </ActivationShell>
+        busy={!vps.ready || vps.saving}
+        error={vps.error}
+      />
     )
   }
   const returnRoute = vps.state.returnRoute
@@ -169,73 +237,13 @@ export function GuidedVpsActivation({
       onRouteChange(next.route)
     }
     return (
-      <ActivationShell
-        eyebrow="Always-on Podium"
-        title="Give Podium a home that stays online."
-        description="Pair an inexpensive VPS, then move only Podium's shared server state there. Projects, native credentials, and running agents remain on their machines."
+      <VpsOverview
+        onContinue={() => runSafely(startPairing(true))}
+        onBack={() => runSafely(clearVpsCheckpointAndReturn(vps, returnRoute, onRouteChange))}
         onExplore={onExplore}
-      >
-        <div className="max-w-[640px] space-y-4">
-          <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-4">
-            <div className="flex items-start gap-3">
-              <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Server size={17} aria-hidden="true" />
-              </span>
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">
-                  Recommended: move the server to the VPS
-                </h2>
-                <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
-                  This computer reconnects as a daemon after a proof-backed transfer, so its
-                  projects and agent sessions stay available without hosting shared state.
-                </p>
-              </div>
-            </div>
-            <Button
-              type="button"
-              className="mt-4"
-              pending={vps.saving}
-              pendingLabel="Saving setup…"
-              onClick={() => runSafely(startPairing(true))}
-            >
-              Pair an always-on VPS
-              <ArrowRight data-icon="inline-end" aria-hidden="true" />
-            </Button>
-          </div>
-          <div className="rounded-lg border border-border/70 px-4 py-3">
-            <p className="settings-label">Advanced: use the VPS as a worker</p>
-            <p className="settings-prose mt-1">
-              Pair the VPS for agents and projects while leaving this computer as the server.
-            </p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="mt-2"
-              disabled={vps.saving}
-              onClick={() => runSafely(startPairing(false))}
-            >
-              Pair as a worker
-              <ArrowRight data-icon="inline-end" aria-hidden="true" />
-            </Button>
-          </div>
-          <div className="border-t border-border/70 pt-4">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={vps.saving}
-              onClick={() =>
-                runSafely(clearVpsCheckpointAndReturn(vps, returnRoute, onRouteChange))
-              }
-            >
-              <ArrowLeft data-icon="inline-start" aria-hidden="true" />
-              {returnActionLabel(returnRoute)}
-            </Button>
-          </div>
-          <PersistError error={vps.error} />
-        </div>
-      </ActivationShell>
+        busy={vps.saving}
+        error={vps.error}
+      />
     )
   }
 

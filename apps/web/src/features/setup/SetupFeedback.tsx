@@ -21,16 +21,19 @@ export function SetupBusyOverlay({
   detail: string
 }): JSX.Element {
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/80 p-6 backdrop-blur-[2px]">
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#15171b]/70 p-6">
       <div
         role="status"
         aria-live="polite"
-        className="flex max-w-sm items-center gap-3 rounded-xl border border-border-strong bg-popover px-4 py-3.5 shadow-lg"
+        className="flex w-full max-w-[456px] items-start gap-[15px] rounded-[13px] bg-[#252a31] px-[22px] py-5 shadow-[0_30px_70px_-18px_rgba(0,0,0,.85),inset_0_0_0_1px_#3a4049]"
       >
-        <LoaderCircle className="size-5 flex-none animate-spin text-primary" aria-hidden="true" />
+        <LoaderCircle
+          className="mt-0.5 size-[22px] flex-none animate-spin text-[#e3ba52] motion-reduce:animate-none"
+          aria-hidden="true"
+        />
         <div>
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{detail}</p>
+          <p className="text-[15px] leading-[1.2] font-semibold text-[#f2f3f5]">{title}</p>
+          <p className="mt-[7px] text-[13px] leading-[1.55] text-[#9ba1ab]">{detail}</p>
         </div>
       </div>
     </div>

@@ -111,10 +111,10 @@ describe('FirstTaskActivation', () => {
       />,
     )
 
-    await screen.findByText('ready')
+    await screen.findByText('Ready')
     expect(screen.getByText(/Install OpenCode.*opencode auth login/)).toBeTruthy()
     expect(screen.getByText(/Install the Cursor CLI.*cursor-agent login/)).toBeTruthy()
-    expect(screen.queryByText('project')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Set up your agents.' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Choose a project/ })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -153,9 +153,9 @@ describe('FirstTaskActivation', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Podium is ready.' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Podium is good to go.' })).toBeTruthy()
     const usage = await screen.findByRole('checkbox', { name: /Send anonymous usage reports/ })
-    fireEvent.click(usage)
+    expect((usage as HTMLInputElement).checked).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
 
     await waitFor(() => expect(telemetrySet).toHaveBeenCalledWith({ usage: 'on', crash: 'off' }))

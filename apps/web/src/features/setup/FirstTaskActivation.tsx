@@ -3,7 +3,16 @@ import { shallowEqual } from '@podium/client-core/store'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { EXAMPLE_USAGE_REPORT_DISPLAY as TELEMETRY_EXAMPLE } from '@podium/telemetry/example'
-import { ArrowLeft, ArrowRight, Check, ChevronDown, LoaderCircle } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  CircleAlert,
+  Clock3,
+  Copy,
+  LoaderCircle,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
@@ -25,43 +34,12 @@ import {
 import type { ActivationRoute } from './activation-route'
 import { persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
-
-function repoLabel(path: string): string {
-  return path.split('/').filter(Boolean).pop() ?? path
-}
-
-function ActivationSteps({ current }: { current: 'agent' | 'ready' }): JSX.Element {
-  const ready = current === 'ready'
-  return (
-    <ol className="flex max-w-[1060px] items-center font-mono text-[10.5px] leading-none">
-      <li className="inline-flex items-center gap-2 text-[#a8adb6]">
-        <Check size={14} className="text-[#6f9dff]" aria-hidden="true" />
-        project
-      </li>
-      <li className="mx-3 h-px w-[46px] bg-gradient-to-r from-[#6f9dff] to-[#8b83ff]" />
-      <li className="inline-flex items-center gap-2 text-[#f2f3f5]">
-        {ready ? (
-          <Check size={14} className="text-[#6f9dff]" aria-hidden="true" />
-        ) : (
-          <span className="text-[#8b83ff]">02</span>
-        )}
-        agents
-      </li>
-      <li className={cn('mx-3 h-px w-[46px]', ready ? 'bg-[#8b83ff]' : 'bg-[#2c2f35]')} />
-      <li
-        className={cn(
-          'inline-flex items-center gap-2',
-          ready ? 'text-[#f2f3f5]' : 'text-[#6f7580]',
-        )}
-      >
-        <span className={ready ? 'text-[#8b83ff]' : 'text-[#a8adb6]'}>03</span>
-        first mission
-      </li>
-    </ol>
-  )
-}
+import { ActivationShell } from './ActivationShell'
 
 function setupHint(agent: IssueAgentKind, readiness: ActivationAgentReadiness): string {
+  if (agent === 'opencode' && readiness.state === 'logged-out') {
+    return 'Installed but not signed in. Your task draft stays saved while you log in.'
+  }
   if (readiness.state !== 'missing')
     return activationReadinessCopy(readiness, issueAgentLabel(agent))
   if (agent === 'opencode') {
@@ -77,6 +55,48 @@ interface TelemetryStateWire {
   usage: 'absent' | 'on' | 'off'
   crash: 'absent' | 'on' | 'off'
   suppressedBy?: string
+}
+
+function TelemetryChoice({
+  checked,
+  onChange,
+  title,
+  detail,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  title: string
+  detail: string
+}): JSX.Element {
+  return (
+    <label className="flex cursor-pointer items-start gap-3.5 border-t border-[#272b33] px-[22px] py-4 hover:bg-white/[0.02]">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+        className="sr-only"
+      />
+      <span
+        className={cn(
+          'mt-px flex size-5 flex-none items-center justify-center rounded-md',
+          checked
+            ? 'bg-[#e3ba52] text-[#1a1408]'
+            : 'bg-[#22262d] shadow-[inset_0_0_0_1.5px_#454b56]',
+        )}
+        aria-hidden="true"
+      >
+        {checked && <Check size={15} />}
+      </span>
+      <span className="min-w-0">
+        <span
+          className={`block text-[14.5px] leading-none font-semibold ${checked ? 'text-[#f2f3f5]' : 'text-[#e6e8ec]'}`}
+        >
+          {title}
+        </span>
+        <span className="mt-[5px] block text-[13px] leading-[1.5] text-[#9ba1ab]">{detail}</span>
+      </span>
+    </label>
+  )
 }
 
 export function FirstTaskActivation({
@@ -153,7 +173,7 @@ export function FirstTaskActivation({
         if (cancelled) return
         const next = state as TelemetryStateWire
         setTelemetryState(next)
-        setUsageTelemetry(next.usage === 'on')
+        setUsageTelemetry(next.usage === 'on' || next.usage === 'absent')
         setCrashTelemetry(next.crash === 'on')
       },
       () => {
@@ -184,9 +204,6 @@ export function FirstTaskActivation({
   const readyAgents = ISSUE_AGENT_KINDS.filter((agent) =>
     activationAgentIsReady(readinessByAgent[agent]),
   )
-  const selectedAgent =
-    issueAgentKind(draft.agent) ?? configuredAgent ?? readyAgents[0] ?? 'claude-code'
-
   useEffect(() => {
     if (!configuredAgent || draft.agent) return
     const preferred = activationAgentIsReady(readinessByAgent[configuredAgent])
@@ -194,10 +211,6 @@ export function FirstTaskActivation({
       : readyAgents[0]
     if (preferred) setDraft({ ...draft, agent: preferred })
   }, [configuredAgent, draft, readinessByAgent, readyAgents, setDraft])
-
-  const chooseDefault = (agent: IssueAgentKind): void => {
-    setDraft({ ...draft, agent, model: 'auto', effort: 'auto' })
-  }
 
   const openLogin = async (agent: IssueAgentKind): Promise<void> => {
     const machine = readinessByAgent[agent].machine
@@ -237,159 +250,117 @@ export function FirstTaskActivation({
     }
 
     return (
-      <main className="native-agents-pane relative" aria-labelledby="activation-title">
-        <div className="workspace-sheet min-h-0 overflow-y-auto bg-card">
-          <div className="flex min-h-full w-full flex-col bg-card px-5 pt-12 pb-14 font-sans sm:px-10 lg:px-24 lg:pt-16">
-            <div className="flex max-w-[1060px] items-center gap-3.5">
-              <p className="inline-flex items-center gap-[7px] font-mono text-[8.5px] leading-none tracking-[0.2em] text-[#8b83ff] uppercase">
-                <span className="size-[5px] rounded-full bg-[#8b83ff]" aria-hidden="true" />
-                Activate
-              </p>
-              <span className="h-px flex-1 bg-border" aria-hidden="true" />
-              <span className="font-mono text-[10.5px] leading-none text-muted-foreground">
-                step 3 of 3
-              </span>
-            </div>
-
-            <div className="mt-7 flex max-w-[820px] items-start gap-4">
-              <span className="mt-0.5 flex size-10 flex-none items-center justify-center rounded-full bg-[#6f9dff]/12 text-[#6f9dff] shadow-[inset_0_0_0_1px_rgba(111,157,255,.3)]">
-                <Check size={20} aria-hidden="true" />
-              </span>
-              <div>
-                <h1
-                  id="activation-title"
-                  className="text-[clamp(28px,3vw,36px)] leading-[1.15] font-semibold tracking-[-0.022em] text-foreground"
-                >
-                  Podium is ready.
-                </h1>
-                <p className="mt-2 max-w-[62ch] text-[13px] leading-5 text-muted-foreground">
-                  {selectedRepo ? repoLabel(selectedRepo.path) : 'Your project'} and your agents are
-                  set up. There is one last optional privacy choice, then you can start working.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-[22px] max-w-[1060px]">
-              <ActivationSteps current="ready" />
-            </div>
-
-            <section className="mt-[26px] max-w-[820px] overflow-hidden rounded-[14px] border border-border bg-background/20 shadow-sm">
-              <div className="border-b border-border px-5 py-4">
-                <p className="font-mono text-[8.5px] leading-none tracking-[0.16em] text-[#8b83ff] uppercase">
-                  One more thing
-                </p>
-                <h2 className="mt-2 text-[16px] font-semibold text-foreground">
-                  Help improve Podium with anonymous telemetry
-                </h2>
-                <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
-                  Nothing is sent unless you opt in. Podium never includes paths, repository names,
-                  prompts, code, or other free text, and IP addresses are dropped at ingest.
-                </p>
-              </div>
-
-              {telemetryState?.suppressedBy ? (
-                <div className="px-5 py-4 text-[12.5px] text-muted-foreground">
-                  Telemetry is disabled by {telemetryState.suppressedBy}; no choice is needed here.
-                </div>
-              ) : telemetryUnavailable ? (
-                <div className="px-5 py-4 text-[12.5px] text-muted-foreground">
-                  Telemetry preferences are unavailable right now. You can change them later in
-                  Settings → Privacy.
-                </div>
-              ) : telemetryState ? (
-                <div className="divide-y divide-border">
-                  <label className="flex cursor-pointer items-start gap-3 px-5 py-3.5 hover:bg-muted/20">
-                    <input
-                      type="checkbox"
-                      checked={usageTelemetry}
-                      onChange={(event) => setUsageTelemetry(event.currentTarget.checked)}
-                      className="mt-0.5 size-4 accent-[#e3ba52]"
-                    />
-                    <span>
-                      <span className="block text-[13px] font-medium text-foreground">
-                        Send anonymous usage reports
-                      </span>
-                      <span className="mt-0.5 block text-[11.5px] leading-4 text-muted-foreground">
-                        One compact report per day about versions, feature counts, and reliability.
-                      </span>
-                    </span>
-                  </label>
-                  <label className="flex cursor-pointer items-start gap-3 px-5 py-3.5 hover:bg-muted/20">
-                    <input
-                      type="checkbox"
-                      checked={crashTelemetry}
-                      onChange={(event) => setCrashTelemetry(event.currentTarget.checked)}
-                      className="mt-0.5 size-4 accent-[#e3ba52]"
-                    />
-                    <span>
-                      <span className="block text-[13px] font-medium text-foreground">
-                        Send scrubbed crash reports
-                      </span>
-                      <span className="mt-0.5 block text-[11.5px] leading-4 text-muted-foreground">
-                        Error type and Podium source lines only; error messages and outside frames
-                        are dropped.
-                      </span>
-                    </span>
-                  </label>
-                  <details className="px-5 py-3 text-[11.5px] text-muted-foreground">
-                    <summary className="cursor-pointer font-medium text-foreground">
-                      See exactly what a usage report contains
-                    </summary>
-                    <pre className="mt-3 max-w-full overflow-x-auto rounded-lg bg-muted/45 p-3 font-mono text-[10.5px] leading-relaxed text-muted-foreground">
-                      {TELEMETRY_EXAMPLE}
-                    </pre>
-                    <p className="mt-2">
-                      You can change this anytime in Settings → Privacy or with{' '}
-                      <code>podium telemetry off</code>.
-                    </p>
-                  </details>
-                </div>
-              ) : (
-                <div
-                  className="px-5 py-4 font-mono text-[11px] text-muted-foreground"
-                  role="status"
-                >
-                  Loading privacy choices…
-                </div>
-              )}
-            </section>
-
-            {finishError && (
-              <div className="mt-3 max-w-[820px]">
-                <SetupError>{finishError}</SetupError>
-              </div>
-            )}
-
-            <div className="mt-[22px] flex max-w-[820px] items-center gap-3">
-              <button
-                type="button"
-                disabled={finishBusy}
-                onClick={() => onRouteChange('agent')}
-                className="inline-flex items-center gap-2 text-[11.5px] text-muted-foreground hover:text-foreground disabled:opacity-50"
-              >
-                <ArrowLeft size={15} aria-hidden="true" />
-                Back to agents
-              </button>
-              <span className="flex-1" />
-              <button
-                type="button"
-                disabled={finishBusy || (!telemetryState && !telemetryUnavailable)}
-                onClick={() => void finish()}
-                className="inline-flex h-9 items-center gap-2 rounded-[9px] bg-primary px-4 text-[12px] font-semibold text-primary-foreground hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {finishBusy ? (
-                  <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <>
-                    Finish setup
-                    <ArrowRight size={15} aria-hidden="true" />
-                  </>
-                )}
-              </button>
-            </div>
+      <ActivationShell
+        eyebrow="Activate Podium · 3 of 3"
+        title="Podium is good to go."
+        description="Your project and agents are set up. One optional privacy choice is left, then you can start working."
+        icon={<Check aria-hidden="true" />}
+        contentClassName="mt-8"
+        frameClassName="min-h-[1000px] lg:pt-14 lg:pb-11 [&>div:first-child]:bg-[#2a2718] [&>div:first-child]:shadow-[inset_0_0_0_1px_#4a4324]"
+        onExplore={onExplore}
+      >
+        <section className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
+          <div className="px-[22px] pt-5 pb-[18px]">
+            <h2 className="text-[16px] leading-none font-semibold text-[#f2f3f5]">
+              Help improve Podium with anonymous telemetry
+            </h2>
+            <p className="mt-2 max-w-[800px] text-[13.5px] leading-[1.6] text-[#9ba1ab] text-wrap-pretty">
+              Nothing is sent unless you opt in. Podium never includes paths, repository names,
+              prompts, code, or other free text, and IP addresses are dropped at ingest.
+            </p>
           </div>
+
+          {telemetryState?.suppressedBy ? (
+            <div className="border-t border-[#272b33] px-[22px] py-4 text-[13px] text-[#9ba1ab]">
+              Telemetry is disabled by {telemetryState.suppressedBy}; no choice is needed here.
+            </div>
+          ) : telemetryUnavailable ? (
+            <div className="border-t border-[#272b33] px-[22px] py-4 text-[13px] text-[#9ba1ab]">
+              Telemetry preferences are unavailable right now. You can change them later in Settings
+              › Privacy.
+            </div>
+          ) : telemetryState ? (
+            <>
+              <TelemetryChoice
+                checked={usageTelemetry}
+                onChange={setUsageTelemetry}
+                title="Send anonymous usage reports"
+                detail="One compact report per day about versions, feature counts, and reliability."
+              />
+              <TelemetryChoice
+                checked={crashTelemetry}
+                onChange={setCrashTelemetry}
+                title="Send scrubbed crash reports"
+                detail="Error type and Podium source lines only; error messages and outside frames are dropped."
+              />
+              <div className="border-t border-[#272b33] bg-[#191c21] px-[22px] pt-[18px] pb-5">
+                <div className="flex items-center gap-2.5">
+                  <p className="text-[13px] leading-none font-semibold text-[#a8adb6]">
+                    Exactly what one usage report contains
+                  </p>
+                  <span className="h-px flex-1 bg-[#272b33]" aria-hidden="true" />
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard?.writeText(TELEMETRY_EXAMPLE)}
+                    className="inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-2.5 text-[11.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04]"
+                  >
+                    <Copy size={14} aria-hidden="true" /> Copy
+                  </button>
+                </div>
+                <pre className="mt-3 max-w-full overflow-x-auto rounded-[10px] bg-[#121417] px-[18px] py-4 font-mono text-[12.5px] leading-[1.85] text-[#b9bec6] shadow-[inset_0_0_0_1px_#272b33]">
+                  {TELEMETRY_EXAMPLE}
+                </pre>
+                <p className="mt-3 text-[13px] leading-[1.5] text-[#8a9099]">
+                  Change this anytime in Settings › Privacy, or with{' '}
+                  <code className="font-mono text-[12px] text-[#b9bec6]">podium telemetry off</code>
+                  .
+                </p>
+              </div>
+            </>
+          ) : (
+            <div
+              className="border-t border-[#272b33] px-[22px] py-4 font-mono text-[12px] text-[#9ba1ab]"
+              role="status"
+            >
+              Loading privacy choices…
+            </div>
+          )}
+        </section>
+
+        {finishError && (
+          <div className="mt-3">
+            <SetupError>{finishError}</SetupError>
+          </div>
+        )}
+
+        <div className="mt-[22px] flex items-center gap-3.5">
+          <button
+            type="button"
+            disabled={finishBusy}
+            onClick={() => onRouteChange('agent')}
+            className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
+          >
+            <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
+            Back to agents
+          </button>
+          <span className="flex-1" />
+          <button
+            type="button"
+            disabled={finishBusy || (!telemetryState && !telemetryUnavailable)}
+            onClick={() => void finish()}
+            className="inline-flex h-[38px] items-center gap-2 rounded-[9px] bg-[#e3ba52] px-[18px] text-[13.5px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {finishBusy ? (
+              <LoaderCircle size={17} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <>
+                <span>Finish setup</span>
+                <ArrowRight size={17} aria-hidden="true" />
+              </>
+            )}
+          </button>
         </div>
-      </main>
+      </ActivationShell>
     )
   }
 
@@ -407,7 +378,6 @@ export function FirstTaskActivation({
     agents.map((agent, index) => {
       const readiness = readinessByAgent[agent]
       const ready = activationAgentIsReady(readiness)
-      const selected = selectedAgent === agent
       const needsLogin = readiness.state === 'logged-out'
       const setupCommand =
         readiness.state === 'missing' && (agent === 'opencode' || agent === 'cursor')
@@ -415,23 +385,23 @@ export function FirstTaskActivation({
             ? 'cursor-agent login'
             : 'opencode auth login'
           : null
-      const status = ready ? 'ready' : needsLogin ? 'sign in' : 'waiting'
+      const status = ready ? 'Ready' : needsLogin ? 'Setup needed' : 'Waiting'
 
       return (
         <div
           key={agent}
           className={cn(
-            'flex items-center gap-3.5 px-[18px] py-[15px]',
-            index < agents.length - 1 && 'border-b border-[#23262b]',
+            'flex items-center gap-[15px] px-5 py-4 max-sm:flex-wrap',
+            index < agents.length - 1 && 'border-b border-[#272b33]',
           )}
         >
           <div
             className={cn(
-              'flex size-[34px] flex-none items-center justify-center rounded-[9px] bg-[#16171a] shadow-[inset_0_0_0_1px_#26292f]',
+              'flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] shadow-[inset_0_0_0_1px_#333842]',
               agent === 'claude-code'
                 ? '[&_svg]:text-[#d97757]'
                 : ready
-                  ? '[&_svg]:text-[#d7dae0]'
+                  ? '[&_svg]:text-[#e6e8ec]'
                   : '[&_svg]:text-[#8a9099]',
             )}
           >
@@ -442,28 +412,23 @@ export function FirstTaskActivation({
             <div className="flex items-center gap-2.5">
               <span
                 className={cn(
-                  'truncate text-[14px] leading-none font-semibold',
+                  'truncate text-[15px] leading-none font-semibold',
                   ready ? 'text-[#f2f3f5]' : 'text-[#d7dae0]',
                 )}
               >
                 {issueAgentLabel(agent)}
               </span>
-              {selected && ready && (
-                <span className="inline-flex h-[19px] items-center rounded-[5px] bg-[#1e2024] px-2 font-mono text-[8.5px] leading-none tracking-[0.12em] text-[#e3ba52] uppercase">
-                  Default
-                </span>
-              )}
             </div>
             {agent === 'cursor' && setupCommand ? (
-              <p className="mt-[5px] flex min-w-0 items-center gap-2 truncate font-mono text-[11px] leading-none text-[#6f7580]">
-                <span>not installed · run</span>
-                <code className="inline-flex h-5 items-center rounded-[5px] bg-[#16171a] px-2 text-[#a8adb6] shadow-[inset_0_0_0_1px_#26292f]">
+              <p className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-[13px] leading-[1.45] text-[#9ba1ab]">
+                <span>Install the CLI, then run</span>
+                <code className="inline-flex h-[21px] items-center rounded-[5px] bg-[#22262d] px-2 font-mono text-[12px] leading-none text-[#c3c8d0] shadow-[inset_0_0_0_1px_#333842]">
                   {setupCommand}
                 </code>
-                <span>and Podium detects it</span>
+                <span>— Podium detects it.</span>
               </p>
             ) : (
-              <p className="mt-[5px] truncate font-mono text-[11px] leading-[1.4] text-[#6f7580]">
+              <p className="mt-[5px] truncate text-[13px] leading-[1.45] text-[#9ba1ab]">
                 {setupHint(agent, readiness)}
               </p>
             )}
@@ -471,17 +436,17 @@ export function FirstTaskActivation({
 
           <span
             className={cn(
-              'hidden flex-none items-center gap-[7px] font-mono text-[10.5px] leading-none sm:inline-flex',
-              ready ? 'text-[#6f9dff]' : needsLogin ? 'text-[#e3ba52]' : 'text-[#6f7580]',
+              'hidden flex-none items-center gap-[7px] text-[12.5px] leading-none sm:inline-flex',
+              ready ? 'text-[#69c48a]' : needsLogin ? 'text-[#a8adb6]' : 'text-[#8a9099]',
             )}
           >
-            <span
-              className={cn(
-                'size-[5px] rounded-full',
-                ready ? 'bg-[#6f9dff]' : needsLogin ? 'bg-[#e3ba52]' : 'bg-[#3a3f48]',
-              )}
-              aria-hidden="true"
-            />
+            {ready ? (
+              <CheckCircle2 size={16} aria-hidden="true" />
+            ) : needsLogin ? (
+              <CircleAlert size={16} className="text-[#8a9099]" aria-hidden="true" />
+            ) : (
+              <Clock3 size={16} aria-hidden="true" />
+            )}
             {status}
           </span>
 
@@ -490,7 +455,7 @@ export function FirstTaskActivation({
               type="button"
               disabled={loginBusyAgent !== null}
               onClick={() => void openLogin(agent)}
-              className="inline-flex h-7 w-28 flex-none items-center justify-center gap-1.5 rounded-lg bg-[#e3ba52] text-[11.5px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:opacity-50"
+              className="inline-flex h-[31px] w-32 flex-none items-center justify-center gap-2 rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52] disabled:opacity-50"
             >
               {loginBusyAgent === agent ? (
                 <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
@@ -501,134 +466,94 @@ export function FirstTaskActivation({
                 </>
               )}
             </button>
-          ) : ready && !selected ? (
-            <button
-              type="button"
-              onClick={() => chooseDefault(agent)}
-              className="h-7 w-28 flex-none rounded-lg font-mono text-[11px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#26292f] hover:bg-white/[0.035] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#8b83ff]"
-            >
-              make default
-            </button>
           ) : setupCommand ? (
             <button
               type="button"
               onClick={() => copySetupCommand(agent)}
-              className="h-7 w-28 flex-none rounded-lg font-mono text-[11px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#26292f] hover:bg-white/[0.035] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#8b83ff]"
+              className="h-[31px] w-32 flex-none rounded-[9px] text-[12.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#e3ba52]"
             >
-              copy command
+              Copy command
             </button>
           ) : (
-            <span className="hidden w-28 flex-none sm:block" aria-hidden="true" />
+            <span className="hidden w-32 flex-none sm:block" aria-hidden="true" />
           )}
         </div>
       )
     })
 
   return (
-    <main className="native-agents-pane relative" aria-labelledby="activation-title">
-      <div className="workspace-sheet min-h-0 overflow-y-auto bg-card">
-        <div className="flex min-h-full w-full flex-col bg-card px-5 pt-12 pb-14 font-sans sm:px-10 lg:px-24 lg:pt-16">
-          <div className="flex max-w-[1060px] items-center gap-3.5">
-            <p className="inline-flex items-center gap-[7px] font-mono text-[8.5px] leading-none tracking-[0.2em] text-[#8b83ff] uppercase">
-              <span className="size-[5px] rounded-full bg-[#8b83ff]" aria-hidden="true" />
-              Activate
-            </p>
-            <span className="h-px flex-1 bg-[#1e2024]" aria-hidden="true" />
-            <span className="font-mono text-[10.5px] leading-none text-[#6f7580]">step 2 of 3</span>
-          </div>
-
-          <h1
-            id="activation-title"
-            className="mt-7 flex flex-wrap items-center gap-[13px] text-[clamp(26px,3vw,33px)] leading-[1.15] font-semibold tracking-[-0.022em] text-[#f2f3f5]"
-          >
-            <span>Set up the agents on</span>
-            <span className="inline-flex h-12 items-center gap-[11px] rounded-[11px] bg-[#1b1d21] px-[13px] shadow-[inset_0_0_0_1px_#2c2f35]">
-              <span className="size-[7px] rounded-full bg-[#6f9dff]" aria-hidden="true" />
-              <span className="font-mono text-[26px] leading-none tracking-[-0.01em]">
-                {selectedMachine?.hostname ?? selectedMachine?.name ?? 'this machine'}
-              </span>
-              <ChevronDown size={20} className="text-[#949aa4]" aria-hidden="true" />
-            </span>
-          </h1>
-
-          <div className="mt-[22px] flex max-w-[1060px] items-center">
-            <ActivationSteps current="agent" />
-            <span className="ml-5 h-px min-w-5 flex-1 bg-[#1e2024]" aria-hidden="true" />
-            <span className="ml-3 font-mono text-[10.5px] leading-none whitespace-nowrap text-[#6f7580]">
-              {readyAgents.length} ready · {blockedAgents.length} blocked
-            </span>
-          </div>
-
-          <div className="mt-[26px] max-w-[1060px] overflow-hidden rounded-[14px] bg-[#1b1d21] shadow-[inset_0_0_0_1px_#2c2f35,0_20px_50px_-30px_rgba(0,0,0,.9)]">
-            {readyAgents.length > 0 && (
-              <>
-                <div className="flex items-center gap-2.5 border-b border-[#23262b] bg-[#191a1e] px-[18px] py-[9px] font-mono text-[8.5px] leading-none tracking-[0.16em] text-[#6f7580] uppercase">
-                  <span className="flex-1">Ready now</span>
-                  <span className="text-[#6f9dff]">{readyAgents.length}</span>
-                </div>
-                {renderAgentRows(readyAgents)}
-              </>
-            )}
-            {blockedAgents.length > 0 && (
-              <>
-                <div className="flex items-center gap-2.5 border-y border-[#23262b] bg-[#191a1e] px-[18px] py-[9px] font-mono text-[8.5px] leading-none tracking-[0.16em] text-[#6f7580] uppercase first:border-t-0">
-                  <span className="flex-1">Needs one step</span>
-                  <span className="text-[#e3ba52]">{blockedAgents.length}</span>
-                </div>
-                {renderAgentRows(blockedAgents)}
-              </>
-            )}
-          </div>
-
-          {error && (
-            <div className="mt-3 max-w-[1060px]">
-              <SetupError>{error}</SetupError>
+    <ActivationShell
+      eyebrow="Activate Podium · 2 of 3"
+      title="Set up your agents."
+      description={
+        <>
+          Ready agents on{' '}
+          <code className="font-mono text-[13.5px] text-[#c3c8d0]">
+            {selectedMachine?.hostname ?? selectedMachine?.name ?? 'this machine'}
+          </code>{' '}
+          can start work now. The others show exactly what is still needed.
+        </>
+      }
+      contentClassName="mt-7"
+      onExplore={onExplore}
+    >
+      <div className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
+        {readyAgents.length > 0 && (
+          <>
+            <div className="flex items-center gap-2.5 border-b border-[#272b33] bg-[#1f2329] px-5 py-2.5 text-[12px] leading-none font-semibold text-[#a8adb6]">
+              <span className="flex-1">Ready to use</span>
+              <span className="text-[#69c48a]">{readyAgents.length}</span>
             </div>
-          )}
+            {renderAgentRows(readyAgents)}
+          </>
+        )}
+        {blockedAgents.length > 0 && (
+          <>
+            <div className="flex items-center gap-2.5 border-y border-[#272b33] bg-[#1f2329] px-5 py-2.5 text-[12px] leading-none font-semibold text-[#a8adb6] first:border-t-0">
+              <span className="flex-1">Needs one step</span>
+              <span className="text-[#e3ba52]">{blockedAgents.length}</span>
+            </div>
+            {renderAgentRows(blockedAgents)}
+          </>
+        )}
+      </div>
 
-          <div className="mt-[22px] flex max-w-[1060px] flex-wrap items-center gap-3.5">
-            <button
-              type="button"
-              onClick={() => onRouteChange('local-project')}
-              className="inline-flex items-center gap-2 text-[11.5px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8b83ff]"
-            >
-              <ArrowLeft size={15} className="text-[#6f7580]" aria-hidden="true" />
-              Change project
-            </button>
-            <span className="flex-1" />
-            <span className="font-mono text-[10px] leading-none text-[#6f7580]">
-              {readyAgents.length} ready is enough — the rest can wait
-            </span>
-            <button
-              type="button"
-              disabled={readyAgents.length === 0}
-              onClick={() => onRouteChange('first-task')}
-              className="inline-flex h-[30px] items-center gap-[7px] rounded-[9px] bg-[#e3ba52] px-3.5 text-[12px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Continue
-              <ArrowRight size={15} aria-hidden="true" />
-            </button>
-          </div>
-
-          <div className="mt-11 flex max-w-[1060px] items-center gap-3 border-t border-[#1e2024] pt-5">
-            <button
-              type="button"
-              onClick={onExplore}
-              className="inline-flex h-7 items-center gap-[7px] rounded-lg px-3 text-[11.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#26292f] hover:bg-white/[0.035] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#8b83ff]"
-            >
-              Explore Podium
-              <ArrowRight size={14} className="text-[#6f7580]" aria-hidden="true" />
-            </button>
-            <span className="font-mono text-[10.5px] leading-none text-[#6f7580]">
-              setup stays ready here until you return
-            </span>
-          </div>
+      {error && (
+        <div className="mt-3">
+          <SetupError>{error}</SetupError>
         </div>
+      )}
+
+      <div className="mt-8 flex flex-wrap items-center gap-3.5">
+        <button
+          type="button"
+          onClick={() => onRouteChange('local-project')}
+          className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]"
+        >
+          <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
+          Change project
+        </button>
+        <span className="flex-1" />
+        <span className="text-[12.5px] leading-none text-[#6f757f]">
+          {readyAgents.length === 3
+            ? 'Three ready is plenty'
+            : `${readyAgents.length} ready is enough`}{' '}
+          — the rest can wait.
+        </span>
+        <button
+          type="button"
+          disabled={readyAgents.length === 0}
+          onClick={() => onRouteChange('first-task')}
+          className="inline-flex h-[34px] items-center gap-2 rounded-[9px] bg-[#e3ba52] px-[15px] text-[13px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Continue
+          <ArrowRight size={16} aria-hidden="true" />
+        </button>
       </div>
       <SetupLoginTerminalDialog
         sessionId={loginSessionId}
         onClose={() => setLoginSessionId(null)}
       />
-    </main>
+    </ActivationShell>
   )
 }

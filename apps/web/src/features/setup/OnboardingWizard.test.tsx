@@ -69,7 +69,7 @@ describe('OnboardingWizard activation routes', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'How do you want to start?' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Where should Podium run?' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Add a VPS' }))
     expect(onEnterVps).toHaveBeenCalledWith('welcome')
     fireEvent.click(screen.getByRole('button', { name: 'Choose a project' }))

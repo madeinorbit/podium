@@ -1,45 +1,71 @@
 import { ArrowRight, FolderGit2, Link2, Server, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export function ActivationShell({
   eyebrow,
   title,
   description,
   onExplore,
+  icon,
+  contentClassName,
+  frameClassName,
+  descriptionClassName,
   children,
 }: {
   eyebrow: string
   title: string
-  description: string
+  description: ReactNode
   onExplore?: () => void
+  icon?: ReactNode
+  contentClassName?: string
+  frameClassName?: string
+  descriptionClassName?: string
   children: ReactNode
 }): JSX.Element {
   return (
     <main className="native-agents-pane relative" aria-labelledby="activation-title">
-      <div className="workspace-sheet min-h-0 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-[1180px] flex-col justify-center px-5 py-8 sm:px-10 lg:px-14 lg:py-12">
-          <div className="mb-5 flex size-9 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
-            <Sparkles size={18} aria-hidden="true" />
+      <div className="workspace-sheet min-h-0 overflow-y-auto bg-[#15171b]">
+        <div
+          className={cn(
+            'mx-auto flex min-h-[840px] w-full max-w-[1180px] flex-col bg-[#22262d] px-6 py-10 font-sans shadow-[0_24px_60px_-30px_rgba(0,0,0,.7)] sm:px-12 sm:py-14 lg:px-[72px] lg:pt-16 lg:pb-12',
+            frameClassName,
+          )}
+        >
+          <div className="flex size-10 flex-none items-center justify-center rounded-[11px] bg-[#2b2f37] text-[#e3ba52] shadow-[inset_0_0_0_1px_#3a4049] [&_svg]:size-[21px]">
+            {icon ?? <Sparkles aria-hidden="true" />}
           </div>
-          <p className="font-mono text-xs font-semibold tracking-widest text-primary uppercase">
+          <p className="mt-[22px] font-mono text-[10px] leading-none font-semibold tracking-[0.22em] text-[#e3ba52] uppercase">
             {eyebrow}
           </p>
           <h1
             id="activation-title"
-            className="mt-2 max-w-[24ch] text-3xl leading-tight font-semibold tracking-tight text-foreground sm:text-4xl"
+            className="mt-3.5 max-w-[780px] text-[clamp(28px,3.2vw,36px)] leading-[1.12] font-semibold tracking-[-0.024em] text-[#f2f3f5] text-wrap-pretty"
           >
             {title}
           </h1>
-          <p className="mt-4 max-w-[62ch] text-sm leading-6 text-muted-foreground">{description}</p>
-          <div className="mt-9">{children}</div>
+          <p
+            className={cn(
+              'mt-3.5 max-w-[680px] text-[14.5px] leading-[1.6] text-[#9ba1ab] text-wrap-pretty',
+              descriptionClassName,
+            )}
+          >
+            {description}
+          </p>
+          <div className={cn('mt-11', contentClassName)}>{children}</div>
+          <span className="min-h-8 flex-1" aria-hidden="true" />
           {onExplore && (
-            <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
-              <Button type="button" variant="outline" size="lg" onClick={onExplore}>
+            <div className="flex flex-wrap items-center gap-3.5 border-t border-[#2b2f37] pt-[22px]">
+              <button
+                type="button"
+                onClick={onExplore}
+                className="inline-flex h-8 items-center gap-2 rounded-[9px] px-[13px] text-[13px] leading-none font-semibold text-[#e6e8ec] shadow-[inset_0_0_0_1px_#333842] transition-colors hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]"
+              >
                 Explore Podium
-                <ArrowRight data-icon="inline-end" aria-hidden="true" />
-              </Button>
-              <p className="text-xs text-muted-foreground">
+                <ArrowRight size={15} className="text-[#9ba1ab]" aria-hidden="true" />
+              </button>
+              <p className="text-[12.5px] leading-none text-[#6f757f]">
                 Setup stays ready here until you return.
               </p>
             </div>
@@ -52,86 +78,104 @@ export function ActivationShell({
 
 export function LocalProjectChoice({ onSelect }: { onSelect: () => void }): JSX.Element {
   return (
-    <article className="group border-t border-border/80 py-5 first:border-t-0 sm:py-6">
-      <div className="flex items-start gap-4">
-        <span className="flex size-10 flex-none items-center justify-center rounded-md bg-secondary text-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
-          <FolderGit2 size={17} aria-hidden="true" />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold text-foreground">Start with a project here</h2>
-            <p className="mt-1 max-w-[58ch] text-sm leading-5 text-muted-foreground">
-              Choose a repository already on this computer, or clone one from GitHub.
-            </p>
-          </div>
-          <Button type="button" className="self-start sm:self-center" onClick={onSelect}>
-            Choose a project
-            <ArrowRight data-icon="inline-end" aria-hidden="true" />
-          </Button>
+    <article className="flex items-center gap-4 px-5 py-[19px] max-md:flex-wrap max-md:[&>button:last-child]:ml-[52px] max-md:[&>button:last-child]:w-[calc(100%-52px)]">
+      <span className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#d7dae0] shadow-[inset_0_0_0_1px_#333842]">
+        <FolderGit2 size={19} aria-hidden="true" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">
+            Start with a project here
+          </h2>
+          <span className="inline-flex h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 font-mono text-[9px] leading-none tracking-[0.14em] text-[#e3ba52] uppercase">
+            Simplest
+          </span>
         </div>
+        <p className="mt-[5px] text-[13px] leading-[1.55] text-[#9ba1ab]">
+          Choose a repository already on this computer, or clone one from GitHub.
+        </p>
       </div>
+      <ActivationRowButton primary onClick={onSelect}>
+        Choose a project
+      </ActivationRowButton>
     </article>
   )
 }
 
 export function AlwaysOnVpsChoice({ onSelect }: { onSelect: () => void }): JSX.Element {
   return (
-    <article className="group border-t border-primary/25 bg-primary/[0.035] py-5 sm:px-4 sm:py-6">
-      <div className="flex items-start gap-4">
-        <span className="flex size-10 flex-none items-center justify-center rounded-md bg-primary/10 text-primary">
-          <Server size={17} aria-hidden="true" />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="min-w-0 flex-1">
-            <p className="font-mono text-xs font-semibold tracking-wider text-primary uppercase">
-              Best for multiple computers
-            </p>
-            <h2 className="mt-1 text-base font-semibold text-foreground">
-              Create an always-on Podium
-            </h2>
-            <p className="mt-1 max-w-[58ch] text-sm leading-5 text-muted-foreground">
-              Add a new VPS as a machine, then move shared Podium state there so it stays online.
-            </p>
-          </div>
-          <Button type="button" className="self-start sm:self-center" onClick={onSelect}>
-            Add a VPS
-            <ArrowRight data-icon="inline-end" aria-hidden="true" />
-          </Button>
+    <article className="flex items-center gap-4 border-t border-[#272b33] px-5 py-[19px] max-md:flex-wrap max-md:[&>button:last-child]:ml-[52px] max-md:[&>button:last-child]:w-[calc(100%-52px)]">
+      <span className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#d7dae0] shadow-[inset_0_0_0_1px_#333842]">
+        <Server size={19} aria-hidden="true" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">
+            Create an always-on Podium
+          </h2>
+          <span className="inline-flex h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 font-mono text-[9px] leading-none tracking-[0.14em] text-[#a8adb6] uppercase">
+            Best for multiple computers
+          </span>
         </div>
+        <p className="mt-[5px] max-w-[620px] text-[13px] leading-[1.55] text-[#9ba1ab]">
+          Add a new VPS as a machine, then move shared Podium state there so agents keep working
+          after you close the lid.
+        </p>
       </div>
+      <ActivationRowButton onClick={onSelect}>Add a VPS</ActivationRowButton>
     </article>
   )
 }
 
 export function ExistingPodiumChoice({ onSelect }: { onSelect: () => void }): JSX.Element {
   return (
-    <article className="group border-t border-border/80 py-5 sm:py-6">
-      <div className="flex items-start gap-4">
-        <span className="flex size-10 flex-none items-center justify-center rounded-md bg-secondary text-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
-          <Link2 size={17} aria-hidden="true" />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold text-foreground">
-              Connect to a Podium elsewhere
-            </h2>
-            <p className="mt-1 max-w-[58ch] text-sm leading-5 text-muted-foreground">
-              For people who already have a Podium server: open it here, or contribute this
-              computer's projects and agents.
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="self-start sm:self-center"
-            onClick={onSelect}
-          >
-            View connection options
-            <ArrowRight data-icon="inline-end" aria-hidden="true" />
-          </Button>
-        </div>
+    <article className="flex items-center gap-4 border-t border-[#272b33] px-5 py-[19px] max-md:flex-wrap max-md:[&>button:last-child]:ml-[52px] max-md:[&>button:last-child]:w-[calc(100%-52px)]">
+      <span className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#8a9099] shadow-[inset_0_0_0_1px_#333842]">
+        <Link2 size={19} aria-hidden="true" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <h2 className="text-[15px] leading-none font-semibold text-[#e6e8ec]">
+          Connect to a Podium elsewhere
+        </h2>
+        <p className="mt-[5px] max-w-[620px] text-[13px] leading-[1.55] text-[#9ba1ab]">
+          For people who already have a Podium server: open it here, or contribute this computer's
+          projects and agents.
+        </p>
       </div>
+      <ActivationRowButton tertiary onClick={onSelect}>
+        View connection options
+      </ActivationRowButton>
     </article>
+  )
+}
+
+function ActivationRowButton({
+  children,
+  onClick,
+  primary = false,
+  tertiary = false,
+}: {
+  children: ReactNode
+  onClick: () => void
+  primary?: boolean
+  tertiary?: boolean
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-[34px] flex-none items-center gap-2 rounded-[9px] px-[15px] text-[13px] leading-none font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]',
+        primary
+          ? 'bg-[#e3ba52] text-[#1a1408] hover:bg-[#efc95f]'
+          : tertiary
+            ? 'text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04] hover:text-[#f2f3f5]'
+            : 'text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04]',
+      )}
+    >
+      {children}
+      <ArrowRight size={16} className={primary ? undefined : 'text-[#9ba1ab]'} aria-hidden="true" />
+    </button>
   )
 }
 

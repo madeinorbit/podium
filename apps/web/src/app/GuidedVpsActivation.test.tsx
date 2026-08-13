@@ -103,10 +103,12 @@ describe('guided VPS return route', () => {
     expect(screen.getByRole('heading', { name: 'Set up an always-on VPS.' })).toBeTruthy()
     expect(screen.getByText('What you need')).toBeTruthy()
     expect(screen.queryByText(/checking your saved VPS setup/i)).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Show VPS setup' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show the VPS command' }))
 
-    await waitFor(() => expect(vps.persist).toHaveBeenCalledWith(vpsIntroState('welcome')))
-    expect(onRouteChange).toHaveBeenCalledWith('vps-intro')
+    await waitFor(() =>
+      expect(vps.persist).toHaveBeenCalledWith(vpsPairingState(vpsIntroState('welcome'), [], true)),
+    )
+    expect(onRouteChange).toHaveBeenCalledWith('vps-pairing')
   })
 
   it('does not navigate away until the server confirms the checkpoint is cleared', async () => {
@@ -128,7 +130,7 @@ describe('guided VPS return route', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back to welcome' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back to activation choices' }))
     expect(clear).toHaveBeenCalledOnce()
     expect(onRouteChange).not.toHaveBeenCalled()
 

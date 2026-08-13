@@ -3,7 +3,20 @@ import {
   EXISTING_PODIUM_MACHINE_DRAFT_KEY,
   type UiState,
 } from '@podium/client-core/ui-state'
-import { ArrowLeft, ArrowRight, Laptop, MonitorUp, Network } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Ban,
+  History,
+  KeyRound,
+  Laptop,
+  LockKeyhole,
+  MonitorUp,
+  Network,
+  Repeat2,
+  Shield,
+  Timer,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -52,16 +65,21 @@ export function existingPodiumJoinToken(value: string): string | null {
 function ConnectionError({ error }: { error: string | null }): JSX.Element | null {
   if (!error) return null
   return (
-    <p role="alert" className="settings-prose text-destructive">
+    <p
+      role="alert"
+      className="rounded-[10px] bg-destructive/[0.08] px-3.5 py-3 text-[12.5px] leading-5 text-destructive shadow-[inset_0_0_0_1px_rgba(210,80,80,.3)]"
+    >
       {error}
     </p>
   )
 }
 
-function Consequence({ children }: { children: string }): JSX.Element {
+function Consequence({ icon, children }: { icon: JSX.Element; children: string }): JSX.Element {
   return (
-    <li className="flex gap-2 text-[12.5px] leading-5 text-muted-foreground">
-      <span className="mt-[7px] size-1.5 flex-none rounded-full bg-primary/70" aria-hidden="true" />
+    <li className="flex gap-[11px] text-[13.5px] leading-[1.5] text-[#b9bec6]">
+      <span className="mt-0.5 flex-none text-[#8a9099] [&_svg]:size-[17px]" aria-hidden="true">
+        {icon}
+      </span>
       <span>{children}</span>
     </li>
   )
@@ -113,10 +131,11 @@ export function ExistingPodiumActivation({
       eyebrow="Existing Podium"
       title="Use a Podium that already exists elsewhere."
       description="This is only for a Podium server you already run on another computer or VPS. Choose whether this device should simply open it or also contribute its local projects and agents."
+      descriptionClassName="max-w-[660px]"
       onExplore={onExplore}
     >
-      <div className="max-w-[720px] space-y-4">
-        <div className="grid gap-3 md:grid-cols-2">
+      <div>
+        <div className="grid gap-4 md:grid-cols-2">
           <ConnectionChoice
             icon={<Laptop size={17} aria-hidden="true" />}
             title="Open the other Podium"
@@ -129,13 +148,19 @@ export function ExistingPodiumActivation({
             title="Add this computer to it"
             description="Keep the other Podium as the server, but let it use repositories, credentials, and agents on this computer."
             action="Add this machine"
+            badge="Shares this machine"
+            secondary
             onSelect={() => onRouteChange('existing-machine')}
           />
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => onRouteChange('welcome')}>
-          <ArrowLeft data-icon="inline-start" aria-hidden="true" />
+        <button
+          type="button"
+          onClick={() => onRouteChange('welcome')}
+          className="mt-[18px] inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52]"
+        >
+          <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
           Back to activation choices
-        </Button>
+        </button>
       </div>
     </ActivationShell>
   )
@@ -146,25 +171,51 @@ function ConnectionChoice({
   title,
   description,
   action,
+  badge,
+  secondary = false,
   onSelect,
 }: {
   icon: JSX.Element
   title: string
   description: string
   action: string
+  badge?: string
+  secondary?: boolean
   onSelect: () => void
 }): JSX.Element {
   return (
-    <article className="rounded-xl border border-border bg-background/55 p-4 shadow-sm">
-      <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-foreground">
+    <article className="flex min-h-[230px] flex-col rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d]">
+      <span className="flex size-9 items-center justify-center rounded-[9px] bg-[#22262d] text-[#d7dae0] shadow-[inset_0_0_0_1px_#333842]">
         {icon}
       </span>
-      <h2 className="mt-3 text-sm font-semibold text-foreground">{title}</h2>
-      <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
-      <Button type="button" className="mt-4" onClick={onSelect}>
+      <div className="mt-[18px] flex flex-wrap items-center gap-2.5">
+        <h2 className="text-[15px] leading-none font-semibold text-[#f2f3f5]">{title}</h2>
+        {badge && (
+          <span className="inline-flex h-[19px] items-center rounded-[5px] bg-[#2b2f37] px-2 font-mono text-[9px] leading-none tracking-[0.14em] text-[#a8adb6] uppercase">
+            {badge}
+          </span>
+        )}
+      </div>
+      <p className="mt-2 text-[13px] leading-[1.6] text-[#9ba1ab] text-wrap-pretty">
+        {description}
+      </p>
+      <span className="min-h-5 flex-1" aria-hidden="true" />
+      <button
+        type="button"
+        className={`inline-flex h-[34px] self-start items-center gap-2 rounded-[9px] px-[15px] text-[13px] leading-none font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e3ba52] ${
+          secondary
+            ? 'text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04]'
+            : 'bg-[#e3ba52] text-[#1a1408] hover:bg-[#efc95f]'
+        }`}
+        onClick={onSelect}
+      >
         {action}
-        <ArrowRight data-icon="inline-end" aria-hidden="true" />
-      </Button>
+        <ArrowRight
+          size={16}
+          className={secondary ? 'text-[#9ba1ab]' : undefined}
+          aria-hidden="true"
+        />
+      </button>
     </article>
   )
 }
@@ -217,60 +268,83 @@ function ExistingClientStep({
     <ActivationShell
       eyebrow="Existing Podium · Client"
       title="Open your existing Podium here."
-      description="This device becomes a client for the remote installation. It will no longer host separate Podium state, projects, or agents."
+      description="This device becomes a client for the remote installation. It no longer hosts separate Podium state, projects, or agents."
+      icon={<Laptop aria-hidden="true" />}
+      contentClassName="mt-[38px]"
       onExplore={onExplore}
     >
-      <div className="max-w-[620px] space-y-5">
-        <div className="rounded-xl border border-border bg-background/55 p-4">
-          <label htmlFor="existing-podium-url" className="text-sm font-medium text-foreground">
+      <div>
+        <div className="rounded-[13px] bg-[#1b1e24] p-[22px] shadow-[inset_0_0_0_1px_#2f343d]">
+          <label
+            htmlFor="existing-podium-url"
+            className="text-[13px] leading-none font-semibold text-[#a8adb6]"
+          >
             Existing Podium URL
           </label>
-          <Input
-            id="existing-podium-url"
-            className="mt-2"
-            type="url"
-            inputMode="url"
-            autoComplete="url"
-            spellCheck={false}
-            placeholder="https://podium.example.com"
-            value={serverUrl}
-            disabled={busy}
-            onChange={(event) => {
-              const value = event.currentTarget.value
-              setServerUrl(value)
-              uiState.set(EXISTING_PODIUM_CLIENT_DRAFT_KEY, value || null)
-              if (error) setError(null)
-            }}
-          />
-          <ul className="mt-4 space-y-2">
-            <Consequence>No agents run on this device in client-only mode.</Consequence>
-            <Consequence>
-              If the remote Podium requires a password, it asks you to sign in after the app
-              restarts; this URL does not bypass its authentication.
+          <div className="mt-[11px] flex gap-3 max-sm:flex-col">
+            <Input
+              id="existing-podium-url"
+              className="h-[42px] flex-1 rounded-[10px] border-0 bg-[#15171b] px-3.5 font-mono text-[14px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
+              type="url"
+              inputMode="url"
+              autoComplete="url"
+              spellCheck={false}
+              placeholder="https://podium.example.com"
+              value={serverUrl}
+              disabled={busy}
+              onChange={(event) => {
+                const value = event.currentTarget.value
+                setServerUrl(value)
+                uiState.set(EXISTING_PODIUM_CLIENT_DRAFT_KEY, value || null)
+                if (error) setError(null)
+              }}
+            />
+            <Button
+              type="button"
+              className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+              pending={busy}
+              pendingLabel="Saving connection…"
+              disabled={!serverUrl.trim()}
+              onClick={() => void connect()}
+            >
+              Save and restart
+              <ArrowRight size={17} aria-hidden="true" />
+            </Button>
+          </div>
+          <ul className="mt-[18px] flex flex-col gap-[11px] border-t border-[#272b33] pt-4">
+            <Consequence icon={<Ban />}>
+              No agents run on this device in client-only mode.
             </Consequence>
-            <Consequence>
-              Existing local activation progress remains available until you confirm this change.
+            <Consequence icon={<LockKeyhole />}>
+              If the remote Podium requires a password, it asks you to sign in after the app
+              restarts — this URL doesn't bypass its authentication.
+            </Consequence>
+            <Consequence icon={<History />}>
+              Your local activation progress stays available until you confirm the change.
             </Consequence>
           </ul>
         </div>
-        <ConnectionError error={error} />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="ghost" onClick={onBack} disabled={busy}>
-            <ArrowLeft data-icon="inline-start" aria-hidden="true" />
-            Connection options
-          </Button>
-          <Button
+        <div className="mt-3">
+          <ConnectionError error={error} />
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-5">
+          <button
             type="button"
-            pending={busy}
-            pendingLabel="Saving connection…"
-            disabled={!serverUrl.trim()}
-            onClick={() => void connect()}
+            onClick={onBack}
+            disabled={busy}
+            className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
           >
-            Save and restart
-          </Button>
-          <Button type="button" variant="link" onClick={onLocalSetup} disabled={busy}>
+            <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
+            Connection options
+          </button>
+          <button
+            type="button"
+            onClick={onLocalSetup}
+            disabled={busy}
+            className="text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
+          >
             Back to activation choices
-          </Button>
+          </button>
         </div>
       </div>
     </ActivationShell>
@@ -341,50 +415,80 @@ function ExistingMachineStep({
       eyebrow="Existing Podium · Machine"
       title="Let your existing Podium use this machine."
       description="A join code points this machine at the remote server and pairs it as a place where projects and agents can run."
+      icon={<Network aria-hidden="true" />}
+      contentClassName="mt-[38px]"
       onExplore={onExplore}
     >
-      <div className="max-w-[620px] space-y-5">
-        <div className="rounded-xl border border-border bg-background/55 p-4">
-          <div className="flex items-start gap-3">
-            <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Network size={17} aria-hidden="true" />
+      <div>
+        <div className="rounded-[13px] bg-[#1b1e24] p-[22px] shadow-[inset_0_0_0_1px_#2f343d]">
+          <div className="flex items-start gap-3.5">
+            <span className="flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] text-[#e3ba52] shadow-[inset_0_0_0_1px_#333842]">
+              <KeyRound size={19} aria-hidden="true" />
             </span>
             <div className="min-w-0 flex-1">
-              <label htmlFor="existing-podium-join" className="text-sm font-medium text-foreground">
+              <label
+                htmlFor="existing-podium-join"
+                className="text-[15px] leading-none font-semibold text-[#f2f3f5]"
+              >
                 Join token or command
               </label>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                In the existing Podium, open Machines, add a machine, and paste its one-line code
+              <p className="mt-1.5 text-[13.5px] leading-[1.5] text-[#9ba1ab]">
+                In the existing Podium, open Machines › Add a machine, then paste its one-line code
                 here.
               </p>
             </div>
           </div>
-          <Input
-            id="existing-podium-join"
-            className="mt-3 font-mono"
-            type="text"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Paste the join token or one-line command"
-            value={joinCode}
-            disabled={busy || warning !== null}
-            onChange={(event) => {
-              const value = event.currentTarget.value
-              setJoinCode(value)
-              uiState.set(EXISTING_PODIUM_MACHINE_DRAFT_KEY, value || null)
-              if (error) setError(null)
-            }}
-          />
-          <ul className="mt-4 space-y-2">
-            <Consequence>
-              The code is a short-lived, single-use machine credential; it is not your Podium login
+          <div className="mt-3.5 flex gap-3 max-sm:flex-col">
+            <Input
+              id="existing-podium-join"
+              className="h-[42px] flex-1 rounded-[10px] border-0 bg-[#15171b] px-3.5 font-mono text-[13.5px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Paste the join token or one-line command"
+              value={joinCode}
+              disabled={busy || warning !== null}
+              onChange={(event) => {
+                const value = event.currentTarget.value
+                setJoinCode(value)
+                uiState.set(EXISTING_PODIUM_MACHINE_DRAFT_KEY, value || null)
+                if (error) setError(null)
+              }}
+            />
+            {warning ? (
+              <Button
+                type="button"
+                className="h-[42px] rounded-[10px] px-4"
+                pending={busy}
+                pendingLabel="Restarting…"
+                onClick={() => void restart()}
+              >
+                Continue anyway
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                className="h-[42px] rounded-[10px] border-0 bg-[#e3ba52] px-4 text-[13.5px] font-semibold text-[#1a1408] hover:bg-[#efc95f]"
+                pending={busy}
+                pendingLabel="Joining machine…"
+                disabled={!joinCode.trim()}
+                onClick={() => void join()}
+              >
+                Join and restart
+                <ArrowRight size={17} aria-hidden="true" />
+              </Button>
+            )}
+          </div>
+          <ul className="mt-[18px] flex flex-col gap-[11px] border-t border-[#272b33] pt-4">
+            <Consequence icon={<Timer />}>
+              The code is a short-lived, single-use machine credential — not your Podium login
               password.
             </Consequence>
-            <Consequence>
+            <Consequence icon={<Repeat2 />}>
               This machine stops hosting separate Podium state and instead runs projects and agents
               for the existing installation.
             </Consequence>
-            <Consequence>
+            <Consequence icon={<Shield />}>
               A managed join may copy the remote installation’s configured agent credentials; human
               access still follows its normal login screen after restart.
             </Consequence>
@@ -396,35 +500,27 @@ function ExistingMachineStep({
             <p className="settings-prose mt-1">{warning}</p>
           </div>
         )}
-        <ConnectionError error={error} />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="ghost" onClick={onBack} disabled={busy}>
-            <ArrowLeft data-icon="inline-start" aria-hidden="true" />
+        <div className="mt-3">
+          <ConnectionError error={error} />
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-5">
+          <button
+            type="button"
+            onClick={onBack}
+            disabled={busy}
+            className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
+          >
+            <ArrowLeft size={16} className="text-[#6f757f]" aria-hidden="true" />
             Connection options
-          </Button>
-          {warning ? (
-            <Button
-              type="button"
-              pending={busy}
-              pendingLabel="Restarting…"
-              onClick={() => void restart()}
-            >
-              Continue anyway
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              pending={busy}
-              pendingLabel="Joining machine…"
-              disabled={!joinCode.trim()}
-              onClick={() => void join()}
-            >
-              Join and restart
-            </Button>
-          )}
-          <Button type="button" variant="link" onClick={onLocalSetup} disabled={busy}>
+          </button>
+          <button
+            type="button"
+            onClick={onLocalSetup}
+            disabled={busy}
+            className="text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
+          >
             Back to activation choices
-          </Button>
+          </button>
         </div>
       </div>
     </ActivationShell>

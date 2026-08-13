@@ -85,16 +85,20 @@ export function OnboardingWizard({
 
   return (
     <ActivationShell
-      eyebrow="Activate Podium"
-      title="How do you want to start?"
-      description="Most people start with a project on this computer. You can also create an always-on VPS, or connect only if you already run Podium somewhere else."
+      eyebrow="Activate Podium · 1 of 3"
+      title="Where should Podium run?"
+      description="Most people start with a project on this computer. You can also stand up an always-on VPS, or connect to a Podium you already run."
+      descriptionClassName="max-w-[640px]"
       onExplore={onExplore}
     >
-      <div className="max-w-[860px] divide-y divide-border/70">
+      <div className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
         <LocalProjectChoice onSelect={() => onRouteChange('local-project')} />
         <AlwaysOnVpsChoice onSelect={() => void onEnterVps('welcome').catch(() => {})} />
         <ExistingPodiumChoice onSelect={() => onRouteChange('existing-podium')} />
       </div>
+      <p className="mt-4 text-[12.5px] leading-none text-[#6f757f]">
+        You can add more machines later — this isn't a one-way door.
+      </p>
       {vps.error && (
         <p role="alert" className="settings-prose mt-3 text-destructive">
           {vps.error}
