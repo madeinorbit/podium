@@ -156,10 +156,7 @@ function isPrintable(contentType: string): boolean {
  * process — on the MCP surface that means the server's disk) or the URL, which
  * also streams the files this command's size cap refuses.
  */
-async function readArtifact(
-  c: IssueTrpc,
-  a: Record<string, unknown>,
-): Promise<IssueCommandResult> {
+async function readArtifact(c: IssueTrpc, a: Record<string, unknown>): Promise<IssueCommandResult> {
   const ref = a.get as string
   const selector = /^\d+$/.test(ref) ? { index: Number(ref) } : { path: ref }
   const art = (await c.issues.artifactRead.query({

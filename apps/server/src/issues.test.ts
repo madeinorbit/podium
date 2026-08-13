@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   asArtifactId,
   asIssueId,
@@ -18,6 +21,7 @@ import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { type IssueDeps, IssueService } from './modules/issues/service'
+import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
@@ -4400,6 +4404,43 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
   it('an issue with no artifacts says so', async () => {
     const { svc, issue } = readHarness()
     await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(/no artifacts/)
+  })
+
+  /**
+   * THE ONE TEST WITH NO FAKE STORE: a real {@link IssueArtifactStore} over a
+   * real directory, snapshotting real bytes pulled through a stub daemon RPC and
+   * reading them back out. The fakes above pin the command's decisions; this
+   * pins that the bytes a snapshot WRITES are the bytes a read RETURNS — the
+   * pair could agree in a Map and still disagree on disk (relpath layout,
+   * base64 fidelity, content type by extension).
+   */
+  it('round-trips real bytes through the real snapshot store, binary intact', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'podium-artifact-roundtrip-'))
+    try {
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xfe])
+      const rpc = {
+        // The daemon's file surface, stubbed to answer for one source file.
+        readAsset: async (i: { path: string }) =>
+          i.path === '/wt/issue-1/shots/a.png'
+            ? { ok: true, dataBase64: png.toString('base64'), size: png.length }
+            : { ok: false, error: `no such file ${i.path}` },
+        listDir: async () => ({ ok: false, path: '', entries: [], error: 'not a directory' }),
+      }
+      const h = harness([sess('/wt')])
+      h.deps.artifacts = new IssueArtifactStore(base, rpc)
+      const svc = new IssueService(h.deps)
+      const issue = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+      svc.update(issue.id, { worktreePath: '/wt/issue-1' })
+      await svc.panelArtifactAdd(issue.id, { path: 'shots/a.png', title: 'Shot' })
+
+      const got = await svc.panelArtifactRead(issue.id, { index: 1 })
+      expect(Buffer.from(got.dataBase64, 'base64').equals(png)).toBe(true)
+      expect(got.contentType).toBe('image/png')
+      expect(got.size).toBe(png.length)
+      expect(got.url).toBe(`/files/artifact/${issue.id}/${got.artifactId}/a.png`)
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
   })
 
   /** Past the cap the answer is the streaming URL, not a truncated body. */

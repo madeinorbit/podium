@@ -197,6 +197,14 @@ export const commentsInput = byIssueId
  * `index` is the 1-based position the CLI prints; `path` selects the same entry
  * by its source path (stable across list edits). `file` picks one member of a
  * bundle — omitted, the bundle's `entry` is read.
+ *
+ * NOT `files.read`, which already serves the same store to the web UI. That one
+ * is addressed by `(issueId, artifactId, relpath)` — coordinates only a client
+ * holding the panel wire has — it decodes every hit as UTF-8, which corrupts
+ * the images and video artifacts are usually made of, and the `files` router is
+ * absent from the relay allowlist, so an agent cannot call it at all. This
+ * command is addressed the way the artifact list is PRINTED, answers binary
+ * faithfully, and rides the issue gate every other issue read rides.
  */
 export const artifactReadInput = z.object({
   id: IssueIdField,
