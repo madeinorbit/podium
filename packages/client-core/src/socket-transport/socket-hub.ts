@@ -810,6 +810,20 @@ export class SocketHub {
   }
 
   /**
+   * Dial again immediately after the page comes back from being hidden.
+   *
+   * `connect()` is a no-op while a socket object still exists. iOS Safari keeps
+   * that object after backgrounding without firing `close`, so the first tap
+   * would otherwise sit on a dead connection until the heartbeat (or a 60s
+   * IndexedDB reopen) unsticks it. Tear the zombie down and open now. A live
+   * socket takes the same path: one extra hello is cheaper than a frozen UI.
+   */
+  wake(): void {
+    if (this.socket !== undefined) this.forceClose()
+    this.connect()
+  }
+
+  /**
    * Ask the server for a fresh world, by ending this socket (POD-376).
    *
    * THE SERVER PUSHES BOOTSTRAPS AND THE CLIENT CANNOT REQUEST ONE. That is

@@ -100,6 +100,25 @@ describe('mobile boot failure surface', () => {
     expect(await screen.findByText('CANNOT START')).toBeTruthy()
   })
 
+  it('pagehide then pageshow does not start a second boot', async () => {
+    withUnreachableServer()
+    render(
+      <MobileClientProvider>
+        <div>app</div>
+      </MobileClientProvider>,
+    )
+    await screen.findByText('CANNOT START')
+    const afterFail = fetchCalls
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'))
+      window.dispatchEvent(new Event('pageshow'))
+    })
+    // Closing IndexedDB on pagehide and reopening on pageshow is the ~60s
+    // Safari lock. Foregrounding must keep the existing replica (or the
+    // existing failure) and only wake the socket.
+    expect(fetchCalls).toBe(afterFail)
+  })
+
   it('retry starts a fresh boot attempt', async () => {
     withUnreachableServer()
     render(

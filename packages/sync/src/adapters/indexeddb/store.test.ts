@@ -386,6 +386,39 @@ describe('IndexedDbSyncStore', () => {
     })
   })
 
+  it('a hung open degrades without deleting the replica', async () => {
+    let deletes = 0
+    const hungRequest = (): IdbOpenRequestLike => ({
+      result: {} as never,
+      error: null,
+      transaction: null,
+      onsuccess: null,
+      onerror: null,
+      onupgradeneeded: null,
+      onblocked: null,
+    })
+    const factory: IdbFactoryLike = {
+      open: () => hungRequest(),
+      deleteDatabase: () => {
+        deletes += 1
+        return hungRequest()
+      },
+    }
+    const timed = await IndexedDbSyncStore.open({
+      factory,
+      databaseName: REPLICA_DB_NAME,
+      openTimeoutMs: 20,
+      onDegraded: (degradation) => {
+        degradations.push(degradation)
+      },
+    })
+    expect(timed.durability()).toBe('unavailable')
+    expect(deletes).toBe(0)
+    expect(degradations.at(-1)?.cause).toBe('unavailable')
+    expect(String(degradations.at(-1)?.error)).toMatch(/timed out after 20ms/)
+    timed.close()
+  })
+
   it('GUARD — the conformance instantiation really is IndexedDB-backed', async () => {
     // The whole point of running POD-373's suite against this hop is that it runs
     // against a durable engine. If this adapter ever degenerated into a memory fake

@@ -553,6 +553,40 @@ function MobileHubAttach({ attachHub }: { attachHub: (hub: SocketHub) => void })
   const { hub } = useStore()
   useEffect(() => {
     attachHub(hub)
+    // iOS Safari keeps a dead WebSocket after backgrounding and does not fire
+    // `close`. The replica stays open (pagehide must not close IndexedDB); this
+    // is the only thing that has to happen on the way back: drop the zombie
+    // and dial now, so the first tap is not the thing that discovers the
+    // socket is gone.
+    let hidden = false
+    const onHide = (): void => {
+      hidden = true
+    }
+    const onShow = (): void => {
+      if (!hidden) return
+      hidden = false
+      hub.wake()
+    }
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'hidden') onHide()
+      else onShow()
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', onHide)
+      window.addEventListener('pageshow', onShow)
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility)
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', onHide)
+        window.removeEventListener('pageshow', onShow)
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility)
+      }
+    }
   }, [attachHub, hub])
   return null
 }
@@ -580,8 +614,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // boundary above shows as the wordmark splash — forever, and identically.
   const [bootFailure, setBootFailure] = useState<string | null>(null)
   const [bootStalled, setBootStalled] = useState(false)
-  // Bumped to run the effect again: the retry button, and the `pageshow` that
-  // follows a `pagehide` which closed the store out from under a mounted tree.
+  // Bumped to run the effect again: the Retry button on a failed boot.
   const [bootAttempt, setBootAttempt] = useState(0)
   const retryBoot = useCallback(() => {
     setBootFailure(null)
@@ -599,24 +632,18 @@ function LiveProvider({ children }: { children: ReactNode }) {
     // was no path back: the splash stayed up for the life of the page.
     let alive = true
     let replicaForCleanup: MobileReplica | null = null
-    // Whether the page-hide teardown ran, so `pageshow` knows a restored page is
-    // sitting on a CLOSED store and has to open a fresh one. iOS Safari fires
-    // pagehide whenever the app is backgrounded, so this is the common path back
-    // into the app, not an edge case.
-    let closedWhileHidden = false
     const closeReplica = () => {
       replicaForCleanup?.store.close()
-      if (replicaForCleanup) closedWhileHidden = true
       replicaForCleanup = null
     }
-    const onPageShow = () => {
-      if (!alive || !closedWhileHidden) return
-      closedWhileHidden = false
-      retryBoot()
+    // Flush in-flight writes. Do NOT close: iOS Safari fires pagehide on every
+    // background, and closing IndexedDB there is the ~60s lock on the next
+    // open. The socket is woken separately in MobileHubAttach.
+    const onPageHide = () => {
+      void replicaForCleanup?.store.settled()
     }
     if (typeof window !== 'undefined') {
-      window.addEventListener('pagehide', closeReplica)
-      window.addEventListener('pageshow', onPageShow)
+      window.addEventListener('pagehide', onPageHide)
     }
     // A boot that is still running may still succeed, so the watchdog only
     // OFFERS a way out; it never cancels the attempt in flight.
@@ -734,8 +761,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       clearTimeout(stallTimer)
       closeReplica()
       if (typeof window !== 'undefined') {
-        window.removeEventListener('pagehide', closeReplica)
-        window.removeEventListener('pageshow', onPageShow)
+        window.removeEventListener('pagehide', onPageHide)
       }
     }
   }, [bearer, config.httpOrigin, profileId, trpc, inheritedAuthStatus, bootAttempt, retryBoot])

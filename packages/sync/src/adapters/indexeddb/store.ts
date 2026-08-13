@@ -120,9 +120,26 @@ export interface DurabilityDegradation {
   readonly error: unknown
 }
 
+/** Bound a hung `indexedDB.open` so Safari's ~60s lock cannot freeze the UI. */
+export const IDB_OPEN_TIMEOUT_MS = 8_000
+
+export class IndexedDbOpenTimeoutError extends Error {
+  override readonly name = 'IndexedDbOpenTimeoutError'
+  constructor(timeoutMs: number) {
+    super(`IndexedDB open timed out after ${timeoutMs}ms`)
+  }
+}
+
 export interface IndexedDbStoreOptions {
   readonly factory: IdbFactoryLike
   readonly databaseName?: string
+  /**
+   * How long `indexedDB.open` may sit before the adapter degrades to memory.
+   * Safari can hold a blocked open for ~60s after an unclean close; that is
+   * a frozen UI, not a durable wait. Default {@link IDB_OPEN_TIMEOUT_MS}.
+   * Tests inject a short value so a hung factory cannot stall the suite.
+   */
+  readonly openTimeoutMs?: number
   /** REQUIRED — see {@link DurabilityDegradation}. */
   readonly onDegraded: (degradation: DurabilityDegradation) => void
   /**
@@ -275,13 +292,21 @@ export class IndexedDbSyncStore {
     const name = options.databaseName ?? REPLICA_DB_NAME
     let db: IdbDatabaseLike
     try {
-      db = await openDatabase(options.factory, name)
+      db = await openDatabase(options.factory, name, options.openTimeoutMs)
     } catch (error) {
+      // A timeout is not corruption. Deleting the replica because Safari held
+      // the lock would throw away a recoverable store and force a world-sized
+      // bootstrap onto the same UI thread the timeout was meant to protect.
+      if (error instanceof IndexedDbOpenTimeoutError) {
+        const store = new IndexedDbSyncStore(unavailableDatabase(), options)
+        store.degrade('unavailable', 'unavailable', error)
+        return store
+      }
       // Includes `VersionError` — a store written by a NEWER build than this one.
       // D5.1 is forward-only, so the only honest move is to drop it and cold start.
       await deleteDatabase(options.factory, name)
       try {
-        db = await openDatabase(options.factory, name)
+        db = await openDatabase(options.factory, name, options.openTimeoutMs)
       } catch (fatal) {
         const store = new IndexedDbSyncStore(unavailableDatabase(), options)
         store.degrade('unavailable', 'unavailable', fatal)
@@ -1175,23 +1200,52 @@ function transactionCompletion(tx: IdbTransactionLike): Promise<void> {
   })
 }
 
-function openDatabase(factory: IdbFactoryLike, name: string): Promise<IdbDatabaseLike> {
+function openDatabase(
+  factory: IdbFactoryLike,
+  name: string,
+  timeoutMs: number = IDB_OPEN_TIMEOUT_MS,
+): Promise<IdbDatabaseLike> {
   return new Promise<IdbDatabaseLike>((resolve, reject) => {
     const request = factory.open(name, REPLICA_SCHEMA_VERSION)
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new IndexedDbOpenTimeoutError(timeoutMs))
+    }, timeoutMs)
+    const finish = (fn: () => void): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      fn()
+    }
     request.onupgradeneeded = () => {
       upgradeSchema(request.result)
     }
+    // Another connection is holding the version lock. Do not wait it out —
+    // the timeout is the bound. A later success still closes the late handle.
+    request.onblocked = () => {
+      return
+    }
     request.onsuccess = () => {
       const db = request.result
+      if (settled) {
+        db.close()
+        return
+      }
       // Another tab is upgrading. Close so it is not blocked; this connection's
       // owner cold-starts rather than holding the whole origin hostage (D4.6).
       db.onversionchange = () => {
         db.close()
       }
-      resolve(db)
+      finish(() => {
+        resolve(db)
+      })
     }
     request.onerror = () => {
-      reject(request.error ?? new Error('IndexedDB open failed'))
+      finish(() => {
+        reject(request.error ?? new Error('IndexedDB open failed'))
+      })
     }
   })
 }

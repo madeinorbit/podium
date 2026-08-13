@@ -674,6 +674,31 @@ describe('SocketHub reconnect + heartbeat', () => {
     vi.useRealTimers()
   })
 
+  it('wake tears down a live socket and dials immediately, without waiting for backoff', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    hub.attach(asSessionId('s1'))
+    expect(sockets).toHaveLength(1)
+    hub.wake()
+    expect(hub.connected).toBe(false)
+    expect(sockets).toHaveLength(2)
+    sockets[1]?.open()
+    expect(hub.connected).toBe(true)
+    expect(sockets[1]?.parsed()).toContainEqual({ type: 'attach', sessionId: 's1' })
+    // Backoff is 500ms; stay under the 10s heartbeat so this does not also
+    // measure a later force-close.
+    vi.advanceTimersByTime(2_000)
+    expect(sockets).toHaveLength(2)
+  })
+
+  it('wake connects when nothing is open yet', () => {
+    const { sockets, hub } = multiSetup()
+    hub.wake()
+    expect(sockets).toHaveLength(1)
+  })
+
   it('reconnects after an unintentional close and re-attaches sessions', () => {
     vi.useFakeTimers()
     const { sockets, hub } = multiSetup()
