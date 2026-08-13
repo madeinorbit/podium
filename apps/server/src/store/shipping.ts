@@ -599,6 +599,43 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     )
   }
 
+  /** Read the complete durable dispatch fence in one database transaction.
+   * This is called immediately before an external mutation. The matching
+   * post-effect transaction below prevents a crossed effect from advancing a
+   * cancelled, superseded, or otherwise stale order. */
+  assertEffectDispatchCustody(input: {
+    orderId: string
+    expectedState: ShipOrderState
+    attemptId: string
+    generation: number
+    effectKey: string
+    operation: ShipStepValue['kind']
+  }): void {
+    transaction(this.db, () => {
+      const order = this.getOrder(input.orderId)
+      const attempt = this.latestAttemptForOrder(input.orderId)
+      const step = this.latestStepForEffect(input.attemptId, input.effectKey)
+      if (
+        !order ||
+        order.state !== input.expectedState ||
+        !attempt ||
+        attempt.id !== input.attemptId ||
+        attempt.leaseGeneration !== input.generation ||
+        attempt.finishedAt !== undefined ||
+        !step ||
+        step.state !== 'running' ||
+        step.effectKey !== input.effectKey ||
+        step.kind !== input.operation ||
+        step.generation !== input.generation
+      ) {
+        throw new Error(`ship order ${input.orderId} effect dispatch custody fence failed`)
+      }
+      if (this.hasCancellationIntent(input.attemptId, input.generation)) {
+        throw new Error(`ship order ${input.orderId} has durable cancellation intent`)
+      }
+    })
+  }
+
   /** Commit the result of one awaited daemon effect while its durable custody
    * facts are still current. The journal append and the state change it
    * authorizes share one transaction, so cancellation or a newer generation

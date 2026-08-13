@@ -8,6 +8,7 @@ import type {
   ShippingJobRequestMessage,
   ShippingJobResult,
 } from '@podium/protocol'
+import { shippingJobRequestFingerprint } from '@podium/protocol'
 import { ShippingJobJournal } from './journal'
 
 type Request = ShippingJobRequestMessage
@@ -53,7 +54,11 @@ export interface ShippingProviderAdapter {
   verify(context: ShippingProviderContext): ShippingProviderProof
 }
 
-function run(file: string, argv: string[], options: { cwd?: string; timeoutMs?: number } = {}): CommandResult {
+function run(
+  file: string,
+  argv: string[],
+  options: { cwd?: string; timeoutMs?: number } = {},
+): CommandResult {
   const result = spawnSync(file, argv, {
     cwd: options.cwd,
     encoding: 'utf8',
@@ -99,7 +104,11 @@ function worktrees(repoPath: string): Worktree[] {
         const split = line.indexOf(' ')
         fields.set(split < 0 ? line : line.slice(0, split), split < 0 ? '' : line.slice(split + 1))
       }
-      return { path: fields.get('worktree') ?? '', head: fields.get('HEAD') ?? '', branch: fields.get('branch') }
+      return {
+        path: fields.get('worktree') ?? '',
+        head: fields.get('HEAD') ?? '',
+        branch: fields.get('branch'),
+      }
     })
     .filter((entry) => entry.path && entry.head)
 }
@@ -113,8 +122,18 @@ function safePart(value: string): string {
 }
 
 function destinationBranch(destination: string): { remote: string; branch: string } | null {
-  const match = /^(?:remote|git):([^/]+)\/(.+)$/.exec(destination)
-  return match ? { remote: match[1]!, branch: match[2]! } : null
+  const match = /^(?:remote|git):([A-Za-z0-9][A-Za-z0-9._-]*)\/(.+)$/.exec(destination)
+  if (!match || match[2]!.startsWith('-')) return null
+  return { remote: match[1]!, branch: match[2]! }
+}
+
+function validRemoteDestination(
+  repoPath: string,
+  destination: { remote: string; branch: string },
+): boolean {
+  if (!gitResult(repoPath, ['check-ref-format', '--branch', destination.branch]).ok) return false
+  const remotes = gitResult(repoPath, ['remote'])
+  return remotes.ok && remotes.stdout.split('\n').includes(destination.remote)
 }
 
 function localDestinationMatches(request: Request): boolean {
@@ -133,7 +152,11 @@ class LocalRefProvider implements ShippingProviderAdapter {
   publish(context: ShippingProviderContext): ShippingProviderProof {
     const tip = refTip(context.repoPath, `refs/heads/${context.request.targetBranch}`)
     if (tip !== context.landedRefSha) throw new Error('local target no longer names the landed ref')
-    return { landedRefSha: context.landedRefSha, destinationSha: tip, logs: ['local target needs no outward publication'] }
+    return {
+      landedRefSha: context.landedRefSha,
+      destinationSha: tip,
+      logs: ['local target needs no outward publication'],
+    }
   }
   verify(context: ShippingProviderContext): ShippingProviderProof {
     return this.publish(context)
@@ -147,31 +170,46 @@ class GitRemoteProvider implements ShippingProviderAdapter {
   }
   publish(context: ShippingProviderContext): ShippingProviderProof {
     const destination = destinationBranch(context.request.destination)
-    if (!destination) throw new Error('invalid git remote destination')
+    if (!destination || !validRemoteDestination(context.repoPath, destination)) {
+      throw new Error('invalid or unconfigured git remote destination')
+    }
     const pushed = gitResult(context.repoPath, [
       'push',
       '--porcelain',
+      '--',
       destination.remote,
       `${context.landedRefSha}:refs/heads/${destination.branch}`,
     ])
     if (!pushed.ok) throw new Error(pushed.stderr || pushed.stdout || 'non-force push rejected')
-    return { landedRefSha: context.landedRefSha, logs: [pushed.stdout || 'remote accepted exact landed ref'] }
+    return {
+      landedRefSha: context.landedRefSha,
+      logs: [pushed.stdout || 'remote accepted exact landed ref'],
+    }
   }
   verify(context: ShippingProviderContext): ShippingProviderProof {
     const destination = destinationBranch(context.request.destination)
-    if (!destination) throw new Error('invalid git remote destination')
+    if (!destination || !validRemoteDestination(context.repoPath, destination)) {
+      throw new Error('invalid or unconfigured git remote destination')
+    }
     const observed = gitResult(context.repoPath, [
       'ls-remote',
       '--refs',
+      '--',
       destination.remote,
       `refs/heads/${destination.branch}`,
     ])
     if (!observed.ok) throw new Error(observed.stderr || 'could not read configured destination')
     const destinationSha = observed.stdout.split(/\s+/)[0]
     if (!destinationSha || destinationSha !== context.landedRefSha) {
-      throw new Error(`configured destination is ${destinationSha || 'absent'}, expected ${context.landedRefSha}`)
+      throw new Error(
+        `configured destination is ${destinationSha || 'absent'}, expected ${context.landedRefSha}`,
+      )
     }
-    return { landedRefSha: context.landedRefSha, destinationSha, logs: [`verified ${destination.remote}/${destination.branch}`] }
+    return {
+      landedRefSha: context.landedRefSha,
+      destinationSha,
+      logs: [`verified ${destination.remote}/${destination.branch}`],
+    }
   }
 }
 
@@ -189,7 +227,10 @@ export class ShippingExecutionPlane {
     private readonly dir: string,
     private readonly machineId: MachineId,
     private readonly now: () => string = () => new Date().toISOString(),
-    providers: readonly ShippingProviderAdapter[] = [new LocalRefProvider(), new GitRemoteProvider()],
+    providers: readonly ShippingProviderAdapter[] = [
+      new LocalRefProvider(),
+      new GitRemoteProvider(),
+    ],
   ) {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     this.journal = new ShippingJobJournal(join(dir, 'jobs'))
@@ -203,7 +244,20 @@ export class ShippingExecutionPlane {
   }
 
   handle(request: Request): Result {
-    const latestGeneration = this.journal.latestGeneration(request.orderId)
+    if (this.requestDigest(request) !== request.requestDigest) {
+      return this.base(request, 'held', 'invalid-request', 'shipping request digest mismatch')
+    }
+    let latestGeneration: number | null
+    try {
+      latestGeneration = this.journal.latestGeneration(request.orderId)
+    } catch (error) {
+      return this.base(
+        request,
+        'held',
+        'invalid-request',
+        `shipping journal is corrupt: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
     if (latestGeneration !== null && latestGeneration > request.generation) {
       return this.base(request, 'held', 'stale-generation', 'stale shipping generation refused')
     }
@@ -222,7 +276,12 @@ export class ShippingExecutionPlane {
         this.base(request, 'running', 'observed', 'shipping effect started'),
       )
     } catch (error) {
-      return this.base(request, 'held', 'invalid-request', error instanceof Error ? error.message : String(error))
+      return this.base(
+        request,
+        'held',
+        'invalid-request',
+        error instanceof Error ? error.message : String(error),
+      )
     }
     if (started.result.state !== 'running') return started.result
 
@@ -244,6 +303,14 @@ export class ShippingExecutionPlane {
     if (request.validationProfile.id !== request.validationProfile.id.trim()) {
       return this.base(request, 'held', 'invalid-request', 'validation profile id is not canonical')
     }
+    if (request.sourceBranch.startsWith('-') || request.targetBranch.startsWith('-')) {
+      return this.base(
+        request,
+        'held',
+        'invalid-request',
+        'source and target branches may not be option-like',
+      )
+    }
     git(request.repoPath, ['check-ref-format', '--branch', request.sourceBranch])
     git(request.repoPath, ['check-ref-format', '--branch', request.targetBranch])
     if (request.operation === 'preflight') return this.preflight(request)
@@ -254,7 +321,21 @@ export class ShippingExecutionPlane {
     return this.verify(request)
   }
 
-  private sourceAndTarget(request: Request): { sourceSha: string | null; targetSha: string | null } {
+  private requestDigest(request: Request): string {
+    const {
+      type: _type,
+      requestId: _requestId,
+      action: _action,
+      requestDigest: _digest,
+      ...facts
+    } = request
+    return createHash('sha256').update(shippingJobRequestFingerprint(facts)).digest('hex')
+  }
+
+  private sourceAndTarget(request: Request): {
+    sourceSha: string | null
+    targetSha: string | null
+  } {
     return {
       sourceSha: refTip(request.repoPath, `refs/heads/${request.sourceBranch}`),
       targetSha: refTip(request.repoPath, `refs/heads/${request.targetBranch}`),
@@ -263,11 +344,28 @@ export class ShippingExecutionPlane {
 
   private fence(request: Request): Result | null {
     const { sourceSha, targetSha } = this.sourceAndTarget(request)
-    if (sourceSha !== request.approvedHeadSha || !isAncestor(request.repoPath, request.approvedBaseSha, sourceSha ?? '')) {
-      return this.observed(request, 'held', 'source-moved', 'approved source fence changed', sourceSha, targetSha)
+    if (
+      sourceSha !== request.approvedHeadSha ||
+      !isAncestor(request.repoPath, request.approvedBaseSha, sourceSha ?? '')
+    ) {
+      return this.observed(
+        request,
+        'held',
+        'source-moved',
+        'approved source fence changed',
+        sourceSha,
+        targetSha,
+      )
     }
     if (targetSha !== request.expectedTargetSha) {
-      return this.observed(request, 'held', 'target-moved', 'target fence changed', sourceSha, targetSha)
+      return this.observed(
+        request,
+        'held',
+        'target-moved',
+        'target fence changed',
+        sourceSha,
+        targetSha,
+      )
     }
     return null
   }
@@ -279,36 +377,81 @@ export class ShippingExecutionPlane {
       (entry) => entry.branch === `refs/heads/${request.sourceBranch}`,
     )
     if (sourceOwner && !clean(sourceOwner.path)) {
-      return this.observed(request, 'held', 'dirty-worktree', `source worktree is dirty: ${sourceOwner.path}`)
+      return this.observed(
+        request,
+        'held',
+        'dirty-worktree',
+        `source worktree is dirty: ${sourceOwner.path}`,
+      )
+    }
+    const remote = destinationBranch(request.destination)
+    if (remote && !validRemoteDestination(request.repoPath, remote)) {
+      return this.observed(
+        request,
+        'held',
+        'unsupported-destination-effect',
+        'git destination must name a configured remote and canonical branch',
+      )
     }
     const landing = this.ensureLandingCheckout(request)
     if ('classification' in landing) return landing
     if (!this.provider(request)) {
-      return this.observed(request, 'held', 'unsupported-destination-effect', `no provider adapter accepts ${request.destination}`)
+      return this.observed(
+        request,
+        'held',
+        'unsupported-destination-effect',
+        `no provider adapter accepts ${request.destination}`,
+      )
     }
-    return this.observed(request, 'succeeded', 'observed', `landing checkout ready at ${landing.path}`)
+    return this.observed(
+      request,
+      'succeeded',
+      'observed',
+      `landing checkout ready at ${landing.path}`,
+    )
   }
 
   private prepare(request: Request): Result {
     const fenced = this.fence(request)
     if (fenced) return fenced
     if (!isAncestor(request.repoPath, request.expectedTargetSha, request.approvedHeadSha)) {
-      return this.observed(request, 'held', 'merge-conflict', 'approved source is not a fast-forward of the frozen target')
+      return this.observed(
+        request,
+        'held',
+        'merge-conflict',
+        'approved source is not a fast-forward of the frozen target',
+      )
     }
     const candidate = request.approvedHeadSha
     const shadow = this.shadowRef(request)
     const existing = refTip(request.repoPath, shadow)
     if (existing && existing !== candidate) {
-      return this.observed(request, 'held', 'invalid-request', `immutable shadow ref ${shadow} already names ${existing}`)
+      return this.observed(
+        request,
+        'held',
+        'invalid-request',
+        `immutable shadow ref ${shadow} already names ${existing}`,
+      )
     }
     if (!existing) {
       const created = gitResult(request.repoPath, ['update-ref', shadow, candidate, ZERO_SHA])
-      if (!created.ok) return this.observed(request, 'held', 'target-moved', created.stderr || 'shadow ref creation raced')
+      if (!created.ok)
+        return this.observed(
+          request,
+          'held',
+          'target-moved',
+          created.stderr || 'shadow ref creation raced',
+        )
     }
     const integration = this.ensureIntegrationCheckout(request, candidate)
     if ('classification' in integration) return integration
     return {
-      ...this.observed(request, 'succeeded', 'observed', `immutable merge group prepared at ${candidate}`),
+      ...this.observed(
+        request,
+        'succeeded',
+        'observed',
+        `immutable merge group prepared at ${candidate}`,
+      ),
       testedIntegrationSha: candidate,
       logs: [`shadow ${shadow} ${candidate}`, `integration checkout ${integration.path}`],
     }
@@ -318,7 +461,8 @@ export class ShippingExecutionPlane {
     const fenced = this.fence(request)
     if (fenced) return fenced
     const candidate = refTip(request.repoPath, this.shadowRef(request))
-    if (!candidate) return this.observed(request, 'held', 'invalid-request', 'merge-group shadow ref is absent')
+    if (!candidate)
+      return this.observed(request, 'held', 'invalid-request', 'merge-group shadow ref is absent')
     const integration = this.ensureIntegrationCheckout(request, candidate)
     if ('classification' in integration) return integration
     const [file, ...argv] = request.validationProfile.argv
@@ -326,7 +470,10 @@ export class ShippingExecutionPlane {
       cwd: integration.path,
       timeoutMs: request.validationProfile.timeoutMs,
     })
-    const logPath = join(this.logsDir, `${createHash('sha256').update(request.jobId).digest('hex')}.log`)
+    const logPath = join(
+      this.logsDir,
+      `${createHash('sha256').update(request.jobId).digest('hex')}.log`,
+    )
     writeFileSync(
       logPath,
       [`$ ${request.validationProfile.argv.join(' ')}`, validation.stdout, validation.stderr]
@@ -359,7 +506,8 @@ export class ShippingExecutionPlane {
 
   private commit(request: Request): Result {
     const candidate = refTip(request.repoPath, this.shadowRef(request))
-    if (!candidate) return this.observed(request, 'held', 'invalid-request', 'merge-group shadow ref is absent')
+    if (!candidate)
+      return this.observed(request, 'held', 'invalid-request', 'merge-group shadow ref is absent')
     const validation = this.proof(request, 'validate')
     if (
       validation?.state !== 'succeeded' ||
@@ -367,14 +515,33 @@ export class ShippingExecutionPlane {
       validation.validationProfileId !== request.validationProfile.id ||
       validation.validationResult !== 'passed'
     ) {
-      return this.observed(request, 'held', 'validation-failed', 'candidate has no matching green validation proof')
+      return this.observed(
+        request,
+        'held',
+        'validation-failed',
+        'candidate has no matching green validation proof',
+      )
     }
     const { sourceSha, targetSha } = this.sourceAndTarget(request)
     if (sourceSha !== request.approvedHeadSha && sourceSha !== candidate) {
-      return this.observed(request, 'held', 'source-moved', 'source compare-and-swap fence changed', sourceSha, targetSha)
+      return this.observed(
+        request,
+        'held',
+        'source-moved',
+        'source compare-and-swap fence changed',
+        sourceSha,
+        targetSha,
+      )
     }
     if (targetSha !== request.expectedTargetSha && targetSha !== candidate) {
-      return this.observed(request, 'held', 'target-moved', 'target compare-and-swap fence changed', sourceSha, targetSha)
+      return this.observed(
+        request,
+        'held',
+        'target-moved',
+        'target compare-and-swap fence changed',
+        sourceSha,
+        targetSha,
+      )
     }
     const landing = this.ensureLandingCheckout(request)
     if ('classification' in landing) return landing
@@ -389,18 +556,78 @@ export class ShippingExecutionPlane {
         candidate,
         request.approvedHeadSha,
       ])
-      if (!moved.ok) return this.observed(request, 'held', 'source-moved', moved.stderr || 'source CAS failed')
+      if (!moved.ok)
+        return this.observed(request, 'held', 'source-moved', moved.stderr || 'source CAS failed')
     }
     if (targetSha === request.expectedTargetSha) {
-      const merged = gitResult(landing.path, ['merge', '--ff-only', candidate])
-      if (!merged.ok) return this.observed(request, 'held', 'target-moved', merged.stderr || merged.stdout || 'target CAS failed')
+      if (refTip(landing.path, 'HEAD') !== request.expectedTargetSha || !clean(landing.path)) {
+        return this.observed(
+          request,
+          'held',
+          'wrong-target-checkout',
+          'landing checkout is not at the expected target',
+        )
+      }
+      const detached = gitResult(landing.path, ['checkout', '--detach', request.expectedTargetSha])
+      if (!detached.ok) {
+        return this.observed(
+          request,
+          'held',
+          'wrong-target-checkout',
+          detached.stderr || 'could not detach landing checkout',
+        )
+      }
+      const moved = gitResult(request.repoPath, [
+        'update-ref',
+        `refs/heads/${request.targetBranch}`,
+        candidate,
+        request.expectedTargetSha,
+      ])
+      if (!moved.ok) {
+        gitResult(landing.path, ['checkout', request.targetBranch])
+        return this.observed(
+          request,
+          'held',
+          'target-moved',
+          moved.stderr || 'target compare-and-swap failed',
+        )
+      }
+    }
+    const landingEntry = worktrees(request.repoPath).find((entry) => entry.path === landing.path)
+    if (
+      refTip(landing.path, 'HEAD') !== candidate ||
+      landingEntry?.branch !== `refs/heads/${request.targetBranch}`
+    ) {
+      const attached = gitResult(landing.path, ['checkout', request.targetBranch])
+      if (!attached.ok) {
+        return this.observed(
+          request,
+          'held',
+          'wrong-target-checkout',
+          attached.stderr || 'could not attach landing checkout',
+        )
+      }
     }
     const landed = refTip(request.repoPath, `refs/heads/${request.targetBranch}`)
-    if (landed !== candidate || refTip(landing.path, 'HEAD') !== candidate || !clean(landing.path)) {
-      return this.observed(request, 'held', 'wrong-target-checkout', 'landing checkout did not converge on the exact tested candidate')
+    if (
+      landed !== candidate ||
+      refTip(landing.path, 'HEAD') !== candidate ||
+      !clean(landing.path)
+    ) {
+      return this.observed(
+        request,
+        'held',
+        'wrong-target-checkout',
+        'landing checkout did not converge on the exact tested candidate',
+      )
     }
     return {
-      ...this.observed(request, 'succeeded', 'proved', `target now names exact tested candidate ${candidate}`),
+      ...this.observed(
+        request,
+        'succeeded',
+        'proved',
+        `target now names exact tested candidate ${candidate}`,
+      ),
       testedIntegrationSha: candidate,
       landedRefSha: candidate,
       validationProfileId: request.validationProfile.id,
@@ -412,7 +639,13 @@ export class ShippingExecutionPlane {
     const context = this.providerContext(request, false)
     if ('classification' in context) return context
     const adapter = this.provider(request)
-    if (!adapter) return this.observed(request, 'held', 'unsupported-destination-effect', `no provider adapter accepts ${request.destination}`)
+    if (!adapter)
+      return this.observed(
+        request,
+        'held',
+        'unsupported-destination-effect',
+        `no provider adapter accepts ${request.destination}`,
+      )
     try {
       const proof = adapter.publish(context)
       return {
@@ -425,7 +658,12 @@ export class ShippingExecutionPlane {
         logs: proof.logs ?? [`provider ${adapter.id} accepted publication`],
       }
     } catch (error) {
-      return this.observed(request, 'held', 'publish-rejected', error instanceof Error ? error.message : String(error))
+      return this.observed(
+        request,
+        'held',
+        'publish-rejected',
+        error instanceof Error ? error.message : String(error),
+      )
     }
   }
 
@@ -433,12 +671,24 @@ export class ShippingExecutionPlane {
     const context = this.providerContext(request, true)
     if ('classification' in context) return context
     const adapter = this.provider(request)
-    if (!adapter) return this.observed(request, 'held', 'unsupported-destination-effect', `no provider adapter accepts ${request.destination}`)
+    if (!adapter)
+      return this.observed(
+        request,
+        'held',
+        'unsupported-destination-effect',
+        `no provider adapter accepts ${request.destination}`,
+      )
     try {
       const proof = adapter.verify(context)
-      if (!proof.destinationSha) throw new Error('provider returned no configured-destination proof')
+      if (!proof.destinationSha)
+        throw new Error('provider returned no configured-destination proof')
       return {
-        ...this.observed(request, 'succeeded', 'proved', `configured destination proved by ${adapter.id}`),
+        ...this.observed(
+          request,
+          'succeeded',
+          'proved',
+          `configured destination proved by ${adapter.id}`,
+        ),
         testedIntegrationSha: context.testedIntegrationSha,
         landedRefSha: proof.landedRefSha,
         observedDestinationSha: proof.destinationSha,
@@ -447,11 +697,19 @@ export class ShippingExecutionPlane {
         logs: proof.logs ?? [`provider ${adapter.id} proved destination ${proof.destinationSha}`],
       }
     } catch (error) {
-      return this.observed(request, 'held', 'destination-mismatch', error instanceof Error ? error.message : String(error))
+      return this.observed(
+        request,
+        'held',
+        'destination-mismatch',
+        error instanceof Error ? error.message : String(error),
+      )
     }
   }
 
-  private providerContext(request: Request, requirePublished: boolean): ShippingProviderContext | Result {
+  private providerContext(
+    request: Request,
+    requirePublished: boolean,
+  ): ShippingProviderContext | Result {
     const validation = this.proof(request, 'validate')
     const committed = this.proof(request, 'commit-merge-group')
     const published = requirePublished ? this.proof(request, 'publish') : null
@@ -465,7 +723,12 @@ export class ShippingExecutionPlane {
       (requirePublished &&
         (published?.state !== 'succeeded' || published.landedRefSha !== committed.landedRefSha))
     ) {
-      return this.observed(request, 'held', 'invalid-request', 'publication proof chain is incomplete')
+      return this.observed(
+        request,
+        'held',
+        'invalid-request',
+        'publication proof chain is incomplete',
+      )
     }
     return {
       request,
@@ -480,61 +743,168 @@ export class ShippingExecutionPlane {
   }
 
   private proof(request: Request, operation: Request['operation']): Result | null {
-    return (
-      this.journal
-        .list()
-        .filter(
-          (entry) =>
-            entry.request.attemptId === request.attemptId &&
-            entry.request.generation === request.generation &&
-            entry.request.operation === operation,
-        )
-        .at(-1)?.result ?? null
-    )
+    const entry = this.journal
+      .list()
+      .filter(
+        (candidate) =>
+          candidate.request.jobId === `${request.attemptId}:${operation}` &&
+          candidate.request.orderId === request.orderId &&
+          candidate.request.attemptId === request.attemptId &&
+          candidate.request.generation === request.generation &&
+          candidate.request.operation === operation &&
+          candidate.request.repoPath === request.repoPath &&
+          candidate.request.sourceBranch === request.sourceBranch &&
+          candidate.request.targetBranch === request.targetBranch &&
+          candidate.request.approvedBaseSha === request.approvedBaseSha &&
+          candidate.request.approvedHeadSha === request.approvedHeadSha &&
+          candidate.request.expectedTargetSha === request.expectedTargetSha &&
+          candidate.request.destination === request.destination &&
+          JSON.stringify(candidate.request.validationProfile) ===
+            JSON.stringify(request.validationProfile) &&
+          JSON.stringify(candidate.request.providerRef ?? null) ===
+            JSON.stringify(request.providerRef ?? null),
+      )
+      .at(-1)
+    if (!entry) return null
+    const { requestDigest, ...facts } = entry.request
+    const digest = createHash('sha256').update(shippingJobRequestFingerprint(facts)).digest('hex')
+    return digest === requestDigest &&
+      entry.result.jobId === entry.request.jobId &&
+      entry.result.requestDigest === requestDigest &&
+      entry.result.orderId === entry.request.orderId &&
+      entry.result.attemptId === entry.request.attemptId &&
+      entry.result.generation === entry.request.generation &&
+      entry.result.operation === entry.request.operation
+      ? entry.result
+      : null
   }
 
   private ensureLandingCheckout(request: Request): { path: string } | Result {
-    const repoKey = createHash('sha256').update(realpathSync(request.repoPath)).digest('hex').slice(0, 16)
+    const repoKey = createHash('sha256')
+      .update(realpathSync(request.repoPath))
+      .digest('hex')
+      .slice(0, 16)
     const desired = join(this.checkoutsDir, repoKey, safePart(request.targetBranch))
     const owner = worktrees(request.repoPath).find(
       (entry) => entry.branch === `refs/heads/${request.targetBranch}`,
     )
     if (owner) {
       if (!clean(owner.path)) {
-        return this.observed(request, 'held', 'dirty-worktree', `target checkout is dirty: ${owner.path}`)
+        return this.observed(
+          request,
+          'held',
+          'dirty-worktree',
+          `target checkout is dirty: ${owner.path}`,
+        )
       }
       // Safely adopt an already dedicated checkout, or use the repository's
       // existing clean target checkout as guarded compatibility mode.
       if (owner.path !== desired && realpathSync(owner.path) !== realpathSync(request.repoPath)) {
-        return this.observed(request, 'held', 'wrong-target-checkout', `target is owned by another checkout: ${owner.path}`)
+        return this.observed(
+          request,
+          'held',
+          'wrong-target-checkout',
+          `target is owned by another checkout: ${owner.path}`,
+        )
       }
       return { path: owner.path }
     }
+    const registeredDesired = worktrees(request.repoPath).find((entry) => entry.path === desired)
+    if (registeredDesired) {
+      if (!clean(desired)) {
+        return this.observed(
+          request,
+          'held',
+          'dirty-worktree',
+          `landing checkout is dirty: ${desired}`,
+        )
+      }
+      return { path: desired }
+    }
+    const current = this.journal.get(request.jobId)
+    const repositoryRoot = worktrees(request.repoPath).find(
+      (entry) => realpathSync(entry.path) === realpathSync(request.repoPath),
+    )
+    if (
+      request.operation === 'commit-merge-group' &&
+      current?.result.state === 'running' &&
+      repositoryRoot &&
+      !repositoryRoot.branch &&
+      repositoryRoot.head === request.expectedTargetSha &&
+      clean(repositoryRoot.path)
+    ) {
+      // The executor may have died after detaching a clean compatibility
+      // checkout but before/after the target CAS. The durable running record is
+      // the authority to finish that exact transition and reattach it.
+      return { path: repositoryRoot.path }
+    }
     if (existsSync(desired)) {
-      return this.observed(request, 'held', 'wrong-target-checkout', `landing path exists but is not an adopted git worktree: ${desired}`)
+      return this.observed(
+        request,
+        'held',
+        'wrong-target-checkout',
+        `landing path exists but is not an adopted git worktree: ${desired}`,
+      )
     }
     mkdirSync(dirname(desired), { recursive: true, mode: 0o700 })
-    const added = gitResult(request.repoPath, ['worktree', 'add', '--', desired, request.targetBranch])
+    const added = gitResult(request.repoPath, [
+      'worktree',
+      'add',
+      '--',
+      desired,
+      request.targetBranch,
+    ])
     if (!added.ok) {
-      return this.observed(request, 'held', 'wrong-target-checkout', added.stderr || added.stdout || 'could not create landing checkout')
+      return this.observed(
+        request,
+        'held',
+        'wrong-target-checkout',
+        added.stderr || added.stdout || 'could not create landing checkout',
+      )
     }
     return { path: desired }
   }
 
-  private ensureIntegrationCheckout(request: Request, candidate: string): { path: string } | Result {
+  private ensureIntegrationCheckout(
+    request: Request,
+    candidate: string,
+  ): { path: string } | Result {
     const path = join(this.integrationDir, `${safePart(request.orderId)}-${request.generation}`)
     const existing = worktrees(request.repoPath).find((entry) => entry.path === path)
     if (existing) {
       if (existing.head !== candidate || existing.branch || !clean(path)) {
-        return this.observed(request, 'held', 'dirty-worktree', `integration checkout is not the immutable candidate: ${path}`)
+        return this.observed(
+          request,
+          'held',
+          'dirty-worktree',
+          `integration checkout is not the immutable candidate: ${path}`,
+        )
       }
       return { path }
     }
     if (existsSync(path)) {
-      return this.observed(request, 'held', 'dirty-worktree', `integration path exists outside git custody: ${path}`)
+      return this.observed(
+        request,
+        'held',
+        'dirty-worktree',
+        `integration path exists outside git custody: ${path}`,
+      )
     }
-    const added = gitResult(request.repoPath, ['worktree', 'add', '--detach', '--', path, candidate])
-    if (!added.ok) return this.observed(request, 'held', 'invalid-request', added.stderr || added.stdout || 'could not create integration checkout')
+    const added = gitResult(request.repoPath, [
+      'worktree',
+      'add',
+      '--detach',
+      '--',
+      path,
+      candidate,
+    ])
+    if (!added.ok)
+      return this.observed(
+        request,
+        'held',
+        'invalid-request',
+        added.stderr || added.stdout || 'could not create integration checkout',
+      )
     return { path }
   }
 
@@ -543,8 +913,21 @@ export class ShippingExecutionPlane {
   }
 
   private status(request: Request): Result {
-    const entry = this.journal.get(request.jobId)
+    let entry: ReturnType<ShippingJobJournal['get']>
+    try {
+      entry = this.journal.get(request.jobId)
+    } catch (error) {
+      return this.base(
+        request,
+        'held',
+        'invalid-request',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
     if (!entry) return this.base(request, 'held', 'invalid-request', 'unknown shipping job')
+    if (!this.matchesJournalRequest(request, entry.request)) {
+      return this.base(request, 'held', 'invalid-request', 'shipping status input collision')
+    }
     if (entry.request.generation !== request.generation) {
       return this.base(request, 'held', 'stale-generation', 'shipping status generation mismatch')
     }
@@ -552,8 +935,21 @@ export class ShippingExecutionPlane {
   }
 
   private cancel(request: Request): Result {
-    const entry = this.journal.get(request.jobId)
+    let entry: ReturnType<ShippingJobJournal['get']>
+    try {
+      entry = this.journal.get(request.jobId)
+    } catch (error) {
+      return this.base(
+        request,
+        'held',
+        'invalid-request',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
     if (!entry) return this.base(request, 'cancelled', 'cancelled', 'shipping job absent')
+    if (!this.matchesJournalRequest(request, entry.request)) {
+      return this.base(request, 'held', 'invalid-request', 'shipping cancellation input collision')
+    }
     if (entry.request.generation !== request.generation) {
       return this.base(request, 'held', 'stale-generation', 'shipping cancel generation mismatch')
     }
@@ -566,16 +962,52 @@ export class ShippingExecutionPlane {
   }
 
   private acknowledge(request: Request): Result {
-    const entry = this.journal.get(request.jobId)
+    let entry: ReturnType<ShippingJobJournal['get']>
+    try {
+      entry = this.journal.get(request.jobId)
+    } catch (error) {
+      return this.base(
+        request,
+        'held',
+        'invalid-request',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
     if (!entry) return this.base(request, 'held', 'invalid-request', 'unknown shipping job')
+    if (!this.matchesJournalRequest(request, entry.request)) {
+      return this.base(
+        request,
+        'held',
+        'invalid-request',
+        'shipping acknowledgement input collision',
+      )
+    }
     if (entry.request.generation !== request.generation) {
-      return this.base(request, 'held', 'stale-generation', 'shipping acknowledgement generation mismatch')
+      return this.base(
+        request,
+        'held',
+        'stale-generation',
+        'shipping acknowledgement generation mismatch',
+      )
     }
     try {
       return this.journal.acknowledge(request.jobId, request.generation, this.now()).result
     } catch (error) {
-      return this.base(request, 'held', 'invalid-request', error instanceof Error ? error.message : String(error))
+      return this.base(
+        request,
+        'held',
+        'invalid-request',
+        error instanceof Error ? error.message : String(error),
+      )
     }
+  }
+
+  private matchesJournalRequest(
+    request: Request,
+    durable: Omit<Request, 'type' | 'requestId' | 'action'>,
+  ): boolean {
+    const { type: _type, requestId: _requestId, action: _action, ...facts } = request
+    return JSON.stringify(facts) === JSON.stringify(durable)
   }
 
   private base(
@@ -587,6 +1019,7 @@ export class ShippingExecutionPlane {
     const at = this.now()
     return {
       jobId: request.jobId,
+      requestDigest: request.requestDigest,
       orderId: request.orderId,
       attemptId: request.attemptId,
       machineId: this.machineId,

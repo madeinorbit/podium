@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { ControlMessage, DaemonMessage } from './index'
+import { shippingJobRequestFingerprint } from './shipping'
 
-const request = {
+const requestFacts = {
   type: 'shippingJobRequest' as const,
   requestId: 'request-1',
   action: 'start' as const,
@@ -25,6 +27,17 @@ const request = {
     resourceLocks: ['validation:agent'],
   },
 }
+const { type: _type, requestId: _requestId, action: _action, ...fingerprintFacts } = requestFacts
+const request = {
+  ...requestFacts,
+  requestDigest: createHash('sha256')
+    .update(
+      shippingJobRequestFingerprint(
+        fingerprintFacts as Parameters<typeof shippingJobRequestFingerprint>[0],
+      ),
+    )
+    .digest('hex'),
+}
 
 describe('shipping machine protocol', () => {
   it('round-trips the purpose-built request and result frames', () => {
@@ -34,6 +47,7 @@ describe('shipping machine protocol', () => {
         type: 'shippingJobResult',
         requestId: 'request-1',
         jobId: 'job-1',
+        requestDigest: request.requestDigest,
         orderId: 'order-1',
         attemptId: 'attempt-1',
         machineId: 'machine-1',

@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 import {
@@ -8,7 +9,7 @@ import {
   type IssueWire,
   type MachineId,
 } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import { shippingJobRequestFingerprint, type ControlMessage } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
 import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'
@@ -162,22 +163,28 @@ await service.reconcile()
 const order = store.shipping.listOrders()[0]
 if (!order) throw new Error('recovery database has no order')
 const issue = issuePort.get(order.issueId)
+const staleFacts = {
+  jobId: `attempt:${order.id}:0:verify`,
+  orderId: order.id,
+  attemptId: asShipAttemptId(`attempt:${order.id}:0`),
+  generation: 0,
+  operation: 'verify' as const,
+  repoPath,
+  sourceBranch: issue.branch!,
+  targetBranch: order.targetBranch,
+  approvedBaseSha: order.approvedBaseSha,
+  approvedHeadSha: order.approvedHeadSha,
+  expectedTargetSha: order.approvedBaseSha,
+  destination: order.destination,
+  validationProfile: recoveryPolicy.resolve(issue).validationProfile,
+}
 const staleGeneration = await rpc.shippingJob(
   {
     action: 'status',
-    jobId: `attempt:${order.id}:0:verify`,
-    orderId: order.id,
-    attemptId: asShipAttemptId(`attempt:${order.id}:0`),
-    generation: 0,
-    operation: 'verify',
-    repoPath,
-    sourceBranch: issue.branch!,
-    targetBranch: order.targetBranch,
-    approvedBaseSha: order.approvedBaseSha,
-    approvedHeadSha: order.approvedHeadSha,
-    expectedTargetSha: order.approvedBaseSha,
-    destination: order.destination,
-    validationProfile: recoveryPolicy.resolve(issue).validationProfile,
+    ...staleFacts,
+    requestDigest: createHash('sha256')
+      .update(shippingJobRequestFingerprint(staleFacts))
+      .digest('hex'),
   },
   machineId,
 )

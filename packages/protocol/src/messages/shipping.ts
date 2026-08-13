@@ -26,7 +26,11 @@ export const ShippingValidationProfile = z
     id: z.string().min(1),
     argv: z.array(z.string().min(1)).min(1),
     cwd: z.literal('integration-root'),
-    timeoutMs: z.number().int().positive().max(60 * 60 * 1000),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(60 * 60 * 1000),
     resourceLocks: z.array(z.string().min(1)),
   })
   .strict()
@@ -43,6 +47,7 @@ export const ShippingJobRequestMessage = z
     requestId: z.string().min(1),
     action: ShippingJobAction,
     jobId: z.string().min(1),
+    requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
     orderId: ShipOrderIdField,
     attemptId: ShipAttemptIdField,
     generation: z.number().int().nonnegative(),
@@ -59,6 +64,41 @@ export const ShippingJobRequestMessage = z
   })
   .strict()
 export type ShippingJobRequestMessage = z.infer<typeof ShippingJobRequestMessage>
+
+/** Canonical bytes hashed by server and daemon. Transport correlation/action
+ * are excluded; every immutable effect input is included. */
+export function shippingJobRequestFingerprint(
+  input: Omit<ShippingJobRequestMessage, 'type' | 'requestId' | 'action' | 'requestDigest'>,
+): string {
+  return JSON.stringify({
+    jobId: input.jobId,
+    orderId: input.orderId,
+    attemptId: input.attemptId,
+    generation: input.generation,
+    operation: input.operation,
+    repoPath: input.repoPath,
+    sourceBranch: input.sourceBranch,
+    targetBranch: input.targetBranch,
+    approvedBaseSha: input.approvedBaseSha,
+    approvedHeadSha: input.approvedHeadSha,
+    expectedTargetSha: input.expectedTargetSha,
+    destination: input.destination,
+    validationProfile: {
+      id: input.validationProfile.id,
+      argv: [...input.validationProfile.argv],
+      cwd: input.validationProfile.cwd,
+      timeoutMs: input.validationProfile.timeoutMs,
+      resourceLocks: [...input.validationProfile.resourceLocks],
+    },
+    providerRef: input.providerRef
+      ? {
+          provider: input.providerRef.provider,
+          id: input.providerRef.id,
+          url: input.providerRef.url ?? null,
+        }
+      : null,
+  })
+}
 
 export const ShippingJobState = z.enum(['running', 'succeeded', 'held', 'cancelled'])
 export type ShippingJobState = z.infer<typeof ShippingJobState>
@@ -84,6 +124,7 @@ export type ShippingJobClassification = z.infer<typeof ShippingJobClassification
 
 export const ShippingJobResult = z.object({
   jobId: z.string().min(1),
+  requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
   orderId: ShipOrderIdField,
   attemptId: ShipAttemptIdField,
   machineId: MachineIdField,

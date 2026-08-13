@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
-import type { AgentKind, IssueEventWire, IssueId, MachineId, SessionId, SessionMeta } from '@podium/model'
+import type {
+  AgentKind,
+  IssueEventWire,
+  IssueId,
+  MachineId,
+  SessionId,
+  SessionMeta,
+} from '@podium/model'
 import {
   actorAgent,
   actorSystem,
@@ -1715,10 +1722,17 @@ export class SessionRegistry {
     })
     this.issueCommands = issueCommands
     const shippingLocks = new Map<string, Set<string>>()
-    const shippingLockCaller = (orderId: string, issueId: IssueId) => ({
-      sessionId: `system:shipping:${orderId}` as `system:${string}`,
+    const shippingLockKey = (orderId: string, attemptId: string, generation: number) =>
+      `${orderId}:${attemptId}:${generation}`
+    const shippingLockCaller = (
+      orderId: string,
+      attemptId: string,
+      generation: number,
+      issueId: IssueId,
+    ) => ({
+      sessionId: `system:shipping:${orderId}:${attemptId}:${generation}` as `system:${string}`,
       issueId,
-      label: `Shipping ${orderId}`,
+      label: `Shipping ${orderId} attempt ${generation}`,
       workspace: null,
     })
     shipping = new ShippingService({
@@ -1855,11 +1869,13 @@ export class SessionRegistry {
         () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
       ),
       resourceAdmission: {
-        acquire: ({ order, issue, names, ttlSeconds }) => {
-          const held = shippingLocks.get(order.id) ?? new Set<string>()
-          shippingLocks.set(order.id, held)
+        acquire: ({ order, attempt, issue, names, ttlSeconds }) => {
+          const key = shippingLockKey(order.id, attempt.id, attempt.leaseGeneration)
+          const caller = shippingLockCaller(order.id, attempt.id, attempt.leaseGeneration, issue.id)
+          const held = shippingLocks.get(key) ?? new Set<string>()
+          shippingLocks.set(key, held)
           for (const name of [...new Set(names)].sort()) {
-            const result = locks.acquire(shippingLockCaller(order.id, issue.id), {
+            const result = locks.acquire(caller, {
               repoPath: issue.repoPath,
               name,
               ttlSeconds,
@@ -1874,7 +1890,7 @@ export class SessionRegistry {
             // sorted prefix so a granted suffix can never deadlock the prefix.
             if (held.size > 0) {
               try {
-                locks.cancel(shippingLockCaller(order.id, issue.id), {
+                locks.cancel(caller, {
                   repoPath: issue.repoPath,
                   name,
                 })
@@ -1882,28 +1898,31 @@ export class SessionRegistry {
             }
             for (const acquired of [...held]) {
               try {
-                locks.release(shippingLockCaller(order.id, issue.id), {
+                locks.release(caller, {
                   repoPath: issue.repoPath,
                   name: acquired,
                 })
               } catch {}
               held.delete(acquired)
             }
+            shippingLocks.delete(key)
             return false
           }
           return true
         },
-        release: ({ order, issue, names }) => {
-          const held = shippingLocks.get(order.id)
+        release: ({ order, attempt, issue, names }) => {
+          const key = shippingLockKey(order.id, attempt.id, attempt.leaseGeneration)
+          const caller = shippingLockCaller(order.id, attempt.id, attempt.leaseGeneration, issue.id)
+          const held = shippingLocks.get(key)
           for (const name of [...new Set(names)].sort().reverse()) {
             if (!held?.has(name)) continue
-            locks.release(shippingLockCaller(order.id, issue.id), {
+            locks.release(caller, {
               repoPath: issue.repoPath,
               name,
             })
             held.delete(name)
           }
-          if (held?.size === 0) shippingLocks.delete(order.id)
+          if (held?.size === 0) shippingLocks.delete(key)
         },
       },
       machineFor: (issue) =>

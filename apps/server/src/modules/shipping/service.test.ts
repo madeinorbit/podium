@@ -1,9 +1,5 @@
-import {
-  asMachineId,
-  asShipOrderId,
-  FIRST_ADMIN_USER_ID,
-  type IssueWire,
-} from '@podium/model'
+import { createHash } from 'node:crypto'
+import { asMachineId, asShipOrderId, FIRST_ADMIN_USER_ID, type IssueWire } from '@podium/model'
 import type { ShippingJobResult } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
@@ -12,11 +8,7 @@ import { SessionStore } from '../../store'
 import { IssueService } from '../issues/service'
 import { CompatibilityShippingPolicyResolver } from './policy'
 import type { ShippingPolicyResolver } from './policy'
-import {
-  type AcceptedReviewEvidence,
-  ShippingOrderAccessError,
-  ShippingService,
-} from './service'
+import { type AcceptedReviewEvidence, ShippingOrderAccessError, ShippingService } from './service'
 
 const stores: SessionStore[] = []
 afterEach(() => {
@@ -43,7 +35,9 @@ function harness(
     resolveBranchTip?: ConstructorParameters<typeof ShippingService>[0]['resolveBranchTip']
     resolveRefTip?: ConstructorParameters<typeof ShippingService>[0]['resolveRefTip']
     policy?: ShippingPolicyResolver
-    takeBranchCustody?: ConstructorParameters<typeof ShippingService>[0]['issues']['takeBranchCustody']
+    takeBranchCustody?: ConstructorParameters<
+      typeof ShippingService
+    >[0]['issues']['takeBranchCustody']
     resourceAdmission?: ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
   } = {},
 ) {
@@ -148,6 +142,7 @@ const provedShippingJob: NonNullable<
   ConstructorParameters<typeof ShippingService>[0]['daemon']
 >['shippingJob'] = async (input, machineId) => ({
   jobId: input.jobId,
+  requestDigest: input.requestDigest,
   orderId: input.orderId,
   attemptId: input.attemptId,
   machineId,
@@ -521,6 +516,7 @@ describe('ShippingService enqueue transaction', () => {
   it('raises and generation-fences the typed hold before clearing needsHuman', async () => {
     const { store, ledger, issues, service } = harness(async (input, machineId) => ({
       jobId: input.jobId,
+      requestDigest: input.requestDigest,
       orderId: input.orderId,
       attemptId: input.attemptId,
       machineId,
@@ -585,6 +581,7 @@ describe('ShippingService enqueue transaction', () => {
     const { issues, service, store } = harness(
       async (input, machineId) => ({
         jobId: input.jobId,
+        requestDigest: input.requestDigest,
         orderId: input.orderId,
         attemptId: input.attemptId,
         machineId,
@@ -637,16 +634,34 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
   })
 
-  it('admits validation before taking the short canonical merge lock', async () => {
+  it('uses attempt-scoped admission, a short merge lock, and a separate publish lock', async () => {
     const events: string[] = []
     const resourceAdmission = {
-      acquire: vi.fn(({ names }: { names: readonly string[] }) => {
-        events.push(`acquire:${names.join(',')}`)
-        return true
-      }),
-      release: vi.fn(({ names }: { names: readonly string[] }) => {
-        events.push(`release:${names.join(',')}`)
-      }),
+      acquire: vi.fn(
+        ({
+          names,
+          attempt,
+        }: Parameters<
+          NonNullable<
+            ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
+          >['acquire']
+        >[0]) => {
+          events.push(`acquire:${attempt.id}:${attempt.leaseGeneration}:${names.join(',')}`)
+          return true
+        },
+      ),
+      release: vi.fn(
+        ({
+          names,
+          attempt,
+        }: Parameters<
+          NonNullable<
+            ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
+          >['release']
+        >[0]) => {
+          events.push(`release:${attempt.id}:${attempt.leaseGeneration}:${names.join(',')}`)
+        },
+      ),
     }
     const { store, issues, service } = harness(provedShippingJob, { resourceAdmission })
     const issue = issues.create({ repoPath: '/repo', title: 'resource locks', startNow: false })
@@ -655,14 +670,70 @@ describe('ShippingService enqueue transaction', () => {
 
     await service.runOrder(order.id)
     expect(store.shipping.getOrder(order.id)?.state).toBe('shipped')
-    expect(events[0]).toBe('acquire:validation:agent')
-    expect(events[1]).toBe('release:validation:agent')
-    expect(events.slice(2)).toEqual([
-      'acquire:merge:main',
-      'acquire:merge:main',
-      'acquire:merge:main',
-      'release:merge:main',
+    const attempt = store.shipping.latestAttemptForOrder(order.id)!
+    const prefix = `${attempt.id}:${attempt.leaseGeneration}`
+    expect(events).toEqual([
+      `acquire:${prefix}:validation:agent`,
+      `release:${prefix}:validation:agent`,
+      `acquire:${prefix}:merge:main`,
+      `release:${prefix}:merge:main`,
+      `acquire:${prefix}:publish:${createHash('sha256').update('local:main').digest('hex')}`,
+      `release:${prefix}:publish:${createHash('sha256').update('local:main').digest('hex')}`,
     ])
+    service.dispose()
+  })
+
+  it('refuses a mutating dispatch when durable cancellation wins immediately beforehand', async () => {
+    const calls: Array<{ action: string; operation: string }> = []
+    const daemon = async (
+      input: Parameters<typeof provedShippingJob>[0],
+      machineId: Parameters<typeof provedShippingJob>[1],
+    ) => {
+      calls.push({ action: input.action, operation: input.operation })
+      if (input.action === 'cancel') {
+        return {
+          ...(await provedShippingJob(input, machineId)),
+          state: 'cancelled' as const,
+          classification: 'cancelled' as const,
+          summary: 'cancelled before dispatch',
+        }
+      }
+      return provedShippingJob(input, machineId)
+    }
+    let service!: ShippingService
+    let cancellation: Promise<unknown> | undefined
+    const resourceAdmission = {
+      acquire: vi.fn(
+        (
+          input: Parameters<
+            NonNullable<
+              ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
+            >['acquire']
+          >[0],
+        ) => {
+          if (input.names.includes('validation:agent')) {
+            cancellation = service.cancel({
+              orderId: input.order.id,
+              principal: approval.principal,
+              requestedBy: approval.requestedBy,
+              overrideScope: false,
+            })
+          }
+          return true
+        },
+      ),
+      release: vi.fn(),
+    }
+    const setup = harness(daemon, { resourceAdmission })
+    service = setup.service
+    const issue = setup.issues.create({ repoPath: '/repo', title: 'cancel fence', startNow: false })
+    setup.issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+
+    await service.runOrder(order.id)
+    await cancellation
+    expect(calls).not.toContainEqual({ action: 'start', operation: 'validate' })
+    expect(setup.store.shipping.getOrder(order.id)?.state).toBe('cancelled')
     service.dispose()
   })
 
@@ -677,6 +748,7 @@ describe('ShippingService enqueue transaction', () => {
       >[1],
     ) => ({
       jobId: input.jobId,
+      requestDigest: input.requestDigest,
       orderId: input.orderId,
       attemptId: input.attemptId,
       machineId,
@@ -750,6 +822,7 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = harness(
       async (input, machineId) => ({
         jobId: input.jobId,
+        requestDigest: input.requestDigest,
         orderId: input.orderId,
         attemptId: input.attemptId,
         machineId,
@@ -790,6 +863,7 @@ describe('ShippingService enqueue transaction', () => {
       generations.push(input.generation)
       return {
         jobId: input.jobId,
+        requestDigest: input.requestDigest,
         orderId: input.orderId,
         attemptId: input.attemptId,
         machineId,
@@ -822,6 +896,7 @@ describe('ShippingService enqueue transaction', () => {
   it('rejects a stale attempt claimant and requires exact terminal timestamps', async () => {
     const { store, issues, service } = harness(async (input, machineId) => ({
       jobId: input.jobId,
+      requestDigest: input.requestDigest,
       orderId: input.orderId,
       attemptId: input.attemptId,
       machineId,
@@ -887,6 +962,7 @@ describe('ShippingService enqueue transaction', () => {
       }
       return {
         jobId: input.jobId,
+        requestDigest: input.requestDigest,
         orderId: input.orderId,
         attemptId: input.attemptId,
         machineId,
@@ -947,6 +1023,7 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = harness(
       async (input, machineId) => ({
         jobId: input.jobId,
+        requestDigest: input.requestDigest,
         orderId: input.orderId,
         attemptId: input.attemptId,
         machineId,
@@ -995,6 +1072,7 @@ describe('ShippingService enqueue transaction', () => {
       if (input.action === 'cancel') throw new Error('daemon disconnected')
       return {
         jobId: input.jobId,
+        requestDigest: input.requestDigest,
         orderId: input.orderId,
         attemptId: input.attemptId,
         machineId,
@@ -1031,6 +1109,7 @@ describe('ShippingService enqueue transaction', () => {
 
   it('persists cancellation intent before awaiting and refuses the late effect result', async () => {
     let resolveStart!: (result: ShippingJobResult) => void
+    let startRequestDigest = ''
     let sawStart!: () => void
     const started = new Promise<void>((resolve) => {
       sawStart = resolve
@@ -1038,6 +1117,7 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = harness(async (input, machineId) => {
       const base = {
         jobId: input.jobId,
+        requestDigest: input.requestDigest,
         orderId: input.orderId,
         attemptId: input.attemptId,
         machineId,
@@ -1056,6 +1136,7 @@ describe('ShippingService enqueue transaction', () => {
           finishedAt: '2026-08-13T10:00:00.000Z',
         }
       }
+      startRequestDigest = input.requestDigest
       sawStart()
       return new Promise((resolve) => {
         resolveStart = resolve
@@ -1079,6 +1160,7 @@ describe('ShippingService enqueue transaction', () => {
     ).toMatchObject({ state: 'succeeded', outcome: 'cancelled' })
     resolveStart({
       jobId: `${attempt.id}:preflight`,
+      requestDigest: startRequestDigest,
       orderId: order.id,
       attemptId: attempt.id,
       machineId: attempt.machineId,

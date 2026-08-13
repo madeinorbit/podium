@@ -53,6 +53,36 @@ const agent = (n: number, workspace: string | null = null) => ({
 const OPERATOR = { sessionId: null, issueId: null, label: 'operator', workspace: null }
 
 describe('LockService', () => {
+  it('does not let a stale shipping generation release its successor principal', () => {
+    const { svc, advance } = harness()
+    const stale = {
+      sessionId: asSessionId('system:shipping:order-1:attempt-1:1'),
+      issueId: asIssueId('iss_1'),
+      label: 'Shipping order-1 attempt 1',
+      workspace: null,
+    }
+    const successor = {
+      ...stale,
+      sessionId: asSessionId('system:shipping:order-1:attempt-2:2'),
+      label: 'Shipping order-1 attempt 2',
+    }
+    expect(svc.acquire(stale, { repoPath: REPO, name: 'merge:main', ttlSeconds: 1 })).toMatchObject(
+      {
+        granted: true,
+      },
+    )
+    advance(1_001)
+    expect(svc.acquire(successor, { repoPath: REPO, name: 'merge:main' })).toMatchObject({
+      granted: true,
+    })
+    expect(() => svc.release(stale, { repoPath: REPO, name: 'merge:main' })).toThrow(
+      /not held by this session/,
+    )
+    expect(svc.status({ repoPath: REPO, name: 'merge:main' })[0]?.holder.sessionId).toBe(
+      successor.sessionId,
+    )
+  })
+
   it('grants a free lock with the default TTL and holder identity', () => {
     const { svc } = harness()
     const r = svc.acquire(agent(1), { repoPath: REPO, name: 'merge:main' })

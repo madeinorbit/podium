@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   type Attribution,
   asDeliveryReceiptId,
@@ -21,6 +21,7 @@ import {
   type ShipStep,
 } from '@podium/model'
 import type { ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol'
+import { shippingJobRequestFingerprint } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import {
@@ -173,11 +174,17 @@ export interface ShippingAuthorizationPort {
 export interface ShippingResourceAdmissionPort {
   acquire(input: {
     order: ShipOrder
+    attempt: ShipAttempt
     issue: IssueWire
     names: readonly string[]
     ttlSeconds: number
   }): boolean
-  release(input: { order: ShipOrder; issue: IssueWire; names: readonly string[] }): void
+  release(input: {
+    order: ShipOrder
+    attempt: ShipAttempt
+    issue: IssueWire
+    names: readonly string[]
+  }): void
 }
 
 export interface AcceptedReviewEvidence {
@@ -664,6 +671,7 @@ export class ShippingService {
         const names = policy.validationProfile.resourceLocks
         const acquired = this.acquireResources(
           order,
+          attempt,
           issue,
           names,
           Math.ceil(policy.validationProfile.timeoutMs / 1000) + 30,
@@ -674,109 +682,114 @@ export class ShippingService {
           if (result?.state !== 'succeeded') return
           order = this.requiredOrder(order.id)
         } finally {
-          this.releaseResources(order, issue, names)
+          this.releaseResources(order, attempt, issue, names)
         }
       }
 
-      if (order.state === 'landing' || order.state === 'publishing' || order.state === 'verifying') {
+      if (order.state === 'landing') {
         const mergeLock = [`merge:${order.targetBranch}`]
-        if (!this.acquireResources(order, issue, mergeLock, 120)) return
+        if (!this.acquireResources(order, attempt, issue, mergeLock, 120)) return
         try {
-          if (order.state === 'landing') {
-            const result = await this.runEffect(
-              order,
-              attempt,
-              issue,
-              'commit-merge-group',
-              'publishing',
-            )
-            if (result?.state !== 'succeeded') return
-            order = this.requiredOrder(order.id)
-          }
-          if (order.state === 'publishing') {
-            if (!this.acquireResources(order, issue, mergeLock, 120)) return
-            const result = await this.runEffect(order, attempt, issue, 'publish', 'verifying')
-            if (result?.state !== 'succeeded') return
-            order = this.requiredOrder(order.id)
-          }
-          if (order.state !== 'verifying') return
-          if (!this.acquireResources(order, issue, mergeLock, 120)) return
-          const result = await this.runEffect(order, attempt, issue, 'verify')
+          const result = await this.runEffect(
+            order,
+            attempt,
+            issue,
+            'commit-merge-group',
+            'publishing',
+          )
           if (result?.state !== 'succeeded') return
-          const destinationSha = result.observedDestinationSha
-          const testedIntegrationSha = result.testedIntegrationSha
-          const landedRefSha = result.landedRefSha
-          if (
-            !destinationSha ||
-            !testedIntegrationSha ||
-            !landedRefSha ||
-            result.validationProfileId !== policy.validationProfileId ||
-            result.validationResult !== 'passed'
-          ) {
-            await this.hold(
-              order,
-              attempt,
-              'destination-mismatch',
-              'Destination proof is incomplete',
-              result.summary,
-              result.artifactRefs,
-              this.effectCommit(order, attempt, 'verify', result),
-            )
-            return
-          }
-          const finishedAt = this.now()
-          const receipt: DeliveryReceipt = {
-            id: asDeliveryReceiptId(`receipt_${order.id}`),
-            orderId: order.id,
-            approvedBaseSha: order.approvedBaseSha,
-            approvedHeadSha: order.approvedHeadSha,
-            testedIntegrationSha,
-            landedRefSha,
-            destinationSha,
-            validationProfileId: result.validationProfileId,
-            validationResult: 'passed',
-            destination: order.destination,
-            completedAt: finishedAt,
-          }
-          const shipped = { ...order, state: 'shipped' as const, stateChangedAt: finishedAt }
-          const specs = this.projectionSpecs(this.replaceOrder(shipped), undefined, receipt)
-          this.deps.beforeCompletionCommit?.(receipt)
-          try {
-            this.deps.issues.shippingCommit(
-              order.issueId,
-              {
-                expectedStage: 'shipping',
-                nextStage: 'done',
-                needsHuman: false,
-                shipOrderChanges: specs,
-                event: {
-                  kind: 'issue.shipped',
-                  payload: { orderId: order.id, receiptId: receipt.id },
-                },
-              },
-              () =>
-                this.deps.repository.commitEffectResult({
-                  orderId: order.id,
-                  expectedState: 'verifying',
-                  attemptId: attempt.id,
-                  generation: attempt.leaseGeneration,
-                  ...this.effectCommit(order, attempt, 'verify', result),
-                  outcome: { kind: 'verified', receipt, attemptFinishedAt: finishedAt },
-                }),
-            )
-          } catch (error) {
-            if (this.isEffectCustodyRefusal(error)) return
-            throw error
-          }
-          await this.acknowledgeEffect(order, attempt, issue, 'verify')
-          this.audit('shipping.order_shipped', order.issueId, {
-            orderId: order.id,
-            receiptId: receipt.id,
-          })
-          this.leases.delete(order.id)
+          order = this.requiredOrder(order.id)
         } finally {
-          this.releaseResources(order, issue, mergeLock)
+          this.releaseResources(order, attempt, issue, mergeLock)
         }
+      }
+      if (order.state === 'publishing') {
+        const publicationLock = [
+          `publish:${createHash('sha256').update(order.destination).digest('hex')}`,
+        ]
+        if (!this.acquireResources(order, attempt, issue, publicationLock, 120)) return
+        try {
+          const result = await this.runEffect(order, attempt, issue, 'publish', 'verifying')
+          if (result?.state !== 'succeeded') return
+          order = this.requiredOrder(order.id)
+        } finally {
+          this.releaseResources(order, attempt, issue, publicationLock)
+        }
+      }
+      if (order.state === 'verifying') {
+        const result = await this.runEffect(order, attempt, issue, 'verify')
+        if (result?.state !== 'succeeded') return
+        const destinationSha = result.observedDestinationSha
+        const testedIntegrationSha = result.testedIntegrationSha
+        const landedRefSha = result.landedRefSha
+        if (
+          !destinationSha ||
+          !testedIntegrationSha ||
+          !landedRefSha ||
+          result.validationProfileId !== policy.validationProfileId ||
+          result.validationResult !== 'passed'
+        ) {
+          await this.hold(
+            order,
+            attempt,
+            'destination-mismatch',
+            'Destination proof is incomplete',
+            result.summary,
+            result.artifactRefs,
+            this.effectCommit(order, attempt, 'verify', result),
+          )
+          return
+        }
+        const finishedAt = this.now()
+        const receipt: DeliveryReceipt = {
+          id: asDeliveryReceiptId(`receipt_${order.id}`),
+          orderId: order.id,
+          approvedBaseSha: order.approvedBaseSha,
+          approvedHeadSha: order.approvedHeadSha,
+          testedIntegrationSha,
+          landedRefSha,
+          destinationSha,
+          validationProfileId: result.validationProfileId,
+          validationResult: 'passed',
+          destination: order.destination,
+          completedAt: finishedAt,
+        }
+        const shipped = { ...order, state: 'shipped' as const, stateChangedAt: finishedAt }
+        const specs = this.projectionSpecs(this.replaceOrder(shipped), undefined, receipt)
+        this.deps.beforeCompletionCommit?.(receipt)
+        try {
+          this.deps.issues.shippingCommit(
+            order.issueId,
+            {
+              expectedStage: 'shipping',
+              nextStage: 'done',
+              needsHuman: false,
+              shipOrderChanges: specs,
+              event: {
+                kind: 'issue.shipped',
+                payload: { orderId: order.id, receiptId: receipt.id },
+              },
+            },
+            () =>
+              this.deps.repository.commitEffectResult({
+                orderId: order.id,
+                expectedState: 'verifying',
+                attemptId: attempt.id,
+                generation: attempt.leaseGeneration,
+                ...this.effectCommit(order, attempt, 'verify', result),
+                outcome: { kind: 'verified', receipt, attemptFinishedAt: finishedAt },
+              }),
+          )
+        } catch (error) {
+          if (this.isEffectCustodyRefusal(error)) return
+          throw error
+        }
+        await this.acknowledgeEffect(order, attempt, issue, 'verify')
+        this.audit('shipping.order_shipped', order.issueId, {
+          orderId: order.id,
+          receiptId: receipt.id,
+        })
+        this.leases.delete(order.id)
       }
     } finally {
       this.inFlight.delete(orderId)
@@ -1184,6 +1197,19 @@ export class ShippingService {
       )
       return null
     }
+    try {
+      this.deps.repository.assertEffectDispatchCustody({
+        orderId: order.id,
+        expectedState: order.state,
+        attemptId: attempt.id,
+        generation: attempt.leaseGeneration,
+        effectKey,
+        operation,
+      })
+    } catch (error) {
+      if (this.isEffectCustodyRefusal(error)) return null
+      throw error
+    }
     const result = await this.deps.daemon.shippingJob(
       this.jobInput(order, attempt, issue, operation, 'start'),
       attempt.machineId,
@@ -1481,7 +1507,7 @@ export class ShippingService {
   private isEffectCustodyRefusal(error: unknown): boolean {
     return (
       error instanceof Error &&
-      /effect custody fence failed|durable cancellation intent/.test(error.message)
+      /effect (?:dispatch )?custody fence failed|durable cancellation intent/.test(error.message)
     )
   }
 
@@ -1492,8 +1518,7 @@ export class ShippingService {
     operation: ShippingJobResult['operation'],
     action: 'start' | 'status' | 'cancel' | 'acknowledge',
   ): Omit<ShippingJobRequestMessage, 'type' | 'requestId'> {
-    return {
-      action,
+    const facts = {
       jobId: `${attempt.id}:${operation}`,
       orderId: order.id,
       attemptId: attempt.id,
@@ -1509,11 +1534,16 @@ export class ShippingService {
       validationProfile: this.deps.policy.resolve(issue).validationProfile,
       ...(order.providerRef ? { providerRef: order.providerRef } : {}),
     }
+    return {
+      action,
+      ...facts,
+      requestDigest: createHash('sha256')
+        .update(shippingJobRequestFingerprint(facts))
+        .digest('hex'),
+    }
   }
 
-  private operationFor(
-    state: ShipOrderState,
-  ): ShippingJobResult['operation'] | null {
+  private operationFor(state: ShipOrderState): ShippingJobResult['operation'] | null {
     if (state === 'preflight') return 'preflight'
     if (state === 'composing') return 'prepare-merge-group'
     if (state === 'validating' || state === 'repairing') return 'validate'
@@ -1525,18 +1555,24 @@ export class ShippingService {
 
   private acquireResources(
     order: ShipOrder,
+    attempt: ShipAttempt,
     issue: IssueWire,
     names: readonly string[],
     ttlSeconds: number,
   ): boolean {
     if (names.length === 0 || !this.deps.resourceAdmission) return true
-    return this.deps.resourceAdmission.acquire({ order, issue, names, ttlSeconds })
+    return this.deps.resourceAdmission.acquire({ order, attempt, issue, names, ttlSeconds })
   }
 
-  private releaseResources(order: ShipOrder, issue: IssueWire, names: readonly string[]): void {
+  private releaseResources(
+    order: ShipOrder,
+    attempt: ShipAttempt,
+    issue: IssueWire,
+    names: readonly string[],
+  ): void {
     if (names.length === 0 || !this.deps.resourceAdmission) return
     try {
-      this.deps.resourceAdmission.release({ order, issue, names })
+      this.deps.resourceAdmission.release({ order, attempt, issue, names })
     } catch (error) {
       this.audit('shipping.resource_release_failed', order.issueId, {
         orderId: order.id,
@@ -1583,6 +1619,9 @@ export class ShippingService {
   ): void {
     if (
       result.orderId !== order.id ||
+      result.requestDigest !==
+        this.jobInput(order, attempt, this.deps.issues.get(order.issueId), operation, 'status')
+          .requestDigest ||
       result.attemptId !== attempt.id ||
       result.generation !== attempt.leaseGeneration ||
       result.operation !== operation ||
