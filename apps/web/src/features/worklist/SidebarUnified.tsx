@@ -34,6 +34,13 @@ import {
   type WorkPlacement,
 } from './work-folds'
 
+function withStableRow(placement: WorkPlacement, row: UnifiedWorkRow): WorkPlacement {
+  if (placement.lane === 'closed' || placement.lane === 'snoozed') {
+    return row.kind === 'issue' ? { ...placement, row } : placement
+  }
+  return { ...placement, row }
+}
+
 /**
  * The redesigned work sidebar (#41, .design/specs/sidebar.md): the
  * `New <Agent> in <Repo>` spawn row over ONE list of work rows grouped by
@@ -291,7 +298,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       const slot = `${target.key}\u0000${target.placement}`
       activeSlots.add(slot)
       const row = stableByKey.get(target.key) ?? target.value.row
-      const nextValue = { ...target.value, row }
+      const nextValue = withStableRow(target.value, row)
       const previous = stablePlacementsRef.current.get(slot)
       const value =
         previous &&
