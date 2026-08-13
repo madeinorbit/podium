@@ -370,6 +370,9 @@ export interface HarnessObservation {
   onObservationAck?(ack: AgentObservationAckMessage): void
   /** Result of an exact native-session replacement request. */
   onProviderRebindAck?(ack: AgentObservationRebindAckMessage): void
+  /** HTTP hook payload. Return true when the adapter handled it on the causal
+   *  path so the host does not emit a legacy unfenced agentState. */
+  onHookPayload?(payload: unknown): boolean
 }
 
 /** Start this harness's per-session native-store observation: the state

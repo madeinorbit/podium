@@ -2499,3 +2499,115 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     observers.clearSession(asSessionId('podium-1'))
   })
 })
+
+describe('Grok causal hook ingest', () => {
+  it('opens Working from UserPromptSubmit without emitting a rejected unfenced agentState', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-causal-hook-'))
+    const cwd = '/repo/grok-causal-hook'
+    const grokSessionId = 'g-causal-hook'
+    const sessionDir = join(home, '.grok', 'sessions', encodeURIComponent(cwd), grokSessionId)
+    await mkdir(sessionDir, { recursive: true })
+    await writeFile(join(sessionDir, 'summary.json'), JSON.stringify({ info: { id: grokSessionId, cwd } }))
+    await writeFile(join(sessionDir, 'updates.jsonl'), '')
+    await writeFile(join(sessionDir, 'chat_history.jsonl'), '')
+
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      homeDir: home,
+    })
+    const sessionId = asSessionId('podium-grok-hook')
+    observers.initSessionObservers(
+      {
+        type: 'spawn',
+        sessionId,
+        agentKind: 'grok',
+        cwd,
+        geometry: G,
+        durableLabel: 'podium-podium-grok-hook',
+        resume: { kind: 'grok-session', value: grokSessionId },
+        observationGeneration: 3,
+        observationBindingVersion: 2,
+        observationProviderSessionId: grokSessionId,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('grok'),
+      { seedOnFrame: false },
+    )
+
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === 'agentObservation')).toBe(true)
+    })
+    const observations = sent.filter(
+      (message): message is Extract<DaemonMessage, { type: 'agentObservation' }> =>
+        message.type === 'agentObservation',
+    )
+    const bootstrap = observations[0]!
+    expect(bootstrap.observation.transitionKind).toBe('snapshot')
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId,
+      observerGeneration: 3,
+      bindingVersion: 2,
+      transitionId: bootstrap.observation.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: bootstrap.observation.providerCursor,
+      checkpoint: {
+        schemaVersion: 1,
+        podiumSessionId: sessionId,
+        provider: 'grok',
+        providerSessionId: grokSessionId,
+        bindingVersion: 2,
+        lifecycleObservationGeneration: 3,
+        providerCursor: bootstrap.observation.providerCursor,
+        bootstrapCursor: bootstrap.observation.providerCursor,
+        lastAcceptedLiveCursor: null,
+        turnEpoch: bootstrap.observation.turnEpoch,
+        providerTurnId: null,
+        providerPromptId: null,
+        turnState: bootstrap.observation.state,
+        terminalFence: null,
+        providerAt: null,
+        acceptedAt: '2026-08-13T06:00:00.000Z',
+        lastLiveReceiptAt: null,
+        lastTransitionId: bootstrap.observation.transitionId,
+        acceptedTransitionIds: [bootstrap.observation.transitionId],
+      },
+    })
+
+    observers.onHookPayload(sessionId, {
+      sessionId: grokSessionId,
+      hookEventName: 'SessionStart',
+    })
+    observers.onHookPayload(sessionId, {
+      sessionId: grokSessionId,
+      hookEventName: 'UserPromptSubmit',
+    })
+    await vi.waitFor(() => {
+      expect(
+        sent.some(
+          (message) =>
+            message.type === 'agentObservation' &&
+            message.observation.transitionKind === 'turn_opened',
+        ),
+      ).toBe(true)
+    })
+    const opened = sent
+      .filter(
+        (message): message is Extract<DaemonMessage, { type: 'agentObservation' }> =>
+          message.type === 'agentObservation',
+      )
+      .find((message) => message.observation.transitionKind === 'turn_opened')
+    expect(opened?.observation).toMatchObject({
+      nextPhase: 'working',
+      sourceEventKind: 'hook:user_prompt_submit',
+      provenance: 'live',
+    })
+    expect(sent.some((message) => message.type === 'agentState')).toBe(false)
+
+    await rm(home, { recursive: true, force: true })
+    observers.clearSession(sessionId)
+  })
+})

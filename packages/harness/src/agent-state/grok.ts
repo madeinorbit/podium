@@ -31,6 +31,8 @@ export interface GrokStateObserver {
   readonly path: string | undefined
   stop(): void
   onObservationAck?(ack: AgentObservationAckMessage): void
+  /** HTTP SessionStart / UserPromptSubmit. True = handled on the causal path. */
+  onHookPayload?(payload: unknown): boolean
 }
 
 type GrokCausalOptions = Omit<GrokObservationLease, 'providerSessionId'> & {
@@ -453,6 +455,9 @@ export function observeGrokState(opts: {
     onObservationAck(ack) {
       updateTail?.onObservationAck?.(ack)
     },
+    onHookPayload(payload) {
+      return updateTail?.onHookPayload?.(payload) ?? false
+    },
   }
 }
 
@@ -620,6 +625,7 @@ function tailGrokUpdates(
   let stopped = false
   let reading = false
   let observedWork = false
+  const pendingHooks: unknown[] = []
   const planState = emptyGrokPlanState()
   const decoder = new BoundedLineDecoder()
   let integrityHash = createHash('sha256')
@@ -829,8 +835,26 @@ function tailGrokUpdates(
     first = false
     if (causal && segmentIdentity) {
       causal.finishBootstrap(causal.cursorFor(segmentIdentity, boundary))
+      flushPendingHooks()
     }
     opts.onBootstrap?.(lastCompleteRecordOffset)
+  }
+
+  const flushPendingHooks = (): void => {
+    if (!causal) return
+    const waiting = pendingHooks.splice(0)
+    for (const payload of waiting) {
+      if (!causal.observeHook(payload, segmentIdentity)) pendingHooks.push(payload)
+    }
+  }
+
+  const ingestHook = (payload: unknown): boolean => {
+    if (!causal) return false
+    if (causal.observeHook(payload, segmentIdentity)) return true
+    const name = grokHookEventName(isRecord(payload) ? payload : {})
+    if (name !== 'session_start' && name !== 'user_prompt_submit') return false
+    pendingHooks.push(payload)
+    return true
   }
 
   const readNew = async (): Promise<void> => {
@@ -919,6 +943,7 @@ function tailGrokUpdates(
     onObservationAck(ack) {
       causal?.acknowledge(ack)
     },
+    onHookPayload: ingestHook,
   }
 }
 

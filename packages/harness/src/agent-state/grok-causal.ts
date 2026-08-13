@@ -57,6 +57,7 @@ export class GrokCausalObserver {
   private predecessorSegmentId: string | undefined
   private acceptedCursor: ProviderCursor | null
   private transitionSequence: number
+  private hookSequence: number
   private readonly queued: GrokRecordEvidence[] = []
   private inFlight: AgentObservation | null = null
   private nextRetryAt = 0
@@ -71,6 +72,7 @@ export class GrokCausalObserver {
     this.providerPromptId = checkpoint?.providerPromptId ?? null
     this.acceptedCursor = checkpoint?.providerCursor ?? null
     this.transitionSequence = checkpoint?.providerCursor?.components.transition ?? 0
+    this.hookSequence = checkpoint?.providerCursor?.components.hook ?? 0
     this.epochOpen =
       checkpoint?.terminalFence === null &&
       (this.state.phase === 'working' ||
@@ -146,11 +148,46 @@ export class GrokCausalObserver {
     integrity = identity.integrity,
     integrityBytes = identity.integrityBytes,
   ): ProviderCursor {
-    return grokProviderCursor(
+    const cursor = grokProviderCursor(
       { ...identity, integrity, integrityBytes },
       offset,
       this.predecessorSegmentId,
     )
+    if (this.hookSequence <= 0) return cursor
+    return {
+      ...cursor,
+      components: { ...cursor.components, hook: this.hookSequence },
+    }
+  }
+
+  /**
+   * HTTP SessionStart / UserPromptSubmit arrive seconds before Grok flushes
+   * the matching updates.jsonl record. Open the turn from the hook so Working
+   * is not gated on that write. Later JSONL `prompt_submitted` is skipped
+   * while the epoch is already open. Returns false when the caller should
+   * buffer (no cursor yet).
+   */
+  observeHook(payload: unknown, segment?: GrokSegmentIdentity): boolean {
+    const name = grokHookName(payload)
+    if (name !== 'session_start' && name !== 'user_prompt_submit') return false
+    if (name === 'session_start') return true
+    if (this.epochOpen) return true
+    const base =
+      this.acceptedCursor ??
+      (segment ? this.cursorFor(segment, segment.integrityBytes ?? 0) : null)
+    if (!base) return false
+    this.hookSequence = Math.max(this.hookSequence, base.components.hook ?? 0) + 1
+    const record = isHookRecord(payload) ? payload : {}
+    return this.enqueue({
+      record,
+      cursor: {
+        ...base,
+        components: { ...base.components, hook: this.hookSequence },
+      },
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'hook:user_prompt_submit',
+      providerAt: this.now(),
+    })
   }
 
   fold(record: GrokRecordEvidence): void {
@@ -240,6 +277,7 @@ export class GrokCausalObserver {
     this.providerPromptId = checkpoint.providerPromptId
     this.acceptedCursor = cursor
     this.transitionSequence = cursor.components.transition ?? 0
+    this.hookSequence = Math.max(this.hookSequence, cursor.components.hook ?? 0)
     this.epochOpen =
       checkpoint.terminalFence === null &&
       (this.state.phase === 'working' ||
@@ -491,4 +529,20 @@ function recordIdentity(record: GrokRecordEvidence, eventIndex: number): string 
     nativeId(record.record, ['prompt_id', 'promptId', 'turn_id', 'turnId', 'task_id', 'taskId']) ??
     ''
   return `${record.sourceEventKind}:${native}:${eventIndex}`
+}
+
+function grokHookName(payload: unknown): string | undefined {
+  if (!isHookRecord(payload)) return undefined
+  const raw =
+    payload.hookEventName ?? payload.hook_event_name ?? payload.event_name ?? payload.eventName
+  return typeof raw === 'string'
+    ? raw
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/-/g, '_')
+        .toLowerCase()
+    : undefined
+}
+
+function isHookRecord(payload: unknown): payload is Record<string, unknown> {
+  return typeof payload === 'object' && payload !== null
 }

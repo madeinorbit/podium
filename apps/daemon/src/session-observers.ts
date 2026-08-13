@@ -1546,6 +1546,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       }
       return
     }
+    // Grok (and any adapter that owns a causal hook ingest) must not fall
+    // through to the unfenced agentState wire — a v1 checkpoint rejects those
+    // as legacy and Working waits on the delayed JSONL write instead.
+    if (bound.observation.onHookPayload?.(payload)) return
     void tracker.provider
       .translate(payload)
       .then((events) => applyAgentStateEvents(sessionId, events))
