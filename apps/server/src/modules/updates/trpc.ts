@@ -153,7 +153,10 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
 
 /**
  * Wait for the development fleet to boot at the target, then restart the
- * coordinator.
+ * coordinator. A daemon that reported its correlated `restarting` phase and
+ * disconnected has also crossed the handoff boundary: requiring its next
+ * handshake would deadlock when the target changed the wire schema and needs
+ * the coordinator restart before that handshake can succeed.
  *
  * The wait is BOUNDED, and bounded by the SAME rule as the grants it waits on:
  * it continues while at least one outstanding machine is still in flight, and
@@ -162,8 +165,9 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
  * nothing in the UI ever failing; now the service's inactivity deadline turns
  * that machine into a visible `stuck` and this wait ends with it.
  *
- * It gives up WITHOUT restarting. Restarting under an unknown fleet state is
- * the outcome the handshake gate exists to prevent.
+ * It gives up WITHOUT restarting when a machine has not reached either safe
+ * boundary. Restarting under an unknown fleet state is the outcome the gate
+ * exists to prevent.
  */
 export function restartCoordinatorAfterDevelopmentFleet(
   updates: UpdatesService,
@@ -176,12 +180,20 @@ export function restartCoordinatorAfterDevelopmentFleet(
 ): void {
   const startedAt = now()
   const check = (): void => {
+    // Capture the handoff before fleet() ages an expired grant into `stuck` and
+    // intentionally discards its pending-grant correlation.
+    const crossedRestartBoundary = new Set(
+      affectedMachineIds.filter((machineId) =>
+        updates.machineCrossedRestartBoundary(machineId, targetVersion),
+      ),
+    )
     // Reading the fleet is what ages a silent grant, so this poll and the
     // service share ONE notion of failure.
     const fleet = new Map(updates.fleet().map((machine) => [machine.id, machine]))
-    const outstanding = affectedMachineIds.filter(
-      (machineId) => !updates.machineBootedAtTarget(machineId, targetVersion),
-    )
+    const outstanding = affectedMachineIds.filter((machineId) => {
+      if (updates.machineBootedAtTarget(machineId, targetVersion)) return false
+      return !crossedRestartBoundary.has(machineId)
+    })
     if (outstanding.length === 0) {
       requestCoordinatorRestart()
       return

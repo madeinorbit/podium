@@ -30,6 +30,8 @@ interface MachineConvergenceState {
   channel: UpdateChannel
   state: ConvergenceState
   version: string
+  /** Present only when this state was correlated with the active grant. */
+  grantId?: string
   detail?: string
 }
 
@@ -228,6 +230,7 @@ export class UpdatesService {
       channel,
       state: effectiveState,
       version: message.version,
+      ...(message.grantId ? { grantId: message.grantId } : {}),
       ...(message.detail ? { detail: message.detail } : {}),
     })
 
@@ -433,6 +436,31 @@ export class UpdatesService {
   machineBootedAtTarget(machineId: MachineId, targetVersion: string): boolean {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     return machine?.online === true && machine.version === targetVersion
+  }
+
+  /**
+   * Proof that the old daemon completed its side of the restart handoff.
+   *
+   * The normal proof is a target-version handshake. Across a wire boundary the
+   * new daemon cannot make that handshake until the coordinator also restarts,
+   * so waiting exclusively for it deadlocks both processes. A correlated
+   * `restarting` report is emitted only after the artifact swap and pending
+   * marker write; observing that same daemon disconnect then proves the old
+   * process crossed the restart boundary without trusting an optimistic status
+   * report as proof that the new process booted successfully.
+   */
+  machineCrossedRestartBoundary(machineId: MachineId, targetVersion: string): boolean {
+    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
+    const state = this.machineStates.get(machineId)
+    const pending = this.pendingGrants.get(machineId)
+    return (
+      machine?.online === false &&
+      state?.state === 'restarting' &&
+      pending !== undefined &&
+      state.channel === pending.channel &&
+      state.grantId === pending.grantId &&
+      this.target(state.channel)?.version === targetVersion
+    )
   }
 
   private grantExpired(machineId: MachineId): boolean {

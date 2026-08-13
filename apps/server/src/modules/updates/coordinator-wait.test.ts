@@ -71,6 +71,48 @@ describe('restartCoordinatorAfterDevelopmentFleet', () => {
     expect(restart).toHaveBeenCalledTimes(1)
   })
 
+  it('restarts after the daemon crosses a wire-incompatible restart boundary', async () => {
+    const service = build()
+    const restart = vi.fn()
+    restartCoordinatorAfterDevelopmentFleet(service, '0.4.2', [asMachineId('a')], restart, POLL_MS)
+
+    service.onStatus(asMachineId('a'), {
+      type: 'updateStatus',
+      grantId: 'g1',
+      state: 'restarting',
+      version: '0.4.1',
+    })
+    const machine = machines[0]
+    if (!machine) throw new Error('fixture missing')
+    machine.online = false
+
+    await advance(POLL_MS * 2)
+
+    expect(restart).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does not trust an uncorrelated restart report when the daemon disconnects', async () => {
+    const service = build()
+    const restart = vi.fn()
+    restartCoordinatorAfterDevelopmentFleet(service, '0.4.2', [asMachineId('a')], restart, POLL_MS)
+
+    service.onStatus(asMachineId('a'), {
+      type: 'updateStatus',
+      grantId: 'some-other-grant',
+      state: 'restarting',
+      version: '0.4.1',
+    })
+    const machine = machines[0]
+    if (!machine) throw new Error('fixture missing')
+    machine.online = false
+
+    await advance(SILENCE_MS + POLL_MS * 2)
+
+    expect(restart).not.toHaveBeenCalled()
+    expect(service.fleet()[0]).toMatchObject({ state: 'stuck' })
+  })
+
   it('keeps waiting through a slow update that is still reporting progress', async () => {
     const service = build()
     const restart = vi.fn()

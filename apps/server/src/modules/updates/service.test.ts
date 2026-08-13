@@ -211,6 +211,34 @@ describe('UpdatesService', () => {
     expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
   })
 
+  it('proves a restart handoff only after a correlated restart report and disconnect', () => {
+    const machines = [m('a')]
+    const { svc } = make(machines)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.authorize()
+
+    svc.onStatus(asMachineId('a'), {
+      type: 'updateStatus',
+      grantId: 'wrong-grant',
+      state: 'restarting',
+      version: '0.4.1',
+    })
+    machines[0] = m('a', { online: false })
+    expect(svc.machineCrossedRestartBoundary(asMachineId('a'), '0.4.2')).toBe(false)
+
+    machines[0] = m('a')
+    svc.onStatus(asMachineId('a'), {
+      type: 'updateStatus',
+      grantId: 'g1',
+      state: 'restarting',
+      version: '0.4.1',
+    })
+    expect(svc.machineCrossedRestartBoundary(asMachineId('a'), '0.4.2')).toBe(false)
+
+    machines[0] = m('a', { online: false })
+    expect(svc.machineCrossedRestartBoundary(asMachineId('a'), '0.4.2')).toBe(true)
+  })
+
   describe('per-machine apply outcomes', () => {
     const target = { version: '0.4.2', critical: false, artifacts: {} } as never
 
