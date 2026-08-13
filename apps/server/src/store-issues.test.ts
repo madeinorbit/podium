@@ -310,11 +310,15 @@ const shipOrder = (overrides: Partial<ShipOrder> = {}): ShipOrder => ({
 describe('shipping durable store', () => {
   it('migrates legacy verifying issues without changing their stage', () => {
     const db = openDatabase(':memory:')
-    const shippingMigration = DRIZZLE_MIGRATIONS.at(-1)
-    if (!shippingMigration?.name.endsWith('_shipping-durable-model')) {
-      throw new Error('shipping migration must be the audited final migration in this branch')
+    const shippingMigrationIndex = DRIZZLE_MIGRATIONS.findIndex((migration) =>
+      migration.name.endsWith('_shipping-durable-model'),
+    )
+    if (shippingMigrationIndex < 0) {
+      throw new Error('shipping migration must be present in the audited manifest')
     }
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, -1), { skipSchemaRepair: true })
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, shippingMigrationIndex), {
+      skipSchemaRepair: true,
+    })
     db.prepare(
       `INSERT INTO issues
         (id, repo_path, seq, title, description, stage, parent_branch, default_agent,
