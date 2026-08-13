@@ -27,6 +27,97 @@ const PAIRING_UNAVAILABLE = { error: 'pairing unavailable' } as const
 interface FailureBucket {
   failures: number
   lockedUntil: number
+  expiresAt: number
+}
+
+export class PairingFailureThrottle {
+  private readonly buckets = new Map<string, FailureBucket>()
+  private operations = 0
+
+  constructor(
+    private readonly opts: {
+      maxFailures: number
+      lockoutMs: number
+      retentionMs: number
+      maxEntries: number
+    },
+  ) {
+    if (
+      !Number.isSafeInteger(opts.maxFailures) ||
+      opts.maxFailures < 1 ||
+      !Number.isSafeInteger(opts.lockoutMs) ||
+      opts.lockoutMs < 1 ||
+      !Number.isSafeInteger(opts.retentionMs) ||
+      opts.retentionMs < 1 ||
+      !Number.isSafeInteger(opts.maxEntries) ||
+      opts.maxEntries < 1
+    ) {
+      throw new Error('pairing throttle limits must be positive integers')
+    }
+  }
+
+  get size(): number {
+    return this.buckets.size
+  }
+
+  retryAfter(key: string, nowMs: number): number | undefined {
+    this.maybeSweep(nowMs)
+    const bucket = this.buckets.get(key)
+    if (!bucket) return undefined
+    if (nowMs >= bucket.expiresAt) {
+      this.buckets.delete(key)
+      return undefined
+    }
+    if (nowMs >= bucket.lockedUntil) return undefined
+    return Math.ceil((bucket.lockedUntil - nowMs) / 1000)
+  }
+
+  fail(key: string, nowMs: number): void {
+    this.maybeSweep(nowMs)
+    const current = this.buckets.get(key)
+    const failures = (current && nowMs < current.expiresAt ? current.failures : 0) + 1
+    const lockedUntil = failures >= this.opts.maxFailures ? nowMs + this.opts.lockoutMs : 0
+    if (!current && this.buckets.size >= this.opts.maxEntries) this.evictOldest()
+    this.buckets.set(key, {
+      failures: lockedUntil ? 0 : failures,
+      lockedUntil,
+      expiresAt: lockedUntil || nowMs + this.opts.retentionMs,
+    })
+  }
+
+  clear(key: string): void {
+    this.buckets.delete(key)
+  }
+
+  private maybeSweep(nowMs: number): void {
+    this.operations += 1
+    if (this.operations % 64 !== 0) return
+    for (const [key, bucket] of this.buckets) {
+      if (nowMs >= bucket.expiresAt) this.buckets.delete(key)
+    }
+  }
+
+  private evictOldest(): void {
+    const oldestKey = this.buckets.keys().next().value as string | undefined
+    if (oldestKey !== undefined) this.buckets.delete(oldestKey)
+  }
+}
+
+export function clientAddressForRequest(
+  request: Request,
+  directPeerAddress: string | undefined,
+  trustedProxyHops: number = 0,
+): string | undefined {
+  if (trustedProxyHops <= 0) {
+    return directPeerAddress && directPeerAddress.length <= 128 ? directPeerAddress : undefined
+  }
+  const chain = (request.headers.get('x-forwarded-for') ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const index = chain.length - trustedProxyHops
+  const candidate = index >= 0 ? chain[index] : undefined
+  return candidate && candidate.length <= 128 ? candidate : undefined
 }
 
 function transportReadiness(serverUrl: string) {
@@ -59,7 +150,14 @@ export interface MobilePairingRouteOptions {
   loginRequired: () => boolean
   resolveUserId: (headers: ClientCredentialHeaders) => UserId | undefined
   now?: () => number
-  throttle?: { maxFailures?: number; lockoutMs?: number }
+  trustedProxyHops?: number
+  requestPeerAddress?: (request: Request) => string | undefined
+  throttle?: {
+    maxFailures?: number
+    lockoutMs?: number
+    retentionMs?: number
+    maxEntries?: number
+  }
   onCredentialRevoked?: (tokenHash: string) => void
 }
 
@@ -70,37 +168,30 @@ function headersFor(c: Context): ClientCredentialHeaders {
   }
 }
 
-function requestKey(c: Context): string {
-  return (
-    c.req.header('cf-connecting-ip') ??
-    c.req.header('x-real-ip') ??
-    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-    'unknown'
+function requestKey(c: Context, opts: MobilePairingRouteOptions): string | undefined {
+  return clientAddressForRequest(
+    c.req.raw,
+    opts.requestPeerAddress?.(c.req.raw),
+    opts.trustedProxyHops,
   )
+}
+
+function isBrowserRequest(c: Context): boolean {
+  return c.req.header('origin') !== undefined
 }
 
 export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteOptions): void {
   const now = opts.now ?? (() => Date.now())
   const maxFailures = opts.throttle?.maxFailures ?? 12
   const lockoutMs = opts.throttle?.lockoutMs ?? 60_000
-  // This bucket is intentionally independent of password-login throttling.
-  const pairingFailures = new Map<string, FailureBucket>()
-
-  const throttled = (key: string, at: number): number | undefined => {
-    const bucket = pairingFailures.get(key)
-    if (!bucket || at >= bucket.lockedUntil) return undefined
-    return Math.ceil((bucket.lockedUntil - at) / 1000)
-  }
-  const refuse = (key: string, at: number): void => {
-    const current = pairingFailures.get(key)
-    const failures =
-      (current && (current.lockedUntil === 0 || at < current.lockedUntil) ? current.failures : 0) +
-      1
-    pairingFailures.set(key, {
-      failures: failures >= maxFailures ? 0 : failures,
-      lockedUntil: failures >= maxFailures ? at + lockoutMs : 0,
-    })
-  }
+  // This bounded, expiring bucket is intentionally independent of password-login throttling.
+  const pairingFailures = new PairingFailureThrottle({
+    maxFailures,
+    lockoutMs,
+    retentionMs: opts.throttle?.retentionMs ?? Math.max(lockoutMs, 60_000),
+    maxEntries: opts.throttle?.maxEntries ?? 4_096,
+  })
+  const secure = (c: Context): boolean => isHttps(c, opts.trustedProxyHops)
 
   app.post('/auth/mobile-pair/start', (c) => {
     const identity = opts.serverIdentity()
@@ -122,7 +213,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
       })
     }
 
-    if (!isHttps(c) || !serverUrl.startsWith('https://')) {
+    if (!secure(c) || !serverUrl.startsWith('https://')) {
       return c.json({ error: 'secure HTTPS is required for mobile pairing' }, 400)
     }
     const userId = opts.resolveUserId(headersFor(c))
@@ -151,26 +242,30 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
   })
 
   app.post('/auth/mobile-pair/claim', async (c) => {
-    if (!isHttps(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
+    if (!secure(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
     const at = now()
-    const key = requestKey(c)
-    const retryAfter = throttled(key, at)
+    const key = requestKey(c, opts)
+    if (!key) return c.json(PAIRING_UNAVAILABLE, 503)
+    const retryAfter = pairingFailures.retryAfter(key, at)
     if (retryAfter !== undefined) {
       return c.json({ error: 'too many attempts' }, 429, {
         'retry-after': String(retryAfter),
       })
     }
     const parsed = MobilePairClaimRequest.safeParse(await c.req.json().catch(() => undefined))
-    const claimed = parsed.success ? opts.pairing.claim(parsed.data, at) : undefined
+    const claimed = parsed.success
+      ? opts.pairing.claim(parsed.data, isBrowserRequest(c) ? 'browser' : 'native', at)
+      : undefined
     if (!claimed) {
-      refuse(key, at)
+      pairingFailures.fail(key, at)
       return c.json(PAIRING_UNAVAILABLE, 400)
     }
+    pairingFailures.clear(key)
     return c.json(claimed)
   })
 
   app.post('/auth/mobile-pair/status', async (c) => {
-    if (!isHttps(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
+    if (!secure(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
     const userId = opts.resolveUserId(headersFor(c))
     if (!userId) return c.json({ error: 'authentication required' }, 401)
     const parsed = MobilePairingIdRequest.safeParse(await c.req.json().catch(() => undefined))
@@ -179,7 +274,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
   })
 
   const decision = (value: 'approved' | 'denied') => async (c: Context) => {
-    if (!isHttps(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
+    if (!secure(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
     const userId = opts.resolveUserId(headersFor(c))
     if (!userId) return c.json({ error: 'authentication required' }, 401)
     const parsed = MobilePairingIdRequest.safeParse(await c.req.json().catch(() => undefined))
@@ -192,24 +287,29 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
   app.post('/auth/mobile-pair/deny', decision('denied'))
 
   app.post('/auth/mobile-pair/complete', async (c) => {
-    if (!isHttps(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
+    if (!secure(c)) return c.json({ error: 'secure HTTPS is required' }, 400)
     const at = now()
-    const key = requestKey(c)
-    const retryAfter = throttled(key, at)
+    const key = requestKey(c, opts)
+    if (!key) return c.json(PAIRING_UNAVAILABLE, 503)
+    const retryAfter = pairingFailures.retryAfter(key, at)
     if (retryAfter !== undefined) {
       return c.json({ error: 'too many attempts' }, 429, {
         'retry-after': String(retryAfter),
       })
     }
     const parsed = MobilePairCompleteRequest.safeParse(await c.req.json().catch(() => undefined))
-    const completed = parsed.success
-      ? opts.pairing.complete(parsed.data.claimId, parsed.data.claimSecret, at)
-      : undefined
-    if (completed === 'pending') return c.json({ status: 'pending' as const }, 202)
-    if (!completed) {
-      refuse(key, at)
+    if (!parsed.success) {
+      pairingFailures.fail(key, at)
       return c.json(PAIRING_UNAVAILABLE, 400)
     }
+    const completed = opts.pairing.complete(parsed.data.claimId, parsed.data.claimSecret, at)
+    if (completed === 'pending') return c.json({ status: 'pending' as const }, 202)
+    if (completed === 'invalid-secret') {
+      pairingFailures.fail(key, at)
+      return c.json(PAIRING_UNAVAILABLE, 400)
+    }
+    if (completed === 'unavailable') return c.json(PAIRING_UNAVAILABLE, 400)
+    pairingFailures.clear(key)
     const token = randomBytes(32).toString('base64url')
     const expiresAt = new Date(at + SESSION_TTL_MS).toISOString()
     opts.store.createClientSession(hashToken(token), completed.userId, expiresAt, 'mobile', {
@@ -220,7 +320,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
       lastSeenAt: new Date(at).toISOString(),
     })
     if (completed.delivery === 'browser') {
-      setSessionCookie(c, token)
+      setSessionCookie(c, token, opts.trustedProxyHops)
       return c.json({
         status: 'complete' as const,
         delivery: 'browser' as const,
@@ -238,7 +338,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
   })
 
   app.get('/auth/client-sessions', (c) => {
-    if (c.req.header('authorization') && !isHttps(c)) {
+    if (c.req.header('authorization') && !secure(c)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
     const credential = resolveClientCredential(opts.store, headersFor(c), now())
@@ -270,7 +370,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
   })
 
   app.post('/auth/client-sessions/revoke', async (c) => {
-    if (c.req.header('authorization') && !isHttps(c)) {
+    if (c.req.header('authorization') && !secure(c)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
     const credential = resolveClientCredential(opts.store, headersFor(c), now())

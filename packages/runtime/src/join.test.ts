@@ -20,6 +20,10 @@ describe('join token codec', () => {
     const p: JoinPayload = { v: 1, serverUrl: 'ws://h:18787', pairCode: 'X1' }
     expect(decodeJoin(encodeJoin(p))).toEqual(p)
   })
+  it('keeps accepting padded, standard-base64 and whitespace-transformed v1 tokens', () => {
+    const legacy = Buffer.from(JSON.stringify(sample)).toString('base64')
+    expect(decodeJoin(`\n${legacy.slice(0, 12)} ${legacy.slice(12)}\n`)).toEqual(sample)
+  })
   it('rejects a non-base64url / garbage token', () => {
     expect(() => decodeJoin('!!!not a token!!!')).toThrow()
   })

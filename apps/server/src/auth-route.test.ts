@@ -10,6 +10,7 @@ import {
   clientAuthGuard,
   hashToken,
   isRequestAuthed,
+  isSecureRequest,
   registerAuthRoute,
   requestUserId,
 } from './auth-route'
@@ -51,6 +52,20 @@ beforeEach(() => {
 afterEach(() => {
   store.close()
   rmSync(dir, { recursive: true, force: true })
+})
+
+describe('request transport security', () => {
+  test('trusts the real URL protocol and ignores forwarding by default', () => {
+    expect(isSecureRequest('https://podium.example/auth/status', 'http')).toBe(true)
+    expect(isSecureRequest('http://podium.internal/auth/status', 'https')).toBe(false)
+  })
+
+  test('selects the configured hop from the right of an appending proxy chain', () => {
+    expect(isSecureRequest('http://podium.internal', 'spoofed, https', 1)).toBe(true)
+    expect(isSecureRequest('http://podium.internal', 'https, http', 1)).toBe(false)
+    expect(isSecureRequest('http://podium.internal', 'https, http', 2)).toBe(true)
+    expect(isSecureRequest('http://podium.internal', 'https', 2)).toBe(false)
+  })
 })
 
 describe('auth-route', () => {
@@ -114,7 +129,7 @@ describe('auth-route', () => {
 
   test('native login returns one HTTPS bearer and records a mobile device session', async () => {
     await setPassword('hunter2')
-    const response = await makeApp().request('/auth/login', {
+    const response = await makeApp({ trustedProxyHops: 1 }).request('/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
       body: JSON.stringify({
@@ -143,7 +158,7 @@ describe('auth-route', () => {
     await setPassword('hunter2')
     const response = await makeApp().request('/auth/login', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
       body: JSON.stringify({
         delivery: 'native',
         password: 'hunter2',
@@ -158,7 +173,8 @@ describe('auth-route', () => {
 
   test('the session cookie marks the client authed; logout clears it', async () => {
     await setPassword('hunter2')
-    const app = makeApp()
+    let revokedHash: string | undefined
+    const app = makeApp({ onCredentialRevoked: (tokenHash) => (revokedHash = tokenHash) })
     const login = await app.request('/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -181,6 +197,7 @@ describe('auth-route', () => {
       headers: { cookie: `podium_session=${token}` },
     })
     expect(logout.status).toBe(200)
+    expect(revokedHash).toBe(hashToken(token!))
 
     const after = await app.request('/auth/status', {
       headers: { cookie: `podium_session=${token}` },
@@ -198,7 +215,7 @@ describe('auth-route', () => {
 
   test('the cookie sets Secure when the request arrives over https (proxy)', async () => {
     await setPassword('hunter2')
-    const res = await makeApp().request('/auth/login', {
+    const res = await makeApp({ trustedProxyHops: 1 }).request('/auth/login', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -251,7 +268,10 @@ describe('auth-route', () => {
 describe('clientAuthGuard (HTTP surface gate)', () => {
   function guardedApp() {
     const app = new Hono()
-    app.use('/trpc/*', clientAuthGuard({ store: store.auth, users: store.users }))
+    app.use(
+      '/trpc/*',
+      clientAuthGuard({ store: store.auth, users: store.users, trustedProxyHops: 1 }),
+    )
     app.get('/trpc/ping', (c) => c.text('pong'))
     app.options('/trpc/ping', (c) => c.body(null, 204))
     return app
@@ -318,6 +338,28 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     expect(res.status).toBe(401)
   })
 
+  test('accepts only mobile-class sessions as bearers', async () => {
+    await setPassword('hunter2')
+    const token = 'break-glass-bearer-abcdefghijklmnopqrstuvwxyz'
+    store.auth.createClientSession(
+      hashToken(token),
+      FIRST_ADMIN_USER_ID,
+      new Date(Date.now() + 60_000).toISOString(),
+      'break-glass',
+    )
+    const res = await guardedApp().request('/trpc/ping', {
+      headers: {
+        authorization: `Bearer ${token}`,
+        'x-forwarded-proto': 'https',
+      },
+    })
+    expect(res.status).toBe(401)
+    const cookie = await guardedApp().request('/trpc/ping', {
+      headers: { cookie: `podium_session=${token}` },
+    })
+    expect(cookie.status).toBe(200)
+  })
+
   test('refuses a bearer over cleartext even when its session row is valid', async () => {
     await setPassword('hunter2')
     const token = 'native-cleartext-token-abcdefghijklmnopqrstuvwxyz'
@@ -345,7 +387,15 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
   const DAY = 24 * 60 * 60 * 1000
   function guardedAppAt(nowMs: number) {
     const app = new Hono()
-    app.use('/trpc/*', clientAuthGuard({ store: store.auth, users: store.users, now: () => nowMs }))
+    app.use(
+      '/trpc/*',
+      clientAuthGuard({
+        store: store.auth,
+        users: store.users,
+        now: () => nowMs,
+        trustedProxyHops: 1,
+      }),
+    )
     app.get('/trpc/ping', (c) => c.text('pong'))
     return app
   }

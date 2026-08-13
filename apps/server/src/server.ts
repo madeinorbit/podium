@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -272,6 +272,27 @@ export function registerVersionRoute(
   })
 }
 
+function proxyHopsFromEnv(env: Record<string, string | undefined>): number {
+  const raw = env.PODIUM_TRUSTED_PROXY_HOPS
+  if (raw === undefined || raw === '') return 0
+  return /^\d+$/.test(raw) ? Number(raw) : Number.NaN
+}
+
+function tlsFromEnv(
+  env: Record<string, string | undefined>,
+): { key: string; cert: string } | undefined {
+  const keyFile = env.PODIUM_TLS_KEY_FILE
+  const certFile = env.PODIUM_TLS_CERT_FILE
+  if (!keyFile && !certFile) return undefined
+  if (!keyFile || !certFile) {
+    throw new Error('PODIUM_TLS_KEY_FILE and PODIUM_TLS_CERT_FILE must be configured together')
+  }
+  return {
+    key: readFileSync(keyFile, 'utf8'),
+    cert: readFileSync(certFile, 'utf8'),
+  }
+}
+
 export async function startServer(
   opts: {
     port?: number
@@ -281,8 +302,26 @@ export async function startServer(
     plugins?: PodiumPlugin[]
     /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
     redirectPhoneRootToMobile?: boolean
+    /**
+     * Exact number of right-appending reverse-proxy hops trusted for forwarding headers.
+     * Zero ignores them. A positive value requires the backend listener to be reachable only
+     * through that proxy chain; direct access would violate the operator-declared boundary.
+     */
+    trustedProxyHops?: number
+    /** Direct TLS material. Env alternatives are PODIUM_TLS_KEY_FILE/PODIUM_TLS_CERT_FILE. */
+    tls?: { key: string; cert: string }
   } = {},
 ): Promise<ServerHandle> {
+  const configuredProxyHops = opts.trustedProxyHops ?? proxyHopsFromEnv(process.env)
+  if (
+    !Number.isSafeInteger(configuredProxyHops) ||
+    configuredProxyHops < 0 ||
+    configuredProxyHops > 16
+  ) {
+    throw new Error('trustedProxyHops must be an integer between 0 and 16')
+  }
+  const trustedProxyHops = configuredProxyHops
+  const tls = opts.tls ?? tlsFromEnv(process.env)
   const appVersion = captureServerBuildVersion()
   const instanceId = resolveInstanceId()
   ensureInstanceStateIdentity({ instanceId })
@@ -500,6 +539,7 @@ export async function startServer(
     locks: registry.modules.locks,
   })
 
+  const requestPeerAddresses = new WeakMap<Request, string>()
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   devPublisher.registerRoute(app)
@@ -561,6 +601,7 @@ export async function startServer(
     store: store.auth,
     users: store.users,
     loginRequired: credentialsRequired,
+    trustedProxyHops,
   })
   app.use('/setup/*', cors())
   registerSetupRoute(app)
@@ -568,6 +609,7 @@ export async function startServer(
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
+  let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
     store: store.auth,
     users: store.users,
@@ -575,8 +617,9 @@ export async function startServer(
     // reports this result; it does not recreate the open/dev bootstrap fallback.
     resolveUserId: (headers) => requestPrincipal(headers)?.user,
     loginRequired: credentialsRequired,
+    trustedProxyHops,
+    onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
-  let revokeConnectedMobileSession: (sessionId: string) => void = () => {}
   registerMobilePairingRoutes(app, {
     store: store.auth,
     pairing: mobilePairing,
@@ -586,6 +629,8 @@ export async function startServer(
     // synthetic first-admin principal must never authorize session mutation.
     resolveUserId: (headers) =>
       requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader),
+    trustedProxyHops,
+    requestPeerAddress: (request) => requestPeerAddresses.get(request),
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
   app.use('/files/*', guard)
@@ -750,7 +795,11 @@ export async function startServer(
       principalForClient: (request) => {
         if (
           request.headers.has('authorization') &&
-          !isSecureRequest(request.url, request.headers.get('x-forwarded-proto') ?? undefined)
+          !isSecureRequest(
+            request.url,
+            request.headers.get('x-forwarded-proto') ?? undefined,
+            trustedProxyHops,
+          )
         ) {
           return undefined
         }
@@ -777,8 +826,11 @@ export async function startServer(
       server = serveNative({
         port: requestedPort,
         hostname: host,
+        ...(tls ? { tls } : {}),
         websocket: ws.websocket,
         async fetch(request, nativeServer) {
+          const peerAddress = nativeServer.requestIP?.(request)?.address
+          if (peerAddress) requestPeerAddresses.set(request, peerAddress)
           const upgrade = ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
           return compressHttpResponse(request, await app.fetch(request))

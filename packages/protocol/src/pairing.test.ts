@@ -4,6 +4,8 @@ import {
   encodePairingEnvelope,
   mobilePairingPhraseFromDigest,
   mobilePairingUrl,
+  MobilePairClaimRequest,
+  NativeClientLoginRequest,
   parseMobilePairingUrl,
   type MobilePairEnvelope,
 } from './pairing'
@@ -42,6 +44,20 @@ describe('pairing envelope codec', () => {
     ).toThrow(/origin/)
   })
 
+  it('accepts the installed-app bridge without treating its null origin as HTTP', () => {
+    const encoded = encodePairingEnvelope(pair)
+    const now = Date.parse('2026-08-13T12:00:00.000Z')
+    expect(parseMobilePairingUrl(`podium://pair/${encoded}`, now)).toEqual(pair)
+    expect(parseMobilePairingUrl(`podium://pair/mobile#pair=${encoded}`, now)).toEqual(pair)
+    expect(
+      parseMobilePairingUrl(
+        `podium://pair?url=${encodeURIComponent(mobilePairingUrl(pair))}`,
+        now,
+      ),
+    ).toEqual(pair)
+    expect(() => parseMobilePairingUrl(`podium://other/${encoded}`, now)).toThrow()
+  })
+
   it('keeps a v2 open envelope credential-free', () => {
     const open = {
       v: 2 as const,
@@ -66,6 +82,50 @@ describe('pairing envelope codec', () => {
       }),
     ).toThrow()
     expect(() => decodePairingEnvelope('A'.repeat(4097))).toThrow(/size/)
+  })
+})
+
+describe('mobile device metadata', () => {
+  const safe = {
+    pairCode: 'abcdefghijklmnopqrstuvwxyz012345',
+    claimHash: 'a'.repeat(64),
+    deviceId: 'phone-1',
+    deviceName: "Sam's iPhone",
+    platform: 'ios' as const,
+  }
+
+  it('removes caller-selected delivery from the claim contract', () => {
+    expect(MobilePairClaimRequest.parse({ ...safe, delivery: 'native' })).toEqual(safe)
+  })
+
+  it.each([
+    'Phone\nverified',
+    'Phone\n',
+    'Phone\u0007',
+    'Phone\u0085',
+    'Phone\u2028line',
+    'Phone\u202eadmin',
+    'Phone\u2066safe',
+  ])(
+    'rejects control or bidi text in a device name: %s',
+    (deviceName) => {
+      expect(MobilePairClaimRequest.safeParse({ ...safe, deviceName }).success).toBe(false)
+      expect(
+        NativeClientLoginRequest.safeParse({
+          delivery: 'native',
+          password: 'secret',
+          deviceId: safe.deviceId,
+          deviceName,
+          platform: safe.platform,
+        }).success,
+      ).toBe(false)
+    },
+  )
+
+  it('rejects the same unsafe characters in opaque device ids', () => {
+    expect(MobilePairClaimRequest.safeParse({ ...safe, deviceId: 'phone\u200fadmin' }).success).toBe(
+      false,
+    )
   })
 })
 

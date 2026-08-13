@@ -14,6 +14,7 @@ import { measureTask } from '@podium/runtime/task-attribution'
 export interface NativeServer<T> {
   readonly port: number
   upgrade(request: Request, options: { data: T }): boolean
+  requestIP?(request: Request): { address: string } | null
   stop(closeActiveConnections?: boolean): void | Promise<void>
 }
 
@@ -43,6 +44,7 @@ export interface NativeWebSocketHandler<T> {
 export interface NativeServeOptions<T> {
   port: number
   hostname: string
+  tls?: { key: string; cert: string }
   websocket: NativeWebSocketHandler<T>
   fetch(
     request: Request,
@@ -230,15 +232,6 @@ export function attachWebSockets(
       }
     },
     message(native, message) {
-      if (
-        native.data.kind === 'client' &&
-        native.data.credentialId &&
-        auth.validateClientCredential &&
-        !auth.validateClientCredential(native.data.credentialId)
-      ) {
-        native.terminate()
-        return
-      }
       // THE I/O-COMPLETION SEAM [POD-1931]. Every inbound frame's handling runs
       // synchronously under this call, and it reaches JS without passing through
       // any scheduler — so neither the statement counters nor the patched timers
@@ -254,8 +247,19 @@ export function attachWebSockets(
     pong(native) {
       const socket = native.data.socket
       if (!socket) return
-      if (native.data.kind === 'daemon') aliveDaemons.add(socket)
-      else aliveClients.add(socket)
+      if (native.data.kind === 'daemon') {
+        aliveDaemons.add(socket)
+      } else {
+        if (
+          native.data.credentialId &&
+          auth.validateClientCredential &&
+          !auth.validateClientCredential(native.data.credentialId)
+        ) {
+          native.terminate()
+          return
+        }
+        aliveClients.add(socket)
+      }
       socket.emit('pong')
     },
     close(native) {

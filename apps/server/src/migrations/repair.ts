@@ -28,9 +28,7 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 /**
  * One column the current schema requires, and the DDL that restores it. `ddl`
- * is copied verbatim from the migration that originally added the column, so a
- * repaired database and a normally-migrated one end up byte-identical in
- * `sqlite_master`.
+ * is copied verbatim from the migration that originally added the column.
  */
 interface RequiredColumn {
   table: string

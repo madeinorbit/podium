@@ -89,6 +89,7 @@ export function resolveClientCredential(
   const tokenHash = hashToken(token)
   const maintained = maintainClientCredentialByHash(store, tokenHash, nowMs)
   if (!maintained) return undefined
+  if (fromBearer && maintained.session.label !== 'mobile') return undefined
   return {
     tokenHash,
     source: fromBearer ? 'bearer' : 'cookie',
@@ -157,26 +158,36 @@ function parseBearerToken(authorizationHeader: string | undefined): string | und
   return match?.[1]
 }
 
-export function isSecureRequest(url: string, forwardedProto?: string): boolean {
-  if (forwardedProto?.split(',')[0]?.trim() === 'https') return true
+export function isSecureRequest(
+  url: string,
+  forwardedProto?: string,
+  trustedProxyHops: number = 0,
+): boolean {
   try {
-    return new URL(url).protocol === 'https:'
+    if (new URL(url).protocol === 'https:') return true
   } catch {
     return false
   }
+  if (trustedProxyHops <= 0 || !Number.isSafeInteger(trustedProxyHops)) return false
+  const chain = (forwardedProto ?? '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+  const index = chain.length - trustedProxyHops
+  return index >= 0 && chain[index] === 'https'
 }
 
-export function isHttps(c: Context): boolean {
-  return isSecureRequest(c.req.url, c.req.header('x-forwarded-proto'))
+export function isHttps(c: Context, trustedProxyHops: number = 0): boolean {
+  return isSecureRequest(c.req.url, c.req.header('x-forwarded-proto'), trustedProxyHops)
 }
 
 /** Issue (or refresh) the session cookie with the full TTL. One definition used by login
  *  and the sliding-renewal path so their cookie attributes can't drift apart. */
-export function setSessionCookie(c: Context, token: string): void {
+export function setSessionCookie(c: Context, token: string, trustedProxyHops: number = 0): void {
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'Lax',
-    secure: isHttps(c),
+    secure: isHttps(c, trustedProxyHops),
     path: '/',
     maxAge: Math.floor(SESSION_TTL_MS / 1000),
   })
@@ -193,13 +204,15 @@ export function clientAuthGuard(opts: {
   /** See {@link AuthRouteOptions.loginRequired} — the ONE predicate, shared. */
   loginRequired?: () => boolean
   now?: () => number
+  /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
+  trustedProxyHops?: number
 }): MiddlewareHandler {
   const now = opts.now ?? (() => Date.now())
   const loginRequired = opts.loginRequired ?? (() => Boolean(opts.users?.hasPerUserCredentials()))
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return next()
     if (!loginRequired()) return next()
-    if (c.req.header('authorization') && !isHttps(c)) {
+    if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
     const store = opts.store
@@ -230,7 +243,7 @@ export function clientAuthGuard(opts: {
     // tokens escaped this only by accident: their 10-year expiry fails the condition.)
     if (credential.renewed && credential.source === 'cookie') {
       const token = parseSessionCookie(c.req.header('cookie'))
-      if (token) setSessionCookie(c, token)
+      if (token) setSessionCookie(c, token, opts.trustedProxyHops)
     }
     return next()
   }
@@ -281,6 +294,9 @@ export interface AuthRouteOptions {
   loginRequired?: () => boolean
   throttle?: { maxFailures?: number; lockoutMs?: number }
   now?: () => number
+  /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
+  trustedProxyHops?: number
+  onCredentialRevoked?: (tokenHash: string) => void
 }
 
 export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void {
@@ -296,7 +312,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   let lockedUntil = 0
 
   app.get('/auth/status', (c) => {
-    if (c.req.header('authorization') && !isHttps(c)) {
+    if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
     const needsAuth = loginRequired()
@@ -336,7 +352,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         password?: unknown
       }
       if (body?.delivery === 'native') {
-        if (!isHttps(c)) {
+        if (!isHttps(c, opts.trustedProxyHops)) {
           return c.json({ error: 'secure HTTPS is required for native login' }, 400)
         }
         const parsed = NativeClientLoginRequest.safeParse(body)
@@ -401,7 +417,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     }
     store?.createClientSession(hashToken(token), userId, expiresAt)
 
-    setSessionCookie(c, token)
+    setSessionCookie(c, token, opts.trustedProxyHops)
     return c.json({ ok: true, userId })
   })
 
@@ -449,16 +465,23 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   })
 
   app.post('/auth/logout', (c) => {
-    if (c.req.header('authorization') && !isHttps(c)) {
+    if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
     const credential = store
-      ? resolveClientCredential(store, {
-          cookieHeader: c.req.header('cookie'),
-          authorizationHeader: c.req.header('authorization'),
-        })
+      ? resolveClientCredential(
+          store,
+          {
+            cookieHeader: c.req.header('cookie'),
+            authorizationHeader: c.req.header('authorization'),
+          },
+          now(),
+        )
       : undefined
-    if (credential && store) store.deleteClientSession(credential.tokenHash)
+    if (credential && store) {
+      store.deleteClientSession(credential.tokenHash)
+      opts.onCredentialRevoked?.(credential.tokenHash)
+    }
     deleteCookie(c, SESSION_COOKIE, { path: '/' })
     return c.json({ ok: true })
   })

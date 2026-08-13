@@ -106,6 +106,7 @@ export class MobilePairingManager {
 
   claim(
     input: MobilePairClaimRequest,
+    delivery: MobileDelivery,
     nowMs: number = Date.now(),
   ): { claimId: string; phrase: [string, string, string]; expiresAt: string } | undefined {
     this.sweep(nowMs)
@@ -128,7 +129,7 @@ export class MobilePairingManager {
       deviceId: input.deviceId,
       deviceName: input.deviceName,
       platform: input.platform,
-      delivery: input.delivery,
+      delivery,
       phrase,
     }
     grant.state = 'claimed'
@@ -173,9 +174,20 @@ export class MobilePairingManager {
   ): boolean {
     this.sweep(nowMs)
     const grant = this.byPairingId.get(pairingId)
-    if (!grant || grant.userId !== userId || grant.state !== 'claimed' || !grant.claim) return false
-    grant.state = decision
-    if (decision === 'denied') this.pairingIdByClaim.delete(grant.claim.claimId)
+    if (!grant || grant.userId !== userId) return false
+    if (decision === 'approved') {
+      if (grant.state !== 'claimed' || !grant.claim) return false
+      grant.state = 'approved'
+      return true
+    }
+    if (grant.state === 'pending') {
+      grant.state = 'denied'
+      this.pairingIdByCode.delete(grant.pairCode)
+      return true
+    }
+    if (grant.state !== 'claimed' || !grant.claim) return false
+    grant.state = 'denied'
+    this.pairingIdByClaim.delete(grant.claim.claimId)
     return true
   }
 
@@ -183,14 +195,15 @@ export class MobilePairingManager {
     claimId: string,
     claimSecret: string,
     nowMs: number = Date.now(),
-  ): CompletedMobilePairing | 'pending' | undefined {
+  ): CompletedMobilePairing | 'pending' | 'invalid-secret' | 'unavailable' {
     this.sweep(nowMs)
     const pairingId = this.pairingIdByClaim.get(claimId)
-    if (!pairingId) return undefined
+    if (!pairingId) return 'unavailable'
     const grant = this.byPairingId.get(pairingId)
     const claim = grant?.claim
-    if (!grant || !claim || (grant.state !== 'claimed' && grant.state !== 'approved'))
-      return undefined
+    if (!grant || !claim || (grant.state !== 'claimed' && grant.state !== 'approved')) {
+      return 'unavailable'
+    }
     const actual = Buffer.from(claim.claimHash, 'hex')
     // Hash the secret with SHA-256 without keeping its plaintext beyond this call.
     const computed = awaitlessSha256(claimSecret)
@@ -200,7 +213,7 @@ export class MobilePairingManager {
         grant.state = 'denied'
         this.pairingIdByClaim.delete(claimId)
       }
-      return undefined
+      return 'invalid-secret'
     }
     if (grant.state === 'claimed') return 'pending'
     grant.state = 'completed'

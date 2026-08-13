@@ -5,7 +5,11 @@ import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { hashToken, resolveClientCredential } from './auth-route'
 import { MobilePairingManager } from './mobile-pairing'
-import { registerMobilePairingRoutes } from './mobile-pairing-route'
+import {
+  clientAddressForRequest,
+  PairingFailureThrottle,
+  registerMobilePairingRoutes,
+} from './mobile-pairing-route'
 import { AuthRepository } from './store/auth'
 import { openMigratedTestDatabase } from './test-support/migrated-database'
 
@@ -14,12 +18,14 @@ const SECRET = Buffer.alloc(32, 11)
 const CLAIM_HASH = createHash('sha256').update(SECRET).digest('hex')
 const HTTPS = {
   'content-type': 'application/json',
+  'x-forwarded-for': '198.51.100.10',
   'x-forwarded-proto': 'https',
 }
 
 let store: AuthRepository
 let pairing: MobilePairingManager
 let app: Hono
+let peerAddress: string
 
 function authHeaders() {
   return { ...HTTPS, cookie: `podium_session=${AUTH_TOKEN}` }
@@ -37,6 +43,7 @@ beforeEach(() => {
   store = new AuthRepository(openMigratedTestDatabase())
   store.createClientSession(hashToken(AUTH_TOKEN), FIRST_ADMIN_USER_ID, '2999-01-01T00:00:00.000Z')
   pairing = new MobilePairingManager()
+  peerAddress = '198.51.100.10'
   app = new Hono()
   registerMobilePairingRoutes(app, {
     store,
@@ -47,6 +54,8 @@ beforeEach(() => {
     }),
     loginRequired: () => true,
     resolveUserId: (headers) => resolveClientCredential(store, headers)?.session.userId,
+    trustedProxyHops: 1,
+    requestPeerAddress: () => peerAddress,
   })
 })
 
@@ -77,7 +86,7 @@ describe('mobile pairing routes', () => {
       deviceId: 'device-1',
       deviceName: "Sam's iPhone",
       platform: 'ios',
-      delivery: 'native',
+      delivery: 'browser',
     })
     expect(claim.status).toBe(200)
     const claimed = (await claim.json()) as {
@@ -139,6 +148,7 @@ describe('mobile pairing routes', () => {
       }),
       loginRequired: () => false,
       resolveUserId: () => undefined,
+      requestPeerAddress: () => peerAddress,
     })
     const response = await post(
       '/auth/mobile-pair/start',
@@ -163,14 +173,18 @@ describe('mobile pairing routes', () => {
     const envelope = decodePairingEnvelope(started.envelope)
     if (envelope.v !== 2 || envelope.mode !== 'pair') throw new Error('wrong envelope')
     const claimed = (await (
-      await post('/auth/mobile-pair/claim', {
-        pairCode: envelope.pairCode,
-        claimHash: CLAIM_HASH,
-        deviceId: 'browser-1',
-        deviceName: 'Mobile Safari',
-        platform: 'web',
-        delivery: 'browser',
-      })
+      await post(
+        '/auth/mobile-pair/claim',
+        {
+          pairCode: envelope.pairCode,
+          claimHash: CLAIM_HASH,
+          deviceId: 'browser-1',
+          deviceName: 'Mobile Safari',
+          platform: 'ios',
+          delivery: 'native',
+        },
+        { ...HTTPS, origin: 'https://podium.example' },
+      )
     ).json()) as { claimId: string }
     await post('/auth/mobile-pair/approve', { pairingId: started.pairingId }, authHeaders())
     const response = await post('/auth/mobile-pair/complete', {
@@ -200,7 +214,6 @@ describe('mobile pairing routes', () => {
       deviceId: 'device-1',
       deviceName: 'Phone',
       platform: 'ios',
-      delivery: 'native',
     })
     expect(await malformed.json()).toEqual({ error: 'pairing unavailable' })
     expect(await unknown.json()).toEqual({ error: 'pairing unavailable' })
@@ -217,12 +230,102 @@ describe('mobile pairing routes', () => {
       }),
       loginRequired: () => true,
       resolveUserId: () => undefined,
+      trustedProxyHops: 1,
+      requestPeerAddress: () => peerAddress,
       throttle: { maxFailures: 1, lockoutMs: 60_000 },
     })
     expect((await post('/auth/mobile-pair/claim', {})).status).toBe(400)
     const locked = await post('/auth/mobile-pair/claim', {})
     expect(locked.status).toBe(429)
     expect(locked.headers.get('retry-after')).toBeTruthy()
+  })
+
+  it('uses real TLS by default and ignores a forged forwarded protocol', async () => {
+    app = new Hono()
+    registerMobilePairingRoutes(app, {
+      store,
+      pairing,
+      serverIdentity: () => ({ publicUrl: 'https://podium.example', instanceId: 'one' }),
+      loginRequired: () => true,
+      resolveUserId: () => undefined,
+      requestPeerAddress: () => peerAddress,
+    })
+    const forged = await post('/auth/mobile-pair/claim', {}, HTTPS)
+    expect(await forged.json()).toEqual({ error: 'secure HTTPS is required' })
+    const directTls = await app.request('https://podium.example/auth/mobile-pair/claim', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(await directTls.json()).toEqual({ error: 'pairing unavailable' })
+  })
+
+  it('keys failures on the socket peer unless proxy trust is explicitly configured', async () => {
+    app = new Hono()
+    registerMobilePairingRoutes(app, {
+      store,
+      pairing,
+      serverIdentity: () => ({ publicUrl: 'https://podium.example', instanceId: 'one' }),
+      loginRequired: () => true,
+      resolveUserId: () => undefined,
+      requestPeerAddress: () => peerAddress,
+      throttle: { maxFailures: 1, lockoutMs: 60_000 },
+    })
+    const headers = {
+      'content-type': 'application/json',
+      'x-forwarded-for': '203.0.113.1',
+      'x-forwarded-proto': 'https',
+      'x-real-ip': '203.0.113.2',
+    }
+    expect(
+      (
+        await app.request('https://podium.example/auth/mobile-pair/claim', {
+          method: 'POST',
+          headers,
+          body: '{}',
+        })
+      ).status,
+    ).toBe(400)
+    peerAddress = '198.51.100.11'
+    expect(
+      (
+        await app.request('https://podium.example/auth/mobile-pair/claim', {
+          method: 'POST',
+          headers: { ...headers, 'x-real-ip': '203.0.113.99' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(400)
+    peerAddress = '198.51.100.10'
+    expect(
+      (
+        await app.request('https://podium.example/auth/mobile-pair/claim', {
+          method: 'POST',
+          headers: { ...headers, 'x-forwarded-for': '203.0.113.200' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(429)
+  })
+
+  it('does not charge unavailable completion polls against the peer throttle', async () => {
+    app = new Hono()
+    registerMobilePairingRoutes(app, {
+      store,
+      pairing,
+      serverIdentity: () => ({ publicUrl: 'https://podium.example', instanceId: 'one' }),
+      loginRequired: () => true,
+      resolveUserId: () => undefined,
+      trustedProxyHops: 1,
+      requestPeerAddress: () => peerAddress,
+      throttle: { maxFailures: 1, lockoutMs: 60_000 },
+    })
+    const body = {
+      claimId: 'expired-or-restarted-claim',
+      claimSecret: SECRET.toString('base64url'),
+    }
+    expect((await post('/auth/mobile-pair/complete', body)).status).toBe(400)
+    expect((await post('/auth/mobile-pair/complete', body)).status).toBe(400)
   })
 
   it('lists and remotely revokes only the caller-owned mobile row', async () => {
@@ -262,5 +365,35 @@ describe('mobile pairing routes', () => {
     ).toBe(200)
     expect(store.getClientSession('a'.repeat(64))).toBeUndefined()
     expect(store.getClientSession('b'.repeat(64))?.label).toBe('break-glass')
+  })
+})
+
+describe('pairing throttle primitives', () => {
+  it('takes the trusted address from the right side of an appending proxy chain', () => {
+    const request = new Request('http://podium.test', {
+      headers: { 'x-forwarded-for': 'spoofed, 198.51.100.20' },
+    })
+    expect(clientAddressForRequest(request, '127.0.0.1', 0)).toBe('127.0.0.1')
+    expect(clientAddressForRequest(request, '127.0.0.1', 1)).toBe('198.51.100.20')
+    expect(clientAddressForRequest(request, '127.0.0.1', 2)).toBe('spoofed')
+  })
+
+  it('bounds and expires peer buckets', () => {
+    const throttle = new PairingFailureThrottle({
+      maxFailures: 2,
+      lockoutMs: 50,
+      retentionMs: 50,
+      maxEntries: 2,
+    })
+    throttle.fail('one', 0)
+    throttle.fail('two', 1)
+    throttle.fail('three', 2)
+    expect(throttle.size).toBe(2)
+    for (let operation = 0; operation < 61; operation += 1) {
+      throttle.retryAfter('missing', 100)
+    }
+    expect(throttle.size).toBe(0)
+    throttle.fail('fresh', 100)
+    expect(throttle.size).toBe(1)
   })
 })

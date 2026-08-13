@@ -25,23 +25,36 @@ afterEach(async () => {
 })
 
 /** Start a real Bun server with the client-auth gate, return its /client URL. */
-async function start(authorizeClient: (request: Request) => boolean, credentialId?: string) {
+async function start(
+  authorizeClient: (request: Request) => boolean,
+  credentialId?: string,
+  validateClientCredential?: (credentialId: string) => boolean,
+  timers?: {
+    setInterval(fn: () => void, ms: number): unknown
+    clearInterval(handle: unknown): void
+  },
+) {
   store = new SessionStore(':memory:')
   registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
-  handle = attachWebSockets(registry, {
-    authorizeClient,
-    userForClient: () => FIRST_ADMIN_USER_ID,
-    roleForClient: () => 'admin',
-    ...(credentialId
-      ? {
-          principalForClient: () => ({
-            userId: FIRST_ADMIN_USER_ID,
-            userRole: 'admin' as const,
-            credentialId,
-          }),
-        }
-      : {}),
-  })
+  handle = attachWebSockets(
+    registry,
+    {
+      authorizeClient,
+      userForClient: () => FIRST_ADMIN_USER_ID,
+      roleForClient: () => 'admin',
+      ...(validateClientCredential ? { validateClientCredential } : {}),
+      ...(credentialId
+        ? {
+            principalForClient: () => ({
+              userId: FIRST_ADMIN_USER_ID,
+              userRole: 'admin' as const,
+              credentialId,
+            }),
+          }
+        : {}),
+    },
+    timers ? { timers } : {},
+  )
   server = serveNative({
     port: 0,
     hostname: '127.0.0.1',
@@ -130,6 +143,29 @@ describe('/client WS auth gate', () => {
     })
     const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
     handle?.revokeClientCredential('mobile-session-hash')
+    await closed
+    expect(socket.readyState).toBe(WebSocket.CLOSED)
+  })
+
+  test('the existing heartbeat terminates an expired credential without an inbound frame', async () => {
+    const ticks: (() => void)[] = []
+    const timers = {
+      setInterval(fn: () => void) {
+        ticks.push(fn)
+        return fn
+      },
+      clearInterval() {},
+    }
+    let valid = true
+    const url = await start(() => true, 'expiring-mobile-hash', () => valid, timers)
+    const socket = new WebSocket(url)
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve)
+      socket.once('error', reject)
+    })
+    valid = false
+    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
+    ticks[0]?.()
     await closed
     expect(socket.readyState).toBe(WebSocket.CLOSED)
   })

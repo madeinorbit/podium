@@ -239,15 +239,47 @@ export function parseMobilePairingUrl(
   } catch {
     throw new Error('invalid mobile pairing URL')
   }
-  if (parsed.username || parsed.password || parsed.pathname !== '/mobile' || parsed.search) {
-    throw new Error('invalid mobile pairing URL')
-  }
   const prefix = '#pair='
-  if (!parsed.hash.startsWith(prefix)) throw new Error('invalid mobile pairing URL')
-  const envelope = MobilePairingEnvelope.parse(
-    decodePairingEnvelope(parsed.hash.slice(prefix.length)),
-  )
-  if (normalizeHttpOrigin(parsed.origin) !== envelope.serverUrl) {
+  let encoded: string
+  let outerOrigin: string | undefined
+  if (parsed.protocol === 'podium:') {
+    if (parsed.username || parsed.password || parsed.hostname !== 'pair') {
+      throw new Error('invalid mobile pairing URL')
+    }
+    if (parsed.search) {
+      if (parsed.pathname !== '' && parsed.pathname !== '/') {
+        throw new Error('invalid mobile pairing URL')
+      }
+      const match = /^\?url=([^&]+)$/.exec(parsed.search)
+      if (!match) throw new Error('invalid mobile pairing URL')
+      let nested: string
+      try {
+        nested = decodeURIComponent(match[1]!)
+      } catch {
+        throw new Error('invalid mobile pairing URL')
+      }
+      return parseMobilePairingUrl(nested, nowMs)
+    }
+    if (parsed.hash) {
+      if (parsed.pathname !== '/mobile' || !parsed.hash.startsWith(prefix)) {
+        throw new Error('invalid mobile pairing URL')
+      }
+      encoded = parsed.hash.slice(prefix.length)
+    } else {
+      const pathToken = parsed.pathname.replace(/^\/+/, '')
+      if (!pathToken || pathToken.includes('/')) throw new Error('invalid mobile pairing URL')
+      encoded = pathToken
+    }
+  } else {
+    if (parsed.username || parsed.password || parsed.pathname !== '/mobile' || parsed.search) {
+      throw new Error('invalid mobile pairing URL')
+    }
+    if (!parsed.hash.startsWith(prefix)) throw new Error('invalid mobile pairing URL')
+    encoded = parsed.hash.slice(prefix.length)
+    outerOrigin = normalizeHttpOrigin(parsed.origin)
+  }
+  const envelope = MobilePairingEnvelope.parse(decodePairingEnvelope(encoded))
+  if (outerOrigin !== undefined && outerOrigin !== envelope.serverUrl) {
     throw new Error('pairing URL origin does not match envelope')
   }
   if (envelope.mode === 'pair' && Date.parse(envelope.expiresAt) <= nowMs) {
@@ -260,6 +292,27 @@ export const MobilePlatform = z.enum(['ios', 'android', 'web', 'unknown'])
 export type MobilePlatform = z.infer<typeof MobilePlatform>
 export const MobileDelivery = z.enum(['native', 'browser'])
 export type MobileDelivery = z.infer<typeof MobileDelivery>
+
+const UNSAFE_SINGLE_LINE =
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u
+const safeDeviceId = z
+  .string()
+  .max(256)
+  .refine(
+    (value) => !UNSAFE_SINGLE_LINE.test(value),
+    'deviceId must be printable single-line text',
+  )
+  .transform((value) => value.trim())
+  .refine((value) => value.length > 0, 'deviceId must not be blank')
+const safeDeviceName = z
+  .string()
+  .max(120)
+  .refine(
+    (value) => !UNSAFE_SINGLE_LINE.test(value),
+    'deviceName must be printable single-line text',
+  )
+  .transform((value) => value.trim())
+  .refine((value) => value.length > 0, 'deviceName must not be blank')
 
 export const MobilePairStartRequest = z.object({}).strict()
 export type MobilePairStartRequest = z.infer<typeof MobilePairStartRequest>
@@ -295,10 +348,9 @@ export type MobilePairStartResponse = z.infer<typeof MobilePairStartResponse>
 export const MobilePairClaimRequest = z.object({
   pairCode: z.string().min(20).max(256),
   claimHash: z.string().regex(/^[a-f0-9]{64}$/),
-  deviceId: z.string().min(1).max(256),
-  deviceName: z.string().trim().min(1).max(120),
+  deviceId: safeDeviceId,
+  deviceName: safeDeviceName,
   platform: MobilePlatform,
-  delivery: MobileDelivery,
 })
 export type MobilePairClaimRequest = z.infer<typeof MobilePairClaimRequest>
 
@@ -310,8 +362,8 @@ export const MobilePairClaimResponse = z.object({
 export type MobilePairClaimResponse = z.infer<typeof MobilePairClaimResponse>
 
 const claimedDevice = z.object({
-  deviceId: z.string(),
-  deviceName: z.string(),
+  deviceId: safeDeviceId,
+  deviceName: safeDeviceName,
   platform: MobilePlatform,
   delivery: MobileDelivery,
   phrase: z.tuple([z.string(), z.string(), z.string()]),
@@ -374,8 +426,8 @@ export const MobileClientSession = z.object({
   sessionId: z.string(),
   userId: z.string(),
   label: z.literal('mobile'),
-  deviceId: z.string(),
-  deviceName: z.string(),
+  deviceId: safeDeviceId,
+  deviceName: safeDeviceName,
   platform: MobilePlatform,
   createdAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
@@ -397,8 +449,8 @@ export const NativeClientLoginRequest = z.object({
   delivery: z.literal('native'),
   userId: z.string().min(1).optional(),
   password: z.string(),
-  deviceId: z.string().min(1).max(256),
-  deviceName: z.string().trim().min(1).max(120),
+  deviceId: safeDeviceId,
+  deviceName: safeDeviceName,
   platform: z.enum(['ios', 'android', 'unknown']),
 })
 export type NativeClientLoginRequest = z.infer<typeof NativeClientLoginRequest>
