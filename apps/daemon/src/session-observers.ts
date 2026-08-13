@@ -1386,6 +1386,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         )
       }
     }
+    // Causal leases (Claude, Grok) skip this: bootEvents would emit on the
+    // rejected unfenced agentState wire. Those observers seed idle themselves
+    // on an empty bootstrap (GrokCausalObserver.finishBootstrap).
     if (provider?.bootEvents && !causalLeases.has(msg.sessionId)) {
       // const capture so the narrowing survives into the onFrame closure.
       const bootProvider = provider

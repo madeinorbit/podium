@@ -196,6 +196,14 @@ export class GrokCausalObserver {
 
   finishBootstrap(cursor: ProviderCursor): void {
     if (sameCursor(this.acceptedCursor, cursor)) return
+    // Causal Grok skips daemon bootEvents (those ride the rejected unfenced
+    // agentState wire). An empty/fresh session would otherwise snapshot
+    // `unknown` and stay there until the first UserPromptSubmit — which chat
+    // send can never trigger, because delivery treats `unknown` as a running
+    // turn. Seed the same session_started idle bootEvents would have.
+    if (this.state.phase === 'unknown') {
+      this.state = reduceAgentState(this.state, { kind: 'session_started' }, this.now())
+    }
     const observation = this.observation({
       cursor,
       sourceEventKind: 'bootstrap',

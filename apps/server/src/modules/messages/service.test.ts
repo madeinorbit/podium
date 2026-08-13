@@ -270,6 +270,11 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
 }
 
 const IDLE = { phase: 'idle', since: 't', nativeSubagentCount: 0 } as SessionMeta['agentState']
+const UNKNOWN = {
+  phase: 'unknown',
+  since: 't',
+  nativeSubagentCount: 0,
+} as SessionMeta['agentState']
 const WORKING = {
   phase: 'working',
   since: 't',
@@ -953,6 +958,28 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
 })
 
 describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => {
+  it('unknown-phase live target: first chat send injects now (no turn in flight)', () => {
+    const { svc, sent, queued, interrupted, store } = harness([
+      session({ sessionId: asSessionId('s1'), agentKind: 'grok', agentState: UNKNOWN }),
+    ])
+    const r = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'start the turn',
+        urgency: 'next-turn',
+        lifecycle: 'wait',
+      },
+    )
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).toBe('start the turn')
+    expect(queued).toHaveLength(0)
+    expect(interrupted).toHaveLength(0)
+    // Unwrapped operator body confirms on injection.
+    expect(r.disposition).toBe('delivered')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
   it('idle target: every urgency injects now via sendText (queued until echo)', () => {
     for (const urgency of ['fyi', 'next-turn', 'interrupt'] as const) {
       const { svc, sent, queued, interrupted, store } = harness([

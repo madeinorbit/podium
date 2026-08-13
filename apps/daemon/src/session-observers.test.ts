@@ -2546,6 +2546,7 @@ describe('Grok causal hook ingest', () => {
     )
     const bootstrap = observations[0]!
     expect(bootstrap.observation.transitionKind).toBe('snapshot')
+    expect(bootstrap.observation.nextPhase).toBe('idle')
     observers.onObservationAck({
       type: 'agentObservationAck',
       sessionId,

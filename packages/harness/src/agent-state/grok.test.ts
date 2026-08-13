@@ -854,6 +854,34 @@ describe('observeGrokState', () => {
 })
 
 describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
+  it('empty-session bootstrap snapshots idle, not unknown', () => {
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: asSessionId('podium-empty-boot'),
+      providerSessionId: 'g-empty-boot',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-08-13T15:00:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:g-empty-boot:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    causal.finishBootstrap(causal.cursorFor(segment, 0))
+    expect(observations).toHaveLength(1)
+    expect(observations[0]).toMatchObject({
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+      priorPhase: 'unknown',
+      nextPhase: 'idle',
+      state: { phase: 'idle' },
+    })
+  })
+
   it('does no chat-history verdict I/O while folding historical terminal rows', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-bootstrap-io-'))
     const cwd = '/repo/grok-bootstrap-io'

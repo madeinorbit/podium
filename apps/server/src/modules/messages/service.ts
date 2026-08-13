@@ -1580,13 +1580,14 @@ export class MessageDeliveryService {
 
   private stateOf(s: SessionMeta): TargetState {
     if (s.status === 'hibernated' || s.status === 'exited') return 'parked'
-    if (
-      s.status === 'live' &&
-      (s.queuedMessageCount ?? 0) === 0 &&
-      (s.agentState === undefined ? !s.busy : s.agentState.phase === 'idle')
-    ) {
-      return 'idle'
-    }
+    if (s.status !== 'live' || (s.queuedMessageCount ?? 0) > 0) return 'running'
+    const phase = s.agentState?.phase
+    // `unknown` is "no turn classified yet", not a busy turn. Missing
+    // agentState already used the shell-busy check; unknown must too. A fresh
+    // Grok causal session stays unknown until the first real turn, and holding
+    // next-turn here queued the first chat send forever.
+    if (phase === undefined) return s.busy ? 'running' : 'idle'
+    if (phase === 'idle' || phase === 'unknown') return 'idle'
     return 'running'
   }
 
