@@ -8,6 +8,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  unlinkSync,
 } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
@@ -350,6 +351,63 @@ export function abducoSocketPath(
   return undefined
 }
 
+/** abduco's create-dir probe: bind `.abduco-<pid>`, then unlink on the success path. */
+const ABDUCO_BIND_TEMP_RE = /^\.abduco-(\d+)$/
+
+/**
+ * `kill(pid, 0)` liveness: ESRCH is gone; EPERM means the pid is alive but not
+ * ours. Same shape {@link reapAbducoTestSessions} uses for crashed spawners.
+ */
+function pidIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * Unlink leftover `.abduco-<pid>` bind probes whose pid is not alive.
+ *
+ * abduco binds that name while picking a writable socket directory (then
+ * unlinks it and binds the real session socket). A killed spawn, failed
+ * create, or crashed test runner leaves the probe behind. Nothing else
+ * reaps them, so `abducoSocketCandidates`' `readdirSync` — and the global
+ * `abduco` listing — grow without bound.
+ *
+ * A temp whose pid is still alive is a bind in flight: leave it. Pid
+ * liveness, not mtime: a just-started create must not be collected.
+ */
+export function reapStaleAbducoBindTemps(
+  env: NodeJS.ProcessEnv = process.env,
+  username?: string,
+): string[] {
+  const reaped: string[] = []
+  for (const dir of abducoSocketDirs(env, username)) {
+    let names: string[]
+    try {
+      names = readdirSync(dir)
+    } catch {
+      continue
+    }
+    for (const name of names) {
+      const match = ABDUCO_BIND_TEMP_RE.exec(name)
+      if (!match) continue
+      const pid = Number(match[1])
+      if (!Number.isInteger(pid) || pid < 1 || pidIsAlive(pid)) continue
+      const path = join(dir, name)
+      try {
+        unlinkSync(path)
+        reaped.push(path)
+      } catch {
+        // raced with a live bind, or already gone
+      }
+    }
+  }
+  return reaped
+}
+
 /** Every socket file that could belong to this label, in abduco's own preference order. */
 function abducoSocketCandidates(
   label: string,
@@ -603,15 +661,7 @@ export async function reapAbducoTestSessions(patterns: RegExp[]): Promise<string
     const m = patterns.map((re) => re.exec(s.name)).find((x) => x?.[1])
     if (!m?.[1]) continue
     const spawner = Number(m[1])
-    let spawnerAlive = false
-    try {
-      process.kill(spawner, 0)
-      spawnerAlive = true
-    } catch (err) {
-      // EPERM = alive but not ours; only ESRCH means gone.
-      spawnerAlive = (err as NodeJS.ErrnoException).code === 'EPERM'
-    }
-    if (spawner !== process.pid && spawnerAlive) continue
+    if (spawner !== process.pid && pidIsAlive(spawner)) continue
     try {
       process.kill(s.pid, 'SIGTERM')
       reaped.push(s.name)
@@ -761,6 +811,10 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     cwd: opts.cwd ?? process.cwd(),
     env: childEnv,
   } as const
+  // Bind-temp probes from killed creates accumulate in the socket dir;
+  // every later spawn/reattach readdir pays for them. Sweep first so the
+  // lookups below see live sockets, not thousands of leftover `.abduco-<pid>`.
+  reapStaleAbducoBindTemps(childEnv)
   const attachTo = (socketPath: string): AgentSession =>
     attachAbducoAgent({
       label: opts.label,

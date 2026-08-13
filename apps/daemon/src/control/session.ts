@@ -17,6 +17,7 @@ import {
   attachTmuxAgent,
   killAbducoSession,
   killTmuxServer,
+  reapStaleAbducoBindTemps,
   spawnAbducoAgent,
   spawnAgent,
   spawnTmuxAgent,
@@ -590,6 +591,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // created under tmux before an abduco upgrade still reattach (no flag day).
     let socketPath: string | undefined
     if (ctx.backend !== 'none') {
+      reapStaleAbducoBindTemps()
       socketPath = abducoSocketPath(msg.durableLabel)
       if (socketPath === undefined) {
         try {

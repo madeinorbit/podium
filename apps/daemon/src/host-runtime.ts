@@ -6,7 +6,7 @@ import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage, PeerBuild } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
-import { killAbducoSession, killTmuxServer, listLiveAbducoLabels } from '@podium/pty'
+import { killAbducoSession, killTmuxServer, listLiveAbducoLabels, reapStaleAbducoBindTemps } from '@podium/pty'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -497,6 +497,9 @@ export async function createDaemonHostRuntime(args: {
       uploadsGcTimer.unref?.()
       stopInventoryRefresh = startInventoryRefresh(ctx)
       void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
+      // Leftover `.abduco-<pid>` bind probes (killed spawn / crashed runner)
+      // inflate every later socket readdir. Sweep before the reattach storm.
+      reapStaleAbducoBindTemps()
     }
     reconcilePendingUpdate()
     pushDurableSessionCensus()
