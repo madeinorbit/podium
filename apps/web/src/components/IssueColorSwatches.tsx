@@ -16,13 +16,10 @@ export function issueColorName(slot: IssueColorSlot): string {
 export function IssueColorSwatches({
   value,
   onPick,
-  caption = 'flows everywhere',
 }: {
   /** The colour currently on the issue; `undefined` = the neutral slate flow. */
   value: IssueColorSlot | undefined
   onPick: (color: IssueColorSlot | null) => void
-  /** Footer machine voice; the menu names the scope instead of the effect. */
-  caption?: string
 }): JSX.Element {
   return (
     <>
@@ -68,9 +65,6 @@ export function IssueColorSwatches({
           </span>
           <span className="text-[10.5px]">No colour</span>
         </button>
-        <span className="ml-auto font-mono shell-type-micro tracking-[.12em] text-text-faint">
-          {caption}
-        </span>
       </div>
     </>
   )

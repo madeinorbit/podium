@@ -95,7 +95,6 @@ export function IssueColorSheet({
           <Text style={styles.clearGlyph}>✕</Text>
         </View>
         <Text style={styles.clearText}>No colour</Text>
-        <Text style={styles.caption}>flows everywhere</Text>
       </PressableScale>
     </BottomSheet>
   )
@@ -177,10 +176,5 @@ const styles = StyleSheet.create({
     ...sans(500),
     color: color.body,
     fontSize: font.small,
-  },
-  caption: {
-    ...monoLabel(9),
-    marginLeft: 'auto',
-    color: color.textMicro,
   },
 })
