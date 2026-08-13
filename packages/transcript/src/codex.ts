@@ -1,6 +1,7 @@
 import type { TranscriptItem } from '@podium/model'
 import { askQuestionPreview, safeAskQuestionInputJson, toolInputPreview } from './claude'
 import { contentToText, isRecord, stringField } from './json-util'
+import { safeToolEditJsonFromInput } from './tool-edit'
 
 /**
  * Normalize one Codex rollout JSONL record (envelope `{ timestamp, type, payload }`)
@@ -181,9 +182,11 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
       patch !== undefined &&
       /\*\*\* Add File:/.test(patch) &&
       !/\*\*\* (?:Update|Delete) File:/.test(patch)
+    const json = safeToolEditJsonFromInput('apply_patch', patch ?? input)
     return {
       toolName: createsOnly ? 'Write' : 'Edit',
       ...(toolPaths[0] ? { toolInput: toolPaths[0], toolPaths } : { toolTitle: 'patch' }),
+      ...(json ? { toolInputJson: json } : {}),
     }
   }
   if (wireName === 'write_stdin') {

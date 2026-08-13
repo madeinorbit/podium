@@ -1,5 +1,6 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
 import { toolInputPreview } from './claude'
+import { safeToolEditJsonFromInput } from './tool-edit'
 
 /** Normalize one Grok chat_history.jsonl record into Podium chat transcript items. */
 export function grokRecordToItems(record: unknown): TranscriptItem[] {
@@ -236,19 +237,26 @@ function grokToolDisplay(wireName: string, input: unknown): GrokToolDisplay {
         ...(path ? { toolInput: path, toolPaths: [path] } : preview ? { toolInput: preview } : {}),
       }
     case 'write':
-    case 'Write':
+    case 'Write': {
+      const json = safeToolEditJsonFromInput('Write', input)
       return {
         toolName: 'Write',
         ...(path ? { toolInput: path, toolPaths: [path] } : preview ? { toolInput: preview } : {}),
+        ...(json ? { toolInputJson: json } : {}),
       }
+    }
     case 'search_replace':
     case 'Edit':
     case 'MultiEdit':
-    case 'NotebookEdit':
+    case 'NotebookEdit': {
+      const toolName = wireName === 'MultiEdit' || wireName === 'NotebookEdit' ? wireName : 'Edit'
+      const json = safeToolEditJsonFromInput(toolName, input)
       return {
-        toolName: wireName === 'MultiEdit' || wireName === 'NotebookEdit' ? wireName : 'Edit',
+        toolName,
         ...(path ? { toolInput: path, toolPaths: [path] } : preview ? { toolInput: preview } : {}),
+        ...(json ? { toolInputJson: json } : {}),
       }
+    }
     case 'grep':
     case 'Grep':
     case 'Glob':

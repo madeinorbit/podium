@@ -543,6 +543,41 @@ describe('claudeRecordToItems — AskUserQuestion tool', () => {
     )
   })
 
+  it('carries a file-edit payload on Edit so chat can unfold the diff', () => {
+    const rec = {
+      type: 'assistant',
+      uuid: 'a-edit',
+      message: {
+        role: 'assistant',
+        stop_reason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu-edit',
+            name: 'Edit',
+            input: {
+              file_path: '/repo/apps/web/src/features/chat/ToolBlock.tsx',
+              old_string: 'const open = false',
+              new_string: 'const open = true',
+            },
+          },
+        ],
+      },
+    }
+    const [item] = claudeRecordToItems(rec)
+    expect(item).toMatchObject({
+      toolName: 'Edit',
+      toolInput: '/repo/apps/web/src/features/chat/ToolBlock.tsx',
+    })
+    expect(JSON.parse(item?.toolInputJson ?? '{}')).toMatchObject({
+      kind: 'file-edit',
+      path: '/repo/apps/web/src/features/chat/ToolBlock.tsx',
+      mode: 'replace',
+      added: 1,
+      removed: 1,
+    })
+  })
+
   it('leaves ordinary tools without toolInputJson', () => {
     const rec = {
       type: 'assistant',

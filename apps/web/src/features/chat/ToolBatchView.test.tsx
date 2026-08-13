@@ -136,6 +136,44 @@ describe('ToolBatchView — the work line', () => {
     expect(line.querySelector('.work-line-glyph')?.className).toContain('work-line-glyph--err')
   })
 
+  it('unfolds a file-edit into its diff, not the tool result text', () => {
+    const json = JSON.stringify({
+      kind: 'file-edit',
+      path: 'ChatView.tsx',
+      mode: 'replace',
+      hunks: [{ path: 'ChatView.tsx', oldText: 'const a = 1', newText: 'const a = 2' }],
+      added: 1,
+      removed: 1,
+    })
+    mount(
+      batchOf([
+        call({
+          id: 'e',
+          toolName: 'Edit',
+          toolInput: 'ChatView.tsx',
+          toolInputJson: json,
+          toolUseId: 'u1',
+        }),
+        call({ id: 'e-res', toolUseId: 'u1', toolResult: 'The file has been updated.' }),
+      ]),
+    )
+    const line = host.querySelector('[data-testid="work-line"]')!
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
+    })
+    expect(line.querySelector('.tool-out-line')?.textContent).toBe('+1 −1')
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.tool-row')!.click()
+    })
+    const diff = line.querySelector('[data-testid="tool-edit-diff"]')
+    expect(diff).not.toBeNull()
+    expect(diff?.textContent).toContain('const a = 1')
+    expect(diff?.textContent).toContain('const a = 2')
+    expect(diff?.querySelector('.tool-edit-line--del')).not.toBeNull()
+    expect(diff?.querySelector('.tool-edit-line--add')).not.toBeNull()
+    expect(line.querySelector('.tool-result-full')).toBeNull()
+  })
+
   it('unfolds and refolds the individual calls on the same click target', () => {
     mount(
       batchOf([

@@ -1,5 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { toolInputPreview } from './claude'
+import { safeToolEditJsonFromInput } from './tool-edit'
 
 /** Normalize one Cursor agent-transcripts JSONL record into Podium chat items. */
 export function cursorRecordToItems(record: unknown): TranscriptItem[] {
@@ -97,12 +98,15 @@ function toolCallItem(record: Record<string, unknown>): TranscriptItem | undefin
     stringField(record, 'id') ??
     stringField(record, 'tool_use_id') ??
     stringField(record, 'tool_call_id')
+  const input = record.input ?? record.arguments ?? record.args
+  const toolInputJson = safeToolEditJsonFromInput(toolName, input)
   return {
     id: toolUseId ?? stableId('cursor-tool', `${toolName}:${safeJson(record.input)}`),
     role: 'tool',
     text: '',
     toolName,
-    toolInput: toolInputPreview(record.input ?? record.arguments ?? record.args),
+    toolInput: toolInputPreview(input),
+    ...(toolInputJson ? { toolInputJson } : {}),
     ...(toolUseId ? { toolUseId } : {}),
   }
 }

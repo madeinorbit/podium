@@ -1,4 +1,5 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
+import { safeToolEditJsonFromInput } from './tool-edit'
 
 /**
  * Normalize one Claude Code transcript JSONL record into render-oriented
@@ -328,6 +329,9 @@ function assistantItems(
       const isAsk = b.name === 'AskUserQuestion'
       const paths = toolPathsFromInput(b.input)
       const title = isAsk ? undefined : toolTitleFromInput(b.input)
+      const toolInputJson = isAsk
+        ? safeAskQuestionInputJson(b.input)
+        : safeToolEditJsonFromInput(b.name, b.input)
       items.push({
         id: toolUseId ?? freshId('t'),
         role: 'tool',
@@ -336,7 +340,7 @@ function assistantItems(
         toolName: b.name,
         toolInput: isAsk ? askQuestionPreview(b.input) : toolInputPreview(b.input),
         ...(title ? { toolTitle: title } : {}),
-        ...(isAsk ? { toolInputJson: safeAskQuestionInputJson(b.input) } : {}),
+        ...(toolInputJson ? { toolInputJson } : {}),
         ...(toolUseId ? { toolUseId } : {}),
         ...(paths.length ? { toolPaths: paths } : {}),
       })

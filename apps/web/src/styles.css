@@ -2703,6 +2703,70 @@ html[data-density="balanced"] .header-quota-pools {
   background: color-mix(in oklab, var(--destructive) 4%, var(--background));
 }
 
+/* File-edit unfold (same box as .tool-result-full). Blue adds / red removes —
+   the git sheet's vocabulary, without its gutters. */
+.tool-edit-diff {
+  max-height: 280px;
+  margin: 4px 0 5px 21px;
+  overflow: auto;
+  padding: 4px 0 5px;
+  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+  border-left: 2px solid var(--hairline-soft, var(--border));
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in oklab, var(--background) 88%, black);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.tool-edit-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 9px 4px;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  font-size: var(--shell-type-micro);
+  letter-spacing: 0.04em;
+}
+.tool-edit-mag {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.tool-edit-line {
+  display: flex;
+  align-items: stretch;
+  min-width: min-content;
+  padding: 0 9px;
+  white-space: pre;
+}
+.tool-edit-line--add {
+  background: color-mix(in oklab, var(--live, var(--info)) 13%, transparent);
+}
+.tool-edit-line--del {
+  background: color-mix(in oklab, var(--destructive) 10.5%, transparent);
+}
+.tool-edit-line--hunk,
+.tool-edit-line--note {
+  padding: 2px 9px;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  white-space: nowrap;
+}
+.tool-edit-sign {
+  flex: none;
+  width: 12px;
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  user-select: none;
+}
+.tool-edit-line--add .tool-edit-sign {
+  color: var(--live, var(--info));
+}
+.tool-edit-line--del .tool-edit-sign {
+  color: var(--destructive);
+}
+.tool-edit-code {
+  min-width: 0;
+  color: var(--foreground);
+}
+
 /* ── Transcript verbosity strip (POD-376) ────────────────────────────────────
    Three ordered segments, carved into the chassis like every other control in
    the field. The filled segment is the current one — the same grammar as the

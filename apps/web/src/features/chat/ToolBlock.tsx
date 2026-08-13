@@ -1,9 +1,11 @@
+import { parseToolEdit, toolEditMagnitude } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem } from '@podium/model'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { resolveAgainstCwd } from '@/lib/file-path'
 import { cn } from '@/lib/utils'
 import { type ChatBlock, failLine, mcpLabel, resultPreview, toolVerdict } from './chat'
+import { ToolEditDiff } from './ToolEditDiff'
 
 /** How a call NAMES ITSELF in a list: the tool that ran, in the operator's
  *  words rather than the wire's. Shared with the folded run's hover preview
@@ -16,8 +18,9 @@ export function toolCallLabel(item: TranscriptItem): string {
 /** One tool call inside an expanded batch (Flat Field, POD-159): a muted
  *  one-line mono row — verdict glyph, name, input preview, inline file links —
  *  with a failed call's first result line surfaced beneath it. Click toggles
- *  the full result. No outer row/rail/[data-block] — the batch row owns the
- *  layout column and the minimap tick.
+ *  the full result, or the file-edit diff when the call carried one. No outer
+ *  row/rail/[data-block] — the batch row owns the layout column and the
+ *  minimap tick.
  *
  *  POD-376: the row now shows the call's OWN subject rather than only the
  *  agent's description of it, and previews what the call returned. Reaching a
@@ -38,7 +41,9 @@ export function ToolBlock({
   const { item } = block
   const result = block.result ?? item.toolResult
   const verdict = toolVerdict(result)
-  const preview = resultPreview(result)
+  const edit = parseToolEdit(item.toolInputJson)
+  const preview = edit ? undefined : resultPreview(result)
+  const editPreview = edit ? toolEditMagnitude(edit) : undefined
   // Orphan results render as a bare result row; calls render name + input.
   const label = toolCallLabel(item)
   // Bash shows the COMMAND, with the agent's description beneath it — the
@@ -104,17 +109,21 @@ export function ToolBlock({
       {/* What the call returned, one line, without a further click. Suppressed
           for failures (the fail line above already carries the first line) and
           once the full result is open. */}
-      {verdict !== 'err' && !open && preview && (
+      {verdict !== 'err' && !open && (editPreview || preview) && (
         <div className="tool-out">
-          <span className="tool-out-line">{preview.line}</span>
-          {preview.more > 0 && (
+          <span className="tool-out-line">{editPreview ?? preview?.line}</span>
+          {preview && preview.more > 0 && (
             <span className="tool-out-more">
               +{preview.more} {preview.more === 1 ? 'line' : 'lines'}
             </span>
           )}
         </div>
       )}
-      {open && <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>}
+      {open && edit && <ToolEditDiff edit={edit} />}
+      {open && !edit && <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>}
+      {open && edit && verdict === 'err' && result && (
+        <pre className="tool-result-full">{result}</pre>
+      )}
     </div>
   )
 }

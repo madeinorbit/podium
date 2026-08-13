@@ -193,34 +193,38 @@ describe('grokRecordToItems', () => {
         },
       ],
     })
-    expect(items).toEqual([
-      {
-        id: 'call-read',
-        role: 'tool',
-        text: '',
-        toolName: 'Read',
-        toolInput: '/repo/apps/web/src/ChatView.tsx',
-        toolPaths: ['/repo/apps/web/src/ChatView.tsx'],
-        toolUseId: 'call-read',
-      },
-      {
-        id: 'call-grep',
-        role: 'tool',
-        text: '',
-        toolName: 'Grep',
-        toolInput: 'Ran a tool',
-        toolUseId: 'call-grep',
-      },
-      {
-        id: 'call-edit',
-        role: 'tool',
-        text: '',
-        toolName: 'Edit',
-        toolInput: '/repo/packages/transcript/src/grok.ts',
-        toolPaths: ['/repo/packages/transcript/src/grok.ts'],
-        toolUseId: 'call-edit',
-      },
-    ])
+    expect(items).toHaveLength(3)
+    expect(items[0]).toEqual({
+      id: 'call-read',
+      role: 'tool',
+      text: '',
+      toolName: 'Read',
+      toolInput: '/repo/apps/web/src/ChatView.tsx',
+      toolPaths: ['/repo/apps/web/src/ChatView.tsx'],
+      toolUseId: 'call-read',
+    })
+    expect(items[1]).toEqual({
+      id: 'call-grep',
+      role: 'tool',
+      text: '',
+      toolName: 'Grep',
+      toolInput: 'Ran a tool',
+      toolUseId: 'call-grep',
+    })
+    expect(items[2]).toMatchObject({
+      id: 'call-edit',
+      role: 'tool',
+      text: '',
+      toolName: 'Edit',
+      toolInput: '/repo/packages/transcript/src/grok.ts',
+      toolPaths: ['/repo/packages/transcript/src/grok.ts'],
+      toolUseId: 'call-edit',
+    })
+    expect(JSON.parse(items[2]?.toolInputJson ?? '{}')).toMatchObject({
+      kind: 'file-edit',
+      path: '/repo/packages/transcript/src/grok.ts',
+      mode: 'replace',
+    })
   })
 
   it('pairs a later tool_result to the recovered call by tool_call_id', () => {

@@ -50,9 +50,10 @@ export const TranscriptItem = z.object({
    *  lone command reads as its intent rather than its shell; the chat falls back
    *  to `toolInput` when absent. */
   toolTitle: z.string().optional(),
-  /** Full tool input as a JSON string, set only for user-facing prompt tools
-   *  (AskUserQuestion) so the chat can render an interactive question card rather
-   *  than a collapsed tool row. Omitted for ordinary tools to avoid bloat. */
+  /** Full tool input as a JSON string, set only when the renderer needs more
+   *  than the one-line preview: AskUserQuestion (the interactive card) and
+   *  file-edit calls (`kind: "file-edit"` — the unfoldable diff). Omitted for
+   *  ordinary tools to avoid bloat. */
   toolInputJson: z.string().optional(),
   /** Truncated tool result text (set on role 'tool' result items). */
   toolResult: z.string().optional(),

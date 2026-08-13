@@ -59,6 +59,30 @@ describe('opencodePartToItems', () => {
     expect(items[1]).toMatchObject({ role: 'tool', toolResult: 'hello', toolUseId: 'call-1' })
   })
 
+  it('carries a file-edit payload on edit parts', () => {
+    const items = opencodePartToItems(
+      row({
+        partId: 'prt-edit',
+        messageData: JSON.stringify({ role: 'assistant' }),
+        partData: JSON.stringify({
+          type: 'tool',
+          tool: 'edit',
+          callID: 'call-edit',
+          state: {
+            input: { filePath: '/tmp/x.ts', oldString: 'a', newString: 'b' },
+            output: 'ok',
+          },
+        }),
+      }),
+    )
+    expect(items[0]).toMatchObject({ toolName: 'edit', toolUseId: 'call-edit' })
+    expect(JSON.parse(items[0]?.toolInputJson ?? '{}')).toMatchObject({
+      kind: 'file-edit',
+      path: '/tmp/x.ts',
+      mode: 'replace',
+    })
+  })
+
   it('skips reasoning and step markers', () => {
     expect(
       opencodePartToItems(

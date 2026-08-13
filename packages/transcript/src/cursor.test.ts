@@ -31,4 +31,25 @@ describe('cursorRecordToItems', () => {
   it('ignores turn_ended control records', () => {
     expect(cursorRecordToItems({ type: 'turn_ended', status: 'success' })).toEqual([])
   })
+
+  it('carries a file-edit payload on StrReplace', () => {
+    const [item] = cursorRecordToItems({
+      role: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'StrReplace',
+            input: { path: '/tmp/x.ts', old_string: 'a', new_string: 'b' },
+          },
+        ],
+      },
+    })
+    expect(item).toMatchObject({ role: 'tool', toolName: 'StrReplace' })
+    expect(JSON.parse(item?.toolInputJson ?? '{}')).toMatchObject({
+      kind: 'file-edit',
+      path: '/tmp/x.ts',
+      mode: 'replace',
+    })
+  })
 })

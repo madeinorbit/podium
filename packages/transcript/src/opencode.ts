@@ -17,6 +17,7 @@ export type OpencodeMessagePartRow = {
 }
 
 import { toolInputPreview } from './claude'
+import { safeToolEditJsonFromInput } from './tool-edit'
 
 /** Normalize one opencode message+part row into Podium chat transcript items. */
 export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem[] {
@@ -60,6 +61,7 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
       const input = state ? recordField(state, 'input') : undefined
       const output = state ? stringField(state, 'output') : undefined
       const callId = stringField(part, 'callID')
+      const toolInputJson = input ? safeToolEditJsonFromInput(toolName, input) : undefined
       const items: TranscriptItem[] = [
         {
           id: stableId('opencode-tool', `${row.partId}:${toolName}`),
@@ -68,6 +70,7 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
           text: toolName,
           toolName,
           ...(input !== undefined ? { toolInput: toolInputPreview(input) } : {}),
+          ...(toolInputJson ? { toolInputJson } : {}),
           ...(callId ? { toolUseId: callId } : {}),
         },
       ]

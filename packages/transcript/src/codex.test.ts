@@ -253,6 +253,13 @@ describe('codexRecordToItems', () => {
       toolInput: 'packages/transcript/src/codex.ts',
       toolPaths: ['packages/transcript/src/codex.ts'],
     })
+    expect(JSON.parse(items[0]?.toolInputJson ?? '{}')).toMatchObject({
+      kind: 'file-edit',
+      path: 'packages/transcript/src/codex.ts',
+      mode: 'patch',
+      added: 1,
+      removed: 1,
+    })
   })
 
   it('describes command polling and multi-tool orchestration without saying exec', () => {
