@@ -15,20 +15,52 @@ const publishedHeadlessSmoke = readFileSync(
 )
 
 describe('desktop release workflow', () => {
-  it('parses as a GitHub workflow with workflow_dispatch', () => {
+  it('parses as a GitHub workflow triggered by version tags and dispatch', () => {
     const parsed = Bun.YAML.parse(desktopWorkflow) as {
-      on?: { workflow_dispatch?: unknown }
-      jobs?: { publish?: { needs?: string } }
+      on?: { workflow_dispatch?: unknown; push?: { tags?: string[]; branches?: string[] } }
+      jobs?: { publish?: { needs?: string[] } }
     }
     expect(parsed.on?.workflow_dispatch).toBeDefined()
-    expect(parsed.jobs?.publish?.needs).toBe('build')
+    expect(parsed.on?.push?.tags).toEqual(['v*'])
+    // The publish job reads the resolved channel from validate, so it must depend on both.
+    expect(parsed.jobs?.publish?.needs).toEqual(['validate', 'build'])
   })
 
-  it('can only be invoked explicitly for stable or edge', () => {
+  it('releases only from a deliberate act, never from pushing a branch', () => {
+    // [spec:SP-7f2c] desktop artifacts are never built for every push to main. A version tag is a
+    // deliberate cut and does release; a branch push must never reach this workflow.
+    const parsed = Bun.YAML.parse(desktopWorkflow) as {
+      on?: { push?: { branches?: string[] } }
+    }
+    expect(parsed.on?.push?.branches).toBeUndefined()
+    expect(headlessWorkflow).not.toContain('branches:')
     expect(desktopWorkflow).toContain('workflow_dispatch:')
-    expect(desktopWorkflow).not.toMatch(/^\s+push:/m)
     expect(desktopWorkflow).toContain('- edge')
     expect(desktopWorkflow).toContain('- stable')
+  })
+
+  it('derives the channel from the tag on both halves of a release', () => {
+    // One tag drives headless and desktop. If the two disagreed about which channel an
+    // -edge. tag means, a release would half-land: edge desktop assets uploaded into a
+    // freshly minted stable release, or worse.
+    expect(desktopWorkflow).toMatch(/\*-edge\.\*\)\s+channel=edge/)
+    expect(desktopWorkflow).toMatch(/^\s+\*\)\s+channel=stable/m)
+    expect(headlessWorkflow).toContain("contains(github.ref_name, '-edge.')")
+    // Edge assets live under the fixed `edge` tag because shipped updaters have that URL baked in.
+    expect(headlessWorkflow).toContain(
+      "PODIUM_RELEASE_TAG: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || github.ref_name }}",
+    )
+    // A prerelease tag naming no channel is a typo, not a stable release.
+    expect(desktopWorkflow).toContain('is a prerelease but names no channel')
+    // The tag and the version the updater advertises must agree.
+    expect(desktopWorkflow).toContain('does not match package.json version')
+  })
+
+  it('waits for the release the headless workflow creates from the same tag', () => {
+    // Both workflows start on one tag push. Desktop must not throw away a notarized build
+    // because it reached the upload before the release existed.
+    expect(desktopWorkflow).toContain('waiting for release $target_tag to exist')
+    expect(desktopWorkflow).toContain('gh release upload "$target_tag"')
   })
 
   it('builds Linux and Apple Silicon macOS with signing before an atomic upload', () => {
@@ -75,12 +107,12 @@ describe('desktop release workflow', () => {
     expect(upload).toBeGreaterThan(prepare)
   })
 
-  it('publishes stable from version tags and edge only from explicit dispatch', () => {
+  it('publishes both channels from version tags, and edge from dispatch', () => {
     expect(headlessWorkflow).toContain("tags: ['v*']")
     expect(headlessWorkflow).toContain('workflow_dispatch:')
     expect(headlessWorkflow).not.toContain('branches: [main]')
     expect(headlessWorkflow).toContain(
-      "github.event_name == 'workflow_dispatch' && 'edge' || 'stable'",
+      "PODIUM_RELEASE_CHANNEL: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || 'stable' }}",
     )
     expect(headlessWorkflow).toContain('--channel "$PODIUM_RELEASE_CHANNEL"')
     expect(headlessWorkflow).toContain('published-smoke')

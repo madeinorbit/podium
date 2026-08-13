@@ -9,12 +9,29 @@ The desktop shell reads `updateChannel` from `$PODIUM_STATE_DIR/config.json`, fa
 `~/.podium/config.json` and then to `stable`. Debug builds made by `tauri dev` do not contact
 either production feed or show the updater prompt. Development is not a release channel.
 
-Desktop builds are explicit promotions. Pushing `main` continues to refresh only the headless
-assets in the rolling `edge` release; it does not build Tauri. Pushing a `v*` tag creates only
-the stable headless release. The manually dispatched **desktop release** workflow adds the
-signed AppImage, detached signature, and `latest.json` to one of those existing releases.
-The same explicit promotion also builds Apple Silicon macOS on Blacksmith and publishes a DMG,
-the signed `.app.tar.gz` updater bundle, and a shared multi-platform `latest.json`.
+## Releasing is one tag push
+
+Pushing a version tag releases both halves — headless assets and the desktop bundles — to the
+channel the tag names:
+
+| Tag | Channel | Assets land in |
+| --- | --- | --- |
+| `v0.2.0` | stable | a new `v0.2.0` release |
+| `v0.2.0-edge.1` | edge | the rolling `edge` release |
+
+A prerelease tag that names no channel (`v0.2.0-rc1`) is refused rather than guessed at.
+
+This is still an explicit promotion, not a per-push build [spec:SP-7f2c]: pushing `main` refreshes
+nothing desktop-side, and only a deliberate tag releases. The **desktop release** workflow can also
+still be dispatched by hand to re-promote a commit without minting a new tag.
+
+The tag and the root `package.json` version must agree — the workflow checks and refuses a
+mismatch, because the tag names the release while `package.json` names the version the updater
+advertises, and a disagreement publishes a manifest nobody can install.
+
+Both workflows start from the same tag push. The desktop half waits for the release the headless
+half creates rather than failing on the ordering, so a notarized build is never discarded over a
+few seconds of race.
 
 ## Version and signing prerequisites
 
@@ -67,31 +84,39 @@ already-notarized releases keep working. Renew before it lapses — the certific
 
 Only Apple Silicon macOS is built. Intel Macs have no macOS build on either channel.
 
-## Cut an edge desktop release
+## Cut an edge release
 
-1. Set the intended edge SemVer in the root `package.json`, merge it to `main`, and wait for the
-   normal headless edge workflow to finish.
-2. In GitHub Actions, open **desktop release**, choose **Run workflow** on `main`, and select
-   `channel=edge`. Leave `release_tag` empty. Add optional `release_notes`; begin the notes with
-   `CRITICAL:` only when clients must receive the existing non-dismissible required-update
-   prompt.
-3. The workflow builds Linux x86_64 and macOS Apple Silicon in parallel. Only after both builds
-   succeed does it deterministically regenerate and validate one `latest.json` against both
-   detached signatures and the rolling `edge` URLs. It uploads the AppImage, macOS DMG, macOS
-   updater archive, signatures, and manifest without replacing the headless assets.
+1. Set the edge SemVer in the root `package.json` (`0.3.0-edge.1`, then `0.3.0-edge.2`, …) and
+   merge it to `main`.
+2. Tag that commit and push the tag:
+   ```bash
+   git tag v0.3.0-edge.1 && git push origin v0.3.0-edge.1
+   ```
 
-Later pushes to `main` refresh the headless edge files in place and preserve this promoted
-desktop version until another explicit desktop edge promotion.
+Both workflows run. The desktop half builds Linux x86_64 and macOS Apple Silicon in parallel, and
+only after both succeed does it deterministically regenerate and validate one `latest.json`
+against both detached signatures and the rolling `edge` URLs. It uploads the AppImage, macOS DMG,
+macOS updater archive, signatures, and manifest without replacing the headless assets.
 
-## Cut a stable desktop release
+Later pushes to `main` refresh the headless edge files in place and preserve this desktop version
+until the next edge tag.
 
-1. Set the stable SemVer in the root `package.json`, merge it, create the matching tag
-   (`v0.2.0` for version `0.2.0`), and push the tag.
-2. Wait for the tag-triggered headless workflow to create the stable GitHub release.
-3. Dispatch **desktop release** with `channel=stable` and `release_tag=v0.2.0`. The workflow
-   checks out that immutable tag and refuses a missing or mismatched tag before the desktop
-   build. Optional `release_notes` are embedded in the updater manifest; a leading `CRITICAL:`
-   keeps the established required-update behavior.
+## Cut a stable release
+
+1. Set the stable SemVer in the root `package.json` and merge it.
+2. Tag and push:
+   ```bash
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+
+The workflow builds that immutable tag and refuses a tag that disagrees with `package.json`.
+
+## Release notes and required updates
+
+`release_notes` is a **dispatch-only** input, so a tag-driven release ships no updater notes. When
+a release needs them — in particular the `CRITICAL:` prefix that triggers the non-dismissible
+required-update prompt — dispatch **desktop release** by hand for that release instead of tagging,
+selecting the channel and, for stable, the `release_tag`.
 
 ## Existing-install bridge
 

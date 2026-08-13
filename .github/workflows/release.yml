@@ -1,15 +1,18 @@
 name: release
 on:
   push:
-    tags: ['v*']              # → stable headless assets only
+    tags: ['v*']              # v0.2.0 → stable; v0.2.0-edge.1 → rolling edge
   workflow_dispatch:          # → rolling edge headless assets only
 permissions:
   contents: write
+# An -edge. prerelease tag publishes to the rolling `edge` release rather than minting a stable
+# one, so the same tag drives the headless and desktop halves of one release to the same channel.
+# Edge assets always live under the fixed `edge` tag — that URL is baked into shipped updaters.
 env:
-  PODIUM_RELEASE_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && 'edge' || 'stable' }}
-  PODIUM_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && 'edge' || github.ref_name }}
+  PODIUM_RELEASE_CHANNEL: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || 'stable' }}
+  PODIUM_RELEASE_TAG: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || github.ref_name }}
 concurrency:
-  group: headless-release-${{ github.event_name == 'workflow_dispatch' && 'edge' || github.ref_name }}
+  group: headless-release-${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || github.ref_name }}
   cancel-in-progress: false
 jobs:
   build:

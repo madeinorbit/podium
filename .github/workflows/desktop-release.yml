@@ -1,7 +1,14 @@
 name: desktop release
 
 # Desktop releases are explicit promotions, never a side effect of pushing main. [spec:SP-7f2c]
+# Pushing a version tag IS that explicit promotion — one deliberate act, not a per-push build —
+# so it releases without a second manual dispatch. The tag picks the channel:
+#   v0.2.0          → stable
+#   v0.2.0-edge.1   → edge
+# Dispatch remains for re-promoting a commit without minting a new tag.
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       channel:
@@ -24,29 +31,77 @@ permissions:
   contents: write
 
 concurrency:
-  group: desktop-release-${{ inputs.channel }}
+  group: desktop-release-${{ github.event_name == 'workflow_dispatch' && inputs.channel || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   validate:
     runs-on: blacksmith-2vcpu-ubuntu-2204
+    # Resolved once here and consumed by every later job. Deriving the channel in each job's
+    # `if:`/`env:` expressions instead invites the classic Actions ternary bug: an empty input
+    # is falsy, so `dispatch && inputs.release_tag || github.ref_name` silently yields "main"
+    # for an edge dispatch. Shell, run once, is legible and testable.
+    outputs:
+      channel: ${{ steps.resolve.outputs.channel }}
+      stable_tag: ${{ steps.resolve.outputs.stable_tag }}
+      checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
     steps:
+      - name: Resolve channel and ref
+        id: resolve
+        env:
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            channel="$INPUT_CHANNEL"
+            stable_tag="$INPUT_RELEASE_TAG"
+            # Stable builds the immutable release tag; edge builds the ref selected in the UI,
+            # making the promoted source commit explicit.
+            if [ "$channel" = stable ]; then checkout_ref="$stable_tag"; else checkout_ref="$GITHUB_REF"; fi
+          else
+            # A prerelease tag naming the edge channel promotes to edge; every other version tag
+            # is a stable cut. Anything else is a tag we do not know how to release.
+            case "$GITHUB_REF_NAME" in
+              *-edge.*) channel=edge;   stable_tag="" ;;
+              *-*)      echo "tag $GITHUB_REF_NAME is a prerelease but names no channel" >&2; exit 1 ;;
+              *)        channel=stable; stable_tag="$GITHUB_REF_NAME" ;;
+            esac
+            checkout_ref="$GITHUB_REF"
+          fi
+          if [ "$channel" = stable ] && [ -z "$stable_tag" ]; then
+            echo "stable release needs a vX.Y.Z tag" >&2; exit 1
+          fi
+          if [ "$channel" != stable ] && [ "$channel" != edge ]; then
+            echo "unknown channel '$channel'" >&2; exit 1
+          fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "stable_tag=$stable_tag" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
+          echo "releasing $channel from $checkout_ref"
       - uses: actions/checkout@v4
         with:
-          # Stable builds the immutable release tag. Edge builds the ref selected in the
-          # workflow-dispatch UI, making the promoted source commit explicit.
-          ref: ${{ inputs.channel == 'stable' && inputs.release_tag || github.ref }}
+          ref: ${{ steps.resolve.outputs.checkout_ref }}
       - uses: useblacksmith/setup-bun@v1
         with: { bun-version: '1.3.14' }
       - name: Validate release selection
         env:
-          CHANNEL: ${{ inputs.channel }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: >-
-          bun scripts/desktop-release.ts
-          --validate-only
-          --channel "$CHANNEL"
-          --tag "$RELEASE_TAG"
+          CHANNEL: ${{ steps.resolve.outputs.channel }}
+          RELEASE_TAG: ${{ steps.resolve.outputs.stable_tag }}
+          # A tag-driven release must agree with the version it claims to ship: the tag names the
+          # release, package.json names what the updater sees. Disagreement means a manifest that
+          # advertises a version nobody can install.
+          TAG_NAME: ${{ github.event_name == 'push' && github.ref_name || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TAG_NAME" ]; then
+            version="$(bun -e 'console.log(JSON.parse(await Bun.file("package.json").text()).version)')"
+            if [ "$TAG_NAME" != "v$version" ]; then
+              echo "tag $TAG_NAME does not match package.json version $version" >&2
+              exit 1
+            fi
+          fi
+          bun scripts/desktop-release.ts --validate-only --channel "$CHANNEL" --tag "$RELEASE_TAG"
 
   build:
     needs: validate
@@ -71,7 +126,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.channel == 'stable' && inputs.release_tag || github.ref }}
+          ref: ${{ needs.validate.outputs.checkout_ref }}
       - uses: useblacksmith/setup-bun@v1
         with: { bun-version: '1.3.14' }
       - name: Install Linux desktop build dependencies
@@ -167,12 +222,12 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: build
+    needs: [validate, build]
     runs-on: blacksmith-2vcpu-ubuntu-2204
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.channel == 'stable' && inputs.release_tag || github.ref }}
+          ref: ${{ needs.validate.outputs.checkout_ref }}
       - uses: useblacksmith/setup-bun@v1
         with: { bun-version: '1.3.14' }
       - name: Collect promoted desktop bundles
@@ -182,8 +237,8 @@ jobs:
           path: dist-desktop-input
       - name: Prepare and validate static updater manifest
         env:
-          CHANNEL: ${{ inputs.channel }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          CHANNEL: ${{ needs.validate.outputs.channel }}
+          RELEASE_TAG: ${{ needs.validate.outputs.stable_tag }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
         run: >-
           bun scripts/desktop-release.ts
@@ -194,10 +249,20 @@ jobs:
       - name: Upload promoted desktop assets
         env:
           GH_TOKEN: ${{ github.token }}
-          CHANNEL: ${{ inputs.channel }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          CHANNEL: ${{ needs.validate.outputs.channel }}
+          RELEASE_TAG: ${{ needs.validate.outputs.stable_tag }}
         run: |
+          set -euo pipefail
           target_tag="$RELEASE_TAG"
           if [ "$CHANNEL" = "edge" ]; then target_tag=edge; fi
+          # The same tag push starts the headless release workflow, which is what CREATES this
+          # release. Desktop builds far longer than headless, so the release is normally already
+          # there — but "normally" is not a guarantee, and failing here would throw away a
+          # notarized build over a few seconds of ordering.
+          for attempt in $(seq 1 60); do
+            if gh release view "$target_tag" >/dev/null 2>&1; then break; fi
+            echo "waiting for release $target_tag to exist (attempt $attempt/60)"
+            sleep 30
+          done
           gh release view "$target_tag" >/dev/null
           gh release upload "$target_tag" dist-desktop/* --clobber
