@@ -196,7 +196,7 @@ export function ResizableColumn({
         // half its width and a clip here would eat that half.
         <div className="absolute inset-0 overflow-hidden">
           <div
-            className={cn('absolute inset-y-0 flex', handleSide === 'right' ? 'right-0' : 'left-0')}
+            className={cn('absolute inset-y-0 flex', handleSide === 'right' ? 'left-0' : 'right-0')}
             style={{ width }}
           >
             {children}
