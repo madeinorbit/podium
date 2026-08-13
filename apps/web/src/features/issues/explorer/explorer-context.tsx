@@ -47,7 +47,11 @@ export interface IssueExplorerNav {
   setTab: (tab: ExplorerTab) => void
   query: string
   setQuery: (query: string) => void
+  listScrollTop: (scope: string) => number
+  rememberListScrollTop: (scope: string, top: number) => void
 }
+
+export const EXPLORER_SCROLL_CACHE_LIMIT = 8
 
 const noop = (): void => undefined
 const IssueExplorerContext = createContext<IssueExplorerNav>({
@@ -62,6 +66,8 @@ const IssueExplorerContext = createContext<IssueExplorerNav>({
   setTab: noop,
   query: '',
   setQuery: noop,
+  listScrollTop: () => 0,
+  rememberListScrollTop: noop,
 })
 
 export function IssueExplorerProvider({ children }: { children: ReactNode }): ReactElement {
@@ -105,6 +111,29 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
 
   const [tab, setTab] = useState<ExplorerTab | null>(null)
   const [query, setQuery] = useState('')
+  const listScrollPositions = useRef(new Map<string, number>())
+  const listScrollTop = useCallback(
+    (scope: string): number => {
+      const positions = listScrollPositions.current
+      const top = positions.get(scope) ?? 0
+      if (positions.has(scope)) {
+        positions.delete(scope)
+        positions.set(scope, top)
+      }
+      return top
+    },
+    [],
+  )
+  const rememberListScrollTop = useCallback((scope: string, top: number): void => {
+    const positions = listScrollPositions.current
+    positions.delete(scope)
+    positions.set(scope, top)
+    while (positions.size > EXPLORER_SCROLL_CACHE_LIMIT) {
+      const oldest = positions.keys().next().value as string | undefined
+      if (oldest === undefined) break
+      positions.delete(oldest)
+    }
+  }, [])
 
   const push = useCallback((id: string): void => {
     setStack((prev) => pushLevel(prev, id))
@@ -135,8 +164,10 @@ export function IssueExplorerProvider({ children }: { children: ReactNode }): Re
       setTab,
       query,
       setQuery,
+      listScrollTop,
+      rememberListScrollTop,
     }),
-    [stack, motion, seq, push, popTo, back, tab, query],
+    [stack, motion, seq, push, popTo, back, tab, query, listScrollTop, rememberListScrollTop],
   )
   return <IssueExplorerContext.Provider value={value}>{children}</IssueExplorerContext.Provider>
 }

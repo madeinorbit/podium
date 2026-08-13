@@ -18,7 +18,10 @@ import type { ClientSwitchTrace } from '@podium/protocol'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IssuesView } from '@/features/issues/IssuesView'
-import { ISSUE_RENDER_CHUNK } from '@/features/issues/progressive-render'
+import {
+  ISSUE_VIRTUAL_MAX_ITEMS,
+  ISSUE_VIRTUAL_SIZE_CACHE,
+} from '@/features/issues/use-bounded-virtual-list'
 
 /** Generated/anonymized Ludovico cardinalities captured in POD-981/POD-991. */
 const SCALE = {
@@ -157,7 +160,7 @@ afterEach(() => {
 })
 
 describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP-d562]', () => {
-  it('bounds initial Tasks DOM and preserves progressive reveal plus full-order navigation', () => {
+  it('bounds Tasks DOM while preserving full-order navigation', () => {
     const issueReads: Counter = { gets: 0, ownKeys: 0 }
     const issues = Array.from({ length: SCALE.issues }, (_, index) =>
       counted(issueAt(index), issueReads),
@@ -190,28 +193,27 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     const initialButtons = container.querySelectorAll('button').length
     const initialCards = container.querySelectorAll('[data-issue-id]').length
     const initialIssueReads = issueReads.gets
-    const boundedInitialCards = ISSUE_STAGES.length * ISSUE_RENDER_CHUNK
+    // Each grouped stage owns its own bounded window; report the aggregate ceiling
+    // explicitly so the DOM budget does not imply one global 36-row window.
+    const aggregateGroupedListBound = ISSUE_STAGES.length * ISSUE_VIRTUAL_MAX_ITEMS
 
-    expect(ISSUE_RENDER_CHUNK).toBe(16)
-    expect(initialCards).toBe(boundedInitialCards)
+    expect(ISSUE_VIRTUAL_MAX_ITEMS).toBe(36)
+    expect(ISSUE_VIRTUAL_SIZE_CACHE).toBe(128)
+    expect(initialCards).toBeLessThanOrEqual(aggregateGroupedListBound)
     expect(initialCards).toBeLessThan(SCALE.issues)
     expect(initialElements).toBeLessThanOrEqual(BUDGET.tasksInitialElements)
     expect(initialButtons).toBeLessThanOrEqual(BUDGET.tasksInitialButtons)
     expect(initialIssueReads).toBeLessThanOrEqual(BUDGET.tasksInitialIssueReads)
-    const revealSentinels = container.querySelectorAll('[data-testid="column-more"]')
-    expect(revealSentinels.length).toBeGreaterThan(0)
-    const revealedCards = initialCards
+    const windowedCards = initialCards
 
     // Shift-click the last initially visible card, then move to the first hidden position in
     // the next stage. Full-order navigation must mount that hidden target.
-    const selected = container.querySelectorAll<HTMLElement>('[data-issue-id]')[
-      ISSUE_RENDER_CHUNK - 1
-    ] as HTMLElement
+    const selected = container.querySelectorAll<HTMLElement>('[data-issue-id]')[15] as HTMLElement
     expect(selected).toBeDefined()
     fireEvent.click(selected, { shiftKey: true })
     fireEvent.keyDown(window, { key: 'ArrowDown' })
     const keyboardCards = container.querySelectorAll('[data-issue-id]').length
-    expect(keyboardCards).toBe(revealedCards + 1)
+    expect(keyboardCards).toBeLessThanOrEqual(aggregateGroupedListBound + 1)
     const focused = container.querySelector<HTMLElement>('[data-issue-id].ring-2')
     expect(focused).not.toBeNull()
     const focusedId = focused?.dataset.issueId
@@ -226,7 +228,8 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
       initialElements,
       initialButtons,
       initialCards,
-      revealedCards,
+      windowedCards,
+      aggregateGroupedListBound,
       keyboardCards,
       initialIssuePropertyReads: initialIssueReads,
       renderMs: Math.round(renderMs * 10) / 10,

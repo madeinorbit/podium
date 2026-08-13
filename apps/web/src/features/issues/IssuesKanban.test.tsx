@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
-import { Profiler, act, type JSX, StrictMode } from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+
 import type { IssueStage } from '@podium/model'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, type JSX, Profiler, StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { DEFAULT_DISPLAY } from './issues-display'
 import { IssuesKanban, type IssuesKanbanProps } from './IssuesKanban'
+import { DEFAULT_DISPLAY } from './issues-display'
+import { ISSUE_VIRTUAL_MAX_ITEMS } from './use-bounded-virtual-list'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -207,18 +209,34 @@ describe('IssuesKanban pointer drag lifecycle', () => {
 })
 
 describe('IssuesKanban large-board render boundary', () => {
+  it('restores and reports each column scroll position independently', () => {
+    const props = boardProps({
+      scrollTops: { backlog: 480, review: 920 },
+      onScrollTop: vi.fn(),
+    })
+    render(<IssuesKanban {...props} />)
+    const backlog = document.querySelector('[data-kanban-column="backlog"]') as HTMLElement
+    const review = document.querySelector('[data-kanban-column="review"]') as HTMLElement
+    const backlogScroll = backlog.querySelector('[data-testid="column-scroll"]') as HTMLElement
+    const reviewScroll = review.querySelector('[data-testid="column-scroll"]') as HTMLElement
+
+    expect(backlogScroll.scrollTop).toBe(480)
+    expect(reviewScroll.scrollTop).toBe(920)
+    backlogScroll.scrollTop = 640
+    fireEvent.scroll(backlogScroll)
+    expect(props.onScrollTop).toHaveBeenLastCalledWith('backlog', 640)
+  })
+
   it('moves the proxy for every sample but commits only for lifecycle and a changed drop target', () => {
     const columns = STAGES.map((stage, stageIndex) => ({
       stage,
-      issues: Array.from({ length: 40 }, (_, index) =>
+      issues: Array.from({ length: stageIndex < 2 ? 113 : 112 }, (_, index) =>
         issue(`${stage}-${index}`, stage, stageIndex * 100 + index),
       ),
     }))
     const allIssues = columns.flatMap((column) => column.issues)
-    // Selecting each tail reveals all 240 cards, exercising the memo boundary
-    // against a genuinely mounted large board instead of the 16-card prefix.
-    const selected = columns.map((column) => column.issues.at(-1)!.id as string)
-    const props = boardProps({ columns, allIssues, selected })
+    expect(allIssues).toHaveLength(674)
+    const props = boardProps({ columns, allIssues })
     let commits = 0
     const tree = (): JSX.Element => (
       <Profiler
@@ -231,10 +249,18 @@ describe('IssuesKanban large-board render boundary', () => {
       </Profiler>
     )
     render(tree())
-    expect(document.querySelectorAll('[data-issue-id]')).toHaveLength(240)
+    const scrollColumns = screen.getAllByTestId('column-scroll')
+    for (const column of scrollColumns) {
+      Object.defineProperty(column, 'clientHeight', { configurable: true, value: 520 })
+      column.scrollTop = 4_000
+      fireEvent.scroll(column)
+    }
+    act(() => flushFrame())
+    const mountedCards = document.querySelectorAll('[data-issue-id]').length
+    expect(mountedCards).toBeLessThanOrEqual(STAGES.length * ISSUE_VIRTUAL_MAX_ITEMS)
     commits = 0
 
-    const sourceId = 'backlog-0'
+    const sourceId = 'backlog-40'
     const review = document.querySelector('[data-kanban-column="review"]') as HTMLElement
     elementAtPoint.mockReturnValue(review)
     fireEvent(dragHandle(sourceId), pointer('pointerdown', 10, 10))
@@ -252,10 +278,13 @@ describe('IssuesKanban large-board render boundary', () => {
     fireEvent(window, pointer('pointerup', 320, 330))
 
     console.log(
-      `[POD-850 large board] mountedCards=240 pointerSamples=300 commits=${commits} ` +
-        'expected=lifecycle+changed-drop-target',
+      `[POD-850/POD-853 large board] fixture=674 mountedCards=${mountedCards} ` +
+        `bound=${STAGES.length * ISSUE_VIRTUAL_MAX_ITEMS} pointerSamples=300 commits=${commits} ` +
+        'expected=lifecycle+window-pin+changed-drop-target',
     )
-    expect(commits).toBeLessThanOrEqual(3)
+    // Windowing adds one lifecycle commit while the active drag source becomes
+    // a retention pin. Pointer samples themselves still add zero commits.
+    expect(commits).toBeLessThanOrEqual(4)
     expect(props.onMoveIssue).toHaveBeenCalledWith(sourceId, 'review')
   }, 15_000)
 })

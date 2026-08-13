@@ -20,11 +20,11 @@
  *    opens at the index the drop will ACTUALLY produce — see `plannedDropIndex`,
  *    which simulates the sort rather than following the cursor.
  *
- * 3. THE COLUMN FILLS ITSELF. "Show 25 more tasks (115 remaining)" was a button
- *    between the operator and their own backlog. A sentinel at the foot of the
- *    column advances the same `progressiveRenderLimit` as it scrolls into view,
- *    so the bound still exists and focus/selection are still force-mounted — the
- *    click is what went.
+ * 3. THE COLUMN RETAINS A WINDOW. A full-height spacer keeps native scrolling
+ *    and each column's position, while at most 36 ordinary cards remain mounted.
+ *    Variable heights are measured, keyboard focus and an active drag source
+ *    are pinned through their boundary render, and no trip down a long column
+ *    grows the component tree for the rest of the board's lifetime.
  */
 import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
@@ -35,7 +35,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   RefObject,
 } from 'react'
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CardBoundary } from '@/app/CardBoundary'
 import type { IssueViewModel } from '@/app/store'
@@ -48,11 +48,7 @@ import { STAGE_LABELS } from './issue-card'
 import { StageGlyph } from './issue-glyphs'
 import type { EpicProgress, IssuesDisplay, IssuesOrdering } from './issues-display'
 import { dropTargetStage, passedDragThreshold, plannedDropIndex } from './kanban-dnd'
-import {
-  ISSUE_RENDER_CHUNK,
-  nextProgressiveRenderLimit,
-  progressiveRenderLimit,
-} from './progressive-render'
+import { useBoundedVirtualList } from './use-bounded-virtual-list'
 
 export interface IssuesKanbanProps {
   columns: { stage: IssueStage; issues: IssueViewModel[] }[]
@@ -69,6 +65,8 @@ export interface IssuesKanbanProps {
   selected: string[]
   onToggleSelect: (id: IssueId) => void
   onContextMenu: (id: IssueId, event: ReactMouseEvent) => void
+  scrollTops?: Partial<Record<IssueStage, number>>
+  onScrollTop?: (stage: IssueStage, top: number) => void
 }
 
 /** Live drag, or null. Held by the board so the proxy, the tinted column and the
@@ -325,6 +323,8 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
           onToggleSelect={props.onToggleSelect}
           onContextMenu={props.onContextMenu}
           onDragStart={onDragStart}
+          initialScrollTop={props.scrollTops?.[stage] ?? 0}
+          onScrollTop={props.onScrollTop}
         />
       ))}
       {drag && (
@@ -425,6 +425,8 @@ const IssueColumn = memo(function IssueColumn({
   onToggleSelect,
   onContextMenu,
   onDragStart,
+  initialScrollTop,
+  onScrollTop,
 }: {
   stage: IssueStage
   issues: IssueViewModel[]
@@ -444,46 +446,29 @@ const IssueColumn = memo(function IssueColumn({
   onToggleSelect: (id: IssueId) => void
   onContextMenu: (id: IssueId, event: ReactMouseEvent) => void
   onDragStart: (event: ReactPointerEvent, issue: IssueViewModel) => void
+  initialScrollTop: number
+  onScrollTop?: (stage: IssueStage, top: number) => void
 }): JSX.Element {
-  const scopeKey = issues.map((issue) => issue.id).join('\0')
-  const scopeRef = useRef({ key: scopeKey, version: 0 })
-  if (scopeRef.current.key !== scopeKey) {
-    scopeRef.current = { key: scopeKey, version: scopeRef.current.version + 1 }
-  }
-  const scopeVersion = scopeRef.current.version
-  const [reveal, setReveal] = useState({ scopeVersion, count: ISSUE_RENDER_CHUNK })
-  const revealed = reveal.scopeVersion === scopeVersion ? reveal.count : ISSUE_RENDER_CHUNK
-  const requiredIds = new Set(selectedIds)
-  if (focusId) requiredIds.add(focusId)
-  const limit = progressiveRenderLimit(
-    issues.map((issue) => issue.id),
-    revealed,
-    requiredIds,
-  )
-  const visibleIssues = issues.slice(0, limit)
-  const remaining = issues.length - limit
-
-  // Scroll-driven reveal: the sentinel sits under the last mounted card, so
-  // reaching the foot of the column extends it by one chunk. No button, and the
-  // bound is unchanged — a 140-card column still mounts 16 at a time.
-  const sentinel = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    const node = sentinel.current
-    if (!node || remaining <= 0) return
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) {
-        setReveal((cur) => ({
-          scopeVersion,
-          count: nextProgressiveRenderLimit(
-            cur.scopeVersion === scopeVersion ? cur.count : ISSUE_RENDER_CHUNK,
-            issues.length,
-          ),
-        }))
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const restoredRef = useRef(false)
+  const setScrollRef = useCallback(
+    (node: HTMLDivElement | null): void => {
+      scrollRef.current = node
+      if (node && !restoredRef.current) {
+        restoredRef.current = true
+        node.scrollTop = initialScrollTop
       }
-    })
-    io.observe(node)
-    return () => io.disconnect()
-  }, [remaining, scopeVersion, issues.length])
+    },
+    [initialScrollTop],
+  )
+  const issueIds = useMemo(() => issues.map((issue) => issue.id), [issues])
+  const virtual = useBoundedVirtualList({
+    keys: issueIds,
+    scrollRef,
+    estimateSize: 92,
+    gap: 10,
+    pinnedKeys: [focusId, draggedIssueId],
+  })
 
   const label = STAGE_LABELS[stage]
   const over = drop
@@ -533,44 +518,65 @@ const IssueColumn = memo(function IssueColumn({
           card polish can correct. The sidebar's work list, the app's other tall
           column of rows, already scrolls without a bar; the column keeps its
           own "N more" foot as the depth cue. The 15px it gives back goes to the
-          cards, which is why titles now fit on one line more often. */}
-      <div className="scroll-none flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 pt-3 pb-6">
+          cards, which is why titles now fit on one line more often. The spacer
+          preserves native scroll range while its absolute children stay bounded. */}
+      <div
+        ref={setScrollRef}
+        className="scroll-none min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6"
+        data-testid="column-scroll"
+        onScroll={(event) => onScrollTop?.(stage, event.currentTarget.scrollTop)}
+      >
         {issues.length === 0 && !over ? (
           <EmptyColumn label={label} onCreate={createInStage} />
         ) : (
-          visibleIssues.map((issue, index) => (
-            <Fragment key={issue.id}>
-              {over?.index === index && <DropLine />}
-              <CardBoundary resetKey={issue.id} label="issue card">
-                <IssueCard
-                  issue={issue}
-                  sessions={sessionsByIssueId.get(issue.id) ?? []}
-                  badges={badges}
-                  stageCounts={stageCounts.get(issue.id)}
-                  progress={epicProgress.get(issue.id) ?? null}
-                  focused={focusId === issue.id}
-                  selected={selectedIds.has(issue.id)}
-                  dragging={draggedIssueId === issue.id}
-                  now={now}
-                  onOpen={onOpen}
-                  {...(stage === 'proposed' ? { onApprove } : {})}
-                  onToggleSelect={onToggleSelect}
-                  onContextMenu={onContextMenu}
-                  onDragStart={onDragStart}
-                />
-              </CardBoundary>
-            </Fragment>
-          ))
-        )}
-        {over && over.index >= visibleIssues.length && <DropLine />}
-        {remaining > 0 && (
-          <div
-            ref={sentinel}
-            className="flex-none py-3 text-center font-mono shell-type-micro text-text-faint"
-            data-testid="column-more"
+          <ul
+            className="relative m-0 list-none p-0"
+            style={{ height: virtual.totalSize }}
+            aria-label={`${label} tasks`}
           >
-            {remaining} more
-          </div>
+            {virtual.items.map((item) => {
+              const issue = issues[item.index] as IssueViewModel
+              return (
+                <li
+                  key={issue.id}
+                  ref={virtual.measureRef(issue.id)}
+                  className="absolute inset-x-0 top-0"
+                  style={{ transform: `translateY(${item.start}px)` }}
+                  aria-posinset={item.index + 1}
+                  aria-setsize={issues.length}
+                  data-virtual-index={item.index}
+                >
+                  <CardBoundary resetKey={issue.id} label="issue card">
+                    <IssueCard
+                      issue={issue}
+                      sessions={sessionsByIssueId.get(issue.id) ?? []}
+                      badges={badges}
+                      stageCounts={stageCounts.get(issue.id)}
+                      progress={epicProgress.get(issue.id) ?? null}
+                      focused={focusId === issue.id}
+                      selected={selectedIds.has(issue.id)}
+                      dragging={draggedIssueId === issue.id}
+                      now={now}
+                      onOpen={onOpen}
+                      {...(stage === 'proposed' ? { onApprove } : {})}
+                      onToggleSelect={onToggleSelect}
+                      onContextMenu={onContextMenu}
+                      onDragStart={onDragStart}
+                    />
+                  </CardBoundary>
+                </li>
+              )
+            })}
+            {over && (
+              <li
+                className="pointer-events-none absolute inset-x-0 top-0 z-10"
+                style={{ transform: `translateY(${virtual.offsetForIndex(over.index)}px)` }}
+                aria-hidden="true"
+              >
+                <DropLine />
+              </li>
+            )}
+          </ul>
         )}
       </div>
     </div>

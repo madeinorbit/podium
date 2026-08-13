@@ -4,13 +4,13 @@ import type { SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Search, X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { DOCK_ROW, DOCK_STAMP } from '../IssueCompactControls'
 import { issueIdTitle } from '../issue-card'
 import { StageGlyph } from '../issue-glyphs'
-import { ISSUE_RENDER_CHUNK, nextProgressiveRenderLimit } from '../progressive-render'
+import { useBoundedVirtualList } from '../use-bounded-virtual-list'
 import { useIssueExplorer } from './explorer-context'
 import { defaultTab, EXPLORER_TABS, explorerCounts, explorerRows } from './explorer-list'
 
@@ -23,10 +23,20 @@ import { defaultTab, EXPLORER_TABS, explorerCounts, explorerRows } from './explo
  * half-visible tab reads as more to scroll instead of as a layout that ran out.
  */
 export function IssueExplorerList(): JSX.Element {
-  const { tab: pickedTab, setTab, query, setQuery, push } = useIssueExplorer()
+  const {
+    tab: pickedTab,
+    setTab,
+    query,
+    setQuery,
+    push,
+    listScrollTop,
+    rememberListScrollTop,
+  } = useIssueExplorer()
   const sessions = useStoreSelector((s) => s.sessions)
   const issues = useReplicaIssues()
   const inputRef = useRef<HTMLInputElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
 
   const counts = useMemo(() => explorerCounts(issues, sessions), [issues, sessions])
   // Until the operator picks a bucket, open on the first one with anything in
@@ -64,13 +74,20 @@ export function IssueExplorerList(): JSX.Element {
     return map
   }, [issues, sessions])
 
-  // A stage in this repo can hold several hundred tasks, so the list mounts a
-  // bounded prefix and says what it is holding back — the same progressive
-  // boundary the board uses [spec:SP-d562], not a silent truncation.
-  const [revealed, setRevealed] = useState(ISSUE_RENDER_CHUNK * 3)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new list starts at the top
-  useEffect(() => setRevealed(ISSUE_RENDER_CHUNK * 3), [tab, query])
-  const shown = rows.slice(0, revealed)
+  const rowIds = useMemo(() => rows.map((issue) => issue.id), [rows])
+  const virtual = useBoundedVirtualList({
+    keys: rowIds,
+    scrollRef,
+    containerRef: listRef,
+    estimateSize: 31,
+  })
+  const scrollScope = searching ? `search:${query.trim()}` : `tab:${tab}`
+  useLayoutEffect(() => {
+    const node = scrollRef.current
+    if (!node) return
+    node.scrollTop = listScrollTop(scrollScope)
+    node.dispatchEvent(new Event('scroll'))
+  }, [scrollScope, listScrollTop])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="explorer-list">
@@ -146,7 +163,12 @@ export function IssueExplorerList(): JSX.Element {
         })}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-3" data-dock-scroll="">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto pb-3"
+        data-dock-scroll=""
+        onScroll={(event) => rememberListScrollTop(scrollScope, event.currentTarget.scrollTop)}
+      >
         {searching && (
           <div className="border-b border-hairline-soft px-2.5 py-1.5 font-mono shell-type-micro text-text-dim">
             {rows.length === 0
@@ -157,26 +179,32 @@ export function IssueExplorerList(): JSX.Element {
         {rows.length === 0 ? (
           <EmptyList searching={searching} onClear={() => setQuery('')} tab={tab} />
         ) : (
-          shown.map((issue) => (
-            <ExplorerRow
-              key={issue.id}
-              issue={issue}
-              state={operationalState(issue, rowSessions.get(issue.id) ?? [], byId)}
-              onOpen={() => push(issue.id)}
-            />
-          ))
-        )}
-        {rows.length > shown.length && (
-          <button
-            data-pressable
-            type="button"
-            data-testid="explorer-more"
-            onClick={() => setRevealed((n) => nextProgressiveRenderLimit(n, rows.length))}
-            className="w-full px-2.5 py-2 text-left font-mono text-[11px] leading-none text-text-dim hover:text-foreground"
+          <ul
+            ref={listRef}
+            className="relative m-0 list-none p-0"
+            style={{ height: virtual.totalSize }}
+            aria-label="Tasks"
           >
-            <span className="mr-1">›</span>
-            {rows.length - shown.length} more
-          </button>
+            {virtual.items.map((item) => {
+              const issue = rows[item.index] as IssueViewModel
+              return (
+                <li
+                  key={issue.id}
+                  ref={virtual.measureRef(issue.id)}
+                  className="absolute inset-x-0 top-0"
+                  style={{ transform: `translateY(${item.start}px)` }}
+                  aria-posinset={item.index + 1}
+                  aria-setsize={rows.length}
+                >
+                  <ExplorerRow
+                    issue={issue}
+                    state={operationalState(issue, rowSessions.get(issue.id) ?? [], byId)}
+                    onOpen={() => push(issue.id)}
+                  />
+                </li>
+              )
+            })}
+          </ul>
         )}
       </div>
     </div>

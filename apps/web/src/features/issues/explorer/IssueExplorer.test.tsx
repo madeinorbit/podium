@@ -1,11 +1,16 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { type JSX, useState } from 'react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { type JSX, useEffect, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
 import { makeIssue } from '@/lib/test-issue'
-import { IssueExplorerProvider } from './explorer-context'
+import { ISSUE_VIRTUAL_MAX_ITEMS } from '../use-bounded-virtual-list'
+import {
+  EXPLORER_SCROLL_CACHE_LIMIT,
+  IssueExplorerProvider,
+  useIssueExplorer,
+} from './explorer-context'
 import { IssueExplorer, IssueExplorerCrumbs } from './IssueExplorer'
 
 const EPIC = makeIssue({ id: 'p', seq: 1, title: 'Mission root', stage: 'in_progress' })
@@ -19,11 +24,12 @@ const ARCHIVED = makeIssue({
   stage: 'done',
   archived: true,
 })
+const BASE_ISSUES = [EPIC, CHILD, STRANGER, ARCHIVED]
 
 const state = {
   selectedIssueId: null as string | null,
   sessions: [] as never[],
-  issues: [EPIC, CHILD, STRANGER, ARCHIVED],
+  issues: BASE_ISSUES,
   trpc: {
     issues: {
       comments: { query: vi.fn(async () => []) },
@@ -87,13 +93,42 @@ function detail(): HTMLElement {
   return levels[levels.length - 1] as HTMLElement
 }
 
+function ScrollCacheProbe({ onRead }: { onRead: (values: number[]) => void }): JSX.Element {
+  const { listScrollTop, rememberListScrollTop } = useIssueExplorer()
+  useEffect(() => {
+    for (let index = 0; index < EXPLORER_SCROLL_CACHE_LIMIT + 4; index += 1) {
+      rememberListScrollTop(`search:${index}`, index + 1)
+    }
+    onRead(
+      Array.from({ length: EXPLORER_SCROLL_CACHE_LIMIT + 4 }, (_, index) =>
+        listScrollTop(`search:${index}`),
+      ),
+    )
+  }, [listScrollTop, onRead, rememberListScrollTop])
+  return <div />
+}
+
 afterEach(() => {
   cleanup()
   state.selectedIssueId = null
+  state.issues = BASE_ISSUES
   vi.clearAllMocks()
 })
 
 describe('issue explorer navigation', () => {
+  it('caps remembered query scroll positions', () => {
+    let values: number[] = []
+    render(
+      <IssueExplorerProvider>
+        <ScrollCacheProbe onRead={(next) => (values = next)} />
+      </IssueExplorerProvider>,
+    )
+    expect(values.slice(0, 4)).toEqual([0, 0, 0, 0])
+    expect(values.slice(4)).toEqual(
+      Array.from({ length: EXPLORER_SCROLL_CACHE_LIMIT }, (_, index) => index + 5),
+    )
+  })
+
   it('opens on the task list when the shell is pointing at nothing', () => {
     mount()
     expect(screen.getByTestId('explorer-list')).toBeTruthy()
@@ -117,6 +152,40 @@ describe('issue explorer navigation', () => {
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'else' } })
     expect(screen.getByText(/1 match across every stage/)).toBeTruthy()
     expect(screen.getByText('Someone else’s task')).toBeTruthy()
+  })
+
+  it('bounds a deep 674-task bucket and restores its tab scroll position', () => {
+    vi.useFakeTimers()
+    state.issues = Array.from({ length: 674 }, (_, index) =>
+      makeIssue({
+        id: `large-${index}`,
+        seq: index + 1,
+        title: `Large task ${index}`,
+        stage: 'backlog',
+      }),
+    )
+    const view = mount()
+    const scroll = view.container.querySelector('[data-dock-scroll]') as HTMLElement
+    const list = view.container.querySelector('ul[aria-label="Tasks"]') as HTMLElement
+    Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 320 })
+    vi.spyOn(scroll, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: 0, bottom: 320, height: 320 }) as DOMRect,
+    )
+    vi.spyOn(list, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: -scroll.scrollTop, bottom: 20_894 - scroll.scrollTop }) as DOMRect,
+    )
+
+    scroll.scrollTop = 10_000
+    fireEvent.scroll(scroll)
+    act(() => vi.runOnlyPendingTimers())
+    expect(screen.getAllByTestId('explorer-row').length).toBeLessThanOrEqual(
+      ISSUE_VIRTUAL_MAX_ITEMS,
+    )
+    expect(screen.getAllByRole('listitem')[0]?.getAttribute('aria-posinset')).not.toBe('1')
+
+    fireEvent.click(screen.getByRole('tab', { name: /In progress/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Backlog/ }))
+    expect(scroll.scrollTop).toBe(10_000)
   })
 
   it('recovers an archived task by exact ref, but not by title', () => {

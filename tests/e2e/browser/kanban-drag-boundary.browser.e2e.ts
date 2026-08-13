@@ -2,7 +2,7 @@ import { type APIRequestContext, expect, type Page, test } from '@playwright/tes
 import { RELAY } from './_harness'
 
 const HTTP = RELAY.replace(/^ws/, 'http')
-const ARTIFACT = 'artifacts/pod850-kanban-drag.png'
+const ARTIFACT = 'artifacts/pod853-windowed-keyboard-drag.png'
 
 async function rpc<T>(
   request: APIRequestContext,
@@ -33,7 +33,7 @@ async function openTasks(page: Page): Promise<void> {
 }
 
 test.setTimeout(120_000)
-test('Kanban pointer routing keeps the proxy captured through a real cross-stage drop', async ({
+test('windowed Kanban keeps keyboard focus and pointer drag routing across its mount boundary', async ({
   page,
   request,
 }, testInfo) => {
@@ -42,18 +42,47 @@ test('Kanban pointer routing keeps the proxy captured through a real cross-stage
   const repoPath = (await rpc<string[]>(request, 'repos.list', undefined, 'get'))[0]
   if (!repoPath) throw new Error('harness registered no repo')
 
+  const stamp = Date.now()
+  const created = await Promise.all(
+    Array.from({ length: 48 }, (_, index) =>
+      rpc<{ id: string }>(request, 'issues.create', {
+        repoPath,
+        title: `Window boundary ${stamp} ${index}`,
+        startNow: false,
+      }),
+    ),
+  )
+  await Promise.all(
+    created.map((issue) =>
+      rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'backlog' } }),
+    ),
+  )
   await openTasks(page)
-  const created = await rpc<{ id: string }>(request, 'issues.create', {
-    repoPath,
-    title: `Frame-bounded drag ${Date.now()}`,
-    startNow: false,
-  })
-  await rpc(request, 'issues.update', { id: created.id, patch: { stage: 'backlog' } })
 
   const board = page.getByRole('region', { name: 'Tasks' })
-  const source = board.locator(`[data-issue-id="${created.id}"]`)
+  const backlog = board.locator('[data-kanban-column="backlog"]')
+  const first = backlog.locator('[data-issue-id]').first()
+  await expect(first).toBeVisible({ timeout: 15_000 })
+  await first.hover()
+  await backlog
+    .getByRole('button', { name: /^Select / })
+    .first()
+    .click()
+  await expect(page.getByText('1 selected')).toBeVisible()
+  for (let step = 0; step < 25; step++) await page.keyboard.press('j')
+  await expect(page.getByText('1 selected')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByText('1 selected')).toHaveCount(0)
+
+  const source = backlog.locator('[data-issue-id].ring-2')
   const target = board.locator('[data-kanban-column="in_progress"]')
   await expect(source).toBeVisible({ timeout: 15_000 })
+  expect(
+    await backlog.getByTestId('column-scroll').evaluate((node) => node.scrollTop),
+  ).toBeGreaterThan(0)
+  expect(await backlog.locator('[data-issue-id]').count()).toBeLessThanOrEqual(36)
+  const sourceId = await source.getAttribute('data-issue-id')
+  if (!sourceId) throw new Error('keyboard-focused drag source has no issue id')
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
   if (!sourceBox || !targetBox) throw new Error('drag source or target has no browser geometry')
@@ -78,7 +107,7 @@ test('Kanban pointer routing keeps the proxy captured through a real cross-stage
             { repoPath },
             'get',
           )
-        ).find((candidate) => candidate.id === created.id)?.stage,
+        ).find((candidate) => candidate.id === sourceId)?.stage,
       { timeout: 15_000 },
     )
     .toBe('in_progress')

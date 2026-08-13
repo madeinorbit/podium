@@ -70,6 +70,16 @@ export function IssuesView(): JSX.Element {
   } | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const issueScrollPositions = useRef<{
+    list: number
+    columns: Partial<Record<IssueStage, number>>
+  }>({ list: 0, columns: {} })
+  const rememberListScroll = useCallback((top: number): void => {
+    issueScrollPositions.current.list = top
+  }, [])
+  const rememberColumnScroll = useCallback((stage: IssueStage, top: number): void => {
+    issueScrollPositions.current.columns[stage] = top
+  }, [])
 
   const updateDisplay = (patch: IssuesDisplayPatch): void => {
     setDisplay({ ...display, ...patch, badges: { ...display.badges, ...(patch.badges ?? {}) } })
@@ -322,6 +332,8 @@ export function IssuesView(): JSX.Element {
           onToggleSelect={toggleSelectId}
           onToggleExpand={toggleExpand}
           onContextMenu={onIssueContextMenu}
+          initialScrollTop={issueScrollPositions.current.list}
+          onScrollTop={rememberListScroll}
         />
       ) : (
         <IssuesKanban
@@ -339,6 +351,8 @@ export function IssuesView(): JSX.Element {
           selected={selectedIds}
           onToggleSelect={toggleSelectId}
           onContextMenu={onIssueContextMenu}
+          scrollTops={issueScrollPositions.current.columns}
+          onScrollTop={rememberColumnScroll}
         />
       )}
       {error && (
