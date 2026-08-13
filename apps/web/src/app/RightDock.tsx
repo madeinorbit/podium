@@ -24,6 +24,7 @@ import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useOperatorFocus } from './operator-focus'
 import type { RightPanelTab } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
+import { PerspectiveRoad } from '@/features/shipping/PerspectiveRoad'
 
 const WorktreeFileTree = lazy(() =>
   import('@/features/files/WorktreeFileTree').then((module) => ({
@@ -37,6 +38,11 @@ const RightDockIssuePanel = lazy(() => import('./RightDockIssuePanel'))
 const MergeQueuePanel = lazy(() =>
   import('@/features/merge-queue/MergeQueuePanel').then((module) => ({
     default: module.MergeQueuePanel,
+  })),
+)
+const ShippingPanel = lazy(() =>
+  import('@/features/shipping/ShippingPanel').then((module) => ({
+    default: module.ShippingPanel,
   })),
 )
 const MessageLedgerView = lazy(() =>
@@ -73,6 +79,7 @@ export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon 
   // its issue's delivery ledger ("what happened to my message").
   { id: 'mail', label: 'Messages', icon: Mail },
   { id: 'merge-queue', label: 'Queues', icon: ListOrdered },
+  { id: 'shipping', label: 'Shipping', icon: PerspectiveRoad },
 ]
 
 /** The right dock panel: Files / Git / Issue / Superagent for the active worktree. Opened
@@ -84,13 +91,25 @@ export function RightDock({
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const { paneA, fileTabs, sessions, repos, setSelectedIssueId } = useStoreSelector(
+  const {
+    paneA,
+    fileTabs,
+    sessions,
+    repos,
+    shipOrders,
+    coarseNow,
+    setSelectedIssueId,
+    setOpenIssueId,
+  } = useStoreSelector(
     (s) => ({
       paneA: s.paneA,
       fileTabs: s.fileTabs,
       sessions: s.sessions,
       repos: s.repos,
+      shipOrders: s.shipOrders,
+      coarseNow: s.coarseNow,
       setSelectedIssueId: s.setSelectedIssueId,
+      setOpenIssueId: s.setOpenIssueId,
     }),
     shallowEqual,
   )
@@ -223,11 +242,7 @@ export function RightDock({
               // Not keyed on the worktree: the explorer's whole point is that it
               // outlives what the workspace is pointed at. `cwd` only tells it
               // where to serve the artifacts of a task with no checkout of its own.
-              <RightDockIssuePanel
-                kind="explorer"
-                cwd={active.cwd}
-                machineId={active.machineId}
-              />
+              <RightDockIssuePanel kind="explorer" cwd={active.cwd} machineId={active.machineId} />
             ) : (
               <RightDockIssuePanel kind="explorer" cwd="" />
             ))}
@@ -250,6 +265,19 @@ export function RightDock({
               onSelectIssue={(issue) => {
                 setSelectedIssueId(issue.id)
                 setFocusedIssueId(issue.id)
+              }}
+            />
+          )}
+          {tab === 'shipping' && (
+            <ShippingPanel
+              orders={shipOrders}
+              issues={issues}
+              repoId={mergeQueueScope?.repoId ?? null}
+              now={coarseNow}
+              onSelectIssue={(issue) => {
+                setSelectedIssueId(issue.id)
+                setFocusedIssueId(issue.id)
+                setOpenIssueId(issue.id)
               }}
             />
           )}

@@ -19,6 +19,7 @@ describe('desktop shell persistence readers', () => {
     expect(readRightPanel('superagent')).toBe('superagent')
     expect(readRightPanel('git')).toBe('git')
     expect(readRightPanel('merge-queue')).toBe('merge-queue')
+    expect(readRightPanel('shipping')).toBe('shipping')
     expect(readRightPanel('unknown')).toBeNull()
   })
 
@@ -34,11 +35,13 @@ describe('desktop shell persistence readers', () => {
   })
 
   it('gates experimental dock panels independently', () => {
-    const features = { git: true, messages: true, mergeQueue: false }
+    const features = { git: true, messages: true, mergeQueue: false, shipping: false }
     expect(rightPanelAllowed('files', features)).toBe(true)
     expect(rightPanelAllowed('git', features)).toBe(true)
     expect(rightPanelAllowed('merge-queue', features)).toBe(false)
     expect(rightPanelAllowed('merge-queue', { ...features, mergeQueue: true })).toBe(true)
+    expect(rightPanelAllowed('shipping', features)).toBe(false)
+    expect(rightPanelAllowed('shipping', { ...features, shipping: true })).toBe(true)
   })
 })
 

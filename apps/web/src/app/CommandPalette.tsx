@@ -252,6 +252,7 @@ function PaletteDialog({
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
   const mergeQueueEnabled = useFeature('merge-queue')
+  const shippingEnabled = useFeature('shipping')
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -593,7 +594,7 @@ function PaletteDialog({
     }
 
     // ── Actions: the right dock ───────────────────────────────────────────
-    // Seven panels have a cell in the right rail and, until now, exactly one of
+    // Every panel has a cell in the right rail and, until now, exactly one of
     // them ("the superagent panel") had a palette route. The rail's own list is
     // the source, so a new panel arrives here for free.
     const panelAllowed = (panel: RightPanelTab): boolean =>
@@ -601,6 +602,7 @@ function PaletteDialog({
         git: gitPanelEnabled,
         messages: messagesPanelEnabled,
         mergeQueue: mergeQueueEnabled,
+        shipping: shippingEnabled,
       })
     for (const panel of RIGHT_PANELS) {
       if (!panelAllowed(panel.id)) continue

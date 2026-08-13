@@ -14,11 +14,13 @@ export type RightPanelTab =
   | 'shell'
   | 'mail'
   | 'merge-queue'
+  | 'shipping'
 
 export interface RightPanelFeatures {
   git: boolean
   messages: boolean
   mergeQueue: boolean
+  shipping: boolean
 }
 
 export function rightPanelAllowed(
@@ -28,6 +30,7 @@ export function rightPanelAllowed(
   if (panel === 'git') return features.git
   if (panel === 'mail') return features.messages
   if (panel === 'merge-queue') return features.mergeQueue
+  if (panel === 'shipping') return features.shipping
   return true
 }
 
@@ -69,7 +72,8 @@ export function readRightPanel(value: string | null): RightPanelTab | null {
     value === 'files' ||
     value === 'shell' ||
     value === 'mail' ||
-    value === 'merge-queue'
+    value === 'merge-queue' ||
+    value === 'shipping'
     ? value
     : null
 }

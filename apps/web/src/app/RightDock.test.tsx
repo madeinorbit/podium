@@ -16,7 +16,10 @@ const selectedIssue = {
 } as IssueWire
 const otherIssue = {
   id: 'other',
+  seq: 22,
+  displayRef: 'POD-22',
   title: 'Other live issue',
+  repoId: 'repo-other',
   repoPath: '/other',
   worktreePath: '/other/wt',
 } as IssueWire
@@ -42,7 +45,10 @@ const state = {
   ],
   issues: [selectedIssue, otherIssue],
   selectedIssueId: selectedIssue.id,
+  shipOrders: [],
+  coarseNow: Date.parse('2026-08-13T12:00:00.000Z'),
   setSelectedIssueId: vi.fn(),
+  setOpenIssueId: vi.fn(),
 }
 
 const repoLocks = vi.hoisted(() => ({
@@ -102,6 +108,7 @@ vi.mock('./RightDockIssuePanel', () => ({
 afterEach(() => {
   cleanup()
   state.setSelectedIssueId.mockClear()
+  state.setOpenIssueId.mockClear()
   repoLocks.query.mockClear()
   repoLocks.refresh.mockClear()
   repoLocks.state = {

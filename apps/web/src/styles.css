@@ -2377,8 +2377,8 @@ html[data-density="balanced"] .header-quota-pools {
   flex-direction: column;
   align-items: center;
   /* The design's own spacing: 14px between cells, 16px off the top. The rail
-     holds six glyphs in a 1000px column — it can afford air, and at 6px they
-     read as one striped object rather than six destinations. */
+     holds a short stack of glyphs in a 1000px column — it can afford air, and
+     at 6px they read as one striped object rather than separate destinations. */
   gap: 14px;
   padding: 16px 0;
   /* --rail, the tier that exists for exactly this and had never been spent.
@@ -2419,6 +2419,11 @@ html[data-density="balanced"] .header-quota-pools {
     inset 0 0 0 1px
     color-mix(in srgb, var(--issue) calc(35 * var(--issue-line-scale, 1%)), transparent);
   color: var(--issue);
+}
+/* Shipping attention is a durable hold, not selection tint. It wins even when
+   the panel is open; the separate grey count remains inventory, not alarm. */
+.right-rail-cell[data-attention="true"] {
+  color: var(--destructive);
 }
 
 /* Scrollable region with no visible scrollbar (sidebar work list, transcripts). */

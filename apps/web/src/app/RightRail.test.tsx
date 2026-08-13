@@ -4,10 +4,19 @@ import { makeIssue } from '@/lib/test-issue'
 
 const portfolioIssues = vi.hoisted(() => ({ value: [] as unknown[] }))
 const portfolioSessions = vi.hoisted(() => ({ value: [] as unknown[] }))
+const shippingOrders = vi.hoisted(() => ({ value: [] as unknown[] }))
+const portfolioRepos = vi.hoisted(() => ({ value: [] as unknown[] }))
+const activePane = vi.hoisted(() => ({ value: null as string | null }))
 vi.mock('./store', () => ({
   useReplicaIssues: () => portfolioIssues.value,
-  useStoreSelector: (selector: (store: { sessions: unknown[] }) => unknown) =>
-    selector({ sessions: portfolioSessions.value }),
+  useStoreSelector: (selector: (store: Record<string, unknown>) => unknown) =>
+    selector({
+      paneA: activePane.value,
+      fileTabs: [],
+      sessions: portfolioSessions.value,
+      repos: portfolioRepos.value,
+      shipOrders: shippingOrders.value,
+    }),
 }))
 
 import { RightRail } from './RightRail'
@@ -22,6 +31,9 @@ afterEach(() => {
   featureEnabled.value = true
   portfolioIssues.value = []
   portfolioSessions.value = []
+  shippingOrders.value = []
+  portfolioRepos.value = []
+  activePane.value = null
 })
 
 describe('RightRail', () => {
@@ -72,6 +84,7 @@ describe('RightRail', () => {
     expect(screen.queryByRole('button', { name: 'Git' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Messages' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Queues' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Shipping/ })).toBeNull()
   })
 
   it('toggles the active panel closed', () => {
@@ -86,6 +99,66 @@ describe('RightRail', () => {
     render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
     fireEvent.click(screen.getByRole('button', { name: 'Queues' }))
     expect(onPanelChange).toHaveBeenCalledWith('merge-queue')
+  })
+
+  it('opens Shipping beside Queues with a zero-state accessible label', () => {
+    const onPanelChange = vi.fn()
+    render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Shipping, no unfinished deliveries' }))
+    expect(onPanelChange).toHaveBeenCalledWith('shipping')
+  })
+
+  it('caps the scoped inventory badge and names decision attention without announcing it', () => {
+    activePane.value = 'session-a'
+    portfolioSessions.value = [
+      {
+        sessionId: 'session-a',
+        cwd: '/repo/wt',
+        issueId: null,
+        archived: false,
+        lastActiveAt: '2026-08-13T12:00:00.000Z',
+      },
+    ]
+    portfolioRepos.value = [
+      {
+        path: '/repo',
+        kind: 'repository',
+        repoId: 'repo-a',
+        worktrees: [{ path: '/repo/wt', branch: 'main', repoId: 'repo-a' }],
+      },
+    ]
+    shippingOrders.value = Array.from({ length: 100 }, (_, index) => ({
+      id: `order-${index}`,
+      issueId: `issue-${index}`,
+      repoId: 'repo-a',
+      targetBranch: 'main',
+      destination: 'origin/main',
+      state: index === 0 ? 'held' : 'queued',
+      humanState: index === 0 ? 'needs_you' : 'waiting',
+      activity: index === 0 ? 'held' : 'waiting',
+      queuedAt: '2026-08-13T10:00:00.000Z',
+      stateChangedAt: '2026-08-13T10:00:00.000Z',
+      ...(index === 0
+        ? {
+            hold: {
+              id: 'hold-a',
+              generation: 1,
+              reasonCode: 'landing-conflict',
+              headline: 'A decision is needed',
+              actions: ['retry'],
+            },
+          }
+        : {}),
+    }))
+
+    render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
+
+    const shipping = screen.getByRole('button', {
+      name: 'Shipping, 100 unfinished deliveries, 1 needs your decision',
+    })
+    expect(shipping.textContent).toBe('99+')
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   // POD-743: the Tasks cell is an ordinary rail cell now. The panel it opens is

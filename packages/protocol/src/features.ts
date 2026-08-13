@@ -68,6 +68,12 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
+    id: 'shipping',
+    name: 'Shipping',
+    description: 'Show durable delivery progress in the right sidebar.',
+    visibility: 'edge',
+  },
+  {
     id: 'tab-splitting',
     name: 'Tab splitting',
     description: 'Show two workspace tabs side by side.',

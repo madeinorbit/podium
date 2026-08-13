@@ -295,11 +295,13 @@ function AppBody(): JSX.Element {
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
   const mergeQueueEnabled = useFeature('merge-queue')
+  const shippingEnabled = useFeature('shipping')
   const panelAllowed = (panel: RightPanelTab | null): boolean =>
     rightPanelAllowed(panel, {
       git: gitPanelEnabled,
       messages: messagesPanelEnabled,
       mergeQueue: mergeQueueEnabled,
+      shipping: shippingEnabled,
     })
   const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
   // What the dock RENDERS, which outlives what the rail says is open: the panel
