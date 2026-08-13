@@ -1741,18 +1741,45 @@ export class SessionRegistry {
             issue.id,
           )
         },
-        reauthorize: ({ order, issue, effect }) => {
-          const userId = order.requestedBy.onBehalfOf
+        reauthorize: ({ order, issue, machineId, effect }) => {
+          const attribution = order.requestedBy
+          const userId = attribution.onBehalfOf
           if (!userId) throw new Error('shipping order has no human authorization owner')
-          const role = this.store.users.roleOf(userId)
-          if (!role) throw new Error(`shipping requester ${userId} is no longer active`)
+          let principal: CommandPrincipal
+          if (attribution.actor.kind === 'agent') {
+            const sessionId = asSessionId(attribution.actor.id)
+            principal = principalForCapability(sessionsSvc.capabilityForSession(sessionId))
+            if (principal.kind !== 'agent' || principal.onBehalfOf !== userId) {
+              throw new Error('shipping requester delegation no longer matches its original actor')
+            }
+          } else if (attribution.actor.kind === 'user') {
+            const role = this.store.users.roleOf(userId)
+            if (!role || attribution.actor.id !== userId) {
+              throw new Error(`shipping requester ${userId} is no longer active`)
+            }
+            principal = userCommandPrincipal(userId, role)
+          } else {
+            throw new Error(`shipping requester actor ${attribution.actor.kind} cannot own effects`)
+          }
           checkIssueAccess(
-            { capability: userCommandPrincipal(userId, role).capability },
+            { capability: principal.capability },
             issueAccess,
             `shipping.${effect}`,
             'write',
             issue.id,
           )
+          const machineAccess = checkMachineUse(
+            principal,
+            machineId,
+            ownershipFromMachines(machines),
+          )
+          if (machineAccess) {
+            throw new Error(
+              machineAccess === 'absent'
+                ? `shipping machine ${machineId} is unavailable`
+                : `shipping requester may no longer use machine ${machineId}`,
+            )
+          }
         },
       },
       evidence: {

@@ -25,6 +25,26 @@ import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 type SqlRow = Record<string, unknown>
 
+const frozenOrderFacts = (order: ShipOrderValue) => ({
+  issueId: order.issueId,
+  descendantManifest: order.descendantManifest,
+  repoId: order.repoId,
+  targetBranch: order.targetBranch,
+  destination: order.destination,
+  approvedBaseSha: order.approvedBaseSha,
+  approvedHeadSha: order.approvedHeadSha,
+  deliveryDependsOn: order.deliveryDependsOn,
+  evidenceManifestRef: order.evidenceManifestRef,
+  currentIntegrationReceipt: order.currentIntegrationReceipt,
+  providerRef: order.providerRef,
+  requestedBy: order.requestedBy,
+  policyId: order.policyId,
+  closeMode: order.closeMode,
+})
+
+export const sameFrozenShipOrder = (left: ShipOrderValue, right: ShipOrderValue): boolean =>
+  JSON.stringify(frozenOrderFacts(left)) === JSON.stringify(frozenOrderFacts(right))
+
 const jsonArray = (value: unknown): unknown[] => {
   if (Array.isArray(value)) return value
   if (typeof value !== 'string') return []
@@ -395,10 +415,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return transaction(this.db, () => {
       const active = this.activeOrderForIssue(candidate.issueId)
       if (active) {
-        if (
-          active.approvedBaseSha === candidate.approvedBaseSha &&
-          active.approvedHeadSha === candidate.approvedHeadSha
-        ) {
+        if (sameFrozenShipOrder(active, candidate)) {
           return { order: active, created: false }
         }
         throw new Error(`issue ${candidate.issueId} already has a different active ship order`)
@@ -428,6 +445,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     }
     if (!isLegalShipOrderTransition(expectedState, nextState)) {
       throw new Error(`illegal ship order transition ${expectedState} → ${nextState}`)
+    }
+    const attempt = this.latestAttemptForOrder(id)
+    if (nextState !== 'cancelled' && attempt && this.hasCancellationIntent(attempt.id, attempt.leaseGeneration)) {
+      throw new Error(`ship order ${id} has durable cancellation intent`)
     }
     const result = this.db
       .prepare(
@@ -503,22 +524,39 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return row ? mapAttempt(row) : null
   }
 
-  /** Acquire the next durable lease generation and queued→preflight custody in
-   * one compare-and-swap transaction. A restarted server resumes the existing
-   * attempt; only an explicitly re-queued order can mint a later generation. */
-  beginAttempt(input: {
+  /** Claim one active order through its durable order/attempt winner. Recovery
+   * supersedes an unfinished prior attempt and always mints generation + 1;
+   * another server that read the same winner loses the compare-and-swap. */
+  claimAttempt(input: {
     orderId: string
+    expectedState: Exclude<ShipOrderState, 'held' | 'shipped' | 'cancelled'>
+    expectedAttemptId: string | null
+    expectedGeneration: number
     machineId: ShipAttemptValue['machineId']
     startedAt: string
   }): { order: ShipOrderValue; attempt: ShipAttemptValue } {
     return transaction(this.db, () => {
       const order = this.getOrder(input.orderId)
       if (!order) throw new Error(`unknown ship order ${input.orderId}`)
-      if (order.state !== 'queued') {
-        throw new Error(`ship order ${order.id} lease fence failed: expected queued`)
+      if (order.state !== input.expectedState) {
+        throw new Error(
+          `ship order ${order.id} claim fence failed: expected ${input.expectedState}`,
+        )
       }
       const latest = this.latestAttemptForOrder(order.id)
-      const generation = (latest?.leaseGeneration ?? 0) + 1
+      if (
+        (latest?.id ?? null) !== input.expectedAttemptId ||
+        (latest?.leaseGeneration ?? 0) !== input.expectedGeneration
+      ) {
+        throw new Error(`ship order ${order.id} attempt claim was superseded`)
+      }
+      if (latest && !latest.finishedAt) {
+        this.finishAttempt(latest.id, latest.leaseGeneration, {
+          finishedAt: input.startedAt,
+          outcome: 'failed',
+        })
+      }
+      const generation = input.expectedGeneration + 1
       const attempt = this.createAttempt({
         id: `attempt:${order.id}:${generation}` as ShipAttemptValue['id'],
         orderId: order.id,
@@ -530,9 +568,28 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         startedAt: input.startedAt,
         submittedHeadSha: order.approvedHeadSha,
       })
-      const next = this.transitionOrder(order.id, 'queued', 'preflight', input.startedAt)
+      const next =
+        order.state === 'queued'
+          ? this.transitionOrder(order.id, 'queued', 'preflight', input.startedAt)
+          : order
       return { order: next, attempt }
     })
+  }
+
+  hasAttemptCustody(input: {
+    orderId: string
+    expectedState: ShipOrderState
+    attemptId: string
+    generation: number
+  }): boolean {
+    const order = this.getOrder(input.orderId)
+    const latest = this.latestAttemptForOrder(input.orderId)
+    return (
+      order?.state === input.expectedState &&
+      latest?.id === input.attemptId &&
+      latest.leaseGeneration === input.generation &&
+      latest.finishedAt === undefined
+    )
   }
 
   finishAttempt(
@@ -552,6 +609,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (!attempt) throw new Error(`unknown ship attempt ${id}`)
     if (attempt.finishedAt) {
       const identical =
+        attempt.finishedAt === result.finishedAt &&
         attempt.outcome === result.outcome &&
         attempt.testedIntegrationSha === result.testedIntegrationSha &&
         attempt.landedRefSha === result.landedRefSha &&
@@ -596,6 +654,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       'queued' | 'preflight' | 'composing' | 'validating' | 'repairing'
     >,
     cancelledAt: string,
+    custody?: { attemptId: string; generation: number; terminalSteps: ShipStepValue[] },
   ): ShipOrderValue {
     return transaction(this.db, () => {
       const order = this.getOrder(orderId)
@@ -605,6 +664,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         )
       }
       const attempt = this.latestAttemptForOrder(orderId)
+      if (
+        custody &&
+        (!attempt ||
+          attempt.id !== custody.attemptId ||
+          attempt.leaseGeneration !== custody.generation ||
+          attempt.finishedAt !== undefined)
+      ) {
+        throw new Error(`ship order ${orderId} cancellation custody fence failed`)
+      }
+      for (const step of custody?.terminalSteps ?? []) this.appendStep(step)
       if (attempt && !attempt.finishedAt) {
         this.finishAttempt(attempt.id, attempt.leaseGeneration, {
           finishedAt: cancelledAt,
@@ -613,6 +682,37 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       return this.transitionOrder(orderId, expectedState, 'cancelled', cancelledAt)
     })
+  }
+
+  requestCancellation(input: {
+    orderId: string
+    expectedState: ShipOrderState
+    attemptId: string
+    generation: number
+    planned: ShipStepValue
+    running: ShipStepValue
+  }): ShipStepValue {
+    return transaction(this.db, () => {
+      if (
+        !this.hasAttemptCustody({
+          orderId: input.orderId,
+          expectedState: input.expectedState,
+          attemptId: input.attemptId,
+          generation: input.generation,
+        })
+      ) {
+        throw new Error(`ship order ${input.orderId} cancellation intent fence failed`)
+      }
+      const existing = this.latestStepForEffect(input.attemptId, input.planned.effectKey)
+      if (existing) return existing
+      this.appendStep(input.planned)
+      return this.appendStep(input.running)
+    })
+  }
+
+  hasCancellationIntent(attemptId: string, generation: number): boolean {
+    const step = this.latestStepForEffect(attemptId, `cancel:${generation}`)
+    return step?.state === 'planned' || step?.state === 'running'
   }
 
   appendStep(input: ShipStepValue): ShipStepValue {
