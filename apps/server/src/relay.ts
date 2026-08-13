@@ -120,7 +120,11 @@ import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
-import { CompatibilityShippingPolicyResolver, ShippingService } from './modules/shipping'
+import {
+  CompatibilityShippingPolicyResolver,
+  ShippingService,
+  shippingResourceHolderId,
+} from './modules/shipping'
 import { shipOrderProjectionRows } from './modules/shipping/projection'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
@@ -1721,16 +1725,22 @@ export class SessionRegistry {
       })
     })
     this.issueCommands = issueCommands
+    const shippingWorkerIncarnation = randomUUID()
     const shippingLocks = new Map<string, Set<string>>()
     const shippingLockKey = (orderId: string, attemptId: string, generation: number) =>
-      `${orderId}:${attemptId}:${generation}`
+      `${shippingWorkerIncarnation}:${orderId}:${attemptId}:${generation}`
     const shippingLockCaller = (
       orderId: string,
       attemptId: string,
       generation: number,
       issueId: IssueId,
     ) => ({
-      sessionId: `system:shipping:${orderId}:${attemptId}:${generation}` as `system:${string}`,
+      sessionId: shippingResourceHolderId(
+        shippingWorkerIncarnation,
+        orderId,
+        attemptId,
+        generation,
+      ),
       issueId,
       label: `Shipping ${orderId} attempt ${generation}`,
       workspace: null,
@@ -1909,6 +1919,24 @@ export class SessionRegistry {
             return false
           }
           return true
+        },
+        renew: ({ order, attempt, issue, names, ttlSeconds }) => {
+          const key = shippingLockKey(order.id, attempt.id, attempt.leaseGeneration)
+          const caller = shippingLockCaller(order.id, attempt.id, attempt.leaseGeneration, issue.id)
+          const held = shippingLocks.get(key)
+          if (!held || names.some((name) => !held.has(name))) {
+            shippingLocks.delete(key)
+            return false
+          }
+          try {
+            for (const name of [...new Set(names)].sort()) {
+              locks.renew(caller, { repoPath: issue.repoPath, name, ttlSeconds })
+            }
+            return true
+          } catch {
+            shippingLocks.delete(key)
+            return false
+          }
         },
         release: ({ order, attempt, issue, names }) => {
           const key = shippingLockKey(order.id, attempt.id, attempt.leaseGeneration)

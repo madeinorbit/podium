@@ -144,7 +144,12 @@ describe('shipping daemon journal', () => {
       { ...request, jobId: 'job-fully-durable' },
       { ...result, jobId: 'job-fully-durable' },
     )
-    expect(completedPoints).toEqual(['after-file-fsync', 'after-rename', 'after-directory-fsync'])
+    expect(completedPoints).toEqual([
+      'after-parent-directory-fsync',
+      'after-file-fsync',
+      'after-rename',
+      'after-directory-fsync',
+    ])
     expect(new ShippingJobJournal(durableDir).get('job-fully-durable')).toMatchObject({
       result: { state: 'running' },
     })

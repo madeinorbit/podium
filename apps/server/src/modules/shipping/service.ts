@@ -179,6 +179,13 @@ export interface ShippingResourceAdmissionPort {
     names: readonly string[]
     ttlSeconds: number
   }): boolean
+  renew(input: {
+    order: ShipOrder
+    attempt: ShipAttempt
+    issue: IssueWire
+    names: readonly string[]
+    ttlSeconds: number
+  }): boolean
   release(input: {
     order: ShipOrder
     attempt: ShipAttempt
@@ -230,8 +237,35 @@ interface Lease {
   expiresAt: number
 }
 
+interface ResourceLease {
+  lost: boolean
+  expiresAt?: number
+  ttlMs?: number
+  renew?: () => boolean
+  timer?: ReturnType<typeof setInterval>
+}
+
 const terminalStep = (step: ShipStep | null): boolean =>
   step?.state === 'succeeded' || step?.state === 'failed' || step?.state === 'cancelled'
+
+export const shippingResourceHolderId = (
+  incarnation: string,
+  orderId: string,
+  attemptId: string,
+  generation: number,
+): `system:${string}` => `system:shipping:${incarnation}:${orderId}:${attemptId}:${generation}`
+
+export const canonicalShippingDestination = (destination: string, targetBranch: string): string => {
+  if (
+    destination === targetBranch ||
+    destination === `local:${targetBranch}` ||
+    destination === `refs/heads/${targetBranch}`
+  ) {
+    return `local:${targetBranch}`
+  }
+  const remote = /^(?:remote|git):([A-Za-z0-9][A-Za-z0-9._-]*)\/(.+)$/.exec(destination)
+  return remote ? `git:${remote[1]}/${remote[2]}` : destination
+}
 
 export class ShippingService {
   private readonly now: () => string
@@ -669,26 +703,34 @@ export class ShippingService {
       if (order.state === 'repairing') order = this.transition(order, 'validating')
       if (order.state === 'validating') {
         const names = policy.validationProfile.resourceLocks
-        const acquired = this.acquireResources(
+        const resourceLease = this.acquireResources(
           order,
           attempt,
           issue,
           names,
           Math.ceil(policy.validationProfile.timeoutMs / 1000) + 30,
         )
-        if (!acquired) return
+        if (!resourceLease) return
         try {
-          const result = await this.runEffect(order, attempt, issue, 'validate', 'landing')
+          const result = await this.runEffect(
+            order,
+            attempt,
+            issue,
+            'validate',
+            'landing',
+            resourceLease,
+          )
           if (result?.state !== 'succeeded') return
           order = this.requiredOrder(order.id)
         } finally {
-          this.releaseResources(order, attempt, issue, names)
+          this.releaseResources(order, attempt, issue, names, resourceLease)
         }
       }
 
       if (order.state === 'landing') {
         const mergeLock = [`merge:${order.targetBranch}`]
-        if (!this.acquireResources(order, attempt, issue, mergeLock, 120)) return
+        const resourceLease = this.acquireResources(order, attempt, issue, mergeLock, 120)
+        if (!resourceLease) return
         try {
           const result = await this.runEffect(
             order,
@@ -696,24 +738,31 @@ export class ShippingService {
             issue,
             'commit-merge-group',
             'publishing',
+            resourceLease,
           )
           if (result?.state !== 'succeeded') return
           order = this.requiredOrder(order.id)
         } finally {
-          this.releaseResources(order, attempt, issue, mergeLock)
+          this.releaseResources(order, attempt, issue, mergeLock, resourceLease)
         }
       }
       if (order.state === 'publishing') {
-        const publicationLock = [
-          `publish:${createHash('sha256').update(order.destination).digest('hex')}`,
-        ]
-        if (!this.acquireResources(order, attempt, issue, publicationLock, 120)) return
+        const publicationLock = [this.publicationLockName(order)]
+        const resourceLease = this.acquireResources(order, attempt, issue, publicationLock, 120)
+        if (!resourceLease) return
         try {
-          const result = await this.runEffect(order, attempt, issue, 'publish', 'verifying')
+          const result = await this.runEffect(
+            order,
+            attempt,
+            issue,
+            'publish',
+            'verifying',
+            resourceLease,
+          )
           if (result?.state !== 'succeeded') return
           order = this.requiredOrder(order.id)
         } finally {
-          this.releaseResources(order, attempt, issue, publicationLock)
+          this.releaseResources(order, attempt, issue, publicationLock, resourceLease)
         }
       }
       if (order.state === 'verifying') {
@@ -1145,6 +1194,7 @@ export class ShippingService {
     issue: IssueWire,
     operation: ShippingJobResult['operation'],
     nextState?: Exclude<ShipOrderState, 'held' | 'shipped'>,
+    resourceLease?: ResourceLease,
   ): Promise<ShippingJobResult | null> {
     const effectKey = `${operation}:${attempt.leaseGeneration}`
     let latest = this.deps.repository.latestStepForEffect(attempt.id, effectKey)
@@ -1210,11 +1260,21 @@ export class ShippingService {
       if (this.isEffectCustodyRefusal(error)) return null
       throw error
     }
+    if (!this.resourceLeaseLive(resourceLease)) return null
     const result = await this.deps.daemon.shippingJob(
       this.jobInput(order, attempt, issue, operation, 'start'),
       attempt.machineId,
     )
     this.assertJobResultFence(order, attempt, operation, result)
+    if (!this.renewResourceLease(resourceLease)) {
+      this.audit('shipping.resource_lease_lost', order.issueId, {
+        orderId: order.id,
+        attemptId: attempt.id,
+        generation: attempt.leaseGeneration,
+        operation,
+      })
+      return null
+    }
     this.heartbeat(order.id, attempt.id, attempt.leaseGeneration)
     if (result.state === 'running') return null
     const effect = this.effectCommit(order, attempt, operation, result, startedAt)
@@ -1559,9 +1619,40 @@ export class ShippingService {
     issue: IssueWire,
     names: readonly string[],
     ttlSeconds: number,
-  ): boolean {
-    if (names.length === 0 || !this.deps.resourceAdmission) return true
-    return this.deps.resourceAdmission.acquire({ order, attempt, issue, names, ttlSeconds })
+  ): ResourceLease | null {
+    if (names.length === 0 || !this.deps.resourceAdmission) return { lost: false }
+    if (!this.deps.resourceAdmission.acquire({ order, attempt, issue, names, ttlSeconds })) {
+      return null
+    }
+    const lease: ResourceLease = {
+      lost: false,
+      expiresAt: Date.now() + ttlSeconds * 1_000,
+      ttlMs: ttlSeconds * 1_000,
+      renew: () =>
+        this.deps.resourceAdmission?.renew({
+          order,
+          attempt,
+          issue,
+          names,
+          ttlSeconds,
+        }) === true,
+    }
+    const renewEveryMs = Math.max(250, Math.floor((ttlSeconds * 1_000) / 3))
+    lease.timer = setInterval(() => {
+      if (!this.resourceLeaseLive(lease)) return
+      try {
+        if (!lease.renew?.()) {
+          lease.lost = true
+        } else {
+          lease.expiresAt = Date.now() + ttlSeconds * 1_000
+        }
+      } catch {
+        lease.lost = true
+      }
+      if (lease.lost && lease.timer) clearInterval(lease.timer)
+    }, renewEveryMs)
+    lease.timer.unref?.()
+    return lease
   }
 
   private releaseResources(
@@ -1569,8 +1660,13 @@ export class ShippingService {
     attempt: ShipAttempt,
     issue: IssueWire,
     names: readonly string[],
+    lease: ResourceLease,
   ): void {
+    if (lease.timer) clearInterval(lease.timer)
     if (names.length === 0 || !this.deps.resourceAdmission) return
+    // A failed renew means this incarnation no longer owns a release right.
+    // Its lease may already have expired and advanced to a successor.
+    if (!this.resourceLeaseLive(lease)) return
     try {
       this.deps.resourceAdmission.release({ order, attempt, issue, names })
     } catch (error) {
@@ -1580,6 +1676,38 @@ export class ShippingService {
         error: error instanceof Error ? error.message : String(error),
       })
     }
+  }
+
+  private resourceLeaseLive(lease?: ResourceLease): boolean {
+    if (!lease) return true
+    if (lease.lost) return false
+    if (lease.expiresAt !== undefined && lease.expiresAt <= Date.now()) {
+      lease.lost = true
+      if (lease.timer) clearInterval(lease.timer)
+      return false
+    }
+    return true
+  }
+
+  private renewResourceLease(lease?: ResourceLease): boolean {
+    if (!lease?.renew) return this.resourceLeaseLive(lease)
+    if (!this.resourceLeaseLive(lease)) return false
+    try {
+      if (!lease.renew()) {
+        lease.lost = true
+        return false
+      }
+      if (lease.ttlMs !== undefined) lease.expiresAt = Date.now() + lease.ttlMs
+      return true
+    } catch {
+      lease.lost = true
+      return false
+    }
+  }
+
+  private publicationLockName(order: ShipOrder): string {
+    const canonicalDestination = canonicalShippingDestination(order.destination, order.targetBranch)
+    return `publish:${createHash('sha256').update(canonicalDestination).digest('hex')}`
   }
 
   private async acknowledgeEffect(

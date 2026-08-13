@@ -10,7 +10,7 @@ import {
   renameSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   type ShippingJobRequestMessage as ShippingJobRequest,
   ShippingJobRequestMessage,
@@ -29,6 +29,7 @@ export interface ShippingJournalEntry {
 }
 
 export type ShippingJournalCrashPoint =
+  | 'after-parent-directory-fsync'
   | 'after-file-fsync'
   | 'after-rename'
   | 'after-directory-fsync'
@@ -80,7 +81,17 @@ export class ShippingJobJournal {
     private readonly dir: string,
     private readonly crashPoint?: (point: ShippingJournalCrashPoint) => void,
   ) {
+    const existed = existsSync(dir)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
+    if (!existed) {
+      const parent = openSync(dirname(dir), 'r')
+      try {
+        fsyncSync(parent)
+      } finally {
+        closeSync(parent)
+      }
+      this.crashPoint?.('after-parent-directory-fsync')
+    }
   }
 
   private path(jobId: string): string {

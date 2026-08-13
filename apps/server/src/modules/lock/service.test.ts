@@ -83,6 +83,37 @@ describe('LockService', () => {
     )
   })
 
+  it('isolates two worker incarnations of the same attempt and generation', () => {
+    const { svc, advance } = harness()
+    const caller = (incarnation: string) => ({
+      sessionId: asSessionId(`system:shipping:${incarnation}:order-1:attempt-1:1`),
+      issueId: asIssueId('iss_1'),
+      label: `Shipping order-1 worker ${incarnation}`,
+      workspace: null,
+    })
+    const first = caller('worker-a')
+    const restarted = caller('worker-b')
+    expect(svc.acquire(first, { repoPath: REPO, name: 'merge:main', ttlSeconds: 1 })).toMatchObject(
+      { granted: true },
+    )
+    expect(() => svc.renew(restarted, { repoPath: REPO, name: 'merge:main' })).toThrow(/not by you/)
+    expect(() => svc.release(restarted, { repoPath: REPO, name: 'merge:main' })).toThrow(
+      /not held by this session/,
+    )
+
+    advance(1_001)
+    expect(svc.acquire(restarted, { repoPath: REPO, name: 'merge:main' })).toMatchObject({
+      granted: true,
+    })
+    expect(() => svc.renew(first, { repoPath: REPO, name: 'merge:main' })).toThrow(/not by you/)
+    expect(() => svc.release(first, { repoPath: REPO, name: 'merge:main' })).toThrow(
+      /not held by this session/,
+    )
+    expect(svc.status({ repoPath: REPO, name: 'merge:main' })[0]?.holder.sessionId).toBe(
+      restarted.sessionId,
+    )
+  })
+
   it('grants a free lock with the default TTL and holder identity', () => {
     const { svc } = harness()
     const r = svc.acquire(agent(1), { repoPath: REPO, name: 'merge:main' })

@@ -8,10 +8,17 @@ import { SessionStore } from '../../store'
 import { IssueService } from '../issues/service'
 import { CompatibilityShippingPolicyResolver } from './policy'
 import type { ShippingPolicyResolver } from './policy'
-import { type AcceptedReviewEvidence, ShippingOrderAccessError, ShippingService } from './service'
+import {
+  type AcceptedReviewEvidence,
+  canonicalShippingDestination,
+  ShippingOrderAccessError,
+  shippingResourceHolderId,
+  ShippingService,
+} from './service'
 
 const stores: SessionStore[] = []
 afterEach(() => {
+  vi.useRealTimers()
   for (const store of stores.splice(0)) store.close()
 })
 
@@ -650,6 +657,7 @@ describe('ShippingService enqueue transaction', () => {
           return true
         },
       ),
+      renew: vi.fn(() => true),
       release: vi.fn(
         ({
           names,
@@ -680,6 +688,149 @@ describe('ShippingService enqueue transaction', () => {
       `acquire:${prefix}:publish:${createHash('sha256').update('local:main').digest('hex')}`,
       `release:${prefix}:publish:${createHash('sha256').update('local:main').digest('hex')}`,
     ])
+    service.dispose()
+  })
+
+  it('gives equivalent local destinations one publication lock key', () => {
+    const destinations = ['main', 'local:main', 'refs/heads/main']
+    const canonical = destinations.map((destination) =>
+      canonicalShippingDestination(destination, 'main'),
+    )
+    expect(new Set(canonical)).toEqual(new Set(['local:main']))
+    expect(
+      new Set(
+        canonical.map(
+          (destination) => `publish:${createHash('sha256').update(destination).digest('hex')}`,
+        ),
+      ).size,
+    ).toBe(1)
+    expect(canonicalShippingDestination('remote:origin/main', 'main')).toBe('git:origin/main')
+    expect(canonicalShippingDestination('git:origin/main', 'main')).toBe('git:origin/main')
+  })
+
+  it('includes worker incarnation in the resource holder identity', () => {
+    const facts = ['order-1', 'attempt-1', 1] as const
+    const first = shippingResourceHolderId('worker-a', ...facts)
+    const restarted = shippingResourceHolderId('worker-b', ...facts)
+    expect(first).not.toBe(restarted)
+    expect(first).toBe('system:shipping:worker-a:order-1:attempt-1:1')
+  })
+
+  it('renews an active merge lease while its daemon effect is still running', async () => {
+    vi.useFakeTimers()
+    let markCommitStarted!: () => void
+    const commitStarted = new Promise<void>((resolve) => {
+      markCommitStarted = resolve
+    })
+    let finishCommit!: () => void
+    const daemon: NonNullable<
+      ConstructorParameters<typeof ShippingService>[0]['daemon']
+    >['shippingJob'] = async (input, machineId) => {
+      if (input.action === 'start' && input.operation === 'commit-merge-group') {
+        markCommitStarted()
+        return new Promise<ShippingJobResult>((resolve) => {
+          finishCommit = () => {
+            void provedShippingJob(input, machineId).then(resolve)
+          }
+        })
+      }
+      return provedShippingJob(input, machineId)
+    }
+    const renew = vi.fn(() => true)
+    const release = vi.fn()
+    const resourceAdmission = { acquire: vi.fn(() => true), renew, release }
+    const { store, issues, service } = harness(daemon, { resourceAdmission })
+    const issue = issues.create({ repoPath: '/repo', title: 'renew lease', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+
+    const running = service.runOrder(order.id)
+    await commitStarted
+    await vi.advanceTimersByTimeAsync(40_000)
+    expect(renew).toHaveBeenCalledWith(
+      expect.objectContaining({ names: ['merge:main'], ttlSeconds: 120 }),
+    )
+    finishCommit()
+    await running
+    expect(store.shipping.getOrder(order.id)?.state).toBe('shipped')
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ names: ['merge:main'] }))
+    service.dispose()
+  })
+
+  it('stops durable progress and refuses release after renewal loses the lease', async () => {
+    vi.useFakeTimers()
+    const dispatched: string[] = []
+    let markCommitStarted!: () => void
+    const commitStarted = new Promise<void>((resolve) => {
+      markCommitStarted = resolve
+    })
+    let finishCommit!: () => void
+    const daemon: NonNullable<
+      ConstructorParameters<typeof ShippingService>[0]['daemon']
+    >['shippingJob'] = async (input, machineId) => {
+      if (input.action === 'start') dispatched.push(input.operation)
+      if (input.action === 'start' && input.operation === 'commit-merge-group') {
+        markCommitStarted()
+        return new Promise<ShippingJobResult>((resolve) => {
+          finishCommit = () => {
+            void provedShippingJob(input, machineId).then(resolve)
+          }
+        })
+      }
+      return provedShippingJob(input, machineId)
+    }
+    const renew = vi.fn(
+      (
+        input: Parameters<
+          NonNullable<
+            ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
+          >['renew']
+        >[0],
+      ) => !input.names.includes('merge:main'),
+    )
+    const release = vi.fn()
+    const resourceAdmission = { acquire: vi.fn(() => true), renew, release }
+    const { store, issues, service } = harness(daemon, { resourceAdmission })
+    const issue = issues.create({ repoPath: '/repo', title: 'lost lease', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+
+    const running = service.runOrder(order.id)
+    await commitStarted
+    await vi.advanceTimersByTimeAsync(40_000)
+    finishCommit()
+    await running
+    expect(store.shipping.getOrder(order.id)?.state).toBe('landing')
+    expect(dispatched).not.toContain('publish')
+    expect(release).not.toHaveBeenCalledWith(expect.objectContaining({ names: ['merge:main'] }))
+    service.dispose()
+  })
+
+  it('rechecks lock ownership after the effect before committing durable progress', async () => {
+    const renew = vi.fn(
+      (
+        input: Parameters<
+          NonNullable<
+            ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
+          >['renew']
+        >[0],
+      ) => !input.names.includes('merge:main'),
+    )
+    const release = vi.fn()
+    const { store, issues, service } = harness(provedShippingJob, {
+      resourceAdmission: { acquire: vi.fn(() => true), renew, release },
+    })
+    const issue = issues.create({ repoPath: '/repo', title: 'post effect fence', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+
+    await service.runOrder(order.id)
+
+    expect(renew).toHaveBeenCalledWith(
+      expect.objectContaining({ names: ['merge:main'], ttlSeconds: 120 }),
+    )
+    expect(store.shipping.getOrder(order.id)?.state).toBe('landing')
+    expect(release).not.toHaveBeenCalledWith(expect.objectContaining({ names: ['merge:main'] }))
     service.dispose()
   })
 
@@ -722,6 +873,7 @@ describe('ShippingService enqueue transaction', () => {
           return true
         },
       ),
+      renew: vi.fn(() => true),
       release: vi.fn(),
     }
     const setup = harness(daemon, { resourceAdmission })
