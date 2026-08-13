@@ -20,7 +20,7 @@
  * and all three are decisions.
  *
  * ---------------------------------------------------------------------------
- * A SLOT, NOT A QUEUE — AND WHY THAT IS THE SAFE DIRECTION
+ * A STREAM SLOT, NOT A WORLD QUEUE — AND WHY THAT IS THE SAFE DIRECTION
  * ---------------------------------------------------------------------------
  *
  * Pushed bootstraps are not requests to be honoured in order; each one is "the
@@ -30,8 +30,9 @@
  * contiguous. That is the torn state ADR 6 D4.2 exists to forbid, arriving
  * through the client's own buffering.
  *
- * So: one slot, last-write-wins, and a walk consumes it only if it was offered
- * AFTER the walk began. A stale slot is dropped, not installed.
+ * So: one slot per bootstrap stream, last-write-wins between worlds, and a walk
+ * consumes it only if it was offered AFTER the walk began. Chunks belonging to
+ * that one stream are retained in order; a stale world is dropped, not installed.
  *
  * ---------------------------------------------------------------------------
  * IF NOTHING IS IN THE SLOT, ASK — AND ASKING MEANS RECONNECTING
@@ -55,7 +56,7 @@ import type { BootstrapChunk } from '@podium/sync/replica'
 
 /** How long one chunk may take to arrive before the walk is failed. Generous:
  *  it bounds a pathology (no server, no admission, refused wire version), not a
- *  slow bootstrap — a large world arrives as one frame on one socket. */
+ *  slow bootstrap — a large world arrives as bounded frames on one socket. */
 export const BOOTSTRAP_CHUNK_TIMEOUT_MS = 30_000
 
 export interface BootstrapSourceDeps {
@@ -73,8 +74,19 @@ export interface BootstrapSourceDeps {
 }
 
 export class PushedBootstrapSource {
-  /** The most recent world, and when it was offered. Superseded, never queued. */
-  private slot: { chunk: BootstrapChunk; offeredAt: number; expected: boolean } | undefined
+  /**
+   * The current bootstrap stream. Worlds supersede one another, but chunks from
+   * the same `(feedId, epoch, snapshotSeq)` stream must not overwrite one another
+   * when a socket delivers ahead of the Replica's next `await`.
+   */
+  private slot:
+    | {
+        key: string
+        chunks: BootstrapChunk[]
+        offeredAt: number
+        expected: boolean
+      }
+    | undefined
   private waiter: ((chunk: BootstrapChunk) => void) | undefined
   private failWaiter: ((error: Error) => void) | undefined
   /**
@@ -104,23 +116,19 @@ export class PushedBootstrapSource {
 
   constructor(private readonly deps: BootstrapSourceDeps) {}
 
-  /** A `feedBootstrap` arrived. Supersedes whatever was in the slot. */
+  /** A `feedBootstrap` arrived. Supersedes another world, appends within one stream. */
   offer(chunk: BootstrapChunk): void {
     this.tick += 1
     this.requesting = false
+    const key = bootstrapKey(chunk)
     const expected = this.expected
     this.expected = false
-    const waiter = this.waiter
-    if (waiter !== undefined) {
-      // Handed straight to the walk that is waiting — never parked in the slot
-      // first. Parking it would leave a consumed world behind for the NEXT walk
-      // to find and treat as fresh.
-      this.waiter = undefined
-      this.failWaiter = undefined
-      waiter(chunk)
-      return
+    if (this.slot?.key === key) {
+      this.slot.chunks.push(chunk)
+    } else {
+      this.slot = { key, chunks: [chunk], offeredAt: this.tick, expected }
     }
-    this.slot = { chunk, offeredAt: this.tick, expected }
+    this.deliverWaiting()
   }
 
   /** The current socket has opened and owes its mandatory initial world. */
@@ -187,14 +195,19 @@ export class PushedBootstrapSource {
     let ask = false
     if (freshAfter !== undefined) {
       const held = this.slot
-      this.slot = undefined
       if (held !== undefined && (held.expected || held.offeredAt > freshAfter)) {
-        return Promise.resolve(held.chunk)
+        const chunk = this.consumeSlot()
+        if (chunk !== undefined) return Promise.resolve(chunk)
+      } else {
+        this.slot = undefined
       }
       // Either nothing was pushed, or what was pushed predates this walk and has
       // just been dropped. Both mean: ask — but NOT yet. See below.
       ask = !this.expected
       this.expected = false
+    } else {
+      const queued = this.consumeSlot()
+      if (queued !== undefined) return Promise.resolve(queued)
     }
     const pending = new Promise<BootstrapChunk>((resolve, reject) => {
       const setTimer = this.deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
@@ -242,4 +255,29 @@ export class PushedBootstrapSource {
     }
     return pending
   }
+
+  /** Pull one already-arrived chunk, retaining the stream slot until `last`. */
+  private consumeSlot(): BootstrapChunk | undefined {
+    const slot = this.slot
+    const chunk = slot?.chunks.shift()
+    if (chunk?.last === true) this.slot = undefined
+    return chunk
+  }
+
+  /** Resolve the waiting Replica from a queued chunk, if one is available. */
+  private deliverWaiting(): void {
+    const waiter = this.waiter
+    if (waiter === undefined) return
+    const chunk = this.consumeSlot()
+    if (chunk === undefined) return
+    // Handed straight to the walk that is waiting — never left parked for the
+    // NEXT walk to mistake for a fresh world.
+    this.waiter = undefined
+    this.failWaiter = undefined
+    waiter(chunk)
+  }
+}
+
+function bootstrapKey(chunk: BootstrapChunk): string {
+  return `${chunk.feedId}\u0000${chunk.epoch}\u0000${chunk.snapshotSeq}`
 }

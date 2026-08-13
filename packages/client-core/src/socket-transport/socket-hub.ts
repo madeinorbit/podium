@@ -163,6 +163,12 @@ export interface SocketHubOptions {
    * Mutually exclusive with the legacy feed sink: one wire per connection.
    */
   feed?: FeedSinkPort
+  /**
+   * Schedule one feed envelope. Production uses a macrotask so the
+   * browser can service input and paint between bootstrap chunks; tests may
+   * inject a deterministic scheduler.
+   */
+  scheduleFeedTask?: (task: () => void) => void
 }
 
 /** The frames the v2 wire carries. Narrowed off the parsed union rather than
@@ -174,6 +180,42 @@ export type FeedServerFrame = Extract<
   ServerMessageLenient,
   { type: 'feedDelta' | 'feedBootstrap' | 'feedRescope' | 'feedResyncRequired' }
 >
+
+/** Main-thread budgets for the safe, pre-worker feed boundary. */
+export const FEED_TASK_BUDGET_MS = 16.7
+export const FEED_INTERACTABILITY_BUDGET_MS = 50
+
+export interface FeedTaskTiming {
+  kind: FeedServerFrame['type']
+  durationMs: number
+  /** Feed frames still waiting after this task was dequeued. */
+  queuedFrames: number
+  yielded: true
+  overTaskBudget: boolean
+  overInteractabilityBudget: boolean
+}
+
+export interface FeedBudgetSnapshot {
+  tasks: number
+  yieldedTasks: number
+  maxTaskMs: number
+  overTaskBudget: number
+  overInteractabilityBudget: number
+  maxQueueDepth: number
+}
+
+/**
+ * Scheduling hint only — `parseServerMessageLenient` remains authoritative.
+ * The canonical encoder writes `type` first, which lets this avoid JSON.parse
+ * before yielding the expensive feed path. A malformed or hand-written frame
+ * simply falls through to the existing synchronous parser.
+ */
+function feedFrameTypeHint(raw: string): FeedServerFrame['type'] | null {
+  const match = /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedBootstrap|feedRescope|feedResyncRequired)"/.exec(
+    raw,
+  )
+  return (match?.[1] as FeedServerFrame['type'] | undefined) ?? null
+}
 
 /**
  * Where v2 frames go. Implemented by the kernel Replica's client-side consumer
@@ -359,6 +401,8 @@ export interface HubEvents {
   /** The server said something this build could not read. Fires on every drop,
    *  carrying the running tally — see {@link WireSkew}. */
   wireSkew: [skew: WireSkew]
+  /** One yielded feed task, for long-task and interactability budget telemetry. */
+  feedTask: [timing: FeedTaskTiming]
   attention: [event: AttentionEvent]
   openUrl: [request: SessionOpenUrlMessage]
   openUrlResult: [result: SessionOpenUrlResultMessage]
@@ -385,7 +429,23 @@ export class SocketHub {
   private readonly opts: SocketHubOptions
   private readonly makeSocket: (url: string) => WebSocketLike
   private readonly legacyFeed: LegacyFeedSinkPort | undefined
+  private readonly scheduleFeedTask: (task: () => void) => void
   private readonly subscriptionRegistry: ClientSubscriptionRegistry
+  private readonly feedIngressQueue: Array<{
+    raw: string
+    socket: WebSocketLike
+    kind: FeedServerFrame['type']
+  }> = []
+  private feedIngressScheduled = false
+  private feedIngressGeneration = 0
+  private readonly feedBudgetStats: FeedBudgetSnapshot = {
+    tasks: 0,
+    yieldedTasks: 0,
+    maxTaskMs: 0,
+    overTaskBudget: 0,
+    overInteractabilityBudget: 0,
+    maxQueueDepth: 0,
+  }
   private socket: WebSocketLike | undefined
   private connectedFlag = false
   private clientIdValue = ''
@@ -482,6 +542,7 @@ export class SocketHub {
     )
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
     this.legacyFeed = opts.legacyFeed
+    this.scheduleFeedTask = opts.scheduleFeedTask ?? ((task) => setTimeout(task, 0))
     this.legacyFeed?.bind({
       apply: (changes) => this.applyChanges(changes),
       replace: (projection) => this.replaceMetadataSnapshot(projection),
@@ -608,7 +669,15 @@ export class SocketHub {
     }
     socket.onmessage = (ev) => {
       this.markAlive()
-      this.route(String(ev.data))
+      const raw = String(ev.data)
+      const kind = feedFrameTypeHint(raw)
+      if (kind !== null) {
+        this.enqueueFeedFrame(raw, socket, kind)
+        return
+      }
+      // Control, terminal and legacy messages keep their existing synchronous
+      // delivery semantics. Only the JSON-heavy v2 feed path yields.
+      this.route(raw)
     }
     socket.onerror = (ev) => {
       reportedError = true
@@ -636,6 +705,11 @@ export class SocketHub {
     this.stopHeartbeat()
     this.connectedFlag = false
     this.socket = undefined
+    // Frames from a closed socket cannot be installed after a replacement
+    // socket starts a new feed identity/stream.
+    this.feedIngressQueue.length = 0
+    this.feedIngressScheduled = false
+    this.feedIngressGeneration += 1
     // D7 stale-visible: the replica keeps serving its last-known slice, marked
     // stale. Told here rather than by an embedder watching `connected`, so the
     // posture changes at the same instant the frames stop.
@@ -1218,11 +1292,76 @@ export class SocketHub {
     this.stopHeartbeat()
     this.socket?.close()
     this.socket = undefined
+    this.feedIngressQueue.length = 0
+    this.feedIngressScheduled = false
+    this.feedIngressGeneration += 1
     this.connectedFlag = false
     this.inputQueue.length = 0
     this.preOpenQueue.length = 0
     this.legacyFeed?.dispose()
     this.notifyConnections()
+  }
+
+  /** Running feed-task budget counters for diagnostics and acceptance probes. */
+  feedBudget(): FeedBudgetSnapshot {
+    return { ...this.feedBudgetStats }
+  }
+
+  private enqueueFeedFrame(
+    raw: string,
+    socket: WebSocketLike,
+    kind: FeedServerFrame['type'],
+  ): void {
+    this.feedIngressQueue.push({ raw, socket, kind })
+    this.feedBudgetStats.maxQueueDepth = Math.max(
+      this.feedBudgetStats.maxQueueDepth,
+      this.feedIngressQueue.length,
+    )
+    if (this.feedIngressScheduled) return
+    this.feedIngressScheduled = true
+    const generation = this.feedIngressGeneration
+    this.scheduleFeedTask(() => this.drainFeedIngress(generation))
+  }
+
+  /**
+   * Process exactly one feed envelope per scheduled task. This is the first
+   * cooperative boundary: a later worker can take over the same queue without
+   * changing the Replica's ordering, quarantine or atomic-install rules.
+   */
+  private drainFeedIngress(generation: number): void {
+    if (generation !== this.feedIngressGeneration) return
+    this.feedIngressScheduled = false
+    const entry = this.feedIngressQueue.shift()
+    if (entry === undefined) return
+
+    if (this.socket === entry.socket) {
+      const startedAt = interactionNow()
+      try {
+        this.route(entry.raw)
+      } finally {
+        const durationMs = Math.max(0, interactionNow() - startedAt)
+        const overTaskBudget = durationMs > FEED_TASK_BUDGET_MS
+        const overInteractabilityBudget = durationMs > FEED_INTERACTABILITY_BUDGET_MS
+        this.feedBudgetStats.tasks += 1
+        this.feedBudgetStats.yieldedTasks += 1
+        this.feedBudgetStats.maxTaskMs = Math.max(this.feedBudgetStats.maxTaskMs, durationMs)
+        if (overTaskBudget) this.feedBudgetStats.overTaskBudget += 1
+        if (overInteractabilityBudget) this.feedBudgetStats.overInteractabilityBudget += 1
+        this.emit('feedTask', {
+          kind: entry.kind,
+          durationMs,
+          queuedFrames: this.feedIngressQueue.length,
+          yielded: true,
+          overTaskBudget,
+          overInteractabilityBudget,
+        })
+      }
+    }
+
+    if (this.feedIngressQueue.length > 0 && !this.feedIngressScheduled) {
+      this.feedIngressScheduled = true
+      this.scheduleFeedTask(() => this.drainFeedIngress(generation))
+    }
   }
 
   private route(raw: string): void {

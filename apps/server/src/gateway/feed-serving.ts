@@ -88,6 +88,7 @@ import {
   type SubscriberId,
   type SubscriptionRegistry,
   type UpgradeRequired,
+  WIRE_VERSION,
 } from '@podium/protocol'
 import type {
   AuthorityPort,
@@ -119,6 +120,13 @@ import {
  * process with a hundred connections.
  */
 export const FEED_SEND_QUEUE_MAX_BYTES = 8 * 1024 * 1024
+
+/**
+ * Keep one bootstrap envelope below the client feed task budget. This matches
+ * the replica's existing batch size and bounds parsing, validation, mapping and
+ * synchronous sink work while `last` keeps installation atomic across a stream.
+ */
+export const FEED_BOOTSTRAP_CHUNK_ROWS = 200
 
 /** Bound retained principal worlds: reuse is a latency optimisation, never authority. */
 const FEED_WORLD_CACHE_MAX_PRINCIPALS = 8
@@ -237,24 +245,32 @@ export class FeedServing {
     perf.record('phase', reused ? 'feedBootstrap.reuse' : 'feedBootstrap.read', readMs, perfKey)
     perf.record('phase', `feedBootstrap.cause.${cause}`, 0, perfKey)
     const identity = this.deps.identity.current()
-    const bootstrap: FeedBootstrapMessage = {
-      type: 'feedBootstrap',
-      feedId: identity.feedId,
-      epoch: identity.epoch,
-      // A bootstrap certifies `(0, seq]` — everything up to the snapshot point.
-      // Spelling it the same way a delta does is what lets a replica hold ONE
-      // acceptance rule instead of two.
-      fromSeq: 0,
-      seq: world.throughSeq,
-      minAvailableSeq: this.deps.retention.minAvailableSeq() ?? 0,
-      changes: world.changes.map(toFeedChange),
-      // Single chunk today. `last` is not dropped from the shape for that
-      // reason: chunking is D15's, the flag is what a replica installs on, and a
-      // producer that never sets it false is not the same thing as a wire that
-      // cannot express it.
-      last: true,
+    // Wire 1 is kept as one legacy snapshot because its adapter emits lists
+    // only at the end of a bootstrap. Current wire peers receive a real stream;
+    // every frame repeats the same cursor and identity, and `last` is the only
+    // install boundary.
+    const chunkRows =
+      peer.wireVersion >= WIRE_VERSION
+        ? FEED_BOOTSTRAP_CHUNK_ROWS
+        : Math.max(world.changes.length, 1)
+    const chunkCount = Math.max(1, Math.ceil(world.changes.length / chunkRows))
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+      const start = chunkIndex * chunkRows
+      const bootstrap: FeedBootstrapMessage = {
+        type: 'feedBootstrap',
+        feedId: identity.feedId,
+        epoch: identity.epoch,
+        // A bootstrap certifies `(0, seq]` — everything up to the snapshot point.
+        // Spelling it the same way a delta does is what lets a replica hold ONE
+        // acceptance rule instead of two.
+        fromSeq: 0,
+        seq: world.throughSeq,
+        minAvailableSeq: this.deps.retention.minAvailableSeq() ?? 0,
+        changes: world.changes.slice(start, start + chunkRows).map(toFeedChange),
+        last: chunkIndex === chunkCount - 1,
+      }
+      this.edge.publishTo(peer, bootstrap)
     }
-    this.edge.publishTo(peer, bootstrap)
     this.servedVersion.set(peer.id, peer.wireVersion)
     const existing = this.connections.get(peer.id)
     if (existing === undefined) {

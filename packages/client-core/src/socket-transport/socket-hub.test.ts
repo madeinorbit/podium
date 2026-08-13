@@ -61,6 +61,57 @@ describe('SocketHub', () => {
     expect(hub.clientId).toBe('c0')
   })
 
+  it('yields one feed frame per task and reports feed budgets', () => {
+    const sock = new FakeSocket()
+    const tasks: Array<() => void> = []
+    const frames: unknown[] = []
+    const timings: unknown[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+      feed: { connected: () => {}, disconnected: () => {}, frame: (frame) => frames.push(frame) },
+      scheduleFeedTask: (task) => tasks.push(task),
+    })
+    hub.on('feedTask', (timing) => timings.push(timing))
+    hub.connect()
+    sock.open()
+
+    const rawBootstrap = (last: boolean) =>
+      JSON.stringify({
+        type: 'feedBootstrap',
+        feedId: 'feed-1',
+        epoch: 'e1',
+        fromSeq: 0,
+        seq: 0,
+        minAvailableSeq: 0,
+        changes: [],
+        last,
+      })
+    sock.onmessage?.({ data: rawBootstrap(false) })
+    sock.onmessage?.({ data: rawBootstrap(true) })
+
+    expect(frames).toHaveLength(0)
+    expect(tasks).toHaveLength(1)
+    tasks.shift()?.()
+
+    expect(frames).toHaveLength(1)
+    expect(tasks).toHaveLength(1)
+    tasks.shift()?.()
+    expect(frames).toHaveLength(2)
+    expect(timings).toEqual([
+      expect.objectContaining({
+        kind: 'feedBootstrap',
+        yielded: true,
+        overTaskBudget: false,
+        overInteractabilityBudget: false,
+      }),
+      expect.objectContaining({ kind: 'feedBootstrap', yielded: true }),
+    ])
+    expect(hub.feedBudget()).toMatchObject({ tasks: 2, yieldedTasks: 2, maxQueueDepth: 2 })
+    hub.dispose()
+  })
+
   it('exposes sessionsChanged via sessions() + onSessions', () => {
     const { sock, hub } = setup()
     const seen: number[] = []

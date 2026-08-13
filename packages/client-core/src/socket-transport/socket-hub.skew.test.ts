@@ -38,6 +38,9 @@ function setup() {
     makeSocket: () => sock,
     // A feed sink makes this a v2 connection, which is where the frames land.
     feed: { connected: () => {}, disconnected: () => {}, frame: () => {} },
+    // Keep the diagnostic assertions synchronous; production uses the default
+    // yielding scheduler, covered by the feed-ingress boundary test.
+    scheduleFeedTask: (task) => task(),
   })
   hub.connect()
   sock.open()

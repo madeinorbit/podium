@@ -23,6 +23,7 @@ import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { feedTestPlumbing } from './feed-test-plumbing'
+import { FEED_BOOTSTRAP_CHUNK_ROWS } from './feed-serving'
 import type { EdgePeer } from './wire-feed-edge'
 
 class Peer implements EdgePeer {
@@ -213,6 +214,38 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     // The KEY RENAME lives in the adapter and nowhere else: v2 spells it
     // `entityId`, v1 spelled it `id`.
     expect(delta.changes.map((c) => c.id)).toEqual(['i1'])
+  })
+
+  it('streams a large v2 bootstrap with one atomic snapshot cursor', () => {
+    const p = feedTestPlumbing()
+    for (let i = 0; i < FEED_BOOTSTRAP_CHUNK_ROWS + 1; i += 1) {
+      commit(p, 'session', `s${i}`, { sessionId: `s${i}` })
+    }
+
+    const peer = new Peer('v2-large', WIRE_VERSION, true)
+    p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+
+    const frames = peer.received.filter((message) => message.type === 'feedBootstrap') as {
+      feedId: string
+      epoch: string
+      fromSeq: number
+      seq: number
+      minAvailableSeq: number
+      changes: { entityId: string }[]
+      last: boolean
+    }[]
+    expect(frames).toHaveLength(2)
+    expect(frames[0]?.changes).toHaveLength(FEED_BOOTSTRAP_CHUNK_ROWS)
+    expect(frames[1]?.changes).toHaveLength(1)
+    expect(frames.map((frame) => frame.last)).toEqual([false, true])
+    expect(new Set(frames.map((frame) => frame.feedId)).size).toBe(1)
+    expect(new Set(frames.map((frame) => frame.epoch)).size).toBe(1)
+    expect(new Set(frames.map((frame) => frame.fromSeq)).size).toBe(1)
+    expect(new Set(frames.map((frame) => frame.seq)).size).toBe(1)
+    expect(new Set(frames.map((frame) => frame.minAvailableSeq)).size).toBe(1)
+    expect(frames.flatMap((frame) => frame.changes).map((change) => change.entityId)).toEqual(
+      Array.from({ length: FEED_BOOTSTRAP_CHUNK_ROWS + 1 }, (_, i) => `s${i}`),
+    )
   })
 
   it('a peer outside the supported window is REFUSED, and served nothing', () => {

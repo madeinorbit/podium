@@ -10,6 +10,20 @@ const world: BootstrapChunk = {
   last: true,
 }
 
+const firstChunk: BootstrapChunk = {
+  ...world,
+  snapshotSeq: 8,
+  changes: [{ seq: 1, entity: 'session', entityId: 's1', op: 'upsert', payload: {} }],
+  last: false,
+}
+
+const lastChunk: BootstrapChunk = {
+  ...world,
+  snapshotSeq: 8,
+  changes: [{ seq: 2, entity: 'session', entityId: 's2', op: 'upsert', payload: {} }],
+  last: true,
+}
+
 describe('PushedBootstrapSource socket bootstrap cadence', () => {
   it('waits for the mandatory world already in flight on a newly opened socket', async () => {
     let requests = 0
@@ -61,5 +75,31 @@ describe('PushedBootstrapSource socket bootstrap cadence', () => {
 
     expect(received).toEqual([world])
     expect(requests).toBe(1)
+  })
+
+  it('retains queued chunks from one bootstrap stream in arrival order', async () => {
+    const source = new PushedBootstrapSource({ requestFreshWorld: () => {} })
+    source.expectWorld()
+    source.offer(firstChunk)
+    source.offer(lastChunk)
+
+    const received: BootstrapChunk[] = []
+    for await (const chunk of source.bootstrap()) received.push(chunk)
+
+    expect(received).toEqual([firstChunk, lastChunk])
+  })
+
+  it('supersedes an older stream after a walk has started', async () => {
+    const replacement = { ...world, feedId: 'replacement', snapshotSeq: 9 }
+    const source = new PushedBootstrapSource({ requestFreshWorld: () => {} })
+    source.expectWorld()
+    const walk = source.bootstrap()
+    const first = walk.next()
+    source.offer(firstChunk)
+    await expect(first).resolves.toEqual({ value: firstChunk, done: false })
+    source.offer(replacement)
+
+    await expect(walk.next()).resolves.toEqual({ value: replacement, done: false })
+    await expect(walk.next()).resolves.toEqual({ value: undefined, done: true })
   })
 })
