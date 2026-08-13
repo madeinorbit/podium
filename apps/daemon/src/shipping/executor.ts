@@ -787,8 +787,10 @@ export class ShippingExecutionPlane {
       )
       .at(-1)
     if (!entry) return null
-    const { requestDigest, ...facts } = entry.request
-    const digest = createHash('sha256').update(shippingJobRequestFingerprint(facts)).digest('hex')
+    const { requestDigest, ...journalFacts } = entry.request
+    const digest = createHash('sha256')
+      .update(shippingJobRequestFingerprint(journalFacts))
+      .digest('hex')
     return digest === requestDigest &&
       entry.result.jobId === entry.request.jobId &&
       entry.result.requestDigest === requestDigest &&
