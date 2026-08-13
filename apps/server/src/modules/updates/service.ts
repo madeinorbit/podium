@@ -1,12 +1,18 @@
+import type { MachineId, UpdateChannel } from '@podium/model'
 import { asMachineId } from '@podium/model'
-import type { UpdateChannel, MachineId } from '@podium/model'
 import type {
   ConvergenceState,
   UpdateGrantMessage,
   UpdateStatusMessage,
   UpdateTarget,
 } from '@podium/protocol'
-import { IN_FLIGHT_STATES, planWave, TERMINAL_STATES, type WaveMachine } from './wave'
+import {
+  IN_FLIGHT_STATES,
+  offeredDeliveries,
+  planWave,
+  TERMINAL_STATES,
+  type WaveMachine,
+} from './wave'
 
 export interface UpdatesDeps {
   machines(): readonly WaveMachine[]
@@ -338,6 +344,7 @@ export class UpdatesService {
       targetVersion: target.version,
       concurrency: this.deps.concurrency,
       canaryHealthy: rollout.canaryHealthy,
+      deliveries: offeredDeliveries(target),
     })
     return this.issueGrants(channel, target, channelMachines, selected)
   }

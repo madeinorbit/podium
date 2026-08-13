@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
-import type { AgentKind, IssueEventWire, SessionId, SessionMeta, MachineId } from '@podium/model'
+import type { AgentKind, IssueEventWire, MachineId, SessionId, SessionMeta } from '@podium/model'
 import {
   asIssueId,
-  asMutationId,
   asMachineId,
+  asMutationId,
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
@@ -57,9 +57,9 @@ import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
-import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
@@ -96,7 +96,6 @@ import {
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { ReadPositionService } from './modules/read-position/service'
-import { shipOrderProjectionRows } from './modules/shipping/projection'
 import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
@@ -109,6 +108,7 @@ import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
+import { shipOrderProjectionRows } from './modules/shipping/projection'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
@@ -431,6 +431,10 @@ export class SessionRegistry {
           state: 'current',
           online: machine.online,
           busy: false,
+          // How this machine can take delivery, as its daemon reported. Without
+          // it the wave grants updates a machine has already said it cannot
+          // use, and the fleet learns by failing (POD-2004).
+          ...(machine.deliveryCaps ? { deliveryCaps: machine.deliveryCaps } : {}),
         })),
       channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),
