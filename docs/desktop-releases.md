@@ -46,7 +46,7 @@ and refuses to publish unless the bundle is genuinely notarized.
 | `APPLE_TEAM_ID` | the 10-character Apple Team ID |
 | `APPLE_API_KEY` | App Store Connect API **Key ID** |
 | `APPLE_API_ISSUER` | App Store Connect API **Issuer ID** |
-| `APPLE_API_KEY_P8` | base64 of the `AuthKey_<KEYID>.p8` file |
+| `APPLE_API_KEY_CONTENT` | the literal contents of `AuthKey_<KEYID>.p8` — PEM, including the `BEGIN`/`END PRIVATE KEY` lines |
 
 Notarization uses an App Store Connect API key rather than an Apple ID and app-specific password:
 no personal account is coupled to releases, and there is no password to rotate when someone leaves.

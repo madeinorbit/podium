@@ -50,7 +50,7 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('secrets.APPLE_TEAM_ID')
     expect(desktopWorkflow).toContain('secrets.APPLE_API_KEY')
     expect(desktopWorkflow).toContain('secrets.APPLE_API_ISSUER')
-    expect(desktopWorkflow).toContain('secrets.APPLE_API_KEY_P8')
+    expect(desktopWorkflow).toContain('secrets.APPLE_API_KEY_CONTENT')
     expect(desktopWorkflow).toContain('APPLE_API_KEY_PATH=')
     expect(desktopWorkflow).toContain('*.dmg')
     expect(desktopWorkflow).toContain('*.app.tar.gz')
