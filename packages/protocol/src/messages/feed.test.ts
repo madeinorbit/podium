@@ -29,6 +29,7 @@ import {
   IssueWire,
   RepoProjection,
   SessionMeta,
+  ShipOrderProjection,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
@@ -63,6 +64,7 @@ const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   conversation: ConversationSummaryWire,
   automation: AutomationWire,
   automationRun: AutomationRunWire,
+  shipOrder: ShipOrderProjection,
 }
 
 const kindOf = (arm: Arm): string =>
@@ -83,10 +85,10 @@ const delta = (over: Partial<z.input<typeof FeedDeltaMessage>> = {}) => ({
 })
 
 describe('the v2 change row composes the shared vocabulary', () => {
-  it('has all eight entity arms, so the per-arm loops below are not vacuous', () => {
+  it('has all nine entity arms, so the per-arm loops below are not vacuous', () => {
     // The counterfactual guard POD-305 named: if `.options` stopped resolving,
     // every loop here would iterate nothing and pass silently.
-    expect(arms).toHaveLength(8)
+    expect(arms).toHaveLength(9)
     expect(arms.map(kindOf).sort()).toEqual(Object.keys(PAYLOAD_OF_KIND).sort())
   })
 
@@ -138,6 +140,18 @@ describe('the v2 change row composes the shared vocabulary', () => {
     // The counterfactual: this is what the pre-cutover wire refused, and why the
     // shipped composition roots throw rather than degrade an evict to a remove.
     expect(MetadataChangeOp.safeParse('evict').success).toBe(false)
+  })
+
+  it('accepts a structurally valid ship-order upsert and rejects malformed projections', () => {
+    const value = {
+      id: 'ship_01J', issueId: 'issue_01J', repoId: 'repo_01J', targetBranch: 'main',
+      destination: 'origin/main', state: 'queued', humanState: 'waiting', activity: 'waiting',
+      queuedAt: '2026-08-13T00:00:00.000Z', stateChangedAt: '2026-08-13T00:00:00.000Z',
+    }
+    expect(FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value }).success).toBe(true)
+    expect(FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value: { ...value, state: 'cancelled' } }).success).toBe(false)
+    const { issueId: _issueId, ...missingIssue } = value
+    expect(FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value: missingIssue }).success).toBe(false)
   })
 })
 
@@ -265,7 +279,7 @@ describe('the acceptance rule is the explicit lower bound', () => {
  * POD-1608 — THE GAP BETWEEN THE STRICT ARMS AND THE CATCH-ALL.
  *
  * The catch-all excluded `MetadataEntityKind.options` — v1's vocabulary — while
- * `FeedChange` carried arms for only eight of them. v1 grew `userLayout` and
+ * `FeedChange` carried arms for only nine of them. v1 grew `userLayout` and
  * `userReadPosition` (POD-1350/POD-1380) and v2 did not, so a row of either kind
  * was refused by the strict union AND excluded from the lenient one. Since a
  * frame parses as ONE object, that single row took the whole `feedBootstrap`

@@ -19,6 +19,7 @@ import {
   asMutationId,
   asSessionId,
   asUserId,
+  type ShipOrderProjection,
   type IssueWire,
   type LayoutWire,
   layoutRowId,
@@ -75,6 +76,29 @@ const automationRun = (id: AutomationRunId, automationId: AutomationId): Automat
   sessionId: asSessionId('sess_1'),
   outcome: 'spawned',
   detail: null,
+})
+
+const shipOrder = (id: string, over: Partial<ShipOrderProjection> = {}): ShipOrderProjection => ({
+  id: id as ShipOrderProjection['id'], issueId: 'issue_01J' as ShipOrderProjection['issueId'],
+  repoId: 'repo_01J' as ShipOrderProjection['repoId'], targetBranch: 'main', destination: 'origin/main',
+  state: 'queued', humanState: 'waiting', activity: 'waiting', queuedAt: '2026-08-13T00:00:00.000Z',
+  stateChangedAt: '2026-08-13T00:00:00.000Z', ...over,
+})
+
+describe('ship-order replica collection', () => {
+  it('hydrates snapshots and applies live upsert, update, remove, and visibility eviction', () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('shipOrders', [shipOrder('ship_a'), shipOrder('ship_b', { issueId: 'issue_02J' as never })])
+    expect(replica.rows('shipOrders')).toHaveLength(2)
+    replica.applyChanges('shipOrders', [shipOrder('ship_a', { state: 'composing', humanState: 'in_progress', activity: 'composing' })], [])
+    expect(replica.rows('shipOrders').find((row) => row.id === 'ship_a')?.state).toBe('composing')
+    replica.applyChanges('shipOrders', [], ['ship_b'])
+    expect(replica.rows('shipOrders').map((row) => row.id)).toEqual(['ship_a'])
+    // A scoped snapshot omits rows no longer visible; this is the grant/revoke
+    // and tombstone/cancel eviction path used by the feed hub.
+    replica.applySnapshot('shipOrders', [])
+    expect(replica.rows('shipOrders')).toEqual([])
+  })
 })
 
 describe('replica row-notification coalescing (#262 review)', () => {
