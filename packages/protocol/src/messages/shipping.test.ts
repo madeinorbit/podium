@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { ControlMessage, DaemonMessage } from './index'
 import { shippingJobRequestFingerprint } from './shipping'
@@ -30,16 +29,41 @@ const requestFacts = {
 const { type: _type, requestId: _requestId, action: _action, ...fingerprintFacts } = requestFacts
 const request = {
   ...requestFacts,
-  requestDigest: createHash('sha256')
-    .update(
-      shippingJobRequestFingerprint(
-        fingerprintFacts as Parameters<typeof shippingJobRequestFingerprint>[0],
-      ),
-    )
-    .digest('hex'),
+  requestDigest: 'c'.repeat(64),
 }
 
 describe('shipping machine protocol', () => {
+  it('canonicalizes every immutable request fact without a Node-only hash dependency', () => {
+    expect(
+      shippingJobRequestFingerprint(
+        fingerprintFacts as Parameters<typeof shippingJobRequestFingerprint>[0],
+      ),
+    ).toBe(
+      JSON.stringify({
+        jobId: 'job-1',
+        orderId: 'order-1',
+        attemptId: 'attempt-1',
+        generation: 2,
+        operation: 'preflight',
+        repoPath: '/repo',
+        sourceBranch: 'issue/1',
+        targetBranch: 'main',
+        approvedBaseSha: 'a'.repeat(40),
+        approvedHeadSha: 'b'.repeat(40),
+        expectedTargetSha: 'a'.repeat(40),
+        destination: 'local:main',
+        validationProfile: {
+          id: 'agent',
+          argv: ['bun', 'run', 'test'],
+          cwd: 'integration-root',
+          timeoutMs: 60_000,
+          resourceLocks: ['validation:agent'],
+        },
+        providerRef: null,
+      }),
+    )
+  })
+
   it('round-trips the purpose-built request and result frames', () => {
     expect(ControlMessage.parse(request)).toEqual(request)
     expect(
