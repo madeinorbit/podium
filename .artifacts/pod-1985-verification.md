@@ -76,7 +76,35 @@ exit 0 with the build completed unscoped:
 - `systemd-run` removed from `PATH` (stands in for macOS / Windows / a non-systemd host)
 - `PODIUM_NO_SCOPE=1` (the documented escape hatch)
 
-## The race that is gone
+## A regression this caused, and the correction (landed `732a04074`)
+
+Sequencing the web build on the `/version` path was wrong. That path asks for a
+build on **every read**, so the server rebuilt `apps/web/dist` each time main moved —
+while the server itself stayed on the commit it booted with, because
+`podium-redeploy.path` is disabled here. The page ran **ahead** of the server, their
+wire schema digests disagreed, and every open tab got "This page and your server are
+out of sync".
+
+Caught live: a server on `dev+e10795a` had rebuilt the website **six times for five
+commits it was not running**, leaving the served dist at `45bb355` (wire digest
+`e04d3d28`) against the server's `ba27fe60`.
+
+The served website may only move when the **server** can move with it. The request now
+carries whether it is explicit:
+
+| request | stale dist |
+|---|---|
+| server start-up, operator update (restarts it) | rebuild |
+| the `/version` poll | refuse |
+
+A refused poll packs no tarball and heals at the next restart; a page ahead of its
+server costs every open tab. Verified live after landing: main moved `732a040 →
+cbb0570`, **no website rebuild fired**, page and server stayed in sync, and the refusal
+is legible in the log.
+
+The refusal is also free — a stamp read, not a spawned build.
+
+## The race that is gone (on the paths where the build may run)
 
 The compile refuses a `dev+<sha>` tarball whose web half came from another commit, and
 producing that dist belonged to a separate unit. 28 of 112 attempts in the week to
