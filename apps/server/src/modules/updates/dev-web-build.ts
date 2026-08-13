@@ -65,7 +65,14 @@ const log = createLogger('server:updates')
 
 /** The two commands `podium-web.service` ran, in the order it ran them. */
 export const DEV_WEB_BUILD_STEPS = [
-  { role: 'dev-web-build', label: 'apps/web', args: ['run', '--filter', '@podium/web', 'build'] },
+  {
+    role: 'dev-web-build',
+    label: 'apps/web',
+    // `build` ends with the landing size ratchet. Dest rebuilds need the stamped
+    // website even when that ratchet is red (measured: dest+59ba485, eager
+    // 2,202,513 / 2,200,000). `build:dist` stops after the stamp.
+    args: ['run', '--filter', '@podium/web', 'build:dist'],
+  },
   {
     role: 'dev-mobile-build',
     label: 'apps/mobile',

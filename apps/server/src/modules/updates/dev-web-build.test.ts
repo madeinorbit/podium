@@ -70,6 +70,12 @@ describe('when the served website may be rewritten', () => {
 })
 
 describe('development web build', () => {
+  it('rebuilds the stamped website, not the landing size ratchet', () => {
+    const web = DEV_WEB_BUILD_STEPS.find((step) => step.role === 'dev-web-build')
+    expect(web?.args).toEqual(['run', '--filter', '@podium/web', 'build:dist'])
+    expect(web?.args).not.toContain('build')
+  })
+
   it('recognises a dist built from this commit', () => {
     expect(webDistMatchesHead({ sourceSha: 'aaaaaaa' }, 'aaaaaaa')).toBe(true)
     expect(webDistMatchesHead({ sourceSha: 'bbbbbbb' }, 'aaaaaaa')).toBe(false)
