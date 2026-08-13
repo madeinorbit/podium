@@ -785,13 +785,22 @@ export const grants = sqliteTable(
 // 'upstream' = a node⇄hub provisioning token, 'break-glass' = a session minted
 // from local state-dir access by `podium auth mint-session`. Without it the
 // three are indistinguishable and revoking one class signs every device out too.
-export const clientSessions = sqliteTable('client_sessions', {
-  tokenHash: text('token_hash').primaryKey(),
-  userId: text('user_id').$type<UserId>().notNull(),
-  createdAt: text('created_at').notNull(),
-  expiresAt: text('expires_at').notNull(),
-  label: text().notNull().default('login'),
-})
+export const clientSessions = sqliteTable(
+  'client_sessions',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    userId: text('user_id').$type<UserId>().notNull(),
+    createdAt: text('created_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    label: text().notNull().default('login'),
+    sessionId: text('session_id'),
+    deviceId: text('device_id'),
+    deviceName: text('device_name'),
+    platform: text(),
+    lastSeenAt: text('last_seen_at'),
+  },
+  (table) => [uniqueIndex('idx_client_sessions_session_id').on(table.sessionId)],
+)
 
 // TELEGRAM CHAT BINDING (POD-1080, ADR 3 Amendment 1 D22; ADR 1 matrix row
 // `telegram-chat-binding`). The row that turns an inbound chat id — a value THE

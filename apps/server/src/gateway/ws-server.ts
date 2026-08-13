@@ -71,6 +71,7 @@ import { type GatewaySocket, shouldCompressWebSocketFrame, WS_MAX_PAYLOAD_BYTES 
 export interface WsHandle {
   handleRequest(request: Request, server: NativeServer<SocketData>): Response | null | undefined
   websocket: NativeWebSocketHandler<SocketData>
+  revokeClientCredential(credentialId: string): void
   close(): Promise<void>
 }
 
@@ -78,6 +79,14 @@ export interface WsAuthOptions {
   authorizeClient?: (request: Request) => boolean
   userForClient?: (request: Request) => UserId | undefined
   roleForClient?: (request: Request) => UserRole | undefined
+  principalForClient?: (request: Request) =>
+    | {
+        userId: UserId
+        userRole: UserRole
+        credentialId?: string
+      }
+    | undefined
+  validateClientCredential?: (credentialId: string) => boolean
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
@@ -119,6 +128,7 @@ interface SocketData {
   url: string
   userId?: UserId
   userRole?: UserRole
+  credentialId?: string
   socket?: NativeGatewaySocket
 }
 
@@ -180,6 +190,7 @@ export function attachWebSockets(
   const daemons = new Set<NativeGatewaySocket>()
   const aliveClients = new WeakSet<HeartbeatSocket>()
   const aliveDaemons = new WeakSet<HeartbeatSocket>()
+  const clientsByCredential = new Map<string, Set<NativeGatewaySocket>>()
 
   const websocket: NativeWebSocketHandler<SocketData> = {
     data: {} as SocketData,
@@ -199,14 +210,35 @@ export function attachWebSockets(
         return
       }
       clients.add(socket)
+      if (native.data.credentialId) {
+        const current = clientsByCredential.get(native.data.credentialId)
+        if (current) current.add(socket)
+        else clientsByCredential.set(native.data.credentialId, new Set([socket]))
+      }
       aliveClients.add(socket)
       const id = wireClientSocket(socket, native.data.url, registry, {
         userId: native.data.userId,
         userRole: native.data.userRole,
       })
-      if (id === undefined) clients.delete(socket)
+      if (id === undefined) {
+        clients.delete(socket)
+        if (native.data.credentialId) {
+          const current = clientsByCredential.get(native.data.credentialId)
+          current?.delete(socket)
+          if (current?.size === 0) clientsByCredential.delete(native.data.credentialId)
+        }
+      }
     },
     message(native, message) {
+      if (
+        native.data.kind === 'client' &&
+        native.data.credentialId &&
+        auth.validateClientCredential &&
+        !auth.validateClientCredential(native.data.credentialId)
+      ) {
+        native.terminate()
+        return
+      }
       // THE I/O-COMPLETION SEAM [POD-1931]. Every inbound frame's handling runs
       // synchronously under this call, and it reaches JS without passing through
       // any scheduler — so neither the statement counters nor the patched timers
@@ -231,6 +263,11 @@ export function attachWebSockets(
       if (!socket) return
       clients.delete(socket)
       daemons.delete(socket)
+      if (native.data.credentialId) {
+        const current = clientsByCredential.get(native.data.credentialId)
+        current?.delete(socket)
+        if (current?.size === 0) clientsByCredential.delete(native.data.credentialId)
+      }
       socket.emit('close')
     },
   }
@@ -250,25 +287,34 @@ export function attachWebSockets(
         return new Response('Upgrade Required', { status: 426 })
       }
       if (!isAllowedWsOrigin(request.headers.get('origin'), request.headers.get('host'))) {
-        return new Response('Forbidden', { status: 403, headers: { connection: 'close' } })
+        return new Response('Forbidden', {
+          status: 403,
+          headers: { connection: 'close' },
+        })
       }
 
       let data: SocketData
       if (pathname === '/client') {
-        const userId = auth.userForClient?.(request)
-        const userRole = auth.roleForClient?.(request)
+        const resolved = auth.principalForClient?.(request)
+        const userId = resolved?.userId ?? auth.userForClient?.(request)
+        const userRole = resolved?.userRole ?? auth.roleForClient?.(request)
         if (
+          (auth.principalForClient && resolved === undefined) ||
           (auth.userForClient && userId === undefined) ||
           (auth.roleForClient && userRole === undefined) ||
           (auth.authorizeClient && !auth.authorizeClient(request))
         ) {
-          return new Response('Unauthorized', { status: 401, headers: { connection: 'close' } })
+          return new Response('Unauthorized', {
+            status: 401,
+            headers: { connection: 'close' },
+          })
         }
         data = {
           kind: 'client',
           url: request.url,
           userId,
           userRole,
+          ...(resolved?.credentialId ? { credentialId: resolved.credentialId } : {}),
         }
       } else {
         data = { kind: 'daemon', url: request.url }
@@ -278,6 +324,12 @@ export function attachWebSockets(
         ? undefined
         : new Response('WebSocket upgrade failed', { status: 400 })
     },
+    revokeClientCredential(credentialId) {
+      const sockets = clientsByCredential.get(credentialId)
+      if (!sockets) return
+      for (const socket of sockets) socket.terminate()
+      clientsByCredential.delete(credentialId)
+    },
     async close() {
       clientHeartbeat.stop()
       daemonHeartbeat.stop()
@@ -285,6 +337,7 @@ export function attachWebSockets(
       for (const socket of daemons) socket.terminate()
       clients.clear()
       daemons.clear()
+      clientsByCredential.clear()
     },
   }
 }

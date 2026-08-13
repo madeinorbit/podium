@@ -1,0 +1,1 @@
+ALTER TABLE `client_sessions` ADD `session_id` text;

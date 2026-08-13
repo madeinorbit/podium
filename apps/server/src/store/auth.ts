@@ -27,6 +27,27 @@
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { UserId } from '@podium/model'
 
+export interface ClientSessionMetadata {
+  sessionId?: string
+  deviceId?: string
+  deviceName?: string
+  platform?: string
+  lastSeenAt?: string
+}
+
+export interface ClientSessionRow {
+  tokenHash: string
+  sessionId?: string
+  userId: UserId
+  createdAt: string
+  expiresAt: string
+  label: string
+  deviceId?: string
+  deviceName?: string
+  platform?: string
+  lastSeenAt?: string
+}
+
 export class AuthRepository {
   constructor(private readonly db: SqlDatabase) {}
 
@@ -42,32 +63,60 @@ export class AuthRepository {
     userId: UserId,
     expiresAt: string,
     label = 'login',
+    metadata: ClientSessionMetadata = {},
   ): void {
     this.db
       .prepare(
-        'INSERT OR REPLACE INTO client_sessions (token_hash, user_id, created_at, expires_at, label) VALUES (?, ?, ?, ?, ?)',
+        `INSERT OR REPLACE INTO client_sessions
+          (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(tokenHash, userId, new Date().toISOString(), expiresAt, label)
+      .run(
+        tokenHash,
+        userId,
+        new Date().toISOString(),
+        expiresAt,
+        label,
+        metadata.sessionId ?? null,
+        metadata.deviceId ?? null,
+        metadata.deviceName ?? null,
+        metadata.platform ?? null,
+        metadata.lastSeenAt ?? null,
+      )
   }
 
   /** Every session row, newest first — the read behind `podium auth sessions`. Returns
    *  hashes, never tokens: the plaintext is not stored and cannot be recovered. */
-  listClientSessions(): {
-    tokenHash: string
-    createdAt: string
-    expiresAt: string
-    label: string
-  }[] {
+  listClientSessions(): ClientSessionRow[] {
     const rows = this.db
       .prepare(
-        'SELECT token_hash, created_at, expires_at, label FROM client_sessions ORDER BY created_at DESC',
+        `SELECT token_hash, user_id, created_at, expires_at, label, session_id,
+                device_id, device_name, platform, last_seen_at
+           FROM client_sessions ORDER BY created_at DESC`,
       )
-      .all() as { token_hash: string; created_at: string; expires_at: string; label: string }[]
+      .all() as {
+      token_hash: string
+      user_id: UserId
+      created_at: string
+      expires_at: string
+      label: string
+      session_id: string | null
+      device_id: string | null
+      device_name: string | null
+      platform: string | null
+      last_seen_at: string | null
+    }[]
     return rows.map((r) => ({
       tokenHash: r.token_hash,
+      userId: r.user_id,
       createdAt: r.created_at,
       expiresAt: r.expires_at,
       label: r.label,
+      ...(r.session_id ? { sessionId: r.session_id } : {}),
+      ...(r.device_id ? { deviceId: r.device_id } : {}),
+      ...(r.device_name ? { deviceName: r.device_name } : {}),
+      ...(r.platform ? { platform: r.platform } : {}),
+      ...(r.last_seen_at ? { lastSeenAt: r.last_seen_at } : {}),
     }))
   }
 
@@ -80,12 +129,35 @@ export class AuthRepository {
 
   getClientSession(
     tokenHash: string,
-  ): { userId: UserId; expiresAt: string; label: string } | undefined {
+  ): Omit<ClientSessionRow, 'tokenHash' | 'createdAt'> | undefined {
     const row = this.db
-      .prepare('SELECT user_id, expires_at, label FROM client_sessions WHERE token_hash = ?')
-      .get(tokenHash) as { user_id: UserId; expires_at: string; label: string } | undefined
+      .prepare(
+        `SELECT user_id, expires_at, label, session_id, device_id, device_name, platform, last_seen_at
+           FROM client_sessions WHERE token_hash = ?`,
+      )
+      .get(tokenHash) as
+      | {
+          user_id: UserId
+          expires_at: string
+          label: string
+          session_id: string | null
+          device_id: string | null
+          device_name: string | null
+          platform: string | null
+          last_seen_at: string | null
+        }
+      | undefined
     return row
-      ? { userId: row.user_id as UserId, expiresAt: row.expires_at, label: row.label }
+      ? {
+          userId: row.user_id as UserId,
+          expiresAt: row.expires_at,
+          label: row.label,
+          ...(row.session_id ? { sessionId: row.session_id } : {}),
+          ...(row.device_id ? { deviceId: row.device_id } : {}),
+          ...(row.device_name ? { deviceName: row.device_name } : {}),
+          ...(row.platform ? { platform: row.platform } : {}),
+          ...(row.last_seen_at ? { lastSeenAt: row.last_seen_at } : {}),
+        }
       : undefined
   }
 
@@ -94,6 +166,29 @@ export class AuthRepository {
     this.db
       .prepare('UPDATE client_sessions SET expires_at = ? WHERE token_hash = ?')
       .run(expiresAt, tokenHash)
+  }
+
+  touchClientSession(tokenHash: string, lastSeenAt: string): void {
+    this.db
+      .prepare('UPDATE client_sessions SET last_seen_at = ? WHERE token_hash = ?')
+      .run(lastSeenAt, tokenHash)
+  }
+
+  listMobileClientSessions(userId: UserId): ClientSessionRow[] {
+    return this.listClientSessions().filter(
+      (session) => session.userId === userId && session.label === 'mobile',
+    )
+  }
+
+  deleteOwnedMobileClientSession(sessionId: string, userId: UserId): string | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT token_hash FROM client_sessions WHERE session_id = ? AND user_id = ? AND label = 'mobile'",
+      )
+      .get(sessionId, userId) as { token_hash: string } | undefined
+    if (!row) return undefined
+    this.db.prepare('DELETE FROM client_sessions WHERE token_hash = ?').run(row.token_hash)
+    return row.token_hash
   }
 
   /** True iff the session exists and has not expired as of `nowIso`. */

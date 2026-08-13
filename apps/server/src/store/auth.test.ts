@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { beforeEach, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { AuthRepository } from './auth'
@@ -32,6 +32,41 @@ it('records the label a session was minted under', () => {
   const byHash = new Map(repo.listClientSessions().map((s) => [s.tokenHash, s.label]))
   expect(byHash.get('hash-a')).toBe('break-glass')
   expect(byHash.get('hash-b')).toBe('upstream')
+})
+
+it('round-trips mobile device metadata, activity, and owner-scoped row revocation', () => {
+  const other = asUserId('user:other')
+  repo.createClientSession('mobile-a', FIRST_ADMIN_USER_ID, FUTURE, 'mobile', {
+    sessionId: 'session-aaaaaaaaaaaa',
+    deviceId: 'device-a',
+    deviceName: "Sam's iPhone",
+    platform: 'ios',
+    lastSeenAt: '2026-01-01T00:00:00.000Z',
+  })
+  repo.createClientSession('mobile-b', other, FUTURE, 'mobile', {
+    sessionId: 'session-bbbbbbbbbbbb',
+    deviceId: 'device-b',
+    deviceName: 'Other phone',
+    platform: 'android',
+  })
+  expect(repo.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toMatchObject([
+    {
+      tokenHash: 'mobile-a',
+      sessionId: 'session-aaaaaaaaaaaa',
+      deviceId: 'device-a',
+      deviceName: "Sam's iPhone",
+      platform: 'ios',
+      lastSeenAt: '2026-01-01T00:00:00.000Z',
+    },
+  ])
+  repo.touchClientSession('mobile-a', '2026-01-02T00:00:00.000Z')
+  expect(repo.getClientSession('mobile-a')?.lastSeenAt).toBe('2026-01-02T00:00:00.000Z')
+  expect(
+    repo.deleteOwnedMobileClientSession('session-bbbbbbbbbbbb', FIRST_ADMIN_USER_ID),
+  ).toBeUndefined()
+  expect(
+    repo.deleteOwnedMobileClientSession('session-aaaaaaaaaaaa', FIRST_ADMIN_USER_ID),
+  ).toBe('mobile-a')
 })
 
 // REMOVED, not ported: 'labels an upstream provisioning token as upstream'.

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `idx_client_sessions_session_id` ON `client_sessions` (`session_id`);

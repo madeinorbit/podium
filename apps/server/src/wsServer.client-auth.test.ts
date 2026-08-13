@@ -25,13 +25,22 @@ afterEach(async () => {
 })
 
 /** Start a real Bun server with the client-auth gate, return its /client URL. */
-async function start(authorizeClient: (request: Request) => boolean) {
+async function start(authorizeClient: (request: Request) => boolean, credentialId?: string) {
   store = new SessionStore(':memory:')
   registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
     authorizeClient,
     userForClient: () => FIRST_ADMIN_USER_ID,
     roleForClient: () => 'admin',
+    ...(credentialId
+      ? {
+          principalForClient: () => ({
+            userId: FIRST_ADMIN_USER_ID,
+            userRole: 'admin' as const,
+            credentialId,
+          }),
+        }
+      : {}),
   })
   server = serveNative({
     port: 0,
@@ -102,6 +111,27 @@ describe('/client WS auth gate', () => {
     const url = await start((req) => req.headers.get('cookie') === 'podium_session=good')
     expect(await attempt(url, { cookie: 'podium_session=good' })).toBe('open')
     expect(await attempt(url, { cookie: 'podium_session=bad' })).toBe('rejected')
+  })
+
+  test('the gate sees a native Authorization bearer on the upgrade request', async () => {
+    const url = await start(
+      (req) => req.headers.get('authorization') === 'Bearer native-mobile-token',
+    )
+    expect(await attempt(url, { authorization: 'Bearer native-mobile-token' })).toBe('open')
+    expect(await attempt(url, { authorization: 'Bearer wrong' })).toBe('rejected')
+  })
+
+  test('remote revocation terminates sockets carrying that one credential', async () => {
+    const url = await start(() => true, 'mobile-session-hash')
+    const socket = new WebSocket(url)
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve)
+      socket.once('error', reject)
+    })
+    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
+    handle?.revokeClientCredential('mobile-session-hash')
+    await closed
+    expect(socket.readyState).toBe(WebSocket.CLOSED)
   })
 
   test('no gate configured keeps the client surface open (back-compat)', async () => {

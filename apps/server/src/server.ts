@@ -40,7 +40,15 @@ import {
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { clientAuthGuard, registerAuthRoute, requestUserId } from './auth-route'
+import {
+  clientAuthGuard,
+  isSecureRequest,
+  maintainClientCredentialByHash,
+  registerAuthRoute,
+  resolveClientCredential,
+  requestUserId,
+  type ClientCredentialHeaders,
+} from './auth-route'
 import { captureServerBuildVersion } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
@@ -57,6 +65,8 @@ import { PairingManager } from './hub/pairing'
 import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
+import { MobilePairingManager } from './mobile-pairing'
+import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
@@ -302,6 +312,7 @@ export async function startServer(
   // route, the status route and the exposure warning cannot answer it differently.
   const credentialsRequired = (): boolean =>
     !loadConfig().auth?.openMode && store.users.hasPerUserCredentials()
+  const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
   // folds/reconciles the retained rows. The server does not listen meanwhile.
@@ -538,9 +549,9 @@ export async function startServer(
   // login screen can load. Setup WRITES live under /trpc (setup.*), so they're covered by the
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
-  const requestPrincipal = (cookie: string | undefined) => {
+  const requestPrincipal = (headers: ClientCredentialHeaders) => {
     const userId =
-      requestUserId(store.auth, cookie) ??
+      requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader) ??
       (!credentialsRequired() ? FIRST_ADMIN_USER_ID : undefined)
     if (userId === undefined) return undefined
     const account = store.users.get(userId)
@@ -562,8 +573,20 @@ export async function startServer(
     users: store.users,
     // One principal resolver for every human-client transport. The status route
     // reports this result; it does not recreate the open/dev bootstrap fallback.
-    resolveUserId: (cookie) => requestPrincipal(cookie)?.user,
+    resolveUserId: (headers) => requestPrincipal(headers)?.user,
     loginRequired: credentialsRequired,
+  })
+  let revokeConnectedMobileSession: (sessionId: string) => void = () => {}
+  registerMobilePairingRoutes(app, {
+    store: store.auth,
+    pairing: mobilePairing,
+    serverIdentity: () => ({ publicUrl: loadConfig().publicUrl, instanceId }),
+    loginRequired: credentialsRequired,
+    // Pairing and device management require a real credential. Open-mode's
+    // synthetic first-admin principal must never authorize session mutation.
+    resolveUserId: (headers) =>
+      requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader),
+    onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
   app.use('/files/*', guard)
   registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
@@ -613,7 +636,10 @@ export async function startServer(
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
       createContext: (_request, hono) => {
-        const principal = requestPrincipal(hono.req.header('cookie'))
+        const principal = requestPrincipal({
+          cookieHeader: hono.req.header('cookie'),
+          authorizationHeader: hono.req.header('authorization'),
+        })
         if (principal === undefined) throw new Error('authenticated account is unavailable')
         return {
           registry,
@@ -716,13 +742,32 @@ export async function startServer(
     }
 
     const ws = attachWebSockets(registry, {
-      userForClient: (request) =>
-        requestPrincipal(request.headers.get('cookie') ?? undefined)?.user,
-      roleForClient: (request) => {
-        const principal = requestPrincipal(request.headers.get('cookie') ?? undefined)
-        return principal ? store.users.roleOf(principal.user) : undefined
+      validateClientCredential: (credentialId) =>
+        maintainClientCredentialByHash(store.auth, credentialId) !== undefined,
+      principalForClient: (request) => {
+        if (
+          request.headers.has('authorization') &&
+          !isSecureRequest(request.url, request.headers.get('x-forwarded-proto') ?? undefined)
+        ) {
+          return undefined
+        }
+        const headers = {
+          cookieHeader: request.headers.get('cookie') ?? undefined,
+          authorizationHeader: request.headers.get('authorization') ?? undefined,
+        }
+        const credential = resolveClientCredential(store.auth, headers)
+        const principal = requestPrincipal(headers)
+        if (!principal) return undefined
+        const userRole = store.users.roleOf(principal.user)
+        if (!userRole) return undefined
+        return {
+          userId: principal.user,
+          userRole,
+          ...(credential ? { credentialId: credential.tokenHash } : {}),
+        }
       },
     })
+    revokeConnectedMobileSession = (sessionId) => ws.revokeClientCredential(sessionId)
 
     let server: Pick<NativeServer<never>, 'port' | 'stop'>
     try {

@@ -6,21 +6,52 @@ import {
   type UserId,
   type UserRole,
 } from '@podium/model'
-import { SESSION_COOKIE } from '@podium/protocol'
+import { NativeClientLoginRequest, SESSION_COOKIE } from '@podium/protocol'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
-import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
+import { deleteCookie, setCookie } from 'hono/cookie'
 
 /** The subset of the store the auth surface needs (the human-UI login sessions). */
 export interface ClientSessionStore {
-  createClientSession(tokenHash: string, userId: UserId, expiresAt: string, label?: string): void
-  getClientSession(
+  createClientSession(
     tokenHash: string,
-  ): { userId: UserId; expiresAt: string; label?: string } | undefined
+    userId: UserId,
+    expiresAt: string,
+    label?: string,
+    metadata?: ClientSessionMetadata,
+  ): void
+  getClientSession(tokenHash: string): ClientSessionRecord | undefined
   isClientSessionValid(tokenHash: string, nowIso: string): boolean
   extendClientSession(tokenHash: string, expiresAt: string): void
   deleteClientSession(tokenHash: string): void
+  touchClientSession?(tokenHash: string, lastSeenAt: string): void
   deleteExpiredClientSessions?(nowIso: string): void
+}
+
+export interface ClientSessionMetadata {
+  sessionId?: string
+  deviceId?: string
+  deviceName?: string
+  platform?: string
+  lastSeenAt?: string
+}
+
+export interface ClientSessionRecord extends ClientSessionMetadata {
+  userId: UserId
+  expiresAt: string
+  label?: string
+}
+
+export interface ClientCredentialHeaders {
+  cookieHeader?: string
+  authorizationHeader?: string
+}
+
+export interface ResolvedClientCredential {
+  tokenHash: string
+  source: 'cookie' | 'bearer'
+  session: ClientSessionRecord
+  renewed: boolean
 }
 
 // The cookie name lives in @podium/protocol (shared wire-level constant with
@@ -30,7 +61,7 @@ export interface ClientSessionStore {
 export { SESSION_COOKIE }
 
 /** 30 days — a logged-in device stays logged in across server redeploys. */
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 /** Renew at most once a day: the first authenticated request after a session was last
  *  renewed >24h ago pushes its expiry back to a full TTL. Keeps an active client logged in
  *  forever (the idle window resets on any day it's used) while bounding the write to ~1/day. */
@@ -45,16 +76,62 @@ export function hashToken(token: string): string {
 
 /** True when the request carries a valid (unexpired) session cookie. Reused by the
  *  auth middleware and the /client WS upgrade gate so they share one definition of "authed". */
+export function resolveClientCredential(
+  store: ClientSessionStore,
+  headers: ClientCredentialHeaders,
+  nowMs: number = Date.now(),
+): ResolvedClientCredential | undefined {
+  const fromBearer = headers.authorizationHeader !== undefined
+  const token = fromBearer
+    ? parseBearerToken(headers.authorizationHeader)
+    : parseSessionCookie(headers.cookieHeader)
+  if (!token) return undefined
+  const tokenHash = hashToken(token)
+  const maintained = maintainClientCredentialByHash(store, tokenHash, nowMs)
+  if (!maintained) return undefined
+  return {
+    tokenHash,
+    source: fromBearer ? 'bearer' : 'cookie',
+    session: maintained.session,
+    renewed: maintained.renewed,
+  }
+}
+
+/** Validate and maintain a credential when a transport retains only its token hash (WebSocket). */
+export function maintainClientCredentialByHash(
+  store: ClientSessionStore,
+  tokenHash: string,
+  nowMs: number = Date.now(),
+): { session: ClientSessionRecord; renewed: boolean } | undefined {
+  if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined
+  const current = store.getClientSession(tokenHash)
+  if (!current) return undefined
+  let session = current
+  if (
+    session.label === 'mobile' &&
+    (!session.lastSeenAt || nowMs - Date.parse(session.lastSeenAt) >= 5 * 60_000)
+  ) {
+    store.touchClientSession?.(tokenHash, new Date(nowMs).toISOString())
+  }
+  const renewed =
+    ((session.label ?? 'login') === 'login' || session.label === 'mobile') &&
+    SESSION_TTL_MS - (Date.parse(session.expiresAt) - nowMs) >= SESSION_RENEW_AFTER_MS
+  if (renewed) {
+    const expiresAt = new Date(nowMs + SESSION_TTL_MS).toISOString()
+    store.extendClientSession(tokenHash, expiresAt)
+    session = { ...session, expiresAt }
+  }
+  return { session, renewed }
+}
+
 export function requestUserId(
   store: ClientSessionStore,
   cookieHeader: string | undefined,
   nowMs: number = Date.now(),
+  authorizationHeader?: string,
 ): UserId | undefined {
-  const token = parseSessionCookie(cookieHeader)
-  if (!token) return undefined
-  const tokenHash = hashToken(token)
-  if (!store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined
-  return store.getClientSession(tokenHash)?.userId
+  return resolveClientCredential(store, { cookieHeader, authorizationHeader }, nowMs)?.session
+    .userId
 }
 
 export function isRequestAuthed(
@@ -74,18 +151,28 @@ function parseSessionCookie(cookieHeader: string | undefined): string | undefine
   return undefined
 }
 
-function isHttps(c: Context): boolean {
-  if (c.req.header('x-forwarded-proto')?.split(',')[0]?.trim() === 'https') return true
+function parseBearerToken(authorizationHeader: string | undefined): string | undefined {
+  if (!authorizationHeader) return undefined
+  const match = /^Bearer ([A-Za-z0-9_-]{20,512})$/i.exec(authorizationHeader.trim())
+  return match?.[1]
+}
+
+export function isSecureRequest(url: string, forwardedProto?: string): boolean {
+  if (forwardedProto?.split(',')[0]?.trim() === 'https') return true
   try {
-    return new URL(c.req.url).protocol === 'https:'
+    return new URL(url).protocol === 'https:'
   } catch {
     return false
   }
 }
 
+export function isHttps(c: Context): boolean {
+  return isSecureRequest(c.req.url, c.req.header('x-forwarded-proto'))
+}
+
 /** Issue (or refresh) the session cookie with the full TTL. One definition used by login
  *  and the sliding-renewal path so their cookie attributes can't drift apart. */
-function setSessionCookie(c: Context, token: string): void {
+export function setSessionCookie(c: Context, token: string): void {
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'Lax',
@@ -112,34 +199,38 @@ export function clientAuthGuard(opts: {
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return next()
     if (!loginRequired()) return next()
+    if (c.req.header('authorization') && !isHttps(c)) {
+      return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
+    }
     const store = opts.store
-    const token = store ? parseSessionCookie(c.req.header('cookie')) : undefined
     const nowMs = now()
-    if (
-      !store ||
-      !token ||
-      !store.isClientSessionValid(hashToken(token), new Date(nowMs).toISOString())
-    ) {
+    const credential = store
+      ? resolveClientCredential(
+          store,
+          {
+            cookieHeader: c.req.header('cookie'),
+            authorizationHeader: c.req.header('authorization'),
+          },
+          nowMs,
+        )
+      : undefined
+    if (!store || !credential) {
       return c.json({ error: 'unauthorized' }, 401)
     }
     // Sliding renewal: if this session was last renewed more than a day ago, push the expiry
     // back out and refresh the cookie so an actively-used client never gets logged out. Same
     // token. Bounded to ~one renewal write per session per day.
     //
-    // LOGIN SESSIONS ONLY (POD-1376). The rule "remaining life is more than a day short of
+    // RENEWING DEVICE CLASSES ONLY (POD-1376). The rule "remaining life is more than a day short of
     // the full TTL" is true of EVERY short-lived session, so renewing indiscriminately
     // promoted a `podium auth mint-session --ttl 10m` credential to 30 days on its first
     // request — silently destroying the TTL the operator chose. A break-glass session's
-    // lifetime is set once, at mint, and is nobody else's to extend. (Upstream node⇄hub
+    // lifetime is set once, at mint, and is nobody else's to extend. Browser login and mobile
+    // rows are device sessions and renew; break-glass remains fixed. (Upstream node⇄hub
     // tokens escaped this only by accident: their 10-year expiry fails the condition.)
-    const session = store.getClientSession(hashToken(token))
-    if (
-      session &&
-      (session.label ?? 'login') === 'login' &&
-      SESSION_TTL_MS - (Date.parse(session.expiresAt) - nowMs) >= SESSION_RENEW_AFTER_MS
-    ) {
-      store.extendClientSession(hashToken(token), new Date(nowMs + SESSION_TTL_MS).toISOString())
-      setSessionCookie(c, token)
+    if (credential.renewed && credential.source === 'cookie') {
+      const token = parseSessionCookie(c.req.header('cookie'))
+      if (token) setSessionCookie(c, token)
     }
     return next()
   }
@@ -174,7 +265,7 @@ export interface AuthRouteOptions {
    * This keeps the open/dev bootstrap policy in one place instead of growing a
    * second first-admin fallback at an unauthenticated status endpoint.
    */
-  resolveUserId?: (cookieHeader: string | undefined) => UserId | undefined
+  resolveUserId?: (headers: ClientCredentialHeaders) => UserId | undefined
   /**
    * IS LOGIN REQUIRED ON THIS INSTANCE — the one predicate every gate reads (POD-1554).
    *
@@ -205,12 +296,18 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   let lockedUntil = 0
 
   app.get('/auth/status', (c) => {
+    if (c.req.header('authorization') && !isHttps(c)) {
+      return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
+    }
     const needsAuth = loginRequired()
-    const cookie = c.req.header('cookie')
+    const headers = {
+      cookieHeader: c.req.header('cookie'),
+      authorizationHeader: c.req.header('authorization'),
+    }
     const userId = opts.resolveUserId
-      ? opts.resolveUserId(cookie)
+      ? opts.resolveUserId(headers)
       : store
-        ? requestUserId(store, cookie, now())
+        ? requestUserId(store, headers.cookieHeader, now(), headers.authorizationHeader)
         : undefined
     const authed = userId !== undefined
     return c.json({ needsAuth, authed, ...(userId ? { userId } : {}) })
@@ -231,10 +328,21 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
 
     let password = ''
     let userId: UserId = FIRST_ADMIN_USER_ID
+    let nativeLogin: NativeClientLoginRequest | undefined
     try {
       const body = (await c.req.json()) as {
+        delivery?: unknown
         userId?: unknown
         password?: unknown
+      }
+      if (body?.delivery === 'native') {
+        if (!isHttps(c)) {
+          return c.json({ error: 'secure HTTPS is required for native login' }, 400)
+        }
+        const parsed = NativeClientLoginRequest.safeParse(body)
+        if (!parsed.success) return c.json({ error: 'invalid native login request' }, 400)
+        if (!store) return c.json({ error: 'session store unavailable' }, 503)
+        nativeLogin = parsed.data
       }
       if (typeof body?.userId === 'string' && body.userId.trim()) userId = body.userId as UserId
       if (typeof body?.password === 'string') password = body.password
@@ -275,6 +383,22 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     // the instance's one account — passed EXPLICITLY rather than defaulted in the
     // store, so per-user login (POD-315) changes this line and nothing silently
     // keeps writing one id for everybody.
+    if (nativeLogin) {
+      store?.createClientSession(hashToken(token), userId, expiresAt, 'mobile', {
+        sessionId: randomBytes(18).toString('base64url'),
+        deviceId: nativeLogin.deviceId,
+        deviceName: nativeLogin.deviceName,
+        platform: nativeLogin.platform,
+        lastSeenAt: new Date(at).toISOString(),
+      })
+      return c.json({
+        ok: true as const,
+        delivery: 'native' as const,
+        token,
+        userId,
+        expiresAt,
+      })
+    }
     store?.createClientSession(hashToken(token), userId, expiresAt)
 
     setSessionCookie(c, token)
@@ -325,8 +449,16 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   })
 
   app.post('/auth/logout', (c) => {
-    const token = getCookie(c, SESSION_COOKIE)
-    if (token && store) store.deleteClientSession(hashToken(token))
+    if (c.req.header('authorization') && !isHttps(c)) {
+      return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
+    }
+    const credential = store
+      ? resolveClientCredential(store, {
+          cookieHeader: c.req.header('cookie'),
+          authorizationHeader: c.req.header('authorization'),
+        })
+      : undefined
+    if (credential && store) store.deleteClientSession(credential.tokenHash)
     deleteCookie(c, SESSION_COOKIE, { path: '/' })
     return c.json({ ok: true })
   })

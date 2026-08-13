@@ -1,0 +1,266 @@
+import { createHash } from 'node:crypto'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { decodePairingEnvelope } from '@podium/protocol'
+import { Hono } from 'hono'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { hashToken, resolveClientCredential } from './auth-route'
+import { MobilePairingManager } from './mobile-pairing'
+import { registerMobilePairingRoutes } from './mobile-pairing-route'
+import { AuthRepository } from './store/auth'
+import { openMigratedTestDatabase } from './test-support/migrated-database'
+
+const AUTH_TOKEN = 'browser-session-token-abcdefghijklmnopqrstuvwxyz'
+const SECRET = Buffer.alloc(32, 11)
+const CLAIM_HASH = createHash('sha256').update(SECRET).digest('hex')
+const HTTPS = {
+  'content-type': 'application/json',
+  'x-forwarded-proto': 'https',
+}
+
+let store: AuthRepository
+let pairing: MobilePairingManager
+let app: Hono
+
+function authHeaders() {
+  return { ...HTTPS, cookie: `podium_session=${AUTH_TOKEN}` }
+}
+
+async function post(path: string, body: unknown, headers: Record<string, string> = HTTPS) {
+  return app.request(path, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+}
+
+beforeEach(() => {
+  store = new AuthRepository(openMigratedTestDatabase())
+  store.createClientSession(hashToken(AUTH_TOKEN), FIRST_ADMIN_USER_ID, '2999-01-01T00:00:00.000Z')
+  pairing = new MobilePairingManager()
+  app = new Hono()
+  registerMobilePairingRoutes(app, {
+    store,
+    pairing,
+    serverIdentity: () => ({
+      publicUrl: 'https://podium.example',
+      instanceId: 'instance-one',
+    }),
+    loginRequired: () => true,
+    resolveUserId: (headers) => resolveClientCredential(store, headers)?.session.userId,
+  })
+})
+
+describe('mobile pairing routes', () => {
+  it('runs the native start/claim/status/approve/complete ceremony', async () => {
+    const start = await post('/auth/mobile-pair/start', {}, authHeaders())
+    expect(start.status).toBe(200)
+    const started = (await start.json()) as {
+      pairingId: string
+      envelope: string
+      pairingUrl: string
+      canonicalOrigin: string
+    }
+    const envelope = decodePairingEnvelope(started.envelope)
+    expect(envelope).toMatchObject({
+      v: 2,
+      kind: 'mobile-client',
+      mode: 'pair',
+      serverUrl: 'https://podium.example',
+      instanceId: 'instance-one',
+    })
+    expect(started).toMatchObject({ canonicalOrigin: 'https://podium.example' })
+    if (envelope.v !== 2 || envelope.mode !== 'pair') throw new Error('wrong envelope')
+
+    const claim = await post('/auth/mobile-pair/claim', {
+      pairCode: envelope.pairCode,
+      claimHash: CLAIM_HASH,
+      deviceId: 'device-1',
+      deviceName: "Sam's iPhone",
+      platform: 'ios',
+      delivery: 'native',
+    })
+    expect(claim.status).toBe(200)
+    const claimed = (await claim.json()) as {
+      claimId: string
+      phrase: string[]
+    }
+    expect(claimed.phrase).toHaveLength(3)
+
+    const status = await post(
+      '/auth/mobile-pair/status',
+      { pairingId: started.pairingId },
+      authHeaders(),
+    )
+    expect(await status.json()).toMatchObject({
+      state: 'claimed',
+      deviceName: "Sam's iPhone",
+      phrase: claimed.phrase,
+    })
+    expect(
+      (
+        await post('/auth/mobile-pair/complete', {
+          claimId: claimed.claimId,
+          claimSecret: SECRET.toString('base64url'),
+        })
+      ).status,
+    ).toBe(202)
+    expect(
+      (await post('/auth/mobile-pair/approve', { pairingId: started.pairingId }, authHeaders()))
+        .status,
+    ).toBe(200)
+    const complete = await post('/auth/mobile-pair/complete', {
+      claimId: claimed.claimId,
+      claimSecret: SECRET.toString('base64url'),
+    })
+    const completed = (await complete.json()) as {
+      token: string
+      delivery: string
+    }
+    expect(completed).toMatchObject({ delivery: 'native' })
+    expect(completed.token).toBeTruthy()
+    expect(store.getClientSession(hashToken(completed.token))).toMatchObject({
+      userId: FIRST_ADMIN_USER_ID,
+      label: 'mobile',
+      sessionId: expect.any(String),
+      deviceId: 'device-1',
+      deviceName: "Sam's iPhone",
+      platform: 'ios',
+    })
+  })
+
+  it('returns URL-only open mode without creating a grant or session', async () => {
+    app = new Hono()
+    registerMobilePairingRoutes(app, {
+      store,
+      pairing,
+      serverIdentity: () => ({
+        publicUrl: 'http://podium.lan:18787',
+        instanceId: 'open-one',
+      }),
+      loginRequired: () => false,
+      resolveUserId: () => undefined,
+    })
+    const response = await post(
+      '/auth/mobile-pair/start',
+      {},
+      { 'content-type': 'application/json' },
+    )
+    expect(await response.json()).toMatchObject({
+      mode: 'open',
+      instanceId: 'open-one',
+      canonicalOrigin: 'http://podium.lan:18787',
+      mobileUrl: 'http://podium.lan:18787/mobile',
+      transport: { grade: 'insecure' },
+    })
+    expect(store.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
+  })
+
+  it('delivers browser completion only as the existing HttpOnly session cookie', async () => {
+    const started = (await (await post('/auth/mobile-pair/start', {}, authHeaders())).json()) as {
+      pairingId: string
+      envelope: string
+    }
+    const envelope = decodePairingEnvelope(started.envelope)
+    if (envelope.v !== 2 || envelope.mode !== 'pair') throw new Error('wrong envelope')
+    const claimed = (await (
+      await post('/auth/mobile-pair/claim', {
+        pairCode: envelope.pairCode,
+        claimHash: CLAIM_HASH,
+        deviceId: 'browser-1',
+        deviceName: 'Mobile Safari',
+        platform: 'web',
+        delivery: 'browser',
+      })
+    ).json()) as { claimId: string }
+    await post('/auth/mobile-pair/approve', { pairingId: started.pairingId }, authHeaders())
+    const response = await post('/auth/mobile-pair/complete', {
+      claimId: claimed.claimId,
+      claimSecret: SECRET.toString('base64url'),
+    })
+    const body = (await response.json()) as Record<string, unknown>
+    expect(body).toMatchObject({ status: 'complete', delivery: 'browser' })
+    expect(body).not.toHaveProperty('token')
+    expect(response.headers.get('set-cookie')).toMatch(/podium_session=.*HttpOnly.*Secure/i)
+  })
+
+  it('requires HTTPS and returns one uniform refusal for malformed, unknown, and used grants', async () => {
+    expect(
+      (
+        await app.request('/auth/mobile-pair/claim', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(400)
+    const malformed = await post('/auth/mobile-pair/claim', {})
+    const unknown = await post('/auth/mobile-pair/claim', {
+      pairCode: 'abcdefghijklmnopqrstuvwxyz012345',
+      claimHash: CLAIM_HASH,
+      deviceId: 'device-1',
+      deviceName: 'Phone',
+      platform: 'ios',
+      delivery: 'native',
+    })
+    expect(await malformed.json()).toEqual({ error: 'pairing unavailable' })
+    expect(await unknown.json()).toEqual({ error: 'pairing unavailable' })
+  })
+
+  it('throttles pairing failures in its own bucket', async () => {
+    app = new Hono()
+    registerMobilePairingRoutes(app, {
+      store,
+      pairing,
+      serverIdentity: () => ({
+        publicUrl: 'https://podium.example',
+        instanceId: 'one',
+      }),
+      loginRequired: () => true,
+      resolveUserId: () => undefined,
+      throttle: { maxFailures: 1, lockoutMs: 60_000 },
+    })
+    expect((await post('/auth/mobile-pair/claim', {})).status).toBe(400)
+    const locked = await post('/auth/mobile-pair/claim', {})
+    expect(locked.status).toBe(429)
+    expect(locked.headers.get('retry-after')).toBeTruthy()
+  })
+
+  it('lists and remotely revokes only the caller-owned mobile row', async () => {
+    store.createClientSession(
+      'a'.repeat(64),
+      FIRST_ADMIN_USER_ID,
+      '2999-01-01T00:00:00.000Z',
+      'mobile',
+      {
+        sessionId: 'mobile-session-aaaaaaaa',
+        deviceId: 'phone',
+        deviceName: 'Phone',
+        platform: 'ios',
+      },
+    )
+    store.createClientSession(
+      'b'.repeat(64),
+      FIRST_ADMIN_USER_ID,
+      '2999-01-01T00:00:00.000Z',
+      'break-glass',
+    )
+    const listed = await app.request('/auth/client-sessions', {
+      headers: authHeaders(),
+    })
+    const sessions = ((await listed.json()) as { sessions: { sessionId: string }[] }).sessions
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.sessionId).toBe('mobile-session-aaaaaaaa')
+    expect(sessions[0]?.sessionId).not.toBe('a'.repeat(64))
+    expect(
+      (
+        await post(
+          '/auth/client-sessions/revoke',
+          { sessionId: 'mobile-session-aaaaaaaa' },
+          authHeaders(),
+        )
+      ).status,
+    ).toBe(200)
+    expect(store.getClientSession('a'.repeat(64))).toBeUndefined()
+    expect(store.getClientSession('b'.repeat(64))?.label).toBe('break-glass')
+  })
+})

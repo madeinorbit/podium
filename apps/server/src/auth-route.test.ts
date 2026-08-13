@@ -112,6 +112,50 @@ describe('auth-route', () => {
     expect(setCookie).not.toMatch(/Secure/i)
   })
 
+  test('native login returns one HTTPS bearer and records a mobile device session', async () => {
+    await setPassword('hunter2')
+    const response = await makeApp().request('/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
+      body: JSON.stringify({
+        delivery: 'native',
+        password: 'hunter2',
+        deviceId: 'phone-1',
+        deviceName: "Sam's iPhone",
+        platform: 'ios',
+      }),
+    })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('set-cookie')).toBeNull()
+    const body = (await response.json()) as { token: string; userId: string; expiresAt: string }
+    expect(body.token).toBeTruthy()
+    expect(store.auth.getClientSession(hashToken(body.token))).toMatchObject({
+      userId: FIRST_ADMIN_USER_ID,
+      label: 'mobile',
+      sessionId: expect.any(String),
+      deviceId: 'phone-1',
+      deviceName: "Sam's iPhone",
+      platform: 'ios',
+    })
+  })
+
+  test('native login refuses to exchange a password over cleartext', async () => {
+    await setPassword('hunter2')
+    const response = await makeApp().request('/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        delivery: 'native',
+        password: 'hunter2',
+        deviceId: 'phone-1',
+        deviceName: 'Phone',
+        platform: 'ios',
+      }),
+    })
+    expect(response.status).toBe(400)
+    expect(store.auth.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
+  })
+
   test('the session cookie marks the client authed; logout clears it', async () => {
     await setPassword('hunter2')
     const app = makeApp()
@@ -242,6 +286,56 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     expect(await res.text()).toBe('pong')
   })
 
+  test('allows a valid native bearer and never reflects it into a browser cookie', async () => {
+    await setPassword('hunter2')
+    const token = 'native-mobile-token-abcdefghijklmnopqrstuvwxyz'
+    store.auth.createClientSession(
+      hashToken(token),
+      FIRST_ADMIN_USER_ID,
+      new Date(Date.now() + 60_000).toISOString(),
+      'mobile',
+      { deviceId: 'phone-1', deviceName: 'Phone', platform: 'ios' },
+    )
+    const res = await guardedApp().request('/trpc/ping', {
+      headers: {
+        authorization: `Bearer ${token}`,
+        'x-forwarded-proto': 'https',
+      },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie')).toBeNull()
+  })
+
+  test('does not fall back to a valid cookie when an explicit bearer is malformed', async () => {
+    await setPassword('hunter2')
+    const res = await guardedApp().request('/trpc/ping', {
+      headers: {
+        cookie: validCookie(),
+        authorization: 'Bearer bad',
+        'x-forwarded-proto': 'https',
+      },
+    })
+    expect(res.status).toBe(401)
+  })
+
+  test('refuses a bearer over cleartext even when its session row is valid', async () => {
+    await setPassword('hunter2')
+    const token = 'native-cleartext-token-abcdefghijklmnopqrstuvwxyz'
+    store.auth.createClientSession(
+      hashToken(token),
+      FIRST_ADMIN_USER_ID,
+      new Date(Date.now() + 60_000).toISOString(),
+      'mobile',
+    )
+    expect(
+      (
+        await guardedApp().request('/trpc/ping', {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      ).status,
+    ).toBe(400)
+  })
+
   test('lets CORS preflight (OPTIONS) through even without a cookie', async () => {
     await setPassword('hunter2')
     const res = await guardedApp().request('/trpc/ping', { method: 'OPTIONS' })
@@ -294,6 +388,30 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     })
     expect(res.status).toBe(200)
     expect(res.headers.get('set-cookie')).toBeNull()
+  })
+
+  test('renews the mobile class without changing or exposing its bearer', async () => {
+    await setPassword('hunter2')
+    const nowMs = Date.UTC(2026, 0, 1)
+    const token = 'mobile-rolling-token-abcdefghijklmnopqrstuvwxyz'
+    store.auth.createClientSession(
+      hashToken(token),
+      FIRST_ADMIN_USER_ID,
+      new Date(nowMs + 28 * DAY).toISOString(),
+      'mobile',
+      { deviceId: 'phone-1', deviceName: 'Phone', platform: 'ios' },
+    )
+    const res = await guardedAppAt(nowMs).request('/trpc/ping', {
+      headers: {
+        authorization: `Bearer ${token}`,
+        'x-forwarded-proto': 'https',
+      },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie')).toBeNull()
+    expect(
+      Date.parse(store.auth.getClientSession(hashToken(token))?.expiresAt ?? ''),
+    ).toBeGreaterThan(nowMs + 29 * DAY)
   })
 })
 
