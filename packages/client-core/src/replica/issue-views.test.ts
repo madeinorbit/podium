@@ -363,9 +363,7 @@ describe('reading straight off the replica', () => {
     ])
 
     const { issues, sessions } = readViewInputs(replica)
-    expect(issues.find((issue) => issue.id === 'i1')?.readAt).toBe(
-      '2026-07-17T10:00:00.000Z',
-    )
+    expect(issues.find((issue) => issue.id === 'i1')?.readAt).toBe('2026-07-17T10:00:00.000Z')
     const views = deriveIssueViews(issues, sessions)
     expect(views.get('i1')).toMatchObject({
       displayRef: 'POD-13',

@@ -151,6 +151,18 @@ function sameCell(a: unknown, b: unknown): boolean {
   return (a ?? null) === (b ?? null)
 }
 
+/** Read one cell from the enqueue-time server-truth fingerprint. Missing or
+ * malformed baselines are ordinary for restored/legacy entries. */
+function baselineCell(entry: OutboxEntry, key: string): unknown {
+  if (entry.baseline === undefined) return undefined
+  try {
+    const row = JSON.parse(entry.baseline) as unknown
+    return row && typeof row === 'object' ? (row as Record<string, unknown>)[key] : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function patchOverlay(
   entity: OverlayEntity,
   id: string,
@@ -253,15 +265,21 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
     }
     case 'issueMarkRead': {
       const i = entry.input as OutboxKinds['issueMarkRead']
+      const previousReadAt = baselineCell(entry, 'readAt')
       // `readAt` has the same client home as `tuckedAt`: the retained issue row
       // that persistence writes. The projection is durable issue content and
-      // deliberately carries no per-user cursor.
+      // deliberately carries no per-user cursor. Unlike tuck, mark-read can
+      // start from an OLDER non-null cursor, so mere presence is not covering
+      // truth: the persisted cursor must move past the enqueue-time cell.
       return patchOverlay(
         'issues',
         i.id,
         entry.mutationId,
         { readAt: new Date(entry.queuedAt).toISOString() },
-        (r) => (r as IssueWire).readAt != null,
+        (r) => {
+          const readAt = (r as IssueWire).readAt
+          return readAt != null && readAt !== previousReadAt
+        },
       )
     }
     case 'issueMarkUnread': {

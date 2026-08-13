@@ -103,6 +103,16 @@ describe('overlayForOutboxEntry projection', () => {
     expect(issueRead.coveredBy({ readAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
     expect(issueRead.coveredBy({ readAt: null } as IssueWire)).toBe(false)
 
+    const reread = overlayForOutboxEntry({
+      ...entry('issueMarkRead', { id: 'i1' }, 1751500800000),
+      baseline: rowFingerprint({ id: 'i1', readAt: '2026-07-01T00:00:00.000Z' }),
+    })
+    if (reread?.op !== 'patch') throw new Error('expected patch')
+    // An older non-null cursor is pre-mutation truth, not coverage. The server's
+    // new covering cursor may use a different clock, so movement is sufficient.
+    expect(reread.coveredBy({ readAt: '2026-07-01T00:00:00.000Z' } as IssueWire)).toBe(false)
+    expect(reread.coveredBy({ readAt: '2026-07-01T00:05:00.000Z' } as IssueWire)).toBe(true)
+
     const unread = overlayForOutboxEntry(entry('issueMarkUnread', { id: 'i1' }))
     if (unread?.op !== 'patch') throw new Error('expected patch')
     expect(unread.entity).toBe('issues')

@@ -29,6 +29,7 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { asClientPrincipal } from '../principal'
+import { issueViewModelsFromReplica } from '../replica/issue-view-models'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import { type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
@@ -829,16 +830,43 @@ describe('unified optimistic overlay (#263)', () => {
     const { engine } = makeEngine({ api })
     engine.start()
     await settle(40)
-    const projection = { id: 'iss_1' } as unknown as IssueProjection
-    const issue = { id: 'iss_1', readAt: null } as IssueWire
+    const projection = {
+      id: 'iss_1',
+      seq: 1,
+      title: 'Issue',
+      description: { value: '' },
+      stage: 'in_progress',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      archived: false,
+      priority: 2,
+      type: 'task',
+      intentOrigin: 'human',
+      audience: 'human',
+      isDraftVessel: false,
+    } as unknown as IssueProjection
+    const issue = {
+      id: 'iss_1',
+      readAt: null,
+      updatedAt: projection.updatedAt,
+    } as IssueWire
+    const derivedUnread = (): boolean | undefined =>
+      issueViewModelsFromReplica(
+        engine.replica,
+        engine.getSnapshot().issueProjections,
+        engine.getSnapshot().issues,
+      ).get('iss_1')?.unread
     engine.replica.applyChanges('issueProjections', [projection], [])
     engine.replica.applyChanges('issues', [issue], [])
     await settle()
     expect(engine.getSnapshot().issues[0]?.readAt).toBeNull()
+    expect(derivedUnread()).toBe(true)
     void engine.getSnapshot().markIssueRead('iss_1')
     expect(engine.getSnapshot().issues[0]?.readAt).not.toBeNull() // instant
+    expect(derivedUnread()).toBe(false) // the same overlaid row drives unread
     await settle() // mutation resolves → awaiting truth, still painted
     expect(engine.getSnapshot().issues[0]?.readAt).not.toBeNull()
+    expect(derivedUnread()).toBe(false)
     // Echo: the server's own readAt clock differs from the client stamp; any
     // non-null readAt on the persisted issue row covers the optimistic overlay.
     engine.replica.applyChanges(
@@ -848,6 +876,7 @@ describe('unified optimistic overlay (#263)', () => {
     )
     await settle()
     expect(engine.getSnapshot().issues[0]?.readAt).toBe('2026-07-09T00:00:00.000Z')
+    expect(derivedUnread()).toBe(false) // persist echo covers without a bounce
     expect(engine.getSnapshot().issueProjections).toHaveLength(1)
     engine.dispose()
   })
@@ -1791,7 +1820,9 @@ describe('eager mark-read-on-view (POD-272)', () => {
     )
     await settle()
     expect(api.issues.markRead.mutate).toHaveBeenCalledTimes(1)
-    expect((engine.getSnapshot().issues[0] as { unread?: boolean })?.unread).toBe(false)
+    const readAt = engine.getSnapshot().issues[0]?.readAt
+    expect(readAt).not.toBeNull()
+    expect(Date.parse(readAt ?? '')).toBeGreaterThanOrEqual(Date.parse('2026-07-01T00:05:00.000Z'))
     engine.dispose()
   })
 

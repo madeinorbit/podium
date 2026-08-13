@@ -103,11 +103,7 @@ describe('useIssueView — a SESSION change must reach an ISSUE view', () => {
     expect(screen.getByTestId('cursor-unread').textContent).toBe('true')
 
     act(() => {
-      replica.applyChanges(
-        'issues',
-        [issueCursorRow({ readAt: '2026-07-17T10:00:00.000Z' })],
-        [],
-      )
+      replica.applyChanges('issues', [issueCursorRow({ readAt: '2026-07-17T10:00:00.000Z' })], [])
     })
     expect(screen.getByTestId('cursor-unread').textContent).toBe('false')
   })

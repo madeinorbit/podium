@@ -341,7 +341,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         ? sessions.find((s) => s.sessionId === overlay.id)
         : overlay.entity === 'issues'
           ? issues.find((i) => i.id === overlay.id)
-        : issueProjections.find((i) => i.id === overlay.id)
+          : issueProjections.find((i) => i.id === overlay.id)
     // Hold the overlay until covering truth lands. Nothing to hold when the
     // row is gone, already reflects the mutation (the broadcast echo raced
     // ahead of the response), or moved past the ENQUEUE-time baseline without
