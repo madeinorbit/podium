@@ -167,8 +167,9 @@ describe('overlayForOutboxEntry projection', () => {
     // priority must keep painting, or the second field flashes back.
     expect(o.coveredBy({ title: 'Renamed', priority: 0 } as IssueWire)).toBe(false)
     expect(o.coveredBy({ title: 'Old', priority: 2 } as IssueWire)).toBe(false)
-    // A competing writer moving some OTHER field neither covers nor un-covers —
-    // that judgement belongs to pruneAwaiting's moved-past-baseline escape.
+    // A competing writer moving some OTHER field neither covers nor un-covers.
+    // pruneAwaiting agrees: only a patched cell moving to a third value is a
+    // competing write. An extra field on a fully-covered row is just coverage.
     expect(o.coveredBy({ title: 'Renamed', priority: 2, stage: 'done' } as IssueWire)).toBe(true)
   })
 
@@ -546,6 +547,41 @@ describe('pruneAwaiting (retirement rule (a))', () => {
   it('retires when the row moved past the baseline WITHOUT covering (competing write wins)', () => {
     const awaiting = [awaitRename(sess())]
     expect(pruneAwaiting(awaiting, 'sessions', [sess({ name: 'theirs' })], keyOf, NOW)).toEqual([])
+  })
+
+  it('keeps a sortKey overlay when an unrelated issue cell changes (load-time snap-back)', () => {
+    // The drop painted { sortKey: 'a1' }. Before that echo lands, a git-state
+    // probe / child-count ripple / revision bump republishes the same issue
+    // with the OLD sortKey. Whole-row fingerprint divergence used to retire
+    // the overlay and snap the row back; only a competing write on sortKey
+    // itself (or coverage, or the TTL) may.
+    const base = { id: 'i1', sortKey: 'c', title: 'Task', childCount: 0, revision: 1 } as IssueWire
+    const o = overlayForOutboxEntry(entry('issueUpdate', { id: 'i1', patch: { sortKey: 'a1' } }))
+    if (o?.op !== 'patch') throw new Error('expected patch')
+    const awaiting: AwaitingTruth[] = [
+      { overlay: o, baseline: rowFingerprint(base), resolvedAt: NOW },
+    ]
+    const issueKey = (i: IssueWire): string => i.id
+    const noisy = { ...base, childCount: 2, revision: 4, commentCount: 3 } as IssueWire
+    expect(pruneAwaiting(awaiting, 'issues', [noisy], issueKey, NOW)).toBe(awaiting)
+    // A competing reorder of the SAME cell does retire.
+    expect(
+      pruneAwaiting(awaiting, 'issues', [{ ...base, sortKey: 'z9' } as IssueWire], issueKey, NOW),
+    ).toEqual([])
+  })
+
+  it('an unrelated session cell change does not retire a rename overlay', () => {
+    const row = sess()
+    const awaiting = [awaitRename(row)]
+    expect(
+      pruneAwaiting(
+        awaiting,
+        'sessions',
+        [sess({ lastActiveAt: '2099-01-01T00:00:00.000Z' })],
+        keyOf,
+        NOW,
+      ),
+    ).toBe(awaiting)
   })
 
   // REWRITTEN by POD-380 (was: "retires when the row is gone"). That name was a

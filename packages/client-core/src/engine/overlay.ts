@@ -20,9 +20,11 @@
  *      outbox queue via a successful drain / the spawn create acked) AND
  *      server truth covering it landed in the replica. "Covering" is:
  *        - for a patch: the row now reflects the mutation (`coveredBy`), OR
- *          the row moved past the baseline fingerprint taken at ENQUEUE time —
- *          a competing write won, and server truth wins (exactly the semantics
- *          the old direct-replica patching had). The escape is limited to the
+ *          a PATCHED cell left its enqueue-time value for something that is
+ *          not this mutation's — a competing write on the same field, and
+ *          server truth wins. Unrelated cells (gitState, childCount, revision)
+ *          changing do not count: a partial patch must not retire because the
+ *          rest of the row moved under load. The escape is limited to the
  *          oldest awaiting entry per row, and a TTL backstop bounds the rest
  *          (see pruneAwaiting);
  *        - for a spawn insert: a base row with the client-minted id exists
@@ -91,13 +93,14 @@ export type PendingOverlay =
 
 /** A resolved patch overlay still awaiting covering server truth (rule (a)).
  *  `baseline` is the `rowFingerprint` of the target row's REPLICA truth at
- *  ENQUEUE time (unpainted) — divergence that doesn't satisfy `coveredBy` means a
- *  competing write won. Captured at enqueue, NOT at resolution: truth can land
- *  BEFORE the mutation response, and a resolution-time fingerprint of that
- *  already-final row would never "move past" — wedging the overlay forever
- *  (#263 review finding 2). `undefined` when the row wasn't in the replica at
- *  enqueue time (or the entry predates baselines): the moved-past escape is
- *  unavailable then and retirement rests on coveredBy / row-gone / the TTL. */
+ *  ENQUEUE time (unpainted). A competing write is a PATCHED cell leaving that
+ *  baseline for a value that is not this overlay's — not "any cell on the row
+ *  changed". Captured at enqueue, NOT at resolution: truth can land BEFORE the
+ *  mutation response, and a resolution-time fingerprint of that already-final
+ *  row would never "move past" — wedging the overlay forever (#263 review
+ *  finding 2). `undefined` when the row wasn't in the replica at enqueue time
+ *  (or the entry predates baselines): the moved-past escape is unavailable then
+ *  and retirement rests on coveredBy / row-gone / the TTL. */
 export interface AwaitingTruth {
   overlay: Extract<PendingOverlay, { op: 'patch' }>
   baseline: string | undefined
@@ -149,6 +152,43 @@ export function rowFingerprint(row: object): string {
  */
 function sameCell(a: unknown, b: unknown): boolean {
   return (a ?? null) === (b ?? null)
+}
+
+/**
+ * True when a PATCHED cell left its enqueue-time value for something that is
+ * not this overlay's intended value. That is a competing write on the same
+ * field. Other cells changing (gitState, childCount, revision, lastActiveAt)
+ * are not a competing write for a partial patch — retiring on those is what
+ * made a sidebar sort snap back under load: the echo for an unrelated field
+ * arrived before the sortKey echo, the whole-row fingerprint moved, and the
+ * painted order dropped.
+ *
+ * A cell that now equals the overlay's value is coverage, not competition
+ * (`coveredBy` retires those). Malformed or missing baselines cannot judge
+ * movement — same as the no-baseline rule in pruneAwaiting.
+ */
+export function patchedCellsMovedPast(
+  overlay: Extract<PendingOverlay, { op: 'patch' }>,
+  row: object,
+  baseline: string | undefined,
+): boolean {
+  if (baseline === undefined) return false
+  let parsed: Record<string, unknown>
+  try {
+    const raw: unknown = JSON.parse(baseline)
+    if (raw === null || typeof raw !== 'object') return false
+    parsed = raw as Record<string, unknown>
+  } catch {
+    return false
+  }
+  const rec = row as Record<string, unknown>
+  for (const key of Object.keys(overlay.patch)) {
+    const now = rec[key]
+    if (sameCell(now, parsed[key])) continue
+    if (sameCell(now, overlay.patch[key])) continue
+    return true
+  }
+  return false
 }
 
 /** Read one cell from the enqueue-time server-truth fingerprint. Missing or
@@ -702,8 +742,9 @@ export function foldOverlays<T extends object>(
 
 /**
  * Apply retirement rule (a) to the awaiting-truth stage for one entity: drop
- * every entry whose target row is gone, is covered, moved past its enqueue
- * baseline (oldest entry per row only — see below), or outlived the TTL.
+ * every entry whose target row is gone, is covered, had a patched cell move
+ * past its enqueue baseline (oldest entry per row only — see below), or
+ * outlived the TTL.
  * Returns the SAME array when nothing retired.
  *
  * The moved-past-baseline escape is restricted to the OLDEST awaiting entry
@@ -767,14 +808,11 @@ export function pruneAwaiting<T extends object>(
       })
       return false
     }
-    // Row moved past the ENQUEUE baseline WITHOUT covering the mutation: a
-    // competing write won — server truth wins, retire rather than mask it.
+    // A patched cell left the ENQUEUE baseline for a third value: a competing
+    // write on the same field — server truth wins. Unrelated cells moving do
+    // not count (a sortKey overlay must survive a gitState / childCount echo).
     // Oldest-per-row only; no baseline (row absent at enqueue) → no escape.
-    if (
-      oldestByRow.get(a.overlay.id) === a &&
-      a.baseline !== undefined &&
-      rowFingerprint(row) !== a.baseline
-    ) {
+    if (oldestByRow.get(a.overlay.id) === a && patchedCellsMovedPast(a.overlay, row, a.baseline)) {
       return false
     }
     return true
