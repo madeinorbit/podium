@@ -218,7 +218,7 @@ export class ShippingService {
     // Issue-panel artifacts are the durable, server-minted review evidence the
     // human is shown. Only a snapshotted artifact id is authoritative here;
     // legacy live paths and command-supplied strings are deliberately ignored.
-    const evidenceManifestRef = issue.panel.artifacts.find(
+    const evidenceManifestRef = (issue.panel?.artifacts ?? []).find(
       (artifact) => artifact.artifactId !== undefined && artifact.files !== undefined,
     )?.artifactId
     const [sourceHeadSha, sourceBaseSha] = await Promise.all([
