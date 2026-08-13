@@ -1,0 +1,1 @@
+ALTER TABLE `superagent_queued_inputs` ADD `agent_kind` text;

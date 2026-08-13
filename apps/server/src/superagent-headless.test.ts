@@ -817,6 +817,42 @@ describe('boot reconciliation for headless sessions', () => {
     })
   })
 
+  it('a prompt-box connector pick on a queued turn survives process restart', async () => {
+    const h = await harness()
+    const stalled = h.sa as unknown as {
+      composeContext: () => Promise<undefined>
+    }
+    stalled.composeContext = () => new Promise(() => {})
+
+    void h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'run on grok',
+      agentKind: 'grok',
+      model: 'grok-4.5',
+    })
+    expect(h.registry.sessionStore.superagent.listQueuedInputs()[0]?.agentKind).toBe('grok')
+
+    const store = h.registry.sessionStore
+    const reborn = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    registries.push(reborn)
+    const replayed: TurnReq[] = []
+    reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
+      if (message.type === 'headlessTurnRequest') replayed.push(message)
+    })
+    const repos = new RepoRegistry(reborn, store)
+    const superagent = new SuperagentService(reborn.modules, repos, store)
+    superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
+    await new Promise((resolve) => setTimeout(resolve))
+
+    expect(replayed).toHaveLength(1)
+    expect(replayed[0]).toMatchObject({
+      agent: 'grok',
+      model: 'grok-4.5',
+      prompt: 'run on grok',
+    })
+  })
+
   it('replays an accepted in-flight message with the same turn id after a server restart', async () => {
     const h = await harness()
     await h.sa.sendTurn({
@@ -1034,6 +1070,99 @@ describe('harness switch + effort (#199)', () => {
       text: 'hi',
     })
     expect(h2.turnReqs[0]?.effort).toBeUndefined()
+  })
+
+  it('switches harness from a prompt-box agentKind without a settings change', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'hi',
+    })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    await h.settle()
+    expect(h.turnReqs[0]?.agent).toBe('claude-code')
+
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'now grok',
+      agentKind: 'grok',
+      model: 'grok-4.5',
+    })
+    const req = h.turnReqs[1]!
+    expect(req.agent).toBe('grok')
+    expect(req.model).toBe('grok-4.5')
+    expect(req.resumeValue).toBeUndefined()
+    expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.agentKind).toBe('grok')
+  })
+
+  it('Auto after an explicit pick returns the thread to the settings harness', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'hi',
+      agentKind: 'grok',
+      model: 'grok-4.5',
+    })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'grok-1' })
+    await h.settle()
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'back to default',
+      model: 'auto',
+    })
+    expect(h.turnReqs[1]?.agent).toBe('claude-code')
+    expect(h.turnReqs[1]?.resumeValue).toBeUndefined()
+  })
+
+  it('drains a queued connector pick onto a fresh harness session', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'one',
+    })
+    await expect(
+      h.sa.sendTurn({
+        ownerUserId: FIRST_ADMIN_USER_ID,
+        threadId: asThreadId('global'),
+        text: 'two on grok',
+        agentKind: 'grok',
+        model: 'grok-4.5',
+      }),
+    ).resolves.toMatchObject({ queued: true })
+    expect(h.registry.sessionStore.superagent.listQueuedInputs(asThreadId('global'))[0]?.agentKind).toBe(
+      'grok',
+    )
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    await h.settle()
+    expect(h.turnReqs[1]?.agent).toBe('grok')
+    expect(h.turnReqs[1]?.model).toBe('grok-4.5')
+    expect(h.turnReqs[1]?.resumeValue).toBeUndefined()
+  })
+
+  it('keeps a model override on its frozen harness when settings later change', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'hi',
+      model: 'opus',
+    })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    await h.settle()
+    setSuperagentHarness(h, { harness: 'codex' })
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'again',
+    })
+    expect(h.turnReqs[1]?.agent).toBe('claude-code')
+    expect(h.turnReqs[1]?.resumeValue).toBe('claude-1')
+    expect(h.turnReqs[1]?.model).toBe('opus')
   })
 
   it('uses a native Codex superagent model even when coding uses another harness', async () => {

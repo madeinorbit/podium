@@ -12,7 +12,7 @@ import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { useFileMentions } from '@/lib/at-mention/useFileMentions'
 import { issueAgentKind } from '@/lib/issue-agents'
-import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
+import { AllConnectorsModelPicker, EffortPicker } from '@/lib/ModelEffortPicker'
 import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
@@ -162,10 +162,11 @@ export function ChatComposer({
    *  grabbed mid-load. */
   transcriptSettled: boolean
   /** The thread's harness/model/effort (POD-782). Present only for a superagent
-   *  thread; `agentKind` undefined means no harness is frozen yet and the rail
-   *  stays absent rather than offering a list it cannot scope. */
+   *  thread. `agentKind` is the current connector (frozen, or just picked);
+   *  undefined means Auto — follow Settings — and the model menu still lists
+   *  every connected agent. */
   backend?: { agentKind: string | undefined; model: string; effort: string }
-  onBackendModelChange?: (model: string) => void
+  onBackendModelChange?: (model: string, agentKind?: string) => void
   onBackendEffortChange?: (effort: string) => void
 }): JSX.Element {
   const lastInterruptEscapeAt = useRef<number | null>(null)
@@ -546,6 +547,10 @@ export function ChatComposer({
  * Settings → Superagent says". A person who never touches this row is not
  * missing a decision, and the row's ink says so by staying at Dim.
  *
+ * The model menu lists every connector Podium can run, not just the Settings
+ * default. Picking a model from another CLI switches the thread's harness on
+ * the next send (#199). Auto returns both connector and model to Settings.
+ *
  * The choice is PER THREAD and persists: it rides the next turn's mutation and
  * the server writes it onto the thread, so it survives a reload and holds for
  * every later turn until changed. That is why there is no Save — the send IS
@@ -558,29 +563,27 @@ function BackendRail({
   onEffortChange,
 }: {
   backend: { agentKind: string | undefined; model: string; effort: string }
-  onModelChange: (model: string) => void
+  onModelChange: (model: string, agentKind?: string) => void
   onEffortChange: (effort: string) => void
-}): JSX.Element | null {
-  // No harness frozen onto the thread yet (nothing has run on it). Offering a
-  // model list would mean guessing which agent's list to offer, and guessing
-  // wrong shows models the thread can never run.
+}): JSX.Element {
   const agentKind = issueAgentKind(backend.agentKind)
-  if (!agentKind) return null
   return (
     <div className="mt-1.5 flex items-center gap-1 px-0.5" data-testid="composer-backend">
-      <ModelPicker
-        agentKind={agentKind}
+      <AllConnectorsModelPicker
+        agentKind={agentKind ?? undefined}
         value={backend.model}
-        onChange={onModelChange}
+        onChange={(pick) => onModelChange(pick.model, pick.agentKind)}
         variant="pill"
       />
-      <EffortPicker
-        agentKind={agentKind}
-        model={backend.model}
-        value={backend.effort}
-        onChange={onEffortChange}
-        variant="pill"
-      />
+      {agentKind ? (
+        <EffortPicker
+          agentKind={agentKind}
+          model={backend.model}
+          value={backend.effort}
+          onChange={onEffortChange}
+          variant="pill"
+        />
+      ) : null}
     </div>
   )
 }

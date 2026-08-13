@@ -43,8 +43,8 @@ export interface SuperThreadView {
   /** Query-backed running state for reloads and late joiners; live events keep
    *  the embedded chat current after mount. */
   turnRunning?: boolean
-  /** The harness frozen onto the thread at its first turn. The prompt box's
-   *  model list is scoped to it — 'claude-code' does not offer codex's models. */
+  /** The harness last run on the thread. The prompt box lists every connector;
+   *  a model pick from another CLI switches this on the next send. */
   agentKind?: string
   /** The thread's own model / effort (POD-782). UNDEFINED IS MEANINGFUL and is
    *  the common case: it means "follow the `superagent` settings role", which is

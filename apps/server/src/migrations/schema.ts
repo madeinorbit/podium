@@ -1261,6 +1261,9 @@ export const superagentQueuedInputs = sqliteTable(
     threadId: text('thread_id').$type<ThreadId>().notNull(),
     text: text().notNull(),
     focusJson: text('focus_json'),
+    /** Prompt-box connector pick for this queued turn. Null = follow the
+     *  thread/settings rule at prepare time. */
+    agentKind: text('agent_kind'),
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),

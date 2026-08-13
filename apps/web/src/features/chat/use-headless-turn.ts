@@ -1,6 +1,6 @@
 import type { ChatSendRoute, SuperThreadRef } from '@podium/client-core/viewmodels'
 import { UNKNOWN_THREAD_REFUSAL } from '@podium/client-core/viewmodels'
-import type { SessionId } from '@podium/model'
+import { HarnessAgent, type SessionId } from '@podium/model'
 import type { HeadlessActivityEvent } from '@podium/protocol'
 import { useCallback, useEffect, useState } from 'react'
 import type { Store, UserFocus } from '@/app/store'
@@ -82,6 +82,7 @@ export interface UseHeadlessTurnResult {
 export interface HeadlessBackendChoice {
   model?: string
   effort?: string
+  agentKind?: string
 }
 
 export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnResult {
@@ -89,6 +90,7 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
     opts
   const model = backend?.model
   const effort = backend?.effort
+  const agentKind = backend?.agentKind
 
   const [turnRunning, setTurnRunning] = useState(initialTurnRunning)
   const [overlay, setOverlay] = useState<HeadlessOverlay | null>(null)
@@ -155,9 +157,11 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
       // The backend choice rides the turn rather than a settings round-trip, so
       // picking a model and sending is ONE act — the server persists it onto the
       // thread as a side effect of running the turn.
+      const harness = HarnessAgent.safeParse(agentKind)
       const choice = {
-        ...(model && model !== 'auto' ? { model } : {}),
-        ...(effort && effort !== 'auto' ? { effort } : {}),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        ...(harness.success && model && model !== 'auto' ? { agentKind: harness.data } : {}),
       }
       try {
         // Every turn carries what the user has on screen (POD-225), so the
@@ -192,7 +196,7 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
         throw e
       }
     },
-    [trpc, model, effort],
+    [trpc, model, effort, agentKind],
   )
 
   const interrupt = useCallback(() => {

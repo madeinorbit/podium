@@ -645,8 +645,8 @@ export interface SuperagentThreadRow {
    *  issue event-log id already digested (concierge threads, stringified). */
   watermarkItemId?: string
   watermarkTs?: string
-  /** Harness agent frozen onto the thread at its first headless turn — later
-   *  turns keep the same agent even if the settings default changes. */
+  /** Harness last run on the thread. Settings is the default; a prompt-box
+   *  pick from another connector switches this (and starts a fresh session). */
   agentKind?: string
   /** The Podium headless session rendering this thread (concierge unification). */
   podiumSessionId?: SessionId
@@ -700,6 +700,8 @@ export interface QueuedSuperagentInputRow {
   ownerUserId: UserId
   threadId: ThreadId
   text: string
+  /** Prompt-box connector pick. Undefined = follow thread/settings at prepare. */
+  agentKind?: string
   focus?: {
     view?: string
     worktreePath?: string

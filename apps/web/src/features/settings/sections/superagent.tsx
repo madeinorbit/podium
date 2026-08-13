@@ -18,7 +18,7 @@ export function SuperagentSection({
   return (
     <Section
       title="Superagent"
-      hint="The orchestrator that starts, stops, and reasons across all your agents."
+      hint="Default connector, model, and effort. The prompt box can pick any other agent for a thread — Auto follows this default."
     >
       <RoleBackendEditor
         role="superagent"

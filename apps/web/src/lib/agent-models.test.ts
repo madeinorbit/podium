@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   AUTO,
   agentSupportsEffort,
+  allConnectorModelLabel,
+  allConnectorModelOptions,
+  decodeModelPick,
+  encodeModelPick,
   effortLabel,
   effortOptions,
   effortOptionsForModel,
@@ -121,5 +125,35 @@ describe('effortOptionsForModel — effort follows the selected model', () => {
       'high',
       'xhigh',
     ])
+  })
+})
+
+describe('cross-connector model picks', () => {
+  it('namespaces a concrete pick and leaves Auto bare', () => {
+    expect(encodeModelPick('claude-code', 'opus')).toBe('claude-code:opus')
+    expect(encodeModelPick('opencode', 'openai/gpt-5.5')).toBe('opencode:openai/gpt-5.5')
+    expect(encodeModelPick('grok', AUTO)).toBe(AUTO)
+    expect(decodeModelPick('claude-code:opus')).toEqual({ agentKind: 'claude-code', model: 'opus' })
+    expect(decodeModelPick('opencode:openai/gpt-5.5')).toEqual({
+      agentKind: 'opencode',
+      model: 'openai/gpt-5.5',
+    })
+    expect(decodeModelPick(AUTO)).toEqual({ model: AUTO })
+    expect(decodeModelPick('bare-slug')).toEqual({ model: 'bare-slug' })
+  })
+
+  it('lists every connector under its own group, Auto first', () => {
+    const options = allConnectorModelOptions()
+    expect(options[0]).toEqual({ value: AUTO, label: 'Auto' })
+    expect(options.some((o) => o.value === 'claude-code:opus' && o.group === 'Claude Code')).toBe(
+      true,
+    )
+    expect(options.some((o) => o.value === 'codex:gpt-5.5' && o.group === 'Codex')).toBe(true)
+    expect(options.some((o) => o.value === 'grok:grok-4.5' && o.group === 'Grok')).toBe(true)
+  })
+
+  it('labels a pick with the connector so Opus is not anonymous', () => {
+    expect(allConnectorModelLabel('claude-code', 'opus')).toBe('Claude Code · Opus')
+    expect(allConnectorModelLabel(undefined, AUTO)).toBe('Auto')
   })
 })

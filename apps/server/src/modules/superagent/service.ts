@@ -18,6 +18,7 @@ import {
   asThreadId,
   FIRST_ADMIN_USER_ID,
   HarnessAgent,
+  type HarnessAgent as HarnessAgentKind,
   type IssueId,
   type IssueWire,
   type MachineId,
@@ -217,6 +218,10 @@ export class SuperagentService {
     string,
     Promise<{ threadId: ThreadId; podiumSessionId: SessionId }>
   >()
+  /** Per-queued-input harness pick from the prompt box. Process-local: a
+   *  restart falls back to "model override stays on the frozen harness, Auto
+   *  follows Settings". The common path (send while idle) never consults this. */
+  private readonly queuedHarness = new Map<string, HarnessAgentKind>()
   // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
   // server once it's listening (it knows its own HTTP port + the access token).
   private mcpEndpoint: { url: string; token: string; allToolNames?: string[] } | undefined
@@ -453,11 +458,13 @@ export class SuperagentService {
    * or while a terminal attachment holds the one-writer lock.
    *
    * First turn on a thread (including a legacy thread that only has buffered
-   * messages): freezes the settings-chosen agent onto the thread, creates the
-   * headless Podium session, and prepends the concierge/btw seed block; the
-   * harness session id learned from the result becomes the thread's resume
-   * value. Later turns prepend only the re-entry delta (issue events / origin
-   * transcript) — no history re-folding, the harness owns history.
+   * messages): freezes the intended agent onto the thread (prompt-box pick, or
+   * the Settings default), creates the headless Podium session, and prepends
+   * the concierge/btw seed block; the harness session id learned from the
+   * result becomes the thread's resume value. Later turns prepend only the
+   * re-entry delta (issue events / origin transcript) — no history re-folding,
+   * the harness owns history. A later pick from another connector switches
+   * harness (#199).
    */
   async sendTurn({
     ownerUserId,
@@ -466,6 +473,7 @@ export class SuperagentService {
     focus,
     model,
     effort,
+    agentKind,
   }: {
     ownerUserId: UserId
     threadId: ThreadId
@@ -476,6 +484,8 @@ export class SuperagentService {
      *  the thread, so it holds for every later turn until changed. */
     model?: string
     effort?: string
+    /** Prompt-box connector pick. When set, this turn runs that harness. */
+    agentKind?: HarnessAgentKind
   }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; queued: boolean }> {
     const thread = this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
@@ -491,7 +501,9 @@ export class SuperagentService {
       threadId,
       text,
       ...(focus ? { focus } : {}),
+      ...(agentKind ? { agentKind } : {}),
     })
+    if (agentKind) this.queuedHarness.set(queued.inputId, agentKind)
 
     // A TURN IS ALREADY RUNNING — QUEUE, DON'T REFUSE (POD-782).
     //
@@ -516,6 +528,7 @@ export class SuperagentService {
       // is waiting on it), which is why the pump writes a visible failure line
       // on the thread instead.
       this.store.superagent.deleteQueuedInput(queued.inputId)
+      this.queuedHarness.delete(queued.inputId)
       this.turnInFlight.delete(threadId)
       throw err
     }
@@ -565,6 +578,7 @@ export class SuperagentService {
   /** A queued input that never became a turn: durable line + turn-end, so the
    *  composer reopens and the reader sees why their message did not run. */
   private failQueuedInput(queued: QueuedSuperagentInputRow, error: unknown): void {
+    this.queuedHarness.delete(queued.inputId)
     const message = error instanceof Error ? error.message : String(error)
     this.store.superagent.appendSuperagentMessage(queued.threadId, {
       ownerUserId: queued.ownerUserId,
@@ -651,8 +665,17 @@ export class SuperagentService {
     // spelled out, never defaulted: this build authenticates one shared
     // password, and POD-315 replaces the argument with the real principal.
     const settings = this.store.settings.getSettingsFor(ownerUserId)
-    const intended = superagentHarnessAgent(settings)
     const frozen = HarnessAgent.safeParse(thread.agentKind)
+    const requested =
+      this.queuedHarness.get(queued.inputId) ?? HarnessAgent.safeParse(queued.agentKind).data
+    this.queuedHarness.delete(queued.inputId)
+    // Settings is the DEFAULT. An explicit prompt-box connector wins; a thread
+    // that already has a model override stays on its frozen harness (that
+    // model is for that CLI). Auto (no model override, no request) follows
+    // Settings, including a later Settings change (#199).
+    const intended =
+      requested ??
+      (thread.model && frozen.success ? frozen.data : superagentHarnessAgent(settings))
     // Freeze the agent onto the thread on first contact. On later turns, if the
     // user has since changed the superagent harness, SWITCH (#199): the harness
     // owns its native session so we can't retarget it — start a fresh one and

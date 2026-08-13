@@ -2,7 +2,17 @@ import { ChevronDown, Cpu, Gauge } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { effortLabel, effortOptionsForModel, modelLabel, modelOptions } from './agent-models'
+import {
+  allConnectorModelLabel,
+  allConnectorModelOptions,
+  AUTO,
+  decodeModelPick,
+  encodeModelPick,
+  effortLabel,
+  effortOptionsForModel,
+  modelLabel,
+  modelOptions,
+} from './agent-models'
 import type { IssueAgentKind } from './issue-agents'
 import { PropertyMenu } from './PropertyMenu'
 import { useModelCatalog } from './use-model-catalog'
@@ -96,6 +106,57 @@ export function ModelPicker({
       allowFreeText
       placeholder="Model name…"
       onSelect={onChange}
+    />
+  )
+}
+
+/**
+ * Superagent prompt-box model menu: every connector's models in one list.
+ * `auto` means "whatever Settings → Superagent says". A concrete pick names
+ * both the harness and the model so the next turn can switch connectors.
+ */
+export function AllConnectorsModelPicker({
+  agentKind,
+  value,
+  onChange,
+  variant = 'pill',
+}: {
+  /** Currently selected (or frozen) harness — scopes free-text custom models. */
+  agentKind: IssueAgentKind | undefined
+  value: string
+  onChange: (pick: { agentKind?: IssueAgentKind; model: string }) => void
+  variant?: Variant
+}): JSX.Element {
+  const live = useModelCatalog()
+  const selected = value && value !== AUTO && agentKind ? encodeModelPick(agentKind, value) : AUTO
+  return (
+    <PropertyMenu
+      trigger={
+        <PickerTrigger
+          variant={variant}
+          icon={cpuIcon}
+          label={allConnectorModelLabel(agentKind, value, live)}
+          aria-label="Model"
+        />
+      }
+      options={allConnectorModelOptions(live)}
+      selectedValue={selected}
+      allowFreeText
+      placeholder="Model name…"
+      onSelect={(next) => {
+        const decoded = decodeModelPick(next)
+        if (decoded.agentKind || decoded.model === AUTO) {
+          onChange(decoded)
+          return
+        }
+        // Free-text slug: keep the current connector if one is selected.
+        // Auto stays Auto — the slug rides the Settings default harness,
+        // rather than silently pinning Claude.
+        onChange({
+          ...(agentKind ? { agentKind } : {}),
+          model: decoded.model,
+        })
+      }}
     />
   )
 }

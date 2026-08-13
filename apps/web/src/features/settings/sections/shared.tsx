@@ -320,9 +320,10 @@ export function RoleBackendEditor({
         provider API directly.
       </>
     )
+  const asDefault = role === 'superagent'
   return (
     <>
-      <Row label="Account" description={accountNote}>
+      <Row label={asDefault ? 'Default account' : 'Account'} description={accountNote}>
         <Select
           value={accountId}
           onValueChange={(value) => {
@@ -378,7 +379,7 @@ export function RoleBackendEditor({
           </Select>
         </Row>
       )}
-      <Row label="Model">
+      <Row label={asDefault ? 'Default model' : 'Model'}>
         {agentKind ? (
           <ModelPicker
             variant="field"
@@ -396,7 +397,7 @@ export function RoleBackendEditor({
         )}
       </Row>
       {showModelEffort && (
-        <Row label="Effort">
+        <Row label={asDefault ? 'Default effort' : 'Effort'}>
           <EffortPicker
             variant="field"
             agentKind={agentKind}

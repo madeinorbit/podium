@@ -147,10 +147,9 @@ export interface ChatSurface {
   canInterrupt: boolean
   interrupt: () => void
   /** The thread's harness + model + effort, for the prompt box's pickers
-   *  (POD-782). `agentKind` undefined = the thread has not frozen a harness yet
-   *  (no turn has run), in which case the pickers stay out of the way. */
+   *  (POD-782). `agentKind` undefined = Auto (follow Settings). */
   backend: { agentKind: string | undefined; model: string; effort: string }
-  setBackendModel: (model: string) => void
+  setBackendModel: (model: string, agentKind?: string) => void
   setBackendEffort: (effort: string) => void
 
   // -- scrolling -------------------------------------------------------------
@@ -337,24 +336,37 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     () => (superThread ? superThreads?.find((t) => t.id === superThread.threadId) : undefined),
     [superThreads, superThread],
   )
-  const [backendPick, setBackendPick] = useState<{ model?: string; effort?: string }>({})
-  const backend = useMemo(
-    () => ({
-      // Scoped to the harness FROZEN onto the thread, not the settings default:
-      // the model list for claude-code is not codex's, and the thread cannot
-      // change harness without starting a new harness session (#199).
-      agentKind: superThreadRow?.agentKind,
-      // 'auto' is the real default and it means "follow the settings role" —
-      // the same word the New Issue composer's pickers use for the same idea.
-      model: backendPick.model ?? superThreadRow?.model ?? 'auto',
+  const [backendPick, setBackendPick] = useState<{
+    agentKind?: string | null
+    model?: string
+    effort?: string
+  }>({})
+  const backend = useMemo(() => {
+    const model = backendPick.model ?? superThreadRow?.model ?? 'auto'
+    // A model override pins the connector it was picked from. Auto (no model)
+    // follows Settings, so the rail does not pretend a frozen harness is a
+    // choice — the menu still lists every connector.
+    const agentKind =
+      backendPick.agentKind !== undefined
+        ? (backendPick.agentKind ?? undefined)
+        : model !== 'auto'
+          ? superThreadRow?.agentKind
+          : undefined
+    return {
+      agentKind,
+      model,
       effort: backendPick.effort ?? superThreadRow?.effort ?? 'auto',
-    }),
-    [superThreadRow, backendPick],
-  )
-  const setBackendModel = useCallback((model: string) => {
+    }
+  }, [superThreadRow, backendPick])
+  const setBackendModel = useCallback((model: string, agentKind?: string) => {
     // Effort is scoped to the model (a model can narrow the ladder or support
     // none), so changing the model resets it — as every other picker pair does.
-    setBackendPick((p) => ({ ...p, model, effort: 'auto' }))
+    setBackendPick((p) => ({
+      ...p,
+      model,
+      agentKind: model === 'auto' ? null : (agentKind ?? p.agentKind),
+      effort: 'auto',
+    }))
   }, [])
   const setBackendEffort = useCallback((effort: string) => {
     setBackendPick((p) => ({ ...p, effort }))
@@ -366,7 +378,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     trpc,
     headless,
     superThread,
-    backend: { model: backend.model, effort: backend.effort },
+    backend: { model: backend.model, effort: backend.effort, agentKind: backend.agentKind },
     initialTurnRunning,
     blockCount: blocks.length,
   })

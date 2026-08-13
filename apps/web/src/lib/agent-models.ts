@@ -1,4 +1,9 @@
-import type { IssueAgentKind } from './issue-agents'
+import {
+  ISSUE_AGENT_KINDS,
+  type IssueAgentKind,
+  issueAgentKind,
+  issueAgentLabel,
+} from './issue-agents'
 import type { PropertyOption } from './PropertyMenu'
 
 /**
@@ -182,4 +187,55 @@ export function effortLabel(_kind: IssueAgentKind, value: string | null | undefi
 export function isEffortValid(kind: IssueAgentKind, value: string | null | undefined): boolean {
   if (!value || value === AUTO) return true
   return AGENT_EFFORTS[kind].some((e) => e.value === value)
+}
+
+const MODEL_PICK_SEP = ':'
+
+/** Namespaced picker value so "opus" on Claude and a custom "opus" on Cursor
+ *  cannot collide in one menu. `auto` stays the un-namespaced sentinel. */
+export function encodeModelPick(kind: IssueAgentKind, model: string): string {
+  if (!model || model === AUTO) return AUTO
+  return `${kind}${MODEL_PICK_SEP}${model}`
+}
+
+export function decodeModelPick(value: string | null | undefined): {
+  agentKind?: IssueAgentKind
+  model: string
+} {
+  if (!value || value === AUTO) return { model: AUTO }
+  const sep = value.indexOf(MODEL_PICK_SEP)
+  if (sep <= 0) return { model: value }
+  const kind = issueAgentKind(value.slice(0, sep))
+  if (!kind) return { model: value }
+  return { agentKind: kind, model: value.slice(sep + 1) }
+}
+
+/** Every connector's models, grouped, with Auto first. Live catalog wins per
+ *  agent when the server has enumerated it. */
+export function allConnectorModelOptions(
+  catalog?: Record<string, readonly ModelChoice[] | undefined>,
+): PropertyOption[] {
+  const options: PropertyOption[] = [{ value: AUTO, label: 'Auto' }]
+  for (const kind of ISSUE_AGENT_KINDS) {
+    const group = issueAgentLabel(kind)
+    for (const model of agentModels(kind, catalog?.[kind])) {
+      options.push({
+        value: encodeModelPick(kind, model.value),
+        label: model.label,
+        group,
+      })
+    }
+  }
+  return options
+}
+
+/** Pill label for a cross-connector pick: "Auto", or "Claude Code · Opus". */
+export function allConnectorModelLabel(
+  kind: IssueAgentKind | undefined,
+  model: string | null | undefined,
+  catalog?: Record<string, readonly ModelChoice[] | undefined>,
+): string {
+  if (!model || model === AUTO) return 'Auto'
+  if (!kind) return model
+  return `${issueAgentLabel(kind)} · ${modelLabel(kind, model, catalog?.[kind])}`
 }

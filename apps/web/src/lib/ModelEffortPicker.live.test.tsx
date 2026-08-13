@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { EffortPicker, ModelPicker } from './ModelEffortPicker'
+import { AllConnectorsModelPicker, EffortPicker, ModelPicker } from './ModelEffortPicker'
 
 const catalogQuery = vi.fn(async () => ({
   byAgent: {
@@ -94,5 +94,18 @@ describe('EffortPicker follows the selected model', () => {
     )
     await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: 'Effort' })).toBeNull()
+  })
+})
+
+describe('AllConnectorsModelPicker', () => {
+  it('lists models from every connector and reports both harness and model', async () => {
+    const onChange = vi.fn()
+    render(<AllConnectorsModelPicker agentKind={undefined} value="auto" onChange={onChange} />)
+    await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    expect(await screen.findByText('Claude Code')).toBeTruthy()
+    expect(screen.getByText('Codex')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus 4.8' }))
+    expect(onChange).toHaveBeenCalledWith({ agentKind: 'claude-code', model: 'claude-opus-4-8' })
   })
 })

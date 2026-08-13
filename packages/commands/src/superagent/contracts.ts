@@ -76,7 +76,13 @@
  * permitted it, and no client outbox path exists for the superagent.
  */
 
-import { asThreadId, IssueIdField, SessionIdField, ThreadIdField } from '@podium/model'
+import {
+  asThreadId,
+  HarnessAgent,
+  IssueIdField,
+  SessionIdField,
+  ThreadIdField,
+} from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -330,6 +336,11 @@ export const superagentSendTurnInput = z.object({
    *  changed. Omitted = leave the thread's current choice alone. */
   model: backendChoice.optional(),
   effort: backendChoice.optional(),
+  /** Prompt-box connector pick. When set, this turn (and later ones, until Auto)
+   *  runs that harness — Settings → Superagent is only the default. Switching
+   *  harness starts a fresh session (#199). Omitted = leave the current rule
+   *  alone (settings default, or the thread's last explicit pick). */
+  agentKind: HarnessAgent.optional(),
 })
 
 /**

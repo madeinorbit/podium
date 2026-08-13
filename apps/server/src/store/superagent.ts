@@ -202,8 +202,8 @@ export class SuperagentRepository {
     this.db
       .prepare(
         `INSERT INTO superagent_queued_inputs
-           (input_id, owner_user_id, thread_id, text, focus_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+           (input_id, owner_user_id, thread_id, text, focus_json, agent_kind, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.inputId,
@@ -211,6 +211,7 @@ export class SuperagentRepository {
         row.threadId,
         row.text,
         row.focus ? JSON.stringify(row.focus) : null,
+        row.agentKind ?? null,
         createdAt,
       )
     return { ...row, createdAt }
@@ -235,6 +236,9 @@ export class SuperagentRepository {
       // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote.
       threadId: asThreadId(row.thread_id as string),
       text: row.text as string,
+      ...(typeof row.agent_kind === 'string' && row.agent_kind
+        ? { agentKind: row.agent_kind }
+        : {}),
       focus: parseJsonColumn<QueuedSuperagentInputRow['focus']>(
         row.focus_json,
         `queued superagent input ${String(row.input_id)}`,

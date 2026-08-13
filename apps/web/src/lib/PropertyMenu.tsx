@@ -4,16 +4,21 @@ import { useState } from 'react'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { filterPropertyOptions } from './property-menu'
+import { filterPropertyOptions, groupPropertyOptions } from './property-menu'
 
 export interface PropertyOption {
   value: string
   label: string
   icon?: ReactNode
+  /** When set, options that share a group render under one heading. */
+  group?: string
 }
 
 /** Linear-style property picker: dropdown with type-ahead + optional free text. */
@@ -60,12 +65,18 @@ export function PropertyMenu({
             }}
           />
         </div>
-        {filtered.map((o) => (
-          <DropdownMenuItem key={o.value} onClick={() => onSelect(o.value)}>
-            {o.icon}
-            <span className="min-w-0 flex-1 truncate">{o.label}</span>
-            {selectedValue === o.value && <Check size={13} aria-hidden="true" />}
-          </DropdownMenuItem>
+        {groupPropertyOptions(filtered).map((g, i) => (
+          <DropdownMenuGroup key={g.group ?? `ungrouped-${String(i)}`}>
+            {i > 0 ? <DropdownMenuSeparator /> : null}
+            {g.group ? <DropdownMenuLabel>{g.group}</DropdownMenuLabel> : null}
+            {g.options.map((o) => (
+              <DropdownMenuItem key={o.value} onClick={() => onSelect(o.value)}>
+                {o.icon}
+                <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                {selectedValue === o.value && <Check size={13} aria-hidden="true" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
         ))}
         {allowFreeText && query.trim() && !exact && (
           <DropdownMenuItem onClick={() => onSelect(query.trim())}>

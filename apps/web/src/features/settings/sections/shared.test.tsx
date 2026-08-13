@@ -50,6 +50,9 @@ describe('RoleBackendEditor', () => {
       />,
     )
 
+    expect(screen.getByText('Default account')).toBeTruthy()
+    expect(screen.getByText('Default model')).toBeTruthy()
+
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'GPT-5.4' }))
     expect(onChange).toHaveBeenCalledWith({

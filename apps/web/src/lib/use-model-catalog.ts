@@ -58,7 +58,7 @@ export function useModelCatalog(): Catalog {
   useEffect(() => {
     const sub = () => force((n) => n + 1)
     subscribers.add(sub)
-    const api = (trpc as unknown as { models?: ModelsApi }).models
+    const api = (trpc as { models?: ModelsApi } | null | undefined)?.models
     if (api && Date.now() - cache.fetchedAt > CLIENT_TTL_MS) void fetchCatalog(api)
     return () => {
       subscribers.delete(sub)

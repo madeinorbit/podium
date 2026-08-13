@@ -3,6 +3,7 @@ import { act, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UseAttachmentsResult } from './use-attachments'
+import { ChatComposer } from './ChatComposer'
 
 // ---------------------------------------------------------------------------
 // THE COMPOSER'S TWO SKINS (POD-516).
@@ -60,7 +61,6 @@ async function mount(
     onDraftChange?: (draft: string) => void
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
-  const { ChatComposer } = await import('./ChatComposer')
   const taRef = createRef<HTMLTextAreaElement>()
   act(() => {
     root.render(
@@ -288,5 +288,47 @@ describe.each([
     expect(press(idle, { key: 'Escape' }).defaultPrevented).toBe(false)
     expect(press(idle, { key: 'Escape' }).defaultPrevented).toBe(false)
     expect(onInterrupt).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatComposer backend rail', () => {
+  it('lists every connector even before a harness is frozen', () => {
+    const taRef = createRef<HTMLTextAreaElement>()
+    act(() => {
+      root.render(
+        <ChatComposer
+          taRef={taRef}
+          draft=""
+          onDraftChange={() => {}}
+          enabled
+          placeholder="Ask across all tasks…"
+          compact
+          isMobile={false}
+          onSend={() => {}}
+          voice={silentVoice}
+          attachments={noopAttachments}
+          headless
+          turnRunning={false}
+          canInterrupt={false}
+          onInterrupt={() => {}}
+          offer={null}
+          onOfferAction={async () => {}}
+          onOfferDismiss={async () => {}}
+          session={undefined}
+          queuedTotal={0}
+          turnError={null}
+          offlineAsOf={null}
+          autoFocusKey="s1"
+          transcriptSettled
+          backend={{ agentKind: undefined, model: 'auto', effort: 'auto' }}
+          onBackendModelChange={() => {}}
+          onBackendEffortChange={() => {}}
+        />,
+      )
+    })
+    const rail = container.querySelector('[data-testid="composer-backend"]')
+    expect(rail).not.toBeNull()
+    const model = container.querySelector('[aria-label="Model"]') as HTMLButtonElement
+    expect(model.textContent).toContain('Auto')
   })
 })
