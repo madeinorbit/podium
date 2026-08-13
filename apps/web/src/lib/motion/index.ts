@@ -8,6 +8,7 @@
  */
 export { AgentStatusGlyph } from './AgentStatusGlyph'
 export { BrailleSpinner } from './BrailleSpinner'
+export { BreathingMark } from './BreathingMark'
 export { PhaseTimer } from './PhaseTimer'
 export { StatusBadge, type StatusBadgeKind } from './StatusBadge'
 export { useArrivals } from './useArrivals'

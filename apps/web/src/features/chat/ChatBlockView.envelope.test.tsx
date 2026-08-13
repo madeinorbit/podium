@@ -83,6 +83,37 @@ describe('envelope block', () => {
     expect(activations).toEqual(['POD-84'])
   })
 
+  // FOLDED BY DEFAULT (POD-993). Mail is provenance: a reader scanning a
+  // conversation should see that a message arrived and from whom without the
+  // paragraph — unless the frame asks something of them, which is the one kind
+  // of mail that has a consequence and so opens on arrival.
+  it('arrives folded, and opens on a click of its header', () => {
+    mount(userItem(frame('msg_5', 'issue:POD-84', 'your session', 'background noise')))
+    const env = host.querySelector('.message-envelope')
+    expect(env?.getAttribute('data-open')).toBe('false')
+    const toggle = host.querySelector<HTMLElement>('[data-testid="message-envelope-toggle"]')
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
+    act(() => {
+      toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(host.querySelector('.message-envelope')?.getAttribute('data-open')).toBe('true')
+  })
+
+  it('opens a reply-requested frame on arrival', () => {
+    mount(
+      userItem(
+        frame(
+          'msg_6',
+          'issue:POD-84',
+          'your session',
+          'please confirm',
+          '[a response was requested: reply within this thread (`podium mail reply msg_6`) when you have handled it — any substantive reply satisfies it]\n',
+        ),
+      ),
+    )
+    expect(host.querySelector('.message-envelope')?.getAttribute('data-open')).toBe('true')
+  })
+
   it('legacy #seq senders stay plain text (no dead chips)', () => {
     mount(userItem(frame('msg_2', 'issue:#84', 'your session', 'hello')))
     const env = host.querySelector('[data-testid="message-envelope"]')

@@ -247,6 +247,91 @@ export function ChatComposer({
   const sendDisabled =
     !enabled || (!draft.trim() && attachments.attachments.length === 0) || attachments.uploading
 
+  /**
+   * THE ACTION CLUSTER, HOISTED (POD-993) — one definition, two placements.
+   *
+   * Compact keeps it INLINE beside the field, which is right for a 280px dock
+   * where a second row would cost a fifth of the box. The regular composer moves
+   * it to its own bottom row, and that is a reversal of POD-178 rather than a
+   * drift from it: POD-178 removed a bottom row that was EMPTY apart from the
+   * buttons, and read as an unreachable blank line inside the field. The row
+   * here is not empty — it carries the send hint on the left and the attachment
+   * strip above it — and what it buys is the whole width for the words. Inline,
+   * the field gave up ~90px on EVERY line to a cluster that only ever needs the
+   * last one, so a wide pane wrapped a prompt three lines early and the box read
+   * as narrower than the pane it sits in.
+   */
+  const actionCluster = (
+    <div className={cn('flex flex-none items-center gap-0.5', compact && 'self-end')}>
+      {headless && turnRunning && canInterrupt && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          // Destructive ink stays — stopping a turn is the one act in this
+          // cluster that throws work away. Only the hover ground is brought onto
+          // the cluster's shared idiom.
+          className="size-6 rounded-md text-destructive hover:bg-chip hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
+          title="Stop this turn"
+          onClick={onInterrupt}
+        >
+          <Square size={16} aria-hidden="true" />
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cn(
+          // One idiom across the cluster: the mic and the stop square sit either
+          // side of this one, and three hover treatments in a 72px row is what
+          // made the box read as assembled rather than designed.
+          'size-6 rounded-md text-text-dim hover:bg-chip hover:text-text-strong',
+          "[&_svg:not([class*='size-'])]:size-3.5",
+        )}
+        title="Attach image"
+        onClick={attachments.openFilePicker}
+      >
+        <Paperclip size={16} aria-hidden="true" />
+      </Button>
+      <VoiceButton voice={voice} />
+      {/* THE ARMED SEND. Compact matches the empty-thread box exactly: a quiet
+          glyph in Dim ink while there is nothing to send — legible without
+          hovering, not 40% opacity — that FILLS Superade Yellow over 150ms the
+          moment it can act. Sending is the primary action, which is the one
+          thing The Signal Rule buys yellow for, and it is the only yellow left
+          in this box now that the focus border is gone. */}
+      <Button
+        type="button"
+        size="icon"
+        // The primary variant owns Superade's yellow silhouette. Keep the whole
+        // empty affordance neutral, including that inherited rim, and only opt
+        // into primary once the action is armed.
+        variant={compact || sendDisabled ? 'ghost' : 'default'}
+        className={cn(
+          compact
+            ? cn(
+                "size-6 rounded-md transition-colors duration-150 motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-3.5",
+                sendDisabled
+                  ? 'bg-transparent text-text-dim hover:bg-transparent hover:text-text-dim disabled:bg-transparent disabled:text-text-dim disabled:opacity-100'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/80',
+              )
+            : cn(
+                "size-7 rounded-md transition-colors duration-150 motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-3.5",
+                sendDisabled
+                  ? 'bg-secondary text-muted-foreground/70 hover:bg-secondary hover:text-muted-foreground/70 disabled:opacity-100'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/80',
+              ),
+        )}
+        disabled={sendDisabled}
+        title="Send (Enter)"
+        onClick={onSend}
+      >
+        <ArrowUp size={16} aria-hidden="true" />
+      </Button>
+    </div>
+  )
+
   return (
     <div
       // Bottom inset only when the keyboard is CLOSED. With it open (iOS), the home-
@@ -472,82 +557,26 @@ export function ChatComposer({
               }}
               onPaste={attachments.onPaste}
             />
-            {/* The action cluster is INLINE on the input row (POD-178: a separate
-                bottom row read as an unreachable empty line in the box). Compact
-                keeps plain ghost icons; the regular composer keeps a primary send
-                button, just inline and small. */}
-            <div className="flex flex-none items-center gap-0.5 self-end">
-              {headless && turnRunning && canInterrupt && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  // Destructive ink stays — stopping a turn is the one act in
-                  // this cluster that throws work away. Only the hover ground is
-                  // brought onto the cluster's shared idiom.
-                  className="size-6 rounded-md text-destructive hover:bg-chip hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
-                  title="Stop this turn"
-                  onClick={onInterrupt}
-                >
-                  <Square size={16} aria-hidden="true" />
-                </Button>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  // One idiom across the cluster: the mic and the stop square
-                  // sit either side of this one, and three hover treatments in
-                  // a 72px row is what made the box read as assembled rather
-                  // than designed.
-                  'size-6 rounded-md text-text-dim hover:bg-chip hover:text-text-strong',
-                  "[&_svg:not([class*='size-'])]:size-3.5",
-                )}
-                title="Attach image"
-                onClick={attachments.openFilePicker}
-              >
-                <Paperclip size={16} aria-hidden="true" />
-              </Button>
-              <VoiceButton voice={voice} />
-              {/* THE ARMED SEND. Compact matches the empty-thread box exactly:
-                  a quiet glyph in Dim ink while there is nothing to send —
-                  legible without hovering, not 40% opacity — that FILLS Superade
-                  Yellow over 150ms the moment it can act. Sending is the primary
-                  action, which is the one thing The Signal Rule buys yellow for,
-                  and it is the only yellow left in this box now that the focus
-                  border is gone. */}
-              <Button
-                type="button"
-                size="icon"
-                // The primary variant owns Superade's yellow silhouette. Keep
-                // the whole empty affordance neutral, including that inherited
-                // rim, and only opt into primary once the action is armed.
-                variant={compact || sendDisabled ? 'ghost' : 'default'}
-                className={cn(
-                  compact
-                    ? cn(
-                        "size-6 rounded-md transition-colors duration-150 motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-3.5",
-                        sendDisabled
-                          ? 'bg-transparent text-text-dim hover:bg-transparent hover:text-text-dim disabled:bg-transparent disabled:text-text-dim disabled:opacity-100'
-                          : 'bg-primary text-primary-foreground hover:bg-primary/80',
-                      )
-                    : cn(
-                        "size-7 rounded-md [&_svg:not([class*='size-'])]:size-3.5",
-                        sendDisabled
-                          ? 'bg-secondary text-muted-foreground/70 hover:bg-secondary hover:text-muted-foreground/70 disabled:opacity-100'
-                          : 'bg-primary text-primary-foreground hover:bg-primary/80',
-                      ),
-                )}
-                disabled={sendDisabled}
-                title="Send (Enter)"
-                onClick={onSend}
-              >
-                <ArrowUp size={16} aria-hidden="true" />
-              </Button>
-            </div>
+            {/* Compact only: the dock's box has no room for a second row. */}
+            {compact && actionCluster}
           </div>
           <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
+          {/* THE BOTTOM ROW (POD-993). The field takes the whole width; the
+              cluster sits under it with the send hint on the left, so the row
+              carries information rather than being a blank line with buttons
+              parked in it. The hint states the keyboard route the box's primary
+              action already has — the one thing a first-time reader of this box
+              does not know and cannot discover by looking. */}
+          {!compact && (
+            <div className="composer-row">
+              <span className="composer-hint">
+                <kbd>↵</kbd> send
+                <span className="composer-hint-seam" aria-hidden="true" />
+                <kbd>⇧↵</kbd> newline
+              </span>
+              {actionCluster}
+            </div>
+          )}
         </div>
       </div>
       {backend && onBackendModelChange && onBackendEffortChange && (

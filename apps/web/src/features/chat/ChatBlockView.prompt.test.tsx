@@ -4,18 +4,22 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ChatBlockView } from './ChatBlockView'
 
-// THE BRIEF IS NEVER CUT (POD-747). This file used to protect a clamp: a sticky
-// prompt was capped, faded and given a "Read more", and at 2.95em against a
-// 22.95px line that meant a two-line message arrived pre-truncated with a
-// control for the four words it was hiding. The clamp is gone, and so is the
-// scroll bound that briefly replaced it — a brief is the one thing in the feed
-// the reader wrote themselves, and a box that slices its last line reads as
-// truncated whatever the scrollbar says.
+// THE BRIEF IS CUT ONLY WHILE IT IS PINNED (POD-993).
 //
-// What the cap was protecting — a pasted wall of text blanketing the feed while
-// it is pinned — is handled by the pin yielding instead. So there are two things
-// to hold: no length of prompt may produce a hidden edge or a control to reveal
-// one, and a brief past half the chat viewport must not take the sticky pin.
+// Two earlier rules meet here. POD-747 removed a clamp that fired on every
+// collapsed brief — a two-line message arriving pre-truncated with a "Read more"
+// for the four words it was hiding — and then had to refuse the sticky pin to
+// any brief past half the viewport, because a forty-line brief pinned at full
+// height is a lid over the answer it is the context for.
+//
+// The rule now splits by state rather than by length. IN FLOW nothing is ever
+// cut: every word, no fade, no control. PINNED the brief is a shelf, so it
+// clamps, fades and offers one toggle — and every brief takes the pin again,
+// including the long ones the shelf exists for.
+//
+// What this file holds: no length of prompt produces a hidden edge in flow; the
+// pin is never refused; and the toggle exists exactly when the pinned shelf is
+// tall enough for the clamp to bite.
 
 let host: HTMLDivElement
 let root: Root
@@ -43,6 +47,7 @@ function mount(text: string, stickyOperator: boolean, highlighted = false): void
 }
 
 const promptBox = (): HTMLElement | null => host.querySelector('.transcript-you-body')
+const bubble = (): HTMLElement | null => host.querySelector('.transcript-you-bubble')
 const toggle = (): HTMLElement | null => host.querySelector('[data-testid="prompt-expand-toggle"]')
 const row = (): HTMLElement | null => host.querySelector('[data-operator-prompt="true"]')
 const isPinned = (): boolean => row()?.classList.contains('sticky') ?? false
@@ -50,29 +55,19 @@ const isPinned = (): boolean => row()?.classList.contains('sticky') ?? false
 /** A prompt long enough that the old clamp would have cut it several times over. */
 const LONG = Array.from({ length: 60 }, (_, i) => `line ${i} of a very long brief`).join('\n\n')
 
-/** Neither happy-dom nor jsdom lays out, so the pin measurement needs a stand-in
- *  for the row's rendered height and for the viewport the scroller publishes. */
-let rowHeight = 0
-const VIEWPORT_H = 800
+/** Neither happy-dom nor jsdom lays out, so the clamp measurement needs a
+ *  stand-in for the rendered height of the brief's body. */
+let bodyHeight = 0
 const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight')
-const originalComputedStyle = globalThis.getComputedStyle
 
 beforeEach(() => {
-  rowHeight = 0
+  bodyHeight = 0
   Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
     configurable: true,
     get(this: HTMLElement) {
-      return this.dataset.operatorPrompt === 'true' ? rowHeight : 0
+      return this.classList.contains('transcript-you-body') ? bodyHeight : 0
     },
   })
-  globalThis.getComputedStyle = ((el: Element, pseudo?: string | null) => {
-    const style = originalComputedStyle(el, pseudo ?? null)
-    return {
-      ...style,
-      getPropertyValue: (prop: string) =>
-        prop === '--chat-viewport-h' ? `${VIEWPORT_H}px` : style.getPropertyValue(prop),
-    }
-  }) as typeof globalThis.getComputedStyle
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -83,37 +78,35 @@ afterEach(() => {
     root.unmount()
   })
   host.remove()
-  globalThis.getComputedStyle = originalComputedStyle
   if (originalScrollHeight)
     Object.defineProperty(HTMLElement.prototype, 'scrollHeight', originalScrollHeight)
   else Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight')
 })
 
-describe('the sticky operator prompt', () => {
-  it('renders a long brief in full, with no cut and no control', () => {
+describe('the operator prompt', () => {
+  it('renders every word of a long brief, with no cut in the markup', () => {
+    bodyHeight = 900
     mount(LONG, true)
     expect(promptBox()).not.toBeNull()
-    expect(promptBox()?.dataset.clamped).toBeUndefined()
-    expect(promptBox()?.dataset.cut).toBeUndefined()
-    expect(toggle()).toBeNull()
-    // Every line is present — the bound is a scroll, not a truncation.
     expect(host.textContent).toContain('line 0 of a very long brief')
     expect(host.textContent).toContain('line 59 of a very long brief')
   })
 
-  it('renders a short brief the same way, with nothing added to it', () => {
+  it('adds nothing at all to a short brief', () => {
+    bodyHeight = 40
     mount('two words', true)
-    expect(promptBox()?.dataset.cut).toBeUndefined()
     expect(toggle()).toBeNull()
     expect(host.textContent).toContain('two words')
   })
 
-  it('leaves a non-sticky prompt unwrapped', () => {
+  it('gives a non-sticky prompt the same card, with no pin and no control', () => {
+    bodyHeight = 900
     mount(LONG, false)
-    expect(promptBox()).toBeNull()
+    expect(bubble()).not.toBeNull()
+    expect(isPinned()).toBe(false)
     expect(toggle()).toBeNull()
     expect(host.textContent).toContain('line 0 of a very long brief')
-    // …and still labels the turn exactly once.
+    // …and it still labels the turn exactly once.
     expect(host.querySelectorAll('.transcript-you-label')).toHaveLength(1)
   })
 
@@ -124,33 +117,28 @@ describe('the sticky operator prompt', () => {
     expect(labels[0]?.textContent).toContain('Your brief')
   })
 
-  it('needs no special case for the active search match', () => {
-    // The clamp used to yield for a highlighted row, because a hit the reader
-    // cannot see is worse than a prompt taking the column. With nothing hidden
-    // in the first place there is no case to make an exception for.
-    mount(LONG, true, true)
-    expect(promptBox()?.dataset.clamped).toBeUndefined()
-    expect(toggle()).toBeNull()
-    expect(host.textContent).toContain('line 59 of a very long brief')
-  })
-
-  it('takes the pin while it is short enough to be a context shelf', () => {
-    rowHeight = VIEWPORT_H * 0.25
-    mount('a short brief', true)
+  it('takes the pin however long the brief is', () => {
+    // POD-747 refused the pin past half the viewport, which took the context
+    // shelf away from exactly the exchanges that most needed one. The clamp is
+    // the answer to a long brief now, so the pin is never refused.
+    bodyHeight = 4000
+    mount(LONG, true)
     expect(isPinned()).toBe(true)
     expect(host.querySelector('[data-sticky-prompt-backdrop]')).not.toBeNull()
+    expect(host.textContent).toContain('line 59 of a very long brief')
   })
 
-  it('yields the pin rather than cutting itself down to fit it', () => {
-    // Past half the viewport a pinned brief stops being the context for the
-    // answer and becomes a lid over it, so it scrolls away like any other
-    // message — with every word of it still rendered.
-    rowHeight = VIEWPORT_H * 0.8
+  it('offers one toggle when the pinned shelf is taller than the clamp, and opens in place', () => {
+    bodyHeight = 900
     mount(LONG, true)
-    expect(isPinned()).toBe(false)
-    expect(host.querySelector('[data-sticky-prompt-backdrop]')).toBeNull()
-    expect(host.textContent).toContain('line 59 of a very long brief')
-    // It is still the active turn's brief, so it keeps that label.
-    expect(host.querySelector('.transcript-you-label')?.textContent).toContain('Your brief')
+    const control = toggle()
+    expect(control).not.toBeNull()
+    expect(control?.getAttribute('aria-expanded')).toBe('false')
+    expect(bubble()?.dataset.pinOpen).toBeUndefined()
+    act(() => {
+      control?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(toggle()?.getAttribute('aria-expanded')).toBe('true')
+    expect(bubble()?.dataset.pinOpen).toBe('true')
   })
 })

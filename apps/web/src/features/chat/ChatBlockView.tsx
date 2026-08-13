@@ -12,6 +12,7 @@ import {
 import type { SessionId } from '@podium/model/browser'
 import {
   Check,
+  ChevronDown,
   Clock,
   Copy,
   FileText,
@@ -222,6 +223,16 @@ function MessageEnvelopeRow({
       ? renderMarkdown(envelope.body, issueReferences)
       : sanitizeRenderedMarkdown(unsafeHtml, issueReferences)
   }, [envelope.body, issueReferences, markdownHtml])
+  // FOLDED BY DEFAULT (POD-993). System mail is provenance: it explains why the
+  // agent did what it did next, and a reader scanning a conversation should be
+  // able to see that a message arrived, from whom, without the paragraph. So it
+  // folds to one quiet mono line and opens on a click.
+  //
+  // Except when it is addressed AT the reader's attention: a frame that asks a
+  // question or requests a reply is not background, and folding it would hide
+  // the one kind of mail that has a consequence. Those open on arrival.
+  const consequential = envelope.question || envelope.expectsReply
+  const [open, setOpen] = useState(consequential)
   return (
     <div
       className={className}
@@ -235,40 +246,65 @@ function MessageEnvelopeRow({
         {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate those generated anchors natively */}
         <div
           className="message-envelope"
+          data-open={open ? 'true' : 'false'}
           onClick={(e) => {
             handleChatMdClick(e, sessionId, cwd, openFile)
           }}
         >
           <div className="message-envelope-head">
-            <span className="message-envelope-kind">
-              <MailIcon size={11} aria-hidden="true" />
-              Mail
-            </span>
-            <span aria-hidden="true" className="message-envelope-seam" />
-            <span className="message-envelope-route">
-              <PrincipalLabel label={envelope.from} issueReferences={issueReferences} />
-              <span className="px-1.5 text-muted-foreground/40">→</span>
-              <PrincipalLabel label={envelope.to} issueReferences={issueReferences} />
-            </span>
-            {envelope.question && <span className="message-envelope-badge">question</span>}
-            {envelope.expectsReply && (
-              <span className="message-envelope-badge message-envelope-badge--reply">
-                reply requested
+            {/* The whole header line is the control: a fold whose hit target is
+                a 12px chevron is a fold nobody uses. Refs inside the route stay
+                clickable — they stop the toggle rather than the other way
+                round, so a principal chip still opens its miniview. */}
+            <button
+              type="button"
+              className="message-envelope-toggle"
+              data-testid="message-envelope-toggle"
+              aria-expanded={open}
+              aria-label={open ? 'Fold this message' : 'Unfold this message'}
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest('a')) return
+                setOpen((v) => !v)
+              }}
+            >
+              <span className="message-envelope-kind">
+                <MailIcon size={11} aria-hidden="true" />
+                Mail
               </span>
-            )}
-            <span className="message-envelope-meta">
-              <BlockClock ts={ts} />
-              {envelope.id}
-            </span>
+              <span aria-hidden="true" className="message-envelope-seam" />
+              <span className="message-envelope-route">
+                <PrincipalLabel label={envelope.from} issueReferences={issueReferences} />
+                <span className="px-1.5 text-muted-foreground/40">→</span>
+                <PrincipalLabel label={envelope.to} issueReferences={issueReferences} />
+              </span>
+              {envelope.question && <span className="message-envelope-badge">question</span>}
+              {envelope.expectsReply && (
+                <span className="message-envelope-badge message-envelope-badge--reply">
+                  reply requested
+                </span>
+              )}
+              <span className="message-envelope-meta">
+                <BlockClock ts={ts} />
+                {envelope.id}
+                <ChevronDown className="message-envelope-chev" size={11} aria-hidden="true" />
+              </span>
+            </button>
           </div>
-          <div
-            className="chat-md message-envelope-body"
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify in renderMarkdown
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-          {envelope.machineNote && (
-            <div className="message-envelope-note">{envelope.machineNote}</div>
-          )}
+          {/* The fold is a grid row travelling 0fr → 1fr: the body keeps its
+              natural height, nothing is measured in JS, and the rows below glide
+              rather than jumping. */}
+          <div className="message-envelope-fold" aria-hidden={!open}>
+            <div className="message-envelope-fold-inner">
+              <div
+                className="chat-md message-envelope-body"
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify in renderMarkdown
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
+              {envelope.machineNote && (
+                <div className="message-envelope-note">{envelope.machineNote}</div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -298,65 +334,93 @@ function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
 }
 
 /**
- * THE PROMPT IS NEVER CUT (POD-747).
+ * THE BRIEF IS CUT ONLY WHILE IT IS PINNED (POD-993).
  *
- * This used to clamp: every collapsed brief was capped, faded out and given a
- * "Read more", so a two-line message arrived pre-truncated with a control for
- * the four words it was hiding. Raising the cap only moved the line at which the
- * same thing happened, so the cap is gone — a brief is the one thing in the feed
- * the reader wrote themselves, and hiding part of it to buy space in their own
- * conversation was never a trade worth making.
+ * Two earlier readings of this are both preserved in the design, because the new
+ * rule is the seam between them. POD-747 removed a clamp that fired on EVERY
+ * collapsed brief — a two-line message arriving pre-truncated behind a "Read
+ * more" for the four words it was hiding — and it was right: in the flow of the
+ * document a brief is the one thing the reader wrote themselves, and hiding part
+ * of it to buy space in their own conversation is not a trade. What POD-747 then
+ * had to do about a pasted forty-line spec was refuse it the pin, so the context
+ * shelf simply vanished for the exchanges that needed it most.
  *
- * A bounded box that scrolls inside itself was the next thing tried, and it is
- * not the answer either: every word stays reachable, but a brief whose last line
- * is sliced off mid-sentence at the edge of a scroll box LOOKS exactly like a
- * truncated one, and the seam under it — the hairline that ends the brief — gets
- * pushed out of view with it. "Not technically hidden" is not the bar.
- *
- * So the body is plain and unbounded, and the thing the cap was actually
- * protecting is handled where the problem is: a brief too tall to pin does not
- * pin. See `pinnable` in ChatBlockView.
+ * The rule now separates the two states the row actually has. IN FLOW the brief
+ * is never cut — every word, no fade, no control, exactly as POD-747 left it.
+ * PINNED it is a shelf rather than a message, and a shelf has a height: it
+ * clamps to `--prompt-pin-clamp`, fades at its own bottom edge and offers one
+ * toggle to open it in place. Nothing is hidden at the moment the reader is
+ * reading it — the clamp engages only once the row has scrolled to the top edge
+ * and become chrome, and it releases the moment they scroll back to it.
  */
-function PromptBody({ label, children }: { label: ReactNode; children: ReactNode }): JSX.Element {
+function PromptBubble({
+  bodyRef,
+  clamped,
+  open,
+  onToggle,
+  meta,
+  children,
+}: {
+  bodyRef: RefObject<HTMLDivElement | null>
+  /** The pinned shelf is taller than the clamp — the reader is owed a control. */
+  clamped: boolean
+  open: boolean
+  onToggle: () => void
+  /** The row's own micro line: who, when, and any attribution mark. */
+  meta: ReactNode
+  children: ReactNode
+}): JSX.Element {
   return (
     <>
-      <div className="transcript-you-label">{label}</div>
-      <div className="transcript-you-body">{children}</div>
+      <div className="transcript-you-bubble" data-pin-open={open ? 'true' : undefined}>
+        <div className="transcript-you-body" ref={bodyRef}>
+          {children}
+        </div>
+        {clamped && (
+          <button
+            data-pressable
+            type="button"
+            className="prompt-expand"
+            data-testid="prompt-expand-toggle"
+            aria-expanded={open}
+            onClick={onToggle}
+          >
+            {open ? 'Collapse brief' : 'Show full brief'}
+          </button>
+        )}
+      </div>
+      <div className="transcript-you-label">{meta}</div>
     </>
   )
 }
 
-/** Above this share of the chat viewport, a pinned brief stops being a context
- *  shelf and becomes a lid over the answer it is the context for. */
-const MAX_PINNED_SHARE = 0.5
+/** The clamp the pinned shelf takes, in px — kept in step with
+ *  `--prompt-pin-clamp` in styles.css, which is what actually cuts. Roughly four
+ *  lines of the brief's own 13.5/1.6 setting: enough for the whole of an
+ *  ordinary message, short enough that a pasted spec cannot become a lid. */
+const PIN_CLAMP_PX = 92
 
 /**
- * Whether this operator prompt may take the sticky pin (POD-747).
+ * Whether a pinned brief is tall enough for the clamp to bite — i.e. whether the
+ * reader is owed a control to open it again.
  *
- * The pin exists so the brief for the turn you are reading stays in view
- * (POD-1368), and it is worth having for the one-to-three-line message that is
- * the overwhelming case. It stops being worth having at the pasted-spec end of
- * the range: a forty-line brief pinned to the top of the scrollport covers the
- * answer for the whole exchange, which is the opposite of the thing the pin is
- * for. Rather than cutting the brief down to fit the pin, the pin yields and the
- * long brief scrolls away like any other message.
- *
- * Measured against `--chat-viewport-h`, which ChatView publishes on the scroller
- * and which therefore inherits down to this row. A missing value (no layout yet,
- * a non-browser render) reads as pinnable, so the default is the behaviour every
- * ordinary brief wants.
+ * Measured on the body itself rather than guessed from character count, because
+ * what matters is rendered height at this pane width: the same text is two lines
+ * in a full-width stage and six in a split pane. Re-measured through a
+ * ResizeObserver so dragging the pane narrower grows the control into existence
+ * rather than leaving a silently cut shelf.
  */
-function usePinnable(enabled: boolean, ref: RefObject<HTMLElement | null>): boolean {
-  const [pinnable, setPinnable] = useState(true)
+function useClamps(enabled: boolean, ref: RefObject<HTMLElement | null>): boolean {
+  const [clamps, setClamps] = useState(false)
   useLayoutEffect(() => {
-    if (!enabled) return
+    if (!enabled) {
+      setClamps(false)
+      return
+    }
     const el = ref.current
     if (!el) return
     const measure = (): void => {
-      const raw = getComputedStyle(el).getPropertyValue('--chat-viewport-h')
-      const viewport = Number.parseFloat(raw)
-      if (!Number.isFinite(viewport) || viewport <= 0) return
-      setPinnable(el.scrollHeight <= viewport * MAX_PINNED_SHARE)
+      setClamps(el.scrollHeight > PIN_CLAMP_PX + 4)
     }
     measure()
     if (typeof ResizeObserver === 'undefined') return
@@ -364,7 +428,7 @@ function usePinnable(enabled: boolean, ref: RefObject<HTMLElement | null>): bool
     ro.observe(el)
     return () => ro.disconnect()
   })
-  return pinnable
+  return clamps
 }
 
 // Memoized: ChatView re-renders on every search keystroke, every 700ms
@@ -469,8 +533,14 @@ export const ChatBlockView = memo(function ChatBlockView({
   const hasEnvelopes = (envelopeBatch?.envelopes.length ?? 0) > 0
   const bodyTurnClass = turnClass(hasEnvelopes && turn === 'open' ? 'bind' : turn)
   const rowRef = useRef<HTMLDivElement | null>(null)
-  const pinnable = usePinnable(stickyOperator, rowRef)
-  const pinned = stickyOperator && pinnable
+  const promptBodyRef = useRef<HTMLDivElement | null>(null)
+  // Every operator brief takes the pin now (POD-993). It used to yield the pin
+  // above half the viewport, because a long brief pinned at full height is a lid
+  // over the answer; the clamp below is the better answer to that, and it keeps
+  // the context shelf for exactly the exchanges that most need one.
+  const pinned = stickyOperator
+  const [pinOpen, setPinOpen] = useState(false)
+  const clamps = useClamps(pinned, promptBodyRef)
   const rowClass = cn(
     'group transcript-row isolate',
     bodyTurnClass,
@@ -760,13 +830,6 @@ export const ChatBlockView = memo(function ChatBlockView({
             // Only where no label row already carries one — see the prop's note.
             ts={isUser || isAnswer || item.role === 'system' ? undefined : item.ts}
           />
-          {isUser && !stickyOperator && (
-            <div className="transcript-you-label">
-              You
-              {attribution && <AttributionMark attribution={attribution} />}
-              <BlockClock ts={item.ts} />
-            </div>
-          )}
           {item.role === 'system' && (
             <div className="transcript-header">
               <span className="transcript-role transcript-role--system">System</span>
@@ -784,21 +847,35 @@ export const ChatBlockView = memo(function ChatBlockView({
               <BlockClock ts={item.ts} />
             </div>
           )}
-          {isUser && stickyOperator ? (
-            <PromptBody
-              label={
+          {/* THE OPERATOR'S TURN IS A CHAT ENTRY (POD-993). It reads right, in
+              its own tinted card, at a measure — because in a two-voice feed the
+              side a message sits on is the fastest "who said this" there is, and
+              it costs no label, no colour and no vertical space to say it. The
+              agent keeps the full column and the flat ground: only the human's
+              side is a card. Below the pane's own narrow threshold the card goes
+              full width (see `.transcript-you` in styles.css) — at that width an
+              indented bubble is a column of ragged offcuts. */}
+          {isUser ? (
+            <PromptBubble
+              bodyRef={promptBodyRef}
+              clamped={pinned && clamps}
+              open={pinOpen}
+              onToggle={() => {
+                setPinOpen((v) => !v)
+              }}
+              meta={
                 <>
-                  Your brief · active turn
-                  {/* Same label content as the non-sticky YOU row above — the
-                      sticky pin (POD-1368) only changes WHERE the label renders,
-                      so the attribution mark (doc §3.1.3 A3) rides along. */}
+                  {stickyOperator ? 'Your brief · active turn' : 'You'}
+                  {/* The sticky pin (POD-1368) only changes WHAT the meta line
+                      says, so the attribution mark (doc §3.1.3 A3) rides along
+                      in both states. */}
                   {attribution && <AttributionMark attribution={attribution} />}
                   <BlockClock ts={item.ts} />
                 </>
               }
             >
               {turnBody}
-            </PromptBody>
+            </PromptBubble>
           ) : (
             turnBody
           )}

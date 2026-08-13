@@ -65,11 +65,13 @@ describe('TranscriptTail', () => {
     expect(host.textContent).toContain('Working')
     // A live timer is the one figure that earns second precision.
     expect(figure()).toBe('0:42')
-    // …and it is the one state licensed to move.
-    expect(host.querySelector('.spb')).not.toBeNull()
+    // …and it is the one state licensed to move. At the END of the feed that
+    // motion is the breath rather than the braille spinner (POD-993): the
+    // spinner stays inside work lines and machine-voice rows.
+    expect(host.querySelector('[data-testid="breathing-mark"]')).not.toBeNull()
   })
 
-  it('keeps just-sent transport still and timerless even with an old session clock', () => {
+  it('breathes for just-sent transport, timerless even with an old session clock', () => {
     mount(
       { label: 'Sending', tone: 'idle', transient: 'just-sent' },
       '2024-01-01T00:00:00.000Z',
@@ -79,11 +81,14 @@ describe('TranscriptTail', () => {
         nativeSubagentCount: 0,
       }),
     )
-    expect(tail()?.dataset.tail).toBe('note')
+    // POD-993: the hand-off is already the turn as far as the reader is
+    // concerned, so the mark moves the moment they press send — but nothing
+    // counts, because transport is not agent computation.
+    expect(tail()?.dataset.tail).toBe('sending')
     expect(host.textContent).toContain('Sending')
     expect(host.querySelector('.feed-tail-figure')).toBeNull()
     expect(host.querySelector('.spb')).toBeNull()
-    expect(tail()?.getAttribute('aria-live')).toBeNull()
+    expect(host.querySelector('[data-testid="breathing-mark"]')).not.toBeNull()
   })
 
   it('addresses the reader when the agent is waiting on them, and stays still', () => {

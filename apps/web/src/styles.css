@@ -2664,12 +2664,19 @@ html[data-density="balanced"] .header-quota-pools {
    one of several the shell already lets them drag. The caps are gone rather than
    retuned: a single cap would put the dead margin back the moment the pane is
    wider than it, which is exactly the state this replaces. */
+/* THE BEAT, WIDENED (POD-993). 11px each side was tuned when every voice lay
+   flat on one ground and the only thing separating two rows was the gap itself.
+   With the operator's turn now a card with its own edge, 22px between blocks
+   read as crowding against that edge — the card's border and the next row's
+   first line arrived almost together. 13px each side (a 26px gap) restores the
+   air the card takes, and the exchange seam grows with it so the ratio the
+   structure depends on is unchanged. */
 .transcript-row {
   display: flex;
   flex-direction: row;
   gap: 0;
-  padding-top: 11px;
-  padding-bottom: 11px;
+  padding-top: 13px;
+  padding-bottom: 13px;
 }
 
 /* Flat Field (POD-159): the rails are gone — agent output lies flat on the
@@ -2708,21 +2715,73 @@ html[data-density="balanced"] .header-quota-pools {
    --transcript-ground is the surface the brief lies on, needed by the clamp's
    fade and by nothing else. It is the SHEET, not the app background: the stage
    is a card now, and a fade to --background would have ended in a visible band. */
+/* THE OPERATOR'S TURN IS A CHAT ENTRY (POD-993).
+   The brief-and-hairline above is superseded, and the reason is the one thing a
+   two-voice document cannot state with type alone: WHICH SIDE SPOKE. POD-725's
+   flat brief was the quietest register in the feed, which was right about weight
+   and wrong about identity — scanning a long transcript, every row began at the
+   same left edge and the only thing separating the human's words from the
+   agent's was a 9px eyebrow. The turn now reads RIGHT, in its own tinted card at
+   a measure, and side does the identifying: no colour spent, no vertical space
+   taken, legible at a glance from across the room.
+
+   What is deliberately NOT copied from the chat products this borrows from: the
+   agent keeps the full column and the flat ground (a field of alternating
+   bubbles is the look DESIGN.md §1 rejects, and it halves the reading measure of
+   the thing you actually came to read), the radius stays on the system's own
+   7–10px scale rather than a pill, and the card is a TINT over the sheet, never
+   a fill — the same rule every other surface in the window obeys.
+
+   --transcript-ground is the surface the card lies on, needed by the pinned
+   clamp's fade. It is the SHEET, not the app background: the stage is a card,
+   and a fade to --background would have ended in a visible band. */
 .transcript-you {
   --transcript-ground: var(--card);
   --transcript-you-bg: var(--transcript-ground);
-  padding-bottom: 19px;
-  border-bottom: 1px solid var(--hairline-soft);
+  /* The measure the card is allowed to take, and the width below which it stops
+     indenting — see the container query under the bubble. */
+  --transcript-you-measure: min(74%, 62ch);
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+}
+.transcript-you-bubble {
+  position: relative;
+  max-width: var(--transcript-you-measure);
+  min-width: 0;
+  padding: 9px 13px 10px;
+  border: 1px solid
+    color-mix(in oklab, var(--issue, var(--border)) calc(22 * var(--issue-line-scale, 1%)), var(--border));
+  border-radius: 10px 10px 4px 10px;
+  background: color-mix(in oklab, var(--foreground) 4.5%, transparent);
+  /* One property, one curve: the card grows and settles when a pinned brief is
+     opened, and never transitions at rest. */
+  transition: max-height 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* NARROW PANES DO NOT INDENT. Under ~520px of column the indent is no longer a
+   side, it is a ragged offcut: three words per line against a margin of nothing.
+   The card keeps its ground and its radius and takes the width. */
+@container (max-width: 520px) {
+  .transcript-you-bubble {
+    max-width: 100%;
+  }
 }
 .transcript-you .chat-md {
-  color: var(--muted-foreground);
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
   font-weight: 400;
   font-size: 13.5px;
-  line-height: 1.7;
+  line-height: 1.65;
 }
+/* The card's own micro line, under it and on its side: who, when, and any
+   attribution mark. It used to sit above the words as an eyebrow; with the card
+   saying who spoke, a label over the top would be the third thing telling the
+   reader the same fact. */
 .transcript-you-label {
   display: flex;
   align-items: baseline;
+  justify-content: flex-end;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--shell-type-micro);
   line-height: 1;
@@ -2734,7 +2793,64 @@ html[data-density="balanced"] .header-quota-pools {
     var(--issue, var(--text-faint)) calc(30 * var(--issue-line-scale, 1%)),
     var(--text-faint)
   );
-  margin-bottom: 9px;
+}
+.transcript-you-label .chat-clk {
+  margin-left: 0;
+}
+
+/* THE PINNED SHELF (POD-993). While the brief is stuck to the top edge it is
+   chrome, and chrome has a height: it clamps, fades into the sheet it is pinned
+   against, and offers one control to open it in place. In flow — the state the
+   reader is actually reading it in — none of this applies and the brief is
+   whole. See `useClamps` in ChatBlockView for the measurement, and note the
+   clamp value is duplicated there as PIN_CLAMP_PX. */
+:root {
+  --prompt-pin-clamp: 92px;
+}
+.transcript-row[data-stuck="true"] .transcript-you-bubble:not([data-pin-open="true"])
+  .transcript-you-body {
+  max-height: var(--prompt-pin-clamp);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc(var(--prompt-pin-clamp) - 34px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc(var(--prompt-pin-clamp) - 34px),
+    transparent 100%
+  );
+}
+.transcript-you-body {
+  min-width: 0;
+}
+/* The control only exists where it can act: a pinned, clamped shelf. It is a
+   mono micro line inside the card's own bottom edge, not a button — it reveals
+   words, which is a reading action. */
+.prompt-expand {
+  display: none;
+  margin-top: 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim, var(--muted-foreground));
+  transition: color 150ms ease;
+}
+.prompt-expand:hover {
+  color: var(--foreground);
+}
+.transcript-row[data-stuck="true"] .prompt-expand {
+  display: block;
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript-you-bubble,
+  .prompt-expand {
+    transition: none;
+  }
 }
 
 /* THE BRIEF IS NEVER CUT (POD-747). There was a clamp here — 2.95em, one line
@@ -3435,15 +3551,65 @@ html[data-density="balanced"] .header-quota-pools {
   color: var(--text-dim, var(--muted-foreground));
 }
 
-/* Mail is machine provenance, not a card asking the operator to choose. */
+/* Mail is machine provenance, not a card asking the operator to choose — and
+   since POD-993 it is FOLDED provenance. Boxed and open by default, a run of
+   system frames was the loudest thing between two human turns while being the
+   least important thing on the surface; folded, it states that mail arrived,
+   from whom and when, on one quiet mono line, and opens on a click. The box goes
+   with it: what is left is a left keyline in Info at low dose, which is enough
+   to group the line and cheap enough to repeat five times in a row. */
 .message-envelope {
   position: relative;
+  padding: 3px 0 3px 10px;
+  border-left: 2px solid color-mix(in oklab, var(--info) 34%, transparent);
+  background: transparent;
+  transition: border-color 200ms ease;
+}
+.message-envelope[data-open="true"] {
+  border-left-color: color-mix(in oklab, var(--info) 55%, transparent);
+}
+.message-envelope-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 150ms ease;
+}
+.message-envelope-toggle:hover,
+.message-envelope[data-open="true"] .message-envelope-toggle {
+  opacity: 1;
+}
+.message-envelope-chev {
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.message-envelope[data-open="true"] .message-envelope-chev {
+  transform: rotate(180deg);
+}
+/* The fold: a grid row travelling 0fr → 1fr. No measured heights, no JS, and
+   the rows below glide instead of jumping. */
+.message-envelope-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.message-envelope[data-open="true"] .message-envelope-fold {
+  grid-template-rows: 1fr;
+}
+.message-envelope-fold-inner {
   overflow: hidden;
-  padding: 9px 13px 10px;
-  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
-  border-left: 2px solid color-mix(in oklab, var(--info) 58%, var(--border));
-  border-radius: 0 8px 8px 0;
-  background: color-mix(in oklab, var(--muted) 18%, transparent);
+  min-height: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-envelope-fold,
+  .message-envelope-chev,
+  .message-envelope-toggle,
+  .message-envelope {
+    transition: none;
+  }
 }
 .message-envelope-head {
   display: flex;
@@ -3460,8 +3626,8 @@ html[data-density="balanced"] .header-quota-pools {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--info);
-  font-weight: 600;
+  color: color-mix(in oklab, var(--info) 72%, var(--muted-foreground));
+  font-weight: 500;
 }
 .message-envelope-seam {
   width: 1px;
@@ -3967,7 +4133,7 @@ html[data-density="balanced"] .header-quota-pools {
    makes the exchange seam 22 + 34 = 56px against 22px between blocks inside one
    — a ratio a reader resolves at a glance, without a rule or a box (POD-747). */
 .transcript-turn-open {
-  margin-top: 34px;
+  margin-top: 40px;
 }
 .transcript-turn-bind {
   padding-top: 2px;
@@ -4633,6 +4799,16 @@ html[data-density="balanced"] .header-quota-pools {
 /* Working: the live hue, and the one place in the feed licensed to move. */
 .feed-tail[data-tail="working"] {
   color: var(--live, var(--info));
+}
+/* THE HAND-OFF (POD-993): the beat between pressing send and the agent's first
+   frame. It takes the working mark — something IS in flight — one tone quieter,
+   and no figure: transport is not computation and there is nothing honest to
+   count yet. */
+.feed-tail[data-tail="sending"] {
+  color: color-mix(in oklab, var(--live, var(--info)) 62%, var(--muted-foreground));
+}
+.feed-tail[data-tail="sending"] .feed-tail-label {
+  color: var(--muted-foreground);
 }
 /* External dependencies are named but still. The diamond shares the live hue
    so the wait remains tied to active work without borrowing attention yellow. */
@@ -7554,6 +7730,54 @@ a.ref-link--session::before {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--issue, var(--text-dim)) 28%, var(--border-strong)),
     0 0 0 2px color-mix(in srgb, var(--issue, var(--foreground)) 9%, transparent);
+}
+
+/* THE COMPOSER'S BOTTOM ROW (POD-993). See ChatComposer for why the cluster
+   moved off the input line. The hint is machine voice at the box's quietest ink:
+   it must be readable when looked for and invisible when not, because it is the
+   same three characters on every session, forever. */
+.composer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 2px;
+}
+.composer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+/* It appears when the box is in use and fades back out when it is not — a
+   permanent caption under a field the operator uses fifty times a day is
+   furniture, and this system does not pay rent on furniture. */
+.chat-composer-well:focus-within .composer-hint {
+  opacity: 1;
+}
+.composer-hint kbd {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-dim, var(--muted-foreground));
+}
+.composer-hint-seam {
+  width: 1px;
+  height: 9px;
+  margin: 0 2px;
+  background: var(--border);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-hint {
+    transition: none;
+  }
 }
 
 .composer-notices {

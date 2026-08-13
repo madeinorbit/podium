@@ -426,12 +426,36 @@ export function TranscriptFeed({
             // spaced like one — otherwise the feed's rhythm changes at the
             // moment the real row replaces it.
             'transcript-row transcript-turn-open',
-            'transcript-pending',
+            // THE MESSAGE IS ON SCREEN BEFORE THE WIRE KNOWS (POD-993). The
+            // optimistic row plays the same arrival every landed row plays, so
+            // pressing send reads as the message MOVING into the conversation
+            // rather than as a row appearing where there wasn't one. The real
+            // row replaces it in the same place, at the same measure, and the
+            // swap is invisible.
+            'transcript-pending transcript-arrive',
             p.state === 'failed' && 'transcript-pending--failed',
           )}
         >
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
           <div className="transcript-body transcript-you">
+            <div className="transcript-you-bubble">
+              <div className="transcript-you-body">
+                <div className="chat-md whitespace-pre-wrap">{p.text}</div>
+                {p.tags && p.tags.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {p.tags.map((tag, i) => (
+                      <span
+                        key={`${tag.kind}-${i}`}
+                        className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                      >
+                        <ImageIcon size={12} aria-hidden="true" />
+                        {tag.label ?? tag.kind}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="transcript-you-label">
               You
               {p.state === 'sending' && <span className="transcript-delivery">sending…</span>}
@@ -442,20 +466,6 @@ export function TranscriptFeed({
                 </span>
               )}
             </div>
-            <div className="chat-md whitespace-pre-wrap">{p.text}</div>
-            {p.tags && p.tags.length > 0 && (
-              <div className="mt-1.5 flex gap-1.5">
-                {p.tags.map((tag, i) => (
-                  <span
-                    key={`${tag.kind}-${i}`}
-                    className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-                  >
-                    <ImageIcon size={12} aria-hidden="true" />
-                    {tag.label ?? tag.kind}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       ))}
@@ -467,6 +477,11 @@ export function TranscriptFeed({
         >
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
           <div className="transcript-body transcript-you">
+            <div className="transcript-you-bubble">
+              <div className="transcript-you-body">
+                <div className="chat-md whitespace-pre-wrap">{message.text}</div>
+              </div>
+            </div>
             <div className="transcript-you-label">
               You
               <span className="transcript-delivery">pending</span>
@@ -482,7 +497,6 @@ export function TranscriptFeed({
                 Retract
               </button>
             </div>
-            <div className="chat-md whitespace-pre-wrap">{message.text}</div>
           </div>
         </div>
       ))}

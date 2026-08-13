@@ -6,7 +6,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { SessionMeta, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
-import { BrailleSpinner } from '@/lib/motion/BrailleSpinner'
+import { BreathingMark } from '@/lib/motion/BreathingMark'
 import { useNow } from '@/lib/useNow'
 
 /**
@@ -48,7 +48,15 @@ const WAITING_LABEL: Record<string, string> = {
   'waiting on decision': 'Waiting on your decision',
 }
 
-type TailMode = 'working' | 'wait' | 'waiting' | 'error' | 'interrupted' | 'note' | 'idle'
+type TailMode =
+  | 'working'
+  | 'sending'
+  | 'wait'
+  | 'waiting'
+  | 'error'
+  | 'interrupted'
+  | 'note'
+  | 'idle'
 
 export interface TranscriptTailState {
   mode: TailMode
@@ -133,11 +141,15 @@ export function transcriptTailState(
   since?: string | undefined,
 ): TranscriptTailState | null {
   const fallbackSince = session?.agentState?.since ?? since
-  // The optimistic YOU row already records delivery. If a tail is visible
-  // during the hand-off, keep it still and timerless: the session's previous
-  // phase timestamp may be hours old and transport is not agent computation.
+  // THE HAND-OFF IS ALREADY THE TURN (POD-993). The optimistic YOU bubble
+  // records delivery, and this is the mark under it: the moment the operator
+  // presses send, the feed shows their message and something breathing beneath
+  // it, without waiting for the session's first working frame to arrive over the
+  // wire. It stays TIMERLESS — transport is not agent computation and the
+  // session's previous phase timestamp may be hours old — so the mark moves and
+  // no figure counts, which is exactly the truth of the moment.
   if (activity?.transient === 'just-sent') {
-    return { mode: 'note', label: activity.label, timerless: true }
+    return { mode: 'sending', label: activity.label, timerless: true }
   }
   if (activity?.tone === 'working' && lastRow?.kind === 'tools') {
     const last = lastRow.blocks[lastRow.blocks.length - 1]
@@ -256,7 +268,7 @@ export function TranscriptTail({
       data-testid="feed-tail"
       // A live region for the states that CHANGE — a phase transition is worth
       // announcing. Idle is not a change, and would announce on every tick.
-      {...(kind === 'working' || kind === 'waiting'
+      {...(kind === 'working' || kind === 'waiting' || kind === 'sending'
         ? ({ role: 'status', 'aria-live': 'polite' } as const)
         : {})}
     >
@@ -264,8 +276,8 @@ export function TranscriptTail({
           keyline round the three of them without the rule joining in. */}
       <span className="feed-tail-body">
         <span className="feed-tail-mark" aria-hidden="true">
-          {working ? (
-            <BrailleSpinner size={11} />
+          {working || kind === 'sending' ? (
+            <BreathingMark size={13} />
           ) : waitingOnDependency ? (
             <span className="feed-tail-wait">◇</span>
           ) : kind === 'interrupted' ? (
