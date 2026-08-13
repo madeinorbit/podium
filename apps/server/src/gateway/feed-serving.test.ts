@@ -223,7 +223,9 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     }
 
     const peer = new Peer('v2-large', WIRE_VERSION, true)
+    const legacy = new Peer('v1-large', 1, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+    p.serving.attach(legacy, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(legacy.id))
 
     const frames = peer.received.filter((message) => message.type === 'feedBootstrap') as {
       feedId: string
@@ -245,6 +247,16 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     expect(new Set(frames.map((frame) => frame.minAvailableSeq)).size).toBe(1)
     expect(frames.flatMap((frame) => frame.changes).map((change) => change.entityId)).toEqual(
       Array.from({ length: FEED_BOOTSTRAP_CHUNK_ROWS + 1 }, (_, i) => `s${i}`),
+    )
+
+    // The v1 adapter has no partial-install wire shape. Its compatibility arm
+    // still emits one complete legacy list while v2 takes the chunked path.
+    const legacySessions = legacy.received.filter(
+      (message) => message.type === 'sessionsChanged',
+    )
+    expect(legacySessions).toHaveLength(1)
+    expect(legacySessions[0]?.type === 'sessionsChanged' && legacySessions[0].sessions).toHaveLength(
+      FEED_BOOTSTRAP_CHUNK_ROWS + 1,
     )
   })
 

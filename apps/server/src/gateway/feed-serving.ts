@@ -88,7 +88,6 @@ import {
   type SubscriberId,
   type SubscriptionRegistry,
   type UpgradeRequired,
-  WIRE_VERSION,
 } from '@podium/protocol'
 import type {
   AuthorityPort,
@@ -249,10 +248,14 @@ export class FeedServing {
     // only at the end of a bootstrap. Current wire peers receive a real stream;
     // every frame repeats the same cursor and identity, and `last` is the only
     // install boundary.
+    // This exception belongs specifically to wire v1's expiring adapter, not
+    // to "anything older than current". When wire v3 opens the next rollout
+    // window, v2 still speaks chunked bootstraps and must not silently fall back
+    // to a monolith just because WIRE_VERSION moved.
     const chunkRows =
-      peer.wireVersion >= WIRE_VERSION
-        ? FEED_BOOTSTRAP_CHUNK_ROWS
-        : Math.max(world.changes.length, 1)
+      peer.wireVersion === 1
+        ? Math.max(world.changes.length, 1)
+        : FEED_BOOTSTRAP_CHUNK_ROWS
     const chunkCount = Math.max(1, Math.ceil(world.changes.length / chunkRows))
     for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
       const start = chunkIndex * chunkRows

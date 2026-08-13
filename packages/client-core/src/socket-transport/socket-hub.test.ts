@@ -112,6 +112,39 @@ describe('SocketHub', () => {
     hub.dispose()
   })
 
+  it('discards yielded feed frames when their socket closes', () => {
+    const sock = new FakeSocket()
+    const tasks: Array<() => void> = []
+    const frames: unknown[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+      feed: { connected: () => {}, disconnected: () => {}, frame: (frame) => frames.push(frame) },
+      scheduleFeedTask: (task) => tasks.push(task),
+    })
+    hub.connect()
+    sock.open()
+    sock.recv({
+      type: 'feedBootstrap',
+      feedId: 'old-feed',
+      epoch: 'old-epoch',
+      fromSeq: 0,
+      seq: 0,
+      minAvailableSeq: 0,
+      changes: [],
+      last: true,
+    })
+
+    expect(tasks).toHaveLength(1)
+    sock.close()
+    tasks.shift()?.()
+
+    expect(frames).toEqual([])
+    expect(hub.feedBudget().tasks).toBe(0)
+    hub.dispose()
+  })
+
   it('exposes sessionsChanged via sessions() + onSessions', () => {
     const { sock, hub } = setup()
     const seen: number[] = []
