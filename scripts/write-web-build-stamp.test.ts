@@ -25,6 +25,16 @@ const BUILT_INDEX =
   '<link rel="stylesheet" href="/assets/index-11111111.css">' +
   '</head><body><div id="root"></div></body></html>'
 
+/** What `expo export -p web` writes, patched by apps/mobile/scripts/patch-web-html.ts. */
+const EXPORTED_PHONE_INDEX =
+  '<!DOCTYPE html><html lang="en"><head>' +
+  '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />' +
+  '<title>Podium</title>' +
+  '<link rel="manifest" href="/mobile/manifest.webmanifest" />' +
+  '</head><body><div id="root"></div>' +
+  '<script src="/mobile/_expo/static/js/web/entry-a074e4f437a1ee92fdb168054dc07da9.js" defer></script>' +
+  '</body></html>'
+
 describe('webBuildStamp', () => {
   it('stamps the product version, not the chunk hash, as appVersion', () => {
     const stamp: BuildStamp = webBuildStamp(BUILT_INDEX, new Date(), '47a01e3')
@@ -84,7 +94,24 @@ describe('webBuildStamp', () => {
       join(dir, 'index.html'),
       '<!doctype html><html><head><script type="module" src="/src/main.tsx"></script></head></html>',
     )
-    expect(() => writeWebBuildStamp(dir, new Date(), '47a01e3')).toThrow(/no hashed module entry/)
+    expect(() => writeWebBuildStamp(dir, new Date(), '47a01e3')).toThrow(/no hashed entry/)
+  })
+
+  // The phone shell is `expo export -p web`, not vite: a classic script tag and
+  // a hex-32 chunk hash. It must earn the SAME stamp — Update compares one
+  // `sourceSha` for the whole website (POD-1980).
+  it('stamps the phone export with the same checkout the desktop dist carries', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-phone-'))
+    writeFileSync(join(dir, 'index.html'), EXPORTED_PHONE_INDEX)
+    const stamp = writeWebBuildStamp(dir, new Date('2026-08-13T00:00:00.000Z'), '47a01e3')
+    expect(stamp.appVersion).toBe('dev+47a01e3')
+    expect(stamp.sourceSha).toBe('47a01e3')
+    expect(stamp.bundleVersion).toBe('bundle+a074e4f437a1ee92fdb168054dc07da9')
+    const written = JSON.parse(readFileSync(join(dir, 'podium-build.json'), 'utf8')) as BuildStamp
+    expect(written.sourceSha).toBe('47a01e3')
+    expect(readFileSync(join(dir, 'index.html'), 'utf8')).toContain(
+      '<meta name="podium-version" content="dev+47a01e3">',
+    )
   })
 
   it('writes the product version into the stamp and the html together', () => {

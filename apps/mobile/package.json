@@ -51,7 +51,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web --port 8082",
-    "build:web": "expo export -p web && bun scripts/patch-web-html.ts",
+    "build:web": "expo export -p web && bun scripts/patch-web-html.ts && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist",
     "typecheck": "tsc --noEmit",
     "typecheck:tsc": "tsc --noEmit",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/mobile:test -- vitest run"

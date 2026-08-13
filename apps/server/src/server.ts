@@ -10,6 +10,7 @@ import {
   type ControlMessage,
   type LocalDaemonLink,
   MIN_SUPPORTED_VERSION,
+  type MobileWebIdentity,
   PeerHelloReply,
   type UpdateTarget,
   WIRE_VERSION,
@@ -83,7 +84,12 @@ import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } fr
 import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
-import { describeBundle, gradeWebBundle, servedWebSourceDigest } from './web-bundle-stamp'
+import {
+  describeBundle,
+  gradeWebBundle,
+  servedWebIdentity,
+  servedWebSourceDigest,
+} from './web-bundle-stamp'
 
 const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
@@ -155,6 +161,38 @@ export function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === '::1' || host === 'localhost'
 }
 
+/**
+ * Where a built website lives: the packaged headless bundle's env var, else the
+ * source checkout's dist.
+ *
+ * ONE SPELLING PER WEBSITE. Both dirs are now read by more than the route that
+ * serves them — `/version` reports the phone dist's identity and the update
+ * context reports the desktop's — and "where is the phone website" answered in
+ * three places is two answers waiting to disagree with the one that serves it.
+ *
+ * In a `bun build --compile` binary `import.meta.url` is not a file:// URL, so
+ * the source default is guarded: an unresolvable dir means "API only" for that
+ * SPA, never a crash.
+ */
+function distDir(declared: string | undefined, sourceRelative: string): string {
+  if (declared) return declared
+  try {
+    return fileURLToPath(new URL(sourceRelative, import.meta.url))
+  } catch {
+    return ''
+  }
+}
+
+/** The desktop shell (`vite build`), served at `/`. */
+function desktopWebDir(env: NodeJS.ProcessEnv = process.env): string {
+  return distDir(env.PODIUM_WEB_DIR, '../../web/dist')
+}
+
+/** The phone shell (`expo export -p web`), served at `/mobile`. */
+function phoneWebDir(env: NodeJS.ProcessEnv = process.env): string {
+  return distDir(env.PODIUM_MOBILE_WEB_DIR, '../../mobile/dist')
+}
+
 /** Machine-readable version probe — distinct from /health (which stays plaintext "ok"). */
 export function registerVersionRoute(
   app: Hono,
@@ -181,6 +219,16 @@ export function registerVersionRoute(
     visibilityGrade?: () => string
     updateTarget?: () => UpdateTarget | undefined
     appVersion?: () => string
+    /**
+     * The phone website on disk, so Update can tell whether the phone is on this
+     * commit (POD-1980). Read per request, like the target: the export is built
+     * by a separate unit that may finish long after this server booted.
+     *
+     * Optional, and OMITTED when absent rather than reported as `{present:false}`,
+     * so a server assembled without it (the version-route suite) is indistinguishable
+     * from one whose phone export is missing — both mean "nothing to say here".
+     */
+    mobileWeb?: () => MobileWebIdentity
   },
 ): void {
   app.get('/version', (c) => {
@@ -189,6 +237,12 @@ export function registerVersionRoute(
       target = deps.updateTarget?.()
     } catch {
       target = undefined
+    }
+    let mobileWeb: MobileWebIdentity | undefined
+    try {
+      mobileWeb = deps.mobileWeb?.()
+    } catch {
+      mobileWeb = undefined
     }
     return c.json({
       wireVersion: WIRE_VERSION,
@@ -203,6 +257,7 @@ export function registerVersionRoute(
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       ...(target ? { target } : {}),
+      ...(mobileWeb?.present ? { mobileWeb } : {}),
     })
   })
 }
@@ -447,6 +502,7 @@ export async function startServer(
       void devPublisher.requestBuild(false).catch(() => {})
       return devPublisher.publishTarget() ?? registry.modules.updates.target()
     },
+    mobileWeb: () => servedWebIdentity(phoneWebDir()),
   })
   registerMaintenanceRoute(app, {
     // The maintenance realm is THIS HOST's credential, named by its real id rather
@@ -584,17 +640,11 @@ export async function startServer(
           ...(devPublisher.enabled
             ? { requestDestBundle: () => devPublisher.requestBuild(true) }
             : {}),
-          servedWebDigest: () => {
-            const dir = process.env.PODIUM_WEB_DIR
-            if (dir) return servedWebSourceDigest(dir)
-            try {
-              return servedWebSourceDigest(
-                fileURLToPath(new URL('../../web/dist', import.meta.url)),
-              )
-            } catch {
-              return undefined
-            }
-          },
+          servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
+          // The phone website is the other half of the same install. Update
+          // compares it against the same target commit and rebuilds it through
+          // the same build step (POD-1980).
+          servedMobileWeb: () => servedWebIdentity(phoneWebDir()),
         }
       },
     }),
@@ -608,19 +658,9 @@ export async function startServer(
     await plugin.register({ hono: app, modules: registry.modules, bus: registry.bus, config, role })
   }
 
-  // Serve the built web UIs for external clients (browser/phone/other desktop). The
-  // packaged headless bundle sets PODIUM_WEB_DIR; source runs default to apps/web/dist,
-  // and the Expo mobile web build defaults to apps/mobile/dist under /mobile.
-  // In a `bun build --compile` binary import.meta.url is not a file:// URL, so guard the
-  // defaults — an unset dir there simply means "API only" for that SPA, never a crash.
-  let mobileWebDir = process.env.PODIUM_MOBILE_WEB_DIR
-  if (!mobileWebDir) {
-    try {
-      mobileWebDir = fileURLToPath(new URL('../../mobile/dist', import.meta.url))
-    } catch {
-      mobileWebDir = ''
-    }
-  }
+  // Serve the built web UIs for external clients (browser/phone/other desktop) —
+  // see desktopWebDir/phoneWebDir for where each dist comes from.
+  const mobileWebDir = phoneWebDir()
   // Routing first so its /mobile fallback middleware owns the dist-absent case;
   // presence is probed per request (the mobile dist may be exported after boot).
   const mobileIndex = mobileWebDir ? join(mobileWebDir, 'index.html') : ''
@@ -639,14 +679,7 @@ export async function startServer(
     })
   }
 
-  let webDir = process.env.PODIUM_WEB_DIR
-  if (!webDir) {
-    try {
-      webDir = fileURLToPath(new URL('../../web/dist', import.meta.url))
-    } catch {
-      webDir = ''
-    }
-  }
+  const webDir = desktopWebDir()
   if (webDir) {
     registerDesktopWebStatic(app, webDir)
     // Say it at boot as well as in the page. The person who redeploys is looking

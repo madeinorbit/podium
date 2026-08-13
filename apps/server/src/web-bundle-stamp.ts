@@ -114,6 +114,33 @@ export function servedWebSourceDigest(webDir: string): string | undefined {
   return stamp ? webSourceDigest(stamp) : undefined
 }
 
+/**
+ * A served website's install identity, with the one distinction a digest alone
+ * cannot make: is there a website here at all? (POD-1980)
+ *
+ * Absent and unstamped are the SAME `undefined` digest and OPPOSITE verdicts.
+ * An installation that never exported the phone website has nothing stale about
+ * it, and reading absence as "behind" would light Update forever with nothing to
+ * install. A dist that IS on disk and names no checkout is the artefact this
+ * stamp exists to replace, and must read as behind rather than as fine — the
+ * POD-1610 rule that a check reporting "ok" for what it cannot inspect is not a
+ * check.
+ *
+ * Presence is probed per call, never captured: the phone export is gitignored
+ * and built by a unit that can run long after boot, so a value cached at
+ * startup would answer "absent" for the rest of the process's life.
+ */
+export interface ServedWebIdentity {
+  present: boolean
+  digest?: string
+}
+
+export function servedWebIdentity(webDir: string): ServedWebIdentity {
+  if (!webDir || !existsSync(join(webDir, 'index.html'))) return { present: false }
+  const digest = servedWebSourceDigest(webDir)
+  return digest ? { present: true, digest } : { present: true }
+}
+
 export function gradeWebBundle(webDir: string): BundleStatus {
   const serverDigest = wireSchemaDigest()
   if (!webDir || !existsSync(join(webDir, 'index.html'))) return { grade: 'absent', serverDigest }

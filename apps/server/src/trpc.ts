@@ -1,4 +1,5 @@
 import { createLogger } from '@podium/logger'
+import type { MobileWebIdentity } from '@podium/protocol'
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
@@ -70,7 +71,8 @@ export interface Context {
   /** Source-host only: schedule the verified redeploy unit after an operator
    * authorizes a target newer than this server's boot identity. */
   requestCoordinatorRestart?: () => void
-  /** Source-host only: rebuild apps/web/dist via podium-web when the server is current. */
+  /** Source-host only: rebuild BOTH websites via podium-web when the server is
+   *  current — the unit builds apps/web/dist and apps/mobile/dist together. */
   requestWebRebuild?: () => void
   /**
    * Source-host only: compile the signed development tarball other computers
@@ -80,6 +82,10 @@ export interface Context {
   requestDestBundle?: () => Promise<unknown>
   /** Install identity currently served from apps/web/dist, if any. */
   servedWebDigest?: () => string | undefined
+  /** The phone website served from apps/mobile/dist, present or not (POD-1980).
+   *  Not a bare digest: absent and unstamped share one `undefined` and need
+   *  opposite verdicts — see `servedWebIdentity`. */
+  servedMobileWeb?: () => MobileWebIdentity
 }
 
 /** The typed module seam router procs reach services through (ctx.modules when

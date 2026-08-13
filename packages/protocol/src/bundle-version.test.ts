@@ -18,10 +18,25 @@ describe('bundleVersionFromEntrySrc', () => {
     )
   })
 
+  it("names a Metro entry by the hash in the phone export's filename", () => {
+    expect(
+      bundleVersionFromEntrySrc(
+        '/mobile/_expo/static/js/web/entry-a074e4f437a1ee92fdb168054dc07da9.js',
+      ),
+    ).toBe('bundle+a074e4f437a1ee92fdb168054dc07da9')
+  })
+
+  it('distinguishes two phone exports', () => {
+    expect(bundleVersionFromEntrySrc(`/x/entry-${'a'.repeat(32)}.js`)).not.toBe(
+      bundleVersionFromEntrySrc(`/x/entry-${'b'.repeat(32)}.js`),
+    )
+  })
+
   it.each([
     ['the vite dev server serving source', '/src/main.tsx'],
     ['an unhashed filename', '/assets/index.js'],
     ['a hash of the wrong length', '/assets/index-ABC.js'],
+    ['a hash between the two known lengths', `/x/entry-${'a'.repeat(20)}.js`],
     ['a non-script src', '/assets/index-DHMkD0wf.css'],
     ['nothing at all', ''],
   ])('has no build identity to report for %s', (_name, src) => {
@@ -55,5 +70,26 @@ describe('bundleVersionFromHtml', () => {
     expect(
       bundleVersionFromHtml(html('<script type="module" src="/src/main.tsx"></script>')),
     ).toBeUndefined()
+  })
+
+  it('reads the classic entry Metro emits for the phone export', () => {
+    expect(
+      bundleVersionFromHtml(
+        html(
+          '<script src="/mobile/_expo/static/js/web/entry-a074e4f437a1ee92fdb168054dc07da9.js" defer></script>',
+        ),
+      ),
+    ).toBe('bundle+a074e4f437a1ee92fdb168054dc07da9')
+  })
+
+  it('still prefers the module entry when a hashed classic script precedes it', () => {
+    expect(
+      bundleVersionFromHtml(
+        html(
+          '<script src="/assets/polyfill-11111111.js"></script>' +
+            '<script type="module" src="/assets/index-22222222.js"></script>',
+        ),
+      ),
+    ).toBe('bundle+22222222')
   })
 })

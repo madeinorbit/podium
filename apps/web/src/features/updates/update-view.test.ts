@@ -433,4 +433,54 @@ describe('describeUpdate', () => {
       expect(v.state).toBe('none')
     })
   })
+
+  /**
+   * POD-1980. Before the phone export carried a stamp there was nothing to put
+   * in this row, so an installation whose phone was weeks behind showed an empty
+   * dialog and no button — the Update panel had no way to say the one thing that
+   * was wrong.
+   */
+  describe('the phone website', () => {
+    const sourceTarget = {
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    }
+    const currentEverywhereElse = {
+      ...base,
+      localVersion: 'dev+47a01e3',
+      server: { appVersion: 'dev+47a01e3', target: sourceTarget },
+      fleet: { total: 1, behind: 0, converging: 0, failed: 0 },
+    }
+
+    it('CAN SAY NO: a stale phone alone is a dialog with one place', () => {
+      const v = describeUpdate({
+        ...currentEverywhereElse,
+        touched: { app: false, server: false, machines: false, phone: true },
+      } as never)
+
+      const view = v as { state: string; places: { kind: string; label: string }[] }
+      expect(view.state).toBe('available')
+      expect(view.places.map((place) => place.kind)).toEqual(['phone'])
+      expect(view.places[0]?.label).toMatch(/phone/i)
+    })
+
+    it('says nothing when the phone is on the same commit as everything else', () => {
+      const v = describeUpdate({
+        ...currentEverywhereElse,
+        touched: { app: false, server: false, machines: false, phone: false },
+      } as never)
+      expect(v.state).toBe('none')
+    })
+
+    it('is its own row, never folded into the page the operator is reading', () => {
+      const v = describeUpdate({
+        ...currentEverywhereElse,
+        touched: { app: true, server: false, machines: false, phone: true },
+      } as never)
+
+      const view = v as { places: { kind: string }[] }
+      expect(view.places.map((place) => place.kind)).toEqual(['this-app', 'phone'])
+    })
+  })
 })

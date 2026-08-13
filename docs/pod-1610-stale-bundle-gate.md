@@ -89,5 +89,27 @@ value differed from the server's, the guard would have reload-looped and banner'
   a fact the parser already decides.
 - **An already-built stale bundle still cannot show the client banner.** It does not
   contain the component. That is the whole reason the server injects one.
-- The mobile (Expo) dist is not stamped or graded; `stampCheck` is opt-in for the web dist
-  only, since a permanent "unstamped" banner on a differently-built artefact is noise.
+- **The phone (Expo) dist is stamped but still not graded.** POD-1980 gave
+  `apps/mobile/dist` the same `podium-build.json`, so Update can tell whether the phone
+  website is on this commit and rebuild it — see below. `stampCheck` remains opt-in for
+  the desktop dist only: the phone shell gets no injected banner, and the desktop's own
+  staleness law takes no input from the phone, so a broken phone export cannot dim the
+  gate that caught the original incident.
+
+## The phone website's half (POD-1980)
+
+The stamp is the same file, written by the same script, after `expo export -p web`
+instead of after `vite build`. Only the entry-chunk hash is toolchain-specific, and that
+lives in `bundleVersionFromHtml` (Vite's base64url-8 and Metro's hex-32, one place).
+
+What it buys is Update, not a banner. `podium-web` builds both dists in one run and
+`artifacts.web.digest` names one commit for both, so the website is behind while EITHER
+dist is — before this, a fresh desktop shell certified a phone export that could be weeks
+old, and pressing Update raised "already at this version everywhere".
+
+**Absent is not behind.** A dist that is on disk and names no checkout reads as behind
+(the POD-1610 rule above). A dist that is not there at all reads as nothing to do —
+otherwise an installation that never exported the phone website would be offered an
+update forever. A page cannot make that distinction: `/mobile/podium-build.json` 404s
+either way. The server can, so the server publishes the verdict as `mobileWeb` on
+`/version` and the dialog reads it from there.

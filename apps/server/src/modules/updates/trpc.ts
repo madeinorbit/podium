@@ -1,5 +1,5 @@
 import { asMachineId, type MachineId } from '@podium/model'
-import type { ConvergenceState } from '@podium/protocol'
+import type { ConvergenceState, MobileWebIdentity } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { serverBuildVersion } from '../../build-version'
 import { type Context, t } from '../../trpc'
@@ -39,6 +39,39 @@ function needsDevelopmentBundle(target: {
   artifacts: { headless?: unknown }
 }): boolean {
   return target.version.startsWith('dev+') && target.artifacts.headless === undefined
+}
+
+/**
+ * ONE WEBSITE, TWO DISTS (POD-1980).
+ *
+ * `podium-web` builds the desktop shell and the phone export in one run, and
+ * `artifacts.web.digest` names one commit for both. So the website has an
+ * identity only when both halves agree on it — otherwise a phone left on last
+ * week's export reads as current because the desktop half is fresh.
+ *
+ * Answering `undefined` while the phone lags is what lets ONE reader serve both
+ * consumers: the staleness check below, and the tarball gate that polls the same
+ * reader before packing a bundle for other machines. Comparing the phone against
+ * the desktop rather than against the expected commit is deliberate and
+ * equivalent — a desktop half that is itself behind already fails the caller's
+ * `=== expected`.
+ *
+ * An ABSENT phone dist is not behind: an installation that never exported one
+ * has nothing to rebuild, and reading its silence as staleness would leave
+ * Update offering work forever.
+ */
+export function websiteDigestReader(
+  readDesktop: (() => string | undefined) | undefined,
+  readPhone: (() => MobileWebIdentity) | undefined,
+): (() => string | undefined) | undefined {
+  if (!readDesktop) return undefined
+  if (!readPhone) return readDesktop
+  return () => {
+    const desktop = readDesktop()
+    if (desktop === undefined) return undefined
+    const phone = readPhone()
+    return phone.present && phone.digest !== desktop ? undefined : desktop
+  }
 }
 
 export async function waitForServedWebDigest(
@@ -190,6 +223,9 @@ export function startUpdate(
   requestCoordinatorRestart?: () => void,
   opts?: {
     servedWebDigest?: string | (() => string | undefined)
+    /** The phone website on disk, read when asked. Absent means "no phone app
+     *  here", which is not a stale phone app — see `servedWebIdentity` (POD-1980). */
+    servedMobileWeb?: () => MobileWebIdentity
     requestWebRebuild?: () => void
     requestDestBundle?: () => Promise<unknown>
   },
@@ -211,12 +247,13 @@ export function startUpdate(
   const initialFleet = fleetSnapshot(updates)
   const serverBehind = currentVersion !== target.version
   const expectedWeb = target.artifacts.web?.digest
-  const readServedWeb =
+  const readDesktopWeb =
     typeof opts?.servedWebDigest === 'function'
       ? opts.servedWebDigest
       : opts?.servedWebDigest !== undefined
         ? () => opts.servedWebDigest as string
         : undefined
+  const readServedWeb = websiteDigestReader(readDesktopWeb, opts?.servedMobileWeb)
   const webBehind = expectedWeb !== undefined && readServedWeb?.() !== expectedWeb
   if (!serverBehind && !webBehind && initialFleet.behind === 0 && initialFleet.converging === 0) {
     throw new TRPCError({
@@ -345,6 +382,7 @@ export function updateProcedures() {
         ctx.requestCoordinatorRestart,
         {
           ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
+          ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
           ...(ctx.requestWebRebuild ? { requestWebRebuild: ctx.requestWebRebuild } : {}),
           ...(ctx.requestDestBundle ? { requestDestBundle: ctx.requestDestBundle } : {}),
         },

@@ -2,6 +2,13 @@
  * STAMP A BUILT WEB DIST WITH THE SCHEMA IT CONTAINS (POD-1610) AND THE
  * PRODUCT VERSION OPERATORS SEE.
  *
+ * BOTH WEBSITES, ONE STAMP. Podium serves two built dists — the desktop shell
+ * from `vite build`, and the phone shell from `expo export -p web` — and this
+ * script stamps either, because "which commit is this dist" is one question and
+ * an installation whose phone cannot answer it is an installation Update cannot
+ * bring current (POD-1980). The only toolchain-specific part is the entry chunk
+ * hash, and that lives in `bundleVersionFromHtml`, not here.
+ *
  * Writes `podium-build.json` beside index.html, carrying:
  * - `wireSchemaDigest()` — protocol compatibility
  * - `appVersion` — product version: `PODIUM_APP_VERSION` or `dev+<sourceSha>`
@@ -171,14 +178,14 @@ export function writeWebBuildStamp(
 ): WrittenBuildStamp {
   const indexPath = join(distDir, 'index.html')
   if (!existsSync(indexPath)) {
-    throw new Error(`${distDir} has no index.html — did vite build run?`)
+    throw new Error(`${distDir} has no index.html — did the build run?`)
   }
   const indexHtml = readFileSync(indexPath, 'utf8')
   if (!bundleVersionFromHtml(indexHtml)) {
     throw new Error(
-      'no hashed module entry script in index.html, so this build has no forensic ' +
+      'no hashed entry script in index.html, so this build has no forensic ' +
         'bundle identity to stamp (the chunk hash a crash stack names). Check that ' +
-        'vite still emits a content-hashed entry chunk.',
+        'the bundler still emits a content-hashed entry chunk.',
     )
   }
   const stamp = webBuildStamp(indexHtml, now, sourceSha, packagedVersion)

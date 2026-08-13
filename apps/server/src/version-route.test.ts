@@ -1,3 +1,4 @@
+import type { MobileWebIdentity } from '@podium/protocol'
 import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -72,5 +73,47 @@ describe('GET /version', () => {
     delete process.env.PODIUM_APP_VERSION
     const { body } = await fetchVersion()
     expect(body.appVersion).toBe('dev')
+  })
+
+  /**
+   * The phone website's checkout comes from here and nowhere else (POD-1980): a
+   * page fetching `/mobile/podium-build.json` gets the same 404 whether the
+   * export is stale-without-a-stamp or was never built, and Update needs those
+   * two answered differently.
+   */
+  describe('the phone website it serves', () => {
+    const versionWith = async (mobileWeb?: () => MobileWebIdentity) => {
+      const app = new Hono()
+      registerVersionRoute(app, { instanceId: 'default', ...(mobileWeb ? { mobileWeb } : {}) })
+      return (await (await app.request('/version')).json()) as { mobileWeb?: MobileWebIdentity }
+    }
+
+    it('publishes the phone export and the commit it was built from', async () => {
+      const body = await versionWith(() => ({ present: true, digest: '47a01e3' }))
+      expect(body.mobileWeb).toEqual({ present: true, digest: '47a01e3' })
+    })
+
+    it('publishes a phone export that names no commit, so it can be called behind', async () => {
+      const body = await versionWith(() => ({ present: true }))
+      expect(body.mobileWeb).toEqual({ present: true })
+    })
+
+    it('says nothing at all when there is no phone website here', async () => {
+      expect(await versionWith(() => ({ present: false }))).not.toHaveProperty('mobileWeb')
+      expect(await versionWith()).not.toHaveProperty('mobileWeb')
+    })
+
+    it('answers the rest of the probe even when the disk read throws', async () => {
+      const app = new Hono()
+      registerVersionRoute(app, {
+        instanceId: 'default',
+        mobileWeb: () => {
+          throw new Error('EIO')
+        },
+      })
+      const res = await app.request('/version')
+      expect(res.status).toBe(200)
+      expect(await res.json()).not.toHaveProperty('mobileWeb')
+    })
   })
 })

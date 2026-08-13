@@ -8,7 +8,13 @@
  */
 import type { ServerVersion, SkewVerdict, UpdateNotes } from '@podium/protocol'
 
-export type PlaceKind = 'this-app' | 'server' | 'machines'
+/**
+ * `phone` is the Expo website at /mobile. It is always ANOTHER device from the
+ * dialog's point of view: this dialog ships in the desktop shell, and the phone
+ * shell does not render it — so the row describes something the operator will
+ * pick up later, never the page they are reading.
+ */
+export type PlaceKind = 'this-app' | 'phone' | 'server' | 'machines'
 
 export interface Place {
   kind: PlaceKind
@@ -54,7 +60,7 @@ export interface UpdateInput {
     failed: number
     machines?: readonly { name?: string; version?: string; state: string; detail?: string }[]
   }
-  touched: { app: boolean; server: boolean; machines: boolean }
+  touched: { app: boolean; server: boolean; machines: boolean; phone: boolean }
   skew: SkewVerdict
   desktopUpdate?: DesktopUpdateInfo
 }
@@ -96,6 +102,7 @@ function affectedPlaces(input: UpdateInput): UpdateInput['touched'] {
     app: input.touched.app || input.skew === 'client-too-old' || input.skew === 'schema-skew',
     server: input.touched.server || input.skew === 'client-too-new' || input.skew === 'schema-skew',
     machines: input.touched.machines,
+    phone: input.touched.phone,
   }
 }
 
@@ -168,6 +175,17 @@ function placesFor(input: UpdateInput): Place[] {
         input.skew === 'schema-skew'
           ? 'needs a matching build and restart'
           : 'will briefly reconnect',
+    })
+  }
+
+  // The phone website is rebuilt by the same unit as the desktop one, but the
+  // operator is not holding the phone, so it gets its own row rather than being
+  // folded into "This app" — and it says what they will have to do there.
+  if (affected.phone) {
+    places.push({
+      kind: 'phone',
+      label: 'Podium on your phone',
+      effect: 'will rebuild; reload it there',
     })
   }
 

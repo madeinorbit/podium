@@ -43,6 +43,33 @@ describe('UpdateDialog', () => {
     expect(screen.getByText(/Your server \(ludovico\)/)).toBeTruthy()
   })
 
+  /**
+   * POD-1980. The phone row is the only thing on screen when the phone export is
+   * the only stale half, so it must render AND it must not turn on the reload
+   * button — reloading this page does nothing for a website on another device.
+   */
+  it('renders the phone as a place without offering to reload this page', () => {
+    const reload = vi.fn()
+    render(
+      <UpdateDialog
+        view={{
+          ...available,
+          places: [
+            {
+              kind: 'phone' as const,
+              label: 'Podium on your phone',
+              effect: 'will rebuild; reload it there',
+            },
+          ],
+        }}
+        actions={{ reload }}
+      />,
+    )
+    expect(screen.getByText('Podium on your phone')).toBeTruthy()
+    expect(screen.getByText('will rebuild; reload it there')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /reload/i })).toBeNull()
+  })
+
   it('is dismissible when available', () => {
     const onDismiss = vi.fn()
     render(<UpdateDialog view={available} actions={{}} onDismiss={onDismiss} />)

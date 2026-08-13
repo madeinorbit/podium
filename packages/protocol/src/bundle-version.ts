@@ -11,12 +11,19 @@
  * fingerprints the whole module graph: a lazy chunk's hash appears in the
  * entry as an import specifier, so a change anywhere downstream changes it.
  *
+ * TWO TOOLCHAINS EMIT PODIUM'S WEBSITES. The desktop shell is a Vite build
+ * (`index-DHMkD0wf.js`); the phone shell is `expo export -p web`, which is Metro
+ * (`entry-a074e4f437a1ee92fdb168054dc07da9.js`, and no `type="module"`). Both
+ * are read here rather than in two places, because "the entry chunk hash" is one
+ * idea and a second copy of it is a second answer waiting to disagree.
+ *
  * Vite serving source has no hashed entry — these return undefined
  * rather than inventing one.
  */
 
-/** Vite's default content hash: base64url, eight characters. */
-const HASHED_ENTRY = /(?:^|\/)[^/?#]+-([A-Za-z0-9_-]{8})\.js(?:[?#]|$)/
+/** Vite's base64url-8, or Metro's hex-32. Anchored to `.js` at both ends so a
+ *  name that merely CONTAINS a run of hex is not mistaken for a hashed entry. */
+const HASHED_ENTRY = /(?:^|\/)[^/?#]+-([A-Za-z0-9_-]{8}|[0-9a-f]{32})\.js(?:[?#]|$)/
 
 /** Every `<script …>` open tag, so the attributes can be read in any order —
  *  `type` before `src` is only vite's current habit, not a guarantee. */
@@ -33,13 +40,22 @@ export function bundleVersionFromEntrySrc(src: string): string | undefined {
   return hash ? `bundle+${hash}` : undefined
 }
 
-/** The same identity, derived from built HTML — what the stamp writer records
- *  as `bundleVersion`, not as the product version. */
+/**
+ * The same identity, derived from built HTML — what the stamp writer records
+ * as `bundleVersion`, not as the product version.
+ *
+ * A module entry still WINS when the document has one: that is Vite's entry, and
+ * a hashed classic script beside it (an analytics snippet, a polyfill) is not the
+ * app. Only when no module script names a src does a plain `<script src>` answer,
+ * which is the shape Metro emits for the phone export and the only script in it.
+ */
 export function bundleVersionFromHtml(html: string): string | undefined {
+  let classic: string | undefined
   for (const [tag] of html.matchAll(SCRIPT_TAG)) {
-    if (!TYPE_MODULE.test(tag)) continue
     const src = SRC_ATTR.exec(tag)?.[1]
-    if (src !== undefined) return bundleVersionFromEntrySrc(src)
+    if (src === undefined) continue
+    if (TYPE_MODULE.test(tag)) return bundleVersionFromEntrySrc(src)
+    classic ??= bundleVersionFromEntrySrc(src)
   }
-  return undefined
+  return classic
 }

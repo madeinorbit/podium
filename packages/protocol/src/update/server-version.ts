@@ -1,6 +1,23 @@
 import { z } from 'zod'
 import { UpdateTarget } from './target'
 
+/**
+ * The phone website this server serves, as the server sees it on disk (POD-1980).
+ *
+ * The desktop shell can read its OWN stamp from `/podium-build.json`; nobody can
+ * read the phone's that way, because a page fetching `/mobile/podium-build.json`
+ * gets the same 404 whether the export is stale-without-a-stamp or was never
+ * built at all — and those two need opposite verdicts. The server can tell them
+ * apart (index.html is either there or it is not), so the server is what says so.
+ */
+export const MobileWebIdentity = z.object({
+  /** An exported phone website exists here. Absent means "no phone app", not "stale". */
+  present: z.boolean(),
+  /** Its checkout, in the same currency as `artifacts.web.digest`. */
+  digest: z.string().optional(),
+})
+export type MobileWebIdentity = z.infer<typeof MobileWebIdentity>
+
 export const ServerVersion = z
   .object({
     appVersion: z.string().optional(),
@@ -10,6 +27,7 @@ export const ServerVersion = z
     instanceId: z.string().optional(),
     feedScoping: z.string().optional(),
     target: UpdateTarget.optional().catch(undefined),
+    mobileWeb: MobileWebIdentity.optional().catch(undefined),
   })
   .passthrough()
 export type ServerVersion = z.infer<typeof ServerVersion>

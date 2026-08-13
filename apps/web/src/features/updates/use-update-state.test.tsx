@@ -189,6 +189,112 @@ describe('useUpdateState update action', () => {
     await waitFor(() => expect(reloadAction).toHaveBeenCalledOnce())
   })
 
+  /**
+   * POD-1980. The desktop half of the website can be fresh while the phone
+   * export is weeks old — one `podium-web` run builds both, and a failed or
+   * skipped export leaves only the phone behind. Nothing on this page can see
+   * that, so the server says it on `/version` and the dialog acts on it.
+   */
+  it('offers Update when only the phone export is behind, and waits for it before reloading', async () => {
+    let rebuilt = false
+    mocks.mutate.mockImplementation(async () => {
+      rebuilt = true
+      return {
+        state: 'in-progress',
+        version: 'dev+abc1234',
+        done: 0,
+        total: 1,
+        fleet: { total: 0, behind: 0, converging: 0, failed: 0, machines: [] },
+      }
+    })
+    mocks.makeTrpc.mockReturnValue({
+      setup: { channel: { query: vi.fn(async () => ({ channel: 'dev' })) } },
+      updates: {
+        fleet: {
+          query: vi.fn(async () => ({
+            total: 0,
+            behind: 0,
+            converging: 0,
+            failed: 0,
+            machines: [],
+          })),
+        },
+        converge: { mutate: mocks.mutate },
+        repairCompatibility: { mutate: mocks.repair },
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith('/version')
+            ? {
+                appVersion: 'dev+abc1234',
+                wireSchemaDigest: wireSchemaDigest(),
+                target: {
+                  version: 'dev+abc1234',
+                  critical: false,
+                  artifacts: { web: { digest: 'abc1234' } },
+                },
+                // This page's own dist is already current; the phone's is not.
+                mobileWeb: { present: true, digest: rebuilt ? 'abc1234' : 'old1234' },
+              }
+            : {
+                appVersion: 'dev+abc1234',
+                sourceSha: 'abc1234',
+                wireSchemaDigest: wireSchemaDigest(),
+              },
+      })),
+    )
+
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(result) => results.push(result)} withReload liveFleet />)
+
+    const update = await screen.findByRole('button', { name: /update Podium/i })
+    // The dialog must have something to show, or the button has nowhere to live.
+    const view = results.at(-1)?.view as { state: string; places?: { kind: string }[] }
+    expect(view.state).toBe('available')
+    expect(view.places?.map((place) => place.kind)).toContain('phone')
+
+    update.click()
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledOnce())
+    await waitFor(() => expect(reloadAction).toHaveBeenCalledOnce())
+  })
+
+  it('says nothing when the phone export names the same commit as this page', async () => {
+    setupTransport()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith('/version')
+            ? {
+                appVersion: 'dev+abc1234',
+                wireSchemaDigest: wireSchemaDigest(),
+                target: {
+                  version: 'dev+abc1234',
+                  critical: false,
+                  artifacts: { web: { digest: 'abc1234' } },
+                },
+                mobileWeb: { present: true, digest: 'abc1234' },
+              }
+            : {
+                appVersion: 'dev+abc1234',
+                sourceSha: 'abc1234',
+                wireSchemaDigest: wireSchemaDigest(),
+              },
+      })),
+    )
+
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(result) => results.push(result)} withReload liveFleet />)
+    await waitFor(() => expect(results.at(-1)?.server.appVersion).toBe('dev+abc1234'))
+    expect(screen.queryByRole('button', { name: /update Podium/i })).toBeNull()
+    expect(results.at(-1)?.view.state).toBe('none')
+  })
+
   it('repairs and reloads when the source server is current but its web build is incompatible', async () => {
     let rebuilt = false
     mocks.repair.mockImplementation(async () => {

@@ -16,6 +16,7 @@ import {
   gradeWebBundle,
   injectBundleWarning,
   readWebBuildStamp,
+  servedWebIdentity,
   servedWebSourceDigest,
 } from './web-bundle-stamp'
 
@@ -112,6 +113,44 @@ describe('grading a served dist', () => {
     // A rebuild while the server runs must clear the warning without a restart.
     stamp({ wireSchemaDigest: wireSchemaDigest(), builtAt: '2026-08-03T12:00:00Z' })
     expect(gradeWebBundle(dir).grade).toBe('ok')
+  })
+})
+
+/**
+ * ABSENT AND UNSTAMPED SHARE ONE `undefined` DIGEST AND NEED OPPOSITE VERDICTS
+ * (POD-1980). This is the whole reason Update is told about a dist's PRESENCE
+ * and not only about its checkout.
+ */
+describe('what a served website says about its checkout', () => {
+  it('reports the checkout of a stamped dist', () => {
+    buildDist()
+    stamp({ wireSchemaDigest: wireSchemaDigest(), sourceSha: '47a01e3' })
+    expect(servedWebIdentity(dir)).toEqual({ present: true, digest: '47a01e3' })
+  })
+
+  it('reports a dist that is there and names no checkout as present, not missing', () => {
+    buildDist()
+    expect(servedWebIdentity(dir)).toEqual({ present: true })
+  })
+
+  it('reports no website when nothing was ever built here', () => {
+    expect(servedWebIdentity(dir)).toEqual({ present: false })
+    expect(servedWebIdentity('')).toEqual({ present: false })
+  })
+
+  it('CAN SAY NO: a stamp that is not a checkout at all names no digest', () => {
+    buildDist()
+    stamp({ wireSchemaDigest: wireSchemaDigest(), sourceSha: 'not-a-sha' })
+    expect(servedWebIdentity(dir)).toEqual({ present: true })
+  })
+
+  it('sees a website that appeared after the server booted', () => {
+    expect(servedWebIdentity(dir).present).toBe(false)
+    buildDist()
+    stamp({ wireSchemaDigest: wireSchemaDigest(), sourceSha: '47a01e3' })
+    // The phone export is built by a separate unit that can finish long after
+    // boot, so this must be a live probe rather than a captured flag.
+    expect(servedWebIdentity(dir)).toEqual({ present: true, digest: '47a01e3' })
   })
 })
 

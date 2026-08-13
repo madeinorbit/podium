@@ -1,5 +1,5 @@
 import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { UpdateTarget } from '@podium/protocol'
+import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
@@ -14,14 +14,15 @@ const target = (version = '0.4.2'): UpdateTarget =>
 const priorAppVersion = process.env.PODIUM_APP_VERSION
 const priorChannel = process.env.PODIUM_UPDATE_CHANNEL
 
-function harness(
-  requestCoordinatorRestart?: (() => void) | {
-    requestCoordinatorRestart?: () => void
-    requestWebRebuild?: () => void
-    requestDestBundle?: () => Promise<unknown>
-    servedWebDigest?: string | (() => string | undefined)
-  },
-) {
+interface HarnessOptions {
+  requestCoordinatorRestart?: () => void
+  requestWebRebuild?: () => void
+  requestDestBundle?: () => Promise<unknown>
+  servedWebDigest?: string | (() => string | undefined)
+  servedMobileWeb?: MobileWebIdentity
+}
+
+function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
   const opts =
     typeof requestCoordinatorRestart === 'function'
       ? { requestCoordinatorRestart }
@@ -50,6 +51,9 @@ function harness(
     ...(opts.requestWebRebuild ? { requestWebRebuild: opts.requestWebRebuild } : {}),
     ...(opts.requestDestBundle ? { requestDestBundle: opts.requestDestBundle } : {}),
     ...(readServedWeb ? { servedWebDigest: readServedWeb } : {}),
+    ...(opts.servedMobileWeb !== undefined
+      ? { servedMobileWeb: () => opts.servedMobileWeb as MobileWebIdentity }
+      : {}),
   })
   return { registry, caller }
 }
@@ -457,6 +461,95 @@ describe('updates tRPC', () => {
     })
     expect(requestWebRebuild).not.toHaveBeenCalled()
     registry.dispose()
+  })
+
+  /**
+   * THE PHONE IS THE OTHER HALF OF THE SAME WEBSITE (POD-1980). One
+   * `podium-web` run builds both dists and `artifacts.web.digest` names one
+   * commit for both, so a fresh desktop shell must not certify a phone export
+   * left behind by a failed or skipped export.
+   */
+  describe('the phone website', () => {
+    /** Server and target both on dev+47a01e3, so only a dist can be behind. */
+    const settle = (registry: SessionRegistry): void => {
+      registry.modules.machines.setMachineBuild(
+        registry.sessionStore.hostMachineId,
+        { appVersion: 'dev+47a01e3' },
+        [],
+        '2026-08-13T00:00:00.000Z',
+      )
+      registry.modules.updates.setTarget({
+        version: 'dev+47a01e3',
+        critical: false,
+        artifacts: { web: { digest: '47a01e3' } },
+      })
+    }
+
+    it('CAN SAY NO: rebuilds when only the phone export is on an older commit', async () => {
+      process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+      const requestWebRebuild = vi.fn()
+      const { registry, caller } = harness({
+        requestWebRebuild,
+        servedWebDigest: '47a01e3',
+        servedMobileWeb: { present: true, digest: 'aaaaaaa' },
+      })
+      settle(registry)
+
+      const result = await caller.updates.converge()
+      expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
+      expect(requestWebRebuild).toHaveBeenCalledOnce()
+      registry.dispose()
+    })
+
+    it('rebuilds a phone export that cannot name its commit at all', async () => {
+      process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+      const requestWebRebuild = vi.fn()
+      const { registry, caller } = harness({
+        requestWebRebuild,
+        servedWebDigest: '47a01e3',
+        servedMobileWeb: { present: true },
+      })
+      settle(registry)
+
+      await caller.updates.converge()
+      expect(requestWebRebuild).toHaveBeenCalledOnce()
+      registry.dispose()
+    })
+
+    it('leaves an installation with no phone website alone', async () => {
+      process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+      const requestWebRebuild = vi.fn()
+      const { registry, caller } = harness({
+        requestWebRebuild,
+        servedWebDigest: '47a01e3',
+        servedMobileWeb: { present: false },
+      })
+      settle(registry)
+
+      await expect(caller.updates.converge()).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'Podium is already at this version everywhere.',
+      })
+      expect(requestWebRebuild).not.toHaveBeenCalled()
+      registry.dispose()
+    })
+
+    it('is current when both dists name the target commit', async () => {
+      process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+      const requestWebRebuild = vi.fn()
+      const { registry, caller } = harness({
+        requestWebRebuild,
+        servedWebDigest: '47a01e3',
+        servedMobileWeb: { present: true, digest: '47a01e3' },
+      })
+      settle(registry)
+
+      await expect(caller.updates.converge()).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+      })
+      expect(requestWebRebuild).not.toHaveBeenCalled()
+      registry.dispose()
+    })
   })
 
   it('can rebuild a source web app even when the server is already on target', async () => {

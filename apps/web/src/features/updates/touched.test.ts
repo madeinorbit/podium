@@ -107,6 +107,37 @@ describe('computeTouched', () => {
     ).toBe(true)
   })
 
+  it('touches the phone only when the server says its phone website is behind', () => {
+    const phoneOf = (phoneBehind?: boolean) =>
+      computeTouched({
+        localDigests: { app: 'web-new' },
+        target: target(),
+        fleetBehind: 0,
+        serverBehind: false,
+        ...(phoneBehind === undefined ? {} : { phoneBehind }),
+      }).phone
+    expect(phoneOf(true)).toBe(true)
+    expect(phoneOf(false)).toBe(false)
+    // No opinion is "nothing to move here", not "fail toward showing it": unlike
+    // this app's digest, a silent phone means the server serves no phone website
+    // at all, and a row promising to rebuild one would name a place that is not
+    // there (POD-1980).
+    expect(phoneOf(undefined)).toBe(false)
+  })
+
+  it('keeps the phone off this app: a stale phone does not make this page reload', () => {
+    const t = computeTouched({
+      localDigests: { app: 'web-new' },
+      target: target(),
+      fleetBehind: 0,
+      serverBehind: false,
+      phoneBehind: true,
+    })
+    expect(t.phone).toBe(true)
+    expect(t.app).toBe(false)
+    expect(t.server).toBe(false)
+  })
+
   it('touches the server only when the server is behind its own target', () => {
     expect(
       computeTouched({

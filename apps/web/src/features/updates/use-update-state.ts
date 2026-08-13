@@ -138,18 +138,52 @@ function localBuildFrom(raw: unknown): LocalBuild {
   }
 }
 
+/**
+ * Wait until EVERY website this server serves names `expectedDigest`.
+ *
+ * Both dists, because one `podium-web` run builds both and the operator pressed
+ * one button (POD-1980). Returning as soon as the desktop half lands would
+ * reload this page onto a dialog that still says an update is available — the
+ * phone export takes the longer half of that run — which reads as a button that
+ * did nothing.
+ *
+ * The phone's identity comes from `/version`: this page cannot fetch the phone's
+ * stamp and tell "stale" from "never built" apart, and the server can.
+ *
+ * The budget is generous for the same reason. An `expo export` runs after the
+ * vite build, and a wait that expires mid-rebuild reports a failure to an
+ * operator whose update is in fact still working.
+ */
 async function waitForWebIdentity(
   httpOrigin: string,
   expectedDigest: string,
-  attempts = 120,
+  attempts = 300,
   delayMs = 1_000,
 ): Promise<void> {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const build = localBuildFrom(await readJson(`${httpOrigin}/${BUILD_STAMP_FILE}`))
-    if (build.appDigest === expectedDigest) return
+    const [buildRaw, serverRaw] = await Promise.all([
+      readJson(`${httpOrigin}/${BUILD_STAMP_FILE}`),
+      readJson(`${httpOrigin}/version`),
+    ])
+    const desktopReady = localBuildFrom(buildRaw).appDigest === expectedDigest
+    if (desktopReady && !phoneBehind(parseServerVersion(serverRaw), expectedDigest)) return
     await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
   }
   throw new Error('Podium rebuilt the server, but the matching app did not become ready.')
+}
+
+/**
+ * Is the server's phone website built from something other than `expectedDigest`?
+ *
+ * ABSENT IS NOT BEHIND. A server that serves no phone website has nothing to
+ * rebuild, and reading its silence as "stale" would leave Update permanently
+ * offering work it cannot do. A phone website that IS there and names no
+ * checkout is behind: that is the unstamped export this whole check exists to
+ * replace.
+ */
+function phoneBehind(server: ServerVersion, expectedDigest: string): boolean {
+  const phone = server.mobileWeb
+  return phone?.present === true && phone.digest !== expectedDigest
 }
 
 function updateErrorDetail(error: unknown): string {
@@ -332,6 +366,8 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       server.appVersion !== target.version,
   )
   const machinesBehind = fleet.behind
+  const targetWebDigest = target?.artifacts.web?.digest
+  const phoneStale = targetWebDigest !== undefined && phoneBehind(server, targetWebDigest)
   const touched = target
     ? computeTouched({
         localDigests: { ...(localBuild.appDigest ? { app: localBuild.appDigest } : {}) },
@@ -340,8 +376,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         serverBehind,
         sourceAppFollowsServer:
           (surface === 'web' || surface === 'mobile') && target.version.startsWith('dev+'),
+        phoneBehind: phoneStale,
       })
-    : { app: false, server: serverBehind, machines: machinesBehind > 0 }
+    : { app: false, server: serverBehind, machines: machinesBehind > 0, phone: false }
   if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
   const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
@@ -368,8 +405,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   }, [target?.version])
 
   const retryableUpdateFailure = updateAction.state === 'failed'
+  // One website, two dists: the desktop shell this page is, and the phone export
+  // the same `podium-web` run builds. Either being behind is work the Update
+  // button can do, and the server agrees — see `startUpdate` (POD-1980).
   const webBehind = Boolean(
-    target?.artifacts.web?.digest && localBuild.appDigest !== target.artifacts.web.digest,
+    targetWebDigest && (localBuild.appDigest !== targetWebDigest || phoneStale),
   )
   const startUpdate = useMemo<UpdateActions['startUpdate']>(() => {
     if (
