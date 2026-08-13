@@ -112,45 +112,91 @@ already-notarized releases keep working. Renew before it lapses — the certific
 
 Only Apple Silicon macOS is built. Intel Macs have no macOS build on either channel.
 
-## Cut an edge release
+## Cut a release
 
-1. Set the edge SemVer in the root `package.json` (`0.3.0-edge.1`, then `0.3.0-edge.2`, …) and
-   merge it to `main`.
-2. Tag that commit and push the tag:
-   ```bash
-   git tag v0.3.0-edge.1 && git push origin v0.3.0-edge.1
-   ```
+Write what changed under `## [Unreleased]` in `CHANGELOG.md`, merge to `main`, then:
 
-Both workflows run. The desktop half builds Linux x86_64 and macOS Apple Silicon in parallel, and
-only after both succeed does it deterministically regenerate and validate one `latest.json`
-against both detached signatures and the rolling `edge` URLs. It uploads the AppImage, macOS DMG,
-macOS updater archive, signatures, and manifest without replacing the headless assets.
+```bash
+bun run release:cut 0.3.0-edge.1   # edge
+bun run release:cut 0.3.0          # stable
+```
 
-Later pushes to `main` refresh the headless edge files in place and preserve this desktop version
-until the next edge tag.
+That one command bumps `package.json`, promotes the `Unreleased` section to a heading for the new
+version, commits, tags `v<version>`, and pushes the branch and the tag. The tag push is what starts
+the release, and it goes last — so a failed branch push never leaves CI building a commit that
+never landed.
 
-## Cut a stable release
+Useful flags: `--dry-run` prints the version transition and the notes it would ship, changing
+nothing; `--no-push` commits and tags locally so you can inspect before pushing.
 
-1. Set the stable SemVer in the root `package.json` and merge it.
-2. Tag and push:
-   ```bash
-   git tag v0.2.0 && git push origin v0.2.0
-   ```
+It refuses, before creating anything, a version that is not greater than the current one, a version
+that is neither `X.Y.Z` nor `X.Y.Z-edge.N`, a dirty tree, a branch out of sync with its remote, and
+a tag that already exists.
 
-The workflow builds that immutable tag and refuses a tag that disagrees with `package.json`.
+Both workflows then run from that tag. The desktop half builds Linux x86_64 and macOS Apple Silicon
+in parallel, and only after both succeed does it deterministically regenerate and validate one
+`latest.json` against both detached signatures and the channel's URLs. It uploads the AppImage,
+macOS DMG, macOS updater archive, signatures, and manifest without replacing the headless assets.
+
+Later pushes to `main` refresh the headless edge files in place and preserve the promoted desktop
+version until the next edge tag.
+
+### Doing it by hand
+
+`release:cut` is a convenience, not a gate — the workflows respond to the tag alone. The equivalent
+long form, if you need to deviate:
+
+```bash
+# edit package.json version, move the CHANGELOG Unreleased section under a version heading
+git commit -am "Release 0.3.0"
+git tag -a v0.3.0 -m "Release 0.3.0" && git push origin main && git push origin v0.3.0
+```
 
 ## Release notes
 
-`release_notes` is a **dispatch-only** input, so a tag-driven release ships no updater notes. To
-send notes, dispatch **desktop release** from the Actions UI instead of tagging: pick the channel,
-give the `release_tag` for stable, and fill `release_notes`. The text lands in `latest.json` as
-`notes` and is what the update prompt shows.
+Notes come from `CHANGELOG.md`, not from a workflow input: the release scripts read the section
+whose heading matches the version being published (`extractRelease`). Writing them in the same
+commit that names the version is what lets a tag push carry them with no Actions UI involved, and
+it is why the headless and desktop halves of one release always quote the same text.
+
+So the note-writing step is just editing `CHANGELOG.md` under `## [Unreleased]` before you cut.
+`release:cut` warns when that section is empty, since a release that silently ships no notes is
+usually a mistake rather than an intention.
+
+The desktop workflow keeps a `release_notes` dispatch input, which overrides the changelog for the
+occasional re-promotion that needs different wording without rewriting history.
 
 **There is currently no way to force a required update.** The shell reads a boolean `critical`
 field from the manifest and deliberately ignores prose, so that reflowing a changelog cannot change
 whether an update is forced (`updater.rs`, `the_prose_marker_no_longer_forces_anything`) — and
 `scripts/desktop-release.ts` never writes that field. A `CRITICAL:` prefix in the notes is ordinary
 text. Forcing an update needs a `--critical` flag on the release script and an input to carry it.
+
+## Fix a release after `main` has moved on
+
+A tag does not have to be on `main` — the workflows build whatever commit the tag points at. So a
+fix for a shipped version goes out from a branch off that version's tag, carrying only the fix and
+none of main's unrelated work:
+
+```bash
+git checkout -b hotfix/0.3.1 v0.3.0        # branch from the RELEASED tag, not from main
+git cherry-pick <fix-commit>               # the fix alone
+# note it under ## [Unreleased] in CHANGELOG.md on this branch
+bun run release:cut 0.3.1                  # bumps, commits, tags, pushes this branch + tag
+```
+
+Then merge or cherry-pick the fix back into `main`, or the next release from `main` silently
+reverts it — the single most common way a hotfix gets lost.
+
+Two things to know:
+
+- **The version must still increase.** Updaters compare versions, so a patch on top of `0.3.0`
+  ships as `0.3.1`. There is no way to replace a published version in place; re-publishing the same
+  number reaches nobody.
+- **Edge is a rolling pointer.** A hotfix cut from an older edge tag becomes *the* edge build, so
+  make sure the fix branch really is newer than what edge users already have.
+
+For an edge hotfix the same shape applies with an edge version (`0.3.0-edge.5` off `v0.3.0-edge.4`).
 
 ## Existing-install bridge
 

@@ -6,6 +6,7 @@ import {
   buildDesktopManifest,
   desktopReleaseTag,
   prepareDesktopRelease,
+  resolveNotes,
   validateDesktopManifest,
 } from './desktop-release'
 
@@ -51,7 +52,9 @@ describe('desktop release manifest', () => {
     })
   })
 
-  it('validates release notes that drive the critical updater prompt', () => {
+  // Note text is round-tripped verbatim — including a "CRITICAL:" prefix, which is ordinary prose
+  // and forces nothing (updater.rs reads a boolean `critical` field this script never writes).
+  it('round-trips release notes through validation unchanged', () => {
     const text = buildDesktopManifest({
       version: '0.2.0-edge.1',
       channel: 'edge',
@@ -85,10 +88,7 @@ describe('desktop release manifest', () => {
       validateDesktopManifest(text, {
         version: '0.2.0-edge.1',
         channel: 'edge',
-        artifacts: [
-          linuxArtifact,
-          { ...macArtifact, signature: 'DIFFERENT-MAC-SIGNATURE' },
-        ],
+        artifacts: [linuxArtifact, { ...macArtifact, signature: 'DIFFERENT-MAC-SIGNATURE' }],
       }),
     ).toThrow('darwin-aarch64 does not match')
   })
@@ -188,5 +188,40 @@ describe('desktop release manifest', () => {
         outputDir: join(root, 'out'),
       }),
     ).toThrow('expected exactly one darwin-aarch64 download ending in .dmg')
+  })
+})
+
+describe('resolveNotes', () => {
+  const changelog = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-notes-'))
+    scratch.push(dir)
+    const path = join(dir, 'CHANGELOG.md')
+    writeFileSync(
+      path,
+      '# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - 2026-08-13\n\n- The published thing.\n\n## [0.1.9] - 2026-07-01\n\n- Older.\n',
+    )
+    return path
+  }
+
+  it('takes the notes for the version from the repository changelog', () => {
+    // Notes live in the repo so a tag push carries them without anyone opening the Actions UI,
+    // and so both halves of one release quote the same text.
+    expect(resolveNotes('0.2.0', undefined, changelog())).toContain('The published thing.')
+  })
+
+  it('reads only that version section, never a neighbour', () => {
+    expect(resolveNotes('0.2.0', undefined, changelog())).not.toContain('Older.')
+  })
+
+  it('prefers an explicit --notes for a re-promotion that needs different wording', () => {
+    expect(resolveNotes('0.2.0', 'hand written', changelog())).toBe('hand written')
+  })
+
+  it('ships no notes rather than failing when the version has no section', () => {
+    expect(resolveNotes('9.9.9', undefined, changelog())).toBeUndefined()
+  })
+
+  it('ships no notes rather than failing when the changelog is missing entirely', () => {
+    expect(resolveNotes('0.2.0', undefined, '/nonexistent/CHANGELOG.md')).toBeUndefined()
   })
 })

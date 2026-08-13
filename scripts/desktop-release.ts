@@ -14,6 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
+import { extractRelease } from './changelog'
 
 export type DesktopReleaseChannel = 'stable' | 'edge'
 export type DesktopReleaseTarget = 'linux-x86_64' | 'darwin-aarch64'
@@ -255,6 +256,31 @@ function arg(name: string): string | undefined {
   return index >= 0 ? process.argv[index + 1] : undefined
 }
 
+/**
+ * Release notes for a desktop release, taken from CHANGELOG.md under the version's own heading.
+ *
+ * Notes live in the repository, not in a workflow input, so they are written and reviewed in the
+ * same commit that names the version and a tag push carries them without anyone opening the
+ * Actions UI. This is the source the headless release already reads (`scripts/release.ts`), so
+ * both halves of one release quote the same text rather than two operators' recollections.
+ *
+ * An explicit `--notes` still wins, for the occasional re-promotion that needs different wording
+ * without rewriting history.
+ */
+export function resolveNotes(
+  version: string,
+  explicit?: string,
+  changelogPath = 'CHANGELOG.md',
+): string | undefined {
+  if (explicit) return explicit
+  try {
+    return extractRelease(readFileSync(changelogPath, 'utf8'), version)?.summary
+  } catch {
+    // A missing changelog is not a reason to fail a release that is otherwise sound.
+    return undefined
+  }
+}
+
 function main(): void {
   const channel = arg('--channel')
   if (channel !== 'stable' && channel !== 'edge') {
@@ -273,7 +299,7 @@ function main(): void {
     version,
     channel,
     stableTag,
-    notes: arg('--notes'),
+    notes: resolveNotes(version, arg('--notes')),
     bundleDir: arg('--bundle-dir') ?? 'apps/desktop/src-tauri/target',
     outputDir: arg('--output-dir') ?? 'dist-desktop',
   })

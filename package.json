@@ -112,6 +112,8 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "bun run build && changeset publish",
+    "//release:cut": "Cut a Podium release: bumps package.json, promotes the changelog's Unreleased section, commits, tags and pushes. `release` above is changesets publishing the workspace PACKAGES — a different thing entirely.",
+    "release:cut": "bun scripts/release-cut.ts",
     "package:headless": "bun run systemd:render && bun run --filter @podium/web build && bun scripts/build-bun.ts",
     "desktop:build": "bun run --cwd apps/desktop build",
     "migration:new": "bun run scripts/new-migration.ts",
