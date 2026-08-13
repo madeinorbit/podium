@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage } from '@podium/model'
+import { ISSUE_BOARD_STAGES, type IssueBoardStage, type IssueStage } from '@podium/model'
 
 /**
  * ONE DERIVATION OF "WHAT ROWS DOES A TASK BOARD SHOW, IN WHAT ORDER" [POD-724].
@@ -59,8 +59,8 @@ export function orderIssues<T extends BoardRowIssue>(issues: T[], ordering: Issu
 export function groupIssuesByStage<T extends BoardRowIssue>(
   issues: T[],
   ordering: IssuesOrdering,
-): { stage: IssueStage; issues: T[] }[] {
-  return ISSUE_STAGES.map((stage) => ({
+): { stage: IssueBoardStage; issues: T[] }[] {
+  return ISSUE_BOARD_STAGES.map((stage) => ({
     stage,
     issues: orderIssues(
       issues.filter((i) => i.stage === stage),
@@ -149,9 +149,9 @@ export function issueRowsByStage<T extends BoardRowIssue>(
   issues: T[],
   ordering: IssuesOrdering,
   opts: { flatten: boolean; expanded: ReadonlySet<string> },
-): { stage: IssueStage; rows: IssueRow<T>[] }[] {
+): { stage: IssueBoardStage; rows: IssueRow<T>[] }[] {
   if (opts.flatten) {
-    return ISSUE_STAGES.map((stage) => ({
+    return ISSUE_BOARD_STAGES.map((stage) => ({
       stage,
       rows: orderIssues(
         issues.filter((i) => i.stage === stage),
@@ -172,7 +172,7 @@ export function issueRowsByStage<T extends BoardRowIssue>(
       for (const c of orderIssues(children, ordering)) emit(c, depth + 1, out, next)
     }
   }
-  return ISSUE_STAGES.map((stage) => {
+  return ISSUE_BOARD_STAGES.map((stage) => {
     const rows: IssueRow<T>[] = []
     for (const root of orderIssues(
       roots.filter((i) => i.stage === stage),

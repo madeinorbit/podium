@@ -9,7 +9,7 @@
  * miniview's `RefIssueLike` rows fit alongside full `IssueWire` rows.
  */
 
-import type { IssueWire } from '@podium/model'
+import { isSystemOwnedIssueStage, type IssueWire } from '@podium/model'
 
 /**
  * Composed from `IssueWire` rather than restated (POD-367) — the field NAMES and
@@ -25,9 +25,15 @@ import type { IssueWire } from '@podium/model'
 type StartabilityFields<K extends keyof IssueWire> = { [P in K]?: IssueWire[P] | null }
 
 export type StartableIssueLike = StartabilityFields<
-  'worktreePath' | 'closedReason' | 'archived' | 'deletedAt'
+  'worktreePath' | 'closedReason' | 'archived' | 'deletedAt' | 'stage'
 >
 
 export function isIssueStartable(issue: StartableIssueLike): boolean {
-  return !issue.worktreePath && issue.closedReason == null && !issue.archived && !issue.deletedAt
+  return (
+    !issue.worktreePath &&
+    issue.closedReason == null &&
+    !issue.archived &&
+    !issue.deletedAt &&
+    (!issue.stage || !isSystemOwnedIssueStage(issue.stage))
+  )
 }

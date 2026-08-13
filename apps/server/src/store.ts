@@ -30,6 +30,7 @@
  *                                                        → store/events.ts
  *  - notification fact claims                            → store/notification-facts.ts
  *  - automations (automations/automation_runs)           → store/automations.ts
+ *  - shipping (orders/attempts/steps/holds/receipts)     → store/shipping.ts
  */
 
 import { randomUUID } from 'node:crypto'
@@ -63,6 +64,7 @@ import { ServerSecretsRepository } from './store/server-secrets'
 import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
 import { SettingsAuditRepository } from './store/settings-audit'
+import { ShippingRepository } from './store/shipping'
 import { SuperagentRepository } from './store/superagent'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
 import { UserLayoutRepository } from './store/user-layout'
@@ -138,6 +140,8 @@ export class SessionStore {
   readonly maintenance: MaintenanceRepository
   /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
   readonly automations: AutomationsRepository
+  /** Normalized, restart-safe Shipping aggregate family. */
+  readonly shipping: ShippingRepository
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
   readonly messagingTopics: MessagingTopicsRepository
 
@@ -231,6 +235,7 @@ export class SessionStore {
     this.locks = new LocksRepository(this.db)
     this.maintenance = new MaintenanceRepository(this.db)
     this.automations = new AutomationsRepository(this.db)
+    this.shipping = new ShippingRepository(this.db)
     this.messagingTopics = new MessagingTopicsRepository(this.db)
 
     // Per-boot runtime steps (environment-conditional FTS objects, one-time

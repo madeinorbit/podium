@@ -30,6 +30,7 @@ import type {
   SessionId,
   SessionMeta,
   ThreadId,
+  ShipOrderProjection,
 } from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
@@ -70,6 +71,7 @@ export interface EngineState {
   /** The curated cross-project issue-event window (POD-1772) — replicated rows,
    *  not a timer's answer. Newest last, as the feed renders them. */
   issueEvents: IssueEventWire[]
+  shipOrders: ShipOrderProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
@@ -490,6 +492,7 @@ export interface EngineStateSeed {
   readonly issues: IssueWire[]
   readonly issueProjections: IssueProjectionRow[]
   readonly issueEvents: IssueEventWire[]
+  readonly shipOrders: ShipOrderProjection[]
   readonly conversations: ConversationSummaryWire[]
   readonly automations: AutomationWire[]
   readonly automationRuns: AutomationRunWire[]
@@ -524,6 +527,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     issues: seed.issues,
     issueProjections: seed.issueProjections,
     issueEvents: seed.issueEvents,
+    shipOrders: seed.shipOrders,
     conversations: seed.conversations,
     automations: seed.automations,
     automationRuns: seed.automationRuns,

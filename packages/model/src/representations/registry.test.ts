@@ -59,9 +59,9 @@ describe('representationViolations — the checks FIRE on planted bad input', ()
       matrixRow: asMatrixRowId('no-such-row'),
       visibility: 'deployment-substrate' as const,
     }
-    expect(representationViolations([planted], OWNERSHIP_MATRIX_INDEX).map((v) => v.kind)).toContain(
-      'declaration-disagrees-with-matrix',
-    )
+    expect(
+      representationViolations([planted], OWNERSHIP_MATRIX_INDEX).map((v) => v.kind),
+    ).toContain('declaration-disagrees-with-matrix')
   })
 
   it('fires when a declaration is LOUDER than the matrix row it points at', () => {
@@ -147,7 +147,10 @@ describe('representationViolations — the checks FIRE on planted bad input', ()
         schema: z.object({ sessionId: z.string(), [key]: z.string() }),
       }
       const v = representationViolations([planted], OWNERSHIP_MATRIX_INDEX)
-      expect(v.map((x) => x.kind), key).toEqual(['instance-partition'])
+      expect(
+        v.map((x) => x.kind),
+        key,
+      ).toEqual(['instance-partition'])
       expect(v[0]?.detail).toContain('not multi-tenancy')
     }
   })
@@ -160,7 +163,7 @@ describe('the live registry', () => {
    * shrinking — "39 passed" and "37 passed" read identically (POD-365's deleted
    * registry entry, POD-367 §6).
    */
-  it('covers exactly 46 retained representations: 28 session + 18 issue', () => {
+  it('covers exactly 47 retained representations: 28 session + 19 issue', () => {
     // 43 -> 44 at POD-1151, and the added one is NOT an inventory §3 shape that
     // went unnoticed: `StoredIssue` is NEW — the R1 side of the storage seam,
     // composed from `IssueAggregate` rather than restated, and the thing that let
@@ -174,9 +177,9 @@ describe('the live registry', () => {
     // composing it from that aggregate would assert a containment that does not
     // hold — growth that is not a duplicate, which is exactly what the registry
     // is for.
-    expect(RETAINED_REPRESENTATIONS).toHaveLength(46)
+    expect(RETAINED_REPRESENTATIONS).toHaveLength(47)
     expect(RETAINED_REPRESENTATIONS.filter((r) => r.entity === 'session')).toHaveLength(28)
-    expect(RETAINED_REPRESENTATIONS.filter((r) => r.entity === 'issue')).toHaveLength(18)
+    expect(RETAINED_REPRESENTATIONS.filter((r) => r.entity === 'issue')).toHaveLength(19)
   })
 
   it('names every representation exactly once per site', () => {
@@ -337,9 +340,7 @@ describe('the per-user-state walker sees through a union, and refuses to guess',
   })
 
   it('reports an unreadable schema as a FINDING rather than passing it', () => {
-    const v = representationViolations([
-      { ...base, symbol: 'Opaque', schema: z.string() },
-    ])
+    const v = representationViolations([{ ...base, symbol: 'Opaque', schema: z.string() }])
     expect(v.some((x) => x.kind === 'unreadable-schema')).toBe(true)
   })
 

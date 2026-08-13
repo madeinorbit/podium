@@ -15,6 +15,7 @@ import {
   RepoProjection,
   SessionMeta,
   type SessionId,
+  ShipOrderProjection,
 } from '@podium/model'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
@@ -30,7 +31,13 @@ import { changeRowArm } from './change-row'
  * keeps the vocabulary single-sourced in model while letting protocol's
  * consumers stay on protocol.
  */
-export { IssueDepProjection, IssueEventWire, IssueProjection, RepoProjection }
+export {
+  IssueDepProjection,
+  IssueEventWire,
+  IssueProjection,
+  RepoProjection,
+  ShipOrderProjection,
+}
 
 // ---- Metadata oplog (docs/spec/oplog-read-path.md) ----
 // One row of the server's metadata change log. `seq` is server-assigned and
@@ -164,6 +171,7 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  repo.prefix` and every `POD-13` in the repo moves at once. Same additive
    *  contract as the two kinds above. */
   metadataChangeArm(z.literal('repo'), RepoProjection),
+  metadataChangeArm(z.literal('shipOrder'), ShipOrderProjection),
   metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
   metadataChangeArm(z.literal('automation'), AutomationWire),
   metadataChangeArm(z.literal('automationRun'), AutomationRunWire),
@@ -206,6 +214,7 @@ export const MetadataEntityKind = z.enum([
   'issueProjection',
   'issueDep',
   'repo',
+  'shipOrder',
   'conversation',
   'automation',
   'automationRun',
@@ -316,6 +325,7 @@ const changesSinceSnapshotArm = () =>
     issueProjections: z.array(IssueProjection).optional(),
     issueDeps: z.array(IssueDepProjection).optional(),
     repos: z.array(RepoProjection).optional(),
+    shipOrders: z.array(ShipOrderProjection).optional(),
     conversations: z.array(ConversationSummaryWire),
     diagnostics: z.array(ConversationDiagnosticWire),
     automations: z.array(AutomationWire).optional(),

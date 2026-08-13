@@ -35,25 +35,57 @@ import { ISSUE_COLOR_SLOTS } from './issue-color'
 // Issue vocabularies
 // ---------------------------------------------------------------------------
 
-// Ordered lifecycle stages an issue moves through. [spec:SP-0078]
-// Agent-proposed work is deliberately inert until an operator accepts it. [spec:SP-6144]
-export const IssueStage = z.enum([
+// Every durable lifecycle stage. `shipping` is system-owned custody: it is a
+// real issue stage so search/history can name it, but it is deliberately absent
+// from the ordinary board and human-settable vocabularies below.
+export const ALL_ISSUE_STAGES = [
   'proposed',
   'backlog',
   'planning',
   'in_progress',
   'review',
+  'shipping',
   'done',
-])
+] as const
+export const IssueStage = z.enum(ALL_ISSUE_STAGES)
 export type IssueStage = z.infer<typeof IssueStage>
-export const ISSUE_STAGES: IssueStage[] = [
+
+/** Lifecycle custody owned by a system service, never an ordinary issue edit. */
+export const isSystemOwnedIssueStage = (stage: IssueStage): boolean => stage === 'shipping'
+
+/** A stage may participate in human/agent ready queues only outside system custody. */
+export const isReadyIssueStage = (stage: IssueStage): boolean =>
+  stage !== 'proposed' && !isSystemOwnedIssueStage(stage)
+
+/** Stages rendered as ordinary task-board lanes. Shipping has its own compact
+ * order projection and never becomes another human-managed board column. */
+export const ISSUE_BOARD_STAGES = [
   'proposed',
   'backlog',
   'planning',
   'in_progress',
   'review',
   'done',
-]
+] as const satisfies readonly IssueStage[]
+export const IssueBoardStage = z.enum(ISSUE_BOARD_STAGES)
+export type IssueBoardStage = z.infer<typeof IssueBoardStage>
+
+/** Direct stage edits may choose only these values. `proposed` has its dedicated
+ * promotion flow; `shipping` is entered and settled only by Shipping. */
+export const HUMAN_SETTABLE_ISSUE_STAGES = [
+  'backlog',
+  'planning',
+  'in_progress',
+  'review',
+  'done',
+] as const satisfies readonly IssueStage[]
+export const HumanSettableIssueStage = z.enum(HUMAN_SETTABLE_ISSUE_STAGES)
+export type HumanSettableIssueStage = z.infer<typeof HumanSettableIssueStage>
+
+/** Compatibility name for existing board consumers. New code should choose
+ * explicitly between ALL_ISSUE_STAGES, ISSUE_BOARD_STAGES, and
+ * HUMAN_SETTABLE_ISSUE_STAGES. */
+export const ISSUE_STAGES: IssueBoardStage[] = [...ISSUE_BOARD_STAGES]
 
 export const IssueType = z.enum([
   'task',
@@ -183,4 +215,3 @@ export const IssueGitState = z.object({
   fallback: z.boolean().optional(),
 })
 export type IssueGitState = z.infer<typeof IssueGitState>
-

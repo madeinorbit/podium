@@ -62,6 +62,7 @@ type BootstrapReadPhase =
   | 'visibility.conversation.grants.listForResource'
   | 'visibility.automation.ownerOf'
   | 'visibility.automationRun.runOwnerOf'
+  | 'visibility.shipOrder.issueIdForOrder'
 
 interface BootstrapReadTrace {
   readonly phases: Map<BootstrapReadPhase, number>
@@ -74,6 +75,8 @@ interface BootstrapReadTrace {
 type BootstrapVisibilityPrefetch = {
   readonly issueIds: ReadonlySet<string>
   readonly issues: ReadonlyMap<string, IssueRow>
+  readonly shipOrderIds: ReadonlySet<string>
+  readonly issueIdsByShipOrder: ReadonlyMap<string, string>
   readonly sessionIds: ReadonlySet<string>
   readonly sessions: ReadonlyMap<string, SessionRow>
   readonly resumeValues: ReadonlySet<string>
@@ -85,10 +88,16 @@ type IssueDepSubject = {
   entityId: string
 }
 
+type ShipOrderSubject = {
+  entity: 'shipOrder'
+  entityId: string
+}
+
 type BootstrapReadCache = {
   generation: number
   latestByRef: Map<string, Map<string, ChangeLogReadRow>>
   issueDepsByFromId: Map<string, IssueDepSubject[]>
+  shipOrdersByIssueId: Map<string, ShipOrderSubject[]>
   sessions?: SessionRow[]
 }
 
@@ -172,6 +181,18 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     )
   }
 
+  const readShipOrderIssueId = (
+    orderId: string,
+    prefetch?: BootstrapVisibilityPrefetch,
+  ): string | null => {
+    if (prefetch?.shipOrderIds.has(orderId)) {
+      return prefetch.issueIdsByShipOrder.get(orderId) ?? null
+    }
+    return measure('visibility.shipOrder.issueIdForOrder', () =>
+      store.shipping.issueIdForOrder(orderId),
+    )
+  }
+
   const readConversationSession = (
     resumeValue: string,
     prefetch?: BootstrapVisibilityPrefetch,
@@ -225,6 +246,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // own: it is readable by exactly the audience of the issue it is about,
         // which is what `personal` + `mayRead` already spells.
         entity === 'issueEvent' ||
+        entity === 'shipOrder' ||
         entity === 'conversation' ||
         entity === 'automation' ||
         entity === 'automationRun'
@@ -255,6 +277,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           // An unparseable id is not a row anyone may read.
           return false
         }
+      }
+      if (ref.entity === 'shipOrder') {
+        const issueId = readShipOrderIssueId(ref.entityId, prefetch)
+        return (
+          issueId !== null && mayReadIssue(asUserId(userId), asIssueId(issueId), prefetch)
+        )
       }
       if (ref.entity === 'session') {
         const row = readSession(asSessionId(ref.entityId), prefetch)
@@ -324,6 +352,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     },
     forBootstrap: (refs: readonly EntityRef[]) => {
       const issueIds = new Set<string>()
+      const shipOrderIds = new Set<string>()
       const sessionIds = new Set<string>()
       const resumeValues = new Set<string>()
       for (const ref of refs) {
@@ -341,12 +370,21 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           } catch {
             // Unparseable ids are refused by `mayRead`; nothing to prefetch.
           }
+        } else if (ref.entity === 'shipOrder') {
+          shipOrderIds.add(ref.entityId)
         } else if (ref.entity === 'session') {
           sessionIds.add(ref.entityId)
         } else if (ref.entity === 'conversation') {
           resumeValues.add(ref.entityId)
         }
       }
+      const issueIdsByShipOrder =
+        shipOrderIds.size === 0
+          ? new Map<string, string>()
+          : measure('visibility.shipOrder.issueIdForOrder', () =>
+              store.shipping.issueIdsForOrders([...shipOrderIds]),
+            )
+      for (const issueId of issueIdsByShipOrder.values()) issueIds.add(issueId)
       const issues =
         issueIds.size === 0
           ? new Map<string, IssueRow>()
@@ -366,6 +404,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       return makeVisibilityState({
         issueIds,
         issues,
+        shipOrderIds,
+        issueIdsByShipOrder,
         sessionIds,
         sessions,
         resumeValues,
@@ -380,18 +420,32 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     if (readCache?.generation === generation) return readCache
     const latestByRef = new Map<string, Map<string, ChangeLogReadRow>>()
     const issueDepsByFromId = new Map<string, IssueDepSubject[]>()
+    const shipOrdersByIssueId = new Map<string, ShipOrderSubject[]>()
     for (const row of store.sync.latestChangeStates()) {
       const byEntity = latestByRef.get(row.entity) ?? new Map<string, ChangeLogReadRow>()
       byEntity.set(row.entityId, row)
       latestByRef.set(row.entity, byEntity)
-      if (row.entity !== 'issueDep' || row.op !== 'upsert') continue
-      const dep = parseIssueDepId(row.entityId)
-      if (dep === null) continue
-      const subjects = issueDepsByFromId.get(dep.fromId) ?? []
-      subjects.push({ entity: 'issueDep', entityId: row.entityId })
-      issueDepsByFromId.set(dep.fromId, subjects)
+      if (row.entity === 'issueDep' && row.op === 'upsert') {
+        const dep = parseIssueDepId(row.entityId)
+        if (dep !== null) {
+          const subjects = issueDepsByFromId.get(dep.fromId) ?? []
+          subjects.push({ entity: 'issueDep', entityId: row.entityId })
+          issueDepsByFromId.set(dep.fromId, subjects)
+        }
+      }
+      if (row.entity === 'shipOrder' && row.op === 'upsert' && row.payload !== null) {
+        try {
+          const payload = JSON.parse(row.payload) as { issueId?: unknown }
+          if (typeof payload.issueId !== 'string') continue
+          const subjects = shipOrdersByIssueId.get(payload.issueId) ?? []
+          subjects.push({ entity: 'shipOrder', entityId: row.entityId })
+          shipOrdersByIssueId.set(payload.issueId, subjects)
+        } catch {
+          // A malformed change cannot supply a visibility anchor.
+        }
+      }
     }
-    readCache = { generation, latestByRef, issueDepsByFromId }
+    readCache = { generation, latestByRef, issueDepsByFromId, shipOrdersByIssueId }
     return readCache
   }
   const durableChangeValueOf = (ref: { entity: string; entityId: string }): unknown => {
@@ -438,6 +492,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // hands somebody the issue and none of its events would give them a
         // chat pane that starts at the moment they were let in.
         ...(deps.issueEventSubjects?.(asIssueId(ref.entityId)) ?? []),
+        ...(cache.shipOrdersByIssueId.get(ref.entityId) ?? []),
       ]
       return { audience, subjects }
     },

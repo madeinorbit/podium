@@ -636,6 +636,7 @@ export function operationalState(
   if (active.some((session) => motionPhase(session) === 'working'))
     return { state: 'working', label: 'Running' }
   if (issue.stage === 'done' || issue.closedReason) return { state: 'done', label: 'Done' }
+  if (issue.stage === 'shipping') return { state: 'working', label: 'Shipping' }
   if (issue.blocked) return { state: 'waiting', label: blockedByLabel(issue, byId) }
   if (active.length === 0 && sessions.length > 0)
     return { state: 'retired', label: 'Agent retired' }
@@ -723,6 +724,7 @@ export function deckIssueState(
   if (active.some((session) => session.handoffTarget)) return at('moved')
   if (active.some((session) => motionPhase(session) === 'working')) return at('working')
   if (issue.stage === 'done' || issue.closedReason) return at('done')
+  if (issue.stage === 'shipping') return at('working')
   if (issue.blocked) return at('blocked')
   if (waitingRefs(issue, byId).length > 0) return at('waiting')
   if (active.length === 0 && sessions.length > 0) return at('retired')
@@ -928,6 +930,7 @@ export type PresenceKind =
   | 'review'
   | 'ready'
   | 'attention'
+  | 'shipping'
 
 export interface PresenceNote {
   kind: PresenceKind
@@ -1019,6 +1022,9 @@ export function presenceNote(
   }
   if (issue.stage === 'review') {
     return { kind: 'review', text: 'Review ready · session ended', attention: false }
+  }
+  if (issue.stage === 'shipping') {
+    return { kind: 'shipping', text: 'Shipping service has custody', attention: false }
   }
   if (issue.stage === 'planning' || issue.stage === 'backlog') {
     return { kind: 'ready', text: 'Ready to start', attention: false }

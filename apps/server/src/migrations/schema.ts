@@ -53,11 +53,16 @@ import type {
   AutomationId,
   AutomationRunId,
   ConversationId,
+  DeliveryReceiptId,
   IssueId,
   MachineId,
   MutationId,
   RepoId,
   SessionId,
+  ShipAttemptId,
+  ShipHoldId,
+  ShipOrderId,
+  ShipStepId,
   ThreadId,
   UserId,
 } from '@podium/model'
@@ -1180,13 +1185,206 @@ export const issues = sqliteTable(
     index('idx_issues_repo').on(table.repoPath),
     check(
       'issues_check_1',
-      sql`stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'verifying', 'done')`,
+      sql`stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'shipping', 'verifying', 'done')`,
     ),
     check('issues_check_2', sql`priority BETWEEN 0 AND 4`),
     check(
       'issues_check_3',
       sql`type IN ('task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone', 'automation')`,
     ),
+  ],
+)
+
+export const shipOrders = sqliteTable(
+  'ship_orders',
+  {
+    id: text().$type<ShipOrderId>().primaryKey(),
+    issueId: text('issue_id')
+      .$type<IssueId>()
+      .notNull()
+      .references(() => issues.id, { onDelete: 'restrict' }),
+    repoId: text('repo_id').$type<RepoId>().notNull(),
+    targetBranch: text('target_branch').notNull(),
+    destination: text().notNull(),
+    approvedBaseSha: text('approved_base_sha').notNull(),
+    approvedHeadSha: text('approved_head_sha').notNull(),
+    descendantManifest: text('descendant_manifest', { mode: 'json' }).default([]).notNull(),
+    deliveryDependsOn: text('delivery_depends_on', { mode: 'json' }).default([]).notNull(),
+    providerRef: text('provider_ref', { mode: 'json' }),
+    requestedByActorKind: text('requested_by_actor_kind').notNull(),
+    requestedByActorId: text('requested_by_actor_id').notNull(),
+    requestedByOnBehalfOf: text('requested_by_on_behalf_of'),
+    requestedAt: text('requested_at').notNull(),
+    policyId: text('policy_id').notNull(),
+    closeMode: text('close_mode').notNull(),
+    state: text().notNull(),
+    stateChangedAt: text('state_changed_at').notNull(),
+    holdCode: text('hold_code'),
+  },
+  (table) => [
+    index('idx_ship_orders_issue').on(table.issueId),
+    index('idx_ship_orders_lane').on(table.repoId, table.destination, table.requestedAt, table.id),
+    uniqueIndex('idx_ship_orders_one_active_issue')
+      .on(table.issueId)
+      .where(sql`state NOT IN ('shipped', 'cancelled')`),
+    check(
+      'ship_orders_state_check',
+      sql`state IN ('queued', 'preflight', 'composing', 'validating', 'repairing', 'landing', 'publishing', 'verifying', 'shipped', 'held', 'cancelled')`,
+    ),
+    check('ship_orders_close_mode_check', sql`close_mode IN ('after-destination', 'leave-open')`),
+    check(
+      'ship_orders_hold_code_check',
+      sql`(state = 'held' AND hold_code IS NOT NULL) OR (state <> 'held' AND hold_code IS NULL)`,
+    ),
+    check(
+      'ship_orders_requested_by_actor_kind_check',
+      sql`requested_by_actor_kind IN ('user', 'agent', 'machine', 'system')`,
+    ),
+    check(
+      'ship_orders_requested_by_system_has_no_human_check',
+      sql`requested_by_actor_kind <> 'system' OR requested_by_on_behalf_of IS NULL`,
+    ),
+  ],
+)
+
+export const shipAttempts = sqliteTable(
+  'ship_attempts',
+  {
+    id: text().$type<ShipAttemptId>().primaryKey(),
+    orderId: text('order_id')
+      .$type<ShipOrderId>()
+      .notNull()
+      .references(() => shipOrders.id, { onDelete: 'restrict' }),
+    expectedSourceBaseSha: text('expected_source_base_sha').notNull(),
+    approvedHeadSha: text('approved_head_sha').notNull(),
+    expectedTargetSha: text('expected_target_sha').notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    leaseGeneration: integer('lease_generation').notNull(),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at'),
+    outcome: text(),
+    submittedHeadSha: text('submitted_head_sha').notNull(),
+    testedIntegrationSha: text('tested_integration_sha'),
+    landedRefSha: text('landed_ref_sha'),
+    destinationSha: text('destination_sha'),
+    validationProfileId: text('validation_profile_id'),
+    validationResult: text('validation_result'),
+  },
+  (table) => [
+    index('idx_ship_attempts_order').on(table.orderId, table.startedAt),
+    check('ship_attempts_generation_check', sql`lease_generation >= 0`),
+    check(
+      'ship_attempts_terminal_pair_check',
+      sql`(finished_at IS NULL AND outcome IS NULL) OR (finished_at IS NOT NULL AND outcome IS NOT NULL)`,
+    ),
+    check(
+      'ship_attempts_outcome_check',
+      sql`outcome IS NULL OR outcome IN ('succeeded', 'failed', 'cancelled')`,
+    ),
+    check(
+      'ship_attempts_validation_pair_check',
+      sql`(validation_profile_id IS NULL AND validation_result IS NULL) OR (validation_profile_id IS NOT NULL AND validation_result IS NOT NULL)`,
+    ),
+    check(
+      'ship_attempts_validation_result_check',
+      sql`validation_result IS NULL OR validation_result IN ('passed', 'failed')`,
+    ),
+  ],
+)
+
+export const shipSteps = sqliteTable(
+  'ship_steps',
+  {
+    id: text().$type<ShipStepId>().primaryKey(),
+    orderId: text('order_id')
+      .$type<ShipOrderId>()
+      .notNull()
+      .references(() => shipOrders.id, { onDelete: 'restrict' }),
+    attemptId: text('attempt_id')
+      .$type<ShipAttemptId>()
+      .notNull()
+      .references(() => shipAttempts.id, { onDelete: 'restrict' }),
+    effectKey: text('effect_key').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    generation: integer().notNull(),
+    inputFence: text('input_fence', { mode: 'json' }).notNull(),
+    kind: text().notNull(),
+    state: text().notNull(),
+    outcome: text(),
+    summary: text().notNull(),
+    artifactRef: text('artifact_ref'),
+    recordedAt: text('recorded_at').notNull(),
+    startedAt: text('started_at'),
+    finishedAt: text('finished_at'),
+  },
+  (table) => [
+    index('idx_ship_steps_order').on(table.orderId, table.recordedAt),
+    index('idx_ship_steps_effect').on(table.attemptId, table.effectKey, table.recordedAt),
+    uniqueIndex('idx_ship_steps_attempt_idempotency').on(table.attemptId, table.idempotencyKey),
+    check('ship_steps_generation_check', sql`generation >= 0`),
+    check(
+      'ship_steps_state_check',
+      sql`state IN ('planned', 'running', 'succeeded', 'failed', 'cancelled')`,
+    ),
+    check(
+      'ship_steps_lifecycle_check',
+      sql`(state = 'planned' AND started_at IS NULL AND finished_at IS NULL AND outcome IS NULL)
+          OR (state = 'running' AND started_at IS NOT NULL AND finished_at IS NULL AND outcome IS NULL)
+          OR (state IN ('succeeded', 'failed', 'cancelled') AND started_at IS NOT NULL AND finished_at IS NOT NULL AND outcome IS NOT NULL)`,
+    ),
+  ],
+)
+
+export const shipHolds = sqliteTable(
+  'ship_holds',
+  {
+    id: text().$type<ShipHoldId>().primaryKey(),
+    orderId: text('order_id')
+      .$type<ShipOrderId>()
+      .notNull()
+      .references(() => shipOrders.id, { onDelete: 'restrict' }),
+    generation: integer().notNull(),
+    reasonCode: text('reason_code').notNull(),
+    headline: text().notNull(),
+    detail: text().notNull(),
+    evidenceRefs: text('evidence_refs', { mode: 'json' }).default([]).notNull(),
+    actions: text({ mode: 'json' }).default([]).notNull(),
+    raisedAt: text('raised_at').notNull(),
+    resolvedAt: text('resolved_at'),
+    resolution: text(),
+  },
+  (table) => [
+    uniqueIndex('idx_ship_holds_order_generation').on(table.orderId, table.generation),
+    uniqueIndex('idx_ship_holds_one_open_order').on(table.orderId).where(sql`resolved_at IS NULL`),
+    check('ship_holds_generation_check', sql`generation > 0`),
+    check(
+      'ship_holds_resolution_pair_check',
+      sql`(resolved_at IS NULL AND resolution IS NULL) OR (resolved_at IS NOT NULL AND resolution IS NOT NULL)`,
+    ),
+  ],
+)
+
+export const deliveryReceipts = sqliteTable(
+  'delivery_receipts',
+  {
+    id: text().$type<DeliveryReceiptId>().primaryKey(),
+    orderId: text('order_id')
+      .$type<ShipOrderId>()
+      .notNull()
+      .references(() => shipOrders.id, { onDelete: 'restrict' }),
+    approvedBaseSha: text('approved_base_sha').notNull(),
+    approvedHeadSha: text('approved_head_sha').notNull(),
+    testedIntegrationSha: text('tested_integration_sha').notNull(),
+    landedRefSha: text('landed_ref_sha').notNull(),
+    destinationSha: text('destination_sha').notNull(),
+    validationProfileId: text('validation_profile_id').notNull(),
+    validationResult: text('validation_result').notNull(),
+    destination: text().notNull(),
+    completedAt: text('completed_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_delivery_receipts_order').on(table.orderId),
+    check('delivery_receipts_validation_result_check', sql`validation_result = 'passed'`),
   ],
 )
 

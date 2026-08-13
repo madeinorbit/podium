@@ -7,6 +7,7 @@ import {
   type GrantVerb,
   type IssueWire,
   isSortKey,
+  isSystemOwnedIssueStage,
   normalizeClosedPatch,
   type SessionId,
   type SessionMeta,
@@ -310,6 +311,9 @@ export class IssueCrudModule {
   }
 
   create(input: CreateIssueInput): IssueWire {
+    if ((input as { stage?: string }).stage === 'shipping') {
+      throw new Error('shipping stage is system-owned and requires a ship order')
+    }
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
     const repoId = this.store.deps.store.repos.resolveRepoIdForPath(input.repoPath)
@@ -422,6 +426,13 @@ export class IssueCrudModule {
   ): IssueWire {
     const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
+    // `shipping` is lifecycle custody, not an ordinary board value. The
+    // purpose-built Shipping service owns both directions; every existing
+    // update/claim/start path converges here and is therefore unable to enter or
+    // leave the stage accidentally.
+    if (isSystemOwnedIssueStage(row.stage) || patch.stage === 'shipping') {
+      throw new Error('shipping stage is system-owned and cannot be changed by an issue update')
+    }
     const prevStage = row.stage
     const wasClosed = this.store.isClosed(row)
     // COLOUR IS A TOP-LEVEL PROPERTY [spec:SP-b4d1]. A sub-issue runs under its
@@ -897,6 +908,9 @@ export class IssueCrudModule {
 
   applySuggestion(id: string): IssueWire {
     const row = this.store.rowOrThrow(id)
+    if (isSystemOwnedIssueStage(row.stage)) {
+      throw new Error('shipping stage is system-owned and cannot apply an issue suggestion')
+    }
     const stage = row.suggestedStage
     row.suggestedStage = null
     row.suggestedReason = null
@@ -909,6 +923,9 @@ export class IssueCrudModule {
   }
   dismissSuggestion(id: string): IssueWire {
     const row = this.store.rowOrThrow(id)
+    if (isSystemOwnedIssueStage(row.stage)) {
+      throw new Error('shipping stage is system-owned and cannot dismiss an issue suggestion')
+    }
     row.suggestedStage = null
     row.suggestedReason = null
     return this.store.persistRow(row)

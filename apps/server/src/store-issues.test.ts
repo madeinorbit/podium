@@ -1,25 +1,73 @@
-import { FIRST_ADMIN_USER_ID, asIssueId, asRepoId } from '@podium/model'
+import {
+  FIRST_ADMIN_USER_ID,
+  asDeliveryReceiptId,
+  asIssueId,
+  asMachineId,
+  asRepoId,
+  asShipAttemptId,
+  asShipHoldId,
+  asShipOrderId,
+  asShipStepId,
+  type DeliveryReceipt,
+  type ShipOrder,
+} from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
+import { shipOrderProjectionRows } from './modules/shipping/projection'
+import { runDrizzleMigrations } from './migrations'
+import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 
 const base = () => ({
-  id: asIssueId('iss_1'), repoPath: '/r', seq: 1, title: 'Fix login', description: 'desc',
-  ownerUserId: FIRST_ADMIN_USER_ID, visibility: 'personal' as const, createdByActor: FIRST_ADMIN_USER_ID,
+  id: asIssueId('iss_1'),
+  repoPath: '/r',
+  seq: 1,
+  title: 'Fix login',
+  description: 'desc',
+  ownerUserId: FIRST_ADMIN_USER_ID,
+  visibility: 'personal' as const,
+  createdByActor: FIRST_ADMIN_USER_ID,
   createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
-  stage: 'backlog', worktreePath: null, branch: null, parentBranch: 'main',
-  defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto',
-  linearId: null, linearIdentifier: null, linearUrl: null,
-  activityNotes: null, notesUpdatedAt: null, suggestedStage: null, suggestedReason: null,
-  blockedBy: [] as string[], dependencyNote: null, prUrl: null,
-  priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-  notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null, supersededBy: null,
-  duplicateOf: null, pinned: false, estimateMin: null,
-  needsHuman: false, humanQuestion: null,
-  createdAt: 't0', updatedAt: 't0', archived: false,
+  stage: 'backlog',
+  worktreePath: null,
+  branch: null,
+  parentBranch: 'main',
+  defaultAgent: 'claude-code',
+  defaultModel: 'auto',
+  defaultEffort: 'auto',
+  linearId: null,
+  linearIdentifier: null,
+  linearUrl: null,
+  activityNotes: null,
+  notesUpdatedAt: null,
+  suggestedStage: null,
+  suggestedReason: null,
+  blockedBy: [] as string[],
+  dependencyNote: null,
+  prUrl: null,
+  priority: 2,
+  type: 'task',
+  assignee: null,
+  parentId: null,
+  design: null,
+  acceptance: null,
+  notes: null,
+  dueAt: null,
+  deferUntil: null,
+  closedReason: null,
+  closedAt: null,
+  supersededBy: null,
+  duplicateOf: null,
+  pinned: false,
+  estimateMin: null,
+  needsHuman: false,
+  humanQuestion: null,
+  createdAt: 't0',
+  updatedAt: 't0',
+  archived: false,
 })
 
 describe('store issues', () => {
@@ -36,7 +84,13 @@ describe('store issues', () => {
   it('updates on conflict and preserves JSON blockedBy', () => {
     const s = new SessionStore(':memory:')
     s.issues.upsertIssue(base())
-    s.issues.upsertIssue({ ...base(), stage: 'planning', worktreePath: '/r/wt', branch: 'issue/1-x', blockedBy: ['iss_2'] })
+    s.issues.upsertIssue({
+      ...base(),
+      stage: 'planning',
+      worktreePath: '/r/wt',
+      branch: 'issue/1-x',
+      blockedBy: ['iss_2'],
+    })
     const got = s.issues.getIssue('iss_1')
     expect(got?.stage).toBe('planning')
     expect(got?.worktreePath).toBe('/r/wt')
@@ -52,7 +106,12 @@ describe('store issues', () => {
     s.issues.upsertIssue({ ...base(), id: asIssueId('c'), repoPath: '/other', seq: 1 })
     expect(s.issues.nextIssueSeq(rid('/r'))).toBe(3)
     expect(s.issues.nextIssueSeq(rid('/other'))).toBe(2)
-    expect(s.issues.listIssueRows('/r').map((i) => i.id).sort()).toEqual(['a', 'b'])
+    expect(
+      s.issues
+        .listIssueRows('/r')
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual(['a', 'b'])
     expect(s.issues.listIssueRows().length).toBe(3)
   })
 
@@ -60,8 +119,20 @@ describe('store issues', () => {
     const s = new SessionStore(':memory:')
     const repoId = asRepoId('repo_shared_origin')
     // Two checkouts of the SAME repo at DIFFERENT paths (e.g. two machines).
-    s.issues.upsertIssue({ ...base(), id: asIssueId('a'), repoPath: '/home/alice/proj', repoId, seq: 1 })
-    s.issues.upsertIssue({ ...base(), id: asIssueId('b'), repoPath: '/home/bob/proj', repoId, seq: 2 })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('a'),
+      repoPath: '/home/alice/proj',
+      repoId,
+      seq: 1,
+    })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('b'),
+      repoPath: '/home/bob/proj',
+      repoId,
+      seq: 2,
+    })
     // One repo_id → one sequence; the next number is 3, not a per-path duplicate.
     expect(s.issues.nextIssueSeq(repoId)).toBe(3)
   })
@@ -72,9 +143,21 @@ describe('store issues', () => {
     // heal has nothing to do on a live DB.
     const s = new SessionStore(':memory:')
     const repoId = asRepoId('repo_dup')
-    s.issues.upsertIssue({ ...base(), id: asIssueId('m4'), repoPath: '/home/user/p', repoId, seq: 4 })
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('m4'),
+      repoPath: '/home/user/p',
+      repoId,
+      seq: 4,
+    })
     expect(() =>
-      s.issues.upsertIssue({ ...base(), id: asIssueId('t4'), repoPath: '/home/till/p', repoId, seq: 4 }),
+      s.issues.upsertIssue({
+        ...base(),
+        id: asIssueId('t4'),
+        repoPath: '/home/till/p',
+        repoId,
+        seq: 4,
+      }),
     ).toThrow()
     expect(s.issues.renumberCollidingIssueSeqs()).toBe(0)
   })
@@ -88,11 +171,41 @@ describe('store issues', () => {
     const s1 = new SessionStore(file)
     // Same origin, two paths; canonical (majority) path /home/user + a loser path
     // /home/till that minted colliding #4 (and a non-colliding #1).
-    s1.issues.upsertIssue({ ...base(), id: asIssueId('m3'), repoPath: '/home/user/p', repoId, seq: 3 })
-    s1.issues.upsertIssue({ ...base(), id: asIssueId('m4'), repoPath: '/home/user/p', repoId, seq: 4 })
-    s1.issues.upsertIssue({ ...base(), id: asIssueId('m5'), repoPath: '/home/user/p', repoId, seq: 5 })
-    s1.issues.upsertIssue({ ...base(), id: asIssueId('t4'), repoPath: '/home/till/p', repoId, seq: 99 })
-    s1.issues.upsertIssue({ ...base(), id: asIssueId('t1'), repoPath: '/home/till/p', repoId, seq: 1 })
+    s1.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('m3'),
+      repoPath: '/home/user/p',
+      repoId,
+      seq: 3,
+    })
+    s1.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('m4'),
+      repoPath: '/home/user/p',
+      repoId,
+      seq: 4,
+    })
+    s1.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('m5'),
+      repoPath: '/home/user/p',
+      repoId,
+      seq: 5,
+    })
+    s1.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('t4'),
+      repoPath: '/home/till/p',
+      repoId,
+      seq: 99,
+    })
+    s1.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('t1'),
+      repoPath: '/home/till/p',
+      repoId,
+      seq: 1,
+    })
     s1.close()
     const raw = openDatabase(file)
     raw.exec('DROP INDEX idx_issues_repo_id_seq')
@@ -169,6 +282,352 @@ describe('store issues', () => {
     rawDb(s).prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run('t1', 'gone')
 
     expect([...s.issues.closedIssueIds()].sort()).toEqual(['done', 'duped', 'gone'])
+  })
+})
+
+const shipOrder = (overrides: Partial<ShipOrder> = {}): ShipOrder => ({
+  id: asShipOrderId('order-1'),
+  issueId: asIssueId('iss_1'),
+  descendantManifest: [],
+  repoId: asRepoId('repo-1'),
+  targetBranch: 'main',
+  destination: 'origin/main',
+  approvedBaseSha: 'approved-base',
+  approvedHeadSha: 'approved-head',
+  deliveryDependsOn: [],
+  requestedBy: {
+    actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
+    onBehalfOf: FIRST_ADMIN_USER_ID,
+  },
+  requestedAt: '2026-08-12T10:00:00.000Z',
+  policyId: 'default',
+  closeMode: 'after-destination',
+  state: 'queued',
+  stateChangedAt: '2026-08-12T10:00:00.000Z',
+  ...overrides,
+})
+
+describe('shipping durable store', () => {
+  it('migrates legacy verifying issues without changing their stage', () => {
+    const db = openDatabase(':memory:')
+    const shippingMigration = DRIZZLE_MIGRATIONS.at(-1)
+    if (!shippingMigration?.name.endsWith('_shipping-durable-model')) {
+      throw new Error('shipping migration must be the audited final migration in this branch')
+    }
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, -1), { skipSchemaRepair: true })
+    db.prepare(
+      `INSERT INTO issues
+        (id, repo_path, seq, title, description, stage, parent_branch, default_agent,
+         created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'legacy-verifying',
+      '/r',
+      99,
+      'Legacy verification',
+      '',
+      'verifying',
+      'main',
+      'auto',
+      't0',
+      't0',
+    )
+
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS, { skipSchemaRepair: true })
+
+    const row = db.prepare('SELECT stage FROM issues WHERE id = ?').get('legacy-verifying') as {
+      stage: string
+    }
+    expect(row.stage).toBe('verifying')
+    db.close()
+  })
+
+  it('fences active orders, attempts, idempotent steps, holds, and immutable receipts', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-shipping-store-')), 'shipping.db')
+    const s = new SessionStore(file)
+    s.issues.upsertIssue(base())
+    const order = shipOrder()
+    expect(s.shipping.createOrder(order)).toEqual(order)
+    expect(() =>
+      s.shipping.createOrder(
+        shipOrder({ id: asShipOrderId('order-not-queued'), state: 'preflight' }),
+      ),
+    ).toThrow(/created queued/)
+    expect(() => s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-other') }))).toThrow(
+      /already has active ship order/,
+    )
+    expect(() =>
+      rawDb(s)
+        .prepare(
+          `INSERT INTO ship_orders
+            (id, issue_id, repo_id, target_branch, destination, approved_base_sha,
+             approved_head_sha, descendant_manifest, delivery_depends_on, provider_ref,
+             requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
+             requested_at, policy_id, close_mode, state, state_changed_at, hold_code)
+           SELECT ?, issue_id, repo_id, target_branch, destination, approved_base_sha,
+             approved_head_sha, descendant_manifest, delivery_depends_on, provider_ref,
+             requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
+             requested_at, policy_id, close_mode, state, state_changed_at, hold_code
+           FROM ship_orders WHERE id = ?`,
+        )
+        .run('order-raw-active', order.id),
+    ).toThrow()
+    expect(() =>
+      rawDb(s)
+        .prepare('UPDATE ship_orders SET target_branch = ? WHERE id = ?')
+        .run('dev', order.id),
+    ).toThrow(/approval is immutable/)
+
+    const attempt = {
+      id: asShipAttemptId('attempt-1'),
+      orderId: order.id,
+      expectedSourceBaseSha: order.approvedBaseSha,
+      approvedHeadSha: order.approvedHeadSha,
+      expectedTargetSha: 'target-before',
+      machineId: asMachineId('machine-1'),
+      leaseGeneration: 3,
+      startedAt: '2026-08-12T10:01:00.000Z',
+      submittedHeadSha: order.approvedHeadSha,
+    }
+    s.shipping.createAttempt(attempt)
+    const stepFence = {
+      sourceBaseSha: attempt.expectedSourceBaseSha,
+      approvedHeadSha: attempt.approvedHeadSha,
+      targetSha: attempt.expectedTargetSha,
+    }
+    const plannedStep = {
+      id: asShipStepId('step-planned'),
+      orderId: order.id,
+      attemptId: attempt.id,
+      effectKey: 'validation:approved-head',
+      idempotencyKey: 'validate:approved-head',
+      generation: attempt.leaseGeneration,
+      inputFence: stepFence,
+      kind: 'validation',
+      state: 'planned' as const,
+      summary: 'store shard planned',
+      recordedAt: '2026-08-12T10:02:00.000Z',
+    }
+    const runningStep = {
+      ...plannedStep,
+      id: asShipStepId('step-running'),
+      idempotencyKey: 'validate:approved-head:running',
+      state: 'running' as const,
+      summary: 'store shard running',
+      startedAt: '2026-08-12T10:02:00.000Z',
+      recordedAt: '2026-08-12T10:02:30.000Z',
+    }
+    const finishedStep = {
+      ...runningStep,
+      id: asShipStepId('step-finished'),
+      idempotencyKey: 'validate:approved-head:finished',
+      state: 'succeeded' as const,
+      outcome: 'passed',
+      summary: 'store shard passed',
+      artifactRef: 'artifact://validation/1',
+      finishedAt: '2026-08-12T10:03:00.000Z',
+      recordedAt: '2026-08-12T10:03:00.000Z',
+    }
+    expect(s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
+    expect(s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
+    expect(() =>
+      s.shipping.appendStep({
+        ...plannedStep,
+        id: asShipStepId('step-collision'),
+        summary: 'different',
+      }),
+    ).toThrow(/idempotency collision/)
+    expect(s.shipping.appendStep(runningStep)).toEqual(runningStep)
+    expect(s.shipping.appendStep(finishedStep)).toEqual(finishedStep)
+    expect(s.shipping.latestStepForEffect(attempt.id, plannedStep.effectKey)).toEqual(finishedStep)
+    expect(() =>
+      s.shipping.appendStep({
+        ...plannedStep,
+        id: asShipStepId('step-stale-generation'),
+        idempotencyKey: 'stale-generation',
+        generation: 2,
+      }),
+    ).toThrow(/generation fence/)
+
+    expect(() =>
+      s.shipping.raiseHold({
+        id: asShipHoldId('hold-stale'),
+        orderId: order.id,
+        generation: 2,
+        reasonCode: 'validation-failed',
+        headline: 'Validation needs a decision',
+        detail: 'The configured validation profile failed.',
+        evidenceRefs: ['artifact://validation/1'],
+        actions: ['retry'],
+        raisedAt: '2026-08-12T10:04:00.000Z',
+      }),
+    ).toThrow(/expected 1/)
+    s.shipping.raiseHold({
+      id: asShipHoldId('hold-1'),
+      orderId: order.id,
+      generation: 1,
+      reasonCode: 'validation-failed',
+      headline: 'Validation needs a decision',
+      detail: 'The configured validation profile failed.',
+      evidenceRefs: ['artifact://validation/1'],
+      actions: ['retry'],
+      raisedAt: '2026-08-12T10:04:00.000Z',
+    })
+    expect(() =>
+      rawDb(s)
+        .prepare(
+          `INSERT INTO ship_holds
+            (id, order_id, generation, reason_code, headline, detail, evidence_refs,
+             actions, raised_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          'hold-raw-open',
+          order.id,
+          2,
+          'dependency-blocked',
+          'Still held',
+          '',
+          '[]',
+          '["retry"]',
+          '2026-08-12T10:04:30.000Z',
+        ),
+    ).toThrow()
+    expect(() =>
+      s.shipping.raiseHold({
+        id: asShipHoldId('hold-second-open'),
+        orderId: order.id,
+        generation: 2,
+        reasonCode: 'dependency-blocked',
+        headline: 'Still held',
+        detail: '',
+        evidenceRefs: [],
+        actions: ['retry'],
+        raisedAt: '2026-08-12T10:04:30.000Z',
+      }),
+    ).toThrow()
+    expect(() =>
+      s.shipping.resolveHold(order.id, 2, 'retry', 'queued', '2026-08-12T10:05:00.000Z'),
+    ).toThrow(/generation fence/)
+    expect(() =>
+      s.shipping.resolveHold(order.id, 1, 'retry', 'repairing', '2026-08-12T10:05:00.000Z'),
+    ).toThrow(/cannot transition/)
+    expect(
+      s.shipping.resolveHold(order.id, 1, 'retry', 'queued', '2026-08-12T10:05:00.000Z'),
+    ).toMatchObject({ generation: 1, resolution: 'retry' })
+
+    expect(() =>
+      s.shipping.finishAttempt(attempt.id, 2, {
+        finishedAt: '2026-08-12T10:06:00.000Z',
+        outcome: 'succeeded',
+      }),
+    ).toThrow(/generation fence/)
+    expect(() =>
+      s.shipping.transitionOrder(order.id, 'queued', 'verifying', '2026-08-12T10:06:30.000Z'),
+    ).toThrow(/illegal ship order transition/)
+    s.shipping.transitionOrder(order.id, 'queued', 'preflight', '2026-08-12T10:06:10.000Z')
+    s.shipping.transitionOrder(order.id, 'preflight', 'composing', '2026-08-12T10:06:20.000Z')
+    s.shipping.transitionOrder(order.id, 'composing', 'validating', '2026-08-12T10:06:30.000Z')
+    s.shipping.transitionOrder(order.id, 'validating', 'landing', '2026-08-12T10:06:40.000Z')
+    s.shipping.transitionOrder(order.id, 'landing', 'verifying', '2026-08-12T10:07:00.000Z')
+    const receipt: DeliveryReceipt = {
+      id: asDeliveryReceiptId('receipt-1'),
+      orderId: order.id,
+      approvedBaseSha: order.approvedBaseSha,
+      approvedHeadSha: order.approvedHeadSha,
+      testedIntegrationSha: 'tested-integration',
+      landedRefSha: 'landed-ref',
+      destinationSha: 'destination-tip',
+      validationProfileId: 'default',
+      validationResult: 'passed',
+      destination: order.destination,
+      completedAt: '2026-08-12T10:08:00.000Z',
+    }
+    expect(() => s.shipping.completeVerifiedOrder(receipt)).toThrow(/successful proof/)
+    const finished = s.shipping.finishAttempt(attempt.id, 3, {
+      finishedAt: '2026-08-12T10:07:30.000Z',
+      outcome: 'succeeded',
+      testedIntegrationSha: 'tested-integration',
+      landedRefSha: 'landed-ref',
+      destinationSha: 'destination-tip',
+      validationProfileId: 'default',
+      validationResult: 'passed',
+    })
+    expect(finished).toMatchObject({
+      approvedHeadSha: 'approved-head',
+      testedIntegrationSha: 'tested-integration',
+      landedRefSha: 'landed-ref',
+      destinationSha: 'destination-tip',
+      validationProfileId: 'default',
+      validationResult: 'passed',
+    })
+    expect(s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
+    expect(s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
+    expect(() =>
+      s.shipping.completeVerifiedOrder({ ...receipt, destinationSha: 'different-proof' }),
+    ).toThrow(/different immutable receipt/)
+    expect(() => s.shipping.transitionOrder(order.id, 'shipped', 'queued', 'later')).toThrow(
+      /terminal ship order.*immutable/,
+    )
+    expect(() =>
+      rawDb(s).prepare('UPDATE ship_steps SET summary = ? WHERE id = ?').run('x', finishedStep.id),
+    ).toThrow(/append-only/)
+    expect(() =>
+      rawDb(s).prepare('DELETE FROM ship_steps WHERE id = ?').run(finishedStep.id),
+    ).toThrow(/append-only/)
+    expect(() => rawDb(s).prepare('DELETE FROM ship_orders WHERE id = ?').run(order.id)).toThrow(
+      /ship order .*immutable/,
+    )
+    expect(() =>
+      rawDb(s).prepare('DELETE FROM ship_attempts WHERE id = ?').run(attempt.id),
+    ).toThrow(/ship attempt .*immutable/)
+    expect(() =>
+      rawDb(s).prepare('DELETE FROM ship_holds WHERE id = ?').run(asShipHoldId('hold-1')),
+    ).toThrow(/ship hold .*immutable/)
+    expect(() =>
+      rawDb(s)
+        .prepare('UPDATE delivery_receipts SET destination_sha = ? WHERE id = ?')
+        .run('other', receipt.id),
+    ).toThrow(/delivery receipt is immutable/)
+    expect(() =>
+      rawDb(s).prepare('DELETE FROM delivery_receipts WHERE id = ?').run(receipt.id),
+    ).toThrow(/delivery receipt is immutable/)
+
+    expect(() => s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-2') }))).not.toThrow()
+    s.close()
+    const restarted = new SessionStore(file)
+    expect(restarted.shipping.getOrder(order.id)).toMatchObject({ state: 'shipped' })
+    expect(restarted.shipping.receiptForOrder(order.id)).toEqual(receipt)
+    expect(restarted.shipping.stepsForAttempt(attempt.id)).toEqual([
+      plannedStep,
+      runningStep,
+      finishedStep,
+    ])
+    expect(restarted.shipping.listHolds()).toContainEqual(
+      expect.objectContaining({ id: asShipHoldId('hold-1'), resolution: 'retry' }),
+    )
+    restarted.close()
+  })
+
+  it('omits cancelled orders from the routine compact projection', () => {
+    const cancelled = shipOrder({ state: 'cancelled' })
+    expect(shipOrderProjectionRows([cancelled], [], [])).toEqual([])
+  })
+
+  it('exposes a CAS-only issue custody seam for atomic admission and settlement', () => {
+    const s = new SessionStore(':memory:')
+    const issue = { ...base(), stage: 'review' as const }
+    s.issues.upsertIssue(issue)
+    s.transact(() => {
+      s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't1')
+      s.shipping.createOrder(shipOrder())
+    })
+    expect(s.issues.getIssue(issue.id)?.stage).toBe('shipping')
+    expect(() => s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't2')).toThrow(
+      /stage fence/,
+    )
+    s.issues.transitionShippingStage(issue.id, 'shipping', 'review', 't3')
+    expect(s.issues.getIssue(issue.id)?.stage).toBe('review')
   })
 })
 

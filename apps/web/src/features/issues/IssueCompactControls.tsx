@@ -7,7 +7,12 @@ import {
   type ProposalPlacement,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueStage, SessionMeta } from '@podium/model'
+import {
+  HUMAN_SETTABLE_ISSUE_STAGES,
+  type IssueId,
+  isSystemOwnedIssueStage,
+  type SessionMeta,
+} from '@podium/model'
 import {
   ArrowUpRight,
   Check,
@@ -43,7 +48,9 @@ import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 
 /** Every stage a live issue can be moved between. `done` is not one of them —
  *  see the close dialog. */
-const OPEN_STAGES = (Object.keys(STAGE_LABELS) as IssueStage[]).filter((stage) => stage !== 'done')
+const OPEN_STAGES = HUMAN_SETTABLE_ISSUE_STAGES.filter(
+  (stage) => stage !== 'done',
+)
 
 /**
  * The dock's reading scale (POD-725 §7). Written out rather than taken from
@@ -584,6 +591,24 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
     const byId = new Map(issues.map((candidate) => [candidate.id as string, candidate]))
     return discoveredPlacement(issue, byId)
   }, [action.kind, issue, issues])
+
+  if (isSystemOwnedIssueStage(issue.stage)) {
+    return (
+      <div className="mt-2.5 flex items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled
+          aria-label="Shipping controls are managed by the shipping service"
+          className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
+        >
+          <StageGlyph stage={issue.stage} size={12} />
+          {STAGE_LABELS[issue.stage]}
+        </Button>
+      </div>
+    )
+  }
 
   const confirmClose = (reason: IssueCloseReason): void => {
     setClosing(true)

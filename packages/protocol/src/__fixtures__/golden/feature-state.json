@@ -4333,8 +4333,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -4353,8 +4353,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4373,8 +4373,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4393,8 +4393,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4413,8 +4413,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -4433,8 +4433,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4453,8 +4453,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4473,8 +4473,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4493,8 +4493,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -4513,8 +4513,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4533,8 +4533,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4553,8 +4553,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4573,8 +4573,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": false,
         "enabled": true,
@@ -4593,8 +4593,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4613,8 +4613,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4633,8 +4633,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4653,8 +4653,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": false,
         "enabled": true,
@@ -4673,8 +4673,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4693,8 +4693,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4713,8 +4713,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4733,8 +4733,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": false,
         "enabled": true,
@@ -4753,8 +4753,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4773,8 +4773,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4793,8 +4793,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -4813,8 +4813,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -4833,8 +4833,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4853,8 +4853,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4873,8 +4873,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4893,8 +4893,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -4913,8 +4913,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4933,8 +4933,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4953,8 +4953,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -4973,8 +4973,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -4993,8 +4993,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -5013,8 +5013,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -5033,8 +5033,8 @@
       },
       "wire": {
         "id": "merge-queue",
-        "name": "Merge queue",
-        "description": "Show the merge queue tool in the right sidebar.",
+        "name": "Queues",
+        "description": "Show merge and heavy-test queues in the right sidebar.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -8636,6 +8636,726 @@
         "name": "Automations",
         "description": "Show scheduled automations and notification triggers.",
         "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "podium-development",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "podium-development",
+        "name": "Podium development",
+        "description": "Show controls for developing Podium itself: the Development update channel and per-machine update sources.",
+        "visibility": "stable",
         "listed": true,
         "enabled": false,
         "source": "config",

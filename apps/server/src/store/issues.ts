@@ -252,6 +252,37 @@ export class IssuesRepository {
       )
   }
 
+  /** Internal Shipping custody seam. Ordinary issue CRUD never calls this.
+   * Callers bind it to ship-order create/settlement with SessionStore.transact;
+   * the expected-stage predicate is the admission/settlement CAS. */
+  transitionShippingStage(
+    id: IssueId,
+    expectedStage: Extract<IssueRow['stage'], 'review' | 'shipping'>,
+    nextStage: Extract<IssueRow['stage'], 'shipping' | 'review' | 'done'>,
+    updatedAt: string,
+  ): IssueRow {
+    const legal =
+      (expectedStage === 'review' && nextStage === 'shipping') ||
+      (expectedStage === 'shipping' && (nextStage === 'review' || nextStage === 'done'))
+    if (!legal) {
+      throw new Error(`illegal shipping issue-stage transition ${expectedStage} → ${nextStage}`)
+    }
+    this.invalidateRowCache()
+    const result = this.db
+      .prepare(
+        `UPDATE issues
+         SET stage = ?, updated_at = ?, revision = COALESCE(revision, 0) + 1
+         WHERE id = ? AND stage = ? AND deleted_at IS NULL`,
+      )
+      .run(nextStage, updatedAt, id, expectedStage)
+    if (result.changes !== 1) {
+      throw new Error(`issue ${id} shipping stage fence failed: expected ${expectedStage}`)
+    }
+    const row = this.getIssue(id)
+    if (!row) throw new Error(`issue ${id} disappeared after shipping transition`)
+    return row
+  }
+
   /**
    * SERIALIZATION EDGE — the one place a sqlite `Record<string, unknown>` becomes
    * an `IssueRow`. Every cast below is a decode of an untyped column, brands

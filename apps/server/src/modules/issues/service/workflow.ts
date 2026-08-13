@@ -4,6 +4,7 @@ import {
   DEFER_NEXT_MESSAGE,
   type IssueRehomeTarget,
   type IssueWire,
+  isSystemOwnedIssueStage,
   type SessionId,
   type SessionMeta,
   spawnedByTag,
@@ -160,6 +161,9 @@ export class IssueGitWorkflowModule {
   rehome(id: string, to: IssueRehomeTarget): IssueWire | null {
     const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) return null
+    if (isSystemOwnedIssueStage(row.stage)) {
+      throw new Error('shipping stage is system-owned and cannot rehome issue work')
+    }
     if (!this.isSameRepoIdentity(row, to.repoPath)) return null
     row.repoPath = to.repoPath
     return this.crud().update(id, {
@@ -242,6 +246,9 @@ export class IssueGitWorkflowModule {
       }>
   > {
     const row = this.store.rowOrThrow(id)
+    if (isSystemOwnedIssueStage(row.stage)) {
+      throw new Error('shipping stage is system-owned and cannot start issue work')
+    }
     if (row.worktreePath) {
       // Starting a started issue is a deliberate no-op. But a caller who passed an
       // explicit --model/--effort asked for something this no-op will not do, and
@@ -658,6 +665,9 @@ export class IssueGitWorkflowModule {
     requestedMachineId?: MachineId,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
     const row = this.store.rowOrThrow(id)
+    if (isSystemOwnedIssueStage(row.stage)) {
+      throw new Error('shipping stage is system-owned and cannot create an issue worktree')
+    }
     const machineId = requestedMachineId ?? row.machineId ?? undefined
     const repoPath = this.repoPathOnMachine(row.repoPath, machineId)
     // A worktree path is machine-local. It is reusable only when the issue is
@@ -966,6 +976,9 @@ export class IssueGitWorkflowModule {
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
   ): IssueWire | Promise<IssueWire> {
     const row = this.store.rowOrThrow(id)
+    if (isSystemOwnedIssueStage(row.stage)) {
+      throw new Error('shipping stage is system-owned and cannot add a session')
+    }
     if (!row.worktreePath) {
       if (!row.branch) throw new Error('issue not started')
       return this.ensureWorktree(id).then((ensured) => {
@@ -985,6 +998,9 @@ export class IssueGitWorkflowModule {
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
   ): IssueWire {
     const row = this.store.rowOrThrow(id)
+    if (isSystemOwnedIssueStage(row.stage)) {
+      throw new Error('shipping stage is system-owned and cannot add a session')
+    }
     if (!row.worktreePath) throw new Error('issue not started')
     const kind = agentKind ?? row.defaultAgent
     const selection = this.selectionFor(kind, {

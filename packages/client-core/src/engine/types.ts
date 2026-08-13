@@ -135,6 +135,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  server-curated tail — the superagent feed reads THESE rows rather than
    *  re-asking `issues.events` on a timer. */
   issueEvents: IssueEventWire[]
+  /** Compact order rows; Shipping views join these to issues by issueId. */
+  shipOrders: import('@podium/model').ShipOrderProjection[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
   conversations: ConversationSummaryWire[]
   /** Scheduled definitions and honest run history mirrored live from the replica. */

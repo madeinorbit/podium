@@ -21,6 +21,7 @@ const STAGE_FILL: Record<IssueStage, number> = {
   planning: 0,
   in_progress: 1 / 3,
   review: 2 / 3,
+  shipping: 5 / 6,
   done: 1,
 }
 

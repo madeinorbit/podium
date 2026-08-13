@@ -67,6 +67,7 @@ import {
   layoutRowId,
   type RepoProjection,
   type SessionMeta,
+  type ShipOrderProjection,
   type TranscriptItem,
 } from '@podium/model'
 import type { Transaction } from '@tanstack/db'
@@ -297,6 +298,7 @@ const ENTITY_STORE_KINDS = [
   'issueDeps',
   'repos',
   'issueEvents',
+  'shipOrders',
   'conversations',
   'automations',
   'automationRuns',
@@ -460,6 +462,12 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
+      shipOrders: this.makeCollection<ShipOrderProjection>(
+        'shipOrders',
+        (order) => order.id,
+        guarded,
+        guardedEvents,
+      ),
       conversations: this.makeCollection<ConversationSummaryWire>(
         'conversations',
         (c) => c.id,
@@ -524,6 +532,7 @@ class TanstackReplica implements Replica {
       issueDeps: [],
       repos: [],
       issueEvents: [],
+      shipOrders: [],
       conversations: [],
       automations: [],
       automationRuns: [],
@@ -571,6 +580,7 @@ class TanstackReplica implements Replica {
         issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
         repos: this.cols.repos.toArray as RepoProjection[],
         issueEvents: this.cols.issueEvents.toArray as IssueEventWire[],
+        shipOrders: this.cols.shipOrders.toArray as ShipOrderProjection[],
         conversations: this.cols.conversations.toArray as ConversationSummaryWire[],
         automations: this.cols.automations.toArray as AutomationWire[],
         automationRuns: this.cols.automationRuns.toArray as AutomationRunWire[],
@@ -1536,7 +1546,14 @@ class TanstackReplica implements Replica {
       }
     }
     return (row) =>
-      (row as IssueWire | ConversationSummaryWire | AutomationWire | AutomationRunWire).id
+      (
+        row as
+          | IssueWire
+          | ConversationSummaryWire
+          | AutomationWire
+          | AutomationRunWire
+          | ShipOrderProjection
+      ).id
   }
 
   /** Insert-new + update-changed (skipping byte-identical rows so a re-applied

@@ -4,7 +4,7 @@ import {
   type IssueRow,
   issueRowsByStage,
 } from '@podium/client-core/viewmodels'
-import type { IssueStage, IssueWire } from '@podium/model'
+import type { IssueBoardStage, IssueWire } from '@podium/model'
 import { STAGE_LABEL } from '../theme/stage'
 
 /**
@@ -55,7 +55,7 @@ import { STAGE_LABEL } from '../theme/stage'
 export const TASK_BOARD_ORDERING = 'priority' as const
 
 /** Stages nearest the thumb first — see the module note on section order. */
-export const TASK_STAGE_ORDER: readonly IssueStage[] = [
+export const TASK_STAGE_ORDER: readonly IssueBoardStage[] = [
   'in_progress',
   'review',
   'planning',
@@ -66,7 +66,7 @@ export const TASK_STAGE_ORDER: readonly IssueStage[] = [
 
 export interface TaskBoardSection {
   /** The stage this section is, and the `useCollapsed` key suffix. */
-  stage: IssueStage
+  stage: IssueBoardStage
   title: string
   /** Rows the section WOULD show — its count, independent of the fold. */
   rows: IssueRow<IssueWire>[]

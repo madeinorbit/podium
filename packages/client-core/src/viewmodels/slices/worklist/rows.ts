@@ -6,7 +6,12 @@
  * `row-order.ts`, attention in `row-attention.ts`, fold placement in
  * `folds.ts`; this module reads the first and neither of the others.
  */
-import { type IssueId, type IssueWire, type SessionMeta } from '@podium/model'
+import {
+  type IssueId,
+  type IssueWire,
+  isSystemOwnedIssueStage,
+  type SessionMeta,
+} from '@podium/model'
 import { isSessionWorking } from '../../session-status'
 import {
   issueIdOwningSession,
@@ -46,7 +51,13 @@ function buildUnifiedRows(
 ): UnifiedWorkRow[] {
   const rows: UnifiedWorkRow[] = []
   for (const issue of issues) {
-    if (issue.archived || issue.deletedAt || issue.stage === 'proposed') continue
+    if (
+      issue.archived ||
+      issue.deletedAt ||
+      issue.stage === 'proposed' ||
+      isSystemOwnedIssueStage(issue.stage)
+    )
+      continue
     const mine = elevateCoordinatorSession(
       sortSessionsForSidebar(
         sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter((s) =>
@@ -106,7 +117,14 @@ function buildUnifiedRows(
     while (parentId && !walked.has(parentId)) {
       walked.add(parentId)
       const parent = issueById.get(parentId)
-      if (!parent || parent.archived || parent.deletedAt || parent.stage === 'proposed') break
+      if (
+        !parent ||
+        parent.archived ||
+        parent.deletedAt ||
+        parent.stage === 'proposed' ||
+        isSystemOwnedIssueStage(parent.stage)
+      )
+        break
       const parentFinished = parent.stage === 'done' || parent.closedReason != null
       if (!presentIssueIds.has(parent.id) && parent.audience === 'human' && !parentFinished) {
         rows.push({

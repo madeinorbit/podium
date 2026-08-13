@@ -96,6 +96,7 @@ import {
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { ReadPositionService } from './modules/read-position/service'
+import { shipOrderProjectionRows } from './modules/shipping/projection'
 import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
@@ -497,6 +498,14 @@ export class SessionRegistry {
       seed: () => ledger.authority.snapshot('issueEvent') as IssueEventWire[],
     })
     this.store.events.onAppend((id, event) => issueEventFeed?.publish(id, event))
+    ledger.reconcile(
+      'shipOrder',
+      shipOrderProjectionRows(
+        this.store.shipping.listOrders(),
+        this.store.shipping.listHolds(),
+        this.store.shipping.listReceipts(),
+      ),
+    )
     const issueArbitration = new IssueAuthorityArbitration(ledger)
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
@@ -569,6 +578,7 @@ export class SessionRegistry {
       ) as SnapshotTail['issueProjections'],
       issueDeps: ledger.authority.snapshot('issueDep') as SnapshotTail['issueDeps'],
       repos: repoProjectionRows(this.store.repos.listRepos()).map((row) => row.value),
+      shipOrders: ledger.authority.snapshot('shipOrder') as SnapshotTail['shipOrders'],
       conversations: ledger.authority.snapshot('conversation') as SnapshotTail['conversations'],
       automations: ledger.authority.snapshot('automation') as SnapshotTail['automations'],
       automationRuns: ledger.authority.snapshot('automationRun') as SnapshotTail['automationRuns'],

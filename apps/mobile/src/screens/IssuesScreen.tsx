@@ -1,5 +1,5 @@
 import type { IssueRow } from '@podium/client-core/viewmodels'
-import type { IssueStage, IssueWire } from '@podium/model'
+import type { IssueBoardStage, IssueWire } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { ChevronDown, ChevronRight, Layers, Plus } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -118,8 +118,8 @@ export function IssuesScreen() {
 type RefreshableTab = ReturnType<typeof useRefreshableTab>
 
 interface Section {
-  key: IssueStage
-  stage: IssueStage
+  key: IssueBoardStage
+  stage: IssueBoardStage
   title: string
   /** How many TASKS this stage holds — its roots, not its rendered rows. */
   total: number
@@ -146,7 +146,7 @@ function StageSections({
   onOpen,
   onToggleExpand,
 }: {
-  board: { stage: IssueStage; title: string; rows: IssueRow<IssueWire>[] }[]
+  board: { stage: IssueBoardStage; title: string; rows: IssueRow<IssueWire>[] }[]
   listRef: RefreshableTab['listRef']
   // Typed from the hook rather than restated: a hand-written `ReactElement` here
   // drops the RefreshControlProps generic the list actually requires.
@@ -168,7 +168,7 @@ function StageSections({
   // `done` starts folded: a board with two hundred finished tasks would open on
   // a wall of them, and the Show-done toggle above already means "I want to look
   // at these", not "put them under my thumb".
-  const folds: Record<IssueStage, ReturnType<typeof useCollapsed>> = {
+  const folds: Record<IssueBoardStage, ReturnType<typeof useCollapsed>> = {
     proposed: useCollapsed(stageFoldKey('proposed'), false),
     backlog: useCollapsed(stageFoldKey('backlog'), false),
     planning: useCollapsed(stageFoldKey('planning'), false),
@@ -275,7 +275,7 @@ function StageHeader({
   collapsed,
   onToggle,
 }: {
-  stage: IssueStage
+  stage: IssueBoardStage
   title: string
   count: number
   collapsed: boolean

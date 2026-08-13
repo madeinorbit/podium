@@ -62,6 +62,7 @@ import {
   IssueWire,
   RepoProjection,
   SessionMeta,
+  ShipOrderProjection,
 } from '@podium/model'
 import { z } from 'zod'
 import { FeedEpochField, ScopedChangeOp } from '../planes/scoped-feed'
@@ -91,6 +92,7 @@ export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('issueProjection'), IssueProjection),
   feedChangeArm(z.literal('issueDep'), IssueDepProjection),
   feedChangeArm(z.literal('repo'), RepoProjection),
+  feedChangeArm(z.literal('shipOrder'), ShipOrderProjection),
   feedChangeArm(z.literal('conversation'), ConversationSummaryWire),
   feedChangeArm(z.literal('automation'), AutomationWire),
   feedChangeArm(z.literal('automationRun'), AutomationRunWire),

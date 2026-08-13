@@ -20,6 +20,7 @@ const STAGE_FILL: Record<IssueStage, number> = {
   planning: 0,
   in_progress: 1 / 3,
   review: 2 / 3,
+  shipping: 5 / 6,
   done: 1,
 }
 
@@ -29,6 +30,7 @@ const STAGE_CLASS: Record<IssueStage, string> = {
   planning: 'text-muted-foreground',
   in_progress: 'text-blue-500',
   review: 'text-sky-500',
+  shipping: 'text-violet-500',
   done: 'text-success',
 }
 

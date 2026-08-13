@@ -642,6 +642,7 @@ export class SessionLifecycle {
       issueProjections: values('issueProjection'),
       issueDeps: values('issueDep'),
       repos: values('repo'),
+      shipOrders: values('shipOrder'),
       conversations: values('conversation'),
       automations: values('automation'),
       automationRuns: values('automationRun'),

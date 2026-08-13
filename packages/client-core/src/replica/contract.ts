@@ -67,6 +67,7 @@ import type {
   LayoutWire,
   RepoProjection,
   SessionMeta,
+  ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
 import type { ExitKind } from '@podium/sync/replica'
@@ -131,6 +132,8 @@ export interface ReplicaRows {
    *  capped tail and evicts by `delete`, so this collection does not grow with
    *  the installation's history. */
   issueEvents: IssueEventWire
+  /** Compact Shipping rows, keyed by order and joined locally through issueId. */
+  shipOrders: ShipOrderProjection
   conversations: ConversationSummaryWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
@@ -164,6 +167,7 @@ export interface ReplicaHydrateResult {
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]
+  shipOrders: ShipOrderProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]

@@ -21,6 +21,7 @@ export const STAGE_COLOR: Readonly<Record<IssueStage, string>> = {
   planning: color.textDim,
   in_progress: '#3b82f6',
   review: '#0ea5e9',
+  shipping: '#8b5cf6',
   done: color.success,
 }
 
@@ -38,6 +39,7 @@ export const STAGE_LABEL: Readonly<Record<IssueStage, string>> = {
   planning: 'Planning',
   in_progress: 'In progress',
   review: 'Review',
+  shipping: 'Shipping',
   done: 'Done',
 }
 

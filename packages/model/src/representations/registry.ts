@@ -72,6 +72,7 @@ import { ROW } from '../annotations/matrix'
 import { HandoffManifest } from '../entities/handoff'
 import { IssueGraphNode, IssueWire, OrphanIssue } from '../entities/issue'
 import { SessionMeta } from '../entities/session'
+import { ShipOrderProjection } from '../shipping'
 import type { RetainedRepresentation } from './checks'
 
 /** Recurring blocker strings, written once so they cannot drift between the
@@ -526,7 +527,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     site: 'packages/model/src/projections/session-read.ts',
     role: 'R4',
     purpose:
-      "One Podium session spawned (transitively) by the session being read — the `subagents:` " +
+      'One Podium session spawned (transitively) by the session being read — the `subagents:` ' +
       'block of `podium session status`.',
     distinctSemantics:
       'A read model over ANOTHER session, not an embed of one. It carries only the keys the ' +
@@ -710,10 +711,30 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// Issue — 17 retained representations (POD-364 §3)
+// Issue — 19 retained representations (POD-364 §3 plus normalized shipping)
 // ---------------------------------------------------------------------------
 
 const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
+  {
+    symbol: 'ShipOrderProjection',
+    entity: 'issue',
+    site: 'packages/model/src/shipping.ts',
+    role: 'R4',
+    purpose:
+      'The compact replicated shipping row keyed by order id and joined locally through issueId.',
+    distinctSemantics:
+      'It omits execution journals and immutable proof bodies, derives humanState/activity, may carry a scheduler-supplied queueRank, and tombstones cancelled orders from the routine feed.',
+    composition: {
+      state: 'declared-legitimate-restatement',
+      reason:
+        'The projection deliberately derives operator-facing macro state from several normalized shipping records and therefore cannot be a structural pick of ShipOrder.',
+      enforcedBy:
+        'apps/server/src/store-issues.test.ts exercises compact projection derivation, cancelled omission, hold joining, and receipt-id joining.',
+    },
+    matrixRow: ROW.shippingAggregate,
+    visibility: 'personal',
+    schema: ShipOrderProjection,
+  },
   {
     symbol: 'issues',
     entity: 'issue',
@@ -1081,7 +1102,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
 ]
 
 /**
- * THE retained representations. 45 today: 27 session + 18 issue.
+ * THE retained representations. 47 today: 28 session + 19 issue.
  *
  * Membership is PINNED by a literal count in `registry.test.ts`, not derived from
  * this array, because a suite whose parameter list is the thing under test cannot

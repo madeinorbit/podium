@@ -7,6 +7,7 @@ import type {
   IssueWire,
   RepoProjection,
   SessionMeta,
+  ShipOrderProjection,
 } from '@podium/model'
 import type { MetadataChangeLenient, MetadataDeltaMessageLenient } from '@podium/protocol'
 
@@ -17,6 +18,7 @@ export interface LegacyMetadataProjection {
   issueProjections: IssueProjection[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
+  shipOrders?: ShipOrderProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]

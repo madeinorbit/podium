@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import { isSystemOwnedIssueStage, type IssueWire } from '@podium/model'
 
 /**
  * Board/list scope filter (issue-as-workspace): drafts and internal
@@ -43,7 +43,7 @@ export function filterBoardScope(issues: IssueWire[], showAgentTasks: boolean): 
  *  task board (desktop or phone) starts from. */
 export function boardIssues(issues: IssueWire[], showAgentTasks = false): IssueWire[] {
   return filterBoardScope(
-    issues.filter((i) => !i.archived && !i.deletedAt),
+    issues.filter((i) => !i.archived && !i.deletedAt && !isSystemOwnedIssueStage(i.stage)),
     showAgentTasks,
   )
 }

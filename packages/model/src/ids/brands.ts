@@ -272,8 +272,7 @@ export const asAgentIdentityId = (s: string): AgentIdentityId => s as AgentIdent
  * the named form of `asAgentIdentityId(sessionId)` so call sites cannot invent a
  * second id space by accident.
  */
-export const agentIdentityFromSessionId = (id: SessionId): AgentIdentityId =>
-  asAgentIdentityId(id)
+export const agentIdentityFromSessionId = (id: SessionId): AgentIdentityId => asAgentIdentityId(id)
 
 /**
  * Brand reclassification: a Podium agent actor id as the session it names.
@@ -351,3 +350,31 @@ export const AccountId = z.string().min(1).brand<'AccountId'>()
 export type AccountId = z.infer<typeof AccountId>
 export const AccountIdField = idField<'AccountId'>()
 export const asAccountId = (s: string): AccountId => s as AccountId
+
+// Shipping aggregate family. These are independently addressable durable rows,
+// not issue ids wearing a prefix; each gets the validating/field schema pair
+// every Podium-minted entity identity uses.
+export const ShipOrderId = z.string().min(1).brand<'ShipOrderId'>()
+export type ShipOrderId = z.infer<typeof ShipOrderId>
+export const ShipOrderIdField = idField<'ShipOrderId'>()
+export const asShipOrderId = (s: string): ShipOrderId => s as ShipOrderId
+
+export const ShipAttemptId = z.string().min(1).brand<'ShipAttemptId'>()
+export type ShipAttemptId = z.infer<typeof ShipAttemptId>
+export const ShipAttemptIdField = idField<'ShipAttemptId'>()
+export const asShipAttemptId = (s: string): ShipAttemptId => s as ShipAttemptId
+
+export const ShipStepId = z.string().min(1).brand<'ShipStepId'>()
+export type ShipStepId = z.infer<typeof ShipStepId>
+export const ShipStepIdField = idField<'ShipStepId'>()
+export const asShipStepId = (s: string): ShipStepId => s as ShipStepId
+
+export const ShipHoldId = z.string().min(1).brand<'ShipHoldId'>()
+export type ShipHoldId = z.infer<typeof ShipHoldId>
+export const ShipHoldIdField = idField<'ShipHoldId'>()
+export const asShipHoldId = (s: string): ShipHoldId => s as ShipHoldId
+
+export const DeliveryReceiptId = z.string().min(1).brand<'DeliveryReceiptId'>()
+export type DeliveryReceiptId = z.infer<typeof DeliveryReceiptId>
+export const DeliveryReceiptIdField = idField<'DeliveryReceiptId'>()
+export const asDeliveryReceiptId = (s: string): DeliveryReceiptId => s as DeliveryReceiptId

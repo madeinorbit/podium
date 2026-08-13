@@ -37,6 +37,7 @@ const ENTITY_TO_KIND = {
   /** POD-1772's curated issue events. Same rule as the three kinds above: the
    *  entity spelling is `MetadataEntityKind`'s literal, not a guess. */
   issueEvent: 'issueEvents',
+  shipOrder: 'shipOrders',
   conversation: 'conversations',
   automation: 'automations',
   automationRun: 'automationRuns',

@@ -551,6 +551,53 @@
         "changes": [
           {
             "seq": 6,
+            "entity": "shipOrder",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "id": "changes[0].value.id",
+              "issueId": "changes[0].value.issueId",
+              "repoId": "changes[0].value.repoId",
+              "targetBranch": "changes[0].value.targetBranch",
+              "destination": "changes[0].value.destination",
+              "state": "landing",
+              "humanState": "shipped",
+              "activity": "landing",
+              "queuedAt": "changes[0].value.queuedAt",
+              "stateChangedAt": "changes[0].value.stateChangedAt",
+              "queueRank": 6,
+              "hold": {
+                "id": "changes[0].value.hold.id",
+                "generation": 6,
+                "reasonCode": "changes[0].value.hold.reasonCode",
+                "headline": "changes[0].value.hold.headline",
+                "actions": ["changes[0].value.hold.actions[0]"]
+              },
+              "receiptId": "changes[0].value.receiptId"
+            }
+          }
+        ],
+        "last": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "changes.0.value.hold.reasonCode: Invalid; changes.0.value.hold.actions.0: Invalid"
+    },
+    {
+      "schema": "FeedBootstrapMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "feedBootstrap",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 7,
+        "seq": 7,
+        "minAvailableSeq": 7,
+        "changes": [
+          {
+            "seq": 7,
             "entity": "conversation",
             "entityId": "changes[0].entityId",
             "op": "evict",
@@ -567,8 +614,8 @@
               "statusHint": "changes[0].value.statusHint",
               "createdAt": "changes[0].value.createdAt",
               "updatedAt": "changes[0].value.updatedAt",
-              "messageCount": 6,
-              "sizeBytes": 6,
+              "messageCount": 7,
+              "sizeBytes": 7,
               "git": {
                 "branch": "changes[0].value.git.branch",
                 "sha": "changes[0].value.git.sha",
@@ -582,33 +629,33 @@
             }
           }
         ],
-        "last": false
+        "last": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":6,\"sizeBytes\":6,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}],\"last\":false}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}],\"last\":true}"
     },
     {
       "schema": "FeedBootstrapMessage",
-      "variant": "full/arm6",
+      "variant": "full/arm7",
       "wire": {
         "type": "feedBootstrap",
         "feedId": "feedId",
         "epoch": "epoch",
-        "fromSeq": 7,
-        "seq": 7,
-        "minAvailableSeq": 7,
+        "fromSeq": 8,
+        "seq": 8,
+        "minAvailableSeq": 8,
         "changes": [
           {
-            "seq": 7,
+            "seq": 8,
             "entity": "automation",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
               "name": "changes[0].value.name",
-              "enabled": true,
+              "enabled": false,
               "repoPath": "changes[0].value.repoPath",
               "scheduleKind": "once",
               "cron": "changes[0].value.cron",
@@ -625,45 +672,12 @@
             }
           }
         ],
-        "last": true
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":true,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}],\"last\":true}"
-    },
-    {
-      "schema": "FeedBootstrapMessage",
-      "variant": "full/arm7",
-      "wire": {
-        "type": "feedBootstrap",
-        "feedId": "feedId",
-        "epoch": "epoch",
-        "fromSeq": 8,
-        "seq": 8,
-        "minAvailableSeq": 8,
-        "changes": [
-          {
-            "seq": 8,
-            "entity": "automationRun",
-            "entityId": "changes[0].entityId",
-            "op": "evict",
-            "value": {
-              "id": "changes[0].value.id",
-              "automationId": "changes[0].value.automationId",
-              "firedAt": "changes[0].value.firedAt",
-              "sessionId": "changes[0].value.sessionId",
-              "outcome": "error",
-              "detail": "changes[0].value.detail"
-            }
-          }
-        ],
         "last": false
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automationRun\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"automationId\":\"changes[0].value.automationId\",\"firedAt\":\"changes[0].value.firedAt\",\"sessionId\":\"changes[0].value.sessionId\",\"outcome\":\"error\",\"detail\":\"changes[0].value.detail\"}}],\"last\":false}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":false,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}],\"last\":false}"
     },
     {
       "schema": "FeedBootstrapMessageLenient",
@@ -1505,6 +1519,42 @@
       "variant": "full/arm5",
       "wire": {
         "seq": 6,
+        "entity": "shipOrder",
+        "entityId": "entityId",
+        "op": "evict",
+        "value": {
+          "id": "value.id",
+          "issueId": "value.issueId",
+          "repoId": "value.repoId",
+          "targetBranch": "value.targetBranch",
+          "destination": "value.destination",
+          "state": "landing",
+          "humanState": "shipped",
+          "activity": "landing",
+          "queuedAt": "value.queuedAt",
+          "stateChangedAt": "value.stateChangedAt",
+          "queueRank": 6,
+          "hold": {
+            "id": "value.hold.id",
+            "generation": 6,
+            "reasonCode": "value.hold.reasonCode",
+            "headline": "value.hold.headline",
+            "actions": ["value.hold.actions[0]"]
+          },
+          "receiptId": "value.receiptId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "value.hold.reasonCode: Invalid; value.hold.actions.0: Invalid"
+    },
+    {
+      "schema": "FeedChange",
+      "variant": "full/arm6",
+      "wire": {
+        "seq": 7,
         "entity": "conversation",
         "entityId": "entityId",
         "op": "evict",
@@ -1521,8 +1571,8 @@
           "statusHint": "value.statusHint",
           "createdAt": "value.createdAt",
           "updatedAt": "value.updatedAt",
-          "messageCount": 6,
-          "sizeBytes": 6,
+          "messageCount": 7,
+          "sizeBytes": 7,
           "git": {
             "branch": "value.git.branch",
             "sha": "value.git.sha",
@@ -1538,20 +1588,20 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":6,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"path\":\"value.path\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"statusHint\":\"value.statusHint\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"messageCount\":6,\"sizeBytes\":6,\"git\":{\"branch\":\"value.git.branch\",\"sha\":\"value.git.sha\",\"originUrl\":\"value.git.originUrl\"},\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"}}"
+      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"path\":\"value.path\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"statusHint\":\"value.statusHint\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"value.git.branch\",\"sha\":\"value.git.sha\",\"originUrl\":\"value.git.originUrl\"},\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"}}"
     },
     {
       "schema": "FeedChange",
-      "variant": "full/arm6",
+      "variant": "full/arm7",
       "wire": {
-        "seq": 7,
+        "seq": 8,
         "entity": "automation",
         "entityId": "entityId",
         "op": "evict",
         "value": {
           "id": "value.id",
           "name": "value.name",
-          "enabled": true,
+          "enabled": false,
           "repoPath": "value.repoPath",
           "scheduleKind": "once",
           "cron": "value.cron",
@@ -1570,29 +1620,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":7,\"entity\":\"automation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"name\":\"value.name\",\"enabled\":true,\"repoPath\":\"value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"value.cron\",\"runAt\":\"value.runAt\",\"targetSessionId\":\"value.targetSessionId\",\"agentKind\":\"value.agentKind\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"prompt\":\"value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"value.nextRunAt\",\"lastRunAt\":\"value.lastRunAt\",\"createdAt\":\"value.createdAt\"}}"
-    },
-    {
-      "schema": "FeedChange",
-      "variant": "full/arm7",
-      "wire": {
-        "seq": 8,
-        "entity": "automationRun",
-        "entityId": "entityId",
-        "op": "evict",
-        "value": {
-          "id": "value.id",
-          "automationId": "value.automationId",
-          "firedAt": "value.firedAt",
-          "sessionId": "value.sessionId",
-          "outcome": "error",
-          "detail": "value.detail"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"seq\":8,\"entity\":\"automationRun\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"automationId\":\"value.automationId\",\"firedAt\":\"value.firedAt\",\"sessionId\":\"value.sessionId\",\"outcome\":\"error\",\"detail\":\"value.detail\"}}"
+      "encoded": "{\"seq\":8,\"entity\":\"automation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"name\":\"value.name\",\"enabled\":false,\"repoPath\":\"value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"value.cron\",\"runAt\":\"value.runAt\",\"targetSessionId\":\"value.targetSessionId\",\"agentKind\":\"value.agentKind\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"prompt\":\"value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"value.nextRunAt\",\"lastRunAt\":\"value.lastRunAt\",\"createdAt\":\"value.createdAt\"}}"
     },
     {
       "schema": "FeedChangeLenient",
@@ -2917,6 +2945,52 @@
         "changes": [
           {
             "seq": 6,
+            "entity": "shipOrder",
+            "entityId": "changes[0].entityId",
+            "op": "evict",
+            "value": {
+              "id": "changes[0].value.id",
+              "issueId": "changes[0].value.issueId",
+              "repoId": "changes[0].value.repoId",
+              "targetBranch": "changes[0].value.targetBranch",
+              "destination": "changes[0].value.destination",
+              "state": "landing",
+              "humanState": "shipped",
+              "activity": "landing",
+              "queuedAt": "changes[0].value.queuedAt",
+              "stateChangedAt": "changes[0].value.stateChangedAt",
+              "queueRank": 6,
+              "hold": {
+                "id": "changes[0].value.hold.id",
+                "generation": 6,
+                "reasonCode": "changes[0].value.hold.reasonCode",
+                "headline": "changes[0].value.hold.headline",
+                "actions": ["changes[0].value.hold.actions[0]"]
+              },
+              "receiptId": "changes[0].value.receiptId"
+            }
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "changes.0.value.hold.reasonCode: Invalid; changes.0.value.hold.actions.0: Invalid"
+    },
+    {
+      "schema": "FeedDeltaMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "feedDelta",
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "fromSeq": 7,
+        "seq": 7,
+        "minAvailableSeq": 7,
+        "changes": [
+          {
+            "seq": 7,
             "entity": "conversation",
             "entityId": "changes[0].entityId",
             "op": "evict",
@@ -2933,8 +3007,8 @@
               "statusHint": "changes[0].value.statusHint",
               "createdAt": "changes[0].value.createdAt",
               "updatedAt": "changes[0].value.updatedAt",
-              "messageCount": 6,
-              "sizeBytes": 6,
+              "messageCount": 7,
+              "sizeBytes": 7,
               "git": {
                 "branch": "changes[0].value.git.branch",
                 "sha": "changes[0].value.git.sha",
@@ -2952,28 +3026,28 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":6,\"sizeBytes\":6,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}]}"
     },
     {
       "schema": "FeedDeltaMessage",
-      "variant": "full/arm6",
+      "variant": "full/arm7",
       "wire": {
         "type": "feedDelta",
         "feedId": "feedId",
         "epoch": "epoch",
-        "fromSeq": 7,
-        "seq": 7,
-        "minAvailableSeq": 7,
+        "fromSeq": 8,
+        "seq": 8,
+        "minAvailableSeq": 8,
         "changes": [
           {
-            "seq": 7,
+            "seq": 8,
             "entity": "automation",
             "entityId": "changes[0].entityId",
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
               "name": "changes[0].value.name",
-              "enabled": true,
+              "enabled": false,
               "repoPath": "changes[0].value.repoPath",
               "scheduleKind": "once",
               "cron": "changes[0].value.cron",
@@ -2994,39 +3068,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":true,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}]}"
-    },
-    {
-      "schema": "FeedDeltaMessage",
-      "variant": "full/arm7",
-      "wire": {
-        "type": "feedDelta",
-        "feedId": "feedId",
-        "epoch": "epoch",
-        "fromSeq": 8,
-        "seq": 8,
-        "minAvailableSeq": 8,
-        "changes": [
-          {
-            "seq": 8,
-            "entity": "automationRun",
-            "entityId": "changes[0].entityId",
-            "op": "evict",
-            "value": {
-              "id": "changes[0].value.id",
-              "automationId": "changes[0].value.automationId",
-              "firedAt": "changes[0].value.firedAt",
-              "sessionId": "changes[0].value.sessionId",
-              "outcome": "error",
-              "detail": "changes[0].value.detail"
-            }
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automationRun\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"automationId\":\"changes[0].value.automationId\",\"firedAt\":\"changes[0].value.firedAt\",\"sessionId\":\"changes[0].value.sessionId\",\"outcome\":\"error\",\"detail\":\"changes[0].value.detail\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":8,\"seq\":8,\"minAvailableSeq\":8,\"changes\":[{\"seq\":8,\"entity\":\"automation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":false,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}]}"
     },
     {
       "schema": "FeedDeltaMessageLenient",

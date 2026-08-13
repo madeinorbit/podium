@@ -9,6 +9,7 @@ export const ISSUE_STAGE_LABELS: Readonly<Record<IssueStage, string>> = {
   planning: 'Planning',
   in_progress: 'In Progress',
   review: 'Review',
+  shipping: 'Shipping',
   done: 'Done',
 }
 

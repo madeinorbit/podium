@@ -9,6 +9,8 @@ import {
   type IssueSearchFilter,
   type IssueStats,
   type IssueWire,
+  isReadyIssueStage,
+  isSystemOwnedIssueStage,
   type LintFinding,
   type OrphanIssue,
   toIssueTreeSession,
@@ -216,7 +218,10 @@ export class IssueReportsModule {
         else omittedChildren++
       }
       omitted += omittedChildren
-      const members = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
+      const members =
+        row.deletedAt || isSystemOwnedIssueStage(row.stage)
+          ? []
+          : sessionsForIssue(row.worktreePath, sessionList, row.id)
       // One named mapper owns this projection (inventory §6.5) — including the
       // name/title -> label and agentState.phase -> phase flattenings.
       const sessions: IssueTreeSession[] = members.map((s) =>
@@ -246,7 +251,7 @@ export class IssueReportsModule {
         description: row.description.replace(/\s+/g, ' ').trim().slice(0, 300),
         closed,
         blocked,
-        ready: row.stage !== 'proposed' && !closed && !this.store.isDeferred(row) && !blocked,
+        ready: isReadyIssueStage(row.stage) && !closed && !this.store.isDeferred(row) && !blocked,
         sessions,
         children,
         omittedChildren,
@@ -312,7 +317,7 @@ export class IssueReportsModule {
           priority: row.priority,
           closed,
           blocked,
-          ready: row.stage !== 'proposed' && !closed && !this.store.isDeferred(row) && !blocked,
+          ready: isReadyIssueStage(row.stage) && !closed && !this.store.isDeferred(row) && !blocked,
           deps,
           dependents,
         }

@@ -33,6 +33,7 @@ export const REF_STAGE_ACCENT: Readonly<Record<IssueStage, string>> = {
   // the React StageGlyph and the markdown `.ref-link` chip.
   in_progress: 'rgb(59, 130, 246)',
   review: 'rgb(14, 165, 233)',
+  shipping: 'rgb(139, 92, 246)',
   done: 'var(--success, #22c55e)',
 }
 
@@ -182,7 +183,9 @@ export class RefUnderlineOverlay {
       rowsCells.push(rowCells(buf, viewportY + r))
     }
     const resolveStage = this.hooks.getResolveStage?.() ?? undefined
-    this.showRects(mentionRects(rowsCells, isKnown, rect.width / cols, rect.height / rows, resolveStage))
+    this.showRects(
+      mentionRects(rowsCells, isKnown, rect.width / cols, rect.height / rows, resolveStage),
+    )
   }
 
   private showRects(rects: MentionRect[]): void {

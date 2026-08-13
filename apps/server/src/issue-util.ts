@@ -1,5 +1,5 @@
 import {
-  ISSUE_STAGES,
+  ISSUE_BOARD_STAGES,
   type IssueStage,
   type IssueSessionSummary,
   type SessionId,
@@ -105,5 +105,5 @@ export function selectMailNudgeSession(
 }
 
 export function stageIndex(stage: IssueStage): number {
-  return ISSUE_STAGES.indexOf(stage)
+  return (ISSUE_BOARD_STAGES as readonly IssueStage[]).indexOf(stage)
 }

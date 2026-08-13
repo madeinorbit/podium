@@ -1338,6 +1338,108 @@
       "encoded": "{\"kind\":\"self\",\"userId\":\"userId\"}"
     },
     {
+      "schema": "DeliveryReceipt",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "orderId": "orderId",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "testedIntegrationSha": "testedIntegrationSha",
+        "landedRefSha": "landedRefSha",
+        "destinationSha": "destinationSha",
+        "validationProfileId": "validationProfileId",
+        "validationResult": "passed",
+        "destination": "destination",
+        "completedAt": "completedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"destinationSha\":\"destinationSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"destination\":\"destination\",\"completedAt\":\"completedAt\"}"
+    },
+    {
+      "schema": "DeliveryReceipt",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "orderId": "orderId",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "testedIntegrationSha": "testedIntegrationSha",
+        "landedRefSha": "landedRefSha",
+        "destinationSha": "destinationSha",
+        "validationProfileId": "validationProfileId",
+        "validationResult": "passed",
+        "destination": "destination",
+        "completedAt": "completedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"destinationSha\":\"destinationSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"destination\":\"destination\",\"completedAt\":\"completedAt\"}"
+    },
+    {
+      "schema": "DeliveryReceiptId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "DeliveryReceiptId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "DeliveryReceiptIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "DeliveryReceiptIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "DescendantTip",
+      "variant": "minimal",
+      "wire": {
+        "issueId": "issueId",
+        "approvedHeadSha": "approvedHeadSha"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\"}"
+    },
+    {
+      "schema": "DescendantTip",
+      "variant": "full",
+      "wire": {
+        "issueId": "issueId",
+        "approvedHeadSha": "approvedHeadSha"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\"}"
+    },
+    {
       "schema": "DeviceId",
       "variant": "minimal",
       "wire": "x",
@@ -2512,6 +2614,24 @@
       "encoded": "{\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1}"
     },
     {
+      "schema": "HumanSettableIssueStage",
+      "variant": "minimal",
+      "wire": "backlog",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"backlog\""
+    },
+    {
+      "schema": "HumanSettableIssueStage",
+      "variant": "full",
+      "wire": "backlog",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"backlog\""
+    },
+    {
       "schema": "IdleVerdict",
       "variant": "minimal",
       "wire": {
@@ -3317,6 +3437,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"assistantEnabled\":true}"
+    },
+    {
+      "schema": "IssueBoardStage",
+      "variant": "minimal",
+      "wire": "proposed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"proposed\""
+    },
+    {
+      "schema": "IssueBoardStage",
+      "variant": "full",
+      "wire": "proposed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"proposed\""
     },
     {
       "schema": "IssueColor",
@@ -5828,6 +5966,7 @@
           ]
         },
         "updateChannel": "dev",
+        "updateChannelOverride": "dev",
         "appVersion": "appVersion",
         "wireSchemaDigest": "wireSchemaDigest",
         "installKind": "installKind",
@@ -5840,7 +5979,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
     },
     {
       "schema": "MutationId",
@@ -6386,6 +6525,31 @@
       "encoded": "{\"root\":\"root\",\"bytes\":1,\"processCount\":1,\"topProcesses\":[{\"name\":\"topProcesses[0].name\",\"bytes\":1}]}"
     },
     {
+      "schema": "ProviderPullRequestRef",
+      "variant": "minimal",
+      "wire": {
+        "provider": "provider",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"provider\":\"provider\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "ProviderPullRequestRef",
+      "variant": "full",
+      "wire": {
+        "provider": "provider",
+        "id": "id",
+        "url": "url"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"provider\":\"provider\",\"id\":\"id\",\"url\":\"url\"}"
+    },
+    {
       "schema": "QuotaWindowWire",
       "variant": "minimal",
       "wire": {
@@ -6534,6 +6698,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"viaHub\":true,\"upstreamStale\":true,\"pendingSync\":true}"
+    },
+    {
+      "schema": "ReplicatedShipOrderState",
+      "variant": "minimal",
+      "wire": "queued",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"queued\""
+    },
+    {
+      "schema": "ReplicatedShipOrderState",
+      "variant": "full",
+      "wire": "queued",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"queued\""
     },
     {
       "schema": "Repo",
@@ -9611,6 +9793,784 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"workState\":\"planning\"}"
+    },
+    {
+      "schema": "ShipAttempt",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "orderId": "orderId",
+        "expectedSourceBaseSha": "expectedSourceBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "expectedTargetSha": "expectedTargetSha",
+        "machineId": "machineId",
+        "leaseGeneration": 1,
+        "startedAt": "startedAt",
+        "submittedHeadSha": "submittedHeadSha"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"expectedSourceBaseSha\":\"expectedSourceBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"expectedTargetSha\":\"expectedTargetSha\",\"machineId\":\"machineId\",\"leaseGeneration\":1,\"startedAt\":\"startedAt\",\"submittedHeadSha\":\"submittedHeadSha\"}"
+    },
+    {
+      "schema": "ShipAttempt",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "orderId": "orderId",
+        "expectedSourceBaseSha": "expectedSourceBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "expectedTargetSha": "expectedTargetSha",
+        "machineId": "machineId",
+        "leaseGeneration": 1,
+        "startedAt": "startedAt",
+        "finishedAt": "finishedAt",
+        "outcome": "succeeded",
+        "submittedHeadSha": "submittedHeadSha",
+        "testedIntegrationSha": "testedIntegrationSha",
+        "landedRefSha": "landedRefSha",
+        "destinationSha": "destinationSha",
+        "validationProfileId": "validationProfileId",
+        "validationResult": "passed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"expectedSourceBaseSha\":\"expectedSourceBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"expectedTargetSha\":\"expectedTargetSha\",\"machineId\":\"machineId\",\"leaseGeneration\":1,\"startedAt\":\"startedAt\",\"finishedAt\":\"finishedAt\",\"outcome\":\"succeeded\",\"submittedHeadSha\":\"submittedHeadSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"destinationSha\":\"destinationSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\"}"
+    },
+    {
+      "schema": "ShipAttemptId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipAttemptId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipAttemptIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipAttemptIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipAttemptOutcome",
+      "variant": "minimal",
+      "wire": "succeeded",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"succeeded\""
+    },
+    {
+      "schema": "ShipAttemptOutcome",
+      "variant": "full",
+      "wire": "succeeded",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"succeeded\""
+    },
+    {
+      "schema": "ShipHold",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "orderId": "orderId",
+        "generation": 1,
+        "reasonCode": "approval-stale",
+        "headline": "headline",
+        "detail": "detail",
+        "evidenceRefs": [],
+        "actions": ["retry"],
+        "raisedAt": "raisedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"generation\":1,\"reasonCode\":\"approval-stale\",\"headline\":\"headline\",\"detail\":\"detail\",\"evidenceRefs\":[],\"actions\":[\"retry\"],\"raisedAt\":\"raisedAt\"}"
+    },
+    {
+      "schema": "ShipHold",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "orderId": "orderId",
+        "generation": 1,
+        "reasonCode": "approval-stale",
+        "headline": "headline",
+        "detail": "detail",
+        "evidenceRefs": ["evidenceRefs[0]"],
+        "actions": ["retry"],
+        "raisedAt": "raisedAt",
+        "resolvedAt": "resolvedAt",
+        "resolution": "retry"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"generation\":1,\"reasonCode\":\"approval-stale\",\"headline\":\"headline\",\"detail\":\"detail\",\"evidenceRefs\":[\"evidenceRefs[0]\"],\"actions\":[\"retry\"],\"raisedAt\":\"raisedAt\",\"resolvedAt\":\"resolvedAt\",\"resolution\":\"retry\"}"
+    },
+    {
+      "schema": "ShipHold",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "orderId": "orderId",
+        "generation": 2,
+        "reasonCode": "reasonCode",
+        "headline": "headline",
+        "detail": "detail",
+        "evidenceRefs": ["evidenceRefs[0]"],
+        "actions": ["actions[0]"],
+        "raisedAt": "raisedAt",
+        "resolvedAt": "resolvedAt",
+        "resolution": "resolution"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "reasonCode: Invalid; actions.0: Invalid; resolution: Invalid"
+    },
+    {
+      "schema": "ShipHoldAction",
+      "variant": "minimal",
+      "wire": "retry",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"retry\""
+    },
+    {
+      "schema": "ShipHoldAction",
+      "variant": "full/arm0",
+      "wire": "retry",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"retry\""
+    },
+    {
+      "schema": "ShipHoldAction",
+      "variant": "full/arm1",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "<root>: Invalid"
+    },
+    {
+      "schema": "ShipHoldCode",
+      "variant": "minimal",
+      "wire": "approval-stale",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"approval-stale\""
+    },
+    {
+      "schema": "ShipHoldCode",
+      "variant": "full/arm0",
+      "wire": "approval-stale",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"approval-stale\""
+    },
+    {
+      "schema": "ShipHoldCode",
+      "variant": "full/arm1",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "<root>: Invalid"
+    },
+    {
+      "schema": "ShipHoldId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipHoldId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipHoldIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipHoldIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipOrder",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "issueId": "issueId",
+        "descendantManifest": [],
+        "repoId": "repoId",
+        "targetBranch": "targetBranch",
+        "destination": "destination",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "deliveryDependsOn": [],
+        "requestedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "requestedBy.actor.id"
+          },
+          "onBehalfOf": null
+        },
+        "requestedAt": "requestedAt",
+        "policyId": "policyId",
+        "closeMode": "after-destination",
+        "state": "queued",
+        "stateChangedAt": "stateChangedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"descendantManifest\":[],\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[],\"requestedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"requestedBy.actor.id\"},\"onBehalfOf\":null},\"requestedAt\":\"requestedAt\",\"policyId\":\"policyId\",\"closeMode\":\"after-destination\",\"state\":\"queued\",\"stateChangedAt\":\"stateChangedAt\"}"
+    },
+    {
+      "schema": "ShipOrder",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "issueId": "issueId",
+        "descendantManifest": [
+          {
+            "issueId": "descendantManifest[0].issueId",
+            "approvedHeadSha": "descendantManifest[0].approvedHeadSha"
+          }
+        ],
+        "repoId": "repoId",
+        "targetBranch": "targetBranch",
+        "destination": "destination",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "deliveryDependsOn": ["deliveryDependsOn[0]"],
+        "providerRef": {
+          "provider": "providerRef.provider",
+          "id": "providerRef.id",
+          "url": "providerRef.url"
+        },
+        "requestedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "requestedBy.actor.id"
+          },
+          "onBehalfOf": "requestedBy.onBehalfOf"
+        },
+        "requestedAt": "requestedAt",
+        "policyId": "policyId",
+        "closeMode": "after-destination",
+        "state": "queued",
+        "stateChangedAt": "stateChangedAt",
+        "holdCode": "approval-stale"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "holdCode: holdCode is required exactly while the order is held"
+    },
+    {
+      "schema": "ShipOrder",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "issueId": "issueId",
+        "descendantManifest": [
+          {
+            "issueId": "descendantManifest[0].issueId",
+            "approvedHeadSha": "descendantManifest[0].approvedHeadSha"
+          }
+        ],
+        "repoId": "repoId",
+        "targetBranch": "targetBranch",
+        "destination": "destination",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "deliveryDependsOn": ["deliveryDependsOn[0]"],
+        "providerRef": {
+          "provider": "providerRef.provider",
+          "id": "providerRef.id",
+          "url": "providerRef.url"
+        },
+        "requestedBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "requestedBy.actor.id"
+          },
+          "onBehalfOf": "requestedBy.onBehalfOf"
+        },
+        "requestedAt": "requestedAt",
+        "policyId": "policyId",
+        "closeMode": "leave-open",
+        "state": "preflight",
+        "stateChangedAt": "stateChangedAt",
+        "holdCode": "holdCode"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "holdCode: Invalid; holdCode: holdCode is required exactly while the order is held"
+    },
+    {
+      "schema": "ShipOrder",
+      "variant": "full/arm2",
+      "wire": {
+        "id": "id",
+        "issueId": "issueId",
+        "descendantManifest": [
+          {
+            "issueId": "descendantManifest[0].issueId",
+            "approvedHeadSha": "descendantManifest[0].approvedHeadSha"
+          }
+        ],
+        "repoId": "repoId",
+        "targetBranch": "targetBranch",
+        "destination": "destination",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "deliveryDependsOn": ["deliveryDependsOn[0]"],
+        "providerRef": {
+          "provider": "providerRef.provider",
+          "id": "providerRef.id",
+          "url": "providerRef.url"
+        },
+        "requestedBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "requestedBy.actor.id"
+          },
+          "onBehalfOf": "requestedBy.onBehalfOf"
+        },
+        "requestedAt": "requestedAt",
+        "policyId": "policyId",
+        "closeMode": "leave-open",
+        "state": "composing",
+        "stateChangedAt": "stateChangedAt",
+        "holdCode": "holdCode"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "holdCode: Invalid; holdCode: holdCode is required exactly while the order is held"
+    },
+    {
+      "schema": "ShipOrder",
+      "variant": "full/arm3",
+      "wire": {
+        "id": "id",
+        "issueId": "issueId",
+        "descendantManifest": [
+          {
+            "issueId": "descendantManifest[0].issueId",
+            "approvedHeadSha": "descendantManifest[0].approvedHeadSha"
+          }
+        ],
+        "repoId": "repoId",
+        "targetBranch": "targetBranch",
+        "destination": "destination",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "deliveryDependsOn": ["deliveryDependsOn[0]"],
+        "providerRef": {
+          "provider": "providerRef.provider",
+          "id": "providerRef.id",
+          "url": "providerRef.url"
+        },
+        "requestedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "requestedBy.actor.job"
+          },
+          "onBehalfOf": "requestedBy.onBehalfOf"
+        },
+        "requestedAt": "requestedAt",
+        "policyId": "policyId",
+        "closeMode": "leave-open",
+        "state": "validating",
+        "stateChangedAt": "stateChangedAt",
+        "holdCode": "holdCode"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "holdCode: Invalid; holdCode: holdCode is required exactly while the order is held"
+    },
+    {
+      "schema": "ShipOrderActivity",
+      "variant": "minimal",
+      "wire": "waiting",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"waiting\""
+    },
+    {
+      "schema": "ShipOrderActivity",
+      "variant": "full",
+      "wire": "waiting",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"waiting\""
+    },
+    {
+      "schema": "ShipOrderHumanState",
+      "variant": "minimal",
+      "wire": "waiting",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"waiting\""
+    },
+    {
+      "schema": "ShipOrderHumanState",
+      "variant": "full",
+      "wire": "waiting",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"waiting\""
+    },
+    {
+      "schema": "ShipOrderId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipOrderId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipOrderIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipOrderIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipOrderProjection",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "issueId": "issueId",
+        "repoId": "repoId",
+        "targetBranch": "targetBranch",
+        "destination": "destination",
+        "state": "queued",
+        "humanState": "waiting",
+        "activity": "waiting",
+        "queuedAt": "queuedAt",
+        "stateChangedAt": "stateChangedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"state\":\"queued\",\"humanState\":\"waiting\",\"activity\":\"waiting\",\"queuedAt\":\"queuedAt\",\"stateChangedAt\":\"stateChangedAt\"}"
+    },
+    {
+      "schema": "ShipOrderProjection",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "issueId": "issueId",
+        "repoId": "repoId",
+        "targetBranch": "targetBranch",
+        "destination": "destination",
+        "state": "queued",
+        "humanState": "waiting",
+        "activity": "waiting",
+        "queuedAt": "queuedAt",
+        "stateChangedAt": "stateChangedAt",
+        "queueRank": 1,
+        "hold": {
+          "id": "hold.id",
+          "generation": 1,
+          "reasonCode": "approval-stale",
+          "headline": "hold.headline",
+          "actions": ["retry"]
+        },
+        "receiptId": "receiptId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"state\":\"queued\",\"humanState\":\"waiting\",\"activity\":\"waiting\",\"queuedAt\":\"queuedAt\",\"stateChangedAt\":\"stateChangedAt\",\"queueRank\":1,\"hold\":{\"id\":\"hold.id\",\"generation\":1,\"reasonCode\":\"approval-stale\",\"headline\":\"hold.headline\",\"actions\":[\"retry\"]},\"receiptId\":\"receiptId\"}"
+    },
+    {
+      "schema": "ShipOrderProjection",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "issueId": "issueId",
+        "repoId": "repoId",
+        "targetBranch": "targetBranch",
+        "destination": "destination",
+        "state": "preflight",
+        "humanState": "in_progress",
+        "activity": "checking",
+        "queuedAt": "queuedAt",
+        "stateChangedAt": "stateChangedAt",
+        "queueRank": 2,
+        "hold": {
+          "id": "hold.id",
+          "generation": 2,
+          "reasonCode": "hold.reasonCode",
+          "headline": "hold.headline",
+          "actions": ["hold.actions[0]"]
+        },
+        "receiptId": "receiptId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "hold.reasonCode: Invalid; hold.actions.0: Invalid"
+    },
+    {
+      "schema": "ShipOrderState",
+      "variant": "minimal",
+      "wire": "queued",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"queued\""
+    },
+    {
+      "schema": "ShipOrderState",
+      "variant": "full",
+      "wire": "queued",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"queued\""
+    },
+    {
+      "schema": "ShipStep",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "orderId": "orderId",
+        "attemptId": "attemptId",
+        "effectKey": "effectKey",
+        "idempotencyKey": "idempotencyKey",
+        "generation": 1,
+        "inputFence": {
+          "sourceBaseSha": "inputFence.sourceBaseSha",
+          "approvedHeadSha": "inputFence.approvedHeadSha",
+          "targetSha": "inputFence.targetSha"
+        },
+        "kind": "kind",
+        "state": "planned",
+        "summary": "summary",
+        "recordedAt": "recordedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"effectKey\":\"effectKey\",\"idempotencyKey\":\"idempotencyKey\",\"generation\":1,\"inputFence\":{\"sourceBaseSha\":\"inputFence.sourceBaseSha\",\"approvedHeadSha\":\"inputFence.approvedHeadSha\",\"targetSha\":\"inputFence.targetSha\"},\"kind\":\"kind\",\"state\":\"planned\",\"summary\":\"summary\",\"recordedAt\":\"recordedAt\"}"
+    },
+    {
+      "schema": "ShipStep",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "orderId": "orderId",
+        "attemptId": "attemptId",
+        "effectKey": "effectKey",
+        "idempotencyKey": "idempotencyKey",
+        "generation": 1,
+        "inputFence": {
+          "sourceBaseSha": "inputFence.sourceBaseSha",
+          "approvedHeadSha": "inputFence.approvedHeadSha",
+          "targetSha": "inputFence.targetSha"
+        },
+        "kind": "kind",
+        "state": "planned",
+        "outcome": "outcome",
+        "summary": "summary",
+        "artifactRef": "artifactRef",
+        "recordedAt": "recordedAt",
+        "startedAt": "startedAt",
+        "finishedAt": "finishedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "",
+      "parseError": "state: planned steps have not started"
+    },
+    {
+      "schema": "ShipStepId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipStepId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipStepIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipStepIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipStepInputFence",
+      "variant": "minimal",
+      "wire": {
+        "sourceBaseSha": "sourceBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "targetSha": "targetSha"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sourceBaseSha\":\"sourceBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"targetSha\":\"targetSha\"}"
+    },
+    {
+      "schema": "ShipStepInputFence",
+      "variant": "full",
+      "wire": {
+        "sourceBaseSha": "sourceBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "targetSha": "targetSha"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sourceBaseSha\":\"sourceBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"targetSha\":\"targetSha\"}"
+    },
+    {
+      "schema": "ShipStepState",
+      "variant": "minimal",
+      "wire": "planned",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"planned\""
+    },
+    {
+      "schema": "ShipStepState",
+      "variant": "full",
+      "wire": "planned",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"planned\""
+    },
+    {
+      "schema": "ShipValidationResult",
+      "variant": "minimal",
+      "wire": "passed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"passed\""
+    },
+    {
+      "schema": "ShipValidationResult",
+      "variant": "full",
+      "wire": "passed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"passed\""
     },
     {
       "schema": "Sidebar",

@@ -15,6 +15,7 @@ import type {
   RepoProjection,
   SessionId,
   SessionMeta,
+  ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
 import { asMachineId, layoutRowId, readPositionRowId } from '@podium/model'
@@ -382,6 +383,8 @@ export interface HubEvents {
    *  `issueEvent`) — the chat feed's content, which used to arrive on a 15 s
    *  RPC timer of its own. Bounded server-side; evictions arrive as deletes. */
   issueEvents: [events: IssueEventWire[]]
+  /** Compact shipping read rows, joined to issues by `issueId`. */
+  shipOrders: [orders: ShipOrderProjection[]]
   /**
    * Per-user layout rows after any change (POD-1350, entity kind `userLayout`).
    * Feed demux only — POD-403's ui-state module is the hydrate/write owner; this
@@ -473,6 +476,7 @@ export class SocketHub {
   private repoList: RepoProjection[] = []
   /** The curated issue-event window (POD-1772). Empty until the feed carries it. */
   private issueEventList: IssueEventWire[] = []
+  private shipOrderList: ShipOrderProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
   /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
@@ -974,6 +978,7 @@ export class SocketHub {
     issueProjections?: IssueProjection[]
     issueDeps?: IssueDepProjection[]
     repos?: RepoProjection[]
+    shipOrders?: ShipOrderProjection[]
     conversations: ConversationSummaryWire[]
     automations?: AutomationWire[]
     automationRuns?: AutomationRunWire[]
@@ -985,6 +990,7 @@ export class SocketHub {
         issueProjections: seed.issueProjections ?? [],
         issueDeps: seed.issueDeps ?? [],
         repos: seed.repos ?? [],
+        shipOrders: seed.shipOrders ?? [],
         conversations: seed.conversations,
         automations: seed.automations ?? [],
         automationRuns: seed.automationRuns ?? [],
@@ -1000,6 +1006,7 @@ export class SocketHub {
     this.issueProjectionList = seed.issueProjections ?? []
     this.issueDepList = seed.issueDeps ?? []
     this.repoList = seed.repos ?? []
+    this.shipOrderList = seed.shipOrders ?? []
     this.conversationList = seed.conversations
     this.automationList = seed.automations ?? []
     this.automationRunList = seed.automationRuns ?? []
@@ -1012,6 +1019,7 @@ export class SocketHub {
     if (this.issueProjectionList.length > 0) this.emit('issueProjections', this.issueProjectionList)
     if (this.issueDepList.length > 0) this.emit('issueDeps', this.issueDepList)
     if (this.repoList.length > 0) this.emit('repos', this.repoList)
+    if (this.shipOrderList.length > 0) this.emit('shipOrders', this.shipOrderList)
     this.emit('conversations', this.conversationList)
     this.emit('automations', this.automationList)
     this.emit('automationRuns', this.automationRunList)
@@ -1630,6 +1638,7 @@ export class SocketHub {
       issueProjections: this.issueProjectionList,
       issueDeps: this.issueDepList,
       repos: this.repoList,
+      shipOrders: this.shipOrderList,
       conversations: this.conversationList,
       automations: this.automationList,
       automationRuns: this.automationRunList,
@@ -1642,6 +1651,7 @@ export class SocketHub {
     this.issueProjectionList = result.issueProjections
     this.issueDepList = result.issueDeps
     this.repoList = result.repos
+    this.shipOrderList = result.shipOrders ?? []
     this.conversationList = result.conversations
     this.automationList = result.automations
     this.automationRunList = result.automationRuns
@@ -1650,6 +1660,7 @@ export class SocketHub {
     this.emit('issueProjections', this.issueProjectionList)
     this.emit('issueDeps', this.issueDepList)
     this.emit('repos', this.repoList)
+    this.emit('shipOrders', this.shipOrderList)
     this.emit('conversations', this.conversationList)
     this.emit('automations', this.automationList)
     this.emit('automationRuns', this.automationRunList)
@@ -1693,6 +1704,14 @@ export class SocketHub {
           break
         case 'repo':
           this.repoList = applyChange(this.repoList, c.op, c.value, (r) => r.id === c.id)
+          break
+        case 'shipOrder':
+          this.shipOrderList = applyChange(
+            this.shipOrderList,
+            c.op,
+            c.value,
+            (order) => order.id === c.id,
+          )
           break
         case 'conversation':
           this.conversationList = applyChange(
@@ -1758,6 +1777,7 @@ export class SocketHub {
     if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
     if (touched.has('repo')) this.emit('repos', this.repoList)
     if (touched.has('issueEvent')) this.emit('issueEvents', this.issueEventList)
+    if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)
