@@ -28,7 +28,8 @@
  * - Redeploy (the redeploy unit restarted the web unit): a redeploy restarts the
  *   server, which is the same boot path.
  * - The Update panel's "rebuild the website" (`createSourceWebRebuildRequest`):
- *   `requestRebuild()` below.
+ *   `requestRebuild()` below. It rebuilds for a stale PHONE export as readily as
+ *   for a stale desktop one — see `phoneDistBehindHead` (POD-1989).
  * - Legibility (`RemainAfterExit=yes` made `systemctl status` answer "did the web
  *   build succeed?"): `state()` answers it in the publisher readiness the update
  *   read model already shows, and the transient units keep DETERMINISTIC names,
@@ -39,6 +40,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
+import { type ServedWebIdentity, servedWebIdentity } from '../../web-bundle-stamp'
 import { devBuildScopeUnit, runLowTierBuild } from './build-scope'
 
 const log = createLogger('server:updates')
@@ -68,6 +70,33 @@ export function webDistMatchesHead(stamp: DevWebBuildStamp | null, headSha: stri
   return typeof stamp?.sourceSha === 'string' && stamp.sourceSha === headSha
 }
 
+/**
+ * BOTH STEPS PRODUCE A WEBSITE, SO BOTH ANSWER "IS IT BUILT?" (POD-1989).
+ *
+ * The steps below build two dists, and `apps/web/dist` is only the first of
+ * them. Reading its stamp alone made "the website is at HEAD" a claim about the
+ * desktop half, which is wrong in the exact case Update exists for: a phone
+ * export left on an older commit beside a current desktop dist. `startUpdate`
+ * calls that behind (POD-1980) and offers the button; asking only the desktop
+ * made the button's own rebuild return without spawning anything, so the export
+ * never ran and the page waited out its deadline for a build that never started.
+ *
+ * ABSENT IS NOT BEHIND, the same distinction `servedWebIdentity` draws and the
+ * same one `websiteDigestReader` acts on: an installation that never exported a
+ * phone website has nothing stale about it, and treating its silence as work
+ * would put this builder in a loop `/version` pays for every 60 s. A dist that
+ * IS on disk and names no commit reads as behind — a check that reports "fine"
+ * for what it cannot inspect is not a check (POD-1610).
+ */
+export function phoneDistBehindHead(phone: ServedWebIdentity, headSha: string): boolean {
+  return phone.present && phone.digest !== headSha
+}
+
+/** The phone export as the steps below write it, under the source root. */
+export function readDevPhoneDist(root: string): ServedWebIdentity {
+  return servedWebIdentity(join(root, 'apps', 'mobile', 'dist'))
+}
+
 export function readDevWebStamp(root: string): DevWebBuildStamp | null {
   try {
     const raw = JSON.parse(
@@ -88,10 +117,10 @@ export type DevWebBuildState =
 
 export interface DevWebBuilder {
   /**
-   * Resolves once `apps/web/dist` is stamped at `headSha`, building it if it is
-   * not. Concurrent callers share one build; a current dist costs one small
-   * file read and no process at all, which is what makes it safe on the
-   * `/version` path.
+   * Resolves once the website — `apps/web/dist` AND the phone export beside it
+   * — is stamped at `headSha`, building it if it is not. Concurrent callers
+   * share one build; a current website costs two small file reads and no
+   * process at all, which is what makes it safe on the `/version` path.
    */
   ensure(headSha: string): Promise<void>
   /** The Update panel's explicit "rebuild the website". */
@@ -106,12 +135,15 @@ export interface DevWebBuilderDeps {
   headSha: () => string
   /** Seam for tests; defaults to reading `apps/web/dist/podium-build.json`. */
   readStamp?: (root: string) => DevWebBuildStamp | null
+  /** Seam for tests; defaults to reading `apps/mobile/dist`. */
+  readPhone?: (root: string) => ServedWebIdentity
   /** Seam for tests; defaults to one batch-tier scope per step. */
   runStep?: (step: { role: string; label: string; args: readonly string[] }) => Promise<void>
 }
 
 export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
   const readStamp = deps.readStamp ?? readDevWebStamp
+  const readPhone = deps.readPhone ?? readDevPhoneDist
   const units = DEV_WEB_BUILD_STEPS.map((step) => devBuildScopeUnit(step.role, deps.instanceId))
   const runStep =
     deps.runStep ??
@@ -128,25 +160,41 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
   let state: DevWebBuildState = { state: 'idle' }
   let inFlight: { headSha: string; promise: Promise<void> } | null = null
 
+  /**
+   * Is the WEBSITE this commit's — both halves of it? Cheap by construction:
+   * one small file read, and a second only when the first says yes.
+   */
+  const websiteAtHead = (headSha: string): boolean =>
+    webDistMatchesHead(readStamp(deps.root), headSha) &&
+    !phoneDistBehindHead(readPhone(deps.root), headSha)
+
   const build = async (headSha: string): Promise<void> => {
     log.info('building the development web bundles', { headSha, units })
     for (const step of DEV_WEB_BUILD_STEPS) {
       await runStep(step)
     }
-    // The build stamps the dist itself, so re-reading it is the only honest
+    // The build stamps each dist itself, so re-reading them is the only honest
     // confirmation that this build produced the website for THIS commit. HEAD
     // moving mid-build is the case that would otherwise pass here and fail
-    // later, deep inside the compile, having spent it.
+    // later, deep inside the compile, having spent it. Both halves are named
+    // separately because the operator's next move differs: the vite log and the
+    // expo log are different logs.
     if (!webDistMatchesHead(readStamp(deps.root), headSha)) {
       throw new Error(
         `the web build finished but apps/web/dist is not stamped at ${headSha} ` +
           '(HEAD moved during the build, or the stamp step did not run)',
       )
     }
+    if (phoneDistBehindHead(readPhone(deps.root), headSha)) {
+      throw new Error(
+        `the web build finished but apps/mobile/dist is not stamped at ${headSha} ` +
+          '(HEAD moved during the build, or the phone export did not stamp itself)',
+      )
+    }
   }
 
   const ensure = (headSha: string): Promise<void> => {
-    if (webDistMatchesHead(readStamp(deps.root), headSha)) {
+    if (websiteAtHead(headSha)) {
       state = { state: 'ready', headSha }
       return Promise.resolve()
     }

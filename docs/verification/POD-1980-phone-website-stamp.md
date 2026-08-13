@@ -98,11 +98,14 @@ Each was watched to fail with the phone clause disabled, then restored:
   own web-build step (POD-1985), whose step list already runs `@podium/web build` and
   `@podium/mobile build:web`; that path is unchanged by this issue and driving it on the
   live host is not something to do casually.
-- **The dest-tarball gate's own staleness check still reads only the desktop dist.**
+- ~~**The dest-tarball gate's own staleness check still reads only the desktop dist.**
   `dev-web-build.ts`'s `ensure()` decides "is the dist at HEAD" from
   `apps/web/dist/podium-build.json` alone. The gate that matters for a bundle leaving this
   machine — `continueDevelopmentUpdate`'s wait — now covers both dists (see below), but
-  widening `ensure()` is a decision for whoever owns that build step.
+  widening `ensure()` is a decision for whoever owns that build step.~~
+  **This was the defect POD-1989 then fixed** — `ensure()` returning early on the desktop
+  half meant the button this issue lit up started no export at all. See
+  [POD-1989](POD-1989-stale-phone-rebuild.md).
 
 ## Landing on a moved main
 
