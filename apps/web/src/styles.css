@@ -875,6 +875,31 @@ html[data-density="balanced"] .header-quota-pools {
 .health-popover-pinned {
   width: 336px;
 }
+.health-popover-quota {
+  width: 356px;
+  border-color: var(--border-strong);
+  border-radius: 10px;
+  box-shadow:
+    0 14px 34px color-mix(in srgb, var(--text-strong) 22%, transparent),
+    0 2px 8px color-mix(in srgb, var(--text-strong) 10%, transparent);
+}
+.health-popover-quota .hp-header {
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px 9px;
+}
+.health-popover-quota .hp-section {
+  padding: 8px 13px 10px;
+  border-top-color: var(--hairline-soft);
+}
+.health-popover-quota .hp-title {
+  line-height: 1;
+}
+.health-popover-quota .hp-verdict {
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
 @media (prefers-reduced-motion: reduce) {
   .health-popover {
     transition: none;
@@ -913,19 +938,19 @@ html[data-density="balanced"] .header-quota-pools {
 .hp-verdict {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 11px;
   font-family: var(--font-mono);
   font-size: var(--shell-type-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.hp-verdict-dots {
+.hp-verdict-item {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 5px;
 }
-.hp-verdict-dots i {
+.hp-verdict-item i {
   width: 6px;
   height: 6px;
   flex: none;
@@ -934,15 +959,6 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-verdict-mixed {
   color: var(--muted-foreground);
-}
-.hp-verdict-dot-ok {
-  color: var(--success);
-}
-.hp-verdict-dot-warn {
-  color: var(--warning);
-}
-.hp-verdict-dot-crit {
-  color: var(--destructive);
 }
 .hp-verdict-ok {
   color: var(--success);
@@ -972,26 +988,36 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-acct {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
 }
 .hp-section.hp-acct {
   margin-bottom: 0;
 }
-.hp-acct-agent {
-  font-size: 11px;
-  font-weight: 600;
+.hp-acct-icon {
+  width: 13px;
+  height: 13px;
+  flex: none;
   color: var(--foreground);
 }
+.hp-acct-agent {
+  flex: none;
+  font-size: 11.5px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--text-strong);
+}
 .hp-acct-plan {
-  padding: 1px 4px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  flex: none;
+  padding: 1.5px 5px;
+  border-radius: 4px;
   background: var(--secondary);
   font-family: var(--font-mono);
-  font-size: var(--shell-type-micro);
+  font-size: 8.5px;
+  line-height: 1;
+  font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted-foreground);
@@ -999,21 +1025,26 @@ html[data-density="balanced"] .header-quota-pools {
 .hp-acct-sub {
   margin-left: auto;
   overflow: hidden;
-  font-size: var(--shell-type-micro);
-  color: var(--text-dim);
+  font-size: 9.5px;
+  line-height: 1;
+  color: var(--text-faint);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .hp-winrow {
   display: grid;
-  grid-template-columns: 30px 1fr 82px;
+  grid-template-columns: 24px minmax(0, 1fr) 30px 44px;
   align-items: center;
-  column-gap: 8px;
-  padding: 2.5px 0;
+  column-gap: 10px;
+  padding: 0;
+}
+.hp-winrow + .hp-winrow {
+  margin-top: 6px;
 }
 .hp-winlabel {
   font-family: var(--font-mono);
-  font-size: var(--shell-type-micro);
+  font-size: 9px;
+  line-height: 1;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -1047,15 +1078,23 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-num {
   font-family: var(--font-mono);
-  font-size: var(--shell-type-micro);
+  font-size: 10px;
+  line-height: 1;
   color: var(--foreground);
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.hp-num small {
-  font-size: var(--shell-type-micro);
-  color: var(--text-dim);
+.hp-reset {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 .hp-pace {
   display: flex;
@@ -1067,10 +1106,11 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-pace-chip {
   flex: none;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 2px 5px;
+  border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: var(--shell-type-micro);
+  font-size: 8.5px;
+  line-height: 1;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1078,11 +1118,11 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-pace-ok {
   color: var(--success);
-  background: color-mix(in srgb, var(--success) 12%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
 }
 .hp-pace-even {
-  color: var(--text-dim);
-  background: color-mix(in srgb, var(--muted-foreground) 10%, transparent);
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
 }
 .hp-pace-hot {
   color: var(--warning);
@@ -1138,15 +1178,53 @@ html[data-density="balanced"] .header-quota-pools {
   color: var(--muted-foreground);
 }
 /* The model-limit tier inside a quota account section (POD-271). */
+.hp-model-limits {
+  margin-top: 9px;
+  padding-left: 11px;
+  border-left: 1px solid var(--hairline-soft);
+}
 .hp-model-label {
-  margin: 8px 0 2px;
+  margin-bottom: 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--text-faint);
 }
+.hp-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px 44px;
+  align-items: center;
+  column-gap: 10px;
+}
+.hp-model-row + .hp-model-row {
+  margin-top: 6px;
+}
+.hp-model-meter {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.hp-model-meter .hp-bar {
+  flex: 1;
+  min-width: 0;
+}
+.hp-model-name {
+  flex: none;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1;
+}
 .hp-model-note {
-  margin-top: 5px;
-  font-size: var(--shell-type-micro);
-  line-height: 1.45;
+  margin-top: 6px;
+  font-size: 9.5px;
+  line-height: 1.5;
   color: var(--text-dim);
+  text-wrap: pretty;
 }
 .hp-prow {
   display: flex;

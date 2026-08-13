@@ -15,12 +15,28 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { QuotaWindowWire } from '@podium/model/browser'
 import type { JSX } from 'react'
+import {
+  ClaudeCodeIcon,
+  CursorIcon,
+  GrokIcon,
+  OpenAIcon,
+  OpenCodeIcon,
+} from '@/lib/icons/AgentIcons'
 import { cn } from '@/lib/utils'
 
 const PACE_CHIP: Record<QuotaPace, string> = {
   comfortable: 'hp-pace-ok',
   'on-pace': 'hp-pace-even',
   hot: 'hp-pace-hot',
+}
+
+const QUOTA_PANEL_ICONS: Record<AccountQuotaGroup['agent'], typeof ClaudeCodeIcon | null> = {
+  'claude-code': ClaudeCodeIcon,
+  codex: OpenAIcon,
+  grok: GrokIcon,
+  opencode: OpenCodeIcon,
+  cursor: CursorIcon,
+  shell: null,
 }
 
 /**
@@ -41,18 +57,16 @@ export function QuotaPanel({
     <>
       <div className="hp-header">
         <span className="hp-title">Agent quota</span>
-        <span
-          className={cn(
-            'hp-verdict',
-            verdict.mixed ? 'hp-verdict-mixed' : `hp-verdict-${verdict.tone}`,
-          )}
-        >
-          <span className="hp-verdict-dots" aria-hidden="true">
-            {verdict.tones.map((tone) => (
-              <i key={tone} className={`hp-verdict-dot-${tone}`} />
-            ))}
-          </span>
-          {verdict.label}
+        <span className="hp-verdict">
+          {verdict.label.split(' · ').map((label, index) => {
+            const tone = verdict.tones[index] ?? verdict.tone
+            return (
+              <span key={`${tone}-${label}`} className={`hp-verdict-item hp-verdict-${tone}`}>
+                <i aria-hidden="true" />
+                {label}
+              </span>
+            )
+          })}
         </span>
       </div>
       {/* Scrolls once the accounts outgrow the popover's cap — see `.hp-scroll`. */}
@@ -61,9 +75,13 @@ export function QuotaPanel({
         {ok.map((g) => {
           const { gating, models } = splitQuotaWindows(g.windows)
           const pace = groupGatingPace(g, now)
+          const Icon = QUOTA_PANEL_ICONS[g.agent]
           return (
             <div key={g.key} className="hp-section">
               <div className="hp-acct">
+                {Icon && (
+                  <Icon size={13} variant="mono" className="hp-acct-icon" aria-hidden={true} />
+                )}
                 <span className="hp-acct-agent">{agentLabel(g.agent)}</span>
                 {g.account?.plan && <span className="hp-acct-plan">{g.account.plan}</span>}
                 {pace && (
@@ -72,18 +90,18 @@ export function QuotaPanel({
                 {g.account?.email && <span className="hp-acct-sub">{g.account.email}</span>}
               </div>
               {gating.map((w) => (
-                <WindowRow key={w.key} w={w} now={now} />
+                <WindowRow key={w.key} w={w} now={now} pace={pace} />
               ))}
               {/* Model-scoped buckets read as a separate tier — they are extra
                 capacity for one model, not a limit on the harness (POD-271). */}
               {models.length > 0 && (
-                <>
-                  <div className="hp-sect-label hp-model-label">Model limits</div>
+                <div className="hp-model-limits">
+                  <div className="hp-model-label">Model limits</div>
                   {models.map((w) => (
-                    <WindowRow key={w.key} w={w} now={now} />
+                    <ModelWindowRow key={w.key} w={w} now={now} />
                   ))}
                   <div className="hp-model-note">{modelLimitNote(g.agent, g.windows)}</div>
-                </>
+                </div>
               )}
             </div>
           )
@@ -93,9 +111,18 @@ export function QuotaPanel({
   )
 }
 
-function WindowRow({ w, now }: { w: QuotaWindowWire; now: number }): JSX.Element {
+function WindowRow({
+  w,
+  now,
+  pace,
+}: {
+  w: QuotaWindowWire
+  now: number
+  pace: QuotaPace | null
+}): JSX.Element {
   const elapsed = windowElapsedPercent(w.resetsAt, w.windowMinutes, now)
-  const tone = percentTone(w.usedPercent)
+  const percent = percentTone(w.usedPercent)
+  const tone = percent === 'crit' ? percent : pace === 'hot' ? 'warn' : percent
   const used = Math.min(100, Math.max(0, w.usedPercent))
   return (
     <div className="hp-winrow">
@@ -116,10 +143,37 @@ function WindowRow({ w, now }: { w: QuotaWindowWire; now: number }): JSX.Element
           />
         )}
       </span>
-      <span className="hp-num">
-        {Math.round(w.usedPercent)}%{' '}
-        <small>· {formatReset(w.resetsAt, now).replace('resets in ', '')}</small>
+      <span className="hp-num">{Math.round(w.usedPercent)}%</span>
+      <span className="hp-reset">{formatReset(w.resetsAt, now).replace('resets in ', '')}</span>
+    </div>
+  )
+}
+
+function ModelWindowRow({ w, now }: { w: QuotaWindowWire; now: number }): JSX.Element {
+  const elapsed = windowElapsedPercent(w.resetsAt, w.windowMinutes, now)
+  const tone = percentTone(w.usedPercent)
+  const used = Math.min(100, Math.max(0, w.usedPercent))
+  return (
+    <div className="hp-model-row">
+      <span className="hp-model-meter">
+        <span className="hp-model-name">{windowScopeModel(w) ?? w.label}</span>
+        <span
+          className="hp-bar"
+          role="presentation"
+          title={elapsed !== null ? `${Math.round(elapsed)}% of window elapsed` : undefined}
+        >
+          <span className={cn('hp-fill', `hp-fill-${tone}`)} style={{ width: `${used}%` }} />
+          {elapsed !== null && (
+            <span
+              className="hp-tick"
+              style={{ left: `${Math.min(99, Math.max(1, elapsed))}%` }}
+              aria-hidden="true"
+            />
+          )}
+        </span>
       </span>
+      <span className="hp-num">{Math.round(w.usedPercent)}%</span>
+      <span className="hp-reset">{formatReset(w.resetsAt, now).replace('resets in ', '')}</span>
     </div>
   )
 }

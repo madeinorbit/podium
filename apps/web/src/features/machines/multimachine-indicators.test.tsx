@@ -176,7 +176,9 @@ describe('memory chip is machine-aware', () => {
     // The vmi chip (second host) — its accessible name carries the hostname.
     const chip = screen.getByRole('button', { name: /vmi — memory/i })
     fireEvent.click(chip)
-    await waitFor(() => expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('vmi34') }))
+    await waitFor(() =>
+      expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('vmi34') }),
+    )
     expect(memoryBreakdown).not.toHaveBeenCalledWith({ machineId: asMachineId('podium-host') })
   })
 
@@ -184,7 +186,9 @@ describe('memory chip is machine-aware', () => {
     render(<HostIndicators />)
     const chip = screen.getByRole('button', { name: /podium-host — memory/i })
     fireEvent.click(chip)
-    await waitFor(() => expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('podium-host') }))
+    await waitFor(() =>
+      expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('podium-host') }),
+    )
   })
 })
 
@@ -215,7 +219,9 @@ describe('quota overlay groups by account', () => {
       'claude-code',
     )
     expect(harnessIcons[1]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe('codex')
-    expect([...harnessIcons].every((icon) => icon.getAttribute('aria-hidden') === 'true')).toBe(true)
+    expect([...harnessIcons].every((icon) => icon.getAttribute('aria-hidden') === 'true')).toBe(
+      true,
+    )
     const meters = chip.querySelectorAll<HTMLElement>('.header-quota-meter > span')
     expect(meters).toHaveLength(2)
     expect(meters[0]?.style.width).toBe('98%')
@@ -224,7 +230,11 @@ describe('quota overlay groups by account', () => {
     expect(meters[1]?.className).toContain('bg-success')
 
     fireEvent.click(chip)
-    await waitFor(() => expect(screen.getByText('1 constrained · 1 healthy')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('1 constrained')).toBeTruthy())
+    expect(screen.getByText('1 healthy')).toBeTruthy()
+    const verdictItems = document.querySelectorAll('.health-popover-quota .hp-verdict-item')
+    expect(verdictItems).toHaveLength(2)
+    expect([...verdictItems].every((item) => item.querySelector('i'))).toBe(true)
   })
 
   it('shows a card per distinct account, each labeled with its email + machine', async () => {
@@ -296,7 +306,12 @@ describe('quota overlay groups by account', () => {
     expect(rail[0]?.className).toContain('bg-destructive')
 
     fireEvent.click(chip)
-    await waitFor(() => expect(screen.getByText('Fable spent · rest lasts')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Fable spent')).toBeTruthy())
+    expect(screen.getByText('rest lasts')).toBeTruthy()
+    expect(
+      document.querySelector('.health-popover-quota')?.classList.contains('health-popover'),
+    ).toBe(true)
+    expect(document.querySelector('.hp-model-limits .hp-model-row')).toBeTruthy()
     expect(
       screen.getByText(/Fable is spent — Claude Code falls back to the models the shared pool/),
     ).toBeTruthy()
@@ -412,6 +427,18 @@ describe('header quota chip does not pin a detailed breakdown', () => {
     await waitFor(() => expect(screen.getByText('Do more')).toBeTruthy())
     expect(screen.getByText('On pace')).toBeTruthy()
     expect(screen.getByText("Won't last")).toBeTruthy()
+    const rows = document.querySelectorAll('.health-popover-quota .hp-winrow')
+    expect(rows).toHaveLength(3)
+    expect(
+      [...rows].every(
+        (row) =>
+          row.querySelector('.hp-winlabel') &&
+          row.querySelector('.hp-bar') &&
+          row.querySelector('.hp-num') &&
+          row.querySelector('.hp-reset'),
+      ),
+    ).toBe(true)
+    expect(document.querySelectorAll('.health-popover-quota .hp-acct-icon')).toHaveLength(3)
   })
 })
 
@@ -435,9 +462,9 @@ describe('header machine chip carries host-pressure readouts', () => {
   it('renders MEM, LOAD, and AGT marks on each machine chip', async () => {
     render(<HeaderHostIndicators />)
     await waitFor(() => expect(settingsGet).toHaveBeenCalled())
-    const chips = screen.getAllByRole('button').filter((el) =>
-      el.classList.contains('header-machine-chip'),
-    )
+    const chips = screen
+      .getAllByRole('button')
+      .filter((el) => el.classList.contains('header-machine-chip'))
     expect(chips.length).toBeGreaterThanOrEqual(2)
     for (const chip of chips) {
       const marks = [...chip.querySelectorAll('.header-mark')].map((n) => n.textContent)

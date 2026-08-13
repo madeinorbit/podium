@@ -14,6 +14,7 @@ export function HealthPopover({
   children,
   pinnedWide = true,
   pinOnClick = true,
+  popupClassName,
 }: {
   /** The chip button; rendered as the popover trigger. Its props are widened so
    *  the shell can stamp the `data-pinned` flag onto it (see below). */
@@ -24,6 +25,9 @@ export function HealthPopover({
   pinnedWide?: boolean
   /** When false, click toggles the same hover panel and never pins it. */
   pinOnClick?: boolean
+  /** Feature-specific treatment for a panel whose design differs from the
+   *  shared machine-health shell. */
+  popupClassName?: string
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [pinned, setPinned] = useState(false)
@@ -56,7 +60,11 @@ export function HealthPopover({
       <Popover.Portal>
         <Popover.Positioner side="bottom" align="end" sideOffset={6} className="isolate z-50">
           <Popover.Popup
-            className={cn('health-popover', pinned && pinnedWide && 'health-popover-pinned')}
+            className={cn(
+              'health-popover',
+              popupClassName,
+              pinned && pinnedWide && 'health-popover-pinned',
+            )}
           >
             {children(pinned)}
           </Popover.Popup>

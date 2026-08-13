@@ -165,7 +165,9 @@ export function QuotaIndicator({
   // signed in on any machine (unauthenticated agents are dropped by grouping).
   const groups = groupQuotaByAccount(machines ?? [])
   const pools = quotaPools(groups)
-  const surging = useQuotaSurge(pools.map((pool) => ({ key: pool.group.key, percent: pool.percent })))
+  const surging = useQuotaSurge(
+    pools.map((pool) => ({ key: pool.group.key, percent: pool.percent })),
+  )
   if (!machines || groups.length === 0) return null
 
   const worst = worstPercent(groups)
@@ -190,6 +192,7 @@ export function QuotaIndicator({
     return (
       <HealthPopover
         pinOnClick={false}
+        popupClassName="health-popover-quota"
         trigger={
           <button
             data-pressable
@@ -215,7 +218,10 @@ export function QuotaIndicator({
                 return (
                   <span
                     key={group.key}
-                    className={cn('header-quota-pool', surging.has(group.key) && 'header-quota-surge')}
+                    className={cn(
+                      'header-quota-pool',
+                      surging.has(group.key) && 'header-quota-surge',
+                    )}
                     data-harness={group.agent}
                   >
                     <QuotaHarnessIcon agent={group.agent} />
