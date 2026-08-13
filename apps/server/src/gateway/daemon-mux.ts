@@ -117,6 +117,8 @@ const DISPATCH: Dispatcher = {
   agentExit: toSessions,
   spawnError: toSessions,
   reattachFailed: toSessions,
+  sessionKillResult: toSessions,
+  durableSessionCensus: toSessions,
   transcriptDelta: toSessions,
   title: toSessions,
   agentState: toSessions,

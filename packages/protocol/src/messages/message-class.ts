@@ -279,6 +279,8 @@ export const DAEMON_PLANE_CLASS = {
   agentExit: 'stream.live',
   spawnError: 'control.command',
   reattachFailed: 'control.command',
+  sessionKillResult: 'control.command',
+  durableSessionCensus: 'control.command',
   title: 'stream.live',
   agentState: 'stream.live',
   agentObservation: 'stream.live',

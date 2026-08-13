@@ -34,8 +34,11 @@
  * replies reattachFailed, and only then does 'exited' stand.
  */
 
+import { createLogger } from '@podium/logger'
 import type { ControlMessage, MachinePrincipal } from '@podium/protocol'
 import type { Session, SessionVolatileField } from './session'
+
+const log = createLogger('server:sessions')
 
 export interface MachineReconcilerPorts {
   /** This machine's candidate sessions. Read-only: nothing here adds or removes. */
@@ -57,6 +60,8 @@ export interface MachineReconcilerPorts {
   /** Headless sessions have no PTY; re-establish their daemon-side tails. */
   rebindHeadless(session: Session): void
   markVolatileSessionDirty(sessionId: Session['sessionId'], fields: SessionVolatileField[]): void
+  /** Durable write for a row this module repaired [POD-1953]. */
+  persist(session: Session): void
   broadcastSessions(): void
 }
 
@@ -141,6 +146,69 @@ export class SessionMachineReconciler {
       if (s.machineId !== machineId || !s.headless || !s.resume?.value) continue
       this.ports.rebindHeadless(s)
     }
+  }
+
+  /**
+   * The machine reported which durable labels it is actually RUNNING; correct
+   * every parked row it contradicts [POD-1953].
+   *
+   * A park flips the row before its kill is on the wire, and nothing else ever
+   * re-asks: a reap that silently failed, or a kill sent into a socket that had
+   * already died, leaves a row reading 'hibernated' over a live agent for as
+   * long as the fleet stays up (measured: ten such rows across two machines, the
+   * oldest a week). Resume then spawns a SECOND process under a label the first
+   * still owns, which is how POD-1945 died.
+   *
+   * The durable host wins, per this module's own rule — so a parked row whose
+   * master is alive is revived, not re-killed. 'exited' rows are already probed
+   * on attach; this adds the parked ones the probe fan-out deliberately skips.
+   * Archived rows are excluded: archive means stopped, and {@link onAttached}
+   * parks (and now verifiably kills) them a few lines earlier.
+   */
+  onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): void {
+    const machineId = principal.machine
+    const live = new Set(labels)
+    for (const s of this.ports.sessions()) {
+      if (s.machineId !== machineId || s.headless || s.archived) continue
+      if (s.status !== 'hibernated') continue
+      if (!live.has(s.durableLabel)) continue
+      this.reviveParkedButAlive(s, machineId, 'the durable host is still running')
+    }
+  }
+
+  /**
+   * One parked row, one live process: believe the process.
+   *
+   * `reconnecting` rather than `live` — the daemon disposed the PTY bridge when
+   * it took the kill, so there IS no attached client until the reattach below
+   * binds one. That reattach is the same frame {@link onAttached} sends for a
+   * survivor, so the recovery converges through machinery that already exists:
+   * a master that turns out to be gone after all answers `reattachFailed`, and
+   * `onExit` leaves a hibernated row hibernated — a wrong guess here costs a
+   * probe, never a resurrection.
+   */
+  reviveParkedButAlive(session: Session, machineId: string, reason: string): void {
+    if (session.status !== 'hibernated' && session.status !== 'exited') return
+    log.warn('a parked session is still running — reviving the row', {
+      sessionId: session.sessionId,
+      durableLabel: session.durableLabel,
+      status: session.status,
+      reason,
+    })
+    // Set directly rather than through `markReconnecting`: that guard exists to
+    // stop a detach from dragging a PARKED row back, which is the very thing it
+    // would have to allow here. Its refusal stays intact for its own caller.
+    session.status = 'reconnecting'
+    session.exitCode = undefined
+    // `lastActiveAt` is deliberately NOT stamped. The session is alive but it has
+    // not done anything, and pretending otherwise would both reorder the board on
+    // a bookkeeping repair and hide the row from the idle governor. If the park
+    // was right, the governor takes it again on its next tick — and now the kill
+    // reports whether that one landed.
+    this.ports.markVolatileSessionDirty(session.sessionId, ['status'])
+    this.ports.persist(session)
+    this.ports.toMachine(machineId, this.ports.reattachMessage(session, machineId))
+    this.ports.broadcastSessions()
   }
 
   /**

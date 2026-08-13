@@ -54,7 +54,9 @@ import {
   AgentFrameMessage,
   AgentModelMessage,
   BindMessage,
+  DurableSessionCensusMessage,
   ReattachFailedMessage,
+  SessionKillResultMessage,
   SpawnErrorMessage,
   TitleMessage,
 } from './terminal'
@@ -176,6 +178,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   AgentExitMessage,
   SpawnErrorMessage,
   ReattachFailedMessage,
+  SessionKillResultMessage,
+  DurableSessionCensusMessage,
   TitleMessage,
   AgentStateMessage,
   AgentObservationMessage,

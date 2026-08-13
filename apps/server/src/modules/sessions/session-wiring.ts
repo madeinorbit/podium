@@ -114,6 +114,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     rebindHeadless: (session) => bag.rebindHeadless(session),
     markVolatileSessionDirty: (sessionId, fields) =>
       bag.repository.markVolatileSessionDirty(sessionId, fields),
+    persist: (session) => bag.repository.persist(session),
     broadcastSessions: () => bag.broadcastSessions(),
   })
   bag.broadcasts = new SessionBroadcastCoordinator({
@@ -455,6 +456,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.terminalProof.facts(session, lease, checkpoint),
     broadcastToClients: (message) => bag.broadcastToClients(message),
     clearOffer: (sessionId) => bag.clearOffer(sessionId),
+    // Liveness repair belongs to the reconciler (POD-1953) — the module whose
+    // rule is that the durable host, not the row, decides what is running.
+    reviveParkedButAlive: (session, machineId, reason) =>
+      bag.machineReconciler.reviveParkedButAlive(session, machineId, reason),
+    onDurableSessionCensus: (principal, labels) =>
+      bag.machineReconciler.onDurableSessionCensus(principal, labels),
   })
   // Teardown needs repository/view/state and autoContinue/daemonProjection.
   // Built here so every port target already exists. Early constructor ports

@@ -3126,6 +3126,81 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
   })
 
+  // POD-1953. A park flips the row before the kill is on the wire, so 'hibernated'
+  // is only ever a claim about a kill that was REQUESTED. When the reap silently
+  // failed the row said parked over a running agent for hours, and the next Resume
+  // spawned a second process under a label the first still owned (POD-1945). The
+  // daemon now reports what the reap actually did, and the durable host wins.
+  it('revives a parked row whose kill the daemon could not confirm', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel: `podium-${sessionId}`,
+      killed: false,
+      reason: 'the durable host is still running',
+    })
+
+    // Reconnecting, not live: the daemon disposed the PTY bridge when it took the
+    // kill, so the row is only honest once the reattach below binds a new one.
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('reconnecting')
+    expect(daemon.map((m) => m.type)).toContain('reattach')
+  })
+
+  it('leaves a parked row alone when the daemon confirms the kill', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel: `podium-${sessionId}`,
+      killed: true,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  // The census covers the kills this server never saw the end of: one sent into a
+  // socket that had already died, or issued by a server process that has since
+  // restarted. Ten rows were sitting like that across two machines when this was
+  // written, the oldest for a week.
+  it('revives only the parked rows the census says are still running', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const ghost = liveSession(reg, daemon)
+    const reallyParked = liveSession(reg, daemon)
+    expect(reg.modules.sessions.hibernateSession({ sessionId: ghost })).toEqual({ ok: true })
+    expect(reg.modules.sessions.hibernateSession({ sessionId: reallyParked })).toEqual({ ok: true })
+
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'durableSessionCensus',
+      labels: [`podium-${ghost}`],
+    })
+
+    const byId = new Map(reg.modules.sessions.listSessions().map((s) => [s.sessionId, s.status]))
+    expect(byId.get(ghost)).toBe('reconnecting')
+    // Absent from the census = the park told the truth. It must stay parked, or
+    // every deliberate hibernation would come back on the next daemon connect.
+    expect(byId.get(reallyParked)).toBe('hibernated')
+    expect(
+      daemon.filter((m) => m.type === 'reattach').map((m) => (m as { sessionId: string }).sessionId),
+    ).toEqual([ghost])
+  })
+
   it('refuses to hibernate a session with no resume ref (would be a kill)', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})

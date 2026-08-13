@@ -687,6 +687,31 @@ describe('Layer 3 reattach messages', () => {
     }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
+
+  // POD-1953: the reap receipt. `killed` is what the daemon MEASURED after
+  // reaping, which is why it is a required field and not an optional hint.
+  it('round-trips a sessionKillResult daemon message', () => {
+    const msg = {
+      type: 'sessionKillResult' as const,
+      sessionId: asSessionId('s1'),
+      durableLabel: 'podium-s1',
+      killed: false,
+      reason: 'the durable host is still running',
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('round-trips a durableSessionCensus daemon message', () => {
+    const msg = { type: 'durableSessionCensus' as const, labels: ['podium-s1', 'podium-s2'] }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+
+  // A machine running nothing must still be able to SAY so — an empty census is
+  // the frame that tells the server every parked row on it is telling the truth.
+  it('round-trips an empty durableSessionCensus', () => {
+    const msg = { type: 'durableSessionCensus' as const, labels: [] }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
 })
 
 describe('host metrics messages', () => {

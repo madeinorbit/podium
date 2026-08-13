@@ -6,7 +6,7 @@ import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage, PeerBuild } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
-import { killAbducoSession, killTmuxServer } from '@podium/pty'
+import { killAbducoSession, killTmuxServer, listLiveAbducoLabels } from '@podium/pty'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -453,6 +453,25 @@ export async function createDaemonHostRuntime(args: {
     })
   }
 
+  /**
+   * Tell the server which durable labels this machine is actually running
+   * (POD-1953).
+   *
+   * A park kill is fire-and-forget across a link that drops, and the server that
+   * sent it may since have restarted, so a row can sit 'hibernated' over a live
+   * agent indefinitely — nothing else in the system ever re-asks. This is the
+   * re-ask, sent on every connect: one socket-index read, no `abduco` fork, so a
+   * wedged master cannot turn it into a hang.
+   */
+  const pushDurableSessionCensus = (): void => {
+    if (backend === 'none') return
+    try {
+      send({ type: 'durableSessionCensus', labels: listLiveAbducoLabels() })
+    } catch (err) {
+      log.warn('could not census the durable sessions', { err })
+    }
+  }
+
   const connected = (): void => {
     if (!kickedOff) {
       kickedOff = true
@@ -471,6 +490,7 @@ export async function createDaemonHostRuntime(args: {
       void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
     }
     reconcilePendingUpdate()
+    pushDurableSessionCensus()
     void reportInventory(ctx)
     void replayPendingBindingReceipts().catch((error) =>
       log.warn('Codex identity receipt replay failed', { err: error }),

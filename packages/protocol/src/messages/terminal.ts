@@ -521,6 +521,40 @@ export const ReattachFailedMessage = z.object({
   sessionId: SessionIdField,
   reason: z.string(),
 })
+/**
+ * Daemon → server: what a `kill` frame ACTUALLY did to the durable host.
+ *
+ * A park (hibernate / stop / archive) flips the row before the kill is even on
+ * the wire, so without this the row's `hibernated` is a claim about a kill that
+ * was merely REQUESTED. When the reap silently fails — a wedged listing, a
+ * refused scope stop — the row says parked while the agent runs on for days, and
+ * the next Resume spawns into its own live label (POD-1945 / POD-1952).
+ *
+ * `killed` is measured, not assumed: the daemon re-reads the durable host's
+ * liveness after reaping and reports what it found.
+ */
+export const SessionKillResultMessage = z.object({
+  type: z.literal('sessionKillResult'),
+  sessionId: SessionIdField,
+  durableLabel: z.string(),
+  killed: z.boolean(),
+  /** Present when `killed` is false: what is still holding the label. */
+  reason: z.string().optional(),
+})
+/**
+ * Daemon → server: every durable label this machine is actually still running,
+ * pushed on connect.
+ *
+ * The reap receipt above covers a kill this server saw through; this covers the
+ * ones it did not — a kill sent into a socket that had already died, or issued
+ * by a server process that has since restarted. The daemon reads its own socket
+ * index (no `abduco` fork, no per-label probe), so the whole census is one
+ * directory scan however many sessions the machine holds.
+ */
+export const DurableSessionCensusMessage = z.object({
+  type: z.literal('durableSessionCensus'),
+  labels: z.array(z.string()),
+})
 // Live terminal title sniffed from the agent's PTY (OSC 0/1/2). The daemon
 // detects it in the byte stream and forwards it so the server can label the panel.
 export const TitleMessage = z.object({

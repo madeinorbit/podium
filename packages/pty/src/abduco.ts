@@ -304,6 +304,8 @@ const execFileAsync = promisify(execFile)
 
 const ABDUCO_SOCKET_WAIT_MS = 5000
 const ABDUCO_SOCKET_POLL_MS = 10
+/** Ceiling for the global `abduco` listing — see {@link listSessions}. */
+const ABDUCO_LIST_TIMEOUT_MS = 8000
 
 /** Candidate roots in abduco's resolution order. */
 function abducoSocketDirs(env: NodeJS.ProcessEnv, username?: string): string[] {
@@ -445,7 +447,15 @@ async function listSessions(): Promise<AbducoSessionEntry[]> {
   const bin = resolveAbducoBin()
   if (!bin) return []
   try {
-    const { stdout } = await execFileAsync(bin, [], { encoding: 'utf8', env: liveEnv() })
+    // BOUNDED (POD-1953). The listing connects to every master in turn, so one
+    // wedged session makes it hang — and an unbounded hang here is not a slow
+    // answer, it is a lost one: the caller's `await` never returns and whatever
+    // followed it never runs. Every caller has a correct empty-list fallback.
+    const { stdout } = await execFileAsync(bin, [], {
+      encoding: 'utf8',
+      env: liveEnv(),
+      timeout: ABDUCO_LIST_TIMEOUT_MS,
+    })
     return parseAbducoList(stdout ?? '')
   } catch (err) {
     // `abduco` exits non-zero on some versions even when it printed a valid list;
@@ -470,7 +480,17 @@ export async function abducoHasSession(label: string): Promise<boolean> {
  * SIGTERM the session master and sweep its systemd scope. The async list/process
  * path keeps burst kills from starving every other session on the daemon loop.
  */
-export async function killAbducoSession(label: string): Promise<void> {
+export async function killAbducoSession(
+  label: string,
+  run: SystemctlRunner = execFileAsync,
+): Promise<void> {
+  // Started BEFORE the listing, not after it (POD-1953). The scope sweep is the
+  // reap that always works — it signals the whole cgroup by unit name and needs
+  // nothing from `abduco` — but it used to be reachable only THROUGH the await
+  // below, so a listing that hung took the reliable half down with it and the
+  // kill became a silent no-op: master alive, scope alive, nothing logged, and a
+  // row that said 'hibernated' for four hours.
+  const scope = stopSessionScope(label, run)
   try {
     const entry = (await listSessions()).find((s) => s.name === label && s.alive)
     if (entry) process.kill(entry.pid, 'SIGTERM')
@@ -484,7 +504,37 @@ export async function killAbducoSession(label: string): Promise<void> {
   // archived session never gets. `systemctl stop` signals the whole cgroup and
   // escalates to SIGKILL on its stop timeout; reset-failed clears leftover unit
   // state. Unconditional: a dead master with squatting orphans still needs it.
-  await stopSessionScope(label)
+  await scope
+}
+
+/**
+ * Every durable label this host is still RUNNING, read from the socket index.
+ *
+ * The census answer for POD-1953: a server that parked a row cannot know the
+ * reap landed, so on connect the daemon tells it which labels are in fact still
+ * alive. One `readdir` per candidate directory and a `stat` per socket — no
+ * `abduco` fork, so it cannot hang behind a wedged master however many sessions
+ * this machine holds. Terminated masters (S_IXGRP) are excluded by
+ * {@link abducoSocketPath}: they hold a name, not an agent.
+ */
+export function listLiveAbducoLabels(env: NodeJS.ProcessEnv = process.env): string[] {
+  const labels = new Set<string>()
+  for (const dir of abducoSocketDirs(env)) {
+    let names: string[]
+    try {
+      names = readdirSync(dir)
+    } catch {
+      continue
+    }
+    for (const name of names) {
+      // Relative names are stored `<label>@<hostname>`; the label is the part
+      // before the FIRST '@' (podium labels never contain one).
+      const label = name.split('@')[0]
+      if (!label) continue
+      if (abducoSocketPath(label, env)) labels.add(label)
+    }
+  }
+  return [...labels]
 }
 
 /**
@@ -493,10 +543,13 @@ export async function killAbducoSession(label: string): Promise<void> {
  * no systemd, an unscoped spawn (fallback path), or an already-gone unit all
  * make these no-ops. tmux labels never had a scope, so it's a no-op there too.
  */
-export async function stopSessionScope(label: string): Promise<void> {
+export async function stopSessionScope(
+  label: string,
+  run: SystemctlRunner = execFileAsync,
+): Promise<void> {
   for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
     try {
-      await execFileAsync('systemctl', args, { env: scopeEnv(liveEnv()), timeout: 8000 })
+      await run('systemctl', args, { env: scopeEnv(liveEnv()), timeout: 8000 })
     } catch {
       // best-effort: no such unit / no systemd
     }

@@ -673,13 +673,60 @@ function stopSessionProcess(
   if (ctx.backend !== 'none') {
     const durableLabel =
       msg.durableLabel ?? ctx.durableLabels.get(msg.sessionId) ?? ctx.durableLabelFor(msg.sessionId)
-    void (async () => {
-      await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
-    })()
+    void reapDurableHost(ctx, msg.sessionId, durableLabel)
   }
   ctx.durableLabels.delete(msg.sessionId)
   removeSessionUploads(msg.sessionId, ctx.portableStateFence)
   removeSessionInstructions(ctx, msg.sessionId)
+}
+
+/**
+ * Reap the durable host for a label, then SAY WHETHER IT WORKED (POD-1953).
+ *
+ * The server flips the row to 'hibernated'/'exited' the moment it asks for a
+ * kill, so an unreported failure here is not a slow park — it is a permanent
+ * lie: the agent runs on in its own scope while every surface says it is parked,
+ * and the next Resume creates a second process under a label this one still
+ * owns. One retry (the first attempt already freed whatever was squatting the
+ * scope) and then the measured answer, never an assumed one.
+ */
+async function reapDurableHost(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  durableLabel: string,
+): Promise<void> {
+  const stillRunning = async (): Promise<boolean> =>
+    (await abducoHasSession(durableLabel)) || (await tmuxHasSession(durableLabel))
+  try {
+    await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
+    let alive = await stillRunning()
+    if (alive) {
+      log.warn('the durable host survived a kill — retrying', { sessionId, durableLabel })
+      await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
+      alive = await stillRunning()
+    }
+    if (alive) {
+      log.warn('the durable host is STILL running after a kill', { sessionId, durableLabel })
+    }
+    ctx.send({
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel,
+      killed: !alive,
+      ...(alive ? { reason: 'the durable host is still running' } : {}),
+    })
+  } catch (err) {
+    // A reap that THREW proves nothing about the process, so report what is
+    // there rather than a guess — an unreported throw is the silent no-op again.
+    log.warn('could not reap the durable host', { err, sessionId, durableLabel })
+    ctx.send({
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel,
+      killed: !(await stillRunning().catch(() => false)),
+      reason: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 export const sessionHandlers: Pick<
   ControlHandlers,

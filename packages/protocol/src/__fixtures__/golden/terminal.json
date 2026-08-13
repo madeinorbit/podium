@@ -473,6 +473,30 @@
       "encoded": "{\"type\":\"draftTarget\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
     },
     {
+      "schema": "DurableSessionCensusMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "durableSessionCensus",
+        "labels": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"durableSessionCensus\",\"labels\":[]}"
+    },
+    {
+      "schema": "DurableSessionCensusMessage",
+      "variant": "full",
+      "wire": {
+        "type": "durableSessionCensus",
+        "labels": ["labels[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"durableSessionCensus\",\"labels\":[\"labels[0]\"]}"
+    },
+    {
       "schema": "GeometryMessage",
       "variant": "minimal",
       "wire": {
@@ -1363,6 +1387,35 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"kind\":\"system\",\"job\":\"job\"}"
+    },
+    {
+      "schema": "SessionKillResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionKillResult",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "killed": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionKillResult\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"killed\":true}"
+    },
+    {
+      "schema": "SessionKillResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionKillResult",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "killed": true,
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionKillResult\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"killed\":true,\"reason\":\"reason\"}"
     },
     {
       "schema": "SessionPriorityMessage",

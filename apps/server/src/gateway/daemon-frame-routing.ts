@@ -48,6 +48,8 @@ export const DAEMON_FRAME_PORTS = {
   agentExit: ['sessions'],
   spawnError: ['sessions'],
   reattachFailed: ['sessions'],
+  sessionKillResult: ['sessions'],
+  durableSessionCensus: ['sessions'],
   transcriptDelta: ['sessions'],
   title: ['sessions'],
   agentState: ['sessions'],

@@ -49,6 +49,10 @@ export interface SessionDaemonLifecyclePorts {
   ): TerminalCandidateFacts | null
   broadcastToClients(message: LiveServerMessage): void
   clearOffer(sessionId: SessionId): void
+  /** A parked row whose durable host turned out to be alive [POD-1953]. */
+  reviveParkedButAlive(session: Session, machineId: string, reason: string): void
+  /** This machine's live durable labels, pushed on connect [POD-1953]. */
+  onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): void
 }
 
 function isAttentionPhase(state: AgentRuntimeState | undefined): boolean {
@@ -259,6 +263,21 @@ export class SessionDaemonLifecycle {
         // markSpawnError sets status 'exited' — notify lock auto-release etc.
         // [spec:SP-85d1] like any other real death.
         if (s) this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
+        break
+      }
+      case 'sessionKillResult': {
+        // The receipt for a kill this server asked for [POD-1953]. A confirmed
+        // reap needs nothing — the park already flipped the row. An UNCONFIRMED
+        // one means the row is now lying about a process that is still serving,
+        // so the durable host wins and the row goes back to reconnecting.
+        const s = this.sessions.get(msg.sessionId)
+        if (!s || s.machineId !== machineId) break
+        if (msg.killed) break
+        this.ports.reviveParkedButAlive(s, machineId, msg.reason ?? 'kill unconfirmed')
+        break
+      }
+      case 'durableSessionCensus': {
+        this.ports.onDurableSessionCensus(principal, msg.labels)
         break
       }
       case 'reattachFailed': {
