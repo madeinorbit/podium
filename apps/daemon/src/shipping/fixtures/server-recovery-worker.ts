@@ -92,7 +92,13 @@ const service = new ShippingService({
     authorize: () => {},
     reauthorize: () => {},
   },
-  evidence: store.shipping,
+  evidence: {
+    rootIntegrationReceipt: (rootIssueId, approvedHeadSha) =>
+      store.shipping.rootIntegrationReceipt(rootIssueId, approvedHeadSha),
+    // Recovery uses the same compatibility policy as the live server. That
+    // policy permits shipping without an accepted-review repository.
+    acceptedReviewEvidence: () => null,
+  },
   policy: new CompatibilityShippingPolicyResolver(() => 'main'),
   machineFor: () => machineId,
   resolveBranchTip: async (issue) => git('rev-parse', `refs/heads/${issue.branch}`),
@@ -120,7 +126,7 @@ if (phase === 'crash') {
     approvedHeadSha: head,
     descendants: [],
   })
-  const { order } = await service.enqueue({
+  const { order } = await service.enqueueCurrent({
     issueId: created.id,
     principal: {
       kind: 'user',
@@ -132,17 +138,7 @@ if (phase === 'crash') {
         onBehalfOf: FIRST_ADMIN_USER_ID,
       },
     },
-    requestedBy: {
-      actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-      onBehalfOf: FIRST_ADMIN_USER_ID,
-    },
     overrideScope: false,
-    approved: {
-      sourceBaseSha: head,
-      sourceHeadSha: head,
-      policyId: 'compatibility-local:main',
-      previewLeaseIds: [],
-    },
   })
   await service.runOrder(order.id)
   throw new Error('crash hook did not terminate the process')
