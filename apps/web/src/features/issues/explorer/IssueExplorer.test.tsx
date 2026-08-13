@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { type JSX, useEffect, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
@@ -195,6 +195,9 @@ describe('issue explorer navigation', () => {
     fireEvent.change(search, { target: { value: 'POD-766' } })
     expect(screen.getByText(/1 match across every stage/)).toBeTruthy()
     expect(screen.getByText('Minimap stale-tick crash')).toBeTruthy()
+    const archivedRow = screen.getByText('Minimap stale-tick crash').closest('button')
+    expect(archivedRow).toBeTruthy()
+    expect(within(archivedRow as HTMLElement).getByText('archived')).toBeTruthy()
 
     fireEvent.change(search, { target: { value: 'minimap' } })
     expect(screen.getByText('Nothing here by that name or ref.')).toBeTruthy()

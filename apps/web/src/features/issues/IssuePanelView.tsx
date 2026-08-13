@@ -226,6 +226,11 @@ function UnifiedRow({
         >
           {sub.title}
         </span>
+        {sub.archived && (
+          <span className="ml-1.5 font-mono text-[10px] text-text-faint uppercase tracking-[0.04em]">
+            archived
+          </span>
+        )}
       </span>
       <span
         className={cn(
@@ -982,6 +987,7 @@ export function IssuePanelView({
   const presence = presenceNote(issue, all, issueById)
 
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
+  const parent = issue.parentId ? issueById.get(issue.parentId) : undefined
 
   const openFullIssue = (): void => {
     setOpenIssueId(issue.id)
@@ -1075,7 +1081,23 @@ export function IssuePanelView({
             The deck draws this tree in the column to the left. It stays in the
             panel because the explorer can reach tasks the deck is not showing,
             and because relations are how you walk between them — but it is
-            reference, and reference goes under. */}
+            reference, and reference goes under. Archive is a live-list hide,
+            not an identity hide: a parent or child that has been archived
+            still belongs in this column, marked so the operator can see the
+            edge that would otherwise look deleted. */}
+        {issue.parentId && (
+          <DockPart title="Parent" testId="dock-parent">
+            {parent ? (
+              <UnifiedRow
+                sub={parent}
+                meta={parent.archived ? 'Archived' : 'Parent'}
+                onOpen={() => openLinked(parent)}
+              />
+            ) : (
+              <Hint>{issue.parentId}</Hint>
+            )}
+          </DockPart>
+        )}
         {children.length > 0 && (
           <DockPart title="Subtasks" count={children.length} testId="dock-subissues">
             <ProgressMeter

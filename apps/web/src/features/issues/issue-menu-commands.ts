@@ -69,11 +69,22 @@ export function runIssueMenuCommand(
         return deps.closeIssue(id, 'wontfix')
       case 'pin':
         return deps.updateIssue(id, { pinned: !data.first.pinned })
-      case 'archive':
+      case 'archive': {
         // THE TOGGLE, not the dismiss (POD-781). `issues.archive` is one-way, so
         // the menu's archive/unarchive pair has always gone through the patch —
         // two commands for one word, and both are outboxed now.
+        if (!data.first.archived && data.first.childCount > 0) {
+          const confirm = deps.confirm ?? ((text: string) => window.confirm(text))
+          if (
+            !confirm(
+              'Archive this issue and every sub-task beneath it? They will leave active views.',
+            )
+          ) {
+            return
+          }
+        }
         return deps.updateIssue(id, { archived: !data.first.archived })
+      }
       case 'restore':
         return deps.restoreIssue(id)
       case 'delete': {

@@ -114,6 +114,7 @@ export function IssueProperties({
               <Text style={styles.linkTitle} numberOfLines={1}>
                 {parent.title}
               </Text>
+              {parent.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
               <Icon as={ChevronRight} size={13} color={color.textFaint} />
             </PressableScale>
           ) : issue.parentId ? (
@@ -530,6 +531,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
     color: color.body,
     fontSize: font.tiny,
+  },
+  archived: {
+    ...mono(500),
+    color: color.textMicro,
+    fontSize: 9,
+    letterSpacing: 0.5,
   },
   link: {
     ...sans(500),

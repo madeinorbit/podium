@@ -28,6 +28,8 @@ const CHILD_ARCHIVED = makeIssue({
   archived: true,
 })
 
+let mockIssues = [PARENT, CHILD_LIVE, CHILD_ARCHIVED]
+
 vi.mock('@/app/store', () => {
   const state = () =>
     ({
@@ -46,7 +48,7 @@ vi.mock('@/app/store', () => {
       },
       hub: { onIssues: () => () => {} },
       machines: [],
-      issues: [PARENT, CHILD_LIVE, CHILD_ARCHIVED],
+      issues: mockIssues,
       setSelectedWorktree: vi.fn(),
       setPane: vi.fn(),
       setView: vi.fn(),
@@ -59,9 +61,29 @@ vi.mock('@/app/store', () => {
   }
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  mockIssues = [PARENT, CHILD_LIVE, CHILD_ARCHIVED]
+  cleanup()
+})
 
 describe('IssuePage sub-issue list (#133)', () => {
+  it('keeps an archived parent visible on the child, marked archived', () => {
+    mockIssues = [{ ...PARENT, archived: true, stage: 'done' }, CHILD_LIVE]
+    render(
+      <IssuePage
+        issue={CHILD_LIVE}
+        orderedIds={[CHILD_LIVE.id]}
+        onBack={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    )
+    expect(screen.getAllByRole('button', { name: /Epic/ }).length).toBeGreaterThan(0)
+    const marks = screen.getAllByTestId('issue-edge-archived')
+    expect(marks.length).toBeGreaterThan(0)
+    expect(marks.every((el) => el.textContent === 'archived')).toBe(true)
+    expect(screen.queryByText('No parent')).toBeNull()
+  })
+
   it('keeps an archived child visible under the parent, marked archived', () => {
     render(
       <IssuePage issue={PARENT} orderedIds={[PARENT.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
@@ -72,6 +94,28 @@ describe('IssuePage sub-issue list (#133)', () => {
     const archivedRow = within(list).getByText('Archived child').closest('button')
     expect(archivedRow).toBeTruthy()
     // ...and it is visibly marked archived.
+    expect(within(archivedRow as HTMLElement).getByText('archived')).toBeTruthy()
+  })
+
+  it('keeps archived done children visible on a finished parent', () => {
+    const doneParent = { ...PARENT, stage: 'done' as const, childCount: 1, childDoneCount: 1 }
+    const doneArchived = {
+      ...CHILD_ARCHIVED,
+      stage: 'done' as const,
+      closedReason: 'done' as const,
+    }
+    mockIssues = [doneParent, doneArchived]
+    render(
+      <IssuePage
+        issue={doneParent}
+        orderedIds={[doneParent.id]}
+        onBack={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    )
+    const list = screen.getByTestId('sub-issues')
+    const archivedRow = within(list).getByText('Archived child').closest('button')
+    expect(archivedRow).toBeTruthy()
     expect(within(archivedRow as HTMLElement).getByText('archived')).toBeTruthy()
   })
 })

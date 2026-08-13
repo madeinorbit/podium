@@ -202,14 +202,24 @@ export function IssueEdgeLink({
   // you; a cross-reference is neither. The row's hover wash and this underline
   // carry the affordance, and the stage glyph beside it carries the state.
   return (
-    <button
-      data-pressable
-      type="button"
-      className="block min-w-0 truncate text-left font-medium text-foreground/90 hover:text-foreground hover:underline"
-      onClick={() => onNavigate(target.id)}
-      title={target.id}
-    >
-      {issueRefLong(target)}
-    </button>
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+      <button
+        data-pressable
+        type="button"
+        className="min-w-0 truncate text-left font-medium text-foreground/90 hover:text-foreground hover:underline"
+        onClick={() => onNavigate(target.id)}
+        title={target.id}
+      >
+        {issueRefLong(target)}
+      </button>
+      {target.archived && (
+        <span
+          className="flex-none font-mono text-[10px] text-muted-foreground uppercase tracking-[0.04em]"
+          data-testid="issue-edge-archived"
+        >
+          archived
+        </span>
+      )}
+    </span>
   )
 }

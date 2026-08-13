@@ -285,6 +285,11 @@ function ExplorerRow({
         >
           {issue.title}
         </span>
+        {issue.archived && (
+          <span className="ml-1.5 font-mono shell-type-micro text-text-faint uppercase tracking-[0.04em]">
+            archived
+          </span>
+        )}
       </span>
       <span
         className={cn(

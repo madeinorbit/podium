@@ -140,7 +140,13 @@ export function IssueExplorerCrumbs(): JSX.Element {
               type="button"
               disabled={last}
               aria-current={last ? 'page' : undefined}
-              title={crumb.kind === 'root' ? 'All tasks' : issue?.title}
+              title={
+                crumb.kind === 'root'
+                  ? 'All tasks'
+                  : issue
+                    ? `${issue.title}${issue.archived ? ' · archived' : ''}`
+                    : undefined
+              }
               onClick={() => popTo(crumb.depth)}
               className={cn(
                 'flex h-6 min-w-0 flex-none items-center gap-1.5 rounded-md px-1.5 font-mono text-[10.5px] whitespace-nowrap',
@@ -151,6 +157,7 @@ export function IssueExplorerCrumbs(): JSX.Element {
             >
               {crumb.kind === 'root' && <ListTree size={12} aria-hidden="true" />}
               {label}
+              {issue?.archived ? ' · archived' : ''}
             </button>
           </span>
         )

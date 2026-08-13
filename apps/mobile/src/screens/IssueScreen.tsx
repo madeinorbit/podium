@@ -241,7 +241,9 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
     }))
 
   const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
-  const breadcrumb = parent ? `${repoName} › ${issueDisplayRef(parent)}` : repoName
+  const breadcrumb = parent
+    ? `${repoName} › ${issueDisplayRef(parent)}${parent.archived ? ' · archived' : ''}`
+    : repoName
   const hex = issueColorHex(issue.color)
 
   return (

@@ -83,10 +83,11 @@ export function IssueDetailHeader({
             data-pressable
             type="button"
             className="max-w-[160px] truncate font-mono text-[10.5px] text-text-dim tabular-nums hover:text-foreground"
-            title={`${issueDisplayRef(parent)} · ${parent.title}`}
+            title={`${issueDisplayRef(parent)} · ${parent.title}${parent.archived ? ' · archived' : ''}`}
             onClick={() => onNavigate(parent.id)}
           >
             {issueDisplayRef(parent)}
+            {parent.archived ? ' · archived' : ''}
           </button>
           <span className="text-[11.5px] text-text-faint">›</span>
         </>
@@ -196,9 +197,21 @@ export function IssueOverflowMenu({
   }
 
   const handleArchive = (): void => {
-    if (!issue.archived && !issue.closedReason && issue.stage !== 'done') {
+    if (issue.archived) {
+      commands.toggleArchived()
+      return
+    }
+    const subtree = issue.childCount > 0
+    if (!issue.closedReason && issue.stage !== 'done') {
       const ok = window.confirm(
-        'Archive this open issue? It will leave active views, but it will not be closed and its sessions will not be retired.',
+        subtree
+          ? 'Archive this open issue and every sub-task beneath it? They will leave active views.'
+          : 'Archive this open issue? It will leave active views.',
+      )
+      if (!ok) return
+    } else if (subtree) {
+      const ok = window.confirm(
+        'Archive this issue and every sub-task beneath it? They will leave active views.',
       )
       if (!ok) return
     }

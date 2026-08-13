@@ -202,6 +202,44 @@ describe('IssuePanelView inspector', () => {
     expect(screen.queryByText(/subissues done/)).toBeNull()
   })
 
+  it('keeps an archived child visible in the explorer, marked archived', () => {
+    mockIssues = [
+      ROOT,
+      OPEN_CHILD,
+      { ...DONE_CHILD, archived: true },
+      GRANDCHILD,
+    ]
+    render(<IssuePanelView cwd="/r" />)
+    const work = screen.getByTestId('dock-subissues')
+    fireEvent.click(within(work).getByText(/Show 1 completed/))
+    const archivedRow = within(work).getByText('Tray removal').closest('button')
+    expect(archivedRow).toBeTruthy()
+    expect(within(archivedRow as HTMLElement).getByText('archived')).toBeTruthy()
+  })
+
+  it('keeps an archived parent visible in the explorer, marked archived', () => {
+    const archivedParent = makeIssue({
+      id: 'epic',
+      seq: 10,
+      title: 'Shipped epic',
+      archived: true,
+      stage: 'done',
+    })
+    const orphaned = makeIssue({
+      id: 'child',
+      seq: 11,
+      title: 'Promoted child',
+      parentId: 'epic',
+      worktreePath: '/r/child',
+    })
+    mockIssues = [archivedParent, orphaned]
+    render(<IssuePanelView cwd="/r/child" issueId={orphaned.id} />)
+
+    const parent = screen.getByTestId('dock-parent')
+    expect(within(parent).getByText('Shipped epic')).toBeTruthy()
+    expect(within(parent).getByText('archived')).toBeTruthy()
+  })
+
   it('puts the meter with the subtasks it counts, and counts only those', () => {
     render(<IssuePanelView cwd="/r" />)
 

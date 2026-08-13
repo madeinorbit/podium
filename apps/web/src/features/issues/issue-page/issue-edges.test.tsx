@@ -35,6 +35,13 @@ import {
 } from './issue-edges'
 
 const VISIBLE = makeIssue({ id: 'i-visible', seq: 7, title: 'A visible blocker' })
+const ARCHIVED = makeIssue({
+  id: 'i-archived',
+  seq: 8,
+  title: 'An archived epic',
+  archived: true,
+  stage: 'done',
+})
 
 /** What the store's replica reports, per test. The DEFAULT lookup reads this —
  *  it is how the product learns an id left the view (POD-1510). */
@@ -44,7 +51,7 @@ let replicaExits: Record<string, 'removed' | 'evicted'> = {}
 let replicaAnswersExits = true
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => [VISIBLE],
+  useReplicaIssues: () => [VISIBLE, ARCHIVED],
   useStoreSelector: (sel: (s: unknown) => unknown) =>
     sel({
       replica: replicaAnswersExits
@@ -100,6 +107,15 @@ describe('IssueEdgeLink', () => {
     const link = screen.getByRole('button', { name: /visible blocker/i })
     await userEvent.click(link)
     expect(onNavigate).toHaveBeenCalledWith('i-visible')
+  })
+
+  it('keeps an archived target as a working link and marks it archived', async () => {
+    const onNavigate = vi.fn()
+    render(<Harness targetId="i-archived" onNavigate={onNavigate} />)
+    const link = screen.getByRole('button', { name: /archived epic/i })
+    expect(screen.getByTestId('issue-edge-archived').textContent).toBe('archived')
+    await userEvent.click(link)
+    expect(onNavigate).toHaveBeenCalledWith('i-archived')
   })
 
   it('renders an EVICTED target as an anonymous opaque reference, leaking nothing', () => {

@@ -124,28 +124,26 @@ export function IssueSubIssues({
       {openChildren.map((c) => (
         <SubTaskRow key={c.id} child={c} onNavigate={onNavigate} />
       ))}
-      {doneChildren.length > 0 && issue.stage !== 'done' && !issue.closedReason && (
+      {/* A finished parent has nothing left to fold AWAY from — hiding every
+          done (and therefore every archived) child would empty the section
+          after an epic archive. Same split as the phone. */}
+      {doneChildren.length > 0 && !isFinished(issue) && (
         <details className="mt-1 rounded border border-border/50 px-2 py-1">
           <summary className="cursor-pointer text-[11px] text-muted-foreground">
             ✓ {doneChildren.length} done
           </summary>
           <div className="mt-1 flex flex-col gap-1">
             {doneChildren.map((child) => (
-              <button
-                data-pressable
-                key={child.id}
-                type="button"
-                className="flex items-center gap-2 rounded px-1 py-1 text-left text-[12px] opacity-65 hover:bg-muted/50"
-                onClick={() => onNavigate(child.id)}
-              >
-                <StageGlyph stage={child.stage} />
-                <span className="text-[10px] text-muted-foreground">{issueDisplayRef(child)}</span>
-                <span className="min-w-0 flex-1 truncate">{child.title}</span>
-              </button>
+              <SubTaskRow key={child.id} child={child} onNavigate={onNavigate} />
             ))}
           </div>
         </details>
       )}
+      {doneChildren.length > 0 &&
+        isFinished(issue) &&
+        doneChildren.map((child) => (
+          <SubTaskRow key={child.id} child={child} onNavigate={onNavigate} />
+        ))}
       {addingChild ? (
         <Input
           autoFocus

@@ -347,6 +347,12 @@ export function IssueContextMenu({
       case 'archive':
         // The archive/unarchive TOGGLE — `issues.update`, not the one-way
         // `issues.archive` the sidebar's dismiss calls. Outboxed (POD-781).
+        if (!first.archived && first.childCount > 0) {
+          const ok = window.confirm(
+            'Archive this issue and every sub-task beneath it? They will leave active views.',
+          )
+          if (!ok) return
+        }
         run(() => updateIssue(first.id, { archived: !first.archived }))
         return
       case 'restore':

@@ -954,6 +954,88 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     expect(setSessionArchived).not.toHaveBeenCalled()
   })
 
+  it('explicit archive of a parent archives every living descendant', () => {
+    const sessions: SessionMeta[] = []
+    const { svc, setSessionArchived } = harness(sessions)
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const open = svc.create({
+      repoPath: '/r',
+      title: 'still in progress',
+      parentId: epic.id,
+      startNow: false,
+    })
+    svc.update(open.id, { stage: 'in_progress' })
+    const unread = svc.create({
+      repoPath: '/r',
+      title: 'done but unread',
+      parentId: epic.id,
+      startNow: false,
+    })
+    svc.close(unread.id)
+    const grandchild = svc.create({
+      repoPath: '/r',
+      title: 'grandchild',
+      parentId: open.id,
+      startNow: false,
+    })
+    sessions.push({ ...sess('/r/wt-live'), issueId: open.id } as unknown as SessionMeta)
+    setSessionArchived.mockClear()
+
+    svc.archive(epic.id)
+
+    expect(svc.get(epic.id)?.archived).toBe(true)
+    expect(svc.get(open.id)?.archived).toBe(true)
+    expect(svc.get(unread.id)?.archived).toBe(true)
+    expect(svc.get(grandchild.id)?.archived).toBe(true)
+    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt-live', true)
+  })
+
+  it('context-menu update({ archived: true }) takes the same descendant walk', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = svc.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: epic.id,
+      startNow: false,
+    })
+    svc.update(epic.id, { archived: true })
+    expect(svc.get(child.id)?.archived).toBe(true)
+  })
+
+  it('un-archiving a parent does not restore its children', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = svc.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: epic.id,
+      startNow: false,
+    })
+    svc.archive(epic.id)
+    svc.update(epic.id, { archived: false })
+    expect(svc.get(epic.id)?.archived).toBe(false)
+    expect(svc.get(child.id)?.archived).toBe(true)
+  })
+
+  it('auto-archive of a closed top-level issue does not take its leftover children', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const leftover = svc.create({
+      repoPath: '/r',
+      title: 'still open',
+      parentId: epic.id,
+      startNow: false,
+    })
+    svc.update(leftover.id, { stage: 'in_progress' })
+    svc.close(epic.id)
+    svc.markIssueRead(epic.id)
+    const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
+    const archived = svc.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
+    expect(archived.map((row) => row.id)).toEqual([epic.id])
+    expect(svc.get(leftover.id)?.archived).toBe(false)
+  })
+
   it('skips already-archived member sessions (no redundant archive call)', () => {
     const live = sess('/r/wt/live')
     const already = { ...sess('/r/wt/gone'), archived: true }

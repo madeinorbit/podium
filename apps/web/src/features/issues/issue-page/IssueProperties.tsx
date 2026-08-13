@@ -20,7 +20,7 @@
  *   what state is it in, and whose is it   → the property head
  *   who is working it                      → sessions
  *   where is the branch                    → git
- *   what does it touch                     → relations
+ *   what does it touch                     → parent + relations
  *   the long tail                          → "More fields", folded
  *   provenance                             → About
  *
@@ -135,7 +135,6 @@ export function IssueProperties({
   // The fold opens itself when it has something to say — see the module note.
   const hasLongTail =
     issue.type !== 'task' ||
-    issue.parentId != null ||
     issue.estimateMin != null ||
     issue.dueAt != null ||
     issue.deferUntil != null ||
@@ -255,6 +254,15 @@ export function IssueProperties({
       )}
 
       <RailSection>
+        <IssueParentRow
+          issue={issue}
+          parentEdge={resolve(issue.parentId)}
+          busy={busy}
+          mateOptions={mateOptions}
+          matesById={matesById}
+          onSetParent={(id) => commands.setParent(id)}
+          onNavigate={onNavigate}
+        />
         <IssueRelations
           issue={issue}
           busy={busy}
@@ -289,16 +297,6 @@ export function IssueProperties({
                 trigger={<TriggerButton disabled={busy}>{issue.type}</TriggerButton>}
               />
             </PropertyRow>
-
-            <IssueParentRow
-              issue={issue}
-              parentEdge={resolve(issue.parentId)}
-              busy={busy}
-              mateOptions={mateOptions}
-              matesById={matesById}
-              onSetParent={(id) => commands.setParent(id)}
-              onNavigate={onNavigate}
-            />
 
             <PropertyRow label="Estimate">
               <EstimateProperty

@@ -117,6 +117,28 @@ describe('shared issue menu command execution', () => {
     expect(actions.updateIssue).toHaveBeenCalledWith('i', { pinned: true })
   })
 
+  it('asks before archiving an issue that has children', async () => {
+    const issue = makeIssue({ childCount: 2 })
+    const data = createIssueMenuData({
+      issues: [issue],
+      allIssues: [issue],
+      eligibility: issueMenuEligibility([issue]),
+    })
+    if (!data) throw new Error('fixture did not produce menu data')
+    const { deps, actions } = commandDeps()
+    const confirm = vi.fn(() => false)
+    deps.confirm = confirm
+    const archive = issueMenuEntries(data).find((entry) => entry.id === 'archive')
+    if (!archive || archive.kind !== 'action') throw new Error('expected an archive fixture')
+
+    await runIssueMenuCommand(data, archive, undefined, deps)
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Archive this issue and every sub-task beneath it? They will leave active views.',
+    )
+    expect(actions.updateIssue).not.toHaveBeenCalled()
+  })
+
   it('routes open and property actions through the same data entry IDs', async () => {
     const data = menuData()
     const { deps, actions } = commandDeps()

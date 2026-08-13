@@ -281,13 +281,29 @@ export class IssueCrudModule {
         continue
       }
       this.archiveClosedSubtree(child.id, sessionList)
-      this.update(child.id, { archived: true })
+      // Close-sweep must not take the explicit-archive descendant walk: an
+      // open grandchild of a qualifying child has to stay live. The operator
+      // archive path below is the one that dismisses the whole subtree.
+      this.update(child.id, { archived: true }, { cascadeArchive: false })
     }
     if (skipped.length) {
       const parent = this.store.rows.get(parentId)
       if (parent) {
         this.store.emitEvent('issue.cascade_skipped', parentId, { seq: parent.seq, skipped })
       }
+    }
+  }
+
+  /** Explicit archive of a parent dismisses every living descendant. Unlike
+   *  {@link archiveClosedSubtree}, open / unread / live-session children are
+   *  not spared: the operator hid the container, and leaving those children
+   *  independently visible is how they resurface as "new" work. Recurses
+   *  through each child's own `update({ archived: true })` so session teardown
+   *  and events stay on the same path as a direct archive. */
+  private archiveLivingDescendants(parentId: string): void {
+    for (const child of this.store.rows.values()) {
+      if (child.parentId !== parentId || child.archived || child.deletedAt) continue
+      this.update(child.id, { archived: true })
     }
   }
 
@@ -422,8 +438,10 @@ export class IssueCrudModule {
     patch: IssuePatch,
     /** The session that initiated this mutation, when known (agent CLI relay).
      *  Threaded onto the issue.closed / issue.ready events it emits so the steward
-     *  can skip nudging the very session that caused them (self-nudge is noise). */
-    opts?: { actorSessionId?: SessionId },
+     *  can skip nudging the very session that caused them (self-nudge is noise).
+     *  `cascadeArchive: false` keeps the close-sweep from also taking every
+     *  living descendant — that walk is reserved for an explicit archive. */
+    opts?: { actorSessionId?: SessionId; cascadeArchive?: boolean },
   ): IssueWire {
     const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
@@ -580,6 +598,9 @@ export class IssueCrudModule {
       // Stops the member sessions AND gives the checkout back (POD-567); the
       // sweep's own archive path calls the same seam.
       this.attention().onIssueArchived(row)
+      // Explicit archive dismisses the whole subtree so children do not
+      // promote into the live list as orphans of a hidden parent.
+      if (opts?.cascadeArchive !== false) this.archiveLivingDescendants(row.id)
     }
     if (row.deferUntil !== prevDeferUntil) {
       if (row.deferUntil != null) {
