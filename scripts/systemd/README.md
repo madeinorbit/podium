@@ -7,13 +7,12 @@ These files are generated copies of the source-based dev-host profile in
 bun --conditions=@podium/source scripts/render-systemd.ts --profile dev
 cp scripts/systemd/podium-*.{service,timer,path} ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now podium-server.service podium-daemon.service podium-web.service podium-health.timer
+systemctl --user enable --now podium-server.service podium-daemon.service podium-health.timer
 # verify the watchdog took: both should read "active (running)" with a Watchdog line
 systemctl --user status podium-server podium-daemon | grep -iE 'active|watchdog'
 ```
 
-Topology: `podium-web` (built PWA via `vite preview`) binds **:55556** (plain http) and
-proxies `/trpc` + WebSockets to the **split backend** on :18787: `podium-server`
+Topology: the **split backend** on :18787 serves the built PWA itself: `podium-server`
 (coordinating relay + HTTP/tRPC + WebSockets) and `podium-daemon` (all per-agent PTY /
 transcript / discovery / metrics work), which connects to the server over
 `ws://localhost:18787/daemon` and reconnects with backoff. Splitting them is what stops
@@ -52,11 +51,17 @@ tailscale serve status   # expect: https://<host>:55555 -> http://127.0.0.1:5555
 A separate public Funnel (e.g. another project on :443) is unaffected — this adds
 a serve entry on its own port rather than touching existing mappings.
 
-Why the web restart is part of redeploy: the web service `vite build`s the
-content-hashed PWA bundle at start, so restarting it on a HEAD move is what
-produces a new build (and the new build hash the in-app update prompt detects).
-Note: the running app's service worker is the source of truth for installed
-clients — they pick up the new build via the "New version — Reload" prompt.
+Where the web bundles come from: **the server builds them**, in transient
+`--user` scopes at the batch tier (`podium-dev-web-build.scope`,
+`podium-dev-mobile-build.scope`), on the same start-up path a redeploy puts it
+through — so a HEAD move still produces a new content-hashed PWA bundle, and
+there is no `podium-web.service` to install any more (POD-1985). It is also the
+step the headless bundle build waits on, which is what stopped that build being
+refused on a stale `apps/web/dist` another unit owned producing. Follow a
+running build with `systemctl --user status podium-dev-web-build.scope`, and a
+finished one in the server's journal. Note: the running app's service worker is
+the source of truth for installed clients — they pick up the new build via the
+"New version — Reload" prompt.
 
 Redeploy gates (`scripts/redeploy-wait.sh`, the `ExecStartPre` of
 `podium-redeploy.service`): wait for `.git/index.lock` to clear (bounded), then

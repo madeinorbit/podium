@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { createReadStream, existsSync, readFileSync } from 'node:fs'
 import { readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
@@ -6,6 +6,8 @@ import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
+import { resolveInstanceId } from '@podium/runtime/config'
+import { devBuildScopeUnit, runLowTierBuild } from './build-scope'
 
 const log = createLogger('server:updates')
 
@@ -547,12 +549,17 @@ export interface DevBundleLock {
   release(): Promise<void>
 }
 
+/** The transient unit role for the headless compile; see `build-scope.ts`. */
+export const DEV_BUNDLE_BUILD_ROLE = 'dev-bundle-build'
+
 export interface DevBuildSpawnContext {
   root: string
   version: string
   /** Where the build must write the tarball. Carries the build-time stamp. */
   artifactPath: string
   signingKey?: string
+  /** Names the transient build unit, so two instances cannot share one. */
+  instanceId?: string
 }
 
 export type DevBuildSpawnResult =
@@ -574,6 +581,8 @@ export interface DevBundleBuildDeps {
   renewIntervalMs?: number
   retain?: number
   now?: () => number
+  /** Names the transient build unit; passed through to `spawnBuild`. */
+  instanceId?: string
 }
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../../../..', import.meta.url))
@@ -600,26 +609,32 @@ function developmentSigningKey(root: string): string {
   throw new Error('development signing key missing at ' + path)
 }
 
+/**
+ * The compile, in its OWN batch-tier unit rather than the server's cgroup.
+ *
+ * A bare `spawn` made the build a child of `podium-server.service`, which
+ * carries the interactive tier (CPUWeight=900/IOWeight=500) — so a ~50 s compile
+ * ran at eighteen times the CPU weight of the agent sessions sharing the box.
+ * `runLowTierBuild` puts it in a transient scope at CPUWeight=50 with a quota,
+ * and falls back to exactly the spawn above wherever systemd-run cannot create
+ * one (macOS, Windows, a container without a user manager). See `build-scope.ts`.
+ */
 async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(process.env.BUN_BIN ?? 'bun', ['scripts/build-bun.ts'], {
-      cwd: ctx.root,
-      env: {
-        ...process.env,
-        PODIUM_APP_VERSION: ctx.version,
-        // The caller names the artifact, because the caller owns its lifecycle:
-        // the stamp in the name is what retention later sorts on.
-        PODIUM_BUNDLE_ARTIFACT: ctx.artifactPath,
-        PODIUM_UPDATE_SIGNING_KEY: signingKey,
-      },
-      stdio: 'inherit',
-    })
-    child.once('error', reject)
-    child.once('close', (status) => {
-      if (status === 0) resolve()
-      else reject(new Error('scripts/build-bun.ts exited with status ' + (status ?? 'unknown')))
-    })
+  await runLowTierBuild({
+    unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, ctx.instanceId ?? resolveInstanceId()),
+    description: `Podium development bundle build (${ctx.version})`,
+    command: process.env.BUN_BIN ?? 'bun',
+    args: ['scripts/build-bun.ts'],
+    cwd: ctx.root,
+    env: {
+      ...process.env,
+      PODIUM_APP_VERSION: ctx.version,
+      // The caller names the artifact, because the caller owns its lifecycle:
+      // the stamp in the name is what retention later sorts on.
+      PODIUM_BUNDLE_ARTIFACT: ctx.artifactPath,
+      PODIUM_UPDATE_SIGNING_KEY: signingKey,
+    },
   })
 }
 
@@ -768,6 +783,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
       version,
       artifactPath: requestedPath,
       ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
+      ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
     })
     await renewal
     if (renewalError) throw renewalError
@@ -852,7 +868,6 @@ export function devTarget(
   }
 }
 
-
 /**
  * dev+<sha> as an install identity when there is not yet an honest headless
  * tarball for this HEAD. Update still has something to compare and can rebuild
@@ -889,6 +904,15 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
   readSourceStatus?: (root: string) => string
   /** Seam for tests; defaults to `git ls-files --others --ignored` in `root`. */
   readIgnoredSourceInputs?: (root: string) => string
+  /**
+   * Make `apps/web/dist` the website for this commit before anything expensive
+   * happens. The compile REFUSES a `dev+<sha>` tarball whose web half was built
+   * from another commit, and producing that dist used to belong to a separate
+   * systemd unit nothing sequenced against — so the refusal was a race, not a
+   * defect, and `/version` re-asked every 60 s. Resolving it here makes the
+   * precondition the build's own first step (see `dev-web-build.ts`).
+   */
+  ensureWebBuild?: (headSha: string) => Promise<void>
 }
 
 /**
@@ -978,30 +1002,39 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         // would leave whatever a crash, a failed compile or a plain shutdown
         // left behind — and residue that only accumulates when something went
         // wrong is exactly the kind that grows unnoticed for months.
-        const requested = (
-          current === null
-            ? readExistingDevBundle({ ...deps, fs, headSha }).then(async (existing) => {
-                if (!existing) return buildDevBundle({ ...deps, headSha })
-                await sweepDevBundles(fs, dirname(existing.path), {
-                  ...(deps.retain !== undefined ? { keep: deps.retain } : {}),
-                  protect: [basename(existing.path)],
+        //
+        // The website comes first, and unconditionally: the server SERVES
+        // apps/web/dist, so a stale dist is wrong for the browser whether or not
+        // a tarball gets packed, and packing one is refused outright while it is
+        // stale. `ensureWebBuild` costs a single small file read when the dist is
+        // already at HEAD, which is the common case on the `/version` path.
+        const prepared = deps.ensureWebBuild?.(headSha) ?? Promise.resolve()
+        const requested = prepared
+          .then(() =>
+            current === null
+              ? readExistingDevBundle({ ...deps, fs, headSha }).then(async (existing) => {
+                  if (!existing) return buildDevBundle({ ...deps, headSha })
+                  await sweepDevBundles(fs, dirname(existing.path), {
+                    ...(deps.retain !== undefined ? { keep: deps.retain } : {}),
+                    protect: [basename(existing.path)],
+                  })
+                  return existing
                 })
-                return existing
-              })
-            : buildDevBundle({ ...deps, headSha })
-        ).then(
-          (built) => {
-            current = built
-            builtSha = headSha
-            unavailable = undefined
-            failure = undefined
-            return built
-          },
-          (error: unknown) => {
-            recordFailure(error, headSha)
-            throw error
-          },
-        )
+              : buildDevBundle({ ...deps, headSha }),
+          )
+          .then(
+            (built) => {
+              current = built
+              builtSha = headSha
+              unavailable = undefined
+              failure = undefined
+              return built
+            },
+            (error: unknown) => {
+              recordFailure(error, headSha)
+              throw error
+            },
+          )
         inFlight = requested
         void requested.then(
           () => {

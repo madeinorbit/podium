@@ -8,10 +8,6 @@ export function sourceRedeployUnit(instanceId: string): string {
     : `podium-${instanceId}-redeploy.service`
 }
 
-export function sourceWebUnit(instanceId: string): string {
-  return instanceId === 'default' ? 'podium-web.service' : `podium-${instanceId}-web.service`
-}
-
 /**
  * Return the source-host restart capability only inside a systemd service.
  *
@@ -19,7 +15,11 @@ export function sourceWebUnit(instanceId: string): string {
  * published dev target. The authenticated Update Podium mutation calls this
  * capability after granting the fleet. A short delay lets the mutation response
  * reach the browser before systemd runs the existing install/typecheck gate and
- * restarts server, daemon, web, and janitor together.
+ * restarts server, daemon and janitor together.
+ *
+ * There is no longer a web unit among them: the server builds `apps/web/dist`
+ * itself, in a batch-tier transient scope, as a step it sequences (POD-1985 —
+ * see `dev-web-build.ts`). `createSourceWebRebuildRequest` went with the unit.
  */
 function createSourceUnitRequest(deps: {
   unit: string
@@ -57,25 +57,6 @@ export function createSourceRedeployRequest(deps: {
   return createSourceUnitRequest({
     unit: sourceRedeployUnit(deps.instanceId),
     verb: 'start',
-    ...(deps.env ? { env: deps.env } : {}),
-    ...(deps.delayMs !== undefined ? { delayMs: deps.delayMs } : {}),
-    ...(deps.startUnit ? { startUnit: deps.startUnit } : {}),
-  })
-}
-
-/**
- * Rebuild the source-host web dist without bouncing a server that is already
- * on this HEAD. `podium-web.service` is RemainAfterExit, so this must restart.
- */
-export function createSourceWebRebuildRequest(deps: {
-  instanceId: string
-  env?: NodeJS.ProcessEnv
-  delayMs?: number
-  startUnit?: (unit: string) => void
-}): (() => void) | undefined {
-  return createSourceUnitRequest({
-    unit: sourceWebUnit(deps.instanceId),
-    verb: 'restart',
     ...(deps.env ? { env: deps.env } : {}),
     ...(deps.delayMs !== undefined ? { delayMs: deps.delayMs } : {}),
     ...(deps.startUnit ? { startUnit: deps.startUnit } : {}),

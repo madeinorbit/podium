@@ -942,6 +942,54 @@ describe('buildDevBundle', () => {
     expect(publisher.target()?.artifacts.headless).toBeUndefined()
   })
 
+  it('builds the website before the compile that requires it', async () => {
+    // The compile refuses a dev+<sha> tarball whose web half was built from
+    // another commit. While producing that dist belonged to a separate systemd
+    // unit, the refusal was a race — 28 of 112 attempts in the week to
+    // 2026-08-13 (POD-1985). Sequencing it here is what removes the race.
+    const { bytes, signature } = signedFixture()
+    const order: string[] = []
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      headSha: () => 'aaaaaaa',
+      fs: stubFs(),
+      lock: lockFixture([]),
+      ensureWebBuild: async (headSha) => {
+        order.push('web:' + headSha)
+      },
+      spawnBuild: async ({ version }) => {
+        order.push('bundle')
+        return { path: '/stage/' + version, bytes, signature }
+      },
+    })
+
+    await publisher.requestBuild(true)
+    expect(order).toEqual(['web:aaaaaaa', 'bundle'])
+  })
+
+  it('does not compile when the website could not be built', async () => {
+    let builds = 0
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      headSha: () => 'aaaaaaa',
+      fs: stubFs(),
+      lock: lockFixture([]),
+      ensureWebBuild: () => Promise.reject(new Error('vite blew up')),
+      spawnBuild: async () => {
+        builds++
+      },
+    })
+
+    await expect(publisher.requestBuild(true)).rejects.toThrow('vite blew up')
+    // The whole point of hoisting the precondition: nothing expensive runs.
+    expect(builds).toBe(0)
+    expect(publisher.readiness()).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
+  })
+
   it('refuses to build or restore anything from a dirty checkout', async () => {
     const { bytes, signature, signingKey } = signedFixture()
     const store = published({

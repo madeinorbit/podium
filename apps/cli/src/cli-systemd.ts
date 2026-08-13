@@ -74,7 +74,6 @@ interface RenderContext {
   daemonUnit: string
   updateUnit: string
   updateTimer: string
-  webUnit: string
   redeployUnit: string
   redeployPath: string
   healthUnit: string
@@ -107,7 +106,6 @@ function context(opts: SystemdRenderOptions = {}): RenderContext {
     daemonUnit: instanceServiceName('daemon', instanceId),
     updateUnit: instanceServiceName('update', instanceId),
     updateTimer: updateTimerName(instanceId),
-    webUnit: instanceServiceName('web', instanceId),
     redeployUnit: instanceServiceName('redeploy', instanceId),
     redeployPath:
       instanceId === 'default' ? 'podium-redeploy.path' : `podium-${instanceId}-redeploy.path`,
@@ -347,25 +345,12 @@ WantedBy=default.target
 `
 }
 
-function renderDevWeb(c: RenderContext): string {
-  return `[Unit]
-# The backend serves the built PWA bundles itself; this unit only builds them.
-Description=Podium web build — rebuilds apps/web/dist and apps/mobile/dist (served by the backend). Runs at boot and on every redeploy.
-After=network-online.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=${c.repoRoot}
-Environment=HOME=${c.home}
-Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
-Environment=PODIUM_INSTANCE=${c.instanceId}
-ExecStart=/usr/bin/env bash -lc 'bun run --filter @podium/web build && bun run --filter @podium/mobile build:web'
-
-[Install]
-WantedBy=default.target
-`
-}
+// There is no web-build unit any more (POD-1985). `podium-web.service` ran the two vite
+// builds at boot, on every redeploy, and on request — at the systemd default CPUWeight=100,
+// which outranked every agent scope 2:1 on a host that is oversubscribed by them. The server
+// now runs those builds itself, in batch-tier transient scopes it creates on demand
+// (apps/server/src/modules/updates/dev-web-build.ts), which also removes the race that made
+// 28 of 112 headless builds refuse on a web dist another unit owned producing.
 
 function renderDevBackend(c: RenderContext): string {
   return `[Unit]
@@ -416,7 +401,7 @@ WantedBy=multi-user.target
 
 function renderDevRedeployService(c: RenderContext): string {
   return `[Unit]
-Description=Podium redeploy — restart server + daemon + web + janitor to run the latest main (triggered by git HEAD change)
+Description=Podium redeploy — restart server + daemon + janitor to run the latest main (triggered by git HEAD change)
 After=${c.serverUnit} ${c.daemonUnit}
 
 [Service]
@@ -434,7 +419,9 @@ ExecStartPre=/usr/bin/env bash ${c.repoRoot}/scripts/redeploy-wait.sh ${c.repoRo
 # restarting the janitor in the SAME step as the server also stops the skew arising at
 # all, since both re-exec from the checkout this deploy just verified.
 ExecStart=-/usr/bin/systemctl --user reset-failed ${c.janitorUnit}
-ExecStart=/usr/bin/systemctl --user restart ${c.serverUnit} ${c.daemonUnit} ${c.webUnit} ${c.janitorUnit}
+# No web unit here any more (POD-1985): the server rebuilds apps/web/dist itself, in a
+# batch-tier transient scope, on the same start-up path this restart puts it through.
+ExecStart=/usr/bin/systemctl --user restart ${c.serverUnit} ${c.daemonUnit} ${c.janitorUnit}
 `
 }
 
@@ -552,7 +539,6 @@ export function renderSystemdFiles(opts: SystemdRenderOptions = {}): RenderedSys
     units: {
       [c.serverUnit]: renderServerUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
       [c.daemonUnit]: renderDaemonUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
-      [c.webUnit]: generatedUnit(renderDevWeb(c)),
       [c.redeployUnit]: generatedUnit(renderDevRedeployService(c)),
       [c.redeployPath]: generatedUnit(renderDevRedeployPath(c)),
       [c.healthUnit]: generatedUnit(renderDevHealthService(c)),

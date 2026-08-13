@@ -24,18 +24,18 @@ import {
 } from '@podium/runtime/local-machine'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import {
+  formatTopQueries,
+  queryAttributionTotals,
+  queryCallerStacks,
+  resetQueryAttribution,
+} from '@podium/runtime/sqlite'
+import {
   attributeTasks,
   formatTopTasks,
   resetTaskAttribution,
   taskAttributionCoverage,
   taskAttributionTotals,
 } from '@podium/runtime/task-attribution'
-import {
-  formatTopQueries,
-  queryAttributionTotals,
-  queryCallerStacks,
-  resetQueryAttribution,
-} from '@podium/runtime/sqlite'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -69,10 +69,7 @@ import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
-import {
-  createSourceRedeployRequest,
-  createSourceWebRebuildRequest,
-} from './modules/updates/source-redeploy'
+import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -421,11 +418,9 @@ export async function startServer(
   const requestCoordinatorRestart = developmentSourceRoot
     ? createSourceRedeployRequest({ instanceId })
     : undefined
-  const requestWebRebuild = developmentSourceRoot
-    ? createSourceWebRebuildRequest({ instanceId })
-    : undefined
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
+    instanceId,
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
     hasRemoteManagedMachines: () =>
@@ -580,7 +575,12 @@ export async function startServer(
           // role is off — see the hubProc guard in router.ts.
           role,
           ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
-          ...(requestWebRebuild ? { requestWebRebuild } : {}),
+          // The web build is the server's own step now, not a systemd unit to
+          // restart (POD-1985) — but the context shape is unchanged, so the
+          // Update panel's "the website is behind" path still just calls this.
+          ...(devPublisher.requestWebRebuild
+            ? { requestWebRebuild: devPublisher.requestWebRebuild }
+            : {}),
           ...(devPublisher.enabled
             ? { requestDestBundle: () => devPublisher.requestBuild(true) }
             : {}),
@@ -588,7 +588,9 @@ export async function startServer(
             const dir = process.env.PODIUM_WEB_DIR
             if (dir) return servedWebSourceDigest(dir)
             try {
-              return servedWebSourceDigest(fileURLToPath(new URL('../../web/dist', import.meta.url)))
+              return servedWebSourceDigest(
+                fileURLToPath(new URL('../../web/dist', import.meta.url)),
+              )
             } catch {
               return undefined
             }

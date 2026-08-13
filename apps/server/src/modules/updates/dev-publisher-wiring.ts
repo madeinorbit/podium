@@ -23,8 +23,13 @@ import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
 import type { Hono } from 'hono'
 import { registerDevArtifactRoute } from './artifact-route'
-import { createDevBundlePublisher, developmentHeadSha } from './dev-bundle'
+import {
+  createDevBundlePublisher,
+  DevBundleUnavailableError,
+  developmentHeadSha,
+} from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
+import { createDevWebBuilder, type DevWebBuildState } from './dev-web-build'
 
 const log = createLogger('server:updates')
 
@@ -41,6 +46,18 @@ export interface DevPublisherWiring {
   readonly registerRoute: (app: Hono) => void
   /** True when this server can publish a development bundle at all. */
   readonly enabled: boolean
+  /**
+   * Rebuild `apps/web/dist` + the mobile web bundle without touching the server
+   * — what restarting `podium-web.service` used to do. Absent on an installed
+   * server, which has no sources to build from.
+   */
+  readonly requestWebRebuild: (() => void) | undefined
+  /**
+   * "Did the web build succeed?", which `RemainAfterExit=yes` used to answer
+   * through `systemctl status`. Also names the transient units, so an operator
+   * can follow the running build or read its journal afterwards.
+   */
+  readonly webBuildState: () => DevWebBuildState
 }
 
 export function developmentArtifactUrl(
@@ -85,16 +102,44 @@ export function wireDevBundlePublisher(deps: {
    */
   readonly setTargetUnavailable?: (reason: string) => void
   readonly locks: DevBundleLockService
+  /** Names the transient build units. Defaults to the default instance. */
+  readonly instanceId?: string
 }): DevPublisherWiring {
   const sourceRoot = deps.sourceRoot
   const artifactOrigin = deps.artifactOrigin
+  const instanceId = deps.instanceId ?? 'default'
+  /**
+   * The website the compile will demand. Owned here rather than in `server.ts`
+   * because it is one half of the same job: the publisher awaits it before the
+   * expensive work, and the Update panel drives it directly when only the dist
+   * is behind.
+   */
+  const webBuilder = sourceRoot
+    ? createDevWebBuilder({
+        root: sourceRoot,
+        instanceId,
+        headSha: () => developmentHeadSha(sourceRoot),
+      })
+    : undefined
   const publisher = sourceRoot
     ? createDevBundlePublisher({
         isSourceRun: true,
         root: sourceRoot,
+        instanceId,
         headSha: () => developmentHeadSha(sourceRoot),
         signingKey: deps.signingKey,
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
+        // A web-build failure must arrive as a REFUSAL with its own words, not
+        // as a nameless compile error: the operator's next move (look at the
+        // vite output) is different from the one a failed compile calls for.
+        ensureWebBuild: (headSha) =>
+          (webBuilder?.ensure(headSha) ?? Promise.resolve()).catch((error: unknown) => {
+            throw new DevBundleUnavailableError(
+              `development bundle unavailable: the web bundles could not be rebuilt for dev+${headSha}: ` +
+                (error instanceof Error ? error.message : String(error)),
+              `The website could not be rebuilt for HEAD (${headSha}), so dev+${headSha} cannot be packed.`,
+            )
+          }),
         artifactUrl: (version) =>
           developmentArtifactUrl(
             selectDevelopmentArtifactOrigin({
@@ -132,7 +177,12 @@ export function wireDevBundlePublisher(deps: {
       readiness.state === 'failed'
         ? readiness.publicReason
         : readiness.state === 'preparing'
-          ? `Building the development bundle for dev+${readiness.headSha}.`
+          ? // Name the step actually running. The website is built first and takes
+            // the best part of a minute, so "building the bundle" would be wrong
+            // for most of the wait and leaves an operator watching the wrong log.
+            webBuilder?.state().state === 'building'
+            ? `Rebuilding the website for dev+${readiness.headSha}.`
+            : `Building the development bundle for dev+${readiness.headSha}.`
           : 'No development bundle has been built for the current commit yet.'
     if (reason === publishedReason) return
     publishedReason = reason
@@ -164,6 +214,8 @@ export function wireDevBundlePublisher(deps: {
 
   return {
     enabled: publisher !== undefined,
+    requestWebRebuild: webBuilder ? () => webBuilder.requestRebuild() : undefined,
+    webBuildState: () => webBuilder?.state() ?? { state: 'idle' },
     publishTarget,
     requestBuild: (explicit) => {
       if (!publisher) return Promise.resolve()
