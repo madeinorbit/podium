@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { SessionMeta } from '@podium/model'
-import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
+import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
 import { AlarmClock, AlarmClockOff } from 'lucide-react'
 import { type JSX, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'

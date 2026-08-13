@@ -40,7 +40,7 @@
  * stopwatch, so both land in the same state through the same effect.
  */
 
-import type { SecretPresenceWire, ServerSecretKey } from '@podium/model'
+import type { SecretPresenceWire, ServerSecretKey } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'

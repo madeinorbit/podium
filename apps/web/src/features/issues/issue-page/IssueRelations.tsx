@@ -26,8 +26,8 @@
  */
 
 import { groupRelations } from '@podium/client-core/viewmodels'
-import type { IssueId } from '@podium/model'
-import { ISSUE_DEP_TYPES } from '@podium/model'
+import type { IssueId } from '@podium/model/browser'
+import { ISSUE_DEP_TYPES } from '@podium/model/browser'
 import { Plus, X } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'

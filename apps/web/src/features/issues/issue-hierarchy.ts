@@ -4,7 +4,7 @@ import {
   issueRowsByStage as coreIssueRowsByStage,
   partitionIssueTree as corePartitionIssueTree,
 } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES, type IssueId, type IssueStage } from '@podium/model'
+import { ISSUE_STAGES, type IssueId, type IssueStage } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { IssuesOrdering } from './issues-display'
 

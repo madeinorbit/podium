@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId } from '@podium/model/browser'
 import {
   type ClipboardEventHandler,
   type FormEventHandler,

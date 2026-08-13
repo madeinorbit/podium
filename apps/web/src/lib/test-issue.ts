@@ -1,4 +1,4 @@
-import type { SessionMeta, UnbrandIds } from '@podium/model'
+import type { SessionMeta, UnbrandIds } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/react'
 
 type TestIssue = IssueViewModel & { sessions?: SessionMeta[] }

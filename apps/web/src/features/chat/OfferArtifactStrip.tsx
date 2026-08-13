@@ -1,5 +1,5 @@
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
-import type { IssuePanelArtifact, SessionMeta, SessionOffer } from '@podium/model'
+import type { IssuePanelArtifact, SessionMeta, SessionOffer } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'

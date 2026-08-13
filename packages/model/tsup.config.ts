@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup'
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/browser.ts'],
   format: ['esm'],
   // POD-781: the shared tsconfig enables `incremental` for tsgo typechecking,
   // but tsup's dts worker re-passes compilerOptions programmatically, where

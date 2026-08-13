@@ -36,7 +36,7 @@
  */
 
 import { useCurrentPrincipal, usePresenceRoom } from '@podium/client-core/react'
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
 import { Bot, Users } from 'lucide-react'
 import type { JSX } from 'react'
 import { useMemo } from 'react'

@@ -34,7 +34,7 @@
  * Nothing in this file DECIDES anything; it only declines to offer.
  */
 import type { MachineView, RepoNavView } from '@podium/client-core/viewmodels'
-import type { AgentKind, MachineId, MachineWire } from '@podium/model'
+import type { AgentKind, MachineId, MachineWire } from '@podium/model/browser'
 import { Circle, Lock, Plus } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'

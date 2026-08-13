@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage } from '@podium/model'
+import { ISSUE_STAGES, type IssueStage } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import { type IssuesOrdering, orderIssues } from './issues-display'
 

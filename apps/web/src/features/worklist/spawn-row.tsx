@@ -12,7 +12,7 @@ import {
   usableMachines,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, MachineId } from '@podium/model'
+import type { AgentKind, MachineId } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, FolderPlus, Search } from 'lucide-react'
 import type { JSX } from 'react'

@@ -29,7 +29,7 @@ import {
   type SplitAxis,
   type SplitNode,
 } from '@podium/client-core/viewmodels'
-import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
+import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
 import {
   Columns2,
   FileText,

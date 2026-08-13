@@ -7,12 +7,7 @@ import {
   type ProposalPlacement,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
-import {
-  HUMAN_SETTABLE_ISSUE_STAGES,
-  type IssueId,
-  isSystemOwnedIssueStage,
-  type SessionMeta,
-} from '@podium/model'
+import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
 import {
   ArrowUpRight,
   Check,
@@ -48,9 +43,8 @@ import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 
 /** Every stage a live issue can be moved between. `done` is not one of them —
  *  see the close dialog. */
-const OPEN_STAGES = HUMAN_SETTABLE_ISSUE_STAGES.filter(
-  (stage) => stage !== 'done',
-)
+const OPEN_STAGES = ['backlog', 'planning', 'in_progress', 'review'] as const satisfies readonly IssueStage[]
+const isSystemOwnedIssueStage = (stage: IssueStage): boolean => stage === 'shipping'
 
 /**
  * The dock's reading scale (POD-725 §7). Written out rather than taken from

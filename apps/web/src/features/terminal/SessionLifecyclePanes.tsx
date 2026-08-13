@@ -14,7 +14,7 @@
 
 import { shallowEqual } from '@podium/client-core/store'
 import { exitedRecovery } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { Moon, RotateCcw } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useStoreSelector } from '@/app/store'

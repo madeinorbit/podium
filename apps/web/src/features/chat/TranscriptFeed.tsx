@@ -7,8 +7,8 @@ import type {
   TranscriptPhase,
   TranscriptSearchState,
 } from '@podium/client-core/viewmodels'
-import { attributionForRole, isInteractiveTool } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model'
+import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/client-core/viewmodels'
+import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { ArrowUp, Image as ImageIcon, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'

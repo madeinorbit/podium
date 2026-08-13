@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
 import { ListChecks } from 'lucide-react'
 import type { JSX } from 'react'
 import { useMemo } from 'react'

@@ -29,7 +29,7 @@ import {
   type IssueId,
   issueReturnedFromDefer,
   type SessionId,
-} from '@podium/model'
+} from '@podium/model/browser'
 import { useEffect, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'

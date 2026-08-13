@@ -5,7 +5,7 @@ import {
   type MachineId,
   isIssueColorSlot,
   snoozeUntil1h,
-} from '@podium/model'
+} from '@podium/model/browser'
 import type { Trpc } from '@/app/trpc'
 import { deferDateFromNow, toggleLabelAcross } from './issue-context-menu'
 import type { IssueMenuConfig, IssueMenuData } from './issue-menu-config'

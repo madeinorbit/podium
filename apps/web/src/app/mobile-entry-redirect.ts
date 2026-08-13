@@ -1,4 +1,4 @@
-import { mobileEntryRedirect } from '@podium/model'
+import { mobileEntryRedirect } from '@podium/model/browser'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 
 /**

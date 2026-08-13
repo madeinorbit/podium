@@ -19,7 +19,7 @@
  * chat → native edge). This module owns what happens then.
  */
 import { composerDriverFor } from '@podium/composer'
-import type { AgentKind } from '@podium/model'
+import type { AgentKind } from '@podium/model/browser'
 import type { MountedSession } from '@podium/terminal-client'
 
 /** How often the sampler and the bounded flush poll tick. */

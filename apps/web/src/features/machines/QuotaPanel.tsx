@@ -13,7 +13,7 @@ import {
   windowScopeModel,
   windowShortLabel,
 } from '@podium/client-core/viewmodels'
-import type { QuotaWindowWire } from '@podium/model'
+import type { QuotaWindowWire } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 

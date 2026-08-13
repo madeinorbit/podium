@@ -1,5 +1,5 @@
 import { deriveGitStamp } from '@podium/client-core/viewmodels'
-import type { IssueGitState } from '@podium/model'
+import type { IssueGitState } from '@podium/model/browser'
 import { GitBranch } from 'lucide-react'
 import type { JSX } from 'react'
 

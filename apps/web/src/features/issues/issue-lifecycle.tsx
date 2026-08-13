@@ -1,5 +1,5 @@
 import { isSessionWorking } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import type { IssueViewModel } from '@/app/store'

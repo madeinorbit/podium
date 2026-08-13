@@ -55,12 +55,12 @@
 import type { z } from 'zod'
 import { findCapabilitySnapshotKeys } from '../annotations/capability-snapshot'
 import {
-  MATRIX_INDEX_HOLDER,
   type MatrixRow,
   type MatrixRowId,
   type VisibilityClass,
-  visibilityClassOf,
 } from '../annotations/ownership'
+import { OWNERSHIP_MATRIX_INDEX } from '../annotations/matrix'
+import { visibilityClassOf } from '../annotations/resolution'
 import { PER_USER_STATE_KEYS } from '../aggregates/registry'
 
 /**
@@ -203,7 +203,7 @@ const MIN_JUSTIFICATION = 24
  */
 export function representationViolations(
   representations: readonly RetainedRepresentation[],
-  index: ReadonlyMap<string, MatrixRow> = MATRIX_INDEX_HOLDER.index,
+  index: ReadonlyMap<string, MatrixRow> = OWNERSHIP_MATRIX_INDEX,
 ): RepresentationViolation[] {
   const out: RepresentationViolation[] = []
   for (const rep of representations) {

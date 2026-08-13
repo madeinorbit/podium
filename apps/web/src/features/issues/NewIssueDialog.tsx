@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { repoUsageAt } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES, type IssueStage, IssueType, type UserId } from '@podium/model'
+import { ISSUE_STAGES, type IssueStage, IssueType, type UserId } from '@podium/model/browser'
 import { resolveRole } from '@podium/runtime'
 import { FolderGit2, GitBranch, Plus } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'

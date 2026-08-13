@@ -26,7 +26,7 @@ import {
   transcriptPhase,
   visibleOffer,
 } from '@podium/client-core/viewmodels'
-import { isAgentComputing, type SessionId, type SessionMeta } from '@podium/model'
+import { isAgentComputing, type SessionId, type SessionMeta } from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'

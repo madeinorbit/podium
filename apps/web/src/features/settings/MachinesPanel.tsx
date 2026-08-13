@@ -1,7 +1,7 @@
 import { asMachineId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import type { MachineWire, UpdateChannel } from '@podium/model'
+import type { MachineWire, UpdateChannel } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { type Store, useStoreSelector } from '@/app/store'

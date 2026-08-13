@@ -1,4 +1,4 @@
-import { asMachineId, type MachineWire, repoNameFromOrigin, type MachineId } from '@podium/model'
+import { asMachineId, type MachineWire, repoNameFromOrigin, type MachineId } from '@podium/model/browser'
 import {
   Check,
   ChevronUp,

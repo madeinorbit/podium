@@ -5,7 +5,7 @@ import {
   issueReferenceModel,
   missionRootFor,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import {
   ArchiveRestore,

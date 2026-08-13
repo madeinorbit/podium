@@ -44,7 +44,7 @@ import {
 } from '@podium/client-core/replica'
 import type { FeedServerFrame, FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
 import { createLogger } from '@podium/logger'
-import { actorUser, asUserId } from '@podium/model'
+import { actorUser, asUserId } from '@podium/model/browser'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   decideLegacyAdoption,

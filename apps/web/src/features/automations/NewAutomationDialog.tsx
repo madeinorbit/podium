@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { machineViewsFromWire } from '@podium/client-core/viewmodels'
-import type { AutomationSessionMode } from '@podium/model'
+import type { AutomationSessionMode } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'

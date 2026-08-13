@@ -1,5 +1,5 @@
 import { issueIsActionable } from '@podium/client-core/viewmodels'
-import type { IssueStage, SessionMeta } from '@podium/model'
+import type { IssueStage, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 

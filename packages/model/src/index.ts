@@ -131,6 +131,7 @@ export * from './annotations/arbitration'
 export * from './annotations/capability-snapshot'
 export * from './annotations/matrix'
 export * from './annotations/ownership'
+export * from './annotations/resolution'
 
 // SETTINGS, SPLIT BY MATRIX ROW (POD-418): the per-user preference aggregate,
 // the deployment-substrate one, and the server-owned secrets — which are a keyed
@@ -140,6 +141,7 @@ export * from './annotations/ownership'
 // a missing classification rather than a silent default. `packages/runtime`
 // COMPOSES the blob from these bindings and redeclares none of them.
 export * from './settings/classification'
+export * from './settings/path-tiers'
 export * from './settings/preferences'
 export * from './settings/scrub'
 export * from './settings/secrets'

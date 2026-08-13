@@ -11,8 +11,8 @@ import {
   isSessionWorking,
   sessionIssueLinkage,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
-import { idleVerdictFinishedTurn, isSnoozed, returnedFromSnooze } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
+import { idleVerdictFinishedTurn, isSnoozed, returnedFromSnooze } from '@podium/model/browser'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import { useReducedMotion } from 'motion/react'
 import type {

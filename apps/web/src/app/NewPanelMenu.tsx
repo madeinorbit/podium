@@ -3,14 +3,14 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
 import { reposToViews } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueId, MachineId, MachineWire, SessionId } from '@podium/model'
+import type { AgentKind, IssueId, MachineId, MachineWire, SessionId } from '@podium/model/browser'
 import {
   agentCapabilityRejection,
   agentLoginCondition,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
   resolveTargetMachineForAgent,
-} from '@podium/model'
+} from '@podium/model/browser'
 import { Circle, FileText, SquarePlus } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'

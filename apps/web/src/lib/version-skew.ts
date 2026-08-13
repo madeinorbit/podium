@@ -1,4 +1,4 @@
-import type { MachineWire } from '@podium/model'
+import type { MachineWire } from '@podium/model/browser'
 import { useEffect, useState } from 'react'
 import type { Store } from '@/app/store'
 

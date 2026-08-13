@@ -21,7 +21,7 @@
  * half is also the answer to "whose work is this?" — which is why it is shown
  * next to the actor rather than behind a hover.
  */
-import { type Attribution, actorDisplayId } from '@podium/model'
+import { type Attribution, actorDisplayId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 

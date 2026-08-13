@@ -7,7 +7,7 @@
 
 import { relativeTime } from '@podium/client-core/focus'
 import { isSessionWorking } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useNow } from '@/lib/useNow'
 

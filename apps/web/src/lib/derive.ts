@@ -15,7 +15,7 @@
  */
 
 import { type DotTone, sessionDotTone } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
 import { cn } from './utils'
 
 // Tone → hue via the activity tokens (--live/--info) plus semantic --warning,

@@ -27,7 +27,7 @@
  * that is waiting on the human is still and amber — stillness is the signal.
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionMeta } from '@podium/model/browser'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'

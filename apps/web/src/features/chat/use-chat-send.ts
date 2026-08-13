@@ -6,7 +6,7 @@ import type {
   SuperThreadRef,
 } from '@podium/client-core/viewmodels'
 import { chatSendRoute } from '@podium/client-core/viewmodels'
-import type { SessionId, TranscriptItem } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'

@@ -10,7 +10,7 @@ import {
   placeReclaimable,
   residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
-import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId, MachineId } from '@podium/model'
+import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId, MachineId } from '@podium/model/browser'
 import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'

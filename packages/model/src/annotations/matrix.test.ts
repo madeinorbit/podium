@@ -26,14 +26,12 @@ import {
 } from './matrix'
 import {
   asMatrixRowId,
-  grantVerbsOf,
-  isTenantVisible,
   type MatrixRow,
   OP_STREAM_COMPACTION_CONSTRAINT,
   SYSTEM_WRITER_RULE,
   type VisibilityClass,
-  visibilityClassOf,
 } from './ownership'
+import { grantVerbsOf, isTenantVisible, visibilityClassOf } from './resolution'
 
 const rows = OWNERSHIP_MATRIX
 

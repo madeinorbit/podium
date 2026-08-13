@@ -1,5 +1,5 @@
 import { reposToViews } from '@podium/client-core/viewmodels'
-import { asThreadId, type GitRepositoryWire, type SessionMeta, type ThreadId } from '@podium/model'
+import { asThreadId, type GitRepositoryWire, type SessionMeta, type ThreadId } from '@podium/model/browser'
 
 /**
  * Client-side mirror of the server's concierge thread identity (issue #64/#65):

@@ -10,8 +10,8 @@ import {
   spawnTargetForRepo,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueId, IssueWire, SessionId } from '@podium/model'
-import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
+import type { AgentKind, IssueId, IssueWire, SessionId } from '@podium/model/browser'
+import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
 import { resolveRole } from '@podium/runtime'
 import {
   AlarmClock,

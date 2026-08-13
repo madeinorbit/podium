@@ -16,7 +16,7 @@ import type {
   SessionId,
   MachineId,
   IssueId,
-} from '@podium/model'
+} from '@podium/model/browser'
 import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'

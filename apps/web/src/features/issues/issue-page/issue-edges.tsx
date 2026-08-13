@@ -55,7 +55,7 @@
  */
 import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/viewmodels'
 import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueWire } from '@podium/model'
+import type { IssueId, IssueWire } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { issueRefLong } from '../issue-card'

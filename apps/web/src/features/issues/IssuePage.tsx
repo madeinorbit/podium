@@ -1,4 +1,4 @@
-import type { IssueId } from '@podium/model'
+import type { IssueId } from '@podium/model/browser'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'

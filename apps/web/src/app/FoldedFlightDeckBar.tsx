@@ -6,7 +6,7 @@ import {
   missionProgress,
   missionRootFor,
 } from '@podium/client-core/viewmodels'
-import type { IssueColorSlot } from '@podium/model'
+import type { IssueColorSlot } from '@podium/model/browser'
 import { ChevronRight, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useMemo } from 'react'

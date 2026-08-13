@@ -30,7 +30,7 @@
  * did to every card the mouse crossed and which spends The Signal Rule's one
  * voice on a mouse position.
  */
-import type { IssueId, IssueStage, SessionMeta } from '@podium/model'
+import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
 import { Flag, ShieldAlert } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { IssueViewModel } from '@/app/store'

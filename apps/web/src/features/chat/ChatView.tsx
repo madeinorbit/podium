@@ -1,6 +1,6 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { issueReferenceModel, type SuperThreadRef } from '@podium/client-core/viewmodels'
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'

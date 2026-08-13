@@ -26,7 +26,7 @@
  *    so the bound still exists and focus/selection are still force-mounted — the
  *    click is what went.
  */
-import type { IssueId, IssueStage, SessionMeta } from '@podium/model'
+import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type {
   CSSProperties,

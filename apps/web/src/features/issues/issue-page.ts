@@ -1,7 +1,7 @@
 /** Prev/next neighbors of `id` within a flat, visually-ordered id list — the
  *  basis for the issue page's up/down navigation. Missing ends (or an absent id)
  *  simply omit that key, so the header can disable the button. */
-import type { IssueId } from '@podium/model'
+import type { IssueId } from '@podium/model/browser'
 
 export function issueNeighbors(
   orderedIds: IssueId[],

@@ -15,7 +15,7 @@ import {
   sessionNeedsHuman,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import type { IssueComment, SessionMeta, MachineId, IssueId, SessionId } from '@podium/model'
+import type { IssueComment, SessionMeta, MachineId, IssueId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowDown,

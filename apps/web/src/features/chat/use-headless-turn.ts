@@ -1,6 +1,6 @@
 import type { ChatSendRoute, SuperThreadRef } from '@podium/client-core/viewmodels'
 import { UNKNOWN_THREAD_REFUSAL } from '@podium/client-core/viewmodels'
-import { HarnessAgent, type SessionId } from '@podium/model'
+import { HarnessAgent, type SessionId } from '@podium/model/browser'
 import type { HeadlessActivityEvent } from '@podium/protocol'
 import { useCallback, useEffect, useState } from 'react'
 import type { Store, UserFocus } from '@/app/store'

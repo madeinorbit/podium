@@ -22,7 +22,7 @@
  * Hibernate on a `starting` or `reconnecting` session, where the shared rule (and
  * the server) says no.
  */
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
 import { sessionMenuEligibility } from '@/lib/SessionContextMenu'
 
 /** What the action does, not what it is called — the label is presentation. */

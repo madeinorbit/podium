@@ -1,4 +1,4 @@
-import type { HostMetricsWire } from '@podium/model'
+import type { HostMetricsWire } from '@podium/model/browser'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'

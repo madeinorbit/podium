@@ -47,7 +47,6 @@ import {
   type GrantRule,
   type MatrixRow,
   type MatrixRowId,
-  MATRIX_INDEX_HOLDER,
   OP_STREAM_COMPACTION_CONSTRAINT,
   SYSTEM_WRITER_RULE,
 } from './ownership'
@@ -3283,9 +3282,6 @@ export const OWNERSHIP_MATRIX: readonly MatrixRow[] = [
 export const OWNERSHIP_MATRIX_INDEX: ReadonlyMap<string, MatrixRow> = new Map(
   OWNERSHIP_MATRIX.map((row) => [row.id as string, row]),
 )
-
-// Bind the index the default-closed resolvers read.
-MATRIX_INDEX_HOLDER.index = OWNERSHIP_MATRIX_INDEX
 
 /**
  * Rows ADR 1's matrix lists that this data deliberately does NOT carry, each

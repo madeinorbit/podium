@@ -1,4 +1,4 @@
-import type { AgentKind } from '@podium/model'
+import type { AgentKind } from '@podium/model/browser'
 import { SquareTerminal } from 'lucide-react'
 import type { ComponentType } from 'react'
 import {

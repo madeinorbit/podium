@@ -391,6 +391,7 @@ export * from './sessions/session-state-commands'
 export {
   CONTRACT_TIER,
   contractMatrixRow,
+  ONLINE_ONLY_SETTINGS_COMMANDS,
   preferencePathsInTier,
   SECRET_COMMAND_KEYS,
   SETTINGS_COMMAND_NAMES,
@@ -415,7 +416,6 @@ export {
   applySettingsPatch,
   type ChangedLeaf,
   changedSettingsLeaves,
-  ONLINE_ONLY_SETTINGS_COMMANDS,
   type PlanOptions,
   planSettingsWrite,
   readSettingsLeaf,

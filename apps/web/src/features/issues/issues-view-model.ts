@@ -1,5 +1,5 @@
 import { filterBoardScope } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueStage } from '@podium/model'
+import type { IssueId, IssueStage } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import { type BoardFilter, filterBoardIssues, filterChips } from './issue-board-filter'
 import {

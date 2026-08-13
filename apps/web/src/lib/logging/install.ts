@@ -3,7 +3,7 @@ import {
   installClientLogging,
   type LogTransport,
 } from '@podium/client-core/logging'
-import { asMachineId, type MachineId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model/browser'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { pageBuildVersion } from './build-version'
 import { installGlobalHandlers } from './global-handlers'

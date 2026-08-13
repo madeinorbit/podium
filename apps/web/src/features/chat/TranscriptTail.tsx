@@ -4,7 +4,7 @@ import {
   formatClock,
   toolCallPhrase,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import type { SessionMeta, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { BrailleSpinner } from '@/lib/motion/BrailleSpinner'
 import { useNow } from '@/lib/useNow'

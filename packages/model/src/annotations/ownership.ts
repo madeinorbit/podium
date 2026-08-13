@@ -39,8 +39,6 @@
  * canonical open item (ADR 9 §3's O1–O6) rather than guessing.
  */
 
-import { assertUnreachable } from '../exhaustive'
-
 // ---------------------------------------------------------------------------
 // ADR 1 D4's eight original columns
 // ---------------------------------------------------------------------------
@@ -410,71 +408,3 @@ export type MatrixSection =
   | 'handoff'
   | 'sync-infrastructure'
   | 'multi-user-classes'
-
-// ---------------------------------------------------------------------------
-// Resolution — the semantic default, which is NOT the test
-// ---------------------------------------------------------------------------
-
-/**
- * The visibility class of an entity class, resolved DEFAULT-CLOSED.
- *
- * An unknown or undeclared class is `personal` — private to its owner, never
- * tenant-visible, never substrate (ADR 9 D4, readiness §3.1.1 rule 1). This is
- * the semantic backstop for anything that slips past the totality test; it is
- * deliberately a total function with no "unclassified" outcome a caller could
- * mishandle, and no thrown error a caller could catch and treat as permissive.
- *
- * It must keep working with every test deleted. `matrix.test.ts` proves that by
- * calling it on a class that is not in the matrix at all.
- */
-export function visibilityClassOf(
-  rowId: string,
-  index: ReadonlyMap<string, MatrixRow> = MATRIX_INDEX_HOLDER.index,
-): VisibilityClass {
-  return index.get(rowId)?.visibility ?? 'personal'
-}
-
-/**
- * Is this class tenant-visible? The question a scoped feed actually asks.
- *
- * Phrased POSITIVELY on `deployment-substrate` on purpose: the only way to be
- * tenant-visible is to be explicitly declared substrate. Every other
- * answer — including "I have never heard of this class" — is `false`.
- */
-export function isTenantVisible(
-  rowId: string,
-  index: ReadonlyMap<string, MatrixRow> = MATRIX_INDEX_HOLDER.index,
-): boolean {
-  return visibilityClassOf(rowId, index) === 'deployment-substrate'
-}
-
-/** Whether a class participates in grants at all, resolved through inheritance. */
-export function grantVerbsOf(
-  rowId: string,
-  index: ReadonlyMap<string, MatrixRow> = MATRIX_INDEX_HOLDER.index,
-  seen: ReadonlySet<string> = new Set(),
-): readonly GrantVerb[] {
-  const row = index.get(rowId)
-  if (!row || seen.has(rowId)) return []
-  const rule = row.grants
-  switch (rule.kind) {
-    case 'verbs':
-      return rule.verbs
-    case 'none':
-      return []
-    case 'inherits':
-      return grantVerbsOf(rule.from, index, new Set([...seen, rowId]))
-    default:
-      return assertUnreachable(rule)
-  }
-}
-
-/**
- * Late-bound index so the resolvers above can live beside the vocabulary while
- * the DATA lives in `matrix.ts` — the alternative is an import cycle, and the
- * alternative to that is putting the resolvers in the data file, where the
- * default-closed rule would be easy to miss while reading rows.
- */
-export const MATRIX_INDEX_HOLDER: { index: ReadonlyMap<string, MatrixRow> } = {
-  index: new Map(),
-}

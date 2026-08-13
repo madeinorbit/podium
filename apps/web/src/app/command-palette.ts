@@ -27,7 +27,7 @@
  * offered before there is one (`rest: 0`).
  */
 
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
 import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import type { ComponentType } from 'react'
 

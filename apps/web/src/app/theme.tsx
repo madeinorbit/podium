@@ -1,5 +1,5 @@
 import { readPreAuthTheme, writePreAuthTheme } from '@podium/client-core'
-import { THEME_UI_KEYS } from '@podium/model'
+import { THEME_UI_KEYS } from '@podium/model/browser'
 import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useStoreSelector } from './store'

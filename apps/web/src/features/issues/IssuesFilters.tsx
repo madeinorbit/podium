@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage, IssueType, type IssueId } from '@podium/model'
+import { ISSUE_STAGES, type IssueStage, IssueType, type IssueId } from '@podium/model/browser'
 import { Check, ListFilter, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'

@@ -1,5 +1,5 @@
 import { panelLabel } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { modelLabel } from '@/lib/agent-models'
 

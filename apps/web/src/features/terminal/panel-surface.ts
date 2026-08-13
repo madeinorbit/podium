@@ -37,7 +37,7 @@
  */
 
 import type { PanelMode } from '@podium/client-core/ui-state'
-import type { SessionMeta, SessionStatus } from '@podium/model'
+import type { SessionMeta, SessionStatus } from '@podium/model/browser'
 
 /** The two live views. Identical to the persisted `PanelMode` — a live panel's
  *  view IS the panel mode; the read-only surfaces have no mode. */

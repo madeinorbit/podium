@@ -1,4 +1,4 @@
-import { ISSUE_COLOR_HEX, ISSUE_COLOR_SLOTS, type IssueColorSlot } from '@podium/model'
+import { ISSUE_COLOR_HEX, ISSUE_COLOR_SLOTS, type IssueColorSlot } from '@podium/model/browser'
 import type { JSX } from 'react'
 
 export function issueColorName(slot: IssueColorSlot): string {

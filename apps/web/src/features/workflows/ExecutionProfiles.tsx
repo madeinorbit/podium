@@ -30,7 +30,7 @@ import {
   placementOptions,
   profilePlacement,
 } from '@podium/client-core/viewmodels'
-import { AgentKind, asAccountId, asMachineId } from '@podium/model'
+import { AgentKind, asAccountId, asMachineId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'

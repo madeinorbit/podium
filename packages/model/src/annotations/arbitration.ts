@@ -34,7 +34,7 @@
  */
 
 import type { ConflictRule, MatrixRow } from './ownership'
-import { MATRIX_INDEX_HOLDER } from './ownership'
+import { OWNERSHIP_MATRIX_INDEX } from './matrix'
 
 /**
  * The conflict rule the Authority must apply to a row.
@@ -46,7 +46,7 @@ import { MATRIX_INDEX_HOLDER } from './ownership'
  */
 export function conflictRuleFor(
   rowId: string,
-  index: ReadonlyMap<string, MatrixRow> = MATRIX_INDEX_HOLDER.index,
+  index: ReadonlyMap<string, MatrixRow> = OWNERSHIP_MATRIX_INDEX,
 ): ConflictRule {
   const row = index.get(rowId)
   if (!row) {
@@ -61,7 +61,7 @@ export function conflictRuleFor(
 /** Does a mutating command for this row have to carry an expected revision? */
 export function requiresExpectedRevision(
   rowId: string,
-  index: ReadonlyMap<string, MatrixRow> = MATRIX_INDEX_HOLDER.index,
+  index: ReadonlyMap<string, MatrixRow> = OWNERSHIP_MATRIX_INDEX,
 ): boolean {
   return conflictRuleFor(rowId, index) === 'exp-rev'
 }
@@ -76,7 +76,7 @@ export function requiresExpectedRevision(
  */
 export function permitsFieldLww(
   rowId: string,
-  index: ReadonlyMap<string, MatrixRow> = MATRIX_INDEX_HOLDER.index,
+  index: ReadonlyMap<string, MatrixRow> = OWNERSHIP_MATRIX_INDEX,
 ): boolean {
   return conflictRuleFor(rowId, index) === 'field-LWW'
 }

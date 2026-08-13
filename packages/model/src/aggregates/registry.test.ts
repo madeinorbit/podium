@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { asMatrixRowId, visibilityClassOf } from '../annotations/ownership'
+import { asMatrixRowId } from '../annotations/ownership'
+import { visibilityClassOf } from '../annotations/resolution'
 import { ROW } from '../annotations/matrix'
 import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'

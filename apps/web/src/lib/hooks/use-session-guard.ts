@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { isSessionWorking } from '@podium/client-core/viewmodels'
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
 import { useCallback } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { useConfirm } from './use-confirm'

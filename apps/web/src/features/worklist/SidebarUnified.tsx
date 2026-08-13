@@ -6,7 +6,7 @@ import {
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, isIssueDeferred, type IssueId } from '@podium/model'
+import { asIssueId, isIssueDeferred, type IssueId } from '@podium/model/browser'
 import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useId, useMemo, useState } from 'react'

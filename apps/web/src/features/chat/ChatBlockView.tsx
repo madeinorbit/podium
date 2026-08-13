@@ -9,7 +9,7 @@ import {
   parseEnvelopeBatch,
   type TranscriptAttribution,
 } from '@podium/client-core/viewmodels'
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
 import {
   Check,
   Clock,

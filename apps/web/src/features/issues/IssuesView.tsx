@@ -1,4 +1,4 @@
-import { asUserId, type IssueId, type IssueStage } from '@podium/model'
+import { asUserId, type IssueId, type IssueStage } from '@podium/model/browser'
 import { ListTree, Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'

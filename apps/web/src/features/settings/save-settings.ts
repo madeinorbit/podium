@@ -20,7 +20,11 @@
  * EXPLAINED rather than experienced as a failed request.
  */
 
-import { applySettingsPatch, planSettingsWrite, type SettingsWriteRefusal } from '@podium/commands'
+import {
+  applySettingsPatch,
+  planSettingsWrite,
+  type SettingsWriteRefusal,
+} from '@podium/commands/settings-write-plan'
 import type { PodiumSettings } from '@podium/runtime'
 import type { Trpc } from '@/app/trpc'
 

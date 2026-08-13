@@ -59,7 +59,6 @@
  * unclassified entity class went unnoticed.
  */
 
-import type { z } from 'zod'
 import { OWNERSHIP_MATRIX_INDEX, ROW } from '../annotations/matrix'
 import type {
   MatrixRow,
@@ -68,8 +67,18 @@ import type {
   SecretClass,
   VisibilityClass,
 } from '../annotations/ownership'
-import { InstancePreferences, PersonalPreferences } from './preferences'
-import { LEGACY_IN_BLOB_SECRET_GROUPS } from './secrets'
+import {
+  pathsInSettingsTier,
+  SETTINGS_PATH_TIERS,
+  type SettingsTier,
+} from './path-tiers'
+
+export {
+  SETTINGS_OPEN_RECORD_LEAVES,
+  SETTINGS_TIERS,
+  settingsLeafPaths,
+  type SettingsTier,
+} from './path-tiers'
 
 // ---------------------------------------------------------------------------
 // The tiers, and their matrix rows
@@ -84,13 +93,6 @@ import { LEGACY_IN_BLOB_SECRET_GROUPS } from './secrets'
  * classifySettingsPath} answers `undefined` for one, which is what makes it
  * findable.
  */
-export const SETTINGS_TIERS = [
-  'personal-preference',
-  'instance-preference',
-  'server-secret',
-] as const
-export type SettingsTier = (typeof SETTINGS_TIERS)[number]
-
 /**
  * Tier → the ADR 1 matrix row that DECIDES it. Every column below is read off
  * the shipped row rather than restated here, so the classification cannot drift
@@ -137,81 +139,6 @@ export interface SettingsClassification {
 }
 
 // ---------------------------------------------------------------------------
-// Leaf enumeration
-// ---------------------------------------------------------------------------
-
-type ZodDef = {
-  typeName?: string
-  innerType?: z.ZodTypeAny
-  schema?: z.ZodTypeAny
-}
-
-const defOf = (schema: z.ZodTypeAny): ZodDef => schema._def as ZodDef
-
-/** Peel the wrappers that do not change the key set. Same peel as
- *  `annotations/capability-snapshot.ts` — and deliberately a SEPARATE walk,
- *  because that one reports the paths that MATCH a name pattern while this one
- *  reports every LEAF. A walker that stopped early would silently under-report
- *  here, where under-reporting means "unclassified". */
-function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
-  const def = defOf(schema)
-  switch (def.typeName) {
-    case 'ZodOptional':
-    case 'ZodNullable':
-    case 'ZodDefault':
-    case 'ZodCatch':
-    case 'ZodReadonly':
-      return def.innerType ? unwrap(def.innerType) : schema
-    case 'ZodEffects':
-      return def.schema ? unwrap(def.schema) : schema
-    default:
-      return schema
-  }
-}
-
-/**
- * Leaves that are OPEN CONTAINERS: an object whose keys are data rather than
- * vocabulary. `experimental` is a `z.record` of feature ids, so its members
- * cannot be enumerated and must not be — a build may meet a blob written by
- * another build.
- *
- * Recorded as a named list rather than handled silently, because "this leaf is
- * classified as a whole" and "this leaf's members are unclassified" look
- * identical from the outside otherwise. The classification of an open record is
- * a claim about EVERY key it can ever hold, which is only sound because the tier
- * it sits in (`instance-preference`) is the same for all of them.
- */
-export const SETTINGS_OPEN_RECORD_LEAVES = ['experimental'] as const
-
-/**
- * Every leaf path of a schema, dotted. An object stops the recursion only when
- * it has no members; a record, an array and a scalar are all leaves.
- *
- * `skip` drops key names that are structural rather than content — the `userId`
- * of {@link PersonalPreferences} is the ROW KEY, not a preference, and
- * classifying it as one would make the reconciliation against the live blob
- * fail for a key the blob correctly does not have.
- */
-export function settingsLeafPaths(
-  schema: z.ZodTypeAny,
-  prefix = '',
-  skip: readonly string[] = [],
-): string[] {
-  const inner = unwrap(schema)
-  const def = defOf(inner)
-  if (def.typeName !== 'ZodObject') return prefix ? [prefix] : []
-
-  const shape = (inner as unknown as z.AnyZodObject).shape
-  const out: string[] = []
-  for (const [key, child] of Object.entries(shape)) {
-    if (!prefix && skip.includes(key)) continue
-    const path = prefix ? `${prefix}.${key}` : key
-    out.push(...settingsLeafPaths(child as z.ZodTypeAny, path))
-  }
-  return out
-}
-
-// ---------------------------------------------------------------------------
 // The table
 // ---------------------------------------------------------------------------
 
@@ -241,13 +168,7 @@ function classify(tier: SettingsTier, path: string): SettingsClassification {
  * diff of an added field legible.
  */
 export const SETTINGS_CLASSIFICATION: readonly SettingsClassification[] = [
-  ...settingsLeafPaths(PersonalPreferences, '', ['userId']).map((p) =>
-    classify('personal-preference', p),
-  ),
-  ...settingsLeafPaths(InstancePreferences).map((p) => classify('instance-preference', p)),
-  ...LEGACY_IN_BLOB_SECRET_GROUPS.flatMap((g) =>
-    settingsLeafPaths(g.schema, g.prefix).map((p) => classify('server-secret', p)),
-  ),
+  ...SETTINGS_PATH_TIERS.map(({ path, tier }) => classify(tier, path)),
 ]
 
 /** Index by path. Built from the table, so a duplicate path would collapse here
@@ -297,5 +218,5 @@ export function settingsPathMayEnqueue(path: string): boolean {
 /** Every path in one tier. For POD-419's scrub (which needs the secret set) and
  *  POD-420's contracts (which need the per-tier command surface). */
 export function settingsPathsInTier(tier: SettingsTier): string[] {
-  return SETTINGS_CLASSIFICATION.filter((c) => c.tier === tier).map((c) => c.path)
+  return pathsInSettingsTier(tier)
 }

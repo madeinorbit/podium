@@ -1,5 +1,5 @@
 import { sessionWaking } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, Clock, CloudOff, Paperclip, Square } from 'lucide-react'
 import type { JSX, RefObject } from 'react'

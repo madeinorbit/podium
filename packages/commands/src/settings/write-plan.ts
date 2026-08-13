@@ -38,9 +38,13 @@
  * lost write look identical.
  */
 
-import { classifySettingsPath, ServerSecretKey, type SettingsTier } from '@podium/model'
+import { ServerSecretKey, settingsTierForPath, type SettingsTier } from '@podium/model/browser'
 import type { DeliveryClass } from '../contract'
-import { SETTINGS_CONTRACTS, type SettingsContractName, TIER_COMMAND } from './contracts'
+import {
+  SETTINGS_WRITE_COMMAND_BY_TIER,
+  SETTINGS_WRITE_DELIVERY_CLASS,
+  type SettingsWriteCommandName,
+} from './write-policy'
 
 // ---------------------------------------------------------------------------
 // Leaf diffing
@@ -136,9 +140,9 @@ export function changedSettingsLeaves(previous: unknown, next: unknown): Changed
   const out: ChangedLeaf[] = []
   const walk = (a: unknown, b: unknown, prefix: string): void => {
     if (prefix) {
-      const classification = classifySettingsPath(prefix)
-      if (classification) {
-        if (!sameValue(a, b)) out.push({ path: prefix, value: b, tier: classification.tier })
+      const tier = settingsTierForPath(prefix)
+      if (tier) {
+        if (!sameValue(a, b)) out.push({ path: prefix, value: b, tier })
         return
       }
     }
@@ -166,13 +170,13 @@ export function changedSettingsLeaves(previous: unknown, next: unknown): Changed
 export type SettingsWriteIntent =
   | {
       readonly kind: 'preference'
-      readonly command: SettingsContractName
+      readonly command: SettingsWriteCommandName
       readonly delivery: DeliveryClass
       readonly values: Readonly<Record<string, unknown>>
     }
   | {
       readonly kind: 'secret'
-      readonly command: SettingsContractName
+      readonly command: SettingsWriteCommandName
       readonly delivery: DeliveryClass
       /** A member of the closed vocabulary, not a free path — see the narrowing
        *  in {@link planSettingsWrite}. */
@@ -223,7 +227,7 @@ export function planSettingsWrite(
 ): SettingsWritePlan {
   const intents: SettingsWriteIntent[] = []
   const refusals: SettingsWriteRefusal[] = []
-  const patches = new Map<SettingsContractName, Record<string, unknown>>()
+  const patches = new Map<SettingsWriteCommandName, Record<string, unknown>>()
 
   for (const leaf of changedSettingsLeaves(previous, next)) {
     if (!leaf.tier) {
@@ -243,10 +247,10 @@ export function planSettingsWrite(
       // the posture `settingsTierRow` already takes for a missing matrix row.
       const key = ServerSecretKey.parse(leaf.path)
       const value = typeof leaf.value === 'string' ? leaf.value : ''
-      const command: SettingsContractName =
+      const command: SettingsWriteCommandName =
         value.length > 0 ? 'settings.setSecret' : 'settings.clearSecret'
-      const delivery = SETTINGS_CONTRACTS[command].delivery.class
-      if (!options.online && delivery !== 'offline-eligible') {
+      const delivery = SETTINGS_WRITE_DELIVERY_CLASS[command]
+      if (!options.online) {
         refusals.push({
           path: leaf.path,
           reason: 'requires-connection',
@@ -261,8 +265,8 @@ export function planSettingsWrite(
       )
       continue
     }
-    const command = TIER_COMMAND[leaf.tier]
-    const delivery = SETTINGS_CONTRACTS[command].delivery.class
+    const command = SETTINGS_WRITE_COMMAND_BY_TIER[leaf.tier]
+    const delivery = SETTINGS_WRITE_DELIVERY_CLASS[command]
     if (!options.online && delivery !== 'offline-eligible') {
       refusals.push({
         path: leaf.path,
@@ -283,23 +287,10 @@ export function planSettingsWrite(
     intents.push({
       kind: 'preference',
       command,
-      delivery: SETTINGS_CONTRACTS[command].delivery.class,
+      delivery: SETTINGS_WRITE_DELIVERY_CLASS[command],
       values,
     })
   }
 
   return { intents, refusals }
 }
-
-/**
- * The commands in this family that may NEVER be issued without a connection,
- * derived from the table.
- *
- * Exported for the UI, which needs to explain the refusal before the user
- * spends effort on a field that cannot be saved, and for the audit gate, which
- * asserts the set is non-empty — an empty set would make every "secrets are
- * never queued" assertion vacuously true.
- */
-export const ONLINE_ONLY_SETTINGS_COMMANDS: readonly SettingsContractName[] = (
-  Object.keys(SETTINGS_CONTRACTS) as SettingsContractName[]
-).filter((name) => SETTINGS_CONTRACTS[name].delivery.class !== 'offline-eligible')

@@ -10,7 +10,7 @@ import {
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
   type MachineId,
-} from '@podium/model'
+} from '@podium/model/browser'
 import {
   AlarmClock,
   AlarmClockOff,

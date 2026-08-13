@@ -5,7 +5,7 @@
  * what the user sees and vanished ids (moved / deleted / filtered) are dropped.
  */
 
-import type { IssueId } from '@podium/model'
+import type { IssueId } from '@podium/model/browser'
 
 export interface IssuesKeyState {
   focusId: IssueId | null

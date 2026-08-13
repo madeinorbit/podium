@@ -22,10 +22,10 @@ import { describe, expect, it } from 'vitest'
 import {
   applySettingsPatch,
   changedSettingsLeaves,
-  ONLINE_ONLY_SETTINGS_COMMANDS,
   planSettingsWrite,
   readSettingsLeaf,
 } from './write-plan'
+import { ONLINE_ONLY_SETTINGS_COMMANDS } from './contracts'
 
 /** A settings-blob-shaped fixture. Only the members a case touches. */
 const base = {

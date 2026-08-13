@@ -1,5 +1,5 @@
 import { ISSUE_STAGE_LABELS } from '@podium/client-core/viewmodels'
-import type { IssueStage } from '@podium/model'
+import type { IssueStage } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 import type { EpicProgress, IssuesDisplay } from './issues-display'

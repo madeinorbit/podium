@@ -1,4 +1,4 @@
-import type { IssueStage } from '@podium/model'
+import type { IssueStage } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import { STAGE_LABELS } from './issue-card'
 

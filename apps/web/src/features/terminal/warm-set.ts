@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
 /**
  * Recency-ordered tab ids (most-recent first). The currently-active ids are
  * promoted to the front (in the given order); the remaining previous entries

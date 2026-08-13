@@ -1,5 +1,5 @@
 import { parseToolEdit, toolEditMagnitude } from '@podium/client-core/viewmodels'
-import type { SessionId, TranscriptItem } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { resolveAgainstCwd } from '@/lib/file-path'

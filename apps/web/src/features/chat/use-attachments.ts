@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
 import { useCallback, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { hasImageItems } from './image-items'

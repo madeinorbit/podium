@@ -1,5 +1,5 @@
 import { discoveredPlacement, type ProposalShape } from '@podium/client-core/viewmodels'
-import { ISSUE_COLOR_SLOTS, ISSUE_STAGES, type IssueStage, type SessionId } from '@podium/model'
+import { ISSUE_COLOR_SLOTS, ISSUE_STAGES, type IssueStage, type SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 import {

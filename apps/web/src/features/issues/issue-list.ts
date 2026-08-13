@@ -2,7 +2,7 @@ import {
   groupIssuesByStage as coreGroupIssuesByStage,
   flattenStageGroups,
 } from '@podium/client-core/viewmodels'
-import type { IssueStage } from '@podium/model'
+import type { IssueStage } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { IssuesOrdering } from './issues-display'
 

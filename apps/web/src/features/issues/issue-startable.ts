@@ -9,7 +9,7 @@
  * miniview's `RefIssueLike` rows fit alongside full `IssueWire` rows.
  */
 
-import { isSystemOwnedIssueStage, type IssueWire } from '@podium/model'
+import type { IssueWire } from '@podium/model/browser'
 
 /**
  * Composed from `IssueWire` rather than restated (POD-367) — the field NAMES and
@@ -34,6 +34,6 @@ export function isIssueStartable(issue: StartableIssueLike): boolean {
     issue.closedReason == null &&
     !issue.archived &&
     !issue.deletedAt &&
-    (!issue.stage || !isSystemOwnedIssueStage(issue.stage))
+    (!issue.stage || issue.stage !== 'shipping')
   )
 }

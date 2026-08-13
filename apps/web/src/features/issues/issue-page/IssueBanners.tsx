@@ -10,7 +10,7 @@
  * rendering the raw id as a dead label is exactly the "not-visible rendered as
  * removed" defect. See ./issue-edges.ts for the policy.
  */
-import type { IssueId } from '@podium/model'
+import type { IssueId } from '@podium/model/browser'
 import { ArchiveRestore } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'

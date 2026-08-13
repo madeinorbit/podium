@@ -33,7 +33,7 @@
  *    function precisely so that claim is testable rather than asserted.
  */
 import type { IssueEdge } from '@podium/client-core/viewmodels'
-import type { IssueId } from '@podium/model'
+import type { IssueId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'

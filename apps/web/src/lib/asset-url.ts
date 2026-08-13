@@ -1,5 +1,5 @@
 import type { FileScope } from '@podium/client-core/viewmodels'
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
 import { resolveAgainstCwd } from './file-path'
 
 /**

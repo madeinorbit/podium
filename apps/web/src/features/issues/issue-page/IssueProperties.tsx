@@ -33,7 +33,7 @@
  * `../issue-page-model.ts`.
  */
 import { shallowEqual } from '@podium/client-core'
-import { ISSUE_STAGES, type IssueId, IssueType } from '@podium/model'
+import { ISSUE_STAGES, type IssueId, IssueType } from '@podium/model/browser'
 import { ChevronRight, ExternalLink, Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'

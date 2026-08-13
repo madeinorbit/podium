@@ -1,6 +1,6 @@
 import { Tooltip } from '@base-ui/react/tooltip'
 import { formatClock } from '@podium/client-core/viewmodels'
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'

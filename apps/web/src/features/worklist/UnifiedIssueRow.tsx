@@ -21,8 +21,8 @@ import {
   type IssueId,
   type SessionId,
   type SessionMeta,
-} from '@podium/model'
-import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
+} from '@podium/model/browser'
+import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { AlarmClock, Pin } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'

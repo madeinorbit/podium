@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { SettingsWriteRefusal } from '@podium/commands'
-import type { HostMetricsWire, ServerSecretKey } from '@podium/model'
+import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
+import type { HostMetricsWire, ServerSecretKey } from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'

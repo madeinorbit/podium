@@ -177,6 +177,12 @@ export default defineConfig(({ mode }) => {
         // source condition faithfully resolves MAIN's src. The build exits 0 and
         // bundles code that is not the code under review [POD-746]. Verify with the
         // bundle-content grep, never the exit code.
+        '@podium/commands/settings-write-plan': fileURLToPath(
+          new URL('../../packages/commands/src/settings/write-plan.ts', import.meta.url),
+        ),
+        '@podium/model/browser': fileURLToPath(
+          new URL('../../packages/model/src/browser.ts', import.meta.url),
+        ),
         '@podium/model': fileURLToPath(
           new URL('../../packages/model/src/index.ts', import.meta.url),
         ),

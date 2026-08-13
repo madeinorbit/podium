@@ -10,7 +10,7 @@
  * predicate and its ownership note.
  */
 import { motionPhase } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueWire, SessionMeta } from '@podium/model'
+import type { IssueId, IssueWire, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { Fragment, type JSX } from 'react'

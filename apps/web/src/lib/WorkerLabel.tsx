@@ -1,5 +1,5 @@
 import { isUnstartedSession, panelLabel } from '@podium/client-core/viewmodels'
-import type { AgentKind, SessionMeta } from '@podium/model'
+import type { AgentKind, SessionMeta } from '@podium/model/browser'
 import { SquareChevronRight } from 'lucide-react'
 import type React from 'react'
 import type { JSX } from 'react'

@@ -19,7 +19,7 @@
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import { asMachineId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
+import { asMachineId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
 import type { JSX } from 'react'

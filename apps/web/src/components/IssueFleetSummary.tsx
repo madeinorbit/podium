@@ -30,7 +30,7 @@
  * mark — icon, tint and tone are one question about one key.
  */
 import { deriveFleetPresence, FLEET_KIND_LIMIT } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { cn } from '@/lib/utils'

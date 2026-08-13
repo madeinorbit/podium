@@ -7,7 +7,7 @@ import {
   type IssueId,
   type SessionMeta,
   type SessionId,
-} from '@podium/model'
+} from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { IssuesKeyState } from './issues-keys'
 

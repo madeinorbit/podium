@@ -4,7 +4,7 @@
  * single reusable RoleBackendEditor (SP-6454 B3) used by the sessions,
  * superagent, and background-LLM tabs. Extracted verbatim from SettingsView.tsx.
  */
-import { type AccountId, asAccountId, type MachineId, type SessionMeta } from '@podium/model'
+import { type AccountId, asAccountId, type MachineId, type SessionMeta } from '@podium/model/browser'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'

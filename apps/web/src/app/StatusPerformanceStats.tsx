@@ -1,5 +1,5 @@
 import { bucketCostUsd } from '@podium/client-core/viewmodels'
-import type { IssueWire, UsageBucketWire } from '@podium/model'
+import type { IssueWire, UsageBucketWire } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useUsageFeed } from '@/features/usage/useUsageFeed'
 import { StatusMetric, type StatusMetricBucket } from './StatusMetric'

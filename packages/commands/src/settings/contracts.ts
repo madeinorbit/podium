@@ -103,6 +103,10 @@ import type {
   RedactionPolicy,
   TransportTag,
 } from '../contract'
+import {
+  SETTINGS_WRITE_COMMAND_BY_TIER,
+  SETTINGS_WRITE_DELIVERY_CLASS,
+} from './write-policy'
 
 // ---------------------------------------------------------------------------
 // The path-addressed preference patch
@@ -235,7 +239,7 @@ const PREFERENCE_REAUTHORIZATION =
  * does.
  */
 const PERSONAL_PREFERENCE_DELIVERY: DeliveryPolicy = {
-  class: 'offline-eligible',
+  class: SETTINGS_WRITE_DELIVERY_CLASS['settings.updatePersonal'],
   outboxReconciliation:
     'MAY be queued, and is not queued today. ARGUED, not inherited from the row (POD-735’s ' +
     'precedent for departing from a written column): a personal preference is INERT — it arms ' +
@@ -269,7 +273,7 @@ const PERSONAL_PREFERENCE_DELIVERY: DeliveryPolicy = {
  * a connectivity requirement.
  */
 const INSTANCE_PREFERENCE_DELIVERY: DeliveryPolicy = {
-  class: 'offline-eligible',
+  class: SETTINGS_WRITE_DELIVERY_CLASS['settings.updateInstance'],
   outboxReconciliation:
     'MAY be queued, and is not queued today. ARGUED per tier: an instance preference is inert in the ' +
     'same way the personal ones are, and its conflict rule is the one case ADR 1 Amendment 1 D10 ' +
@@ -294,7 +298,7 @@ const INSTANCE_PREFERENCE_DELIVERY: DeliveryPolicy = {
  * for the untyped boundaries.
  */
 const SECRET_DELIVERY: DeliveryPolicy = {
-  class: 'online-sensitive',
+  class: SETTINGS_WRITE_DELIVERY_CLASS['settings.setSecret'],
   outboxReconciliation:
     'NEVER queued, at any layer. ADR 1’s `server-owned-secrets` row is `offline: "never-enqueue"` ' +
     'and `replication: "none"`; ADR 3 D4 rule 1 makes a `secret` policy imply `online-sensitive`, and ' +
@@ -1082,6 +1086,11 @@ export const SETTINGS_CONTRACTS = {
 
 export type SettingsContractName = keyof typeof SETTINGS_CONTRACTS
 
+/** Every settings contract that must be issued with a live connection. */
+export const ONLINE_ONLY_SETTINGS_COMMANDS: readonly SettingsContractName[] = (
+  Object.keys(SETTINGS_CONTRACTS) as SettingsContractName[]
+).filter((name) => SETTINGS_CONTRACTS[name].delivery.class !== 'offline-eligible')
+
 /** Sorted, so a table-driven consumer's order does not depend on declaration order. */
 export const SETTINGS_COMMAND_NAMES = Object.keys(
   SETTINGS_CONTRACTS,
@@ -1097,12 +1106,8 @@ export const SETTINGS_COMMAND_NAMES = Object.keys(
  * without anything noticing.
  */
 export const TIER_COMMAND: Readonly<Record<SettingsTier, SettingsContractName>> = {
-  'personal-preference': 'settings.updatePersonal',
-  'instance-preference': 'settings.updateInstance',
-  // A secret write is addressed by KEY, not by path, so the mapping names the
-  // replace arm; `clearSecret` is the same tier reached by the other verb.
-  'server-secret': 'settings.setSecret',
-} as const satisfies Record<SettingsTier, SettingsContractName>
+  ...SETTINGS_WRITE_COMMAND_BY_TIER,
+}
 
 /**
  * The matrix row each command's tier answers to. Used by `contracts.test.ts` to

@@ -1,6 +1,6 @@
 // apps/web/src/MarkdownPreview.tsx
 
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
 import { shallowEqual } from '@podium/client-core/store'
 import { type JSX, useMemo } from 'react'
 import { useStoreSelector } from '@/app/store'

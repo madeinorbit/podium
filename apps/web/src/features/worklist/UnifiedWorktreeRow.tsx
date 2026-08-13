@@ -3,7 +3,7 @@ import {
   partitionStaleSessions,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import { AgentRosterBand, PanelRow, StaleSection } from './sidebar-common'

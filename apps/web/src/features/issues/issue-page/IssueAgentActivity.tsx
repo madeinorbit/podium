@@ -34,7 +34,7 @@
 import { shallowEqual } from '@podium/client-core'
 import { relativeTime } from '@podium/client-core/focus'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
-import type { IssuePanelArtifact } from '@podium/model'
+import type { IssuePanelArtifact } from '@podium/model/browser'
 import { ChevronRight, FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'

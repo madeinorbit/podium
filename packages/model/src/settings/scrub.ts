@@ -61,7 +61,7 @@
  * with a preference sibling that must SURVIVE.
  */
 
-import { settingsPathsInTier } from './classification'
+import { pathsInSettingsTier } from './path-tiers'
 
 /**
  * Every server-owned secret leaf, by its dotted path — DERIVED from the shipped
@@ -69,7 +69,7 @@ import { settingsPathsInTier } from './classification'
  * `apiKeys.openai`, `integrations.linearApiKey`,
  * `notifications.telegramBotToken`); whatever the classification says tomorrow.
  */
-export const SETTINGS_SECRET_PATHS: readonly string[] = settingsPathsInTier('server-secret')
+export const SETTINGS_SECRET_PATHS: readonly string[] = pathsInSettingsTier('server-secret')
 
 /** Segments of each secret path, split once at module load rather than per node
  *  of every walked tree. */

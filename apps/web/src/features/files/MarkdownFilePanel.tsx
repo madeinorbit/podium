@@ -8,7 +8,7 @@ import {
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
 import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId, type SessionId } from '@podium/model/browser'
 import { Columns2, Eye, Flower2, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'

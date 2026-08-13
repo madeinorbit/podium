@@ -13,8 +13,8 @@ import {
   resumeCommand,
   sessionWaking,
 } from '@podium/client-core/viewmodels'
-import type { SessionId } from '@podium/model'
-import { isSnoozed } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
+import { isSnoozed } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { keySequence, type SpecialKey } from '@podium/terminal-client'
 import { ArrowSwipeKey, useTerminalSession, useVoiceInput } from '@podium/terminal-client-react'

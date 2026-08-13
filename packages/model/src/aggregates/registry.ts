@@ -48,13 +48,12 @@
 
 import type { z } from 'zod'
 import {
-  MATRIX_INDEX_HOLDER,
   type MatrixRow,
   type MatrixRowId,
   type VisibilityClass,
-  visibilityClassOf,
 } from '../annotations/ownership'
-import { ROW } from '../annotations/matrix'
+import { OWNERSHIP_MATRIX_INDEX, ROW } from '../annotations/matrix'
+import { visibilityClassOf } from '../annotations/resolution'
 import { ClientSessionAggregate } from '../identity/client-session'
 import { GrantEdge } from '../identity/grant'
 import { UserAccount, UserCredential } from '../identity/user'
@@ -228,7 +227,7 @@ export interface ClassificationViolation {
  */
 export function classificationViolations(
   aggregates: readonly CanonicalAggregate[] = CANONICAL_AGGREGATES,
-  index: ReadonlyMap<string, MatrixRow> = MATRIX_INDEX_HOLDER.index,
+  index: ReadonlyMap<string, MatrixRow> = OWNERSHIP_MATRIX_INDEX,
 ): ClassificationViolation[] {
   const out: ClassificationViolation[] = []
   for (const agg of aggregates) {

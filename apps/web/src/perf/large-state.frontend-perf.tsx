@@ -13,7 +13,7 @@ import {
   ISSUE_STAGES,
   type IssueWire,
   type SessionMeta,
-} from '@podium/model'
+} from '@podium/model/browser'
 import type { ClientSwitchTrace } from '@podium/protocol'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'

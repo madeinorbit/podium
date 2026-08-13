@@ -14,7 +14,7 @@ import {
   isIssueColorSlot,
   snoozeUntil1h,
   type MachineId,
-} from '@podium/model'
+} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Check, ChevronRight } from 'lucide-react'
 import { Fragment, type JSX, type ReactNode, useEffect, useRef, useState } from 'react'

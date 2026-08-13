@@ -37,7 +37,7 @@ import {
   issueOwnContentUnread,
   treeGuides,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, SessionMeta, IssueId, SessionId } from '@podium/model'
+import type { AgentKind, SessionMeta, IssueId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,

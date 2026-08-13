@@ -10,7 +10,7 @@
  * without React or the store.
  */
 
-import type { IssuePanelArtifact, IssuePanelTodo, IssueWire, SessionId, IssueId } from '@podium/model'
+import type { IssuePanelArtifact, IssuePanelTodo, IssueWire, SessionId, IssueId } from '@podium/model/browser'
 import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**

@@ -14,7 +14,7 @@
 
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
-import type { IssueId, IssueStage, MachineId } from '@podium/model'
+import type { IssueId, IssueStage, MachineId } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'

@@ -16,7 +16,7 @@ import {
   windowPace,
   windowScopeModel,
 } from '@podium/client-core/viewmodels'
-import type { AgentQuotaWire, MachineQuotaWire } from '@podium/model'
+import type { AgentQuotaWire, MachineQuotaWire } from '@podium/model/browser'
 import { Gauge } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'

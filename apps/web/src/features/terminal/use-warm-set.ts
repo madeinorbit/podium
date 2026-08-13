@@ -1,4 +1,4 @@
-import { type SessionId } from '@podium/model'
+import { type SessionId } from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { computeWarmSet, updateRecency } from './warm-set'
 

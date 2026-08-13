@@ -13,7 +13,7 @@ import {
   type IssueEvent,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model'
+import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'

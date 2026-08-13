@@ -1,4 +1,4 @@
-import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/model'
+import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/model/browser'
 
 /**
  * Offer→artifact resolution [POD-120]: which of the issue's published artifacts
