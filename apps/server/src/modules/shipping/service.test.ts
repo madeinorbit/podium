@@ -1122,7 +1122,7 @@ describe('ShippingService enqueue transaction', () => {
     const restarted = new ShippingService(deps)
     await restarted.reconcile()
     expect(generations).toEqual([1, 1])
-    expect(store.shipping.getAttempt(first!.id)).toMatchObject({ outcome: undefined })
+    expect(store.shipping.getAttempt(first!.id)?.outcome).toBeUndefined()
     expect(store.shipping.latestAttemptForOrder(order.id)).toMatchObject({ leaseGeneration: 1 })
     restarted.dispose()
   })
