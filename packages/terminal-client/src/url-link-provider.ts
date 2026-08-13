@@ -1,3 +1,4 @@
+import { parseAnyRef } from '@podium/protocol'
 import type { ILink, ILinkProvider } from '@xterm/xterm'
 import type { BufferLike, Cell } from './buffer-line'
 
@@ -89,6 +90,14 @@ function looksLikeProseTail(cells: Cell[]): boolean {
   return /^[A-Z][a-z]+[.,;:!?]?$/.test(cells.map((c) => c.char).join(''))
 }
 
+/** A whole continuation that is itself a Podium issue/session ref (`POD-739`,
+ *  `POD-739-A`). Hard-wrap stitching would otherwise glue it onto the URL
+ *  above — `https://example.invalid/` + `POD-739` becomes one href. Soft wraps
+ *  still join: those are one logical URL the terminal reflowed. */
+function looksLikeRefToken(cells: Cell[]): boolean {
+  return parseAnyRef(cells.map((c) => c.char).join('')) !== null
+}
+
 interface HardWrapContinuation {
   cells: Cell[]
   indent: number
@@ -117,6 +126,7 @@ function hardWrapContinuationAfter(buf: BufferLike, previousY: number): Cell[] |
   // A zero-indent continuation is the ambiguous case: accept it only when the
   // previous row actually wrapped (filled the line) AND the continuation isn't a
   // fresh prose word. Indented continuations carry their own hang-indent signal.
+  if (looksLikeRefToken(cont.cells)) return null
   if (cont.indent === 0 && (!looksLikeWrapOrigin(buf, previousY) || looksLikeProseTail(cont.cells)))
     return null
   return cont.cells

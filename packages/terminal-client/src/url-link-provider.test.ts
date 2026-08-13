@@ -176,4 +176,39 @@ describe('makeUrlLinkProvider', () => {
     expect(links[0]!.text).toBe('https://example.com')
     expect(links[0]!.ey).toBe(links[0]!.sy)
   })
+
+  it('does not hard-wrap-stitch a following task ref onto the URL', () => {
+    // The reported case: a dummy host on one row, a task ref on the next. The
+    // ref is space-free URL-body text, so without a guard it becomes
+    // https://example.invalid/POD-739. Hang-indent (a task list under a URL)
+    // and a session ref are the same glue.
+    const zero = fakeBuf(['https://example.invalid/', 'POD-739'], [false, false])
+    expect(linksFor(zero, 1)).toEqual([
+      { text: 'https://example.invalid/', sy: 1, ey: 1 },
+    ])
+    expect(linksFor(zero, 2)).toEqual([])
+
+    const hang = fakeBuf(['https://example.invalid/', '  POD-739'], [false, false])
+    expect(linksFor(hang, 1)[0]?.text).toBe('https://example.invalid/')
+    expect(linksFor(hang, 1)[0]?.ey).toBe(1)
+
+    const session = fakeBuf(['https://example.invalid/', 'POD-739-A'], [false, false])
+    expect(linksFor(session, 1)[0]?.text).toBe('https://example.invalid/')
+    expect(linksFor(session, 1)[0]?.ey).toBe(1)
+  })
+
+  it('still soft-wraps a URL whose next row happens to look like a ref', () => {
+    // Reflow of one logical URL (`…/POD-739`) must stay one link. Soft wrap is
+    // the terminal splitting a line, not a new token.
+    const buf = fakeBuf(['https://example.invalid/', 'POD-739'], [false, true])
+    const links = linksFor(buf, 1)
+    expect(links).toHaveLength(1)
+    expect(links[0]!.text).toBe('https://example.invalid/POD-739')
+    expect(links[0]!.ey).toBeGreaterThan(links[0]!.sy)
+  })
+
+  it('still hard-wraps a path continuation that is not itself a ref', () => {
+    const buf = fakeBuf(['https://example.invalid/', '  issue/POD-739'], [false, false])
+    expect(linksFor(buf, 1)[0]?.text).toBe('https://example.invalid/issue/POD-739')
+  })
 })
