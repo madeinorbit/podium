@@ -33,6 +33,7 @@ import { EmptyState, SectionHeader } from '../components/ui'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
+import { useBuildStamp } from '../lib/build-stamp'
 import {
   color,
   font,
@@ -75,7 +76,12 @@ export function PulseScreen() {
   const tabBarInset = useTabBarInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
   const reload = feed.reload
-  const onPull = useCallback(() => reload(), [reload])
+  const buildStamp = useBuildStamp()
+  const reloadStamp = buildStamp.reload
+  const onPull = useCallback(() => {
+    reloadStamp()
+    return reload()
+  }, [reload, reloadStamp])
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('pulse', onPull)
 
@@ -133,6 +139,12 @@ export function PulseScreen() {
           ) : (
             <WeekPanel summary={summary} cold={cold} />
           )}
+          {/* Which server, and what both ends are running — the question a
+              redeploy leaves open and nothing else on the phone answers. Last
+              line on the tab, in both modes, deliberately quiet. */}
+          <Text style={styles.buildStamp} selectable numberOfLines={1}>
+            {buildStamp.text}
+          </Text>
         </ScrollView>
       </PullToRefreshBoundary>
     </Screen>
@@ -661,6 +673,14 @@ const styles = StyleSheet.create({
     ...mono(400),
     color: color.textFaint,
     fontSize: font.micro,
+  },
+  buildStamp: {
+    ...mono(400),
+    color: color.textFaint,
+    fontSize: font.micro,
+    textAlign: 'center',
+    paddingTop: space.lg,
+    paddingHorizontal: space.lg,
   },
   switcher: {
     flexDirection: 'row',
