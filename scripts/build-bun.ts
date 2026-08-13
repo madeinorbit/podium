@@ -15,6 +15,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -93,6 +94,45 @@ export function assertDevWebDistMatchesVersion(
         'Rebuild the web app, then retry.',
     )
   }
+}
+
+/**
+ * Replace the bundle's `web/` with the current `apps/web/dist` — REPLACE, never merge.
+ *
+ * Vite emits content-hashed filenames, so a bare recursive copy leaves every earlier
+ * build's assets behind forever: on the dev host that had grown to 803 MB of dead files
+ * beside 35 MB of live ones, gzipped into every update tarball and downloaded by every
+ * machine that takes one (#1983). Prune first, then check the result is file-for-file the
+ * build so a wrong path here can't quietly bring the accumulation back.
+ */
+export function syncBundleWeb(webDist: string, webDest: string): void {
+  rmSync(webDest, { recursive: true, force: true })
+  cpSync(webDist, webDest, { recursive: true })
+  assertWebDirMatches(webDist, webDest)
+}
+
+/** Entries under `dir`, relative and sorted (files and directories alike). */
+function listTree(dir: string): string[] {
+  return (readdirSync(dir, { recursive: true }) as string[]).sort()
+}
+
+/**
+ * Throw unless the bundle's web dir holds exactly the build's entries — the regression
+ * guard for {@link syncBundleWeb}. Named as a pair (extra / missing) so a failure says
+ * which side drifted rather than just that a count is off.
+ */
+export function assertWebDirMatches(webDist: string, webDest: string): void {
+  const source = new Set(listTree(webDist))
+  const copied = new Set(listTree(webDest))
+  const extra = [...copied].filter((f) => !source.has(f))
+  const missing = [...source].filter((f) => !copied.has(f))
+  if (extra.length === 0 && missing.length === 0) return
+  const sample = (list: string[]): string =>
+    `${list.length}${list.length ? ` (e.g. ${list.slice(0, 3).join(', ')})` : ''}`
+  throw new Error(
+    `build-bun: ${webDest} does not match ${webDist} — ` +
+      `stale entries: ${sample(extra)}; missing entries: ${sample(missing)}`,
+  )
 }
 
 export function updateArtifactPath(
@@ -272,7 +312,7 @@ function main(): void {
   mkdirSync(headless, { recursive: true })
   // Release units are generated from the same renderer used by runtime setup and the dev host.
   writeSystemdFiles(`${headless}/systemd`, { profile: 'packaged', instanceId: 'default' })
-  cpSync(webDist, `${headless}/web`, { recursive: true })
+  syncBundleWeb(webDist, `${headless}/web`)
 
   // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
   const bundledCli = `${headless}/${names.cli}`
