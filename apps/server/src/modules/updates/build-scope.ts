@@ -166,6 +166,25 @@ export interface LowTierBuild {
 }
 
 /**
+ * Which bun the scoped build must exec.
+ *
+ * `systemd-run --user --scope` does not inherit the server's PATH. A bare
+ * `bun` then fails with "Failed to find executable bun" — measured on the
+ * source host after dest+HEAD restarted (POD-962). BUN_BIN wins; otherwise the
+ * server's own executable, when it is bun; otherwise the name `bun` for the
+ * unscopeable fallback (macOS, a container) where the parent PATH still works.
+ */
+export function devBuildCommand(
+  env: NodeJS.ProcessEnv = process.env,
+  execPath: string = process.execPath,
+): string {
+  const configured = env.BUN_BIN?.trim()
+  if (configured) return configured
+  if (/(?:^|[/\\])bun(?:\.exe)?$/i.test(execPath)) return execPath
+  return 'bun'
+}
+
+/**
  * What actually gets spawned. Pure, so the fallback is a table rather than a
  * branch nobody can see: without systemd we run the command exactly as before.
  */

@@ -59,7 +59,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { type ServedWebIdentity, servedWebIdentity } from '../../web-bundle-stamp'
-import { devBuildScopeUnit, runLowTierBuild } from './build-scope'
+import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
 
 const log = createLogger('server:updates')
 
@@ -198,7 +198,7 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
       runLowTierBuild({
         unit: devBuildScopeUnit(step.role, deps.instanceId),
         description: `Podium development web build (${step.label})`,
-        command: process.env.BUN_BIN ?? 'bun',
+        command: devBuildCommand(process.env),
         args: step.args,
         cwd: deps.root,
         env: process.env,

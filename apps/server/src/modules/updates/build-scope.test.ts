@@ -3,6 +3,7 @@ import {
   DEV_BUILD_CPU_QUOTA,
   DEV_BUILD_CPU_WEIGHT,
   DEV_BUILD_IO_WEIGHT,
+  devBuildCommand,
   devBuildScopeArgv,
   devBuildScopeReclaimArgvs,
   devBuildScopeUnit,
@@ -59,5 +60,12 @@ describe('development build scopes', () => {
       args: ['scripts/build-bun.ts'],
     })
     expect(lowTierSpawnPlan(build, true).file).toBe('systemd-run')
+  })
+
+  it('uses the server bun so a scoped build does not search PATH', () => {
+    expect(devBuildCommand({}, '/home/podium/.bun/bin/bun')).toBe('/home/podium/.bun/bin/bun')
+    expect(devBuildCommand({}, '/opt/bun.exe')).toBe('/opt/bun.exe')
+    expect(devBuildCommand({ BUN_BIN: '/opt/bun' }, '/home/podium/.bun/bin/bun')).toBe('/opt/bun')
+    expect(devBuildCommand({}, '/usr/bin/node')).toBe('bun')
   })
 })

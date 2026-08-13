@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
 import { resolveInstanceId } from '@podium/runtime/config'
-import { devBuildScopeUnit, runLowTierBuild } from './build-scope'
+import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
 
 const log = createLogger('server:updates')
 
@@ -624,7 +624,7 @@ async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
   await runLowTierBuild({
     unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, ctx.instanceId ?? resolveInstanceId()),
     description: `Podium development bundle build (${ctx.version})`,
-    command: process.env.BUN_BIN ?? 'bun',
+    command: devBuildCommand(process.env),
     args: ['scripts/build-bun.ts'],
     cwd: ctx.root,
     env: {
