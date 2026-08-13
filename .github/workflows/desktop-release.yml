@@ -101,7 +101,9 @@ jobs:
           keychain="$RUNNER_TEMP/podium-signing.keychain-db"
           keychain_password="$(uuidgen)"
           cert="$RUNNER_TEMP/certificate.p12"
-          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$cert"
+          # openssl rather than base64(1): the BSD and GNU tools disagree on the decode flag, and
+          # -A accepts the secret whether or not it was pasted with line wrapping.
+          printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A > "$cert"
           security create-keychain -p "$keychain_password" "$keychain"
           # Without disabling the inactivity lock the keychain relocks mid-build and signing fails
           # partway through with an unhelpful errSecInternalComponent.
@@ -121,7 +123,7 @@ jobs:
         run: |
           set -euo pipefail
           key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
-          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$key_path"
+          printf '%s' "$APPLE_API_KEY_P8" | openssl base64 -d -A > "$key_path"
           chmod 600 "$key_path"
           echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
       - name: Build signed desktop bundle
