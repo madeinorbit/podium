@@ -73,10 +73,11 @@ export interface UsageDay {
 /**
  * Which vendor's price list a model bills against — derived from the model id
  * rather than carried on the wire, because the id names the family and the wire
- * does not name the harness. `claude-*` is Anthropic, `gpt-*`/`codex-*` OpenAI.
- * A model matching neither reads as `other` rather than being guessed into one.
+ * does not name the harness. `claude-*` is Anthropic, `gpt-*`/`codex-*` OpenAI,
+ * `grok-*` is xAI. A model matching none of those reads as `other` rather than
+ * being guessed into one.
  */
-export type UsageProvider = 'anthropic' | 'openai' | 'other'
+export type UsageProvider = 'anthropic' | 'openai' | 'xai' | 'other'
 
 export interface UsageModelRow {
   model: string
@@ -207,6 +208,58 @@ const PRICING: ModelPricing[] = [
     cacheReadPerM: 0.1,
     cacheWrite5mPerM: 1.25,
     cacheWrite1hPerM: 2,
+  },
+  // xAI short-context band. Same constraint as gpt-5.6: an hour×model bucket
+  // cannot reconstruct prompt size, so the ≥200k doubling is omitted and
+  // long-context Grok work is understated here, knowingly. Cache writes are
+  // not a billed class on the published list; cached input is.
+  {
+    match: 'grok-4.6',
+    inPerM: 2,
+    outPerM: 6,
+    cacheReadPerM: 0.5,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'grok-4.5',
+    inPerM: 2,
+    outPerM: 6,
+    cacheReadPerM: 0.3,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'grok-4.3',
+    inPerM: 1.25,
+    outPerM: 2.5,
+    cacheReadPerM: 0.2,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'grok-4.20-multi-agent',
+    inPerM: 1.25,
+    outPerM: 2.5,
+    cacheReadPerM: 0.2,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'grok-4.20',
+    inPerM: 1.25,
+    outPerM: 2.5,
+    cacheReadPerM: 0.2,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
+  },
+  {
+    match: 'grok-build',
+    inPerM: 1,
+    outPerM: 2,
+    cacheReadPerM: 0.2,
+    cacheWrite5mPerM: 0,
+    cacheWrite1hPerM: 0,
   },
   // The gpt-5.6 family, narrowest first — and ahead of every `gpt-5` row below,
   // which all of these ids also contain. This is the only OpenAI family that
@@ -403,6 +456,7 @@ const isSyntheticModel = (model: string): boolean => model.startsWith('<')
 export function bucketProvider(model: string): UsageProvider {
   if (model.startsWith('claude')) return 'anthropic'
   if (model.startsWith('gpt') || model.includes('codex')) return 'openai'
+  if (model.startsWith('grok')) return 'xai'
   return 'other'
 }
 

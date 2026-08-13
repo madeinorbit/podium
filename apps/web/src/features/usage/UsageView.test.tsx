@@ -158,6 +158,18 @@ describe('UsageView loading', () => {
     expect(screen.getByText(/1 model used the fallback rate: future-vendor-model/)).toBeTruthy()
   })
 
+  it('lists Grok as xAI and names it in the source footer', async () => {
+    summary.mockResolvedValue({ buckets: [bucket({ model: 'grok-4.6' })] })
+    render(<UsageView onClose={() => {}} />)
+    await act(async () => {})
+
+    expect(screen.getByText('grok-4.6')).toBeTruthy()
+    expect(screen.getAllByText('xAI').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText('Claude Code, Codex, and Grok sessions on this machine'),
+    ).toBeTruthy()
+  })
+
   it('drops the harness placeholder rather than ranking it as a model', async () => {
     // Claude Code stamps its session-limit and API-error placeholders
     // `<synthetic>` with an all-zero usage block. Counted, they put a permanent

@@ -7,9 +7,11 @@ import {
   bucketize,
   codexModelOf,
   codexUsageFromRecord,
+  grokUsageFromSession,
   mergeBuckets,
   scanClaudeUsage,
   scanCodexUsage,
+  scanGrokUsage,
   scanHostUsage,
   usageFromRecord,
 } from './usage-scan'
@@ -421,8 +423,124 @@ describe('mergeBuckets', () => {
   })
 })
 
+function writeGrokSession(
+  home: string,
+  id: string,
+  signals: Record<string, unknown>,
+  summary?: Record<string, unknown>,
+): void {
+  const dir = join(home, '.grok', 'sessions', '%2Fsrc', id)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'signals.json'), JSON.stringify(signals))
+  if (summary) writeFileSync(join(dir, 'summary.json'), JSON.stringify(summary))
+}
+
+describe('grokUsageFromSession', () => {
+  it('reads context tokens, reply count, model, and last-active from the session snapshot', () => {
+    const rec = grokUsageFromSession(
+      {
+        contextTokensUsed: 50_593,
+        assistantMessageCount: 5,
+        turnCount: 1,
+        primaryModelId: 'grok-4.6',
+        modelsUsed: ['grok-4.6'],
+      },
+      {
+        info: { id: 'sess-1' },
+        current_model_id: 'grok-4.6-build',
+        last_active_at: '2026-08-13T05:46:27.505Z',
+      },
+      Date.parse('2026-08-13T00:00:00.000Z'),
+    )
+    expect(rec).toEqual({
+      tsMs: Date.parse('2026-08-13T05:46:27.505Z'),
+      model: 'grok-4.6',
+      inputTokens: 50_593,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      cacheCreation1hTokens: 0,
+      messages: 5,
+      responseId: 'grok-session:sess-1',
+    })
+  })
+
+  it('falls back to current_model_id and file mtime when signals omit them', () => {
+    const rec = grokUsageFromSession(
+      { contextTokensUsed: 100, turnCount: 2 },
+      { current_model_id: 'grok-4.5', updated_at: '2026-08-01T12:00:00.000Z' },
+      0,
+    )
+    expect(rec).toMatchObject({
+      model: 'grok-4.5',
+      inputTokens: 100,
+      messages: 2,
+      tsMs: Date.parse('2026-08-01T12:00:00.000Z'),
+    })
+  })
+
+  it('skips a snapshot with no tokens and no turns', () => {
+    expect(grokUsageFromSession({ contextTokensUsed: 0, turnCount: 0 }, {}, 1)).toBeNull()
+    expect(grokUsageFromSession(null, {}, 1)).toBeNull()
+  })
+})
+
+describe('scanGrokUsage', () => {
+  it('walks ~/.grok/sessions and keeps sessions inside the window', async () => {
+    const home = trackTmp('podium-usage-grok-')
+    writeGrokSession(
+      home,
+      'keep',
+      { contextTokensUsed: 1_000, assistantMessageCount: 3, primaryModelId: 'grok-4.6' },
+      {
+        info: { id: 'keep' },
+        last_active_at: '2026-06-12T10:15:00.000Z',
+      },
+    )
+    writeGrokSession(
+      home,
+      'old',
+      { contextTokensUsed: 9_999, assistantMessageCount: 9, primaryModelId: 'grok-4.6' },
+      {
+        info: { id: 'old' },
+        last_active_at: '2026-05-01T10:00:00.000Z',
+      },
+    )
+
+    const buckets = await scanGrokUsage({
+      sinceMs: Date.parse('2026-06-10T00:00:00Z'),
+      homeDir: home,
+    })
+    expect(buckets).toHaveLength(1)
+    expect(buckets[0]).toMatchObject({
+      hour: '2026-06-12T10:00:00.000Z',
+      model: 'grok-4.6',
+      inputTokens: 1_000,
+      outputTokens: 0,
+      messages: 3,
+    })
+  })
+
+  it('still harvests a session whose summary.json is missing', async () => {
+    const home = trackTmp('podium-usage-grok-nosummary-')
+    writeGrokSession(home, 'bare', {
+      contextTokensUsed: 40,
+      assistantMessageCount: 1,
+      primaryModelId: 'grok-4.5',
+    })
+    const buckets = await scanGrokUsage({ sinceMs: 0, homeDir: home })
+    expect(buckets).toHaveLength(1)
+    expect(buckets[0]).toMatchObject({ model: 'grok-4.5', inputTokens: 40, messages: 1 })
+  })
+
+  it('returns [] when no grok dir exists', async () => {
+    const home = trackTmp('podium-usage-grok-empty-')
+    expect(await scanGrokUsage({ sinceMs: 0, homeDir: home })).toEqual([])
+  })
+})
+
 describe('scanHostUsage', () => {
-  it('returns both harnesses from one home, in one hour-sorted set', async () => {
+  it('returns every harness from one home, in one hour-sorted set', async () => {
     const home = trackTmp('podium-usage-host-')
     const claudeDir = join(home, '.claude', 'projects', '-src-app')
     mkdirSync(claudeDir, { recursive: true })
@@ -436,9 +554,15 @@ describe('scanHostUsage', () => {
       join(codexDir, 'rollout-a.jsonl'),
       [turnContextLine('gpt-5.6-sol'), tokenCountLine('2026-06-12T10:01:00.000Z', LAST)].join('\n'),
     )
+    writeGrokSession(
+      home,
+      'g1',
+      { contextTokensUsed: 80, assistantMessageCount: 2, primaryModelId: 'grok-4.6' },
+      { last_active_at: '2026-06-12T09:30:00.000Z' },
+    )
 
     const buckets = await scanHostUsage({ sinceMs: 0, homeDir: home })
-    expect(buckets.map((b) => b.model)).toEqual(['gpt-5.6-sol', 'claude-sonnet-4-5'])
+    expect(buckets.map((b) => b.model)).toEqual(['grok-4.6', 'gpt-5.6-sol', 'claude-sonnet-4-5'])
   })
 
   it('still reports the harness that scanned when the other box is bare', async () => {

@@ -111,6 +111,12 @@ describe('bucketCostUsd', () => {
     ['gpt-5.4', 2.5],
     ['gpt-5-mini', 0.25],
     ['gpt-5-nano', 0.05],
+    ['grok-4.6', 2],
+    ['grok-4.6-build', 2],
+    ['grok-4.5', 2],
+    ['grok-4.3', 1.25],
+    ['grok-4.20-0309-reasoning', 1.25],
+    ['grok-build-0.1', 1],
   ])('prices %s at $%d per MTok of input', (model, expected) => {
     expect(bucketCostUsd(bucket(model))).toBeCloseTo(expected, 6)
   })
@@ -133,6 +139,8 @@ describe('bucketCostUsd', () => {
     expect(bucketCostUsd(bucket('claude-sonnet-4-5', cached))).toBeCloseTo(0.3, 6)
     expect(bucketCostUsd(bucket('claude-opus-5', cached))).toBeCloseTo(0.5, 6)
     expect(bucketCostUsd(bucket('gpt-5.6-sol', cached))).toBeCloseTo(0.5, 6)
+    // xAI's grok-4.6 cached-input rate is $0.50, a quarter of input, not a tenth.
+    expect(bucketCostUsd(bucket('grok-4.6', cached))).toBeCloseTo(0.5, 6)
   })
 
   // The 1.25x cache-write multiplier used to be hardcoded for every model, which
@@ -357,6 +365,7 @@ describe('usageSummary', () => {
         bucket({ model: 'gpt-5.6-sol', inputTokens: 8_000_000, messages: 2 }),
         bucket({ model: 'gpt-5.6-luna', inputTokens: 4_000_000, messages: 3 }),
         bucket({ model: 'claude-opus-5', inputTokens: 10_000_000, messages: 5 }),
+        bucket({ model: 'grok-4.6', inputTokens: 2_000_000, messages: 4 }),
         bucket({ model: 'future-vendor', inputTokens: 1_000_000, messages: 7 }),
       ],
       now,
@@ -364,9 +373,11 @@ describe('usageSummary', () => {
 
     // Anthropic ($50) outranks OpenAI ($44) here even though the OpenAI rows
     // came first, so this fails if the rollup ever stops sorting by cost.
+    // xAI at $4 sits between OpenAI and the unpriced leftover.
     expect(s.providers.map((provider) => provider.provider)).toEqual([
       'anthropic',
       'openai',
+      'xai',
       'other',
     ])
     expect(s.providers[1]).toMatchObject({ totalTokens: 12_000_000, messages: 5 })
@@ -410,6 +421,8 @@ describe('bucketProvider', () => {
     ['gpt-5.6-sol', 'openai'],
     // The guardian subagent's id names neither family in the usual place.
     ['codex-auto-review', 'openai'],
+    ['grok-4.6', 'xai'],
+    ['grok-4.6-build', 'xai'],
     // An id belonging to neither is not guessed into one.
     ['some-new-model', 'other'],
   ])('reads %s as %s', (model, expected) => {

@@ -203,7 +203,7 @@ function UsageProvenance({
       ? 'Public per-model list price. Every model in this window matched a priced family.'
       : `Public per-model list price. ${formatCount(summary.unpricedModels.length)} ${summary.unpricedModels.length === 1 ? 'model used' : 'models used'} the fallback rate: ${summary.unpricedModels.join(', ')}.`
   const facts = [
-    { label: 'Source', value: 'Claude Code and Codex transcripts on this machine', wide: false },
+    { label: 'Source', value: 'Claude Code, Codex, and Grok sessions on this machine', wide: false },
     {
       label: 'Pricing',
       value: pricing,
@@ -315,6 +315,7 @@ function UsageReadouts({
 const PROVIDER_LABEL: Record<UsageProvider, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  xai: 'xAI',
   other: 'Other',
 }
 

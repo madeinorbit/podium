@@ -575,6 +575,7 @@ function blockify(days: UsageDay[]): Block[] {
 const PROVIDER_LABEL: Record<UsageProvider, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  xai: 'xAI',
   other: 'Other',
 }
 

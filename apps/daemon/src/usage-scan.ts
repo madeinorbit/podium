@@ -1,15 +1,16 @@
 import type { Dirent } from 'node:fs'
-import { open, readdir, stat } from 'node:fs/promises'
+import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { LineDecoder } from '@podium/harness'
 import type { UsageBucketWire } from '@podium/model'
 
 /**
  * Harvest token usage from harness transcript JSONLs — Claude Code (each
- * assistant record carries message.usage) and Codex (each turn emits a
- * `token_count` event). ccusage-style coverage, in-house so it flows over
- * Podium's own wire, folded into one hour×model bucket set by `scanHostUsage`.
+ * assistant record carries message.usage), Codex (each turn emits a
+ * `token_count` event), and Grok (per-session `signals.json` + `summary.json`).
+ * ccusage-style coverage, in-house so it flows over Podium's own wire, folded
+ * into one hour×model bucket set by `scanHostUsage`.
  *
  * Files whose mtime predates the window are skipped without reading — a 7-day
  * scan touches only recently-active transcripts.
@@ -24,6 +25,8 @@ export interface UsageRecord {
   cacheCreationTokens: number
   /** Subset of cacheCreationTokens written with Anthropic's 1-hour TTL. */
   cacheCreation1hTokens: number
+  /** Reply count for this record. Absent means one, matching Claude/Codex rows. */
+  messages?: number
   /** Stable provider response identity; absent when the transcript carries none. */
   responseId?: string
 }
@@ -191,7 +194,7 @@ export function bucketize(records: UsageRecord[]): UsageBucketWire[] {
     b.cacheReadTokens += rec.cacheReadTokens
     b.cacheCreationTokens += rec.cacheCreationTokens
     b.cacheCreation1hTokens = (b.cacheCreation1hTokens ?? 0) + rec.cacheCreation1hTokens
-    b.messages += 1
+    b.messages += rec.messages ?? 1
   }
   return [...buckets.values()].sort((a, b) => a.hour.localeCompare(b.hour))
 }
@@ -207,7 +210,11 @@ export async function scanHostUsage(opts: {
   sinceMs: number
   homeDir?: string
 }): Promise<UsageBucketWire[]> {
-  const scans = await Promise.allSettled([scanClaudeUsage(opts), scanCodexUsage(opts)])
+  const scans = await Promise.allSettled([
+    scanClaudeUsage(opts),
+    scanCodexUsage(opts),
+    scanGrokUsage(opts),
+  ])
   return mergeBuckets(scans.flatMap((s) => (s.status === 'fulfilled' ? s.value : [])))
 }
 
@@ -302,6 +309,154 @@ export async function scanCodexUsage(opts: {
     }
   }
   return bucketize(records)
+}
+
+/**
+ * Grok does not persist per-turn input/output/cache on disk. What it does write
+ * is a session snapshot: `signals.json` carries `contextTokensUsed` (current
+ * context size, not billed lifetime spend) plus a reply count, and
+ * `summary.json` names the model and last-active time. One record per session,
+ * stamped at last-active, is the honest harvest — the sheet will understate a
+ * long compacted thread and cannot split cache/output, but Grok still appears
+ * as xAI instead of vanishing.
+ *
+ * Sessions live under `~/.grok/sessions/<percent-encoded-cwd>/<id>/`. A
+ * non-default `GROK_HOME` is followed only when the caller did not pass
+ * `homeDir` (tests pin a fake home; production may isolate accounts).
+ */
+export function grokUsageFromSession(
+  signals: unknown,
+  summary: unknown,
+  fallbackTsMs: number,
+): UsageRecord | null {
+  if (!isRecord(signals)) return null
+  const contextTokensUsed = finiteNumber(signals.contextTokensUsed)
+  const assistantMessageCount = finiteNumber(signals.assistantMessageCount)
+  const turnCount = finiteNumber(signals.turnCount)
+  const messages =
+    assistantMessageCount > 0 ? Math.round(assistantMessageCount) : Math.round(turnCount)
+  if (contextTokensUsed <= 0 && messages <= 0) return null
+
+  const summaryRec = isRecord(summary) ? summary : undefined
+  const model = grokSessionModel(signals, summaryRec)
+  const tsMs = grokSessionTsMs(summaryRec, fallbackTsMs)
+  if (!Number.isFinite(tsMs)) return null
+  const sessionId = grokSessionId(summaryRec)
+  return {
+    tsMs,
+    model,
+    inputTokens: Math.max(0, Math.round(contextTokensUsed)),
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    cacheCreation1hTokens: 0,
+    messages: Math.max(messages, contextTokensUsed > 0 ? 1 : 0),
+    ...(sessionId ? { responseId: `grok-session:${sessionId}` } : {}),
+  }
+}
+
+export async function scanGrokUsage(opts: {
+  sinceMs: number
+  homeDir?: string
+}): Promise<UsageBucketWire[]> {
+  const sessionsDir = grokSessionsDir(opts.homeDir)
+  const files: string[] = []
+  await collectNamedFiles(sessionsDir, 'signals.json', files)
+  const records: UsageRecord[] = []
+  for (const path of files) {
+    try {
+      const info = await stat(path)
+      if (info.mtimeMs < opts.sinceMs) continue
+      const signals = parseJson(await readFile(path, 'utf8'))
+      let summary: unknown = null
+      try {
+        summary = parseJson(await readFile(join(dirname(path), 'summary.json'), 'utf8'))
+      } catch {
+        // summary is optional — last-active falls back to signals mtime
+      }
+      const rec = grokUsageFromSession(signals, summary, info.mtimeMs)
+      if (rec && rec.tsMs >= opts.sinceMs) records.push(rec)
+    } catch {
+      // unreadable session — skip
+    }
+  }
+  return bucketize(records)
+}
+
+function grokSessionsDir(homeDir?: string): string {
+  if (homeDir) return join(homeDir, '.grok', 'sessions')
+  const env = process.env.GROK_HOME?.trim()
+  if (env) return join(env, 'sessions')
+  return join(homedir(), '.grok', 'sessions')
+}
+
+function grokSessionModel(
+  signals: Record<string, unknown>,
+  summary: Record<string, unknown> | undefined,
+): string {
+  if (typeof signals.primaryModelId === 'string' && signals.primaryModelId.trim()) {
+    return signals.primaryModelId.trim()
+  }
+  if (typeof summary?.current_model_id === 'string' && summary.current_model_id.trim()) {
+    return summary.current_model_id.trim()
+  }
+  const used = signals.modelsUsed
+  if (Array.isArray(used)) {
+    const first = used.find((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    if (first) return first.trim()
+  }
+  return 'unknown'
+}
+
+function grokSessionTsMs(
+  summary: Record<string, unknown> | undefined,
+  fallbackTsMs: number,
+): number {
+  for (const key of ['last_active_at', 'updated_at', 'created_at'] as const) {
+    const value = summary?.[key]
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Date.parse(value)
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return fallbackTsMs
+}
+
+function grokSessionId(summary: Record<string, unknown> | undefined): string | undefined {
+  const info = summary?.info
+  if (isRecord(info) && typeof info.id === 'string' && info.id.trim()) return info.id.trim()
+  return undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function finiteNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/** Depth-first walk for a fixed filename; a directory that can't be read is absent. */
+async function collectNamedFiles(dir: string, name: string, out: string[]): Promise<void> {
+  let entries: Dirent[]
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) await collectNamedFiles(path, name, out)
+    else if (entry.name === name) out.push(path)
+  }
 }
 
 /** Depth-first `.jsonl` walk; a directory that can't be read is simply absent. */
