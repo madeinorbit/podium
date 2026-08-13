@@ -91,7 +91,7 @@ describe('IssueToolProvider', () => {
     const receiptSpec = p.mcpToolSpecs().find((entry) => entry.name === 'issue_delivery_receipt')
     expect(
       Object.keys((receiptSpec?.inputSchema as { properties: Record<string, unknown> }).properties),
-    ).toEqual(['orderId', 'receiptId'])
+    ).toEqual(['orderId'])
 
     await p.callMcpTool('issue_cancel_ship', { orderId: 'ship_order' })
     expect(cancelShip).toHaveBeenCalledWith({ orderId: 'ship_order' })

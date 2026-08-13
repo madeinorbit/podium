@@ -5,6 +5,7 @@ import { z } from 'zod'
 
 import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
+import { ShippingOrderAccessError } from '../shipping/service'
 import { IssueCommandDispatcher } from './dispatcher'
 import { guardIssueCommand, issueRegistry } from './registry'
 
@@ -465,9 +466,9 @@ describe('Shipping command boundary', () => {
       issueId: 'iss_root',
       state: 'cancelled',
     }))
-    const deliveryReceipt = vi.fn((input: { orderId?: string; receiptId?: string }) => ({
-      id: input.receiptId ?? 'receipt_order',
-      orderId: input.orderId ?? 'ship_order',
+    const deliveryReceipt = vi.fn((input: { orderId: string }) => ({
+      id: 'receipt_order',
+      orderId: input.orderId,
       approvedBaseSha: 'base',
       approvedHeadSha: 'head',
       testedIntegrationSha: 'tested',
@@ -634,22 +635,22 @@ describe('Shipping command boundary', () => {
     )
   })
 
-  it('returns the typed immutable receipt through either identity without projection casts', async () => {
+  it('returns the typed immutable receipt by order without transport scope override', async () => {
     const { registry, dispatcher, deliveryReceipt } = harness()
     const root = registry.issues.create({ repoPath: '/r', title: 'Root', startNow: false })
 
-    const receipt = await dispatcher.dispatch(agentCaller(root.id), 'issues', 'deliveryReceipt', {
-      receiptId: 'receipt_order',
-    })
+    const receipt = await dispatcher.dispatch(
+      agentCaller(root.id, true),
+      'issues',
+      'deliveryReceipt',
+      { orderId: 'ship_order' },
+    )
 
     expect(deliveryReceipt).toHaveBeenCalledTimes(1)
-    expect(deliveryReceipt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        receiptId: 'receipt_order',
-        principal: expect.objectContaining({ kind: 'agent' }),
-        overrideScope: false,
-      }),
-    )
+    expect(deliveryReceipt).toHaveBeenCalledWith({
+      orderId: 'ship_order',
+      principal: expect.objectContaining({ kind: 'agent' }),
+    })
     expect(receipt).toMatchObject({
       approvedBaseSha: 'base',
       approvedHeadSha: 'head',
@@ -658,6 +659,28 @@ describe('Shipping command boundary', () => {
       destinationSha: 'destination',
       validationResult: 'passed',
     })
+  })
+
+  it('maps inaccessible shipping orders to NOT_FOUND for every order command', async () => {
+    const { dispatcher, deliveryReceipt, cancel, resolveHold } = harness()
+    deliveryReceipt.mockImplementationOnce(() => {
+      throw new ShippingOrderAccessError()
+    })
+    cancel.mockRejectedValueOnce(new ShippingOrderAccessError())
+    resolveHold.mockRejectedValueOnce(new ShippingOrderAccessError())
+
+    for (const [proc, input] of [
+      ['deliveryReceipt', { orderId: 'ship_hidden' }],
+      ['cancelShip', { orderId: 'ship_hidden' }],
+      [
+        'resolveShipHold',
+        { orderId: 'ship_hidden', action: 'retry', expectedGeneration: 1 },
+      ],
+    ] as const) {
+      await expect(
+        dispatcher.dispatch(agentCaller('iss_root'), 'issues', proc, input),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    }
   })
 
   it('intersects an agent subtree with the human current role and issue write right', () => {
@@ -718,6 +741,64 @@ describe('Shipping command boundary', () => {
         overrideScope: true,
       }),
     ).toThrow(/no longer active/)
+  })
+
+  it('authorizes receipt reads from the active human owner or grant, not agent write scope', () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    const attached = registry.issues.create({
+      repoPath: '/r',
+      title: 'Attached root',
+      startNow: false,
+    })
+    const ownedOutside = registry.issues.create({
+      repoPath: '/r',
+      title: 'Human owned outside root',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      startNow: false,
+    })
+    const hiddenOutside = registry.issues.create({
+      repoPath: '/r',
+      title: 'Other human root',
+      ownerUserId: asUserId('user:other'),
+      startNow: false,
+    })
+    const caller = agentCaller(attached.id)
+    const authorization = (
+      registry.shipping as unknown as {
+        deps: {
+          authorization: {
+            authorize(input: {
+              principal: NonNullable<typeof caller.principal>
+              action: 'read-receipt'
+              issue: typeof ownedOutside
+              overrideScope: boolean
+            }): void
+          }
+        }
+      }
+    ).deps.authorization
+    const store = registry as unknown as {
+      store: { users: { roleOf: (id: typeof FIRST_ADMIN_USER_ID) => 'member' | undefined } }
+    }
+    vi.spyOn(store.store.users, 'roleOf').mockReturnValue('member')
+
+    expect(() =>
+      authorization.authorize({
+        principal: caller.principal,
+        action: 'read-receipt',
+        issue: ownedOutside,
+        overrideScope: false,
+      }),
+    ).not.toThrow()
+    expect(() =>
+      authorization.authorize({
+        principal: caller.principal,
+        action: 'read-receipt',
+        issue: hiddenOutside,
+        overrideScope: true,
+      }),
+    ).toThrow(/unknown issue/)
   })
 })
 

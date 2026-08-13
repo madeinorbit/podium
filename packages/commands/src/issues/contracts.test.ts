@@ -167,15 +167,9 @@ describe('transport exposure', () => {
     expect(ISSUE_CONTRACTS.deliveryReceipt.input.parse({ orderId: 'ship_order' })).toEqual({
       orderId: 'ship_order',
     })
-    expect(ISSUE_CONTRACTS.deliveryReceipt.input.parse({ receiptId: 'receipt_order' })).toEqual({
-      receiptId: 'receipt_order',
-    })
     expect(ISSUE_CONTRACTS.deliveryReceipt.input.safeParse({}).success).toBe(false)
     expect(
-      ISSUE_CONTRACTS.deliveryReceipt.input.safeParse({
-        orderId: 'ship_order',
-        receiptId: 'receipt_order',
-      }).success,
+      ISSUE_CONTRACTS.deliveryReceipt.input.safeParse({ receiptId: 'receipt_order' }).success,
     ).toBe(false)
   })
 

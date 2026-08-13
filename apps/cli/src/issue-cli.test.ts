@@ -118,7 +118,7 @@ describe('runIssueCli', () => {
     })
   })
 
-  it('delivery-receipt exposes the full immutable proof by order or receipt identity', async () => {
+  it('delivery-receipt exposes the full immutable proof by order identity', async () => {
     const receipt = {
       id: 'receipt_order',
       orderId: 'ship_order',
@@ -135,18 +135,15 @@ describe('runIssueCli', () => {
     const deliveryReceipt = vi.fn(async () => receipt)
     const c = { issues: { deliveryReceipt: { query: deliveryReceipt } } } as any
 
-    const out = await runIssueCli(['delivery-receipt', '--receipt-id', 'receipt_order'], c)
-    expect(deliveryReceipt).toHaveBeenCalledWith({ receiptId: 'receipt_order' })
+    const out = await runIssueCli(['delivery-receipt', 'ship_order'], c)
+    expect(deliveryReceipt).toHaveBeenCalledWith({ orderId: 'ship_order' })
     expect(out).toContain('approved: base..head')
     expect(out).toContain('tested: tested')
     expect(out).toContain('landed: landed')
     expect(out).toContain('destination: destination')
     expect(out).toContain('validation: passed (lean)')
 
-    await expect(runIssueCli(['delivery-receipt'], c)).rejects.toThrow(/exactly one/)
-    await expect(
-      runIssueCli(['delivery-receipt', 'ship_order', '--receipt-id', 'receipt_order'], c),
-    ).rejects.toThrow(/exactly one/)
+    await expect(runIssueCli(['delivery-receipt'], c)).rejects.toThrow(/orderId/)
   })
 
   it('help for an unknown command throws', async () => {

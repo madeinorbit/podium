@@ -58,7 +58,6 @@
 
 import {
   IssueColor,
-  DeliveryReceiptIdField,
   IssueIdField,
   IssueStage,
   IssueType,
@@ -509,21 +508,8 @@ export const resolveShipHoldInput = z.object({
  * cancellation generation are resolved and fenced inside Shipping. */
 export const cancelShipInput = z.object({ orderId: ShipOrderIdField })
 
-/** Immutable delivery proof may be followed from the compact projection's
- * order id or from its receipt id, but never from an ambiguous pair. */
-export const deliveryReceiptInput = z
-  .object({
-    orderId: ShipOrderIdField.optional(),
-    receiptId: DeliveryReceiptIdField.optional(),
-  })
-  .superRefine((input, ctx) => {
-    if ((input.orderId === undefined) === (input.receiptId === undefined)) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'name exactly one of orderId or receiptId',
-      })
-    }
-  })
+/** Immutable delivery proof is addressed through its owning order. */
+export const deliveryReceiptInput = z.object({ orderId: ShipOrderIdField })
 
 export const reparentInput = z.object({ id: IssueIdField, parentId: IssueIdField.nullable() })
 

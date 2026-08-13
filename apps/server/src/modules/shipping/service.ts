@@ -6,7 +6,6 @@ import {
   asShipOrderId,
   asShipStepId,
   type DeliveryReceipt,
-  type DeliveryReceiptId,
   type DescendantTip,
   type IssueId,
   type IssueWire,
@@ -111,12 +110,8 @@ export interface CancelShipOrderInput {
 }
 
 export interface DeliveryReceiptDetailInput {
-  /** The command schema requires exactly one identity; the service repeats the
-   * default-closed check because it is also a direct application port. */
-  orderId?: ShipOrderId
-  receiptId?: DeliveryReceiptId
+  orderId: ShipOrderId
   principal: CommandPrincipal
-  overrideScope: boolean
 }
 
 /** Deliberately collapses absent rows and rows whose delivery root is invisible.
@@ -167,7 +162,24 @@ export interface ShippingAuthorizationPort {
   }): void
 }
 
-export type ShippingEvidencePort = Pick<RootIntegrationReceiptStore, 'rootIntegrationReceipt'>
+export interface AcceptedReviewEvidence {
+  issueId: IssueId
+  sourceBaseSha: string
+  sourceHeadSha: string
+  policyId: string
+  evidenceManifestRef: string
+  previewLeaseIds: string[]
+}
+
+export interface ShippingEvidencePort
+  extends Pick<RootIntegrationReceiptStore, 'rootIntegrationReceipt'> {
+  acceptedReviewEvidence(input: {
+    issueId: IssueId
+    sourceBaseSha: string
+    sourceHeadSha: string
+    policyId: string
+  }): AcceptedReviewEvidence | null
+}
 
 export interface ShippingServiceDeps {
   repository: ShippingRepository
@@ -215,16 +227,32 @@ export class ShippingService {
   async enqueueCurrent(input: CurrentShipOrderInput): Promise<EnqueuedShipOrder> {
     const issue = this.deps.issues.get(input.issueId)
     const policy = this.deps.policy.resolve(issue)
-    // Issue-panel artifacts are the durable, server-minted review evidence the
-    // human is shown. Only a snapshotted artifact id is authoritative here;
-    // legacy live paths and command-supplied strings are deliberately ignored.
-    const evidenceManifestRef = (issue.panel?.artifacts ?? []).find(
-      (artifact) => artifact.artifactId !== undefined && artifact.files !== undefined,
-    )?.artifactId
     const [sourceHeadSha, sourceBaseSha] = await Promise.all([
       this.deps.resolveBranchTip(issue),
       this.deps.resolveRefTip(issue, policy.targetBranch),
     ])
+    const evidenceKey = {
+      issueId: issue.id,
+      sourceBaseSha,
+      sourceHeadSha,
+      policyId: policy.id,
+    }
+    const accepted = this.deps.evidence.acceptedReviewEvidence(evidenceKey)
+    if (
+      accepted &&
+      (accepted.issueId !== evidenceKey.issueId ||
+        accepted.sourceBaseSha !== evidenceKey.sourceBaseSha ||
+        accepted.sourceHeadSha !== evidenceKey.sourceHeadSha ||
+        accepted.policyId !== evidenceKey.policyId)
+    ) {
+      throw new ShippingAdmissionError(
+        'evidence',
+        'accepted review evidence does not match the live approval boundary',
+      )
+    }
+    if (!accepted && !policy.evidenceOptional) {
+      throw new ShippingAdmissionError('evidence', 'accepted review evidence is required by policy')
+    }
     return this.enqueue({
       ...input,
       requestedBy: this.deps.authorization.attribution(input.principal),
@@ -232,8 +260,8 @@ export class ShippingService {
         sourceBaseSha,
         sourceHeadSha,
         policyId: policy.id,
-        ...(evidenceManifestRef ? { evidenceManifestRef } : {}),
-        previewLeaseIds: [],
+        ...(accepted ? { evidenceManifestRef: accepted.evidenceManifestRef } : {}),
+        previewLeaseIds: accepted?.previewLeaseIds ?? [],
       },
     })
   }
@@ -919,22 +947,11 @@ export class ShippingService {
     return { order: result, projection: this.requiredProjection(result.id) }
   }
 
-  /** Immutable proof is addressed by its own id or by the order that owns it.
-   * The order-to-root authorization happens before a missing per-order receipt
-   * is reported, and receipt-id misses share the same opaque error as invisible
-   * roots. */
+  /** Resolve order -> delivery root and authorize before reporting whether the
+   * immutable proof exists, so an opaque order id cannot become an issue oracle. */
   deliveryReceipt(input: DeliveryReceiptDetailInput): DeliveryReceipt | null {
-    if ((input.orderId === undefined) === (input.receiptId === undefined)) {
-      throw new Error('name exactly one of orderId or receiptId')
-    }
-    const receipt = input.receiptId
-      ? this.deps.repository.listReceipts().find((candidate) => candidate.id === input.receiptId)
-      : undefined
-    if (input.receiptId && !receipt) throw new ShippingOrderAccessError()
-    const orderId = receipt?.orderId ?? input.orderId
-    if (!orderId) throw new ShippingOrderAccessError()
-    this.authorizedOrder(orderId, input.principal, 'read-receipt', input.overrideScope)
-    return receipt ?? this.deps.repository.receiptForOrder(orderId)
+    this.authorizedOrder(input.orderId, input.principal, 'read-receipt', false)
+    return this.deps.repository.receiptForOrder(input.orderId)
   }
 
   dispose(): void {

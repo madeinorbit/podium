@@ -1,5 +1,4 @@
 import {
-  asArtifactId,
   asMachineId,
   asShipOrderId,
   FIRST_ADMIN_USER_ID,
@@ -13,7 +12,11 @@ import { SessionStore } from '../../store'
 import { IssueService } from '../issues/service'
 import { CompatibilityShippingPolicyResolver } from './policy'
 import type { ShippingPolicyResolver } from './policy'
-import { ShippingOrderAccessError, ShippingService } from './service'
+import {
+  type AcceptedReviewEvidence,
+  ShippingOrderAccessError,
+  ShippingService,
+} from './service'
 
 const stores: SessionStore[] = []
 afterEach(() => {
@@ -33,6 +36,9 @@ function harness(
     rootIntegrationReceipt?: ConstructorParameters<
       typeof ShippingService
     >[0]['evidence']['rootIntegrationReceipt']
+    acceptedReviewEvidence?: ConstructorParameters<
+      typeof ShippingService
+    >[0]['evidence']['acceptedReviewEvidence']
     useStoredReceipts?: boolean
     resolveBranchTip?: ConstructorParameters<typeof ShippingService>[0]['resolveBranchTip']
     resolveRefTip?: ConstructorParameters<typeof ShippingService>[0]['resolveRefTip']
@@ -103,6 +109,7 @@ function harness(
                 approvedHeadSha: 'head-sha',
               })),
             })),
+      acceptedReviewEvidence: options.acceptedReviewEvidence ?? (() => null),
     },
     policy: options.policy ?? new CompatibilityShippingPolicyResolver(() => 'main'),
     machineFor: () => asMachineId('machine-1'),
@@ -360,38 +367,84 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
   })
 
-  it('freezes only a durable server-owned review artifact for evidence-required policy', async () => {
+  it('freezes only typed review evidence bound to the exact live approval', async () => {
     const compatibility = new CompatibilityShippingPolicyResolver(() => 'main')
     const policy: ShippingPolicyResolver = {
       resolve: (issue) => ({ ...compatibility.resolve(issue), evidenceOptional: false }),
     }
-    const { issues, service } = harness(undefined, { policy })
+    const acceptedReviewEvidence = vi.fn(
+      (input: Omit<AcceptedReviewEvidence, 'evidenceManifestRef' | 'previewLeaseIds'>) => ({
+        ...input,
+        evidenceManifestRef: 'review-evidence-snapshot',
+        previewLeaseIds: ['preview-1'],
+      }),
+    )
+    const { issues, service } = harness(undefined, { policy, acceptedReviewEvidence })
     const issue = issues.create({ repoPath: '/repo', title: 'evidence required', startNow: false })
     issues.update(issue.id, { stage: 'review' })
 
-    await expect(
-      service.enqueueCurrent({
-        issueId: issue.id,
-        principal: approval.principal,
-        overrideScope: false,
-      }),
-    ).rejects.toMatchObject({ code: 'evidence' })
-
-    const artifactId = asArtifactId('review-evidence-snapshot')
-    issues.panelApply(issue.id, {
-      op: 'artifact-add',
-      path: 'review/evidence.json',
-      artifactId,
-      entry: 'evidence.json',
-      files: [{ path: 'evidence.json', size: 42 }],
-    })
     const accepted = await service.enqueueCurrent({
       issueId: issue.id,
       principal: approval.principal,
       overrideScope: false,
     })
-    expect(accepted.order.evidenceManifestRef).toBe(artifactId)
+    expect(acceptedReviewEvidence).toHaveBeenCalledWith({
+      issueId: issue.id,
+      sourceBaseSha: 'base-sha',
+      sourceHeadSha: 'head-sha',
+      policyId: 'compatibility-local:main',
+    })
+    expect(accepted.order.evidenceManifestRef).toBe('review-evidence-snapshot')
     service.dispose()
+  })
+
+  it('allows compatibility null evidence and rejects strict null or mismatched evidence unchanged', async () => {
+    const compatibility = new CompatibilityShippingPolicyResolver(() => 'main')
+    const compatible = harness()
+    const compatibleIssue = compatible.issues.create({
+      repoPath: '/repo',
+      title: 'compatibility evidence',
+      startNow: false,
+    })
+    compatible.issues.update(compatibleIssue.id, { stage: 'review' })
+    const accepted = await compatible.service.enqueueCurrent({
+      issueId: compatibleIssue.id,
+      principal: approval.principal,
+      overrideScope: false,
+    })
+    expect(accepted.order.evidenceManifestRef).toBeUndefined()
+    compatible.service.dispose()
+
+    const strictPolicy: ShippingPolicyResolver = {
+      resolve: (issue) => ({ ...compatibility.resolve(issue), evidenceOptional: false }),
+    }
+    for (const acceptedReviewEvidence of [
+      () => null,
+      (input: Omit<AcceptedReviewEvidence, 'evidenceManifestRef' | 'previewLeaseIds'>) => ({
+        ...input,
+        sourceHeadSha: 'different-reviewed-head',
+        evidenceManifestRef: 'mismatched-evidence',
+        previewLeaseIds: [],
+      }),
+    ]) {
+      const strict = harness(undefined, { policy: strictPolicy, acceptedReviewEvidence })
+      const issue = strict.issues.create({
+        repoPath: '/repo',
+        title: 'strict evidence',
+        startNow: false,
+      })
+      strict.issues.update(issue.id, { stage: 'review' })
+      await expect(
+        strict.service.enqueueCurrent({
+          issueId: issue.id,
+          principal: approval.principal,
+          overrideScope: false,
+        }),
+      ).rejects.toMatchObject({ code: 'evidence' })
+      expect(strict.store.shipping.activeOrderForIssue(issue.id)).toBeNull()
+      expect(strict.store.issues.getIssue(issue.id)?.stage).toBe('review')
+      strict.service.dispose()
+    }
   })
 
   it('collapses unknown and invisible order identities before hold or receipt state leaks', async () => {
@@ -411,7 +464,6 @@ describe('ShippingService enqueue transaction', () => {
         service.deliveryReceipt({
           orderId,
           principal: approval.principal,
-          overrideScope: false,
         }),
       ).toThrow(ShippingOrderAccessError)
       await expect(
@@ -587,14 +639,6 @@ describe('ShippingService enqueue transaction', () => {
       restarted.deliveryReceipt({
         orderId: order.id,
         principal: approval.principal,
-        overrideScope: false,
-      }),
-    ).toEqual(storedReceipt)
-    expect(
-      restarted.deliveryReceipt({
-        receiptId: storedReceipt.id,
-        principal: approval.principal,
-        overrideScope: false,
       }),
     ).toEqual(storedReceipt)
     expect(storedReceipt).toMatchObject({

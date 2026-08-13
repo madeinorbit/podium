@@ -14,6 +14,7 @@ import type { z } from 'zod'
 import { attributionOf } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
 import { sessionsForIssue } from '../../issue-util'
+import { ShippingOrderAccessError } from '../shipping/service'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 
 /**
@@ -237,6 +238,17 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
   } as unknown as IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out>
 }
 
+async function shippingOrderResult<T>(operation: () => T | Promise<T>): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    if (error instanceof ShippingOrderAccessError) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: error.message })
+    }
+    throw error
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The target extractor the shipped table used on every `id`-keyed command. The
 // input SCHEMAS it used to sit beside now live on the contracts.
@@ -343,14 +355,15 @@ const defs = {
   }),
   deliveryReceipt: def('deliveryReceipt', {
     kind: 'query',
-    // The input names an order or receipt. Shipping resolves the owning root and
-    // applies the same opaque order-to-root authorization used by mutations.
+    // Shipping resolves order -> root and authorizes before revealing whether a
+    // receipt exists. Collapse inaccessible/absent orders at this command edge.
     handler: (ctx, input) =>
-      ctx.shipping.deliveryReceipt({
-        ...input,
-        principal: ctx.requirePrincipal(),
-        overrideScope: ctx.caller.overrideScope === true,
-      }),
+      shippingOrderResult(() =>
+        ctx.shipping.deliveryReceipt({
+          orderId: input.orderId,
+          principal: ctx.requirePrincipal(),
+        }),
+      ),
   }),
   search: def('search', {
     kind: 'query',
@@ -755,11 +768,13 @@ const defs = {
     // authorization and owns every durable generation/custody fence.
     target: () => undefined,
     handler: (ctx, input) =>
-      ctx.shipping.cancel({
-        orderId: input.orderId,
-        principal: ctx.requirePrincipal(),
-        overrideScope: ctx.caller.overrideScope === true,
-      }),
+      shippingOrderResult(() =>
+        ctx.shipping.cancel({
+          orderId: input.orderId,
+          principal: ctx.requirePrincipal(),
+          overrideScope: ctx.caller.overrideScope === true,
+        }),
+      ),
   }),
   resolveShipHold: def('resolveShipHold', {
     kind: 'mutation',
@@ -767,13 +782,15 @@ const defs = {
     // and runs the same live issue authorization there.
     target: () => undefined,
     handler: (ctx, input) =>
-      ctx.shipping.resolveHold({
-        orderId: input.orderId,
-        action: input.action,
-        expectedGeneration: input.expectedGeneration,
-        principal: ctx.requirePrincipal(),
-        overrideScope: ctx.caller.overrideScope === true,
-      }),
+      shippingOrderResult(() =>
+        ctx.shipping.resolveHold({
+          orderId: input.orderId,
+          action: input.action,
+          expectedGeneration: input.expectedGeneration,
+          principal: ctx.requirePrincipal(),
+          overrideScope: ctx.caller.overrideScope === true,
+        }),
+      ),
   }),
   addSession: def('addSession', {
     kind: 'mutation',

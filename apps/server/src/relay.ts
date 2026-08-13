@@ -1747,17 +1747,20 @@ export class SessionRegistry {
           if (!humanId) throw new Error('shipping command has no human authorization owner')
           const liveRole = this.store.users.roleOf(humanId)
           if (!liveRole) throw new Error(`shipping requester ${humanId} is no longer active`)
-          checkIssueAccess(
-            { capability: principal.capability, overrideScope },
-            issueAccess,
-            `shipping.${action}`,
-            action === 'read-receipt' ? 'read' : 'write',
-            issue.id,
-          )
-          // An agent's live subtree (and --outside-scope confirmation) is only
-          // half of delegated authority. Intersect it with the human's CURRENT
-          // account role and issue ownership/grants; overrideScope never widens
-          // this half, so a removed grant or demotion takes effect immediately.
+          // Shipping writes intersect an agent's live delegated subtree with
+          // the human owner's current rights. Receipt reads are not scoped
+          // writes: they use only the active human's current owner/grant read.
+          if (action !== 'read-receipt') {
+            checkIssueAccess(
+              { capability: principal.capability, overrideScope },
+              issueAccess,
+              `shipping.${action}`,
+              'write',
+              issue.id,
+            )
+          }
+          // overrideScope can acknowledge a write outside the agent subtree; it
+          // never widens the human owner's current account rights.
           checkIssueAccess(
             { capability: userCommandPrincipal(humanId, liveRole).capability },
             issueAccess,
@@ -1817,7 +1820,13 @@ export class SessionRegistry {
           }
         },
       },
-      evidence: this.store.shipping,
+      evidence: {
+        rootIntegrationReceipt: (rootIssueId, approvedHeadSha) =>
+          this.store.shipping.rootIntegrationReceipt(rootIssueId, approvedHeadSha),
+        // Slice 1 has no accepted-review repository yet. Compatibility policy
+        // explicitly permits this typed boundary to return no accepted record.
+        acceptedReviewEvidence: () => null,
+      },
       policy: new CompatibilityShippingPolicyResolver(
         () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
       ),

@@ -892,23 +892,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'delivery-receipt',
-    summary:
-      'Read immutable delivery proof: delivery-receipt [<orderId>] [--receipt-id <id>] [--outside-scope]. Name exactly one identity.',
-    args: z
-      .strictObject({
-        orderId: z.string().min(1).optional(),
-        receiptId: z.string().min(1).optional(),
-      })
-      .superRefine((input, ctx) => {
-        if ((input.orderId === undefined) === (input.receiptId === undefined)) {
-          ctx.addIssue({ code: 'custom', message: 'name exactly one of orderId or receiptId' })
-        }
-      }),
+    summary: 'Read immutable delivery proof: delivery-receipt <orderId>.',
+    args: z.strictObject({ orderId: z.string().min(1) }),
     positionals: ['orderId'],
     async run(c, a) {
       const receipt = (await c.issues.deliveryReceipt.query({
-        ...(a.orderId ? { orderId: a.orderId as string } : {}),
-        ...(a.receiptId ? { receiptId: a.receiptId as string } : {}),
+        orderId: a.orderId as string,
       })) as DeliveryReceipt | null
       if (!receipt) return { text: `no delivery receipt for ${a.orderId}`, data: null }
       return {
