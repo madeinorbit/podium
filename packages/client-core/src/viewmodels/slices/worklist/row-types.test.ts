@@ -20,7 +20,11 @@ describe('reuseUnifiedWorkRows', () => {
     const previous = [row('a'), row('b')]
     const next = [previous[1]!, previous[0]!]
     const reused = reuseUnifiedWorkRows(previous, next)
-    expect(reused.map((candidate) => candidate.issue.id)).toEqual(['b', 'a'])
+    expect(reused.every((candidate) => candidate.kind === 'issue')).toBe(true)
+    expect(reused.map((candidate) => (candidate.kind === 'issue' ? candidate.issue.id : ''))).toEqual([
+      'b',
+      'a',
+    ])
     expect(reused).not.toBe(previous)
     expect(reused[0]).toBe(previous[1])
     expect(reused[1]).toBe(previous[0])
