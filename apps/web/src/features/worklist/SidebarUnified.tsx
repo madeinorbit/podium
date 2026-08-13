@@ -254,6 +254,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         })
       }
       for (const row of group.snoozedRows) {
+        if (row.kind !== 'issue') continue
         add(`issue:${row.issue.id}`, `snoozed:${group.key}`, {
           lane: 'snoozed',
           groupKey: group.key,
@@ -267,6 +268,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       // second hiding rule racing the first, and the one that lost would
       // decide whether the exit animation ever ran.
       for (const row of group.closedRows) {
+        if (row.kind !== 'issue') continue
         add(`issue:${row.issue.id}`, `closed:${group.key}`, {
           lane: 'closed',
           groupKey: group.key,
