@@ -270,4 +270,41 @@ describe('POD-843 published worklist derives unread from projection + session', 
     })
     expect(issueUnreadOf(slice, 'iss_seen')).toBe(false)
   })
+
+  // Persist writes the covering stamp on the legacy wire. The projection never
+  // carries readAt (per-user state). After the mark-read overlay retires, the
+  // sidebar must keep using that persist cursor — otherwise the unread mark
+  // comes back the moment the server confirms (POD-923).
+  it('a persist echo on the legacy wire stays read when the projection omits readAt', () => {
+    const row = projection({
+      id: 'iss_echo',
+      title: 'Persist echo',
+      updatedAt: BEFORE_READ,
+    })
+    delete (row as { readAt?: string | null }).readAt
+    expect(Object.hasOwn(row, 'readAt')).toBe(false)
+
+    const member = session('s-echo', {
+      issueId: asIssueId('iss_echo'),
+      cwd: '/repo',
+      lastActiveAt: BEFORE_READ,
+      unread: false,
+      readAt: READ_AT,
+    })
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('issueProjections', [row])
+    replica.applySnapshot('sessions', [member])
+    replica.applySnapshot('repos', [{ id: 'repo', path: '/repo', prefix: 'POD' } as never])
+    const slice = worklistSlice.derive({
+      repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [{ path: '/repo' }] }],
+      sessions: [member],
+      pins: { panels: [], worktrees: [], repos: [] },
+      issues: [legacyIssue('iss_echo', 'Persist echo')],
+      issueProjections: [row],
+      replica,
+      coarseNow: NOON,
+      selectedIssueId: null,
+    } as unknown as Store)
+    expect(issueUnreadOf(slice, 'iss_echo')).toBe(false)
+  })
 })

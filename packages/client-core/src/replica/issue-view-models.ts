@@ -7,6 +7,7 @@
  * derivation (POD-843).
  */
 import type { IssueId, IssueProjection, IssueWire, SessionId } from '@podium/model'
+import type { IssueProjectionRow } from './contract'
 import {
   buildIssueTree,
   deriveIssueRollups,
@@ -111,6 +112,24 @@ export function deriveIssueViewsSnapshot(replica: Replica): IssueViewsSnapshot {
 }
 
 /**
+ * The cursor unread derivation should read.
+ *
+ * The authority does not emit `readAt` on `IssueProjection` — it is per-user
+ * state and lives on the legacy issue wire (and on the mark-read overlay).
+ * Absent on the projection means "this feed does not carry it"; null means
+ * never-read. An explicit overlay/test value must win so a mark-unread of
+ * `null` is not replaced by a stale persist stamp.
+ */
+export function issueCursorReadAt(
+  projection: IssueProjection,
+  legacy: Pick<IssueWire, 'readAt'> | undefined,
+): string | null {
+  const row = projection as IssueProjectionRow
+  if (Object.hasOwn(row, 'readAt')) return row.readAt ?? null
+  return legacy?.readAt ?? null
+}
+
+/**
  * Flat render models keyed by id. Same merge the React hook uses: legacy
  * supplement + projection spelling + derived view + session rollups (`unread`).
  */
@@ -138,11 +157,17 @@ export function buildIssueViewModels(
       dependents: _dependents,
       ...legacySupplement
     } = legacy ?? ({} as IssueWire)
+    const readAt = issueCursorReadAt(projection, legacy)
     models.set(projection.id, {
       ...legacySupplement,
       ...projectionOnLegacySpelling(projection),
       ...derived,
-      ...deriveIssueRollups(projection, view.memberSessionIds, (id) => sessionById.get(id)),
+      readAt,
+      ...deriveIssueRollups(
+        { ...projection, readAt },
+        view.memberSessionIds,
+        (id) => sessionById.get(id),
+      ),
     } as IssueViewModel)
   }
   return models
