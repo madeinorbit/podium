@@ -449,7 +449,7 @@ export async function startServer(
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
     updateTarget: () => {
-      devPublisher.requestBuild(false)
+      void devPublisher.requestBuild(false).catch(() => {})
       return devPublisher.publishTarget() ?? registry.modules.updates.target()
     },
   })
@@ -581,6 +581,9 @@ export async function startServer(
           role,
           ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
           ...(requestWebRebuild ? { requestWebRebuild } : {}),
+          ...(devPublisher.enabled
+            ? { requestDestBundle: () => devPublisher.requestBuild(true) }
+            : {}),
           servedWebDigest: () => {
             const dir = process.env.PODIUM_WEB_DIR
             if (dir) return servedWebSourceDigest(dir)
@@ -706,7 +709,7 @@ export async function startServer(
 
     settled = true
     boundPort = server.port
-    devPublisher.requestBuild(true)
+    void devPublisher.requestBuild(true).catch(() => {})
     // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
     // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
     // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is

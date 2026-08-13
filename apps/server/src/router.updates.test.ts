@@ -18,7 +18,8 @@ function harness(
   requestCoordinatorRestart?: (() => void) | {
     requestCoordinatorRestart?: () => void
     requestWebRebuild?: () => void
-    servedWebDigest?: string
+    requestDestBundle?: () => Promise<unknown>
+    servedWebDigest?: string | (() => string | undefined)
   },
 ) {
   const opts =
@@ -31,6 +32,12 @@ function harness(
   registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const readServedWeb =
+    typeof opts.servedWebDigest === 'function'
+      ? opts.servedWebDigest
+      : opts.servedWebDigest !== undefined
+        ? () => opts.servedWebDigest as string
+        : undefined
   const caller = appRouter.createCaller({
     registry,
     repos,
@@ -41,9 +48,8 @@ function harness(
       ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }
       : {}),
     ...(opts.requestWebRebuild ? { requestWebRebuild: opts.requestWebRebuild } : {}),
-    ...(opts.servedWebDigest !== undefined
-      ? { servedWebDigest: () => opts.servedWebDigest }
-      : {}),
+    ...(opts.requestDestBundle ? { requestDestBundle: opts.requestDestBundle } : {}),
+    ...(readServedWeb ? { servedWebDigest: readServedWeb } : {}),
   })
   return { registry, caller }
 }
@@ -183,10 +189,13 @@ describe('updates tRPC', () => {
 
   it('does not refuse when the server SHA matches but the served web stamp does not', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
-    const requestWebRebuild = vi.fn()
+    let digest = 'aaaaaaa'
+    const requestWebRebuild = vi.fn(() => {
+      digest = '47a01e3'
+    })
     const { registry, caller } = harness({
       requestWebRebuild,
-      servedWebDigest: 'aaaaaaa',
+      servedWebDigest: () => digest,
     })
     registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
@@ -208,7 +217,11 @@ describe('updates tRPC', () => {
 
   it('does not grant dest machines a dest+commit that dest cannot deliver', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
-    const { registry, caller } = harness({ servedWebDigest: '47a01e3' })
+    const requestDestBundle = vi.fn().mockResolvedValue(undefined)
+    const { registry, caller } = harness({
+      servedWebDigest: '47a01e3',
+      requestDestBundle,
+    })
     const grants: unknown[] = []
     registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
@@ -238,21 +251,25 @@ describe('updates tRPC', () => {
     })
 
     const fleet = await caller.updates.fleet()
-    expect(fleet.behind).toBe(0)
-    await expect(caller.updates.converge()).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      message: 'Podium is already at this version everywhere.',
-    })
+    expect(fleet.behind).toBe(1)
+    const result = await caller.updates.converge()
+    expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3', grantedMachineIds: [] })
+    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(grants).toEqual([])
     registry.dispose()
   })
 
   it('rebuilds dest web without dest-granting dest remotes when dest has no dest tarball', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
-    const requestWebRebuild = vi.fn()
+    let digest = 'aaaaaaa'
+    const requestWebRebuild = vi.fn(() => {
+      digest = '47a01e3'
+    })
+    const requestDestBundle = vi.fn().mockResolvedValue(undefined)
     const { registry, caller } = harness({
       requestWebRebuild,
-      servedWebDigest: 'aaaaaaa',
+      requestDestBundle,
+      servedWebDigest: () => digest,
     })
     const grants: unknown[] = []
     registry.modules.machines.setMachineBuild(
@@ -285,7 +302,133 @@ describe('updates tRPC', () => {
     const result = await caller.updates.converge()
     expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
     expect(requestWebRebuild).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+    expect(requestDestBundle.mock.invocationCallOrder[0]).toBeGreaterThan(
+      requestWebRebuild.mock.invocationCallOrder[0] ?? 0,
+    )
     expect(grants).toEqual([])
+    registry.dispose()
+  })
+
+  it('grants remotes once the dest package appears after Update', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+    const grants: unknown[] = []
+    let publish: (() => void) | undefined
+    const requestDestBundle = vi.fn(() => new Promise<void>((resolve) => {
+      publish = resolve
+    }))
+    const { registry, caller } = harness({
+      servedWebDigest: '47a01e3',
+      requestDestBundle,
+    })
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.sessionStore.machines.upsertMachine({
+      id: 'installed-edge',
+      name: 'Installed',
+      hostname: 'installed',
+      tokenHash: 'installed-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
+    registry.modules.machines.setMachineBuild(
+      asMachineId('installed-edge'),
+      { appVersion: 'dev+aaaaaaa' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    })
+
+    const result = await caller.updates.converge()
+    expect(result.grantedMachineIds).toEqual([])
+    expect(grants).toEqual([])
+    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: {
+        web: { digest: '47a01e3' },
+        headless: {
+          delivery: 'bundle',
+          platforms: {
+            'linux-x64': { url: 'http://bundle', digest: 'd', signature: 's' },
+          },
+        },
+      },
+    })
+    publish?.()
+    await vi.waitFor(() => expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })]))
+    registry.dispose()
+  })
+
+  it('redeploys this server when dest packaging fails and the server is behind', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
+    const requestCoordinatorRestart = vi.fn()
+    const requestDestBundle = vi.fn().mockRejectedValue(new Error('compile failed'))
+    const { registry, caller } = harness({
+      requestCoordinatorRestart,
+      requestDestBundle,
+      servedWebDigest: '47a01e3',
+    })
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+aaaaaaa' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    })
+
+    await caller.updates.converge()
+    await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
+    registry.dispose()
+  })
+
+  it('does not dest-redeploy immediately while dest packaging is still running', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
+    const requestCoordinatorRestart = vi.fn()
+    let finish: (() => void) | undefined
+    const requestDestBundle = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const { registry, caller } = harness({
+      requestCoordinatorRestart,
+      requestDestBundle,
+      servedWebDigest: '47a01e3',
+    })
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+aaaaaaa' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    })
+
+    await caller.updates.converge()
+    expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+    expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+    finish?.()
+    await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
     registry.dispose()
   })
 

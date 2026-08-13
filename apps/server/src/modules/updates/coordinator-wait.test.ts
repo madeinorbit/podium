@@ -1,7 +1,7 @@
 import { asMachineId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UpdatesService } from './service'
-import { restartCoordinatorAfterDevelopmentFleet } from './trpc'
+import { restartCoordinatorAfterDevelopmentFleet, waitForServedWebDigest } from './trpc'
 
 /**
  * The coordinator may only restart once the development fleet has actually
@@ -108,5 +108,17 @@ describe('restartCoordinatorAfterDevelopmentFleet', () => {
     expect(vi.getTimerCount()).toBe(0)
     await advance(SILENCE_MS)
     expect(restart).not.toHaveBeenCalled()
+  })
+})
+
+describe('waitForServedWebDigest', () => {
+  it('returns as soon as the served stamp matches', async () => {
+    await expect(waitForServedWebDigest('47a01e3', () => '47a01e3', 10, 50)).resolves.toBeUndefined()
+  })
+
+  it('gives up when the website never catches up', async () => {
+    await expect(waitForServedWebDigest('47a01e3', () => 'aaaaaaa', 5, 20)).rejects.toThrow(
+      'The website did not finish rebuilding in time.',
+    )
   })
 })

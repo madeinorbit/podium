@@ -16,6 +16,7 @@
  * shim, so its presence means "installed" and the publisher is not created at
  * all. Every function here then no-ops, which is why `/version` can call
  * `requestBuild` unconditionally without an installed server ever doing work.
+ * Callers that do not await a compile must still catch the returned promise.
  */
 
 import { createLogger } from '@podium/logger'
@@ -31,11 +32,11 @@ export interface DevPublisherWiring {
   /** Publish the current development target, if there is one. */
   readonly publishTarget: () => UpdateTarget | undefined
   /**
-   * Ask for a build. Fire-and-forget by design: `/version` calls this on a hot
-   * path and must never block on a `bun build --compile`, nor fail because one
-   * did. `explicit` bypasses the debounce for a human-initiated request.
+   * Ask for a build. `/version` voids the promise so a compile never blocks a
+   * read. Update awaits it. `explicit` bypasses the debounce for a
+   * human-initiated request.
    */
-  readonly requestBuild: (explicit: boolean) => void
+  readonly requestBuild: (explicit: boolean) => Promise<unknown>
   /** Mount the authenticated artifact route, when a publisher exists. */
   readonly registerRoute: (app: Hono) => void
   /** True when this server can publish a development bundle at all. */
@@ -165,15 +166,18 @@ export function wireDevBundlePublisher(deps: {
     enabled: publisher !== undefined,
     publishTarget,
     requestBuild: (explicit) => {
-      if (!publisher) return
+      if (!publisher) return Promise.resolve()
       const requested = publisher.requestBuild(explicit)
       // Before awaiting anything: if that admitted a build, the state is now
       // `preparing` and the read model should say so rather than sit on the
       // previous commit's target for the length of a compile.
       publishReadiness()
-      void requested
-        .then(() => publishTarget())
-        .catch((error: unknown) => {
+      return requested.then(
+        (built) => {
+          publishTarget()
+          return built
+        },
+        (error: unknown) => {
           // The failure must reach the read model, or a stale target stays
           // published while the only trace of the problem is this log line.
           publishReadiness()
@@ -184,10 +188,13 @@ export function wireDevBundlePublisher(deps: {
           // client.
           const diagnostic =
             publisher.unavailable() ?? (error instanceof Error ? error.message : String(error))
-          if (diagnostic === unavailableDiagnostic) return
-          unavailableDiagnostic = diagnostic
-          log.warn('development bundle unavailable', { diagnostic })
-        })
+          if (diagnostic !== unavailableDiagnostic) {
+            unavailableDiagnostic = diagnostic
+            log.warn('development bundle unavailable', { diagnostic })
+          }
+          throw error
+        },
+      )
     },
     registerRoute: (app) => {
       if (!publisher) return

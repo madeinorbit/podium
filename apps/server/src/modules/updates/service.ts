@@ -151,9 +151,12 @@ export class UpdatesService {
     this.unavailableReasons.delete(channel)
 
     // Re-publishing the same label can replace its artifact descriptor without
-    // invalidating the proof already made for that target.
+    // invalidating the proof already made for that target. An authorized wave
+    // that was waiting for a consumable artifact (dev+ identity → headless
+    // tarball) must tick now — setTarget used to swap the descriptor and stop.
     if (this.targets.get(channel)?.version === target.version) {
       this.targets.set(channel, target)
+      if (this.rollout(channel).authorized) this.tick(channel)
       return
     }
 
@@ -238,8 +241,14 @@ export class UpdatesService {
     }
   }
 
-  /** Record the operator decision for one authority and start its controlled wave. */
-  authorize(channel: UpdateChannel = 'dev'): string[] {
+  /**
+   * Record the operator decision without issuing grants.
+   *
+   * Used when the development target is still an identity (no tarball). The
+   * click is remembered so a later same-version setTarget that gains a
+   * headless artifact can tick.
+   */
+  markAuthorized(channel: UpdateChannel = 'dev'): void {
     const rollout = this.rollout(channel)
     rollout.authorized = true
 
@@ -257,6 +266,11 @@ export class UpdatesService {
         this.pendingGrants.delete(machineId)
       }
     }
+  }
+
+  /** Record the operator decision for one authority and start its controlled wave. */
+  authorize(channel: UpdateChannel = 'dev'): string[] {
+    this.markAuthorized(channel)
     return this.tick(channel)
   }
 

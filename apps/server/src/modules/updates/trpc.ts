@@ -18,6 +18,8 @@ const COORDINATOR_RESTART_POLL_MS = 250
 const COORDINATOR_RESTART_DEADLINE_MS = 60 * 60_000
 const COORDINATOR_WAIT_ABANDONED_DETAIL =
   'The machine stopped reporting progress while updating, so the server stopped waiting for it.'
+const WEB_IDENTITY_POLL_MS = 500
+const WEB_IDENTITY_WAIT_MS = 5 * 60_000
 
 function isDevelopmentMachine(machine: { channel?: string }): boolean {
   return (machine.channel ?? 'dev') === 'dev'
@@ -30,6 +32,33 @@ function canGrantDevelopmentFleet(target: {
 }): boolean {
   if (!target.version.startsWith('dev+')) return true
   return target.artifacts.headless !== undefined
+}
+
+function needsDevelopmentBundle(target: {
+  version: string
+  artifacts: { headless?: unknown }
+}): boolean {
+  return target.version.startsWith('dev+') && target.artifacts.headless === undefined
+}
+
+export async function waitForServedWebDigest(
+  expected: string,
+  read: () => string | undefined,
+  pollMs = WEB_IDENTITY_POLL_MS,
+  deadlineMs = WEB_IDENTITY_WAIT_MS,
+  now: () => number = Date.now,
+): Promise<void> {
+  const started = now()
+  for (;;) {
+    if (read() === expected) return
+    if (now() - started >= deadlineMs) {
+      throw new Error('The website did not finish rebuilding in time.')
+    }
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, pollMs)
+      timer.unref?.()
+    })
+  }
 }
 
 export interface UpdateFleetMachine {
@@ -69,10 +98,9 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
   const machines = allMachines.filter((machine) => isDevelopmentMachine(machine))
   const target = updates.target()
   const grantable = target !== undefined && canGrantDevelopmentFleet(target)
-  const behind =
-    targetVersion && grantable
-      ? machines.filter((machine) => machine.version !== targetVersion).length
-      : 0
+  const behind = targetVersion
+    ? machines.filter((machine) => machine.version !== targetVersion).length
+    : 0
 
   return {
     targetVersion: targetVersion ?? null,
@@ -161,8 +189,9 @@ export function startUpdate(
   currentVersion = serverBuildVersion(),
   requestCoordinatorRestart?: () => void,
   opts?: {
-    servedWebDigest?: string
+    servedWebDigest?: string | (() => string | undefined)
     requestWebRebuild?: () => void
+    requestDestBundle?: () => Promise<unknown>
   },
 ): {
   state: 'in-progress'
@@ -182,7 +211,13 @@ export function startUpdate(
   const initialFleet = fleetSnapshot(updates)
   const serverBehind = currentVersion !== target.version
   const expectedWeb = target.artifacts.web?.digest
-  const webBehind = expectedWeb !== undefined && opts?.servedWebDigest !== expectedWeb
+  const readServedWeb =
+    typeof opts?.servedWebDigest === 'function'
+      ? opts.servedWebDigest
+      : opts?.servedWebDigest !== undefined
+        ? () => opts.servedWebDigest as string
+        : undefined
+  const webBehind = expectedWeb !== undefined && readServedWeb?.() !== expectedWeb
   if (!serverBehind && !webBehind && initialFleet.behind === 0 && initialFleet.converging === 0) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
@@ -197,21 +232,43 @@ export function startUpdate(
     })
   }
 
-  const grantedMachineIds = canGrantDevelopmentFleet(target) ? updates.authorize() : []
-  const fleet = fleetSnapshot(updates)
-  if (serverBehind && requestCoordinatorRestart) {
-    const affectedMachineIds = initialFleet.machines
-      .filter((machine) => machine.online && machine.version !== target.version)
-      .map((machine) => machine.id)
-    restartCoordinatorAfterDevelopmentFleet(
+  const grantable = canGrantDevelopmentFleet(target)
+  const packDevelopment = needsDevelopmentBundle(target) && opts?.requestDestBundle !== undefined
+  const grantedMachineIds = grantable ? updates.authorize() : []
+  if (!grantable && packDevelopment) updates.markAuthorized()
+
+  const affectedMachineIds = initialFleet.machines
+    .filter((machine) => machine.online && machine.version !== target.version)
+    .map((machine) => machine.id)
+
+  if (packDevelopment && opts.requestDestBundle) {
+    if (webBehind && rebuildWeb) rebuildWeb()
+    void continueDevelopmentUpdate({
       updates,
-      target.version,
-      affectedMachineIds,
+      targetVersion: target.version,
+      expectedWeb,
+      webBehind,
+      readServedWeb,
+      requestDestBundle: opts.requestDestBundle,
+      serverBehind,
       requestCoordinatorRestart,
-    )
+      affectedMachineIds,
+    })
+  } else if (serverBehind && requestCoordinatorRestart) {
+    if (grantedMachineIds.length > 0) {
+      restartCoordinatorAfterDevelopmentFleet(
+        updates,
+        target.version,
+        affectedMachineIds,
+        requestCoordinatorRestart,
+      )
+    } else {
+      requestCoordinatorRestart()
+    }
   } else if (webBehind && rebuildWeb) {
     rebuildWeb()
   }
+
   return {
     state: 'in-progress',
     version: target.version,
@@ -220,11 +277,52 @@ export function startUpdate(
       1,
       (serverBehind ? 1 : 0) +
         (webBehind ? 1 : 0) +
+        (packDevelopment ? 1 : 0) +
         Math.max(initialFleet.behind, initialFleet.converging),
     ),
-    fleet,
+    fleet: fleetSnapshot(updates),
     grantedMachineIds,
   }
+}
+
+/**
+ * Website first (the development tarball packing gate asserts the served stamp),
+ * then the tarball, then remotes (setTarget ticks an authorized wave), then
+ * this server. A failed pack still redeploys this host when it is behind.
+ */
+function continueDevelopmentUpdate(input: {
+  updates: UpdatesService
+  targetVersion: string
+  expectedWeb: string | undefined
+  webBehind: boolean
+  readServedWeb?: () => string | undefined
+  requestDestBundle: () => Promise<unknown>
+  serverBehind: boolean
+  requestCoordinatorRestart?: () => void
+  affectedMachineIds: readonly MachineId[]
+}): void {
+  void (async () => {
+    if (input.webBehind && input.expectedWeb && input.readServedWeb) {
+      await waitForServedWebDigest(input.expectedWeb, input.readServedWeb)
+    }
+    await input.requestDestBundle()
+    if (!input.serverBehind || !input.requestCoordinatorRestart) return
+    const published = input.updates.target()
+    if (published && canGrantDevelopmentFleet(published)) {
+      restartCoordinatorAfterDevelopmentFleet(
+        input.updates,
+        input.targetVersion,
+        input.affectedMachineIds,
+        input.requestCoordinatorRestart,
+      )
+      return
+    }
+    input.requestCoordinatorRestart()
+  })().catch(() => {
+    if (input.serverBehind && input.requestCoordinatorRestart) {
+      input.requestCoordinatorRestart()
+    }
+  })
 }
 
 export function updateProcedures() {
@@ -246,8 +344,9 @@ export function updateProcedures() {
         serverBuildVersion(),
         ctx.requestCoordinatorRestart,
         {
-          ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest() } : {}),
+          ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
           ...(ctx.requestWebRebuild ? { requestWebRebuild: ctx.requestWebRebuild } : {}),
+          ...(ctx.requestDestBundle ? { requestDestBundle: ctx.requestDestBundle } : {}),
         },
       ),
     ),

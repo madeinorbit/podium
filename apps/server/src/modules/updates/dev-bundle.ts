@@ -153,15 +153,18 @@ export const DEV_BUNDLE_NON_SOURCE_TREES = [
 ] as const
 
 /**
- * Generated desktop inputs that are deliberately ignored and cannot affect the
+ * Generated inputs that are deliberately ignored and cannot affect the
  * headless development bundle. Keep this separate from the porcelain
- * allowlist: a tracked edit in either tree still differs from HEAD and must
+ * allowlist: a tracked edit in these trees still differs from HEAD and must
  * block publication.
  */
 export const DEV_BUNDLE_IGNORED_SOURCE_ALLOWED_PREFIXES = [
   ...DEV_BUNDLE_ALLOWED_DIRTY_PREFIXES,
   'apps/desktop/src-tauri/gen/',
   'apps/desktop/src-tauri/resources/web/',
+  // Vite sourcemap archive index (POD-1957). JSON under apps/ is otherwise
+  // treated as importable source; the headless compile never reads this tree.
+  'apps/web/.sourcemaps/',
 ] as const
 
 /** Extensions a bundler resolves from an import specifier. */

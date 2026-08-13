@@ -109,6 +109,53 @@ describe('UpdatesService', () => {
     expect(svc.fleet()[0]).toMatchObject({ state: 'granted' })
   })
 
+  it('issues no grants when authorization is only remembered', () => {
+    const { svc, send } = make([m('a')])
+    svc.setTarget({ version: 'dev+47a01e3', critical: false, artifacts: { web: { digest: '47a01e3' } } } as never)
+    svc.markAuthorized()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('ticks an authorized wave when the same version gains a headless artifact', () => {
+    const { svc, send } = make([m('a')])
+    svc.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    } as never)
+    svc.markAuthorized()
+    expect(send).not.toHaveBeenCalled()
+
+    svc.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: {
+        web: { digest: '47a01e3' },
+        headless: { delivery: 'bundle', platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } } },
+      },
+    } as never)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant' })
+  })
+
+  it('does not auto-grant when a same-version tarball appears without authorization', () => {
+    const { svc, send } = make([m('a')])
+    svc.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    } as never)
+    svc.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: {
+        web: { digest: '47a01e3' },
+        headless: { delivery: 'bundle', platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } } },
+      },
+    } as never)
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it('resets canary health when the target changes', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)

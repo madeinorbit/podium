@@ -72,6 +72,12 @@ export interface Context {
   requestCoordinatorRestart?: () => void
   /** Source-host only: rebuild apps/web/dist via podium-web when the server is current. */
   requestWebRebuild?: () => void
+  /**
+   * Source-host only: compile the signed development tarball other computers
+   * download. `/version` still asks without blocking; Update awaits this so
+   * remotes are not granted a git-only identity.
+   */
+  requestDestBundle?: () => Promise<unknown>
   /** Install identity currently served from apps/web/dist, if any. */
   servedWebDigest?: () => string | undefined
 }

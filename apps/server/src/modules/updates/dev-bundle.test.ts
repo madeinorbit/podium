@@ -223,6 +223,13 @@ describe('classifyIgnoredSourceInputs', () => {
     ])
   })
 
+  it('allows the generated website sourcemap archive index', () => {
+    expect(classifyIgnoredSourceInputs(nul('apps/web/.sourcemaps/builds.json'))).toEqual([])
+    expect(classifyIgnoredSourceInputs(nul('apps/web/src/local-override.ts'))).toEqual([
+      'apps/web/src/local-override.ts',
+    ])
+  })
+
   it('catches every resolvable extension, once each', () => {
     expect(
       classifyIgnoredSourceInputs(
