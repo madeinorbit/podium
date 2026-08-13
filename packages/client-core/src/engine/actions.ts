@@ -222,7 +222,13 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     permanent?: boolean
   }): void
   recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void
-  spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
+  spawnDraftAgent(args: {
+    target: SpawnTarget
+    agentKind: AgentKind
+    firstPrompt?: string
+    model?: string
+    effort?: string
+  }): {
     sessionId: SessionId
     issueId: IssueId
   }

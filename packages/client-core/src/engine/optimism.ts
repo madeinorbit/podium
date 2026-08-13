@@ -425,7 +425,13 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
 
   /** The #119 placeholder pair: paint a starting session and its draft issue
    *  before the create round-trips, and settle them when it answers. */
-  spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
+  spawnDraftAgent(args: {
+    target: SpawnTarget
+    agentKind: AgentKind
+    firstPrompt?: string
+    model?: string
+    effort?: string
+  }): {
     sessionId: SessionId
     issueId: IssueId
   } {
@@ -478,6 +484,8 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       target: args.target,
       agentKind: args.agentKind,
       firstPrompt: args.firstPrompt,
+      ...(args.model ? { model: args.model } : {}),
+      ...(args.effort ? { effort: args.effort } : {}),
     }).catch((error) => {
       const arrived = (): boolean =>
         this.ports.base().sessions.some((row) => row.sessionId === sessionId)

@@ -156,6 +156,11 @@ const createInput = z.object({
    *  Mobile/web spawn must send this — resumeAndSend PTY type-in is not a
    *  substitute for Grok's first turn (POD-549). */
   initialPrompt: z.string().optional(),
+  /** Per-spawn model/effort. Same vocabulary as issues.start (`auto` = no
+   *  override). Validated against the live catalog at createSession. */
+  model: z.string().min(1).optional(),
+  effort: z.string().min(1).optional(),
+  forceUnknownModel: z.boolean().optional(),
   /** uuid-bounded: it feeds durableLabel → the systemd-run scope name. The uuid
    *  check is KEPT and the shared `SessionIdField` is piped in after it (POD-362):
    *  swapping `SessionIdField` for a bare `.brand<'SessionId'>()` here would be

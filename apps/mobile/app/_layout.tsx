@@ -96,7 +96,6 @@ export default function RootLayout() {
                 transition AND turns the dismiss gesture downward, so a sheet now
                 swipes away in the direction it arrived from.
               */}
-                  <Stack.Screen name="new-session" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="new-issue" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
                 </Stack>

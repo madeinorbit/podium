@@ -14,6 +14,7 @@ import { Check, ChevronDown, ChevronRight } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../client/hooks'
+import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { STAGE_LABEL } from '../theme/stage'
@@ -29,6 +30,7 @@ import {
   tracking,
 } from '../theme/theme'
 import { ActionSheet } from './ActionSheet'
+import { ArtifactViewer } from './ArtifactViewer'
 import { BottomSheet } from './BottomSheet'
 import { Composer } from './Composer'
 import { Icon } from './Icon'
@@ -281,9 +283,11 @@ function SheetBody({
         }),
     [sessions, issue.id],
   )
+  const store = useMobileStore()
   const todos = issue.panel?.todos ?? []
   const done = todos.filter((t) => t.done).length
   const artifacts = issue.panel?.artifacts ?? []
+  const [openArtifact, setOpenArtifact] = useState<(typeof artifacts)[number] | null>(null)
   const git = issue.gitState
 
   return (
@@ -331,15 +335,35 @@ function SheetBody({
 
       {artifacts.length > 0 ? (
         <Part title="Artifacts" meta={String(artifacts.length)}>
-          {artifacts.map((artifact) => (
-            <View key={artifact.path} style={styles.row}>
-              <Text numberOfLines={1} style={styles.rowTitle}>
-                {artifact.title || artifact.path.split('/').pop()}
-              </Text>
-            </View>
-          ))}
+          {artifacts.map((artifact) => {
+            const url = issueArtifactHref(issue, artifact, store.httpOrigin)
+            const label = issueArtifactLabel(artifact)
+            return (
+              <PressableScale
+                key={`${artifact.addedAt}:${artifact.path}`}
+                accessibilityRole={url ? 'button' : undefined}
+                accessibilityLabel={url ? `Open ${label}` : label}
+                disabled={!url}
+                onPress={url ? () => setOpenArtifact(artifact) : undefined}
+                scaleTo={0.99}
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+              >
+                <Text numberOfLines={1} style={styles.rowTitle}>
+                  {label}
+                </Text>
+                {url ? <Icon as={ChevronRight} size={14} color={color.textMicro} /> : null}
+              </PressableScale>
+            )
+          })}
         </Part>
       ) : null}
+      <ArtifactViewer
+        artifact={openArtifact}
+        url={
+          openArtifact ? issueArtifactHref(issue, openArtifact, store.httpOrigin) : null
+        }
+        onClose={() => setOpenArtifact(null)}
+      />
 
       {children.length > 0 ? (
         <Part

@@ -116,6 +116,9 @@ export interface PodiumClientApi {
         machineId?: MachineId
         /** First prompt; argv harnesses get it on launch (POD-549). */
         initialPrompt?: string
+        /** Per-spawn model/effort overrides. `'auto'` is omitted by callers. */
+        model?: string
+        effort?: string
         mutationId?: MutationId
       },
       { sessionId: SessionId }

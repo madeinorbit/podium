@@ -54,7 +54,11 @@ import {
   searchMobileTranscript,
   transcriptItemKey,
 } from '../lib/transcript-feed'
-import { atTail as atTailRule, measureAtTail } from '../lib/transcript-tail'
+import {
+  atTail as atTailRule,
+  measureAtTail,
+  shouldFollowContentGrowth,
+} from '../lib/transcript-tail'
 import {
   color,
   elevation,
@@ -703,6 +707,9 @@ export function TranscriptList({
   // find something must never be yanked back down. See ../lib/transcript-tail.
   const pinned = useRef(true)
   const operatorMoved = useRef(false)
+  // Last measured content height. Used to ignore the echo `scrollToEnd` sends
+  // back through onContentSizeChange — that loop froze the phone for minutes.
+  const contentHeight = useRef(0)
   // A different session is a different conversation, and it opens at ITS tail
   // even if the previous one was left scrolled up.
   const transcriptId = assetContext?.sessionId ?? null
@@ -710,6 +717,7 @@ export function TranscriptList({
   useEffect(() => {
     operatorMoved.current = false
     pinned.current = true
+    contentHeight.current = 0
     setAtTail(true)
     setUnread(0)
   }, [transcriptId])
@@ -975,8 +983,16 @@ export function TranscriptList({
             animated: false,
           })
         }}
-        onContentSizeChange={() => {
-          if (!operatorMoved.current || pinned.current) {
+        onContentSizeChange={(_width, height) => {
+          const previous = contentHeight.current
+          contentHeight.current = height
+          if (
+            shouldFollowContentGrowth({
+              previousHeight: previous,
+              nextHeight: height,
+              pinning: !operatorMoved.current || pinned.current,
+            })
+          ) {
             listRef.current?.scrollToEnd({ animated: false })
           }
         }}

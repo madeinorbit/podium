@@ -13,10 +13,20 @@ import {
 import type { AgentKind, MachineId } from '@podium/model'
 import { machinesWithRepo } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
-import { ChevronLeft, ChevronRight, GitBranch, Plus, Settings2 } from 'lucide-react-native'
+import { ChevronLeft, ChevronRight, GitBranch, Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore, useSessions } from '../client/hooks'
+import {
+  AUTO,
+  allConnectorModelLabel,
+  allConnectorModelOptions,
+  decodeModelPick,
+  effortOptionsForModel,
+  isEffortValid,
+  spawnSelection,
+  type IssueAgentKind,
+} from '../lib/agent-models'
 import { sessionHref } from '../lib/session-route'
 import { alpha } from '../theme/mix'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -24,18 +34,8 @@ import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { HeaderButton } from './Screen'
-import { kindTone } from './spine'
 
-const HARNESSES: { kind: AgentKind; label: string }[] = [
-  { kind: 'claude-code', label: 'Claude Code' },
-  { kind: 'codex', label: 'Codex' },
-  { kind: 'grok', label: 'Grok' },
-  { kind: 'opencode', label: 'OpenCode' },
-  { kind: 'cursor', label: 'Cursor' },
-  { kind: 'shell', label: 'Shell' },
-]
-
-type PickerStep = 'harness' | 'repo' | 'machine' | null
+type PickerStep = 'launch' | 'repo' | 'machine' | null
 
 /**
  * The pocket equivalent of desktop's New Agent dropdown. Every quick launch goes
@@ -48,9 +48,8 @@ type PickerStep = 'harness' | 'repo' | 'machine' | null
  * LANDS (tracked task with a branch and worktree, versus a bare session in a
  * draft vessel) looked exactly like the choice of which CLI to run. This sheet
  * says the two things in two languages: the task is a card with its consequence
- * written on it, and the harnesses are a tile grid wearing the same per-kind
- * marks the flight deck's session bands already use — so picking one is
- * recognition rather than reading.
+ * written on it, and the model list is every harness's catalog in one place —
+ * plus effort and, when the repo lives on more than one host, the machine.
  */
 export function NewWorkButton() {
   const pathname = usePathname()
@@ -60,6 +59,8 @@ export function NewWorkButton() {
   const { sections } = useSlice(worklistSlice)
   const [step, setStep] = useState<PickerStep>(null)
   const [harness, setHarness] = useState<AgentKind>('claude-code')
+  const [modelPick, setModelPick] = useState(AUTO)
+  const [effort, setEffort] = useState(AUTO)
   const [repoPath, setRepoPath] = useState<string | null>(null)
 
   // Machines as THIS principal may act on them (doc §3.1.4 M1/M5): `see` is
@@ -124,14 +125,43 @@ export function NewWorkButton() {
     const targetMachine = resolveSpawnMachine(repo, machineId)
     if (targetMachine === null) return
     const { worktree } = spawnTargetForRepo(repo, targetMachine)
-    const { sessionId } = store.spawnDraftAgent({ target: worktree, agentKind: harness })
+    const selection = spawnSelection(modelPick, effort)
+    const { sessionId } = store.spawnDraftAgent({
+      target: worktree,
+      agentKind: harness,
+      ...(selection.model ? { model: selection.model } : {}),
+      ...(selection.effort ? { effort: selection.effort } : {}),
+    })
     close()
     router.push(sessionHref(sessionId, pathname))
   }
 
+  const applyModel = (value: string, nextHarness?: AgentKind) => {
+    setModelPick(value)
+    const decoded = decodeModelPick(value)
+    const kind = nextHarness ?? decoded.agentKind ?? harness
+    if (kind !== 'shell') setHarness(kind)
+    const options = decoded.agentKind
+      ? effortOptionsForModel(decoded.agentKind, decoded.model)
+      : []
+    if (options.length === 0 || !isEffortValid((decoded.agentKind ?? kind) as IssueAgentKind, effort)) {
+      setEffort(AUTO)
+    }
+  }
+
+  const decoded = decodeModelPick(modelPick)
+  const effortChoices =
+    harness === 'shell'
+      ? []
+      : effortOptionsForModel((decoded.agentKind ?? harness) as IssueAgentKind, decoded.model)
+  const modelOptions = allConnectorModelOptions()
+  const modelCaption = allConnectorModelLabel(decoded.agentKind, decoded.model)
+
   const title =
     step === 'repo'
-      ? `New ${panelLabel(harness)}`
+      ? harness === 'shell'
+        ? 'New Shell'
+        : `New ${panelLabel(harness)}`
       : step === 'machine' && selectedRepo
         ? selectedRepo.name
         : 'New work'
@@ -144,22 +174,22 @@ export function NewWorkButton() {
 
   return (
     <>
-      <HeaderButton label="New work" onPress={() => setStep('harness')}>
+      <HeaderButton label="New work" onPress={() => setStep('launch')}>
         <Icon as={Plus} size={19} color={color.text} />
       </HeaderButton>
       <BottomSheet
         visible={step !== null}
         onClose={close}
         mode="fit"
-        scrollable={step !== 'harness'}
+        scrollable
         contentStyle={styles.content}
         head={
           <View style={styles.head}>
-            {step !== 'harness' ? (
+            {step !== 'launch' ? (
               <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel="Back"
-                onPress={() => setStep(step === 'machine' ? 'repo' : 'harness')}
+                onPress={() => setStep(step === 'machine' ? 'repo' : 'launch')}
                 style={({ pressed }) => [styles.headBack, pressed && styles.pressed]}
               >
                 <Icon as={ChevronLeft} size={16} color={color.textDim} />
@@ -176,7 +206,7 @@ export function NewWorkButton() {
           </View>
         }
       >
-        {step === 'harness' ? (
+        {step === 'launch' ? (
           <>
             {/* The one choice that changes where the work LIVES gets a card of
                 its own, with its consequence written on it. */}
@@ -202,44 +232,80 @@ export function NewWorkButton() {
             </PressableScale>
 
             <Text style={styles.groupLabel}>START AN AGENT</Text>
-            <View style={styles.grid}>
-              {HARNESSES.map(({ kind, label }) => {
-                const t = kindTone(kind)
+            <Text style={styles.fieldLabel}>Model</Text>
+            <Text style={styles.fieldHint}>{modelCaption}</Text>
+            <View style={styles.chipWrap}>
+              {modelOptions.map((option) => {
+                const active = modelPick === option.value
                 return (
                   <PressableScale
-                    key={kind}
+                    key={option.value}
                     accessibilityRole="button"
-                    accessibilityLabel={label}
-                    onPress={() => {
-                      setHarness(kind)
-                      setStep('repo')
-                    }}
-                    scaleTo={0.95}
-                    style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
+                    accessibilityLabel={
+                      option.group ? `${option.group} ${option.label}` : option.label
+                    }
+                    onPress={() => applyModel(option.value)}
+                    style={[styles.chip, active && styles.chipActive]}
                   >
-                    <View style={[styles.tileMark, { backgroundColor: t.bg }]}>
-                      <Text style={[styles.tileCh, { color: t.fg }]}>{t.ch}</Text>
-                    </View>
-                    <Text style={styles.tileLabel} numberOfLines={1}>
-                      {label}
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {option.group ? `${option.label}` : option.label}
                     </Text>
                   </PressableScale>
                 )
               })}
             </View>
 
+            {effortChoices.length > 0 ? (
+              <>
+                <Text style={styles.fieldLabel}>Effort</Text>
+                <View style={styles.chipWrap}>
+                  {effortChoices.map((option) => {
+                    const active = effort === option.value
+                    return (
+                      <PressableScale
+                        key={option.value}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Effort ${option.label}`}
+                        onPress={() => setEffort(option.value)}
+                        style={[styles.chip, active && styles.chipActive]}
+                      >
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                          {option.label}
+                        </Text>
+                      </PressableScale>
+                    )
+                  })}
+                </View>
+              </>
+            ) : null}
+
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="Session options"
-              accessibilityHint="Title, first prompt, or a custom working directory"
+              accessibilityLabel="Choose project"
               onPress={() => {
-                close()
-                router.push(`/new-session?backTo=${encodeURIComponent(pathname)}`)
+                const decodedPick = decodeModelPick(modelPick)
+                if (decodedPick.agentKind) setHarness(decodedPick.agentKind)
+                setStep('repo')
+              }}
+              scaleTo={0.985}
+              style={({ pressed }) => [styles.continue, pressed && styles.continuePressed]}
+            >
+              <Text style={styles.continueText}>Choose project</Text>
+              <Icon as={ChevronRight} size={16} color={color.accentText} />
+            </PressableScale>
+
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Shell"
+              onPress={() => {
+                setHarness('shell')
+                setModelPick(AUTO)
+                setEffort(AUTO)
+                setStep('repo')
               }}
               style={({ pressed }) => [styles.quiet, pressed && styles.pressed]}
             >
-              <Icon as={Settings2} size={15} color={color.textFaint} />
-              <Text style={styles.quietText}>Session options…</Text>
+              <Text style={styles.quietText}>Start a shell instead</Text>
               <Icon as={ChevronRight} size={14} color={color.textMicro} />
             </PressableScale>
           </>
@@ -428,42 +494,60 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     marginBottom: space.sm,
   },
-  grid: {
+  fieldLabel: {
+    ...monoLabel(),
+    color: color.textFaint,
+    marginBottom: 4,
+  },
+  fieldHint: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+    marginBottom: space.sm,
+  },
+  chipWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: space.sm,
+    marginBottom: space.md,
   },
-  tile: {
-    flexBasis: '30%',
-    flexGrow: 1,
-    alignItems: 'center',
-    gap: 7,
-    paddingVertical: space.md,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
+  chip: {
+    borderRadius: radius.full,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs + 2,
     backgroundColor: color.surface,
+    borderColor: color.border,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  tilePressed: {
-    backgroundColor: color.surfacePressed,
-    borderColor: color.borderStrong,
+  chipActive: {
+    backgroundColor: color.accent,
+    borderColor: color.accent,
   },
-  tileMark: {
-    width: 30,
-    height: 30,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tileCh: {
-    ...mono(600),
+  chipText: {
+    ...sans(600),
+    color: color.textDim,
     fontSize: font.tiny,
   },
-  tileLabel: {
-    ...sans(500),
-    color: color.body,
-    fontSize: font.micro,
+  chipTextActive: {
+    color: color.accentText,
+  },
+  continue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    minHeight: 44,
+    borderRadius: radius.md,
+    backgroundColor: color.accent,
+    marginTop: space.sm,
+  },
+  continuePressed: {
+    opacity: 0.88,
+  },
+  continueText: {
+    ...sans(700),
+    color: color.accentText,
+    fontSize: font.small,
   },
 
   quiet: {

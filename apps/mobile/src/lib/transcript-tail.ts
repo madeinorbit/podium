@@ -44,3 +44,20 @@ export function measureAtTail(
 export function atTail(reading: TailReading): boolean {
   return reading.operatorMoved ? reading.measuredAtTail : true
 }
+
+/**
+ * Whether growth should re-anchor the feed to its newest row.
+ *
+ * Only follow an INCREASE. `scrollToEnd` on react-native-web often reports the
+ * same (or a rounded) content height back through `onContentSizeChange`; treating
+ * that echo as another pin produces an unbounded layout loop that freezes the
+ * phone UI for minutes.
+ */
+export function shouldFollowContentGrowth(args: {
+  previousHeight: number
+  nextHeight: number
+  pinning: boolean
+}): boolean {
+  if (!args.pinning) return false
+  return args.nextHeight > args.previousHeight
+}

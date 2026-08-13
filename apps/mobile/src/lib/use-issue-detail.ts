@@ -12,6 +12,7 @@ import {
   loadIssueComments,
   loadIssueEventsPage,
   loadIssueMail,
+  shouldContinueEventDrain,
 } from './issue-detail'
 
 /**
@@ -119,6 +120,8 @@ export function useIssueActivity(issue: IssueWire): IssueActivity {
   useEffect(() => {
     let cancelled = false
     let since = 0
+    let pages = 0
+    let draining = false
     const absorb = (rows: IssueEvent[]): void => {
       if (cancelled || !Array.isArray(rows) || rows.length === 0) return
       since = rows.reduce((m, r) => Math.max(m, r.id), since)
@@ -129,21 +132,43 @@ export function useIssueActivity(issue: IssueWire): IssueActivity {
       })
     }
     const drain = (): void => {
-      // Wrapped, like the two reads above: a missing `issues.events` on the
-      // client seam throws where the call is MADE, and `drain` is called from
-      // the effect body and from a hub callback — neither of which has a catch.
-      Promise.resolve()
-        .then(() =>
-          loadIssueEventsPage(trpc, { since, repoPath, subject: issueId, limit: EVENTS_PAGE }),
-        )
-        .then((rows) => {
-          if (cancelled) return
-          absorb(rows)
-          if (rows.length === EVENTS_PAGE) drain() // a full page means more remain
-        })
-        .catch(() => {
-          // best-effort — keep whatever we already have
-        })
+      // One in-flight drain at a time. `hub.onIssues` fires on every task
+      // write; stacking them is how a busy board turned this page into a
+      // request storm.
+      if (draining) return
+      draining = true
+      const step = (): void => {
+        const sinceBefore = since
+        // Wrapped, like the two reads above: a missing `issues.events` on the
+        // client seam throws where the call is MADE, and `drain` is called from
+        // the effect body and from a hub callback — neither of which has a catch.
+        Promise.resolve()
+          .then(() =>
+            loadIssueEventsPage(trpc, { since, repoPath, subject: issueId, limit: EVENTS_PAGE }),
+          )
+          .then((rows) => {
+            if (cancelled) return
+            absorb(rows)
+            pages += 1
+            if (
+              shouldContinueEventDrain({
+                pageLength: Array.isArray(rows) ? rows.length : 0,
+                pageSize: EVENTS_PAGE,
+                sinceBefore,
+                sinceAfter: since,
+                pages,
+              })
+            ) {
+              step()
+              return
+            }
+            draining = false
+          })
+          .catch(() => {
+            draining = false
+          })
+      }
+      step()
     }
     setEvents([])
     drain()

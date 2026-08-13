@@ -70,6 +70,8 @@ export async function createDraftAgent(args: {
   target: SpawnTarget
   agentKind: AgentKind
   firstPrompt?: string
+  model?: string
+  effort?: string
 }): Promise<void> {
   assertSpawnPlacement(args.target)
   const text = args.firstPrompt?.trim()
@@ -80,6 +82,8 @@ export async function createDraftAgent(args: {
     draftIssue: { repoPath: args.target.repoPath, issueId: args.issueId },
     ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
     ...(text ? { initialPrompt: text } : {}),
+    ...(args.model ? { model: args.model } : {}),
+    ...(args.effort ? { effort: args.effort } : {}),
   })
   // Non-argv harnesses only get a composer draft seed from create; still deliver
   // via resumeAndSend. Argv agents already received the prompt on launch —

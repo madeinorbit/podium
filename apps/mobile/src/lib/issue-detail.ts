@@ -285,6 +285,24 @@ export function issueCommands({
 export const loadIssueComments = (trpc: MobileTrpc, id: string): Promise<ActivityComment[]> =>
   issueProcs(trpc).issues.comments.query({ id })
 
+/** Stop paging when the cursor does not advance, or after this many pages.
+ *  A stuck `since` (same 200 rows forever) used to recurse without bound. */
+export const ISSUE_EVENTS_MAX_PAGES = 20
+
+export function shouldContinueEventDrain(args: {
+  pageLength: number
+  pageSize: number
+  sinceBefore: number
+  sinceAfter: number
+  pages: number
+  maxPages?: number
+}): boolean {
+  if (args.pageLength < args.pageSize) return false
+  if (args.sinceAfter <= args.sinceBefore) return false
+  if (args.pages >= (args.maxPages ?? ISSUE_EVENTS_MAX_PAGES)) return false
+  return true
+}
+
 /** One ascending, cursor-paged slice of the issue event log, narrowed to a
  *  single issue's subject SERVER-side (POD-532) so a page holds only rows this
  *  feed will render. */

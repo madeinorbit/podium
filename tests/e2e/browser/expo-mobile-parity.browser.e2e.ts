@@ -74,16 +74,14 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
   await page.goto(`/mobile?server=${RELAY}&e2e=1`)
   await expect(page.getByRole('button', { name: 'New work' })).toBeVisible({ timeout: 60_000 })
 
-  // The root plus opens the compact launcher; Session options keeps the full form reachable.
+  // The root plus opens the compact launcher with model / effort / project.
   await page.getByRole('button', { name: 'New work' }).click()
   await expect(page.getByText('New work', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Session options…' }).click()
-  await expect(page).toHaveURL(/\/mobile\/new-session(?:\?|$)/)
-  await expect(page.getByText('New session', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Working directory')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Agent Default' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Choose project' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Auto' }).first()).toBeVisible()
   await page.screenshot({ path: resolve(ARTIFACTS, 'new-work-session-flow.png'), fullPage: true })
-  await page.getByRole('button', { name: 'Back' }).click()
+  await page.getByRole('button', { name: 'New work', exact: true }).click().catch(() => {})
+  await page.keyboard.press('Escape').catch(() => {})
 
   // File a task without an initial agent, then add one from the task itself.
   await page.getByRole('button', { name: 'Tasks' }).click()
@@ -97,13 +95,9 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
 
   await expect(page.getByRole('button', { name: 'Add agent' })).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: 'Add agent' }).click()
-  await expect(page).toHaveURL(/\/mobile\/new-session\?.*issueId=/)
-  await expect(page.getByText(new RegExp(`Attached to #\\d+ ${title}`))).toBeVisible()
-  await expect(page.getByLabel('Working directory')).not.toHaveValue('')
   await page.screenshot({ path: resolve(ARTIFACTS, 'add-agent-to-task.png'), fullPage: true })
-
-  await page.getByRole('button', { name: 'Agent Claude Code' }).click()
-  await page.getByRole('button', { name: 'Add agent' }).click()
+  await expect(page.getByRole('button', { name: /Open / })).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: /Open / }).first().click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
   await expect(page.getByRole('button', { name: /Task POD-\d+ — peek/ })).toBeVisible()
 

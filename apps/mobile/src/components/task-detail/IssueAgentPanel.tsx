@@ -1,13 +1,18 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
+import { artifactKind } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire } from '@podium/model'
 import { Check, FileText, Play } from 'lucide-react-native'
 import { useState } from 'react'
-import { Image, Linking, StyleSheet, Text, View } from 'react-native'
+import { Image, StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../../client/hooks'
+import {
+  issueArtifactHref,
+  issueArtifactLabel,
+} from '../../lib/issue-artifacts'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
+import { ArtifactViewer } from '../ArtifactViewer'
 import { Icon } from '../Icon'
 import { PressableScale } from '../PressableScale'
 import { Disclosure, SectionHeading } from './chrome'
@@ -18,6 +23,10 @@ import { Disclosure, SectionHeading } from './chrome'
  * same 1-based index API the desktop and the dock use; artifacts with inline
  * previews; and deferred items. Sections render only when non-empty, so a task
  * with no panel adds no chrome.
+ *
+ * Artifacts open in-app (lightbox / HTML frame / fetched text). Linking out of
+ * the PWA dropped the session cookie, so a tap looked answered and showed
+ * nothing.
  *
  * OPEN WORK FIRST, DONE WORK FOLDED. A live task carries twenty todos and two
  * thirds of them are struck through — on a 390pt screen that is a full viewport
@@ -56,9 +65,6 @@ export function IssueAgentPanel({
   const indexed = todos.map((todo, index) => ({ todo, index }))
   const open = indexed.filter((t) => !t.todo.done)
   const done = indexed.filter((t) => t.todo.done)
-  // A task with no dedicated worktree is worked in the repo's primary checkout —
-  // serve its artifacts from there.
-  const root = issue.worktreePath ?? issue.repoPath
 
   return (
     <View testID="issue-panel-sections">
@@ -107,13 +113,7 @@ export function IssueAgentPanel({
             <ArtifactRow
               key={`${a.addedAt}:${a.path}`}
               artifact={a}
-              url={artifactUrl({
-                httpOrigin: store.httpOrigin,
-                issueId: issue.id,
-                artifact: a,
-                ...(root ? { root } : {}),
-                ...(issue.machineId ? { machineId: issue.machineId } : {}),
-              })}
+              url={issueArtifactHref(issue, a, store.httpOrigin)}
             />
           ))}
         </View>
@@ -173,49 +173,52 @@ function TodoRow({
  */
 function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: string | null }) {
   const [broken, setBroken] = useState(false)
+  const [open, setOpen] = useState(false)
   const kind = artifactKind(artifact.entry ?? artifact.path)
-  const label = artifact.title ?? basename(artifact.path)
+  const label = issueArtifactLabel(artifact)
   const previewable = url !== null && !broken && (kind === 'image' || kind === 'video')
+  const canOpen = url !== null
 
-  if (previewable && kind === 'image') {
-    return (
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={`Open ${label}`}
-        onPress={() => void Linking.openURL(url).catch(() => setBroken(true))}
-        style={({ pressed }) => [styles.figure, pressed && styles.rowPressed]}
-      >
-        <Image
-          source={{ uri: url }}
-          style={styles.preview}
-          resizeMode="cover"
-          accessibilityLabel={label}
-          onError={() => setBroken(true)}
-        />
-        <View style={styles.caption}>
-          <Text style={styles.captionText} numberOfLines={1}>
+  return (
+    <>
+      {previewable && kind === 'image' ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${label}`}
+          onPress={() => setOpen(true)}
+          style={({ pressed }) => [styles.figure, pressed && styles.rowPressed]}
+        >
+          <Image
+            source={{ uri: url }}
+            style={styles.preview}
+            resizeMode="cover"
+            accessibilityLabel={label}
+            onError={() => setBroken(true)}
+          />
+          <View style={styles.caption}>
+            <Text style={styles.captionText} numberOfLines={1}>
+              {label}
+            </Text>
+            <Text style={styles.stamp}>{relativeTime(artifact.addedAt, Date.now())}</Text>
+          </View>
+        </PressableScale>
+      ) : (
+        <PressableScale
+          accessibilityRole={canOpen ? 'button' : undefined}
+          accessibilityLabel={canOpen ? `Open ${label}` : label}
+          disabled={!canOpen}
+          onPress={canOpen ? () => setOpen(true) : undefined}
+          style={({ pressed }) => [styles.fileRow, pressed && styles.rowPressed]}
+        >
+          <Icon as={kind === 'video' ? Play : FileText} size={15} color={color.textDim} />
+          <Text style={styles.fileName} numberOfLines={1}>
             {label}
           </Text>
           <Text style={styles.stamp}>{relativeTime(artifact.addedAt, Date.now())}</Text>
-        </View>
-      </PressableScale>
-    )
-  }
-
-  return (
-    <PressableScale
-      accessibilityRole={url ? 'button' : undefined}
-      accessibilityLabel={url ? `Open ${label}` : label}
-      disabled={url === null}
-      onPress={url ? () => void Linking.openURL(url).catch(() => setBroken(true)) : undefined}
-      style={({ pressed }) => [styles.fileRow, pressed && styles.rowPressed]}
-    >
-      <Icon as={kind === 'video' ? Play : FileText} size={15} color={color.textDim} />
-      <Text style={styles.fileName} numberOfLines={1}>
-        {label}
-      </Text>
-      <Text style={styles.stamp}>{relativeTime(artifact.addedAt, Date.now())}</Text>
-    </PressableScale>
+        </PressableScale>
+      )}
+      {open ? <ArtifactViewer artifact={artifact} url={url} onClose={() => setOpen(false)} /> : null}
+    </>
   )
 }
 

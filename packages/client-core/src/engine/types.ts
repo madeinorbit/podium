@@ -356,7 +356,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  ids so the broadcast reconciles by id — and rolls the optimistic rows back
    *  if the create never lands. Returns the ids synchronously so the caller
    *  navigates without waiting on the round-trip. */
-  spawnDraftAgent: (args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }) => {
+  spawnDraftAgent: (args: {
+    target: SpawnTarget
+    agentKind: AgentKind
+    firstPrompt?: string
+    model?: string
+    effort?: string
+  }) => {
     sessionId: SessionId
     issueId: IssueId
   }

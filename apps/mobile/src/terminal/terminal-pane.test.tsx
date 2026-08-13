@@ -135,7 +135,7 @@ const { TerminalPane } = await import('./TerminalPane')
 const TARGET = { path: '/repo/wt', repoPath: '/repo' }
 
 /**
- * The create path in two moves, as NewSessionScreen performs it: spawn through
+ * The create path in two moves, as the launch sheet performs it: spawn through
  * the store, THEN mount the pane on the returned id. Splitting them (rather than
  * spawning inside the pane's own mount) is what lets a test drive the id through
  * the REAL optimism ledger — a hand-built pending set would test the fixture.
@@ -201,8 +201,8 @@ describe('TerminalPane on the create path (POD-1613)', () => {
     const ctl = control
     if (!ctl) throw new Error('harness did not render')
 
-    // Create, then land on the session — `router.replace` the instant the spawn
-    // returns, which is what NewSessionScreen does.
+    // Create, then land on the session — navigate the instant the spawn
+    // returns, which is what the launch sheet does.
     let spawned: SessionId | undefined
     await act(async () => {
       spawned = ctl.spawn()
