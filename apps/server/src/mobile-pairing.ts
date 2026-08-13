@@ -110,7 +110,8 @@ export class MobilePairingManager {
   ): { claimId: string; phrase: [string, string, string]; expiresAt: string } | undefined {
     this.sweep(nowMs)
     const pairingId = this.pairingIdByCode.get(input.pairCode)
-    const grant = pairingId ? this.byPairingId.get(pairingId) : undefined
+    if (!pairingId) return undefined
+    const grant = this.byPairingId.get(pairingId)
     if (!grant || grant.state !== 'pending') return undefined
 
     let claimId = this.randomToken(18)
@@ -185,7 +186,8 @@ export class MobilePairingManager {
   ): CompletedMobilePairing | 'pending' | undefined {
     this.sweep(nowMs)
     const pairingId = this.pairingIdByClaim.get(claimId)
-    const grant = pairingId ? this.byPairingId.get(pairingId) : undefined
+    if (!pairingId) return undefined
+    const grant = this.byPairingId.get(pairingId)
     const claim = grant?.claim
     if (!grant || !claim || (grant.state !== 'claimed' && grant.state !== 'approved'))
       return undefined

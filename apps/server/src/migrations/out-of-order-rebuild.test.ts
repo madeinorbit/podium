@@ -50,7 +50,7 @@ const ordered = [...DRIZZLE_MIGRATIONS].sort((a, b) => a.name.localeCompare(b.na
 const columns = (db: Db, table: string) =>
   (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
 
-/** Every table's column list, keyed by table — the schema, comparably. */
+/** Every table's named columns, keyed by table and compared without physical order. */
 function tableColumns(db: Db): [string, string][] {
   const tables = db
     .prepare(
@@ -59,7 +59,7 @@ function tableColumns(db: Db): [string, string][] {
          ORDER BY name`,
     )
     .all() as { name: string }[]
-  return tables.map((t) => [t.name, columns(db, t.name).join(',')])
+  return tables.map((t) => [t.name, columns(db, t.name).sort().join(',')])
 }
 
 /**
@@ -177,7 +177,8 @@ describe('the blast radius', () => {
   /**
    * Re-derived here rather than taken on trust, and re-derived on every run: the
    * upgraded database and a fresh in-order install are compared column by column
-   * across EVERY table. If the out-of-order rebuild costs a second column later —
+   * across EVERY table by column name, deliberately ignoring SQLite's physical
+   * column order. If the out-of-order rebuild costs a second named column later —
    * a new lineage, a new rebuild — this test names it instead of a live server
    * discovering it. (A legacy pre-drizzle `schema_version` table exists on some
    * old installs and on no fresh one; it is not produced by any migration, so it
@@ -190,7 +191,7 @@ describe('the blast radius', () => {
 
     const upgraded = damagedDb()
     const drift = tableColumns(fresh).filter(
-      ([table, cols]) => cols !== columns(upgraded, table).join(','),
+      ([table, cols]) => cols !== columns(upgraded, table).sort().join(','),
     )
     // The damage, stated before it is repaired — otherwise a broken comparison
     // would read as "no drift" and pass forever.
