@@ -186,7 +186,9 @@ jobs:
           head -1 "$key_path" | grep -q 'BEGIN PRIVATE KEY' \
             || { echo "APPLE_API_KEY_CONTENT is not a PEM private key (missing BEGIN line)" >&2; exit 1; }
           grep -q 'END PRIVATE KEY' "$key_path" \
-            || { echo "APPLE_API_KEY_CONTENT is truncated (missing END line)" >&2; exit 1; }
+            || { echo "APPLE_API_KEY_CONTENT is truncated (missing END line). Its interactive
+          prompt reads a SINGLE line, so pasting a multi-line PEM there keeps only the header.
+          Set it from the file instead: gh secret set APPLE_API_KEY_CONTENT < AuthKey_KEYID.p8" >&2; exit 1; }
           openssl pkey -in "$key_path" -noout \
             || { echo "APPLE_API_KEY_CONTENT is not a valid private key" >&2; exit 1; }
           echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"

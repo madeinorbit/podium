@@ -68,6 +68,14 @@ and refuses to publish unless the bundle is genuinely notarized.
 Notarization uses an App Store Connect API key rather than an Apple ID and app-specific password:
 no personal account is coupled to releases, and there is no password to rotate when someone leaves.
 
+Set the multi-line ones **from the file**, never by pasting into an interactive prompt — `gh secret
+set` reads a single line from a terminal, so a pasted PEM silently stores only its header:
+
+```bash
+gh secret set APPLE_API_KEY_CONTENT < AuthKey_KEYID.p8
+openssl base64 -A -in cert.p12 | gh secret set APPLE_CERTIFICATE
+```
+
 Two pieces of the macOS build are easy to get wrong when changing it:
 
 - **The bundled `podium` sidecar is signed separately**, by `apps/desktop/scripts/stage-sidecar.ts`,
