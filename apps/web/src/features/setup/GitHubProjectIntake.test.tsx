@@ -51,8 +51,8 @@ describe('GitHub project intake', () => {
         .getAttribute('aria-disabled'),
     ).toBe('true')
     expect(
-      screen.getByRole('button', { name: 'Choose a repository' }).getAttribute('aria-disabled'),
-    ).toBe('true')
+      (screen.getByRole('button', { name: 'Choose a repository' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
     githubList.mockResolvedValue({ status: { state: 'ready', login: 'octocat' }, repositories: [] })
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
     expect(githubList).toHaveBeenCalledWith({ machineId: 'laptop' })
@@ -85,6 +85,8 @@ describe('GitHub project intake', () => {
     render(<GitHubProjectIntake machine={machine} homePath="/Users/me" onClone={vi.fn()} />)
 
     expect(await screen.findByText('Sign in to GitHub CLI')).toBeTruthy()
+    expect(screen.getByText('gh auth login')).toBeTruthy()
+    expect(screen.getByText('Authorize GitHub first')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Copy sign-in command' })).toBeTruthy()
     expect(
       (screen.getByRole('textbox', { name: 'Search GitHub repositories' }) as HTMLInputElement)
@@ -122,10 +124,10 @@ describe('GitHub project intake', () => {
       (screen.getByRole('textbox', { name: 'Search GitHub repositories' }) as HTMLInputElement)
         .value,
     ).toBe('hello')
-    expect((screen.getByLabelText('Clone destination on Laptop') as HTMLInputElement).value).toBe(
+    expect((screen.getByLabelText('Where should Podium keep it?') as HTMLInputElement).value).toBe(
       '/Users/me/src/hello-world',
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Clone hello-world' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Use hello-world' }))
 
     await waitFor(() =>
       expect(onClone).toHaveBeenCalledWith('octocat/hello-world', '/Users/me/src/hello-world'),

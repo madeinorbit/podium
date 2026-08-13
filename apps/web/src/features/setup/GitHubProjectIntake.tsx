@@ -8,6 +8,7 @@ import { formatAppError } from '@/app/AppErrorPage'
 import { useStoreSelector } from '@/app/store'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SetupBusyOverlay, SetupError } from './SetupFeedback'
 
 type IntakeMachine = Pick<MachineWire, 'id' | 'name' | 'online' | 'inventory'>
 type Draft = { query: string; repository: string; destination: string }
@@ -196,16 +197,19 @@ export function GitHubProjectIntake({
       )}
 
       {status?.state === 'logged-out' && (
-        <div className="m-3 rounded-lg border border-border bg-muted/30 p-3">
+        <div className="m-3 rounded-md border border-border bg-muted/30 p-3">
           <div className="text-sm font-medium">Sign in to GitHub CLI</div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Run <code>gh auth login</code> in a terminal on {machine.name}. Podium uses that login
-            directly and never stores your GitHub token.
+            Run this on {machine.name}. It opens GitHub's browser sign-in; Podium uses the resulting
+            GitHub CLI login and never stores your token.
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2">
+            <code className="select-all font-mono text-sm text-foreground">gh auth login</code>
             <Button size="sm" variant="outline" onClick={() => void copySignIn()}>
               <Copy size={14} /> {copied ? 'Copied' : 'Copy sign-in command'}
             </Button>
+          </div>
+          <div className="mt-2 flex justify-end">
             <Button size="sm" onClick={() => void refresh(true)} disabled={checking}>
               <RefreshCw size={14} /> {checking ? 'Checking…' : 'Check again'}
             </Button>
@@ -219,19 +223,50 @@ export function GitHubProjectIntake({
           aria-label="Search GitHub repositories"
           aria-disabled={unavailable}
           readOnly={unavailable}
-          className="h-7"
+          className="h-8"
           placeholder={checking ? 'Checking GitHub…' : 'Search accessible repositories'}
           value={draft.query}
           onChange={(event) => setDraft({ ...draft, query: event.currentTarget.value })}
         />
         {status?.state === 'ready' && (
-          <span className="shrink-0 text-[11px] text-muted-foreground">
+          <span className="shrink-0 text-xs text-muted-foreground">
             {status.login ? `Signed in as ${status.login}` : 'Signed in'}
           </span>
         )}
       </div>
 
-      <div className="min-h-[180px] flex-1 overflow-y-auto p-1.5">
+      <div
+        className={
+          unavailable
+            ? 'relative min-h-[180px] flex-1 overflow-hidden p-1.5'
+            : 'min-h-[180px] flex-1 overflow-y-auto p-1.5'
+        }
+        aria-disabled={unavailable}
+      >
+        {unavailable && (
+          <div className="flex h-full min-h-[176px] flex-col justify-center gap-2" role="status">
+            <div className="space-y-1.5 opacity-35" aria-hidden="true">
+              {['your-team/project', 'your-name/toolbox', 'your-org/application'].map((name) => (
+                <div key={name} className="flex items-center gap-2 rounded-md px-2 py-2 text-sm">
+                  <GitFork size={15} />
+                  <span>{name}</span>
+                </div>
+              ))}
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center bg-background/55 px-6 text-center backdrop-blur-[1px]">
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  {checking ? 'Checking GitHub authorization…' : 'Authorize GitHub first'}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {status?.state === 'missing'
+                    ? 'Install GitHub CLI before Podium can list repositories.'
+                    : 'Authorize first before Podium can list and clone your repositories.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {status?.state === 'ready' && !checking && filtered.length === 0 && (
           <p className="p-3 text-xs text-muted-foreground">
             {repositories.length === 0
@@ -256,15 +291,15 @@ export function GitHubProjectIntake({
                   <GitFork size={15} className="text-muted-foreground" />
                 )}
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium">{repo.nameWithOwner}</span>
+                  <span className="block truncate text-sm font-medium">{repo.nameWithOwner}</span>
                   {repo.description && (
-                    <span className="block truncate text-[11px] text-muted-foreground">
+                    <span className="block truncate text-xs text-muted-foreground">
                       {repo.description}
                     </span>
                   )}
                 </span>
                 {repo.isPrivate && (
-                  <span className="rounded border border-border px-1.5 text-[10px] text-muted-foreground">
+                  <span className="rounded border border-border px-1.5 text-xs text-muted-foreground">
                     private
                   </span>
                 )}
@@ -273,9 +308,9 @@ export function GitHubProjectIntake({
           })}
       </div>
 
-      <div className="border-t border-border px-3.5 py-2.5">
-        <label htmlFor="github-clone-destination" className="text-[11px] text-muted-foreground">
-          Clone destination on {machine.name}
+      <div className="border-t-2 border-border-strong px-3.5 pt-3.5 pb-4">
+        <label htmlFor="github-clone-destination" className="text-xs font-medium text-foreground">
+          Where should Podium keep it?
         </label>
         <div className="mt-1 flex gap-2 max-sm:flex-col">
           <Input
@@ -288,20 +323,30 @@ export function GitHubProjectIntake({
             onChange={(event) => setDraft({ ...draft, destination: event.currentTarget.value })}
           />
           <Button
-            aria-disabled={!canClone || cloning}
+            disabled={!canClone || cloning}
             onClick={() => void clone()}
             className="max-sm:w-full"
           >
             <Download size={15} />{' '}
             {cloning
-              ? 'Cloning…'
+              ? 'Preparing…'
               : selected
-                ? `Clone ${repoFolder(selected.nameWithOwner)}`
+                ? `Use ${repoFolder(selected.nameWithOwner)}`
                 : 'Choose a repository'}
           </Button>
         </div>
-        {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+        {error && (
+          <div className="mt-3">
+            <SetupError>{error}</SetupError>
+          </div>
+        )}
       </div>
+      {cloning && (
+        <SetupBusyOverlay
+          title="Bringing in your repository…"
+          detail="Podium is cloning the repository and preparing it for use."
+        />
+      )}
     </div>
   )
 }

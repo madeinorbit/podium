@@ -2,7 +2,7 @@ import { asMachineId } from '@podium/model'
 import type { MachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { LOCAL_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
-import type { JSX, ReactNode } from 'react'
+import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useStoreSelector } from '@/app/store'
@@ -71,21 +71,26 @@ function readLocalProjectDraft(raw: string | null | undefined): LocalProjectDraf
 export function RepoScanFlow({
   onClose,
   onDone,
-  intro,
+  onboarding = false,
   initialMachineId,
 }: {
   onClose: () => void
   /** Fired once the selection is committed; the count covers adds + removals. */
   onDone: (changedCount: number) => void
-  intro?: ReactNode
+  /** Persist first-run intake progress across reloads and Explore Podium. */
+  onboarding?: boolean
   /** Preselect a machine (e.g. the machines panel's per-row "Find repos"). */
   initialMachineId?: MachineId
 }): JSX.Element {
   const { trpc, refreshRepos, machines, uiState } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, refreshRepos: s.refreshRepos, machines: s.machines, uiState: s.uiState }),
+    (s) => ({
+      trpc: s.trpc,
+      refreshRepos: s.refreshRepos,
+      machines: s.machines,
+      uiState: s.uiState,
+    }),
     shallowEqual,
   )
-  const onboarding = intro !== undefined
   const [initialDraft] = useState<LocalProjectDraft>(() =>
     onboarding ? readLocalProjectDraft(uiState?.get(LOCAL_PROJECT_INTAKE_DRAFT_KEY)) : {},
   )
@@ -223,25 +228,6 @@ export function RepoScanFlow({
     }
   }
 
-  if (results) {
-    return (
-      <RepoScanResults
-        scannedPath={results.path}
-        candidates={results.candidates}
-        saving={adding}
-        error={addError}
-        onApply={(changes) => void applyChanges(changes)}
-        onBack={() => {
-          setResults(null)
-          setAddError(null)
-          persistDraft({ results: undefined, selectedPaths: undefined })
-        }}
-        initialSelectedPaths={draft.selectedPaths}
-        onSelectionChange={(selectedPaths) => persistDraft({ selectedPaths })}
-      />
-    )
-  }
-
   return (
     <RepoPickerModal
       onClose={() => {
@@ -250,7 +236,7 @@ export function RepoScanFlow({
       onPick={addThisFolder}
       onScan={scanFrom}
       onCloneGithub={cloneFromGitHub}
-      initialSource={draft.source ?? (intro ? 'github' : 'local')}
+      initialSource={draft.source ?? 'local'}
       initialPath={draft.browsePath}
       onProgress={persistDraft}
       machines={machines}
@@ -258,7 +244,25 @@ export function RepoScanFlow({
         selectedMachineId === undefined ? undefined : asMachineId(selectedMachineId)
       }
       onMachineChange={setSelectedMachineId}
-      {...(intro ? { intro } : {})}
+      resultPanel={
+        results ? (
+          <RepoScanResults
+            embedded
+            scannedPath={results.path}
+            candidates={results.candidates}
+            saving={adding}
+            error={addError}
+            onApply={(changes) => void applyChanges(changes)}
+            onBack={() => {
+              setResults(null)
+              setAddError(null)
+              persistDraft({ results: undefined, selectedPaths: undefined })
+            }}
+            initialSelectedPaths={draft.selectedPaths}
+            onSelectionChange={(selectedPaths) => persistDraft({ selectedPaths })}
+          />
+        ) : undefined
+      }
     />
   )
 }

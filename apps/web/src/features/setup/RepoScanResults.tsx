@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 import type { RepoCandidate } from './ranking'
+import { SetupBusyOverlay, SetupError } from './SetupFeedback'
 
 /** Rows the server already has: unchecking one asks for its REMOVAL. */
 function isRegistered(c: RepoCandidate): boolean {
@@ -48,6 +49,7 @@ export function RepoScanResults({
   onBack,
   initialSelectedPaths,
   onSelectionChange,
+  embedded = false,
 }: {
   scannedPath: string
   candidates: RepoCandidate[]
@@ -57,6 +59,8 @@ export function RepoScanResults({
   onBack: () => void
   initialSelectedPaths?: string[]
   onSelectionChange?: (selectedPaths: string[]) => void
+  /** Render inside RepoPickerModal so a completed scan updates the existing dialog in place. */
+  embedded?: boolean
 }): JSX.Element {
   const isMobile = useIsMobile()
   // Registered rows start checked because that IS their state. Nothing else does:
@@ -113,6 +117,111 @@ export function RepoScanResults({
     ...(remove.length > 0 ? [`Remove ${remove.length}`] : []),
   ].join(' · ')
 
+  const content = (
+    <>
+      <DialogHeader className="flex-row items-start justify-between gap-3 border-b border-border px-4 pt-3.5 pb-3">
+        <div className="min-w-0">
+          <DialogTitle className="text-base font-semibold text-foreground">
+            Repositories found
+          </DialogTitle>
+          <div className="mt-1 break-words font-mono text-sm text-foreground">{scannedPath}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {candidates.length} found
+            {groups.already.length > 0 && ` · ${groups.already.length} already added`}
+          </div>
+        </div>
+      </DialogHeader>
+
+      {error && (
+        <div className="border-b border-border-strong px-4 py-3">
+          <SetupError>{error}</SetupError>
+        </div>
+      )}
+
+      <div className="min-h-[200px] flex-1 overflow-y-auto px-2 py-1.5">
+        {candidates.length === 0 && (
+          <div className="p-3 text-xs text-muted-foreground/70">
+            No git repositories found in this folder.
+          </div>
+        )}
+        {groups.already.length > 0 && (
+          <Section
+            title="ALREADY ADDED"
+            kind="already"
+            group={groups.already}
+            selected={selected}
+            onToggle={toggle}
+            onAll={(on) => setGroup(groups.already, on)}
+          />
+        )}
+        {groups.found.length > 0 && (
+          <Section
+            title="FOUND — NOT ADDED YET"
+            kind="found"
+            group={groups.found}
+            selected={selected}
+            onToggle={toggle}
+            onAll={(on) => setGroup(groups.found, on)}
+          />
+        )}
+        {groups.hidden.length > 0 && (
+          <Section
+            title="HIDDEN / SYSTEM"
+            kind="found"
+            group={groups.hidden}
+            selected={selected}
+            onToggle={toggle}
+            onAll={(on) => setGroup(groups.hidden, on)}
+          />
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
+        <div className="min-w-0 text-xs text-muted-foreground">
+          {changeLabel === '' ? (
+            'Nothing selected yet'
+          ) : (
+            <span className="inline-flex flex-wrap items-center gap-x-1.5">
+              {add.length > 0 && (
+                <span>
+                  {add.length} to add
+                  {remove.length > 0 && ' ·'}
+                </span>
+              )}
+              {remove.length > 0 && (
+                <span className="font-medium text-destructive">
+                  {remove.length} to remove from Podium
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-none items-center gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={onBack} disabled={saving}>
+            Back
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={remove.length > 0 && add.length === 0 ? 'destructive' : 'default'}
+            disabled={saving || changeLabel === ''}
+            onClick={() => onApply({ add, remove })}
+          >
+            {saving ? 'Saving...' : changeLabel === '' ? 'No changes' : changeLabel}
+          </Button>
+        </div>
+      </div>
+      {saving && (
+        <SetupBusyOverlay
+          title="Saving repository changes…"
+          detail="Podium is updating the project list. This dialog will close when it is ready."
+        />
+      )}
+    </>
+  )
+
+  if (embedded) return content
+
   return (
     <Dialog
       open
@@ -129,98 +238,7 @@ export function RepoScanResults({
         // to 384px (POD-832).
         className="flex max-h-[min(760px,calc(100dvh-32px))] w-full max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[900px]"
       >
-        <DialogHeader className="flex-row items-start justify-between gap-3 border-b border-border px-4 pt-3.5 pb-3">
-          <div className="min-w-0">
-            <DialogTitle className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
-              FIND REPOSITORIES
-            </DialogTitle>
-            <div className="mt-1 break-words font-mono text-[13px] text-foreground">
-              {scannedPath}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              {candidates.length} found
-              {groups.already.length > 0 && ` · ${groups.already.length} already added`}
-            </div>
-          </div>
-        </DialogHeader>
-
-        {error && (
-          <div className="border-b border-border px-4 py-2 text-xs text-destructive">{error}</div>
-        )}
-
-        <div className="min-h-[200px] flex-1 overflow-y-auto px-2 py-1.5">
-          {candidates.length === 0 && (
-            <div className="p-3 text-xs text-muted-foreground/70">
-              No git repositories found in this folder.
-            </div>
-          )}
-          {groups.already.length > 0 && (
-            <Section
-              title="ALREADY ADDED"
-              kind="already"
-              group={groups.already}
-              selected={selected}
-              onToggle={toggle}
-              onAll={(on) => setGroup(groups.already, on)}
-            />
-          )}
-          {groups.found.length > 0 && (
-            <Section
-              title="FOUND — NOT ADDED YET"
-              kind="found"
-              group={groups.found}
-              selected={selected}
-              onToggle={toggle}
-              onAll={(on) => setGroup(groups.found, on)}
-            />
-          )}
-          {groups.hidden.length > 0 && (
-            <Section
-              title="HIDDEN / SYSTEM"
-              kind="found"
-              group={groups.hidden}
-              selected={selected}
-              onToggle={toggle}
-              onAll={(on) => setGroup(groups.hidden, on)}
-            />
-          )}
-        </div>
-
-        <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
-          <div className="min-w-0 text-xs text-muted-foreground">
-            {changeLabel === '' ? (
-              'Nothing selected yet'
-            ) : (
-              <span className="inline-flex flex-wrap items-center gap-x-1.5">
-                {add.length > 0 && (
-                  <span>
-                    {add.length} to add
-                    {remove.length > 0 && ' ·'}
-                  </span>
-                )}
-                {remove.length > 0 && (
-                  <span className="font-medium text-destructive">
-                    {remove.length} to remove from Podium
-                  </span>
-                )}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-none items-center gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={onBack} disabled={saving}>
-              Back
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={remove.length > 0 && add.length === 0 ? 'destructive' : 'default'}
-              disabled={saving || changeLabel === ''}
-              onClick={() => onApply({ add, remove })}
-            >
-              {saving ? 'Saving...' : changeLabel === '' ? 'No changes' : changeLabel}
-            </Button>
-          </div>
-        </div>
+        {content}
       </DialogContent>
     </Dialog>
   )
@@ -259,7 +277,7 @@ function Section({
   return (
     <div className="mb-3">
       <div className="sticky top-0 z-10 flex items-center justify-between gap-3 bg-popover px-2 pt-2 pb-1.5">
-        <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+        <span className="text-xs font-semibold tracking-wide text-muted-foreground">
           {title} <span className="text-muted-foreground/60">({group.length})</span>
         </span>
         <Button
@@ -286,11 +304,11 @@ function Section({
           <div
             key={c.path}
             className={cn(
-              'grid cursor-pointer grid-cols-[auto_auto_1fr_auto] items-center gap-2.5 rounded-md border-l-2 py-1.5 pr-2 pl-1.5 transition-colors max-md:grid-cols-[auto_1fr_auto]',
+              'grid cursor-pointer grid-cols-[auto_auto_1fr_auto] items-center gap-2.5 rounded-md border py-1.5 px-2 transition-colors max-md:grid-cols-[auto_1fr_auto]',
               fate === 'remove' &&
-                'border-l-destructive bg-destructive/[0.06] hover:bg-destructive/10',
-              fate === 'add' && 'border-l-primary bg-primary/[0.06] hover:bg-primary/10',
-              (fate === 'keep' || fate === 'ignore') && 'border-l-transparent hover:bg-muted',
+                'border-destructive/25 bg-destructive/[0.06] hover:bg-destructive/10',
+              fate === 'add' && 'border-primary/25 bg-primary/[0.06] hover:bg-primary/10',
+              (fate === 'keep' || fate === 'ignore') && 'border-transparent hover:bg-muted',
             )}
           >
             <Checkbox
@@ -302,7 +320,7 @@ function Section({
             <label htmlFor={`${rowIdBase}-${i}`} className="contents cursor-pointer">
               <span
                 className={cn(
-                  'text-[13px]',
+                  'text-sm',
                   fate === 'remove'
                     ? 'text-muted-foreground line-through decoration-destructive/50'
                     : 'text-foreground',
@@ -310,7 +328,7 @@ function Section({
               >
                 {c.name}
               </span>
-              <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/70 max-md:col-[2/4] max-md:row-2">
+              <span className="min-w-0 truncate font-mono text-xs text-muted-foreground/70 max-md:col-[2/4] max-md:row-2">
                 {c.path}
               </span>
             </label>
@@ -318,7 +336,7 @@ function Section({
               <FateChip fate={fate} status={c.status} alsoOn={c.alsoOn} />
               {c.status === 'candidate' && (c.alsoOn?.length ?? 0) > 0 && (
                 <span
-                  className="whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground"
+                  className="whitespace-nowrap rounded border border-border px-1.5 text-xs text-muted-foreground"
                   title={`Same repo as on ${c.alsoOn?.join(', ')}`}
                 >
                   also on {c.alsoOn?.[0]}
@@ -326,7 +344,7 @@ function Section({
               )}
               {c.branch && (
                 <span
-                  className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground max-md:hidden"
+                  className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-xs text-muted-foreground max-md:hidden"
                   title="branch"
                 >
                   <GitBranch size={11} /> {c.branch}
@@ -334,14 +352,14 @@ function Section({
               )}
               {c.hasOrigin && (
                 <span
-                  className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground max-md:hidden"
+                  className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-xs text-muted-foreground max-md:hidden"
                   title="has remote"
                 >
                   <Globe size={11} /> origin
                 </span>
               )}
               {c.worktreeCount > 0 && (
-                <span className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground max-md:hidden">
+                <span className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-xs text-muted-foreground max-md:hidden">
                   +{c.worktreeCount} wt
                 </span>
               )}
@@ -366,20 +384,20 @@ function FateChip({
 }): JSX.Element | null {
   if (fate === 'remove')
     return (
-      <span className="whitespace-nowrap rounded border border-destructive/40 bg-destructive/10 px-1.5 text-[10px] font-medium text-destructive">
+      <span className="whitespace-nowrap rounded border border-destructive/40 bg-destructive/10 px-1.5 text-xs font-medium text-destructive">
         will be removed
       </span>
     )
   if (fate === 'add')
     return (
-      <span className="whitespace-nowrap rounded border border-primary/40 bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+      <span className="whitespace-nowrap rounded border border-primary/40 bg-primary/10 px-1.5 text-xs font-medium text-primary">
         will be added
       </span>
     )
   if (fate === 'keep')
     return (
       <span
-        className="whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground"
+        className="whitespace-nowrap rounded border border-border px-1.5 text-xs text-muted-foreground"
         title={
           status === 'auto-registered' && alsoOn?.length
             ? `Added automatically — same repo as on ${alsoOn.join(', ')}`

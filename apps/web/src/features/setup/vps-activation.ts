@@ -31,6 +31,14 @@ export interface VpsActivationState {
   target?: VpsActivationTarget
 }
 
+/** The welcome action starts with machine pairing; the overview is informational, not a gate. */
+export function startVpsPairingState(
+  returnRoute: VpsReturnRoute,
+  baselineMachineIds: MachineId[],
+): VpsActivationState {
+  return vpsPairingState(vpsIntroState(returnRoute), baselineMachineIds, true)
+}
+
 export function isVpsActivationRoute(route: ActivationRoute): route is VpsActivationRoute {
   return (VPS_ACTIVATION_ROUTES as readonly string[]).includes(route)
 }

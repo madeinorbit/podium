@@ -6,6 +6,7 @@ import { issueAgentKind } from '@/lib/issue-agents'
 
 export type FirstTaskDraft = {
   repoPath: string
+  machineId: string
   agent: IssueAgentKind | ''
   model: string
   effort: string
@@ -19,6 +20,7 @@ export type FirstTaskDraft = {
 
 export const EMPTY_FIRST_TASK_DRAFT: FirstTaskDraft = {
   repoPath: '',
+  machineId: '',
   agent: '',
   model: 'auto',
   effort: 'auto',
@@ -35,6 +37,7 @@ export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
     const value = JSON.parse(raw) as Partial<Record<keyof FirstTaskDraft, unknown>>
     return {
       repoPath: typeof value.repoPath === 'string' ? value.repoPath : '',
+      machineId: typeof value.machineId === 'string' ? value.machineId : '',
       agent: typeof value.agent === 'string' ? (issueAgentKind(value.agent) ?? '') : '',
       model: typeof value.model === 'string' && value.model ? value.model : 'auto',
       effort: typeof value.effort === 'string' && value.effort ? value.effort : 'auto',

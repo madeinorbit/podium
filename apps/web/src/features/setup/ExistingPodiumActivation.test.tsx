@@ -15,7 +15,7 @@ import {
 const MACHINE_PAIRING_TOKEN =
   'eyJ2IjoxLCJzZXJ2ZXJVcmwiOiJ3c3M6Ly9wb2RpdW0uZXhhbXBsZS5jb20iLCJwYWlyQ29kZSI6IlBBSVItQ09ERSJ9'
 const MACHINE_PAIRING_COMMAND =
-  "sh -c 'set -eu; sh \"$1\" \"$@\"' sh https://github.com/madeinorbit/podium/releases/latest/download/install.sh --channel stable --agents codex,claude-code,grok --managed --join " +
+  'sh -c \'set -eu; sh "$1" "$@"\' sh https://github.com/madeinorbit/podium/releases/latest/download/install.sh --channel stable --agents codex,claude-code,grok --managed --join ' +
   MACHINE_PAIRING_TOKEN
 
 const uiValues = new Map<string, string>()
@@ -82,14 +82,30 @@ describe('existing Podium activation', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Connect as a client' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Use as a client' }))
     expect(onRouteChange).toHaveBeenCalledWith('existing-client')
-    fireEvent.click(screen.getByRole('button', { name: 'Join as a machine' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add this machine' }))
     expect(onRouteChange).toHaveBeenCalledWith('existing-machine')
-    fireEvent.click(screen.getByRole('button', { name: 'Back to local setup' }))
-    expect(onRouteChange).toHaveBeenCalledWith('local-project')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to activation choices' }))
+    expect(onRouteChange).toHaveBeenCalledWith('welcome')
     fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
     expect(onExplore).toHaveBeenCalledOnce()
+  })
+
+  it('returns from a connection form to the activation choices, not repository intake', () => {
+    const onRouteChange = vi.fn()
+    render(
+      <ExistingPodiumActivation
+        route="existing-client"
+        trpc={trpcWith()}
+        onRouteChange={onRouteChange}
+        onExplore={vi.fn()}
+        onConfigured={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to activation choices' }))
+    expect(onRouteChange).toHaveBeenCalledWith('welcome')
   })
 
   it('configures client-only mode with the normalized URL and explains remote login', async () => {
@@ -142,9 +158,7 @@ describe('existing Podium activation', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
     expect(onExplore).toHaveBeenCalledOnce()
-    expect(uiValues.get(EXISTING_PODIUM_CLIENT_DRAFT_KEY)).toBe(
-      'https://saved.example.com',
-    )
+    expect(uiValues.get(EXISTING_PODIUM_CLIENT_DRAFT_KEY)).toBe('https://saved.example.com')
 
     first.unmount()
     render(
@@ -162,9 +176,7 @@ describe('existing Podium activation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save and restart' }))
     expect((await screen.findByRole('alert')).textContent).toMatch(/remote unavailable/)
-    expect(uiValues.get(EXISTING_PODIUM_CLIENT_DRAFT_KEY)).toBe(
-      'https://saved.example.com',
-    )
+    expect(uiValues.get(EXISTING_PODIUM_CLIENT_DRAFT_KEY)).toBe('https://saved.example.com')
   })
 
   it('rejects an invalid client URL before changing local configuration', async () => {

@@ -11,6 +11,7 @@ import {
   isDestinationOrigin,
   parseVpsActivation,
   serializeVpsActivation,
+  startVpsPairingState,
   vpsDestinationUrl,
   vpsIntroState,
   vpsPairingState,
@@ -31,6 +32,15 @@ function deferred<T>(): Deferred<T> {
 }
 
 describe('durable VPS activation state', () => {
+  it('starts a new VPS setup at shared machine pairing', () => {
+    expect(startVpsPairingState('welcome', [asMachineId('source')])).toMatchObject({
+      route: 'vps-pairing',
+      returnRoute: 'welcome',
+      baselineMachineIds: ['source'],
+      moveServer: true,
+    })
+  })
+
   it('round-trips the versioned route, preserved local return, baseline, and target', () => {
     const pairing = vpsPairingState(vpsIntroState('local-project'), [
       asMachineId('source'),

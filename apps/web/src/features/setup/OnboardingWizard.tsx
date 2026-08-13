@@ -1,8 +1,5 @@
-import type { IssueId } from '@podium/model'
-import { ArrowRight } from 'lucide-react'
 import type { JSX } from 'react'
 import type { Trpc } from '@/app/trpc'
-import { Button } from '@/components/ui/button'
 import {
   ActivationShell,
   AlwaysOnVpsChoice,
@@ -36,7 +33,7 @@ export function OnboardingWizard({
   route: ActivationRoute
   onRouteChange: (route: ActivationRoute) => void
   onExplore: () => void
-  onComplete: (issueId: IssueId) => void
+  onComplete: () => void
   onConnectionConfigured: () => Promise<void>
   onEnterVps: (returnRoute: VpsReturnRoute) => Promise<void>
   trpc: Trpc
@@ -78,62 +75,25 @@ export function OnboardingWizard({
 
   if (route === 'local-project') {
     return (
-      <>
-        <ActivationShell
-          eyebrow="Local activation"
-          title="Find the projects you want to run."
-          description="The machine-aware repository browser is open. Your place here is saved if you explore Podium or reload."
-        >
-          <p className="text-[12px] text-muted-foreground">Choose a folder in the browser.</p>
-        </ActivationShell>
-        <RepoScanFlow
-          onClose={() => onRouteChange('welcome')}
-          onDone={() => onRouteChange('agent')}
-          intro={
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="max-w-[52ch] text-muted-foreground">
-                Choose a folder and scan it for Git repositories, then pick what to add.
-              </span>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onRouteChange('existing-podium')}
-                >
-                  Connect to existing Podium
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void onEnterVps('local-project').catch(() => {})}
-                >
-                  Set up an always-on VPS
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={onExplore}>
-                  Explore Podium
-                  <ArrowRight data-icon="inline-end" aria-hidden="true" />
-                </Button>
-              </div>
-            </div>
-          }
-        />
-      </>
+      <RepoScanFlow
+        onboarding
+        onClose={() => onRouteChange('welcome')}
+        onDone={() => onRouteChange('agent')}
+      />
     )
   }
 
   return (
     <ActivationShell
       eyebrow="Activate Podium"
-      title="Start locally, or connect to a Podium you already run."
-      description="Add a project, connect this device to an existing installation, or look around first. Activation will keep your place until you choose."
+      title="How do you want to start?"
+      description="Most people start with a project on this computer. You can also create an always-on VPS, or connect only if you already run Podium somewhere else."
       onExplore={onExplore}
     >
       <div className="max-w-[860px] divide-y divide-border/70">
         <LocalProjectChoice onSelect={() => onRouteChange('local-project')} />
-        <ExistingPodiumChoice onSelect={() => onRouteChange('existing-podium')} />
         <AlwaysOnVpsChoice onSelect={() => void onEnterVps('welcome').catch(() => {})} />
+        <ExistingPodiumChoice onSelect={() => onRouteChange('existing-podium')} />
       </div>
       {vps.error && (
         <p role="alert" className="settings-prose mt-3 text-destructive">

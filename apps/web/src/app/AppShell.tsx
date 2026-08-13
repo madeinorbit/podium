@@ -1,5 +1,4 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueId } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
@@ -16,7 +15,7 @@ import { hasActivationState, isActivationEligible } from '@/features/setup/activ
 import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
-import { activationRouteLabel, vpsIntroState } from '@/features/setup/vps-activation'
+import { activationRouteLabel, startVpsPairingState } from '@/features/setup/vps-activation'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
@@ -243,6 +242,7 @@ function AppBody(): JSX.Element {
     paletteOpen,
     setPaletteOpen,
     uiState,
+    machines,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -254,6 +254,7 @@ function AppBody(): JSX.Element {
       paletteOpen: s.paletteOpen,
       setPaletteOpen: s.setPaletteOpen,
       uiState: s.uiState,
+      machines: s.machines,
     }),
     shallowEqual,
   )
@@ -315,15 +316,21 @@ function AppBody(): JSX.Element {
   ])
 
   const enterVpsActivation = async (returnRoute: 'welcome' | 'local-project'): Promise<void> => {
-    const next = vpsIntroState(returnRoute)
+    // The welcome action is already an explicit choice to add a VPS. Enter the same
+    // machine-pairing surface used by Settings immediately; the overview remains a
+    // resumable route, but should not make a new setup look like remote discovery.
+    const next = startVpsPairingState(
+      returnRoute,
+      machines.map((machine) => machine.id),
+    )
     await vpsActivation.persist(next)
     navigateActivation(next.route)
   }
 
-  const completeActivation = (issueId: IssueId): void => {
+  const completeActivation = (): void => {
     clearActivation()
     if (vpsActivation.state) void vpsActivation.clear().catch(() => {})
-    setSelectedIssueId(issueId)
+    setSelectedIssueId(null)
     setView('workspace')
   }
 

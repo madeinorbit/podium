@@ -2,8 +2,8 @@
 import { asMachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ConfirmedVpsActivation } from './use-vps-activation'
-import { vpsIntroState, vpsPairingState, vpsTransferState } from './vps-activation'
+import type { ConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
+import { vpsIntroState, vpsPairingState, vpsTransferState } from '@/features/setup/vps-activation'
 import { clearVpsCheckpointAndReturn, GuidedVpsActivation } from './GuidedVpsActivation'
 
 const mocks = vi.hoisted(() => ({
@@ -58,7 +58,7 @@ vi.mock('@/features/machines/ServerTransfer', () => ({
   ServerTransfer: () => null,
   ServerTransferProgress: () => null,
 }))
-vi.mock('./SetupView', () => ({ NetworkStep: () => null }))
+vi.mock('@/features/setup/SetupView', () => ({ NetworkStep: () => null }))
 
 afterEach(() => {
   cleanup()

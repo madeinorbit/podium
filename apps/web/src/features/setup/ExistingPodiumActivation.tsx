@@ -88,7 +88,7 @@ export function ExistingPodiumActivation({
         trpc={trpc}
         uiState={uiState}
         onBack={() => onRouteChange('existing-podium')}
-        onLocalSetup={() => onRouteChange('local-project')}
+        onLocalSetup={() => onRouteChange('welcome')}
         onExplore={onExplore}
         onConfigured={onConfigured}
       />
@@ -101,7 +101,7 @@ export function ExistingPodiumActivation({
         trpc={trpc}
         uiState={uiState}
         onBack={() => onRouteChange('existing-podium')}
-        onLocalSetup={() => onRouteChange('local-project')}
+        onLocalSetup={() => onRouteChange('welcome')}
         onExplore={onExplore}
         onConfigured={onConfigured}
       />
@@ -111,35 +111,30 @@ export function ExistingPodiumActivation({
   return (
     <ActivationShell
       eyebrow="Existing Podium"
-      title="Connect to a Podium you already run."
-      description="Choose whether this device only opens the remote installation or also contributes its projects and agents. Your local setup route stays ready if you go back."
+      title="Use a Podium that already exists elsewhere."
+      description="This is only for a Podium server you already run on another computer or VPS. Choose whether this device should simply open it or also contribute its local projects and agents."
       onExplore={onExplore}
     >
       <div className="max-w-[720px] space-y-4">
         <div className="grid gap-3 md:grid-cols-2">
           <ConnectionChoice
             icon={<Laptop size={17} aria-hidden="true" />}
-            title="Just open it on this device"
-            description="Use this app as a client for the existing Podium. No projects or agents run on this machine."
-            action="Connect as a client"
+            title="Open the other Podium"
+            description="Use this app as a viewer and controller. The remote Podium keeps all server work; no projects or agents run on this computer."
+            action="Use as a client"
             onSelect={() => onRouteChange('existing-client')}
           />
           <ConnectionChoice
             icon={<MonitorUp size={17} aria-hidden="true" />}
-            title="Use this machine too"
-            description="Join this machine so the existing Podium can run projects and agents here."
-            action="Join as a machine"
+            title="Add this computer to it"
+            description="Keep the other Podium as the server, but let it use repositories, credentials, and agents on this computer."
+            action="Add this machine"
             onSelect={() => onRouteChange('existing-machine')}
           />
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => onRouteChange('local-project')}
-        >
+        <Button type="button" variant="ghost" size="sm" onClick={() => onRouteChange('welcome')}>
           <ArrowLeft data-icon="inline-start" aria-hidden="true" />
-          Back to local setup
+          Back to activation choices
         </Button>
       </div>
     </ActivationShell>
@@ -164,8 +159,8 @@ function ConnectionChoice({
       <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-foreground">
         {icon}
       </span>
-      <h2 className="mt-3 text-[14px] font-semibold text-foreground">{title}</h2>
-      <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">{description}</p>
+      <h2 className="mt-3 text-sm font-semibold text-foreground">{title}</h2>
+      <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
       <Button type="button" className="mt-4" onClick={onSelect}>
         {action}
         <ArrowRight data-icon="inline-end" aria-hidden="true" />
@@ -227,7 +222,7 @@ function ExistingClientStep({
     >
       <div className="max-w-[620px] space-y-5">
         <div className="rounded-xl border border-border bg-background/55 p-4">
-          <label htmlFor="existing-podium-url" className="text-[13px] font-medium text-foreground">
+          <label htmlFor="existing-podium-url" className="text-sm font-medium text-foreground">
             Existing Podium URL
           </label>
           <Input
@@ -274,7 +269,7 @@ function ExistingClientStep({
             Save and restart
           </Button>
           <Button type="button" variant="link" onClick={onLocalSetup} disabled={busy}>
-            Back to local setup
+            Back to activation choices
           </Button>
         </div>
       </div>
@@ -355,13 +350,10 @@ function ExistingMachineStep({
               <Network size={17} aria-hidden="true" />
             </span>
             <div className="min-w-0 flex-1">
-              <label
-                htmlFor="existing-podium-join"
-                className="text-[13px] font-medium text-foreground"
-              >
+              <label htmlFor="existing-podium-join" className="text-sm font-medium text-foreground">
                 Join token or command
               </label>
-              <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 In the existing Podium, open Machines, add a machine, and paste its one-line code
                 here.
               </p>
@@ -431,7 +423,7 @@ function ExistingMachineStep({
             </Button>
           )}
           <Button type="button" variant="link" onClick={onLocalSetup} disabled={busy}>
-            Back to local setup
+            Back to activation choices
           </Button>
         </div>
       </div>

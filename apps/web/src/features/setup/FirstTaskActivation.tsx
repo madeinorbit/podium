@@ -1,16 +1,20 @@
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
-import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
-import { asMutationId, type GitRepositoryWire, type HarnessAgent, type IssueId } from '@podium/model'
+import type { HarnessAgent, SessionId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
-import { ArrowLeft, ArrowRight, Check, FolderGit2, LoaderCircle } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CircleAlert,
+  LoaderCircle,
+  SquareTerminal,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { AUTO } from '@/lib/agent-models'
 import {
   ISSUE_AGENT_KINDS,
   issueAgentIcon,
@@ -18,59 +22,60 @@ import {
   issueAgentLabel,
   type IssueAgentKind,
 } from '@/lib/issue-agents'
-import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
-import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import { ActivationShell } from './ActivationShell'
 import {
   activationAgentIsReady,
   activationAgentReadiness,
   activationReadinessCopy,
+  type ActivationAgentReadiness,
 } from './agent-readiness'
 import type { ActivationRoute } from './activation-route'
-import {
-  clearFirstTaskDraft,
-  type FirstTaskDraft,
-  persistFirstTaskDraft,
-  readFirstTaskDraft,
-} from './first-task-draft'
+import { persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
+import { SetupError } from './SetupFeedback'
 
-function repoLabel(repo: GitRepositoryWire): string {
-  return repo.path.split('/').filter(Boolean).pop() ?? repo.path
+function repoLabel(path: string): string {
+  return path.split('/').filter(Boolean).pop() ?? path
 }
 
-function ActivationSteps({ current }: { current: 'agent' | 'first-task' }): JSX.Element {
+function ActivationSteps({ current }: { current: 'agent' | 'ready' }): JSX.Element {
+  const steps = ['Project', 'Agents', 'Start using Podium'] as const
+  const active = current === 'agent' ? 1 : 2
   return (
-    <ol className="mb-5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-      <li className="inline-flex items-center gap-1.5 text-foreground">
-        <span className="flex size-5 items-center justify-center rounded-full bg-success/15 text-success">
-          <Check size={12} aria-hidden="true" />
-        </span>
-        Project
-      </li>
-      <li aria-hidden="true">→</li>
-      <li
-        className={cn('inline-flex items-center gap-1.5', current === 'agent' && 'text-foreground')}
-      >
-        <span className="flex size-5 items-center justify-center rounded-full border border-border">
-          2
-        </span>
-        Agent
-      </li>
-      <li aria-hidden="true">→</li>
-      <li
-        className={cn(
-          'inline-flex items-center gap-1.5',
-          current === 'first-task' && 'text-foreground',
-        )}
-      >
-        <span className="flex size-5 items-center justify-center rounded-full border border-border">
-          3
-        </span>
-        First task
-      </li>
+    <ol className="mb-6 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+      {steps.map((step, index) => (
+        <li key={step} className="contents">
+          {index > 0 && <span aria-hidden="true">→</span>}
+          <span
+            className={cn('inline-flex items-center gap-1.5', index <= active && 'text-foreground')}
+          >
+            <span
+              className={cn(
+                'flex size-5 items-center justify-center rounded-full border border-border',
+                index < active && 'border-success/30 bg-success/15 text-success',
+                index === active && 'border-primary/35 bg-primary/10 text-primary',
+              )}
+            >
+              {index < active ? <Check size={12} aria-hidden="true" /> : index + 1}
+            </span>
+            {step}
+          </span>
+        </li>
+      ))}
     </ol>
   )
+}
+
+function setupHint(agent: IssueAgentKind, readiness: ActivationAgentReadiness): string {
+  if (readiness.state !== 'missing')
+    return activationReadinessCopy(readiness, issueAgentLabel(agent))
+  if (agent === 'opencode') {
+    return 'Install OpenCode on this machine, then run “opencode auth login”. Podium will detect it automatically.'
+  }
+  if (agent === 'cursor') {
+    return 'Install the Cursor CLI on this machine, then run “cursor-agent login”. Podium will detect it automatically.'
+  }
+  return activationReadinessCopy(readiness, issueAgentLabel(agent))
 }
 
 export function FirstTaskActivation({
@@ -82,37 +87,32 @@ export function FirstTaskActivation({
   route: Extract<ActivationRoute, 'agent' | 'first-task'>
   onRouteChange: (route: ActivationRoute) => void
   onExplore: () => void
-  onComplete: (issueId: IssueId) => void
+  onComplete: () => void
 }): JSX.Element {
-  const { trpc, repos, machines, uiState, navigateToSession } = useStoreSelector(
+  const { trpc, repos, machines, uiState } = useStoreSelector(
     (store) => ({
       trpc: store.trpc,
       repos: store.repos,
       machines: store.machines,
       uiState: store.uiState,
-      navigateToSession: store.navigateToSession,
     }),
     shallowEqual,
   )
   const repoChoices = useMemo(
     () =>
-      repos
-        .filter((repo) => repo.kind !== 'worktree')
-        .sort((a, b) =>
-          repoLabel(a).localeCompare(repoLabel(b), undefined, { sensitivity: 'base' }),
-        ),
+      repos.filter((repo) => repo.kind !== 'worktree').sort((a, b) => a.path.localeCompare(b.path)),
     [repos],
   )
-  const [draft, setDraftState] = useState<FirstTaskDraft>(() =>
+  const [draft, setDraftState] = useState(() =>
     readFirstTaskDraft(uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
   )
   const [configuredAgent, setConfiguredAgent] = useState<IssueAgentKind | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [loginBusy, setLoginBusy] = useState(false)
+  const [loginBusyAgent, setLoginBusyAgent] = useState<IssueAgentKind | null>(null)
+  const [loginSessionId, setLoginSessionId] = useState<SessionId | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const setDraft = useCallback(
-    (next: FirstTaskDraft) => {
+    (next: typeof draft) => {
       setDraftState(next)
       persistFirstTaskDraft(uiState, next)
     },
@@ -124,8 +124,11 @@ export function FirstTaskActivation({
     void trpc.settings.get
       .query()
       .then((settings) => {
-        if (cancelled) return
-        setConfiguredAgent(issueAgentKind(resolveRole(settings, 'coding').harness) ?? 'claude-code')
+        if (!cancelled) {
+          setConfiguredAgent(
+            issueAgentKind(resolveRole(settings, 'coding').harness) ?? 'claude-code',
+          )
+        }
       })
       .catch(() => {
         if (!cancelled) setConfiguredAgent('claude-code')
@@ -135,14 +138,11 @@ export function FirstTaskActivation({
     }
   }, [trpc])
 
-  const selectedRepo = repoChoices.find((repo) => repo.path === draft.repoPath)
+  const selectedRepo = repoChoices.find((repo) => repo.path === draft.repoPath) ?? repoChoices[0]
   useEffect(() => {
-    if (selectedRepo || repoChoices.length === 0) return
-    const first = repoChoices[0]
-    if (first) {
-      setDraft({ ...draft, repoPath: first.path, agent: '', model: AUTO, effort: AUTO })
-    }
-  }, [draft, repoChoices, selectedRepo, setDraft])
+    if (!selectedRepo || draft.repoPath === selectedRepo.path) return
+    setDraft({ ...draft, repoPath: selectedRepo.path })
+  }, [draft, selectedRepo, setDraft])
 
   const readinessByAgent = useMemo(
     () =>
@@ -151,198 +151,68 @@ export function FirstTaskActivation({
           agent,
           activationAgentReadiness(selectedRepo, machines, agent),
         ]),
-      ) as Record<IssueAgentKind, ReturnType<typeof activationAgentReadiness>>,
+      ) as Record<IssueAgentKind, ActivationAgentReadiness>,
     [machines, selectedRepo],
   )
+  const readyAgents = ISSUE_AGENT_KINDS.filter((agent) =>
+    activationAgentIsReady(readinessByAgent[agent]),
+  )
+  const selectedAgent =
+    issueAgentKind(draft.agent) ?? configuredAgent ?? readyAgents[0] ?? 'claude-code'
 
   useEffect(() => {
-    if (draft.agent || !configuredAgent) return
+    if (!configuredAgent || draft.agent) return
     const preferred = activationAgentIsReady(readinessByAgent[configuredAgent])
       ? configuredAgent
-      : ISSUE_AGENT_KINDS.find((agent) => activationAgentIsReady(readinessByAgent[agent]))
+      : readyAgents[0]
     if (preferred) setDraft({ ...draft, agent: preferred })
-  }, [configuredAgent, draft, readinessByAgent, setDraft])
+  }, [configuredAgent, draft, readinessByAgent, readyAgents, setDraft])
 
-  const selectedAgent = draft.agent || configuredAgent || 'claude-code'
-  const readiness = readinessByAgent[selectedAgent]
-  const ready = activationAgentIsReady(readiness)
-  const selectedMachine = readiness.machine
-
-  const selectRepo = (repoPath: string): void => {
-    setError(null)
-    setDraft({ ...draft, repoPath, agent: '', model: AUTO, effort: AUTO })
+  const chooseDefault = (agent: IssueAgentKind): void => {
+    setDraft({ ...draft, agent, model: 'auto', effort: 'auto' })
   }
 
-  const selectAgent = (agent: IssueAgentKind): void => {
-    setError(null)
-    setDraft({ ...draft, agent, model: AUTO, effort: AUTO })
-  }
-
-  const openLogin = async (): Promise<void> => {
-    if (!selectedMachine || loginBusy) return
-    setLoginBusy(true)
+  const openLogin = async (agent: IssueAgentKind): Promise<void> => {
+    const machine = readinessByAgent[agent].machine
+    if (!machine || loginBusyAgent) return
+    setLoginBusyAgent(agent)
     setError(null)
     try {
       const result = await trpc.accounts.login.mutate({
-        harness: selectedAgent as HarnessAgent,
-        machineId: selectedMachine.id,
+        harness: agent as HarnessAgent,
+        machineId: machine.id,
       })
-      onExplore()
-      navigateToSession(result.sessionId)
+      setLoginSessionId(result.sessionId)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
-      setLoginBusy(false)
+    } finally {
+      setLoginBusyAgent(null)
     }
   }
 
-  const startTask = async (): Promise<void> => {
-    if (busy) return
-    if (draft.pendingIssueId && !ready) return
-    if (!draft.pendingIssueId && (!selectedRepo || !draft.agent || !ready || !draft.title.trim())) {
-      return
-    }
-    setBusy(true)
-    setError(null)
-    try {
-      const createMutationId = draft.createMutationId || asMutationId(randomUUID())
-      if (!draft.createMutationId) setDraft({ ...draft, createMutationId })
-      const created = draft.pendingIssueId
-        ? { id: draft.pendingIssueId }
-        : await trpc.issues.create.mutate({
-            repoPath: selectedRepo?.path ?? '',
-            title: draft.title.trim(),
-            description: draft.description.trim() || undefined,
-            parentBranch: selectedRepo?.branch?.trim() || undefined,
-            defaultAgent: draft.agent,
-            defaultModel: draft.model !== AUTO ? draft.model : undefined,
-            defaultEffort: draft.effort !== AUTO ? draft.effort : undefined,
-            startNow: false,
-            mutationId: createMutationId,
-          })
-      const startMutationId = draft.startMutationId || asMutationId(randomUUID())
-      const resumableDraft = {
-        ...draft,
-        createMutationId,
-        pendingIssueId: created.id,
-        startMutationId,
-      }
-      setDraft(resumableDraft)
-      await trpc.issues.start.mutate({ id: created.id, mutationId: startMutationId })
-      clearFirstTaskDraft(uiState)
-      onComplete(created.id)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-      setBusy(false)
-    }
-  }
-
-  if (route === 'agent') {
+  if (route === 'first-task') {
     return (
       <ActivationShell
-        eyebrow="Activate Podium · Step 2 of 3"
-        title="Choose an agent that is ready here."
-        description="Podium reads the selected project's machine inventory. Installation, reachability, and known login state must be ready before the first task can start."
+        eyebrow="Activate Podium · Step 3 of 3"
+        title="Podium is ready."
+        description="Your project is connected and at least one agent is available. Continue into Podium; when no task is selected, the workspace will help you start one."
         onExplore={onExplore}
       >
-        <ActivationSteps current="agent" />
-        <div className="max-w-[680px] space-y-5">
-          <div>
-            <p className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-              Project
-            </p>
-            <PropertyMenu
-              trigger={
-                <Button type="button" variant="outline" className="w-full justify-between">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <FolderGit2 size={15} aria-hidden="true" />
-                    <span className="truncate">
-                      {selectedRepo ? repoLabel(selectedRepo) : 'Choose a project'}
-                    </span>
-                  </span>
-                  <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground">
-                    {selectedRepo?.path}
-                  </span>
-                </Button>
-              }
-              options={repoChoices.map((repo) => ({ value: repo.path, label: repoLabel(repo) }))}
-              selectedValue={selectedRepo?.path}
-              placeholder="Choose a project…"
-              onSelect={selectRepo}
-            />
+        <ActivationSteps current="ready" />
+        <div className="max-w-[680px] rounded-xl border border-border bg-background/45 px-5 py-6 shadow-sm">
+          <div className="flex size-10 items-center justify-center rounded-full border border-success/25 bg-success/10 text-success">
+            <Check size={20} aria-hidden="true" />
           </div>
-
-          <fieldset>
-            <legend className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-              Agent
-            </legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {ISSUE_AGENT_KINDS.map((agent) => {
-                const agentReadiness = readinessByAgent[agent]
-                const isReady = activationAgentIsReady(agentReadiness)
-                const selected = selectedAgent === agent
-                return (
-                  <button
-                    key={agent}
-                    type="button"
-                    aria-pressed={selected}
-                    className={cn(
-                      'rounded-lg border px-3 py-3 text-left transition-colors',
-                      selected
-                        ? 'border-primary/60 bg-primary/[0.08]'
-                        : 'border-border bg-background/50 hover:bg-secondary/60',
-                    )}
-                    onClick={() => selectAgent(agent)}
-                  >
-                    <span className="flex items-center gap-2 text-[13px] font-medium text-foreground">
-                      {issueAgentIcon(agent, 15)}
-                      {issueAgentLabel(agent)}
-                      <span
-                        className={cn(
-                          'ml-auto size-1.5 rounded-full',
-                          isReady ? 'bg-success' : 'bg-muted-foreground/45',
-                        )}
-                        aria-hidden="true"
-                      />
-                    </span>
-                    <span className="mt-1.5 block text-[11.5px] leading-4 text-muted-foreground">
-                      {activationReadinessCopy(agentReadiness, issueAgentLabel(agent))}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </fieldset>
-
-          {readiness.state === 'logged-out' && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={loginBusy}
-              onClick={() => void openLogin()}
-            >
-              {loginBusy ? (
-                <LoaderCircle className="animate-spin" aria-hidden="true" />
-              ) : (
-                issueAgentIcon(selectedAgent, 14)
-              )}
-              {loginBusy ? 'Opening login…' : `Log in to ${issueAgentLabel(selectedAgent)}`}
-            </Button>
-          )}
-          {error && (
-            <p role="alert" className="text-[12px] text-destructive">
-              {error}
-            </p>
-          )}
-          <div className="flex flex-wrap justify-between gap-2 border-t border-border/70 pt-4">
-            <Button type="button" variant="ghost" onClick={() => onRouteChange('local-project')}>
-              <ArrowLeft aria-hidden="true" />
-              Change project
-            </Button>
-            <Button type="button" disabled={!ready} onClick={() => onRouteChange('first-task')}>
-              Continue to first task
-              <ArrowRight data-icon="inline-end" aria-hidden="true" />
-            </Button>
-          </div>
+          <p className="mt-4 text-sm font-medium text-foreground">
+            {selectedRepo ? repoLabel(selectedRepo.path) : 'Your project'} is ready to use.
+          </p>
+          <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">
+            You can add more projects, agents, and machines later without returning to setup.
+          </p>
+          <Button type="button" size="lg" className="mt-6 min-w-40" onClick={onComplete}>
+            Let&apos;s go
+            <ArrowRight data-icon="inline-end" aria-hidden="true" />
+          </Button>
         </div>
       </ActivationShell>
     )
@@ -350,109 +220,129 @@ export function FirstTaskActivation({
 
   return (
     <ActivationShell
-      eyebrow="Activate Podium · Step 3 of 3"
-      title="Give your first agent real work."
-      description="This is Podium's production task path: it creates a tracked task, prepares its worktree, starts the selected agent, and keeps this draft if any step fails."
+      eyebrow="Activate Podium · Step 2 of 3"
+      title="Set up the agents you want to use."
+      description="These are the coding agents Podium supports. Ready agents can start work now; the others show exactly what is still needed on this machine."
       onExplore={onExplore}
     >
-      <ActivationSteps current="first-task" />
-      <div
-        className="max-w-[680px] rounded-xl border border-border bg-background/55 p-4 shadow-sm"
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault()
-            void startTask()
-          }
-        }}
-      >
-        <div className="mb-4 flex flex-wrap items-center gap-2 text-[11.5px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-1">
-            <FolderGit2 size={12} aria-hidden="true" />
-            {selectedRepo ? repoLabel(selectedRepo) : 'No project'}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-1">
-            {issueAgentIcon(selectedAgent, 12)}
-            {issueAgentLabel(selectedAgent)}
-          </span>
-          <span className={cn('ml-auto', ready ? 'text-success' : 'text-destructive')}>
-            {activationReadinessCopy(readiness, issueAgentLabel(selectedAgent))}
-          </span>
+      <ActivationSteps current="agent" />
+      <div className="max-w-[760px] space-y-3">
+        <div className="overflow-hidden rounded-xl border border-border-strong bg-background/45">
+          {ISSUE_AGENT_KINDS.map((agent, index) => {
+            const readiness = readinessByAgent[agent]
+            const ready = activationAgentIsReady(readiness)
+            const selected = selectedAgent === agent
+            return (
+              <div
+                key={agent}
+                className={cn(
+                  'flex gap-3 px-4 py-3.5',
+                  index > 0 && 'border-t border-border',
+                  !ready && 'bg-muted/[0.16]',
+                )}
+              >
+                <div
+                  className={cn(
+                    'mt-0.5 flex size-8 flex-none items-center justify-center rounded-lg border',
+                    ready
+                      ? 'border-success/25 bg-success/10'
+                      : 'border-border bg-muted/30 opacity-60',
+                  )}
+                >
+                  {issueAgentIcon(agent, 17)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={cn(
+                        'text-sm font-semibold',
+                        ready ? 'text-foreground' : 'text-muted-foreground',
+                      )}
+                    >
+                      {issueAgentLabel(agent)}
+                    </span>
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-medium',
+                        ready
+                          ? 'border-success/25 bg-success/10 text-success'
+                          : 'border-border bg-muted/35 text-muted-foreground',
+                      )}
+                    >
+                      {ready ? (
+                        <Check size={11} aria-hidden="true" />
+                      ) : (
+                        <CircleAlert size={11} aria-hidden="true" />
+                      )}
+                      {ready ? 'Ready to use' : 'Setup needed'}
+                    </span>
+                    {selected && ready && (
+                      <span className="text-[10.5px] text-muted-foreground">Default</span>
+                    )}
+                  </div>
+                  <p
+                    className={cn(
+                      'mt-1 text-xs leading-5',
+                      ready ? 'text-muted-foreground' : 'text-muted-foreground/80',
+                    )}
+                  >
+                    {setupHint(agent, readiness)}
+                  </p>
+                </div>
+                <div className="flex flex-none items-center">
+                  {readiness.state === 'logged-out' ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={loginBusyAgent !== null}
+                      onClick={() => void openLogin(agent)}
+                    >
+                      {loginBusyAgent === agent ? (
+                        <LoaderCircle className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <SquareTerminal aria-hidden="true" />
+                      )}
+                      Sign in
+                    </Button>
+                  ) : ready && !selected ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => chooseDefault(agent)}
+                    >
+                      Use by default
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })}
         </div>
-        <Input
-          aria-label="Task title"
-          value={draft.title}
-          disabled={busy || Boolean(draft.pendingIssueId)}
-          onChange={(event) => setDraft({ ...draft, title: event.currentTarget.value })}
-          placeholder="What should the agent accomplish?"
-          className="border-none px-0 text-[15px] font-medium shadow-none focus-visible:ring-0"
-          autoFocus
-        />
-        <Textarea
-          aria-label="Task context"
-          value={draft.description}
-          disabled={busy || Boolean(draft.pendingIssueId)}
-          onChange={(event) => setDraft({ ...draft, description: event.currentTarget.value })}
-          placeholder="Add context, constraints, or a clear definition of done…"
-          className="mt-2 min-h-36 border-none px-0 shadow-none focus-visible:ring-0"
-        />
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-3">
-          {!draft.pendingIssueId && (
-            <>
-              <ModelPicker
-                agentKind={selectedAgent}
-                value={draft.model}
-                onChange={(model) => setDraft({ ...draft, model, effort: AUTO })}
-              />
-              <EffortPicker
-                agentKind={selectedAgent}
-                model={draft.model}
-                value={draft.effort}
-                onChange={(effort) => setDraft({ ...draft, effort })}
-              />
-            </>
-          )}
-          <span className="text-[11px] text-muted-foreground">
-            Model and effort come from the same live catalog used by every task composer.
-          </span>
-        </div>
-        {draft.pendingIssueId && (
-          <p className="mt-3 text-[12px] text-muted-foreground">
-            The tracked task already exists. Retry starts that same task, so a failed launch cannot
-            create a duplicate.
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="mt-3 text-[12px] text-destructive">
-            {error} Your project, agent, and task draft are still saved.
-          </p>
-        )}
-        <div className="mt-5 flex flex-wrap justify-between gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={busy || Boolean(draft.pendingIssueId)}
-            onClick={() => onRouteChange('agent')}
-          >
+
+        {error && <SetupError>{error}</SetupError>}
+
+        <div className="flex flex-wrap justify-between gap-2 border-t border-border-strong pt-4">
+          <Button type="button" variant="ghost" onClick={() => onRouteChange('local-project')}>
             <ArrowLeft aria-hidden="true" />
-            Back to agent
+            Change project
           </Button>
           <Button
             type="button"
-            disabled={
-              busy ||
-              !ready ||
-              (!draft.pendingIssueId &&
-                (!selectedRepo || !draft.agent || !draft.title.trim()))
-            }
-            pending={busy}
-            pendingLabel="Starting first task…"
-            onClick={() => void startTask()}
+            disabled={readyAgents.length === 0}
+            onClick={() => onRouteChange('first-task')}
           >
-            {draft.pendingIssueId ? 'Retry starting task' : 'Start first task'}
+            Continue
             <ArrowRight data-icon="inline-end" aria-hidden="true" />
           </Button>
         </div>
       </div>
+
+      <SetupLoginTerminalDialog
+        sessionId={loginSessionId}
+        onClose={() => setLoginSessionId(null)}
+      />
     </ActivationShell>
   )
 }

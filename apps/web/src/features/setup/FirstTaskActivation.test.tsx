@@ -1,33 +1,25 @@
 // @vitest-environment happy-dom
-import { asIssueId, asMachineId } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FirstTaskActivation } from './FirstTaskActivation'
 
-const create = vi.fn()
-const start = vi.fn()
 const login = vi.fn()
-const navigateToSession = vi.fn()
 const uiValues = new Map<string, string>()
-const uiSet = vi.fn((key: string, value: string | null) => {
-  if (value === null) uiValues.delete(key)
-  else uiValues.set(key, value)
-})
-
-const machineId = asMachineId('machine-a')
-const repo = {
-  path: '/work/podium',
-  kind: 'repository' as const,
-  branch: 'main',
-  worktrees: [],
-  machineId,
-}
-
 let codexLogin: 'in' | 'out' | 'unknown' = 'in'
+const machineId = asMachineId('machine-a')
 
 function store() {
   return {
-    repos: [repo],
+    repos: [
+      {
+        path: '/work/podium',
+        kind: 'repository' as const,
+        branch: 'main',
+        worktrees: [],
+        machineId,
+      },
+    ],
     machines: [
       {
         id: machineId,
@@ -41,6 +33,8 @@ function store() {
           agents: [
             { kind: 'codex' as const, installed: true, login: { state: codexLogin } },
             { kind: 'claude-code' as const, installed: false, login: { state: 'out' as const } },
+            { kind: 'opencode' as const, installed: false, login: { state: 'out' as const } },
+            { kind: 'cursor' as const, installed: false, login: { state: 'out' as const } },
           ],
           tools: [],
         },
@@ -48,9 +42,11 @@ function store() {
     ],
     uiState: {
       get: (key: string) => uiValues.get(key) ?? null,
-      set: uiSet,
+      set: (key: string, value: string | null) => {
+        if (value === null) uiValues.delete(key)
+        else uiValues.set(key, value)
+      },
     },
-    navigateToSession,
     trpc: {
       settings: {
         get: {
@@ -61,7 +57,6 @@ function store() {
         },
       },
       accounts: { login: { mutate: login } },
-      issues: { create: { mutate: create }, start: { mutate: start } },
     },
   }
 }
@@ -70,47 +65,25 @@ vi.mock('@/app/store', () => ({
   useStoreSelector: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
 }))
 
-vi.mock('@/lib/ModelEffortPicker', () => ({
-  ModelPicker: ({ onChange }: { onChange: (value: string) => void }) => (
-    <button type="button" onClick={() => onChange('gpt-5.6-sol')}>
-      Choose model
-    </button>
-  ),
-  EffortPicker: ({ onChange }: { onChange: (value: string) => void }) => (
-    <button type="button" onClick={() => onChange('high')}>
-      Choose effort
-    </button>
-  ),
+vi.mock('@/app/SetupLoginTerminalDialog', () => ({
+  SetupLoginTerminalDialog: ({ sessionId }: { sessionId: string | null }) =>
+    sessionId ? (
+      <div>
+        <h2>Finish agent sign-in</h2>
+        <div>Login terminal {sessionId}</div>
+      </div>
+    ) : null,
 }))
 
 afterEach(() => {
   cleanup()
   uiValues.clear()
-  uiSet.mockClear()
-  create.mockReset()
-  start.mockReset()
   login.mockReset()
-  navigateToSession.mockClear()
   codexLogin = 'in'
 })
 
-function seedDraft(overrides: Record<string, unknown> = {}): void {
-  uiValues.set(
-    'podium.firstTaskActivation.draft',
-    JSON.stringify({
-      repoPath: repo.path,
-      agent: 'codex',
-      model: 'auto',
-      effort: 'auto',
-      title: '',
-      description: '',
-      ...overrides,
-    }),
-  )
-}
-
 describe('FirstTaskActivation', () => {
-  it('selects a genuinely ready configured agent before advancing', async () => {
+  it('shows supported agents as an honest readiness checklist', async () => {
     const onRouteChange = vi.fn()
     render(
       <FirstTaskActivation
@@ -121,45 +94,39 @@ describe('FirstTaskActivation', () => {
       />,
     )
 
-    const codex = await screen.findByRole('button', { name: /Codex Ready on Studio Mac/ })
-    await waitFor(() => expect(codex.getAttribute('aria-pressed')).toBe('true'))
-    expect(screen.getByText(/Claude Code is not installed on Studio Mac/)).toBeTruthy()
+    await screen.findByText('Ready to use')
+    expect(screen.getByText(/Install OpenCode.*opencode auth login/)).toBeTruthy()
+    expect(screen.getByText(/Install the Cursor CLI.*cursor-agent login/)).toBeTruthy()
+    expect(screen.queryByText('Project')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Choose a project/ })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to first task' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onRouteChange).toHaveBeenCalledWith('first-task')
   })
 
-  it('opens the supported login flow without discarding the saved task draft', async () => {
+  it('keeps setup open and hosts login in a modal terminal', async () => {
     codexLogin = 'out'
-    seedDraft({ title: 'Keep this task' })
     login.mockResolvedValue({ sessionId: 'login-session' })
-    const onExplore = vi.fn()
 
     render(
       <FirstTaskActivation
         route="agent"
         onRouteChange={vi.fn()}
-        onExplore={onExplore}
+        onExplore={vi.fn()}
         onComplete={vi.fn()}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Log in to Codex' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }))
     await waitFor(() =>
       expect(login).toHaveBeenCalledWith({ harness: 'codex', machineId: 'machine-a' }),
     )
-    expect(onExplore).toHaveBeenCalledOnce()
-    expect(navigateToSession).toHaveBeenCalledWith('login-session')
-    expect([...uiValues.values()].some((value) => value.includes('Keep this task'))).toBe(true)
+    expect(await screen.findByText('Login terminal login-session')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Finish agent sign-in' })).toBeTruthy()
   })
 
-  it('uses the production task mutation and completes only after it starts successfully', async () => {
-    seedDraft()
-    const issueId = asIssueId('issue-first')
-    create.mockResolvedValue({ id: issueId })
-    start.mockResolvedValue({ id: issueId })
+  it('ends onboarding with a ready handoff instead of creating a task', () => {
     const onComplete = vi.fn()
-
     render(
       <FirstTaskActivation
         route="first-task"
@@ -169,60 +136,8 @@ describe('FirstTaskActivation', () => {
       />,
     )
 
-    fireEvent.change(screen.getByLabelText('Task title'), {
-      target: { value: 'Ship the activation flow' },
-    })
-    fireEvent.change(screen.getByLabelText('Task context'), {
-      target: { value: 'Keep the success boundary explicit.' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Choose model' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Choose effort' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Start first task' }))
-
-    await waitFor(() =>
-      expect(create).toHaveBeenCalledWith({
-        repoPath: '/work/podium',
-        title: 'Ship the activation flow',
-        description: 'Keep the success boundary explicit.',
-        parentBranch: 'main',
-        defaultAgent: 'codex',
-        defaultModel: 'gpt-5.6-sol',
-        defaultEffort: 'high',
-        startNow: false,
-        mutationId: expect.any(String),
-      }),
-    )
-    expect(start).toHaveBeenCalledWith({ id: issueId, mutationId: expect.any(String) })
-    expect(onComplete).toHaveBeenCalledWith(issueId)
-    expect(uiSet).toHaveBeenLastCalledWith('podium.firstTaskActivation.draft', null)
-  })
-
-  it('keeps the composer and activation incomplete when task start fails', async () => {
-    seedDraft({ title: 'Retry me', description: 'This must survive.' })
-    const issueId = asIssueId('issue-retry')
-    create.mockResolvedValue({ id: issueId })
-    start.mockRejectedValueOnce(new Error('agent did not start')).mockResolvedValue({ id: issueId })
-    const onComplete = vi.fn()
-
-    render(
-      <FirstTaskActivation
-        route="first-task"
-        onRouteChange={vi.fn()}
-        onExplore={vi.fn()}
-        onComplete={onComplete}
-      />,
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Start first task' }))
-
-    expect((await screen.findByRole('alert')).textContent).toContain('agent did not start')
-    expect((screen.getByLabelText('Task title') as HTMLInputElement).value).toBe('Retry me')
-    expect(onComplete).not.toHaveBeenCalled()
-    expect(uiValues.get('podium.firstTaskActivation.draft')).toContain('This must survive.')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Retry starting task' }))
-    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(issueId))
-    expect(create).toHaveBeenCalledOnce()
-    expect(start).toHaveBeenCalledTimes(2)
-    expect(start.mock.calls[1]?.[0]).toEqual(start.mock.calls[0]?.[0])
+    expect(screen.getByRole('heading', { name: 'Podium is ready.' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: "Let's go" }))
+    expect(onComplete).toHaveBeenCalledOnce()
   })
 })

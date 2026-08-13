@@ -13,7 +13,6 @@ vi.mock('./RepoScanFlow', () => ({
     scan.props = props
     return (
       <div data-testid="repo-scan-flow">
-        {props.intro as React.ReactNode}
         <button type="button" onClick={() => (props.onClose as () => void)()}>
           Close browser
         </button>
@@ -70,18 +69,18 @@ describe('OnboardingWizard activation routes', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: /Start locally/ })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Set up a VPS' }))
+    expect(screen.getByRole('heading', { name: 'How do you want to start?' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add a VPS' }))
     expect(onEnterVps).toHaveBeenCalledWith('welcome')
-    fireEvent.click(screen.getByRole('button', { name: 'Find local projects' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a project' }))
     expect(onRouteChange).toHaveBeenCalledWith('local-project')
-    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View connection options' }))
     expect(onRouteChange).toHaveBeenCalledWith('existing-podium')
     fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
     expect(onExplore).toHaveBeenCalledOnce()
   })
 
-  it('composes the existing repo flow and keeps explore, back, and completion explicit', () => {
+  it('opens repository intake without repeating the welcome actions', () => {
     const onRouteChange = vi.fn()
     const onExplore = vi.fn()
     const onComplete = vi.fn()
@@ -100,19 +99,17 @@ describe('OnboardingWizard activation routes', () => {
     )
 
     expect(screen.getByTestId('repo-scan-flow')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /Connect to existing Podium/ }))
-    expect(onRouteChange).toHaveBeenCalledWith('existing-podium')
-    fireEvent.click(screen.getByRole('button', { name: /Set up an always-on VPS/ }))
-    expect(onEnterVps).toHaveBeenCalledWith('local-project')
-    fireEvent.click(screen.getByRole('button', { name: /Connect to existing Podium/ }))
-    expect(onRouteChange).toHaveBeenCalledWith('existing-podium')
-    fireEvent.click(screen.getByRole('button', { name: /Explore Podium/ }))
-    expect(onExplore).toHaveBeenCalledOnce()
+    expect(scan.props?.onboarding).toBe(true)
+    expect(screen.queryByRole('button', { name: /existing Podium/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /VPS/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Explore Podium/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Close browser' }))
     expect(onRouteChange).toHaveBeenCalledWith('welcome')
     fireEvent.click(screen.getByRole('button', { name: 'Finish scan' }))
     expect(onRouteChange).toHaveBeenCalledWith('agent')
     expect(onComplete).not.toHaveBeenCalled()
+    expect(onEnterVps).not.toHaveBeenCalled()
+    expect(onExplore).not.toHaveBeenCalled()
   })
 
   it('offers an accessible durable resume action', () => {
