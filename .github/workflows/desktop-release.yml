@@ -205,6 +205,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run --cwd apps/desktop build $BUILD_ARGS
+      # Tauri notarizes the .app and then builds the DMG around it, leaving the disk image itself
+      # unnotarized — and the DMG is what users download and what carries the quarantine flag.
+      - name: Notarize and staple the DMG
+        if: matrix.target == 'darwin-aarch64'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: bash apps/desktop/scripts/notarize-dmg.sh
       # A release that reaches users unsigned or un-notarized is worse than a failed build, and
       # every failure mode here is silent in `tauri build` output. Gate the upload on proof.
       - name: Verify macOS signing and notarization

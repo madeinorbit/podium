@@ -86,6 +86,11 @@ Two pieces of the macOS build are easy to get wrong when changing it:
 - **The sidecar needs JIT entitlements** (`entitlements.sidecar.plist`). It is a `bun --compile`
   binary embedding JavaScriptCore; under the hardened runtime without those entitlements it dies at
   startup. The app shell deliberately gets the narrower `entitlements.plist`.
+- **The DMG is notarized separately**, by `apps/desktop/scripts/notarize-dmg.sh`. Tauri notarizes
+  and staples the `.app` and then builds the DMG *around* it, leaving the disk image itself
+  unnotarized — and the DMG is what a browser downloads and what carries the quarantine flag, so
+  without this step users still get "Apple cannot check it for malicious software" on first
+  double-click even though the app inside is notarized.
 
 ### What the entitlements are for
 

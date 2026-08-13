@@ -95,7 +95,11 @@ describe('desktop release workflow', () => {
     const upload = desktopWorkflow.indexOf('gh release upload')
     // Proof of notarization gates the staged artifact: an un-notarized bundle must never become a
     // published one, and `tauri build` exits 0 in every failure mode this script catches.
+    // Tauri staples the .app but not the DMG around it, and the DMG is what users download.
+    const notarizeDmg = desktopWorkflow.indexOf('notarize-dmg.sh')
     const verify = desktopWorkflow.indexOf('verify-macos-signing.sh')
+    expect(notarizeDmg).toBeGreaterThan(build)
+    expect(verify).toBeGreaterThan(notarizeDmg)
     const stage = desktopWorkflow.indexOf('name: Stage desktop bundle')
     expect(verify).toBeGreaterThan(build)
     expect(stage).toBeGreaterThan(verify)
