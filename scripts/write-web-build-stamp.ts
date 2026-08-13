@@ -1,16 +1,21 @@
 /**
- * STAMP A BUILT WEB DIST WITH THE SCHEMA IT CONTAINS (POD-1610) AND THE SOURCE
- * IT WAS BUILT FROM.
+ * STAMP A BUILT WEB DIST WITH THE SCHEMA IT CONTAINS (POD-1610) AND THE
+ * PRODUCT VERSION OPERATORS SEE.
  *
  * Writes `podium-build.json` beside index.html, carrying:
  * - `wireSchemaDigest()` — protocol compatibility
- * - `appVersion` — `bundle+<entry chunk hash>` for log records (POD-1965)
- * - `sourceSha` — `git rev-parse --short=7 HEAD`, install identity for Update
+ * - `appVersion` — product version: `PODIUM_APP_VERSION` or `dev+<sourceSha>`
+ * - `sourceSha` — `git rev-parse --short=7 HEAD`, `artifacts.web.digest`
+ * - `bundleVersion` — `bundle+<entry chunk hash>`, forensic only
  *
- * The Update panel compares `sourceSha` to the published `artifacts.web.digest`.
+ * The Update panel, About, `/version`, and log field `v` all read `appVersion`.
  * `wireSchemaDigest` is not that identity — UI-only commits keep the same
- * protocol digest. `appVersion` is not that identity either — it names the
- * emitted bundle for logs, not the checkout.
+ * protocol digest. `bundleVersion` is not that identity either — it names
+ * the emitted chunk a crash stack already prints.
+ *
+ * Also writes the product version into `<meta name="podium-version">` so the
+ * running page can read the same string synchronously (About and web logs)
+ * without fetching the stamp and without treating the chunk hash as `v`.
  *
  * ---------------------------------------------------------------------------
  * WHY A SCRIPT AND NOT A VITE PLUGIN
@@ -45,6 +50,8 @@ import {
   BUILD_STAMP_FILE,
   type BuildStamp,
   bundleVersionFromHtml,
+  PRODUCT_VERSION_META,
+  resolveProductVersion,
   WIRE_VERSION,
   wireSchemaDigest,
 } from '../packages/protocol/src/index'
@@ -78,41 +85,72 @@ export function resolveWebSourceSha(
   return readHead ? developmentSourceSha(root, readHead) : developmentSourceSha(root)
 }
 
+const EXISTING_META = /<meta\s+name=["']podium-version["'][^>]*>/i
+
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+}
+
+/** Put the product version in the HTML the page will read. */
+export function injectProductVersionMeta(html: string, version: string): string {
+  const tag = `<meta name="${PRODUCT_VERSION_META}" content="${escapeAttr(version)}">`
+  if (EXISTING_META.test(html)) return html.replace(EXISTING_META, tag)
+  if (html.includes('</head>')) return html.replace('</head>', `  ${tag}\n</head>`)
+  return `${tag}\n${html}`
+}
+
 /**
  * The stamp a built `index.html` earns. Pure, and exported, so the contract the
  * page depends on can be asserted without a build (and without spawning this
  * script, which a worktree with no `node_modules` cannot do — the POD-746 guard
  * below fires first).
  *
- * THROWS when the html carries no hashed module entry, and that is the important
- * half. A built dist always has one, so its absence means the assumption this
- * derivation rests on has moved — a vite config change, a different bundler —
- * and the right answer is to fail the build. Writing a stamp without
- * `appVersion` is precisely the silent absence POD-1965 is about: every record
- * would ship unversioned again and nothing would say so.
- *
- * `sourceSha` is optional and separate: install identity for Update, not the
- * log `v`. Omit it when git cannot name HEAD.
+ * `appVersion` is the product version. A missing hashed entry is no longer a
+ * missing product identity — the chunk hash is `bundleVersion`, and a dest
+ * checkout without a hash can still be `dev+<sha>`. The build still fails when
+ * a real `vite build` produced no hashed entry, because that means the
+ * assumption `bundleVersion` rests on has moved.
  */
 export function webBuildStamp(
   indexHtml: string,
   now: Date = new Date(),
   sourceSha?: string,
+  packagedVersion?: string,
 ): WrittenBuildStamp {
-  const appVersion = bundleVersionFromHtml(indexHtml)
-  if (!appVersion) {
-    throw new Error(
-      'no hashed module entry script in index.html, so this build has no identity to stamp ' +
-        'its log records with (POD-1965). Check that vite still emits a content-hashed entry chunk.',
-    )
-  }
+  const bundleVersion = bundleVersionFromHtml(indexHtml)
+  const appVersion = resolveProductVersion(packagedVersion, sourceSha)
   return {
     wireSchemaDigest: wireSchemaDigest(),
     wireVersion: WIRE_VERSION,
     builtAt: now.toISOString(),
     appVersion,
     ...(sourceSha ? { sourceSha } : {}),
+    ...(bundleVersion ? { bundleVersion } : {}),
   }
+}
+
+export function writeWebBuildStamp(
+  distDir: string,
+  now: Date = new Date(),
+  sourceSha?: string,
+  packagedVersion?: string,
+): WrittenBuildStamp {
+  const indexPath = join(distDir, 'index.html')
+  if (!existsSync(indexPath)) {
+    throw new Error(`${distDir} has no index.html — did vite build run?`)
+  }
+  const indexHtml = readFileSync(indexPath, 'utf8')
+  if (!bundleVersionFromHtml(indexHtml)) {
+    throw new Error(
+      'no hashed module entry script in index.html, so this build has no forensic ' +
+        'bundle identity to stamp (the chunk hash a crash stack names). Check that ' +
+        'vite still emits a content-hashed entry chunk.',
+    )
+  }
+  const stamp = webBuildStamp(indexHtml, now, sourceSha, packagedVersion)
+  writeFileSync(indexPath, injectProductVersionMeta(indexHtml, stamp.appVersion))
+  writeFileSync(join(distDir, BUILD_STAMP_FILE), `${JSON.stringify(stamp, null, 2)}\n`)
+  return stamp
 }
 
 function main(): void {
@@ -122,11 +160,6 @@ function main(): void {
     process.exit(2)
   }
   const distDir = isAbsolute(arg) ? arg : resolve(process.cwd(), arg)
-  const indexPath = join(distDir, 'index.html')
-  if (!existsSync(indexPath)) {
-    console.error(`[podium] build stamp: ${distDir} has no index.html — did vite build run?`)
-    process.exit(1)
-  }
 
   const modelPath = resolvedModelPath()
   if (!modelPath?.startsWith(repoRoot)) {
@@ -139,25 +172,22 @@ function main(): void {
     process.exit(1)
   }
 
-  // WHICH BUILD, for every log record this bundle writes (POD-1965). Derived
-  // from the emitted index.html by the same function the page itself calls, so
-  // the stamp and the running page cannot name the build differently — they did
-  // for as long as this file wrote keys the reader never looked for.
   let stamp: WrittenBuildStamp
   try {
-    stamp = webBuildStamp(
-      readFileSync(indexPath, 'utf8'),
+    stamp = writeWebBuildStamp(
+      distDir,
       new Date(),
       resolveWebSourceSha(repoRoot),
+      process.env.PODIUM_APP_VERSION,
     )
   } catch (err) {
-    console.error(`[podium] build stamp: ${indexPath}: ${(err as Error).message}`)
+    console.error(`[podium] build stamp: ${(err as Error).message}`)
     process.exit(1)
   }
-  writeFileSync(join(distDir, BUILD_STAMP_FILE), `${JSON.stringify(stamp, null, 2)}\n`)
   console.log(
     `[podium] build stamp: wire schema ${stamp.wireSchemaDigest}, ` +
-      `build ${stamp.appVersion}` +
+      `version ${stamp.appVersion}` +
+      `${stamp.bundleVersion ? `, bundle ${stamp.bundleVersion}` : ''}` +
       `${stamp.sourceSha ? `, source ${stamp.sourceSha}` : ''} → ${distDir}`,
   )
 }

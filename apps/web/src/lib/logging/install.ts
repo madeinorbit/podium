@@ -23,10 +23,9 @@ import { installGlobalHandlers } from './global-handlers'
  * `desktop` behind the shell, and a crash report that lied about which would
  * send an operator looking in the wrong log file.
  *
- * `version` is detected here for the same reason and answers the same kind of
- * question: which BUILD, not just which runtime (POD-1965). It is resolved
- * synchronously, before the first record, because the records worth having are
- * the ones from boot — see ./build-version.
+ * `version` is the product string (`PODIUM_APP_VERSION` or `dev+<sha>`), not
+ * the chunk hash. It is resolved synchronously, before the first record —
+ * see ./build-version.
  */
 
 export type { LogTransport }
@@ -35,7 +34,7 @@ export interface WebLoggingOptions
   extends Omit<ClientLoggingOptions, 'role' | 'platform' | 'version'> {
   /** Detected when absent. */
   role?: string
-  /** Read off the page's own entry script when absent — see ./build-version. */
+  /** Product version when absent — see ./build-version. */
   version?: string
 }
 

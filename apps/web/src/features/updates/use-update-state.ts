@@ -2,6 +2,7 @@ import {
   classifySkew,
   parseBuildStamp,
   parseServerVersion,
+  productVersionFromStamp,
   type ServerVersion,
   WIRE_VERSION,
   wireSchemaDigest,
@@ -132,13 +133,8 @@ async function waitForCompatibleWebBuild(
 
 function localBuildFrom(raw: unknown): LocalBuild {
   const stamp = parseBuildStamp(raw)
-  // `appVersion` on the stamp is the log identity (`bundle+<hash>`). Update
-  // names the checkout: dev+<sourceSha> when the stamp has one.
-  const appVersion = stamp.sourceSha
-    ? `dev+${stamp.sourceSha}`
-    : (stamp.appVersion ?? 'dev')
   return {
-    appVersion,
+    appVersion: productVersionFromStamp(stamp),
     ...(stamp.sourceSha ? { appDigest: stamp.sourceSha } : {}),
     ...(stamp.wireSchemaDigest ? { wireSchemaDigest: stamp.wireSchemaDigest } : {}),
   }

@@ -169,6 +169,9 @@ export function wireSchemaSignature(): string {
  */
 export const BUILD_STAMP_FILE = 'podium-build.json'
 
+/** `<meta name>` the stamp writer injects so the page can read the product version. */
+export const PRODUCT_VERSION_META = 'podium-version'
+
 /** What {@link BUILD_STAMP_FILE} contains. Every field optional: it is read from
  *  disk, possibly written by an older build, and a reader that assumes a shape
  *  it did not verify is how a staleness check crashes on the stale case. */
@@ -180,19 +183,24 @@ export interface BuildStamp {
   /** ISO timestamp, for the human reading the warning. */
   builtAt?: string
   /**
-   * WHICH BUILD, as `bundle+<entry chunk hash>` — the value every log record
-   * from this bundle carries in `v` (POD-1965). Written by
-   * `scripts/write-web-build-stamp.ts` and derived by
-   * {@link bundleVersionFromHtml}, so the page and the stamp cannot name the
-   * same build differently.
+   * Product version operators see: `PODIUM_APP_VERSION` on a channel build,
+   * else `dev+<sourceSha>`. Written by `scripts/write-web-build-stamp.ts`.
+   * Update, About, `/version`, and log field `v` all read this. Older stamps
+   * stored `bundle+<chunk hash>` here — {@link productVersionFromStamp}
+   * reconstructs the product string from `sourceSha` in that case.
    */
   appVersion?: string
   /**
-   * `git rev-parse --short=7 HEAD` at vite build. Install identity for a
-   * source host — not compatibility, and not the log `v`. Absent on stamps
-   * written before this field existed; absent is not a protocol mismatch.
+   * `git rev-parse --short=7 HEAD` at vite build. Currency of
+   * `artifacts.web.digest` on a source target. Not the product version, and
+   * not `-dirty` (dest bundles only publish from a clean tree).
    */
   sourceSha?: string
+  /**
+   * Forensic JS identity: `bundle+<entry chunk hash>`. A crash stack names
+   * the same hash. Must not replace {@link appVersion}.
+   */
+  bundleVersion?: string
 }
 
 /** Parse a stamp read off disk. Every field optional: older builds omit new ones. */
@@ -207,6 +215,7 @@ export function parseBuildStamp(raw: unknown): BuildStamp {
   if (typeof value.builtAt === 'string') stamp.builtAt = value.builtAt
   if (typeof value.sourceSha === 'string') stamp.sourceSha = value.sourceSha
   if (typeof value.appVersion === 'string') stamp.appVersion = value.appVersion
+  if (typeof value.bundleVersion === 'string') stamp.bundleVersion = value.bundleVersion
   return stamp
 }
 

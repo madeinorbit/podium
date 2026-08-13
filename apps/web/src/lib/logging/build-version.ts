@@ -1,34 +1,29 @@
-import { bundleVersionFromEntrySrc } from '@podium/protocol'
+import { PRODUCT_VERSION_META } from '@podium/protocol'
 
 /**
- * WHICH BUILD IS RUNNING, read out of the page itself (POD-1965).
+ * WHICH PRODUCT IS RUNNING, read out of the page itself.
  *
- * The bundle's own entry script tag carries a content hash — `index-DHMkD0wf.js`
- * — which is both the identity a crash stack already prints and a fingerprint of
- * the whole module graph. {@link bundleVersionFromEntrySrc} turns it into the
- * string the build stamp writes under `appVersion`, so a log line and
- * `podium-build.json` name the same build.
+ * Built dist: the stamp writer injects `<meta name="podium-version">` with the
+ * product string (`PODIUM_APP_VERSION` or `dev+<sha>`). Dest-server: Vite
+ * inlines the same string as `import.meta.env.PODIUM_APP_VERSION`. Either way
+ * log field `v` and About print what Update and `/version` print.
  *
- * SYNCHRONOUS, AND NOT A FETCH. The previous attempt asked the server for
- * `/podium-build.json` and tagged records once the promise resolved, which was
- * wrong twice over. Records written before it resolved — every record from boot,
- * which is where the crashes worth having are — went out untagged. And the
- * server's stamp describes the dist THE SERVER HAS: with the vite dev server in
- * front of it the page is running source the stamp knows nothing about, so the
- * answer would have been confidently wrong. The page's own script tag cannot be
- * wrong about which bundle the page is.
+ * SYNCHRONOUS, AND NOT A FETCH. Records written before a stamp fetch resolved
+ * used to go out untagged, and a dest-server fetch of `/podium-build.json`
+ * describes the last built dist, not the source this page is running.
  *
- * A source-mode dev server has no build, so it says so rather than borrowing the
- * dist's identity or leaving `v` off entirely — an absent field is what made the
- * original defect invisible.
+ * The entry-chunk hash is a forensic field on the stamp (`bundleVersion`),
+ * not this string.
  */
-export const DEV_SERVER_VERSION = 'dev-server'
 
-export function pageBuildVersion(doc: Pick<Document, 'querySelectorAll'> = document): string {
-  for (const script of doc.querySelectorAll('script[type="module"][src]')) {
-    const src = script.getAttribute('src')
-    const version = src === null ? undefined : bundleVersionFromEntrySrc(src)
-    if (version) return version
-  }
-  return DEV_SERVER_VERSION
+export function pageBuildVersion(
+  doc: Pick<Document, 'querySelector'> = document,
+  declared: string | undefined = import.meta.env.PODIUM_APP_VERSION,
+): string {
+  const fromPage = doc.querySelector(`meta[name="${PRODUCT_VERSION_META}"]`)?.getAttribute('content')
+  const labeled = fromPage?.trim()
+  if (labeled) return labeled
+  const baked = declared?.trim()
+  if (baked) return baked
+  return 'dev'
 }

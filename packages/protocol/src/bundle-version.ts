@@ -1,28 +1,19 @@
 /**
- * WHICH BUILD IS THIS PAGE? (POD-1965)
+ * FORENSIC BUNDLE IDENTITY — the Vite entry-chunk hash.
  *
- * Every web log record used to ship without a `v`, because the build wrote a
- * stamp with one set of keys and the page read a key that was never in it. The
- * two ends lived in different files under different toolchains and agreed only
- * by a string literal — the same failure mode {@link BUILD_STAMP_FILE}'s comment
- * describes for the filename, one level down, in the payload.
+ * This is NOT the product version. Operators see `PODIUM_APP_VERSION` or
+ * `dev+<sha>` (see {@link resolveProductVersion}). The chunk hash stays on the
+ * stamp as `bundleVersion` so a crash stack (`index-DHMkD0wf.js`) can still be
+ * matched by eye. POD-1965 put this string in `appVersion` and in log field
+ * `v`; that is why About and the Update panel disagreed.
  *
- * So the derivation lives HERE, in the one package both ends already import, and
- * both ends call the same function:
- *   - `scripts/write-web-build-stamp.ts` derives it from the built index.html and
- *     writes it into the stamp as `appVersion`;
- *   - `apps/web/src/lib/logging` derives it from the DOM of the page it is
- *     running in, synchronously, before the first record is written.
+ * WHY THE ENTRY CHUNK HASH. It is what a crash stack already names. It is
+ * content-derived, so it changes exactly when the code changes. And it
+ * fingerprints the whole module graph: a lazy chunk's hash appears in the
+ * entry as an import specifier, so a change anywhere downstream changes it.
  *
- * WHY THE ENTRY CHUNK HASH and not a timestamp or a git sha. It is what a crash
- * stack already names (`index-DHMkD0wf.js`), so a log line and a stack trace can
- * be matched by eye. It is content-derived, so it changes exactly when the code
- * changes and not when a clock moves. And it fingerprints the whole module graph
- * rather than one file: a lazy chunk's hash appears in the entry chunk as an
- * import specifier, so a change anywhere downstream changes the entry hash too.
- *
- * A source-mode dev server has no build and therefore no identity to report —
- * these return undefined rather than inventing one.
+ * Vite serving source has no hashed entry — these return undefined
+ * rather than inventing one.
  */
 
 /** Vite's default content hash: base64url, eight characters. */
@@ -35,15 +26,16 @@ const TYPE_MODULE = /\btype=["']module["']/i
 const SRC_ATTR = /\bsrc=["']([^"']+)["']/i
 
 /**
- * The build identity carried by an entry chunk's URL, or undefined when the URL
- * carries no content hash (the dev server serving `/src/main.tsx`).
+ * The forensic identity carried by an entry chunk's URL, or undefined when the
+ * URL carries no content hash (Vite serving `/src/main.tsx`).
  */
 export function bundleVersionFromEntrySrc(src: string): string | undefined {
   const hash = HASHED_ENTRY.exec(src)?.[1]
   return hash ? `bundle+${hash}` : undefined
 }
 
-/** The same identity, derived from built HTML — what the stamp writer records. */
+/** The same identity, derived from built HTML — what the stamp writer records
+ *  as `bundleVersion`, not as the product version. */
 export function bundleVersionFromHtml(html: string): string | undefined {
   for (const [tag] of html.matchAll(SCRIPT_TAG)) {
     if (!TYPE_MODULE.test(tag)) continue

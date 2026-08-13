@@ -1,15 +1,18 @@
-import { developmentSourceVersion } from '@podium/runtime/source-version'
+import { resolveProductVersion } from '@podium/protocol'
+import { developmentSourceSha } from '@podium/runtime/source-version'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 
 let capturedSourceVersion: string | undefined
 
-/** Capture once at process boot: a checkout moving underneath a running server is an update, not this build. */
+/** Product version for `/version` and Update: packaged channel, or dest+<sha>. Never `-dirty`. */
 export function captureServerBuildVersion(
   env: NodeJS.ProcessEnv = process.env,
   sourceRoot: string = DEVELOPMENT_SOURCE_ROOT,
 ): string {
-  capturedSourceVersion =
-    env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? developmentSourceVersion(sourceRoot)
+  const packaged = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION
+  capturedSourceVersion = packaged
+    ? resolveProductVersion(packaged, undefined)
+    : resolveProductVersion(undefined, developmentSourceSha(sourceRoot))
   return capturedSourceVersion
 }
 

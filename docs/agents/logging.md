@@ -88,15 +88,14 @@ absent.
 |------|-----|--------|
 | released binary (any role) | the release version, e.g. `0.9.9` | `PODIUM_APP_VERSION`, baked in by `scripts/build-bun.ts` |
 | server / daemon / janitor / cli from source | `dev+<short sha>`, plus `-dirty` when the tree differs from that commit | `resolveLogVersion` in `packages/runtime/src/logging.ts` |
-| web / desktop (the same bundle) | `bundle+<entry chunk hash>`, e.g. `bundle+DHMkD0wf` | `pageBuildVersion` in `apps/web/src/lib/logging/build-version.ts`, read off the page's own entry script |
-| web / desktop on the vite dev server | `dev-server` (there is no build to name) | same |
+| web / desktop (the same bundle) | `PODIUM_APP_VERSION`, or `dev+<short sha>` on a dest host | `pageBuildVersion` in `apps/web/src/lib/logging/build-version.ts`, from `<meta name="podium-version">` or the Vite define |
 | mobile | the build-time inline, else `dev` | `appVersion()` in `apps/mobile/src/lib/logging.ts` |
 
-The web value is the same hash a crash stack prints (`index-DHMkD0wf.js`), the
-same one `apps/web/.sourcemaps` files its archived maps under, and the same one
-`podium-build.json` records as `appVersion` — one identity, four places, derived
-by one function (`bundleVersionFromHtml` / `bundleVersionFromEntrySrc` in
-`@podium/protocol`).
+The product version is the same string Update, `/version`, and About show.
+The Vite entry-chunk hash (`bundle+DHMkD0wf`) stays on the stamp as
+`bundleVersion` so a crash stack can still be matched; it must not replace
+`v`. Server/daemon source logs may still append `-dirty` via
+`developmentLogVersion()`; Update never does.
 
 None of this is optional, deliberately (POD-1965). `ClientLoggingOptions.version`
 is a REQUIRED field because it used to be optional, both web callers omitted it,

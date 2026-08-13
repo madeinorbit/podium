@@ -110,6 +110,12 @@ describe('parseBuildStamp', () => {
     expect(webSourceDigest(parseBuildStamp({ wireSchemaDigest: 'abc' }))).toBeUndefined()
     expect(webSourceDigest(parseBuildStamp({ sourceSha: '47a01e3' }))).toBe('47a01e3')
   })
+
+  it('keeps the forensic bundle hash as its own field', () => {
+    expect(parseBuildStamp({ bundleVersion: 'bundle+DHMkD0wf', appVersion: 'dev+47a01e3' })).toEqual(
+      { bundleVersion: 'bundle+DHMkD0wf', appVersion: 'dev+47a01e3' },
+    )
+  })
 })
 
 describe('it terminates on a recursive schema', () => {

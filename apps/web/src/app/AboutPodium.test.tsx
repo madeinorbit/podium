@@ -1,27 +1,18 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 import { AboutPodium } from './AboutPodium'
 
 afterEach(() => {
   cleanup()
-  vi.unstubAllGlobals()
 })
 
 describe('AboutPodium', () => {
-  it('renders the wordmark, version, and purpose when open', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({ appVersion: '0.4.2' }),
-      })),
-    )
-
-    render(<AboutPodium open httpOrigin="http://podium.test" onClose={() => {}} />)
+  it('renders the wordmark, version, and purpose when open', () => {
+    render(<AboutPodium open version="0.4.2" onClose={() => {}} />)
 
     expect(screen.getByRole('dialog', { name: 'About Podium' })).toBeTruthy()
     expect(screen.getByRole('img', { name: 'Podium' })).toBeTruthy()
-    await waitFor(() => expect(screen.getByText('0.4.2')).toBeTruthy())
+    expect(screen.getByText('0.4.2')).toBeTruthy()
     expect(screen.getByText('Mission control for coding agents.')).toBeTruthy()
   })
 

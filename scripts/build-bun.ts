@@ -260,6 +260,15 @@ function main(): void {
     webStamp = null
   }
   assertDevWebDistMatchesVersion(version, webStamp)
+  // Re-stamp with this bundle's product version so About / web logs / Update
+  // agree with the VERSION file and the compiled /version. A dest publish
+  // already wrote dest+<sha>; a channel package overwrites dest+<sha> with
+  // PODIUM_APP_VERSION / package.json (e.g. 0.4.2).
+  execFileSync(
+    'bun',
+    ['--conditions=@podium/source', 'scripts/write-web-build-stamp.ts', webDist],
+    { cwd: root, stdio: 'inherit', env: { ...process.env, PODIUM_APP_VERSION: version } },
+  )
   mkdirSync(headless, { recursive: true })
   // Release units are generated from the same renderer used by runtime setup and the dev host.
   writeSystemdFiles(`${headless}/systemd`, { profile: 'packaged', instanceId: 'default' })

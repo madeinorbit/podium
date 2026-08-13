@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEV_SERVER_VERSION, pageBuildVersion } from './build-version'
+import { pageBuildVersion } from './build-version'
 
 function documentWith(head: string): Document {
   return new DOMParser().parseFromString(
@@ -9,40 +9,41 @@ function documentWith(head: string): Document {
 }
 
 describe('pageBuildVersion', () => {
-  it('names the build from the entry script the page is running', () => {
+  it('reads the product version the stamp wrote into the page', () => {
     expect(
       pageBuildVersion(
-        documentWith('<script type="module" crossorigin src="/assets/index-DHMkD0wf.js"></script>'),
+        documentWith('<meta name="podium-version" content="dev+47a01e3">'),
+        'dev-server',
       ),
-    ).toBe('bundle+DHMkD0wf')
+    ).toBe('dev+47a01e3')
   })
 
-  it('changes when the bundle changes — the property the whole issue is about', () => {
-    const before = pageBuildVersion(
-      documentWith('<script type="module" src="/assets/index-AAAAAAAA.js"></script>'),
-    )
-    const after = pageBuildVersion(
-      documentWith('<script type="module" src="/assets/index-BBBBBBBB.js"></script>'),
-    )
-    expect(before).not.toBe(after)
-  })
-
-  it('skips a module script with no content hash to find the one that has it', () => {
+  it('prefers the packaged channel version on the page over a dest+sha define', () => {
     expect(
       pageBuildVersion(
-        documentWith(
-          '<script type="module">console.log(1)</script>' +
-            '<script type="module" src="/registerSW.js"></script>' +
-            '<script type="module" src="/assets/index-Zz09_-ab.js"></script>',
-        ),
+        documentWith('<meta name="podium-version" content="0.4.2">'),
+        'dev+47a01e3',
       ),
-    ).toBe('bundle+Zz09_-ab')
+    ).toBe('0.4.2')
   })
 
-  it('says it is the dev server rather than leaving the record unversioned', () => {
+  it('uses the dest-server define when the page has no stamp meta', () => {
     expect(
-      pageBuildVersion(documentWith('<script type="module" src="/src/main.tsx"></script>')),
-    ).toBe(DEV_SERVER_VERSION)
-    expect(pageBuildVersion(documentWith(''))).toBe(DEV_SERVER_VERSION)
+      pageBuildVersion(documentWith('<script type="module" src="/src/main.tsx"></script>'), 'dev+47a01e3'),
+    ).toBe('dev+47a01e3')
+  })
+
+  it('does not treat the entry chunk hash as the product version', () => {
+    expect(
+      pageBuildVersion(
+        documentWith('<script type="module" src="/assets/index-DHMkD0wf.js"></script>'),
+        undefined,
+      ),
+    ).toBe('dev')
+  })
+
+  it('falls back to dest when neither the page nor the define names a version', () => {
+    expect(pageBuildVersion(documentWith(''), undefined)).toBe('dev')
+    expect(pageBuildVersion(documentWith(''), '')).toBe('dev')
   })
 })

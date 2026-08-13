@@ -5,7 +5,11 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { developmentSourceVersion } from '../../packages/runtime/src/source-version'
 import { mobileRedirectLocation, NAVIGATION_FALLBACK_DENYLIST } from './mobile-routing'
+
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+const productVersion = process.env.PODIUM_APP_VERSION ?? developmentSourceVersion(repoRoot)
 
 // Hosts permitted by Vite's host check, comma-separated via PODIUM_ALLOWED_HOSTS. localhost and
 // IP-literal hosts are always allowed by Vite, so plain `localhost` dev needs nothing here; the
@@ -232,6 +236,10 @@ export default defineConfig(({ mode }) => {
      */
     define: {
       'process.env.NODE_ENV': JSON.stringify(isDevBuild ? 'development' : 'production'),
+      // Product version for dest-server logs and About. A built dist prefers
+      // the <meta name="podium-version"> the stamp writer injects, so a
+      // packaged restamp can change the string without rebuilding JS.
+      'import.meta.env.PODIUM_APP_VERSION': JSON.stringify(productVersion),
     },
     server: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },
     preview: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },
