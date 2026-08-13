@@ -144,7 +144,7 @@ function VirtualStageRows({
   selected: string[]
   onOpen: (id: IssueId) => void
   onToggleSelect: (id: IssueId) => void
-  onToggleExpand: (id: string) => void
+  onToggleExpand: (id: IssueId) => void
   onContextMenu: (id: IssueId, e: ReactMouseEvent) => void
   now: number
 }): JSX.Element {
