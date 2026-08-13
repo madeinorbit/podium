@@ -18,7 +18,7 @@ import type { BuildStamp } from './schema-digest'
 
 const SOURCE_SHA = /^[0-9a-f]{7,40}$/i
 
-/** Vite dest-server fallback from POD-1965 — not a product version. */
+/** Vite serving source — not a product version. */
 export const DEV_SERVER_VERSION = 'dev-server'
 
 export function isSourceSha(value: string): boolean {

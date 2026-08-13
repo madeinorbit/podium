@@ -2,7 +2,6 @@ import {
   classifySkew,
   parseBuildStamp,
   parseServerVersion,
-  productVersionFromStamp,
   type ServerVersion,
   WIRE_VERSION,
   wireSchemaDigest,
@@ -10,6 +9,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import { makeTrpc } from '@/app/trpc'
+import { pageBuildVersion } from '@/lib/logging/build-version'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { computeTouched } from './touched'
 import type { UpdateActions } from './UpdateDialog'
@@ -57,7 +57,6 @@ export interface UseUpdateStateOptions {
 }
 
 interface LocalBuild {
-  appVersion: string
   appDigest?: string
   wireSchemaDigest?: string
 }
@@ -134,7 +133,6 @@ async function waitForCompatibleWebBuild(
 function localBuildFrom(raw: unknown): LocalBuild {
   const stamp = parseBuildStamp(raw)
   return {
-    appVersion: productVersionFromStamp(stamp),
     ...(stamp.sourceSha ? { appDigest: stamp.sourceSha } : {}),
     ...(stamp.wireSchemaDigest ? { wireSchemaDigest: stamp.wireSchemaDigest } : {}),
   }
@@ -189,7 +187,7 @@ export interface UpdateStateResult {
  * descriptor, fleet convergence, and the surface currently showing the dialog. */
 export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResult {
   const [server, setServer] = useState<ServerVersion>({})
-  const [localBuild, setLocalBuild] = useState<LocalBuild>({ appVersion: 'dev' })
+  const [localBuild, setLocalBuild] = useState<LocalBuild>({})
   const [fleetState, setFleetState] = useState<UpdateFleetState>(options.fleet ?? EMPTY_FLEET)
   const [updateAction, setUpdateAction] = useState<UpdateActionState>({ state: 'idle' })
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
@@ -324,7 +322,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   }, [converging, active, refreshFleet])
 
   const fleet = options.fleet ?? fleetState
-  const localVersion = localBuild.appVersion
+  const localVersion = pageBuildVersion()
   const surface = options.surface ?? surfaceFromDesktopBridge()
   const target = server.target
   const desktopTargeted = surface !== 'web' && target?.artifacts.desktop !== undefined

@@ -13,12 +13,12 @@ describe('resolveProductVersion', () => {
     expect(resolveProductVersion(' 0.4.2 ', undefined)).toBe('0.4.2')
   })
 
-  it('names a source host as dest+short SHA', () => {
+  it('names a source host as dev+short SHA', () => {
     expect(resolveProductVersion(undefined, '47A01E3deadbeef')).toBe('dev+47a01e3')
     expect(formatSourceVersion('47a01e3')).toBe('dev+47a01e3')
   })
 
-  it('falls back to dest when there is no checkout SHA', () => {
+  it('falls back to dev when there is no checkout SHA', () => {
     expect(resolveProductVersion(undefined, undefined)).toBe('dev')
     expect(resolveProductVersion(undefined, 'HEAD')).toBe('dev')
   })
@@ -32,7 +32,7 @@ describe('productVersionFromStamp', () => {
     )
   })
 
-  it('reconstructs dest+sha from a stamp that stored the chunk hash as appVersion', () => {
+  it('reconstructs dev+sha from a stamp that stored the chunk hash as appVersion', () => {
     expect(
       productVersionFromStamp({ appVersion: 'bundle+DHMkD0wf', sourceSha: '47a01e3' }),
     ).toBe('dev+47a01e3')

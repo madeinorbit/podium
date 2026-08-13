@@ -4,8 +4,7 @@
  * This is NOT the product version. Operators see `PODIUM_APP_VERSION` or
  * `dev+<sha>` (see {@link resolveProductVersion}). The chunk hash stays on the
  * stamp as `bundleVersion` so a crash stack (`index-DHMkD0wf.js`) can still be
- * matched by eye. POD-1965 put this string in `appVersion` and in log field
- * `v`; that is why About and the Update panel disagreed.
+ * matched by eye.
  *
  * WHY THE ENTRY CHUNK HASH. It is what a crash stack already names. It is
  * content-derived, so it changes exactly when the code changes. And it

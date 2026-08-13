@@ -65,8 +65,17 @@ function Probe({
   )
 }
 
+function setPageVersion(version: string): void {
+  document.head.querySelector('meta[name="podium-version"]')?.remove()
+  const meta = document.createElement('meta')
+  meta.setAttribute('name', 'podium-version')
+  meta.setAttribute('content', version)
+  document.head.append(meta)
+}
+
 afterEach(() => {
   cleanup()
+  document.head.querySelector('meta[name="podium-version"]')?.remove()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
@@ -456,6 +465,7 @@ describe('useUpdateState update action', () => {
   })
 
   it('a manual check reports current when nothing is behind', async () => {
+    setPageVersion('0.4.2')
     setupTransport({ appVersion: '0.4.2' })
     const results: UpdateStateResult[] = []
 
@@ -467,7 +477,41 @@ describe('useUpdateState update action', () => {
     )
     await waitFor(() => expect(results.at(-1)?.checkNow).toBeTypeOf('function'))
     await results.at(-1)?.checkNow()
-    await waitFor(() => expect(results.at(-1)?.view).toEqual({ state: 'current', version: '0.4.1' }))
+    await waitFor(() => expect(results.at(-1)?.view).toEqual({ state: 'current', version: '0.4.2' }))
+  })
+
+  it('shows the running page version, not a stale built stamp', async () => {
+    setPageVersion('dev+abc1234')
+    setupTransport({
+      appVersion: 'dev+abc1234',
+      target: { version: 'dev+abc1234', critical: false, artifacts: {} },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith('/version')
+            ? {
+                appVersion: 'dev+abc1234',
+                target: { version: 'dev+abc1234', critical: false, artifacts: {} },
+              }
+            : { appVersion: 'dev+old1234', sourceSha: 'old1234' },
+      })),
+    )
+    const results: UpdateStateResult[] = []
+
+    render(
+      <Probe
+        onResult={(result) => results.push(result)}
+        fleet={{ total: 0, behind: 0, converging: 0, failed: 0 }}
+      />,
+    )
+    await waitFor(() => expect(results.at(-1)?.checkNow).toBeTypeOf('function'))
+    await results.at(-1)?.checkNow()
+    await waitFor(() =>
+      expect(results.at(-1)?.view).toEqual({ state: 'current', version: 'dev+abc1234' }),
+    )
   })
 
   it('a manual check surfaces a failed desktop lookup', async () => {

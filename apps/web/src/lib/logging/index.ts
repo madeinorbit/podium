@@ -12,9 +12,9 @@ export { pageLogTransport, trpcLogTransport } from './transport'
  * mounts, so a throw during the first render is caught by the global handlers
  * rather than lost to the console of a user who is not looking at it.
  *
- * The product version is resolved synchronously inside `installWebLogging`,
- * from the stamp's `<meta name="podium-version">` or the dest-server define,
- * so the first record already carries the same `v` as About and Update.
+ * The product version is resolved synchronously inside `installWebLogging`
+ * via {@link pageBuildVersion}, so the first record already carries the
+ * same `v` as About and Update.
  */
 export function startWebLogging(): () => void {
   const dispose = installWebLogging({ transport: pageLogTransport() })

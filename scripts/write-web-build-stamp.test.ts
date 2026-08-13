@@ -1,6 +1,6 @@
 // scripts/write-web-build-stamp.test.ts
 //
-// Product version is one string: PODIUM_APP_VERSION or dest+<sha>.
+// Product version is one string: PODIUM_APP_VERSION or dev+<sha>.
 // The chunk hash stays on the stamp as bundleVersion and in a <meta> so the
 // page can read the product string without treating the hash as `v`.
 
@@ -59,7 +59,7 @@ describe('webBuildStamp', () => {
     expect(first.bundleVersion).not.toBe(second.bundleVersion)
   })
 
-  it('omits sourceSha when git cannot name HEAD and falls back to dest', () => {
+  it('omits sourceSha when git cannot name HEAD and falls back to dev', () => {
     const stamp = webBuildStamp(BUILT_INDEX)
     expect(stamp.sourceSha).toBeUndefined()
     expect(stamp.appVersion).toBe('dev')

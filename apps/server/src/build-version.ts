@@ -4,7 +4,7 @@ import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 
 let capturedSourceVersion: string | undefined
 
-/** Product version for `/version` and Update: packaged channel, or dest+<sha>. Never `-dirty`. */
+/** Product version for `/version` and Update: packaged channel, or dev+<sha>. Never `-dirty`. */
 export function captureServerBuildVersion(
   env: NodeJS.ProcessEnv = process.env,
   sourceRoot: string = DEVELOPMENT_SOURCE_ROOT,

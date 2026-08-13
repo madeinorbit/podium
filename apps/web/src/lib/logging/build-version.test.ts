@@ -18,7 +18,7 @@ describe('pageBuildVersion', () => {
     ).toBe('dev+47a01e3')
   })
 
-  it('prefers the packaged channel version on the page over a dest+sha define', () => {
+  it('prefers the packaged channel version on the page over a dev+sha define', () => {
     expect(
       pageBuildVersion(
         documentWith('<meta name="podium-version" content="0.4.2">'),
@@ -42,7 +42,7 @@ describe('pageBuildVersion', () => {
     ).toBe('dev')
   })
 
-  it('falls back to dest when neither the page nor the define names a version', () => {
+  it('falls back to dev when neither the page nor the define names a version', () => {
     expect(pageBuildVersion(documentWith(''), undefined)).toBe('dev')
     expect(pageBuildVersion(documentWith(''), '')).toBe('dev')
   })

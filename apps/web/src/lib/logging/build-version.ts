@@ -3,14 +3,11 @@ import { PRODUCT_VERSION_META } from '@podium/protocol'
 /**
  * WHICH PRODUCT IS RUNNING, read out of the page itself.
  *
- * Built dist: the stamp writer injects `<meta name="podium-version">` with the
- * product string (`PODIUM_APP_VERSION` or `dev+<sha>`). Dest-server: Vite
- * inlines the same string as `import.meta.env.PODIUM_APP_VERSION`. Either way
- * log field `v` and About print what Update and `/version` print.
- *
- * SYNCHRONOUS, AND NOT A FETCH. Records written before a stamp fetch resolved
- * used to go out untagged, and a dest-server fetch of `/podium-build.json`
- * describes the last built dist, not the source this page is running.
+ * A built dist carries `<meta name="podium-version">` (`PODIUM_APP_VERSION` or
+ * `dev+<sha>`). Vite serving source has no meta, so this falls through to
+ * `import.meta.env.PODIUM_APP_VERSION`. Either way the string is synchronous:
+ * boot records must be tagged, and a dest-server `/podium-build.json` is the
+ * last built dist, not the source this page is running.
  *
  * The entry-chunk hash is a forensic field on the stamp (`bundleVersion`),
  * not this string.

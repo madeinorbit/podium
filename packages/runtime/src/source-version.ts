@@ -18,7 +18,7 @@ export function developmentSourceSha(
   }
 }
 
-/** Product version of a source checkout: dest+<sha>, never `-dirty`. */
+/** Product version of a source checkout: dev+<sha>, never `-dirty`. */
 export function developmentSourceVersion(
   root: string,
   readHead: (root: string) => string = defaultReadHead,

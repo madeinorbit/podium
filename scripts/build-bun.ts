@@ -76,7 +76,7 @@ export function bundleNames(platform: NodeJS.Platform = process.platform): {
  * empty or whitespace-only value falls back rather than writing to a path called "".
  */
 /**
- * A dest+<sha> tarball claims every served byte was produced from that commit.
+ * A dev+<sha> tarball claims every served byte was produced from that commit.
  * Packing yesterday's `apps/web/dist` under today's SHA is that lie for the
  * web half — refuse rather than ship it.
  */
@@ -262,7 +262,7 @@ function main(): void {
   assertDevWebDistMatchesVersion(version, webStamp)
   // Re-stamp with this bundle's product version so About / web logs / Update
   // agree with the VERSION file and the compiled /version. A dest publish
-  // already wrote dest+<sha>; a channel package overwrites dest+<sha> with
+  // already wrote dev+<sha>; a channel package overwrites dev+<sha> with
   // PODIUM_APP_VERSION / package.json (e.g. 0.4.2).
   execFileSync(
     'bun',
