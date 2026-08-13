@@ -50,6 +50,9 @@ mon.pid
 # One-off runtime-verification screenshot dumps
 verify-artifacts/
 
+# Issue review artifacts are attached through Podium, not committed to the repository
+.artifacts/
+
 # Scratch output for perf:typing and similar one-off benchmarks
 .tmp/
 
