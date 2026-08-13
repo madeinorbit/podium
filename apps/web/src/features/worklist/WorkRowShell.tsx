@@ -260,10 +260,10 @@ export function WorkRowShell({
                   // on warm paper a 25% tint into the body ink just read as faded
                   // text. The colour lives on the square, the spine and the band;
                   // the title's job is to be the most readable thing in the row.
-                  // Selection and unread both lift to semibold; unread also
-                  // takes the info dot after the title (not on the fleet tile —
-                  // those stack and grow ×N, so they cannot carry per-session
-                  // unread).
+                  // Unread alone lifts to semibold and takes the info dot after
+                  // the title (not on the fleet tile — those stack and grow ×N,
+                  // so they cannot carry per-session unread). Selection is
+                  // already expressed by the band, spine and bridge notch.
                   unreadTitleClass(unread, active),
                 )}
               >

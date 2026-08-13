@@ -155,7 +155,7 @@ function rowButton(label: string): HTMLElement {
 afterEach(cleanup)
 
 describe('SidebarUnified selection weight (#41 redesign)', () => {
-  it('a selected row wears the colour-mixed background, semibold title and the bridge notch', () => {
+  it('a selected row wears the colour-mixed background and bridge notch without changing title weight', () => {
     render(<SidebarUnified />)
     const active = rowButton('Read selected issue')
     // Selection reads as the slate colour-mixed background + border on the row
@@ -165,9 +165,9 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     expect(row.getAttribute('data-selected')).toBe('true')
     // (The colour-mixed background itself is inline style — happy-dom drops
     // color-mix() values, so the paint is asserted in the Chromium probe.)
-    // The selected title lifts to semibold (handoff); unread uses the same weight.
+    // Selection has its own band and notch; title weight remains reserved for unread.
     const label = screen.getByText('Read selected issue')
-    expect(label.className).toContain('font-semibold')
+    expect(label.className).not.toContain('font-semibold')
     expect(label.className).not.toContain('font-medium')
     // The bridge notch grows out of the selected row toward the engraved column.
     expect(row.querySelector('[data-testid="bridge-notch"]')).toBeTruthy()

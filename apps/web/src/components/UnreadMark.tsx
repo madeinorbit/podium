@@ -30,9 +30,10 @@ export function UnreadDot({
   )
 }
 
-/** Semibold + info dot. Put the children (the title) between the optional
- *  leading slot and the trailing extras. */
+/** Unread titles are semibold; selection may strengthen the ink, but never the
+ *  weight. Put the children (the title) between the optional leading slot and
+ *  the trailing extras. */
 export function unreadTitleClass(unread: boolean, selected: boolean): string {
-  if (selected) return 'font-semibold text-text-strong'
-  return unread ? 'font-semibold text-text-strong' : 'text-foreground'
+  if (unread) return 'font-semibold text-text-strong'
+  return selected ? 'text-text-strong' : 'text-foreground'
 }
