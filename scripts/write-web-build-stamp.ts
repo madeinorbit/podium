@@ -46,6 +46,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { brotliCompressSync, gzipSync, constants as zlibConstants } from 'node:zlib'
 import {
   BUILD_STAMP_FILE,
   type BuildStamp,
@@ -129,6 +130,39 @@ export function webBuildStamp(
   }
 }
 
+/**
+ * Rewrite the `.br`/`.gz` siblings of a file whose bytes just changed.
+ *
+ * This step is LAST in the build (POD-1986), so `podium-build.json` can mean what
+ * every reader already assumes — the dist is complete. That puts it AFTER
+ * `precompress-dist.ts`, and rewriting index.html leaves the compressed copies of
+ * the page stale. The server serves those straight off disk in preference to the
+ * original (apps/server/src/static-web.ts), so a stale sibling is not a cosmetic
+ * mismatch: it is the version meta the page actually reports being one build old.
+ *
+ * Only siblings that ALREADY exist are refreshed. Precompression deliberately skips
+ * files under 1 KB and outputs that failed to shrink, and inventing a `.br` here
+ * would quietly overrule that. Settings match precompress-dist.ts — the cost is one
+ * 3 KB page, not the 36 MB dist.
+ */
+function refreshCompressedSiblings(filePath: string, bytes: string): void {
+  const raw = Buffer.from(bytes)
+  if (existsSync(`${filePath}.br`)) {
+    writeFileSync(
+      `${filePath}.br`,
+      brotliCompressSync(raw, {
+        params: {
+          [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+          [zlibConstants.BROTLI_PARAM_SIZE_HINT]: raw.byteLength,
+        },
+      }),
+    )
+  }
+  if (existsSync(`${filePath}.gz`)) {
+    writeFileSync(`${filePath}.gz`, gzipSync(raw, { level: 9 }))
+  }
+}
+
 export function writeWebBuildStamp(
   distDir: string,
   now: Date = new Date(),
@@ -148,7 +182,11 @@ export function writeWebBuildStamp(
     )
   }
   const stamp = webBuildStamp(indexHtml, now, sourceSha, packagedVersion)
-  writeFileSync(indexPath, injectProductVersionMeta(indexHtml, stamp.appVersion))
+  const stamped = injectProductVersionMeta(indexHtml, stamp.appVersion)
+  writeFileSync(indexPath, stamped)
+  refreshCompressedSiblings(indexPath, stamped)
+  // The stamp file goes LAST, after every other byte this build writes. That is the
+  // whole contract: a reader that sees podium-build.json sees a finished dist.
   writeFileSync(join(distDir, BUILD_STAMP_FILE), `${JSON.stringify(stamp, null, 2)}\n`)
   return stamp
 }
