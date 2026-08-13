@@ -2,14 +2,7 @@ import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { shallowEqual } from '@podium/client-core/store'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  CircleAlert,
-  LoaderCircle,
-  SquareTerminal,
-} from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ChevronDown, LoaderCircle } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
@@ -39,29 +32,32 @@ function repoLabel(path: string): string {
 }
 
 function ActivationSteps({ current }: { current: 'agent' | 'ready' }): JSX.Element {
-  const steps = ['Project', 'Agents', 'Start using Podium'] as const
-  const active = current === 'agent' ? 1 : 2
+  const ready = current === 'ready'
   return (
-    <ol className="mb-6 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-      {steps.map((step, index) => (
-        <li key={step} className="contents">
-          {index > 0 && <span aria-hidden="true">→</span>}
-          <span
-            className={cn('inline-flex items-center gap-1.5', index <= active && 'text-foreground')}
-          >
-            <span
-              className={cn(
-                'flex size-5 items-center justify-center rounded-full border border-border',
-                index < active && 'border-success/30 bg-success/15 text-success',
-                index === active && 'border-primary/35 bg-primary/10 text-primary',
-              )}
-            >
-              {index < active ? <Check size={12} aria-hidden="true" /> : index + 1}
-            </span>
-            {step}
-          </span>
-        </li>
-      ))}
+    <ol className="flex max-w-[1060px] items-center font-mono text-[10.5px] leading-none">
+      <li className="inline-flex items-center gap-2 text-[#a8adb6]">
+        <Check size={14} className="text-[#6f9dff]" aria-hidden="true" />
+        project
+      </li>
+      <li className="mx-3 h-px w-[46px] bg-gradient-to-r from-[#6f9dff] to-[#8b83ff]" />
+      <li className="inline-flex items-center gap-2 text-[#f2f3f5]">
+        {ready ? (
+          <Check size={14} className="text-[#6f9dff]" aria-hidden="true" />
+        ) : (
+          <span className="text-[#8b83ff]">02</span>
+        )}
+        agents
+      </li>
+      <li className={cn('mx-3 h-px w-[46px]', ready ? 'bg-[#8b83ff]' : 'bg-[#2c2f35]')} />
+      <li
+        className={cn(
+          'inline-flex items-center gap-2',
+          ready ? 'text-[#f2f3f5]' : 'text-[#6f7580]',
+        )}
+      >
+        <span className={ready ? 'text-[#8b83ff]' : 'text-[#a8adb6]'}>03</span>
+        first mission
+      </li>
     </ol>
   )
 }
@@ -218,131 +214,242 @@ export function FirstTaskActivation({
     )
   }
 
-  return (
-    <ActivationShell
-      eyebrow="Activate Podium · Step 2 of 3"
-      title="Set up the agents you want to use."
-      description="These are the coding agents Podium supports. Ready agents can start work now; the others show exactly what is still needed on this machine."
-      onExplore={onExplore}
-    >
-      <ActivationSteps current="agent" />
-      <div className="max-w-[760px] space-y-3">
-        <div className="overflow-hidden rounded-xl border border-border-strong bg-background/45">
-          {ISSUE_AGENT_KINDS.map((agent, index) => {
-            const readiness = readinessByAgent[agent]
-            const ready = activationAgentIsReady(readiness)
-            const selected = selectedAgent === agent
-            return (
-              <div
-                key={agent}
+  const selectedMachine =
+    machines.find((machine) => machine.id === selectedRepo?.machineId) ?? machines[0]
+  const blockedAgents = ISSUE_AGENT_KINDS.filter(
+    (agent) => !activationAgentIsReady(readinessByAgent[agent]),
+  )
+  const copySetupCommand = (agent: IssueAgentKind): void => {
+    const command = agent === 'cursor' ? 'cursor-agent login' : 'opencode auth login'
+    void navigator.clipboard?.writeText(command)
+  }
+
+  const renderAgentRows = (agents: readonly IssueAgentKind[]): JSX.Element[] =>
+    agents.map((agent, index) => {
+      const readiness = readinessByAgent[agent]
+      const ready = activationAgentIsReady(readiness)
+      const selected = selectedAgent === agent
+      const needsLogin = readiness.state === 'logged-out'
+      const setupCommand =
+        readiness.state === 'missing' && (agent === 'opencode' || agent === 'cursor')
+          ? agent === 'cursor'
+            ? 'cursor-agent login'
+            : 'opencode auth login'
+          : null
+      const status = ready ? 'ready' : needsLogin ? 'sign in' : 'waiting'
+
+      return (
+        <div
+          key={agent}
+          className={cn(
+            'flex items-center gap-3.5 px-[18px] py-[15px]',
+            index < agents.length - 1 && 'border-b border-[#23262b]',
+          )}
+        >
+          <div
+            className={cn(
+              'flex size-[34px] flex-none items-center justify-center rounded-[9px] bg-[#16171a] shadow-[inset_0_0_0_1px_#26292f]',
+              agent === 'claude-code'
+                ? '[&_svg]:text-[#d97757]'
+                : ready
+                  ? '[&_svg]:text-[#d7dae0]'
+                  : '[&_svg]:text-[#8a9099]',
+            )}
+          >
+            {issueAgentIcon(agent, agent === 'claude-code' ? 18 : 17)}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2.5">
+              <span
                 className={cn(
-                  'flex gap-3 px-4 py-3.5',
-                  index > 0 && 'border-t border-border',
-                  !ready && 'bg-muted/[0.16]',
+                  'truncate text-[14px] leading-none font-semibold',
+                  ready ? 'text-[#f2f3f5]' : 'text-[#d7dae0]',
                 )}
               >
-                <div
-                  className={cn(
-                    'mt-0.5 flex size-8 flex-none items-center justify-center rounded-lg border',
-                    ready
-                      ? 'border-success/25 bg-success/10'
-                      : 'border-border bg-muted/30 opacity-60',
-                  )}
-                >
-                  {issueAgentIcon(agent, 17)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={cn(
-                        'text-sm font-semibold',
-                        ready ? 'text-foreground' : 'text-muted-foreground',
-                      )}
-                    >
-                      {issueAgentLabel(agent)}
-                    </span>
-                    <span
-                      className={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-medium',
-                        ready
-                          ? 'border-success/25 bg-success/10 text-success'
-                          : 'border-border bg-muted/35 text-muted-foreground',
-                      )}
-                    >
-                      {ready ? (
-                        <Check size={11} aria-hidden="true" />
-                      ) : (
-                        <CircleAlert size={11} aria-hidden="true" />
-                      )}
-                      {ready ? 'Ready to use' : 'Setup needed'}
-                    </span>
-                    {selected && ready && (
-                      <span className="text-[10.5px] text-muted-foreground">Default</span>
-                    )}
-                  </div>
-                  <p
-                    className={cn(
-                      'mt-1 text-xs leading-5',
-                      ready ? 'text-muted-foreground' : 'text-muted-foreground/80',
-                    )}
-                  >
-                    {setupHint(agent, readiness)}
-                  </p>
-                </div>
-                <div className="flex flex-none items-center">
-                  {readiness.state === 'logged-out' ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={loginBusyAgent !== null}
-                      onClick={() => void openLogin(agent)}
-                    >
-                      {loginBusyAgent === agent ? (
-                        <LoaderCircle className="animate-spin" aria-hidden="true" />
-                      ) : (
-                        <SquareTerminal aria-hidden="true" />
-                      )}
-                      Sign in
-                    </Button>
-                  ) : ready && !selected ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => chooseDefault(agent)}
-                    >
-                      Use by default
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            )
-          })}
-        </div>
+                {issueAgentLabel(agent)}
+              </span>
+              {selected && ready && (
+                <span className="inline-flex h-[19px] items-center rounded-[5px] bg-[#1e2024] px-2 font-mono text-[8.5px] leading-none tracking-[0.12em] text-[#e3ba52] uppercase">
+                  Default
+                </span>
+              )}
+            </div>
+            {agent === 'cursor' && setupCommand ? (
+              <p className="mt-[5px] flex min-w-0 items-center gap-2 truncate font-mono text-[11px] leading-none text-[#6f7580]">
+                <span>not installed · run</span>
+                <code className="inline-flex h-5 items-center rounded-[5px] bg-[#16171a] px-2 text-[#a8adb6] shadow-[inset_0_0_0_1px_#26292f]">
+                  {setupCommand}
+                </code>
+                <span>and Podium detects it</span>
+              </p>
+            ) : (
+              <p className="mt-[5px] truncate font-mono text-[11px] leading-[1.4] text-[#6f7580]">
+                {setupHint(agent, readiness)}
+              </p>
+            )}
+          </div>
 
-        {error && <SetupError>{error}</SetupError>}
-
-        <div className="flex flex-wrap justify-between gap-2 border-t border-border-strong pt-4">
-          <Button type="button" variant="ghost" onClick={() => onRouteChange('local-project')}>
-            <ArrowLeft aria-hidden="true" />
-            Change project
-          </Button>
-          <Button
-            type="button"
-            disabled={readyAgents.length === 0}
-            onClick={() => onRouteChange('first-task')}
+          <span
+            className={cn(
+              'hidden flex-none items-center gap-[7px] font-mono text-[10.5px] leading-none sm:inline-flex',
+              ready ? 'text-[#6f9dff]' : needsLogin ? 'text-[#e3ba52]' : 'text-[#6f7580]',
+            )}
           >
-            Continue
-            <ArrowRight data-icon="inline-end" aria-hidden="true" />
-          </Button>
+            <span
+              className={cn(
+                'size-[5px] rounded-full',
+                ready ? 'bg-[#6f9dff]' : needsLogin ? 'bg-[#e3ba52]' : 'bg-[#3a3f48]',
+              )}
+              aria-hidden="true"
+            />
+            {status}
+          </span>
+
+          {needsLogin ? (
+            <button
+              type="button"
+              disabled={loginBusyAgent !== null}
+              onClick={() => void openLogin(agent)}
+              className="inline-flex h-7 w-28 flex-none items-center justify-center gap-1.5 rounded-lg bg-[#e3ba52] text-[11.5px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:opacity-50"
+            >
+              {loginBusyAgent === agent ? (
+                <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <>
+                  Sign in
+                  <ArrowRight size={14} aria-hidden="true" />
+                </>
+              )}
+            </button>
+          ) : ready && !selected ? (
+            <button
+              type="button"
+              onClick={() => chooseDefault(agent)}
+              className="h-7 w-28 flex-none rounded-lg font-mono text-[11px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#26292f] hover:bg-white/[0.035] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#8b83ff]"
+            >
+              make default
+            </button>
+          ) : setupCommand ? (
+            <button
+              type="button"
+              onClick={() => copySetupCommand(agent)}
+              className="h-7 w-28 flex-none rounded-lg font-mono text-[11px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#26292f] hover:bg-white/[0.035] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#8b83ff]"
+            >
+              copy command
+            </button>
+          ) : (
+            <span className="hidden w-28 flex-none sm:block" aria-hidden="true" />
+          )}
+        </div>
+      )
+    })
+
+  return (
+    <main className="native-agents-pane relative" aria-labelledby="activation-title">
+      <div className="workspace-sheet min-h-0 overflow-y-auto bg-[#131417]">
+        <div className="flex min-h-full w-full flex-col bg-[#131417] px-5 pt-12 pb-14 font-sans sm:px-10 lg:px-24 lg:pt-16">
+          <div className="flex max-w-[1060px] items-center gap-3.5">
+            <p className="inline-flex items-center gap-[7px] font-mono text-[8.5px] leading-none tracking-[0.2em] text-[#8b83ff] uppercase">
+              <span className="size-[5px] rounded-full bg-[#8b83ff]" aria-hidden="true" />
+              Activate
+            </p>
+            <span className="h-px flex-1 bg-[#1e2024]" aria-hidden="true" />
+            <span className="font-mono text-[10.5px] leading-none text-[#6f7580]">step 2 of 3</span>
+          </div>
+
+          <h1
+            id="activation-title"
+            className="mt-7 flex flex-wrap items-center gap-[13px] text-[clamp(26px,3vw,33px)] leading-[1.15] font-semibold tracking-[-0.022em] text-[#f2f3f5]"
+          >
+            <span>Set up the agents on</span>
+            <span className="inline-flex h-12 items-center gap-[11px] rounded-[11px] bg-[#1b1d21] px-[13px] shadow-[inset_0_0_0_1px_#2c2f35]">
+              <span className="size-[7px] rounded-full bg-[#6f9dff]" aria-hidden="true" />
+              <span className="font-mono text-[26px] leading-none tracking-[-0.01em]">
+                {selectedMachine?.hostname ?? selectedMachine?.name ?? 'this machine'}
+              </span>
+              <ChevronDown size={20} className="text-[#949aa4]" aria-hidden="true" />
+            </span>
+          </h1>
+
+          <div className="mt-[22px] flex max-w-[1060px] items-center">
+            <ActivationSteps current="agent" />
+            <span className="ml-5 h-px min-w-5 flex-1 bg-[#1e2024]" aria-hidden="true" />
+            <span className="ml-3 font-mono text-[10.5px] leading-none whitespace-nowrap text-[#6f7580]">
+              {readyAgents.length} ready · {blockedAgents.length} blocked
+            </span>
+          </div>
+
+          <div className="mt-[26px] max-w-[1060px] overflow-hidden rounded-[14px] bg-[#1b1d21] shadow-[inset_0_0_0_1px_#2c2f35,0_20px_50px_-30px_rgba(0,0,0,.9)]">
+            {readyAgents.length > 0 && (
+              <>
+                <div className="flex items-center gap-2.5 border-b border-[#23262b] bg-[#191a1e] px-[18px] py-[9px] font-mono text-[8.5px] leading-none tracking-[0.16em] text-[#6f7580] uppercase">
+                  <span className="flex-1">Ready now</span>
+                  <span className="text-[#6f9dff]">{readyAgents.length}</span>
+                </div>
+                {renderAgentRows(readyAgents)}
+              </>
+            )}
+            {blockedAgents.length > 0 && (
+              <>
+                <div className="flex items-center gap-2.5 border-y border-[#23262b] bg-[#191a1e] px-[18px] py-[9px] font-mono text-[8.5px] leading-none tracking-[0.16em] text-[#6f7580] uppercase first:border-t-0">
+                  <span className="flex-1">Needs one step</span>
+                  <span className="text-[#e3ba52]">{blockedAgents.length}</span>
+                </div>
+                {renderAgentRows(blockedAgents)}
+              </>
+            )}
+          </div>
+
+          {error && (
+            <div className="mt-3 max-w-[1060px]">
+              <SetupError>{error}</SetupError>
+            </div>
+          )}
+
+          <div className="mt-[22px] flex max-w-[1060px] flex-wrap items-center gap-3.5">
+            <button
+              type="button"
+              onClick={() => onRouteChange('local-project')}
+              className="inline-flex items-center gap-2 text-[11.5px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8b83ff]"
+            >
+              <ArrowLeft size={15} className="text-[#6f7580]" aria-hidden="true" />
+              Change project
+            </button>
+            <span className="flex-1" />
+            <span className="font-mono text-[10px] leading-none text-[#6f7580]">
+              {readyAgents.length} ready is enough — the rest can wait
+            </span>
+            <button
+              type="button"
+              disabled={readyAgents.length === 0}
+              onClick={() => onRouteChange('first-task')}
+              className="inline-flex h-[30px] items-center gap-[7px] rounded-[9px] bg-[#e3ba52] px-3.5 text-[12px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2f3f5] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Continue
+              <ArrowRight size={15} aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="mt-11 flex max-w-[1060px] items-center gap-3 border-t border-[#1e2024] pt-5">
+            <button
+              type="button"
+              onClick={onExplore}
+              className="inline-flex h-7 items-center gap-[7px] rounded-lg px-3 text-[11.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#26292f] hover:bg-white/[0.035] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#8b83ff]"
+            >
+              Explore Podium
+              <ArrowRight size={14} className="text-[#6f7580]" aria-hidden="true" />
+            </button>
+            <span className="font-mono text-[10.5px] leading-none text-[#6f7580]">
+              setup stays ready here until you return
+            </span>
+          </div>
         </div>
       </div>
-
       <SetupLoginTerminalDialog
         sessionId={loginSessionId}
         onClose={() => setLoginSessionId(null)}
       />
-    </ActivationShell>
+    </main>
   )
 }

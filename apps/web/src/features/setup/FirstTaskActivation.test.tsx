@@ -94,10 +94,10 @@ describe('FirstTaskActivation', () => {
       />,
     )
 
-    await screen.findByText('Ready to use')
+    await screen.findByText('ready')
     expect(screen.getByText(/Install OpenCode.*opencode auth login/)).toBeTruthy()
     expect(screen.getByText(/Install the Cursor CLI.*cursor-agent login/)).toBeTruthy()
-    expect(screen.queryByText('Project')).toBeTruthy()
+    expect(screen.queryByText('project')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Choose a project/ })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))

@@ -82,7 +82,9 @@ describe('ColdStartComposer', () => {
     start.mockResolvedValue({ id: issueId })
     render(<ColdStartComposer first />)
 
-    expect(screen.getByRole('heading', { name: 'Start your first thing in' })).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { name: /Give Project: podium its first mission/ }),
+    ).toBeTruthy()
     fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
       target: { value: 'Ship the new onboarding\nKeep the empty state subtle.' },
     })
@@ -110,6 +112,8 @@ describe('ColdStartComposer', () => {
 
   it('switches to reusable workspace wording when tasks already exist', () => {
     render(<ColdStartComposer first={false} />)
-    expect(screen.getByRole('heading', { name: 'What do you want to work on in' })).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { name: /What do you want to work on in Project: podium/ }),
+    ).toBeTruthy()
   })
 })

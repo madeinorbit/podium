@@ -27,7 +27,7 @@ import { cn } from './utils'
  *  - `pill`  — a small rounded outline pill, matching the composer's property row.
  *  - `field` — a full-width select-style control, matching a Settings `Row`.
  */
-type Variant = 'pill' | 'field'
+type Variant = 'pill' | 'field' | 'composer'
 
 const PickerTrigger = forwardRef<
   HTMLButtonElement,
@@ -57,6 +57,21 @@ const PickerTrigger = forwardRef<
           languages for one control. The `pill` variant carries no chevron at
           all and is unaffected. */}
       <ChevronDown size={14} aria-hidden="true" className="shrink-0 opacity-50" />
+    </Button>
+  ) : variant === 'composer' ? (
+    <Button
+      ref={ref}
+      type="button"
+      variant="ghost"
+      size="sm"
+      className={cn(
+        'h-7 gap-1 rounded-none px-2.5 font-mono text-[11px] font-normal text-[#a8adb6] hover:bg-white/[0.035] hover:text-[#f2f3f5]',
+        className,
+      )}
+      {...props}
+    >
+      {label}
+      <ChevronDown size={13} aria-hidden="true" className="text-[#6f7580]" />
     </Button>
   ) : (
     <Button
