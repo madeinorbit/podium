@@ -25,7 +25,7 @@ import {
   platformIsOnline,
   platformOnlineEvents,
 } from '../outbox'
-import { reasonSummary } from '../outbox-recovery-copy'
+import { deadLetterNotice } from '../outbox-recovery-copy'
 import {
   type CreateEngineOutbox,
   type EngineOutbox,
@@ -254,7 +254,7 @@ class KernelEngineOutbox implements EngineOutbox {
         )
         if (parked !== undefined) {
           this.callbacks.notices.error(
-            `A queued change (${entry.kind}) needs your attention — ${reasonSummary(parked.reason.code)}`,
+            deadLetterNotice(entry.kind, entry.input, parked.reason.code),
           )
           this.callbacks.onDeadLetter?.(parked)
         }

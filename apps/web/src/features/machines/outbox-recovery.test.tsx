@@ -25,7 +25,7 @@ type Kinds = {
   rename: { sessionId: string; name: string }
   /** POD-781's shape: a command wrapping a PATCH, so the operator's prose sits
    *  one level down at `patch.title` rather than on the input itself. */
-  issueUpdate: { id: string; patch: { title?: string } }
+  issueUpdate: { id: string; patch: { title?: string; stage?: string } }
   issueSetTucked: { id: string; tucked: boolean }
 }
 
@@ -98,9 +98,10 @@ describe('dead-letter recovery, at runtime', () => {
     expect(chip).toBeTruthy()
     fireEvent.click(chip)
 
-    await waitFor(() => expect(screen.getByText('Review 1 change')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Couldn’t save this change')).toBeTruthy())
     // The recoverable intent: the user's own input, verbatim.
     expect(screen.getByText(/my careful title/)).toBeTruthy()
+    expect(screen.getByTestId('outbox-change-label').textContent).toBe('Session rename')
   })
 
   it('says NOTHING about the target — no id, no title, no existence claim', async () => {
@@ -112,7 +113,7 @@ describe('dead-letter recovery, at runtime', () => {
     await outbox.drain()
     render(<OutboxRecoveryIndicator />)
     fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByText('Review 1 change')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Couldn’t save this change')).toBeTruthy())
 
     const dialog = screen.getByRole('dialog')
     // The author's OWN input is shown verbatim and may legitimately contain the
@@ -249,8 +250,28 @@ describe('dead-letter recovery, at runtime', () => {
 
     const dialog = screen.getByRole('dialog')
     expect(screen.getByText('Issue visibility')).toBeTruthy()
+    expect(screen.getByText('Hidden from the list')).toBeTruthy()
     expect(dialog.textContent).not.toContain('SECRET-BOOKKEEPING-ID')
     expect(dialog.textContent).not.toContain('"tucked"')
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeTruthy()
+  })
+
+  it('names a field-only issue update so the operator can see what failed', async () => {
+    refusalCode = 'BAD_REQUEST'
+    outbox.enqueue('issueUpdate', { id: 'SECRET-ISSUE-ID', patch: { stage: 'review' } })
+    await outbox.drain()
+    render(<OutboxRecoveryIndicator />)
+    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+
+    const dialog = screen.getByRole('dialog')
+    expect(screen.getByTestId('outbox-change-label').textContent).toBe('Issue stage')
+    expect(screen.getByText('Moved to Review')).toBeTruthy()
+    expect(dialog.textContent).toMatch(/Not accepted as written/)
+    expect(dialog.textContent).toMatch(/Discard this change and try again/)
+    expect(dialog.textContent).not.toMatch(/Edit the text/)
+    expect(dialog.textContent).not.toContain('SECRET-ISSUE-ID')
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Discard' })).toBeTruthy()
   })

@@ -67,7 +67,7 @@ test('a refused browser write stays visible and discard survives reload', async 
   await expect(chip).toBeVisible()
   await chip.click()
 
-  const dialog = page.getByRole('dialog', { name: 'Changes that need you' })
+  const dialog = page.getByRole('dialog', { name: 'Couldn’t save this change' })
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText(AUTHORED_TEXT)
   await expect(dialog.getByTestId('outbox-retry')).toHaveCount(0)

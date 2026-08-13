@@ -21,7 +21,7 @@ import {
   platformIsOnline,
   platformOnlineEvents,
 } from '../outbox'
-import { reasonSummary } from '../outbox-recovery-copy'
+import { deadLetterNotice } from '../outbox-recovery-copy'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
 import type { Replica } from '../replica/replica'
@@ -653,7 +653,7 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
     },
     onDeadLetter: (parked) => {
       args.notices.error(
-        `A queued change (${parked.entry.kind}) needs your attention — ${reasonSummary(parked.reason.code)}`,
+        deadLetterNotice(parked.entry.kind, parked.entry.input, parked.reason.code),
       )
       args.onDeadLetter?.(parked)
     },
