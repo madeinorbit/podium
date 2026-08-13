@@ -30,7 +30,7 @@ const order = (over: Partial<ShipOrderProjection> = {}): ShipOrderProjection => 
 
 const commands = (over: Partial<ShippingPanelCommands> = {}): ShippingPanelCommands => ({
   resolveHold: vi.fn(async () => ({})),
-  cancelOrder: vi.fn(async () => ({})),
+  cancelOrder: vi.fn(async () => ({ state: 'cancelled' })),
   getReceipt: vi.fn(async () => null),
   ...over,
 })
@@ -199,7 +199,7 @@ describe('ShippingPanel', () => {
   })
 
   it('cancels a live order through the order-scoped command', async () => {
-    const cancelOrder = vi.fn(async () => ({}))
+    const cancelOrder = vi.fn(async () => ({ state: 'cancelled' as const }))
     render(
       <ShippingPanel
         orders={[order()]}
@@ -215,8 +215,36 @@ describe('ShippingPanel', () => {
 
     expect(cancelOrder).toHaveBeenCalledWith({ orderId: 'order-a' })
     expect(
-      await screen.findByText('Cancellation accepted. Shipping is returning the issue to review.'),
+      await screen.findByText(
+        'Cancellation request received. Waiting for Shipping to update this order.',
+      ),
     ).toBeTruthy()
+  })
+
+  it('keeps cancellation available when a successful command returns a held order', async () => {
+    const cancelOrder = vi.fn(async () => ({ state: 'held' as const }))
+    render(
+      <ShippingPanel
+        orders={[order()]}
+        issues={[issue]}
+        repoId="repo-a"
+        now={Date.parse('2026-08-13T12:00:00.000Z')}
+        commands={commands({ cancelOrder })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Shipping sidebar panel/ }))
+    const cancel = screen.getByRole('button', { name: 'Cancel shipping' }) as HTMLButtonElement
+    fireEvent.click(cancel)
+
+    expect(
+      await screen.findByText(
+        'Cancellation request was processed, but Shipping still needs attention. Waiting for the latest order state.',
+      ),
+    ).toBeTruthy()
+    expect(cancel.disabled).toBe(false)
+    expect(screen.getByText('Running checks')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('loads and renders the completed order’s typed delivery receipt', async () => {

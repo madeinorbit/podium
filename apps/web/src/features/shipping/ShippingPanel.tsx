@@ -10,6 +10,7 @@ import type {
   ShipHoldAction,
   ShipOrderId,
   ShipOrderProjection,
+  ShipOrderState,
 } from '@podium/model'
 import { ChevronLeft, Circle, CircleCheck, TriangleAlert } from 'lucide-react'
 import type { JSX, ReactNode, RefObject } from 'react'
@@ -24,7 +25,7 @@ export interface ShippingPanelCommands {
     action: ShipHoldAction
     expectedGeneration: number
   }): Promise<unknown>
-  cancelOrder(input: { orderId: ShipOrderId }): Promise<unknown>
+  cancelOrder(input: { orderId: ShipOrderId }): Promise<{ state: ShipOrderState }>
   getReceipt(input: { orderId: ShipOrderId }): Promise<DeliveryReceipt | null>
 }
 
@@ -371,6 +372,7 @@ type CommandFeedback =
   | { kind: 'idle' }
   | { kind: 'pending'; action: string }
   | { kind: 'success'; message: string }
+  | { kind: 'notice'; message: string }
   | { kind: 'error'; message: string }
 
 function ShipmentDetail({
@@ -429,11 +431,19 @@ function ShipmentDetail({
     const fence = requestFence.current
     setFeedback({ kind: 'pending', action: 'cancel' })
     try {
-      await commands.cancelOrder({ orderId: order.id })
+      const result = await commands.cancelOrder({ orderId: order.id })
       if (fence !== requestFence.current) return
+      if (result.state === 'held') {
+        setFeedback({
+          kind: 'notice',
+          message:
+            'Cancellation request was processed, but Shipping still needs attention. Waiting for the latest order state.',
+        })
+        return
+      }
       setFeedback({
         kind: 'success',
-        message: 'Cancellation accepted. Shipping is returning the issue to review.',
+        message: 'Cancellation request received. Waiting for Shipping to update this order.',
       })
     } catch (error) {
       if (fence !== requestFence.current) return
@@ -602,6 +612,11 @@ function ShipmentDetail({
           )}
           {feedback.kind === 'success' && (
             <p className="mt-2 text-[10.5px] leading-4 text-success" role="status">
+              {feedback.message}
+            </p>
+          )}
+          {feedback.kind === 'notice' && (
+            <p className="mt-2 text-[10.5px] leading-4 text-muted-foreground" role="status">
               {feedback.message}
             </p>
           )}
