@@ -215,28 +215,58 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
     webDistMatchesHead(readStamp(deps.root), headSha) &&
     !phoneDistBehindHead(readPhone(deps.root), headSha)
 
+  /**
+   * THE ARTIFACT DECIDES, NOT THE EXIT CODE — and one step's failure does not
+   * cancel the other's.
+   *
+   * Both were learned from the same wedge. The two steps build two INDEPENDENT
+   * dists, so `&&` between them meant a complaint about the desktop bundle's
+   * SIZE stopped the phone export ever running. And because the caller then saw
+   * a rejection, the website stayed "not this commit" for good: every poll
+   * refused, every restart re-ran the same failing step, and no update could be
+   * published — over a build whose desktop half was already correct on disk
+   * (measured on the dev host at 54d2dc7).
+   *
+   * So: run every step, then ask the DISTS whether the website is this commit's.
+   * That is the question the caller actually has, and the stamps are written by
+   * the builds themselves — a truer answer than an exit status. A step that
+   * failed is still reported: loudly in the log when the website came out right
+   * anyway, and as the diagnosis when it did not.
+   *
+   * This does not weaken the mid-build HEAD-move check. If HEAD moves while
+   * building, the stamps do not name it and this still fails — before the
+   * compile that would otherwise have spent a minute discovering the same thing.
+   */
   const build = async (headSha: string): Promise<void> => {
     log.info('building the development web bundles', { headSha, units })
+    const failures: string[] = []
     for (const step of DEV_WEB_BUILD_STEPS) {
-      await runStep(step)
+      try {
+        await runStep(step)
+      } catch (error) {
+        failures.push(`${step.label}: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
-    // The build stamps each dist itself, so re-reading them is the only honest
-    // confirmation that this build produced the website for THIS commit. HEAD
-    // moving mid-build is the case that would otherwise pass here and fail
-    // later, deep inside the compile, having spent it. Both halves are named
-    // separately because the operator's next move differs: the vite log and the
-    // expo log are different logs.
+    // Both halves are named separately because the operator's next move differs:
+    // the vite log and the expo log are different logs.
+    const wrong: string[] = []
     if (!webDistMatchesHead(readStamp(deps.root), headSha)) {
-      throw new Error(
-        `the web build finished but apps/web/dist is not stamped at ${headSha} ` +
-          '(HEAD moved during the build, or the stamp step did not run)',
-      )
+      wrong.push(`apps/web/dist is not stamped at ${headSha}`)
     }
     if (phoneDistBehindHead(readPhone(deps.root), headSha)) {
+      wrong.push(`apps/mobile/dist is not stamped at ${headSha}`)
+    }
+    if (wrong.length > 0) {
       throw new Error(
-        `the web build finished but apps/mobile/dist is not stamped at ${headSha} ` +
-          '(HEAD moved during the build, or the phone export did not stamp itself)',
+        `the web build finished but ${wrong.join(' and ')} ` +
+          '(HEAD moved during the build, or a step did not stamp its dist)' +
+          (failures.length > 0 ? `. Steps that failed — ${failures.join('; ')}` : ''),
       )
+    }
+    if (failures.length > 0) {
+      // The website IS this commit's, so updates are not blocked — but something
+      // failed and saying nothing would hide it until it broke something else.
+      log.warn('the website is current, but a build step failed', { headSha, failures })
     }
   }
 

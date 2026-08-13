@@ -154,6 +154,48 @@ describe('development web build', () => {
     expect(web.state()).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
   })
 
+  it('runs the phone export even when the desktop step failed', async () => {
+    // THE WEDGE THIS PINS. The two steps build two INDEPENDENT dists. When the
+    // desktop build tripped its SIZE budget it still produced a correct, stamped
+    // dist — but stopping there meant the phone export never ran, so the website
+    // stayed "not this commit", every poll refused, and no update could publish.
+    const roles: string[] = []
+    const { web } = builder({
+      stamps: [{ sourceSha: 'aaaaaaa' }],
+      phones: [
+        { present: true, digest: 'bbbbbbb' },
+        { present: true, digest: 'aaaaaaa' },
+      ],
+      runStep: (step) => {
+        roles.push(step.role)
+        return step.role === 'dev-web-build'
+          ? Promise.reject(new Error('bun exited with status 1'))
+          : Promise.resolve()
+      },
+    })
+
+    await web.ensure('aaaaaaa')
+    expect(roles).toEqual(DEV_WEB_BUILD_STEPS.map((step) => step.role))
+    // The dists say this IS the website for the commit, so it is — whatever the
+    // desktop step's exit status said about its size.
+    expect(web.state()).toEqual({ state: 'ready', headSha: 'aaaaaaa' })
+  })
+
+  it('still fails, naming the step, when a failure left the website wrong', async () => {
+    const { web } = builder({
+      stamps: [{ sourceSha: 'old' }, { sourceSha: 'old' }],
+      phones: [{ present: true, digest: 'aaaaaaa' }],
+      runStep: (step) =>
+        step.role === 'dev-web-build'
+          ? Promise.reject(new Error('vite blew up'))
+          : Promise.resolve(),
+    })
+
+    await expect(web.ensure('aaaaaaa')).rejects.toThrow(
+      /apps\/web\/dist is not stamped at aaaaaaa.*Steps that failed.*vite blew up/s,
+    )
+  })
+
   it('reads the phone export where the export step actually writes it', () => {
     // The seam the unit tests above stub. `bun run --filter @podium/mobile
     // build:web` writes `apps/mobile/dist/{index.html,podium-build.json}`
@@ -234,7 +276,13 @@ describe('development web build', () => {
       },
     })
     await expect(web.ensure('aaaaaaa')).rejects.toThrow('vite blew up')
-    expect(web.state()).toMatchObject({ state: 'failed', reason: 'vite blew up' })
+    // The reason names BOTH what came out wrong and which step failed — the
+    // second without the first would send an operator to the vite log for a
+    // build whose real problem might be that HEAD moved underneath it.
+    const failed = web.state()
+    expect(failed.state).toBe('failed')
+    expect(failed.state === 'failed' && failed.reason).toContain('vite blew up')
+    expect(failed.state === 'failed' && failed.reason).toContain('not stamped at aaaaaaa')
     await web.ensure('aaaaaaa')
     expect(web.state()).toEqual({ state: 'ready', headSha: 'aaaaaaa' })
   })
