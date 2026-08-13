@@ -30,6 +30,7 @@ import {
   type LucideIcon,
   MessageSquare,
   Play,
+  Truck,
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
@@ -78,6 +79,7 @@ const PRESENCE_ICON: Record<PresenceKind, LucideIcon> = {
   review: Check,
   ready: Play,
   attention: CircleAlert,
+  shipping: Truck,
 }
 
 /** Why nobody is on this task. A blank where an agent row would be is the one
