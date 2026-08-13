@@ -46,12 +46,11 @@ const GENERATED_SCRIPT_NOTICE =
   '# GENERATED from apps/cli/src/cli-systemd.ts by scripts/render-systemd.ts.\n' +
   '# Do not hand-edit; rerun the renderer after changing the source.\n'
 
-// Spawned agent CLIs inherit the daemon's PATH, so every dir a harness binary can install into
-// has to be here — a systemd unit gets none of the login shell's PATH. `%h/.local/bin` holds
-// claude, grok, cursor-agent (and abduco); `%h/.bun/bin` holds bun/npm globals such as codex;
-// opencode's installer hardcodes `%h/.opencode/bin`. User dirs precede system dirs so a user
-// installed CLI wins over a stale system-wide one.
-const DAEMON_PATH =
+// Child processes inherit their service's PATH, so every supported per-user runtime and harness
+// directory has to be here — a systemd unit gets none of the login shell's PATH. The server needs
+// this for updater build children; the daemon needs it for agent CLIs. User dirs precede system
+// dirs so a supported user install wins over a stale system-wide one.
+const USER_RUNTIME_PATH =
   '%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin'
 const DEV_HOME = '/home/user'
 const DEV_REPO = '/home/user/src/other/podium'
@@ -135,6 +134,7 @@ Type=notify
 NotifyAccess=all
 WatchdogSec=30
 Environment=PODIUM_INSTANCE=${c.instanceId}
+Environment=PATH=${USER_RUNTIME_PATH}
 ExecStart=%h/.local/bin/${c.command} server
 Restart=always
 RestartSec=2
@@ -245,7 +245,7 @@ Type=notify
 NotifyAccess=all
 WatchdogSec=30
 Environment=PODIUM_INSTANCE=${c.instanceId}
-Environment=PATH=${DAEMON_PATH}
+Environment=PATH=${USER_RUNTIME_PATH}
 ExecStart=${exec}
 Restart=always
 RestartSec=2

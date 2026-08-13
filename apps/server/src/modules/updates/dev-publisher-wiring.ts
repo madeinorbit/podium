@@ -58,6 +58,12 @@ export interface DevPublisherWiring {
    * can follow the running build or read its journal afterwards.
    */
   readonly webBuildState: () => DevWebBuildState
+  /** Readiness of the two coordinator-owned preparation places shown by Update. */
+  readonly preparation: () => {
+    webReady: boolean
+    bundleReady: boolean
+    failureDetail?: string
+  }
 }
 
 export function developmentArtifactUrl(
@@ -200,6 +206,22 @@ export function wireDevBundlePublisher(deps: {
 
   let unavailableDiagnostic: string | undefined
   let publishedReason: string | undefined
+  let publishedVersion: string | undefined
+  let bundleReady = false
+  let bundleFailureDetail: string | undefined
+
+  /** Cache publisher readiness at lifecycle transitions; fleet polling must not spawn git. */
+  const observeBundleReadiness = () => {
+    const readiness = publisher?.readiness()
+    bundleReady = readiness?.state === 'ready'
+    bundleFailureDetail = readiness?.state === 'failed' ? readiness.publicReason : undefined
+    return readiness
+  }
+
+  const setSharedTarget = (target: UpdateTarget): void => {
+    publishedVersion = target.version
+    deps.setTarget(targetForSharedReadModel(target, artifactOrigin))
+  }
 
   /**
    * Push the publisher's readiness into the shared read model.
@@ -212,12 +234,13 @@ export function wireDevBundlePublisher(deps: {
     if (!publisher) return
     const identity = publisher.target()
     if (identity) {
-      deps.setTarget(targetForSharedReadModel(identity, artifactOrigin))
+      setSharedTarget(identity)
       publishedReason = undefined
       return
     }
     if (!deps.setTargetUnavailable) return
-    const readiness = publisher.readiness()
+    const readiness = observeBundleReadiness()
+    if (!readiness) return
     const reason =
       readiness.state === 'failed'
         ? readiness.publicReason
@@ -238,7 +261,7 @@ export function wireDevBundlePublisher(deps: {
     try {
       const target = publisher?.target()
       if (target) {
-        deps.setTarget(targetForSharedReadModel(target, artifactOrigin))
+        setSharedTarget(target)
         publishedReason = undefined
       } else {
         publishReadiness()
@@ -259,20 +282,35 @@ export function wireDevBundlePublisher(deps: {
     enabled: publisher !== undefined,
     requestWebRebuild: webBuilder ? () => webBuilder.requestRebuild() : undefined,
     webBuildState: () => webBuilder?.state() ?? { state: 'idle' },
+    preparation: () => {
+      const web = webBuilder?.state()
+      const failureDetail =
+        web?.state === 'failed' && publishedVersion === `dev+${web.headSha}`
+          ? `The website could not be rebuilt for dev+${web.headSha}. See the server log.`
+          : bundleFailureDetail
+      return {
+        webReady: web?.state === 'ready',
+        bundleReady,
+        ...(failureDetail ? { failureDetail } : {}),
+      }
+    },
     publishTarget,
     requestBuild: (explicit) => {
       if (!publisher) return Promise.resolve()
       const requested = publisher.requestBuild(explicit)
+      observeBundleReadiness()
       // Before awaiting anything: if that admitted a build, the state is now
       // `preparing` and the read model should say so rather than sit on the
       // previous commit's target for the length of a compile.
       publishReadiness()
       return requested.then(
         (built) => {
+          observeBundleReadiness()
           publishTarget()
           return built
         },
         (error: unknown) => {
+          observeBundleReadiness()
           // The failure must reach the read model, or a stale target stays
           // published while the only trace of the problem is this log line.
           publishReadiness()

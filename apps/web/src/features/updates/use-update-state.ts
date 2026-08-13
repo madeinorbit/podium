@@ -41,6 +41,11 @@ export interface UpdateFleetState {
   behind: number
   converging: number
   failed: number
+  preparation?: {
+    webReady: boolean
+    bundleReady: boolean
+    failureDetail?: string
+  }
   targetVersion?: string | null
   machines?: readonly UpdateMachineState[]
   allMachines?: readonly UpdateMachineState[]
@@ -70,6 +75,7 @@ type UpdateActionState =
       total: number
       includesServer: boolean
       includesWeb?: boolean
+      includesBundle?: boolean
     }
   | { state: 'failed'; detail: string; machineName?: string }
 
@@ -312,6 +318,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       setFleetState(next)
       setUpdateAction((current) => {
         if (current.state !== 'in-progress') return current
+        if (next.preparation?.failureDetail) {
+          return { state: 'failed', detail: next.preparation.failureDetail }
+        }
         if (next.failed > 0) {
           const failure = next.machines?.find(
             (machine) => machine.state === 'rejected' || machine.state === 'stuck',
@@ -328,8 +337,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         const serverDone =
           next.targetVersion !== null && nextServer.appVersion === next.targetVersion
         const serverRemaining = current.includesServer && !serverDone ? 1 : 0
-        const remaining = serverRemaining + next.behind
-        if (next.converging === 0 && remaining === 0 && !current.includesWeb) {
+        const webRemaining = current.includesWeb && next.preparation?.webReady !== true ? 1 : 0
+        const bundleRemaining =
+          current.includesBundle && next.preparation?.bundleReady !== true ? 1 : 0
+        const remaining = serverRemaining + webRemaining + bundleRemaining + next.behind
+        if (next.converging === 0 && remaining === 0) {
           return { state: 'idle' }
         }
         const done = Math.max(0, Math.min(current.total, current.total - remaining))
@@ -340,6 +352,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           total: current.total,
           includesServer: current.includesServer,
           ...(current.includesWeb ? { includesWeb: true } : {}),
+          ...(current.includesBundle ? { includesBundle: true } : {}),
         }
       })
     },
@@ -446,6 +459,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           total: result.total,
           includesServer,
           ...(includesWeb ? { includesWeb: true } : {}),
+          ...(result.includesBundle ? { includesBundle: true } : {}),
         })
         if (includesWeb && expectedWeb) {
           await waitForWebIdentity(options.httpOrigin, expectedWeb)

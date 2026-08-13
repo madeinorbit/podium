@@ -110,6 +110,11 @@ export interface UpdateFleetSnapshot {
   behind: number
   converging: number
   failed: number
+  preparation?: {
+    webReady: boolean
+    bundleReady: boolean
+    failureDetail?: string
+  }
   machines: UpdateFleetMachine[]
   /**
    * Every registered machine, whatever its channel. `machines` above is the
@@ -139,9 +144,7 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
     targetVersion: targetVersion ?? null,
     total: machines.length,
     behind,
-    converging: grantable
-      ? machines.filter((machine) => IN_FLIGHT.has(machine.state)).length
-      : 0,
+    converging: grantable ? machines.filter((machine) => IN_FLIGHT.has(machine.state)).length : 0,
     failed: grantable ? machines.filter((machine) => FAILED.has(machine.state)).length : 0,
     machines,
     allMachines,
@@ -209,7 +212,9 @@ export function restartCoordinatorAfterDevelopmentFleet(
 
 /** The fleet read model used by the dialog and Settings. */
 export function updateFleet(ctx: Context): UpdateFleetSnapshot {
-  return fleetSnapshot(familyState(ctx).modules.updates)
+  const fleet = fleetSnapshot(familyState(ctx).modules.updates)
+  const preparation = ctx.updatePreparation?.()
+  return preparation ? { ...fleet, preparation } : fleet
 }
 
 /**
@@ -236,6 +241,7 @@ export function startUpdate(
   total: number
   fleet: UpdateFleetSnapshot
   grantedMachineIds: string[]
+  includesBundle: boolean
 } {
   const target = updates.target()
   if (!target) {
@@ -326,6 +332,7 @@ export function startUpdate(
     ),
     fleet: fleetSnapshot(updates),
     grantedMachineIds,
+    includesBundle: packDevelopment,
   }
 }
 

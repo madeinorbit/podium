@@ -664,7 +664,10 @@ export async function startServer(
             ? { requestWebRebuild: devPublisher.requestWebRebuild }
             : {}),
           ...(devPublisher.enabled
-            ? { requestDestBundle: () => devPublisher.requestBuild(true) }
+            ? {
+                requestDestBundle: () => devPublisher.requestBuild(true),
+                updatePreparation: devPublisher.preparation,
+              }
             : {}),
           servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
           // The phone website is the other half of the same install. Update

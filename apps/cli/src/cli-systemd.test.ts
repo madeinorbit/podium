@@ -23,6 +23,15 @@ describe('renderServerUnit', () => {
     expect(u).toContain('IOWeight=500')
     expect(u).toContain('MemoryLow=512M')
   })
+  it('prefers supported per-user runtimes for updater build children', () => {
+    const dirs = pathDirs(renderServerUnit())
+    expect(dirs, 'server unit has no Environment=PATH').not.toEqual([])
+    expect(dirs).toContain('%h/.local/bin')
+    expect(dirs).toContain('%h/.bun/bin')
+    expect(dirs.findLastIndex((dir) => dir.startsWith('%h/'))).toBeLessThan(
+      dirs.findIndex((dir) => dir.startsWith('/')),
+    )
+  })
   it('renders a named server with an explicit identity and command', () => {
     const u = renderServerUnit('blue')
     expect(u).toContain('Environment=PODIUM_INSTANCE=blue')

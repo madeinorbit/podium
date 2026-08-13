@@ -20,6 +20,11 @@ interface HarnessOptions {
   requestDestBundle?: () => Promise<unknown>
   servedWebDigest?: string | (() => string | undefined)
   servedMobileWeb?: MobileWebIdentity
+  updatePreparation?: () => {
+    webReady: boolean
+    bundleReady: boolean
+    failureDetail?: string
+  }
 }
 
 function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
@@ -50,6 +55,7 @@ function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
       : {}),
     ...(opts.requestWebRebuild ? { requestWebRebuild: opts.requestWebRebuild } : {}),
     ...(opts.requestDestBundle ? { requestDestBundle: opts.requestDestBundle } : {}),
+    ...(opts.updatePreparation ? { updatePreparation: opts.updatePreparation } : {}),
     ...(readServedWeb ? { servedWebDigest: readServedWeb } : {}),
     ...(opts.servedMobileWeb !== undefined
       ? { servedMobileWeb: () => opts.servedMobileWeb as MobileWebIdentity }
@@ -162,6 +168,18 @@ describe('fleet default update channel', () => {
 })
 
 describe('updates tRPC', () => {
+  it('reports coordinator preparation readiness and failures with the fleet', async () => {
+    const preparation = {
+      webReady: false,
+      bundleReady: false,
+      failureDetail: 'The website could not be rebuilt. See the server log.',
+    }
+    const { registry, caller } = harness({ updatePreparation: () => preparation })
+
+    await expect(caller.updates.fleet()).resolves.toMatchObject({ preparation })
+    registry.dispose()
+  })
+
   it('refuses a convergence request when no target is configured', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const { registry, caller } = harness()
@@ -257,7 +275,11 @@ describe('updates tRPC', () => {
     const fleet = await caller.updates.fleet()
     expect(fleet.behind).toBe(1)
     const result = await caller.updates.converge()
-    expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3', grantedMachineIds: [] })
+    expect(result).toMatchObject({
+      state: 'in-progress',
+      version: 'dev+47a01e3',
+      grantedMachineIds: [],
+    })
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(grants).toEqual([])
     registry.dispose()
@@ -318,9 +340,12 @@ describe('updates tRPC', () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
     const grants: unknown[] = []
     let publish: (() => void) | undefined
-    const requestDestBundle = vi.fn(() => new Promise<void>((resolve) => {
-      publish = resolve
-    }))
+    const requestDestBundle = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          publish = resolve
+        }),
+    )
     const { registry, caller } = harness({
       servedWebDigest: '47a01e3',
       requestDestBundle,
@@ -370,7 +395,9 @@ describe('updates tRPC', () => {
       },
     })
     publish?.()
-    await vi.waitFor(() => expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })]))
+    await vi.waitFor(() =>
+      expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
+    )
     registry.dispose()
   })
 

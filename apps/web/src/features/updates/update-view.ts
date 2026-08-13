@@ -58,6 +58,11 @@ export interface UpdateInput {
     behind: number
     converging: number
     failed: number
+    preparation?: {
+      webReady: boolean
+      bundleReady: boolean
+      failureDetail?: string
+    }
     machines?: readonly { name?: string; version?: string; state: string; detail?: string }[]
   }
   touched: { app: boolean; server: boolean; machines: boolean; phone: boolean }
@@ -326,6 +331,10 @@ export function describeUpdate(input: UpdateInput): UpdateView {
       input.desktopUpdate?.version ??
       input.server.appVersion ??
       input.localVersion)
+
+  if (input.fleet.preparation?.failureDetail) {
+    return describeUpdateFailure(input.fleet.preparation.failureDetail)
+  }
 
   if (input.fleet.failed > 0) {
     const failure = input.fleet.machines?.find(

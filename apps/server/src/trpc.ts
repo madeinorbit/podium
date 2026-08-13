@@ -80,6 +80,12 @@ export interface Context {
    * remotes are not granted a git-only identity.
    */
   requestDestBundle?: () => Promise<unknown>
+  /** Source-host preparation state for honest update progress and failure reporting. */
+  updatePreparation?: () => {
+    webReady: boolean
+    bundleReady: boolean
+    failureDetail?: string
+  }
   /** Install identity currently served from apps/web/dist, if any. */
   servedWebDigest?: () => string | undefined
   /** The phone website served from apps/mobile/dist, present or not (POD-1980).

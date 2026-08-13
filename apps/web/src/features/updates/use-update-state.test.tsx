@@ -34,7 +34,11 @@ function Probe({
   const result = useUpdateState({
     httpOrigin: 'http://podium.test',
     needRefresh: false,
-    ...(fleet ? { fleet } : liveFleet ? {} : { fleet: { total: 1, behind: 1, converging: 0, failed: 0 } }),
+    ...(fleet
+      ? { fleet }
+      : liveFleet
+        ? {}
+        : { fleet: { total: 1, behind: 1, converging: 0, failed: 0 } }),
     reload: withReload ? reloadAction : undefined,
   })
   useEffect(() => {
@@ -102,6 +106,82 @@ function setupTransport(
 }
 
 describe('useUpdateState update action', () => {
+  it('surfaces a background preparation failure instead of hanging near completion', async () => {
+    setupTransport()
+    let calls = 0
+    mocks.query.mockImplementation(async () => {
+      calls += 1
+      return calls === 1
+        ? { total: 1, behind: 1, converging: 0, failed: 0, targetVersion: '0.4.2' }
+        : {
+            total: 1,
+            behind: 0,
+            converging: 0,
+            failed: 0,
+            targetVersion: '0.4.2',
+            preparation: {
+              webReady: false,
+              bundleReady: false,
+              failureDetail: 'The website could not be rebuilt. See the server log.',
+            },
+          }
+    })
+    mocks.mutate.mockResolvedValue({
+      state: 'in-progress',
+      version: '0.4.2',
+      done: 0,
+      total: 3,
+      includesBundle: true,
+      fleet: { total: 1, behind: 1, converging: 0, failed: 0, targetVersion: '0.4.2' },
+    })
+
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
+    const update = await screen.findByRole('button', { name: /update Podium/i })
+    update.click()
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(screen.getByTestId('view-state').textContent).toContain(
+      'The website could not be rebuilt. See the server log.',
+    )
+  })
+
+  it('does not count development packaging before the server reports it ready', async () => {
+    setupTransport()
+    mocks.query.mockResolvedValue({
+      total: 0,
+      behind: 0,
+      converging: 0,
+      failed: 0,
+      targetVersion: '0.4.2',
+      preparation: { webReady: true, bundleReady: false },
+    })
+    mocks.mutate.mockResolvedValue({
+      state: 'in-progress',
+      version: '0.4.2',
+      done: 0,
+      total: 2,
+      includesBundle: true,
+      fleet: { total: 0, behind: 0, converging: 0, failed: 0, targetVersion: '0.4.2' },
+    })
+
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
+    const update = await screen.findByRole('button', { name: /update Podium/i })
+    update.click()
+
+    await waitFor(() =>
+      expect(
+        results.some(
+          (result) =>
+            result.view.state === 'in-progress' &&
+            result.view.total === 2 &&
+            result.view.done === 0,
+        ),
+      ).toBe(true),
+    )
+  })
+
   it('moves the shared dialog to in-progress after a successful convergence call', async () => {
     setupTransport()
     mocks.mutate.mockResolvedValue({
@@ -583,7 +663,9 @@ describe('useUpdateState update action', () => {
     )
     await waitFor(() => expect(results.at(-1)?.checkNow).toBeTypeOf('function'))
     await results.at(-1)?.checkNow()
-    await waitFor(() => expect(results.at(-1)?.view).toEqual({ state: 'current', version: '0.4.2' }))
+    await waitFor(() =>
+      expect(results.at(-1)?.view).toEqual({ state: 'current', version: '0.4.2' }),
+    )
   })
 
   it('shows the running page version, not a stale built stamp', async () => {

@@ -12,6 +12,24 @@ const base = {
 }
 
 describe('describeUpdate', () => {
+  it('shows a coordinator preparation failure before inferred progress', () => {
+    const view = describeUpdate({
+      ...base,
+      fleet: {
+        ...base.fleet,
+        preparation: {
+          webReady: false,
+          bundleReady: false,
+          failureDetail: 'The website could not be rebuilt. See the server log.',
+        },
+      },
+    } as never)
+    expect(view).toMatchObject({
+      state: 'failed',
+      diagnostic: 'The website could not be rebuilt. See the server log.',
+    })
+  })
+
   it('is none when everything is already on the target', () => {
     const v = describeUpdate({
       ...base,
