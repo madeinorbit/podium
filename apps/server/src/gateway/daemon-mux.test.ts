@@ -166,7 +166,13 @@ describe('machine scope and the writer class', () => {
     // exact harness-reported context-window reading) is session-owned like every
     // other frame in this set. Counted rather than derived so a frame that joins
     // the set has to be acknowledged HERE — which is how this one was noticed.
-    expect(sessionFrames.length).toBe(21)
+    //
+    // 23 since POD-1953. `sessionKillResult` (what a kill ACTUALLY did to the
+    // durable host) and `durableSessionCensus` (which labels a machine is really
+    // running) both drive a session-row repair, so both are session-owned and
+    // both must arrive with the machine principal that observed them: the repair
+    // only ever touches rows on the reporting machine.
+    expect(sessionFrames.length).toBe(23)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

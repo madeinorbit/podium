@@ -465,11 +465,20 @@ export async function createDaemonHostRuntime(args: {
    */
   const pushDurableSessionCensus = (): void => {
     if (backend === 'none') return
-    try {
-      send({ type: 'durableSessionCensus', labels: listLiveAbducoLabels() })
-    } catch (err) {
-      log.warn('could not census the durable sessions', { err })
-    }
+    // OFF the connect path, deliberately. The scan is bounded and quick, but it
+    // is still synchronous filesystem work on a directory whose size the daemon
+    // does not control (7032 sockets on the box this was written on), and the
+    // handshake must not be able to wait on a slow disk. Nothing downstream
+    // needs it before the connect handler returns — the server repairs whatever
+    // the census names, whenever it lands.
+    const timer = setTimeout(() => {
+      try {
+        send({ type: 'durableSessionCensus', labels: listLiveAbducoLabels() })
+      } catch (err) {
+        log.warn('could not census the durable sessions', { err })
+      }
+    }, 0)
+    timer.unref?.()
   }
 
   const connected = (): void => {

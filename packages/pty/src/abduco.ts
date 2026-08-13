@@ -512,17 +512,30 @@ export async function killAbducoSession(
  *
  * The census answer for POD-1953: a server that parked a row cannot know the
  * reap landed, so on connect the daemon tells it which labels are in fact still
- * alive. One `readdir` per candidate directory and a `stat` per socket — no
- * `abduco` fork, so it cannot hang behind a wedged master however many sessions
- * this machine holds. Terminated masters (S_IXGRP) are excluded by
- * {@link abducoSocketPath}: they hold a name, not an agent.
+ * alive. No `abduco` fork, so it cannot hang behind a wedged master however many
+ * sessions this machine holds.
+ *
+ * ONE readdir per directory and ONE stat per entry. Asking
+ * {@link abducoSocketPath} per label instead would re-read the whole directory
+ * for every entry in it, and these directories are not small — the box this was
+ * written on had 7032 sockets, where the quadratic form took 30 SECONDS and hung
+ * the daemon's connect handshake behind it.
+ *
+ * A master that TERMINATED (S_IXGRP: the app exited, the master lingers holding
+ * its exit status) owns the name but is not an agent, and is excluded here for
+ * the same reason {@link abducoSocketPath} skips it: reviving a row over one
+ * would resurrect nothing.
  */
-export function listLiveAbducoLabels(env: NodeJS.ProcessEnv = process.env): string[] {
+export function listLiveAbducoLabels(
+  env: NodeJS.ProcessEnv = process.env,
+  /** Injection seam: the cost this function is bounded on is the read COUNT. */
+  readdir: (dir: string) => string[] = readdirSync,
+): string[] {
   const labels = new Set<string>()
   for (const dir of abducoSocketDirs(env)) {
     let names: string[]
     try {
-      names = readdirSync(dir)
+      names = readdir(dir)
     } catch {
       continue
     }
@@ -531,7 +544,11 @@ export function listLiveAbducoLabels(env: NodeJS.ProcessEnv = process.env): stri
       // before the FIRST '@' (podium labels never contain one).
       const label = name.split('@')[0]
       if (!label) continue
-      if (abducoSocketPath(label, env)) labels.add(label)
+      try {
+        if ((statSync(join(dir, name)).mode & 0o010) === 0) labels.add(label)
+      } catch {
+        // The master exited between readdir and stat — not live, keep going.
+      }
     }
   }
   return [...labels]

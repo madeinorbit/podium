@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -96,6 +96,32 @@ describe('listLiveAbducoLabels', () => {
       'podium-bare',
       'podium-live',
     ])
+  })
+
+  // The first cut asked abducoSocketPath per label, and THAT re-reads the whole
+  // directory for every entry in it. On a box with 7032 sockets the census took
+  // 30 seconds and hung the daemon's connect behind it. A timing assertion could
+  // not catch the regression at fixture scale, so pin the shape instead: one
+  // directory read, however many sessions the host holds.
+  it('reads each socket directory exactly once', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-abduco-census-n2-'))
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }))
+    const dir = join(root, 'abduco', userInfo().username)
+    mkdirSync(dir, { recursive: true })
+    for (let i = 0; i < 50; i++) {
+      const socket = join(dir, `podium-s${i}@host`)
+      writeFileSync(socket, '')
+      chmodSync(socket, 0o600)
+    }
+
+    const readdir = vi.fn((dir: string) => readdirSync(dir))
+
+    expect(listLiveAbducoLabels({ ABDUCO_SOCKET_DIR: root }, readdir)).toHaveLength(50)
+    // Able to say NO: the seam is on the path, so a per-label re-read would show
+    // up here as fifty calls rather than three.
+    expect(readdir.mock.calls.length).toBeGreaterThan(0)
+    // One read per candidate root, never one per entry.
+    expect(readdir.mock.calls.length).toBeLessThanOrEqual(3)
   })
 
   it('is empty rather than throwing when the socket dir does not exist', () => {
