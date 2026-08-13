@@ -31,7 +31,6 @@ import {
 } from '@podium/runtime/task-attribution'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
-import { cors } from 'hono/cors'
 import {
   clientAuthGuard,
   isSecureRequest,
@@ -53,6 +52,7 @@ import {
   recordHelloBuild,
 } from './gateway/peer-handshake'
 import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
+import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
 import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
 import { IssueToolProvider } from './issue-mcp'
@@ -575,6 +575,10 @@ export async function startServer(
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
   // differs from the local server — same cross-origin case as /trpc. Without CORS the fetch is
   // blocked and SetupGate's catch() silently skips onboarding. Must precede the route handler.
+  // `podiumCors` reflects an allow-listed origin and permits credentials, which a wildcard
+  // cannot: every /trpc call carries the session cookie, and a browser rejects a credentialed
+  // response allowed to `*` before the caller sees it. See ./http-cors.
+  //
   // Gate the human-client data plane (/trpc, /files) behind the login session whenever a
   // password is configured; open otherwise (loopback / all-in-one, or the user opted out).
   // The static SPA shell, /auth/*, GET /setup/config, /health and /version stay open so the
@@ -595,12 +599,12 @@ export async function startServer(
     loginRequired: credentialsRequired,
     trustedProxyHops,
   })
-  app.use('/setup/*', cors())
+  app.use('/setup/*', podiumCors())
   registerSetupRoute(app)
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
-  app.use('/auth/*', cors())
+  app.use('/auth/*', podiumCors())
   let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
     store: store.auth,
@@ -651,7 +655,7 @@ export async function startServer(
     // The per-thread token each harness invocation's mcp-config carries (issue #67).
     { resolveThread: (token) => superagent.threadForMcpToken(token) },
   )
-  app.use('/trpc/*', cors())
+  app.use('/trpc/*', podiumCors())
   app.use('/trpc/*', guard)
   app.use(
     '/trpc/*',

@@ -22,6 +22,7 @@ import {
   resolveHookPort,
   resolveInstallDir,
   resolveLocalServerHost,
+  resolveLoggingMode,
   resolvePort,
   resolveRunRecordMode,
   resolveSessionRelay,
@@ -350,6 +351,23 @@ describe('layered resolvers (#251): env → config.json → default', () => {
       'systemd',
     )
     expect(resolveRunRecordMode({})).toBe('foreground')
+  })
+  it('resolveLoggingMode: the desktop sidecar takes the file, not the discarded console', () => {
+    // Its stdout is the Finder-launched .app's, i.e. nowhere — so a "foreground"
+    // process is exactly the one whose records must not go to a console sink.
+    expect(resolveLoggingMode({ PODIUM_DESKTOP_SUPERVISED: '1' })).toBe('detached')
+    // The run-registry label is unchanged by that: two questions, one answer only usually.
+    expect(resolveRunRecordMode({ PODIUM_DESKTOP_SUPERVISED: '1' })).toBe('foreground')
+  })
+  it('resolveLoggingMode: journald still wins, so nothing is written twice', () => {
+    expect(resolveLoggingMode({ PODIUM_DESKTOP_SUPERVISED: '1', NOTIFY_SOCKET: '/run/x' })).toBe(
+      'systemd',
+    )
+  })
+  it('resolveLoggingMode: every other process keeps its supervision answer', () => {
+    expect(resolveLoggingMode({})).toBe('foreground')
+    expect(resolveLoggingMode({ PODIUM_RUN_MODE: 'detached' })).toBe('detached')
+    expect(resolveLoggingMode({ PODIUM_DESKTOP_SUPERVISED: '0' })).toBe('foreground')
   })
 })
 
