@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  deadLetterNotice,
+  couldNotSaveNotice,
   describeQueuedChange,
+  recoverableAuthoredText,
   recoveryCopyFor,
   recoveryDialogCopy,
 } from './outbox-recovery-copy'
@@ -81,11 +82,17 @@ describe('recovery copy', () => {
   })
 
   it('names the change in the toast, not the raw kind', () => {
-    expect(
-      deadLetterNotice('issueUpdate', { id: 'SECRET', patch: { stage: 'review' } }, 'invalid'),
-    ).toBe('Issue stage didn’t sync — it was not accepted as written')
-    expect(
-      deadLetterNotice('issueUpdate', { id: 'SECRET', patch: { stage: 'review' } }, 'invalid'),
-    ).not.toContain('SECRET')
+    expect(couldNotSaveNotice('issueUpdate', { id: 'SECRET', patch: { stage: 'review' } })).toBe(
+      'Couldn’t save issue stage',
+    )
+    expect(couldNotSaveNotice('issueUpdate', { id: 'SECRET', patch: { stage: 'review' } })).not.toContain(
+      'SECRET',
+    )
+  })
+
+  it('finds typed words and ignores bookkeeping fields', () => {
+    expect(recoverableAuthoredText({ sessionId: 'SECRET', name: 'mine' })).toBe('mine')
+    expect(recoverableAuthoredText({ id: 'SECRET', patch: { title: 'Renamed' } })).toBe('Renamed')
+    expect(recoverableAuthoredText({ id: 'SECRET', patch: { stage: 'review' } })).toBeNull()
   })
 })

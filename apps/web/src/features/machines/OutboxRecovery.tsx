@@ -1,10 +1,11 @@
 /**
  * THE DEAD-LETTER RECOVERY SURFACE (POD-316, ADR 3 D9 invariant 3).
  *
- * ADR 3 lists this as a mandatory product surface, not an optional toast, and
- * the reason is POD-279 finding 8: the client used to drop a refused write and
- * tell you so. Everything you had typed was gone, and the only recovery was your
- * memory of it.
+ * ADR 3 lists this as a mandatory product surface for AUTHORED words, not an
+ * optional toast: the client used to drop a refused write and tell you so, and
+ * everything you had typed was gone. Clicks that carry no prose (stage, tuck,
+ * pin) revert in place and toast — Linear-shaped — because there is nothing
+ * here to recover.
  *
  * TWO RULES SHAPE THE WHOLE COMPONENT, and both are security properties rather
  * than design preferences:
@@ -35,8 +36,10 @@ import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import {
   describeQueuedChange,
   inlineConfirmationCanSatisfy,
+  recoverableAuthoredText,
   recoveryCopyFor,
   recoveryDialogCopy,
+  replaceAuthoredText,
   unsatisfiableConfirmationDetail,
 } from '@podium/client-core/outbox-recovery-copy'
 import { shallowEqual } from '@podium/client-core/store'
@@ -57,62 +60,6 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-
-/** The keys an author's own prose can arrive under, in the order we prefer them. */
-const AUTHORED_KEYS = ['text', 'name', 'title', 'body', 'description'] as const
-
-/**
- * WHERE THE PROSE SITS in a queued input, as a path rather than a key.
- *
- * It used to be a key, scanned at the top level only. POD-781 queued
- * `issues.update`, whose whole payload is `{ id, patch }` — the operator's new
- * title is one level down at `patch.title`. Under the old scan that entry showed
- * as raw JSON and "Save and send" wrote the input back unchanged, which is the
- * silent no-op version of the ONE recovery an `invalid` entry has.
- *
- * One level of nesting, not a deep walk: the queued inputs are flat commands or
- * a command around a single patch object, and a recursive search would start
- * offering to edit ids.
- */
-/** Where the prose was found, and what it said — carried together so neither
- *  caller has to look it up a second time under a different set of casts. */
-interface Authored {
-  /** The key on `input` itself, or the key of the object the prose lives inside. */
-  readonly outer: string
-  /** The key WITHIN that object, when the prose is nested. */
-  readonly inner?: string
-  readonly value: string
-}
-
-/** The first prose-shaped key on one flat object, if any. */
-function authoredIn(record: Record<string, unknown>): { key: string; value: string } | null {
-  for (const key of AUTHORED_KEYS) {
-    const value = record[key]
-    if (typeof value === 'string' && value.length > 0) return { key, value }
-  }
-  return null
-}
-
-function authoredAt(input: unknown): Authored | null {
-  if (!input || typeof input !== 'object') return null
-  const record = input as Record<string, unknown>
-  const top = authoredIn(record)
-  if (top) return { outer: top.key, value: top.value }
-  for (const [outer, nested] of Object.entries(record)) {
-    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) continue
-    const found = authoredIn(nested as Record<string, unknown>)
-    if (found) return { outer, inner: found.key, value: found.value }
-  }
-  return null
-}
-
-/** The author's own prose, pulled out of their own input for recovery. Opaque
- *  bookkeeping fields stay hidden; raw payload JSON made the old menu look like
- *  a debugger and exposed ids that did not help the person decide what to do. */
-function authoredText(input: unknown): string | null {
-  if (typeof input === 'string') return input
-  return authoredAt(input)?.value ?? null
-}
 
 function DeadLetterRow({
   parked,
@@ -137,7 +84,7 @@ function DeadLetterRow({
     ? baseCopy
     : { ...baseCopy, detail: unsatisfiableConfirmationDetail(rule), retryLabel: undefined }
   const [editing, setEditing] = useState(false)
-  const authored = authoredText(parked.entry.input)
+  const authored = recoverableAuthoredText(parked.entry.input)
   const change = describeQueuedChange(parked.entry.kind, parked.entry.input)
   const [draft, setDraft] = useState(() => authored ?? '')
   const [failed, setFailed] = useState<string | null>(null)
@@ -190,7 +137,7 @@ function DeadLetterRow({
           const input = parked.entry.input
           const next =
             input && typeof input === 'object'
-              ? { ...(input as Record<string, unknown>), ...replaceAuthored(input, draft) }
+              ? { ...(input as Record<string, unknown>), ...replaceAuthoredText(input, draft) }
               : draft
           recover.edit(parked.entry.mutationId, next)
         }}
@@ -286,20 +233,6 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
   // `outbox-contract-table.test.ts`, so this is one statement of the policy with
   // a drift guard, not a second one.
   return outboxCommandFor(kind)?.confirmation ?? 'broker'
-}
-
-/** Put the edited prose back on the field it came from, so an edit of a rename
- *  revises `name` rather than replacing the whole input with a bare string —
- *  and an edit of an `issues.update` title revises `patch.title` rather than
- *  landing beside the patch where nothing reads it. Merged over the original
- *  input by the caller, so the nested arm rebuilds only the object it descends
- *  into and leaves that object's other keys intact. */
-function replaceAuthored(input: unknown, next: string): Record<string, unknown> {
-  const found = authoredAt(input)
-  if (!found) return {}
-  if (found.inner === undefined) return { [found.outer]: next }
-  const nested = (input as Record<string, unknown>)[found.outer] as Record<string, unknown>
-  return { [found.outer]: { ...nested, [found.inner]: next } }
 }
 
 /**

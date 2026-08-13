@@ -31,6 +31,10 @@
  * target. It must never echo identifiers (`id`, `sessionId`, `parentId`,
  * `machineId`, `originId`, `assignee`) or claim that the target exists.
  *
+ * Recovery is only for TYPED WORDS. A refused stage click is reverted and
+ * toasted; parking it would ask the user to "review" a change they can just
+ * make again. The scan below reads the author's input only.
+ *
  * Whether the product may ever say "the share was revoked" as distinct from "the
  * entity was deleted" stays OPEN (ADR 3 Amendment 1 §3 O1) and is a human's call
  * to make there, not a default to settle here. The safe wording is picked; the
@@ -249,6 +253,71 @@ export function describeQueuedChange(kind: string, input: unknown): QueuedChange
 /** Toast line: names the change from the author's input, never the target. */
 export function deadLetterNotice(kind: string, input: unknown, code: OutboxRejectionCode): string {
   return `${describeQueuedChange(kind, input).label} didn’t sync — ${reasonSummary(code)}`
+}
+
+/** Short toast, Linear-shaped: what failed, not why in protocol terms. */
+export function couldNotSaveNotice(kind: string, input: unknown): string {
+  const label = describeQueuedChange(kind, input).label
+  const named = label.length === 0 ? 'this change' : label[0]!.toLowerCase() + label.slice(1)
+  return `Couldn’t save ${named}`
+}
+
+/** The keys an author's own prose can arrive under, in the order we prefer them. */
+const AUTHORED_KEYS = [
+  'text',
+  'name',
+  'title',
+  'body',
+  'description',
+  'brief',
+  'notes',
+  'design',
+  'acceptance',
+  'closedReason',
+  'reason',
+] as const
+
+export interface AuthoredText {
+  readonly outer: string
+  readonly inner?: string
+  readonly value: string
+}
+
+function authoredIn(value: Record<string, unknown>): { key: string; value: string } | null {
+  for (const key of AUTHORED_KEYS) {
+    const found = value[key]
+    if (typeof found === 'string' && found.length > 0) return { key, value: found }
+  }
+  return null
+}
+
+/** Where the author's prose sits in a queued input. One level of nesting, so
+ *  `issues.update` finds `patch.title` without walking into ids. */
+export function findAuthoredText(input: unknown): AuthoredText | null {
+  if (typeof input === 'string') return { outer: 'text', value: input }
+  if (!input || typeof input !== 'object') return null
+  const rec = input as Record<string, unknown>
+  const top = authoredIn(rec)
+  if (top) return { outer: top.key, value: top.value }
+  for (const [outer, nested] of Object.entries(rec)) {
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) continue
+    const found = authoredIn(nested as Record<string, unknown>)
+    if (found) return { outer, inner: found.key, value: found.value }
+  }
+  return null
+}
+
+export function recoverableAuthoredText(input: unknown): string | null {
+  return findAuthoredText(input)?.value ?? null
+}
+
+/** Put edited prose back on the field it came from. */
+export function replaceAuthoredText(input: unknown, next: string): Record<string, unknown> {
+  const found = findAuthoredText(input)
+  if (!found || typeof input !== 'object' || input === null) return {}
+  if (found.inner === undefined) return { [found.outer]: next }
+  const nested = (input as Record<string, unknown>)[found.outer] as Record<string, unknown>
+  return { [found.outer]: { ...nested, [found.inner]: next } }
 }
 
 /**

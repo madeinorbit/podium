@@ -25,7 +25,7 @@ import {
   platformIsOnline,
   platformOnlineEvents,
 } from '../outbox'
-import { deadLetterNotice } from '../outbox-recovery-copy'
+import { couldNotSaveNotice } from '../outbox-recovery-copy'
 import {
   type CreateEngineOutbox,
   type EngineOutbox,
@@ -35,6 +35,7 @@ import {
   type OutboxKinds,
   deadLetterHandlingFor,
   outboxRoutingFor,
+  shouldParkDeadLetter,
 } from './wiring'
 
 export interface OpenKernelEngineOutboxOptions {
@@ -57,9 +58,10 @@ function kindFor(record: Pick<OutboxRecord, 'command'>): keyof OutboxKinds {
   return kind
 }
 
-function shouldDiscardDeadLetter(record: Pick<OutboxRecord, 'command'>): boolean {
+function shouldDiscardDeadLetter(record: Pick<OutboxRecord, 'command' | 'input'>): boolean {
   const kind = kindByCommand.get(record.command.name)
-  return kind !== undefined && deadLetterHandlingFor(kind) === 'discard-automatic'
+  if (kind === undefined) return false
+  return !shouldParkDeadLetter(kind, record.input)
 }
 
 async function discardAutomaticDeadLetters(kernel: KernelOutbox): Promise<void> {
@@ -248,14 +250,16 @@ class KernelEngineOutbox implements EngineOutbox {
     } else if (event.type === 'dead-lettered') {
       const entry = this.toEntry(event.record)
       this.callbacks.onDropped?.(entry)
-      if (deadLetterHandlingFor(entry.kind) !== 'discard-automatic') {
+      if (shouldDiscardDeadLetter(event.record)) {
+        if (deadLetterHandlingFor(entry.kind) !== 'discard-automatic') {
+          this.callbacks.notices.error(couldNotSaveNotice(entry.kind, entry.input))
+        }
+      } else {
         const parked = this.deadLetters().find(
           (candidate) => candidate.entry.mutationId === event.record.mutationId,
         )
         if (parked !== undefined) {
-          this.callbacks.notices.error(
-            deadLetterNotice(entry.kind, entry.input, parked.reason.code),
-          )
+          this.callbacks.notices.error(couldNotSaveNotice(entry.kind, entry.input))
           this.callbacks.onDeadLetter?.(parked)
         }
       }

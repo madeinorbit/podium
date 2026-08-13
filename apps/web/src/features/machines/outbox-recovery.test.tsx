@@ -17,6 +17,7 @@ import { asMutationId } from '@podium/model'
  *    a revoked-while-offline entry from leaking back the content the revocation
  *    removed.
  */
+import { shouldParkDeadLetter } from '@podium/client-core/engine'
 import { createOutbox, type Outbox } from '@podium/client-core/outbox'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -64,6 +65,7 @@ beforeEach(() => {
   refusalCode = 'UNAUTHORIZED'
   outbox = createOutbox<Kinds>({
     storage: { load: () => [], save: () => {} },
+    shouldDiscardDeadLetter: (entry) => !shouldParkDeadLetter(entry.kind, entry.input),
     executors: {
       rename: async () => {
         throw refuse(refusalCode)
@@ -136,6 +138,7 @@ describe('dead-letter recovery, at runtime', () => {
     refusalCode = 'NOT_FOUND'
     outbox = createOutbox<Kinds>({
       storage: { load: () => [], save: () => {} },
+      shouldDiscardDeadLetter: (entry) => !shouldParkDeadLetter(entry.kind, entry.input),
       executors: {
         rename: async () => {
           throw refuse(refusalCode)
@@ -241,38 +244,20 @@ describe('dead-letter recovery, at runtime', () => {
     expect(requeued?.input).toEqual({ id: 'i1', patch: { title: 'fixed title' } })
   })
 
-  it('shows a concise action row without dumping bookkeeping payloads', async () => {
+  it('does not surface a review chip for a click that left no typed words', async () => {
     outbox.enqueue('issueSetTucked', { id: 'SECRET-BOOKKEEPING-ID', tucked: true })
     await outbox.drain()
     render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
-
-    const dialog = screen.getByRole('dialog')
-    expect(screen.getByText('Issue visibility')).toBeTruthy()
-    expect(screen.getByText('Hidden from the list')).toBeTruthy()
-    expect(dialog.textContent).not.toContain('SECRET-BOOKKEEPING-ID')
-    expect(dialog.textContent).not.toContain('"tucked"')
-    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Discard' })).toBeTruthy()
+    expect(screen.queryByTestId('outbox-recovery-chip')).toBeNull()
+    expect(outbox.deadLetters()).toHaveLength(0)
   })
 
-  it('names a field-only issue update so the operator can see what failed', async () => {
+  it('does not park a field-only issue update — the overlay reverts and nothing is left to review', async () => {
     refusalCode = 'BAD_REQUEST'
     outbox.enqueue('issueUpdate', { id: 'SECRET-ISSUE-ID', patch: { stage: 'review' } })
     await outbox.drain()
     render(<OutboxRecoveryIndicator />)
-    fireEvent.click(screen.getByTestId('outbox-recovery-chip'))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
-
-    const dialog = screen.getByRole('dialog')
-    expect(screen.getByTestId('outbox-change-label').textContent).toBe('Issue stage')
-    expect(screen.getByText('Moved to Review')).toBeTruthy()
-    expect(dialog.textContent).toMatch(/Not accepted as written/)
-    expect(dialog.textContent).toMatch(/Discard this change and try again/)
-    expect(dialog.textContent).not.toMatch(/Edit the text/)
-    expect(dialog.textContent).not.toContain('SECRET-ISSUE-ID')
-    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Discard' })).toBeTruthy()
+    expect(screen.queryByTestId('outbox-recovery-chip')).toBeNull()
+    expect(outbox.deadLetters()).toHaveLength(0)
   })
 })
