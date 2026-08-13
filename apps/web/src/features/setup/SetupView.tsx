@@ -1,10 +1,4 @@
 import type { PodiumMode } from '@podium/runtime'
-// The example report — literally the same string the CLI prompt and `podium
-// telemetry show` print, not a copy of it. It WAS a copy, and it had already
-// drifted (advertising `spec`/`handoff`, which the schema no longer sends).
-// The `/example` subpath is the one browser-safe entry: the bare
-// `@podium/telemetry` specifier pulls the emitter, the queue and node:fs.
-import { EXAMPLE_USAGE_REPORT_DISPLAY as TELEMETRY_EXAMPLE } from '@podium/telemetry/example'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { makeTrpc, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
@@ -201,14 +195,7 @@ export function SetupView({
   blockedState?: 'remote-setup' | 'restart-required'
 }): ReactNode {
   const trpc = useMemo(() => makeTrpc(httpOrigin), [httpOrigin])
-  // 'telemetry' is host-modes-only and sits BEFORE setup.complete (which triggers
-  // a reload) [spec:SP-f933]. It deliberately does not live in OnboardingWizard,
-  // whose dismissal is in-memory only and therefore not a reliable one-time surface.
-  const [step, setStep] = useState<'local' | 'mode' | 'network' | 'telemetry'>(
-    localDefault ? 'local' : 'mode',
-  )
-  /** What the network step collected, held until the telemetry step commits it. */
-  const [pendingSetup, setPendingSetup] = useState<SetupCompleteInput | null>(null)
+  const [step, setStep] = useState<'local' | 'mode' | 'network'>(localDefault ? 'local' : 'mode')
   const [mode, setMode] = useState<PodiumMode>('all-in-one')
   const [serverUrl, setServerUrl] = useState('')
   const [joinCode, setJoinCode] = useState('')
@@ -329,20 +316,6 @@ export function SetupView({
     )
   }
 
-  if (step === 'telemetry' && pendingSetup) {
-    return (
-      <TelemetryStep
-        trpc={trpc}
-        onBack={() => setStep('network')}
-        onFinish={async (telemetry) => {
-          // ONE commit for the whole wizard: URL + password + telemetry.
-          await trpc.setup.complete.mutate({ ...pendingSetup, ...(telemetry ? { telemetry } : {}) })
-          onSaved()
-        }}
-      />
-    )
-  }
-
   if (step === 'network') {
     // Reachability runs for BOTH host modes now (all-in-one and relay-only server), so a server
     // set up in the browser gets a publicUrl — matching the CLI and letting it mint join commands.
@@ -354,13 +327,6 @@ export function SetupView({
         onBack={() => setStep('mode')}
         onSkip={() => void save(hostMode)}
         onSaved={onSaved}
-        // First-run host setup defers the commit so the telemetry sub-step can
-        // ride the same setup.complete [spec:SP-f933]. The embedded Settings →
-        // Machines use passes no handler and commits immediately, as before.
-        onCollected={(payload) => {
-          setPendingSetup(payload)
-          setStep('telemetry')
-        }}
       />
     )
   }

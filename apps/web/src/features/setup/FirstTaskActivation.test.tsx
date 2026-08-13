@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 import { asMachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstTaskActivation } from './FirstTaskActivation'
 
 const login = vi.fn()
+const telemetryState = vi.fn()
+const telemetrySet = vi.fn()
 const uiValues = new Map<string, string>()
 let codexLogin: 'in' | 'out' | 'unknown' = 'in'
 const machineId = asMachineId('machine-a')
@@ -57,6 +59,10 @@ function store() {
         },
       },
       accounts: { login: { mutate: login } },
+      telemetry: {
+        state: { query: telemetryState },
+        set: { mutate: telemetrySet },
+      },
     },
   }
 }
@@ -74,6 +80,17 @@ vi.mock('@/app/SetupLoginTerminalDialog', () => ({
       </div>
     ) : null,
 }))
+
+beforeEach(() => {
+  telemetryState.mockReset()
+  telemetryState.mockResolvedValue({
+    usage: 'absent',
+    crash: 'absent',
+    endpoint: 'https://telemetry.podium.dev',
+  })
+  telemetrySet.mockReset()
+  telemetrySet.mockResolvedValue({ usage: 'off', crash: 'off' })
+})
 
 afterEach(() => {
   cleanup()
@@ -125,7 +142,7 @@ describe('FirstTaskActivation', () => {
     expect(screen.getByRole('heading', { name: 'Finish agent sign-in' })).toBeTruthy()
   })
 
-  it('ends onboarding with a ready handoff instead of creating a task', () => {
+  it('combines the ready handoff with explicit telemetry consent', async () => {
     const onComplete = vi.fn()
     render(
       <FirstTaskActivation
@@ -137,7 +154,11 @@ describe('FirstTaskActivation', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Podium is ready.' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: "Let's go" }))
+    const usage = await screen.findByRole('checkbox', { name: /Send anonymous usage reports/ })
+    fireEvent.click(usage)
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
+
+    await waitFor(() => expect(telemetrySet).toHaveBeenCalledWith({ usage: 'on', crash: 'off' }))
     expect(onComplete).toHaveBeenCalledOnce()
   })
 })

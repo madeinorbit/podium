@@ -31,7 +31,7 @@ export interface VpsActivationState {
   target?: VpsActivationTarget
 }
 
-/** The welcome action starts with machine pairing; the overview is informational, not a gate. */
+/** Build a direct pairing checkpoint after the overview has explained the topology. */
 export function startVpsPairingState(
   returnRoute: VpsReturnRoute,
   baselineMachineIds: MachineId[],

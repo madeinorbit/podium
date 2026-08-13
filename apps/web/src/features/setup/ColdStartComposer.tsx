@@ -200,7 +200,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto bg-[#131417] px-5 py-12 font-sans sm:px-10 lg:px-24 lg:py-20">
+    <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto bg-card px-5 py-12 font-sans sm:px-10 lg:px-24 lg:py-20">
       <div className="w-full max-w-[1060px]">
         <h2 className="flex flex-wrap items-center gap-[13px] text-[clamp(26px,3vw,33px)] leading-[1.15] font-semibold tracking-[-0.022em] text-[#f2f3f5]">
           <span>{first ? 'Give' : 'What do you want to work on in'}</span>
@@ -312,8 +312,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               placeholder="Choose a machine…"
               onSelect={selectMachine}
             />
-            <span className="ml-auto hidden font-mono text-[10px] leading-none text-[#6f7580] sm:inline">
-              ⌘↵ to launch
+            <span
+              className="ml-auto hidden font-mono text-[14px] leading-none text-[#6f7580] sm:inline"
+              aria-label="Command Enter"
+              title="Command Enter"
+            >
+              ⌘↵
             </span>
             <button
               type="button"

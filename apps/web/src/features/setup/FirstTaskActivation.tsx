@@ -2,12 +2,12 @@ import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { shallowEqual } from '@podium/client-core/store'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
+import { EXAMPLE_USAGE_REPORT_DISPLAY as TELEMETRY_EXAMPLE } from '@podium/telemetry/example'
 import { ArrowLeft, ArrowRight, Check, ChevronDown, LoaderCircle } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
 import { useStoreSelector } from '@/app/store'
-import { Button } from '@/components/ui/button'
 import {
   ISSUE_AGENT_KINDS,
   issueAgentIcon,
@@ -16,7 +16,6 @@ import {
   type IssueAgentKind,
 } from '@/lib/issue-agents'
 import { cn } from '@/lib/utils'
-import { ActivationShell } from './ActivationShell'
 import {
   activationAgentIsReady,
   activationAgentReadiness,
@@ -74,6 +73,12 @@ function setupHint(agent: IssueAgentKind, readiness: ActivationAgentReadiness): 
   return activationReadinessCopy(readiness, issueAgentLabel(agent))
 }
 
+interface TelemetryStateWire {
+  usage: 'absent' | 'on' | 'off'
+  crash: 'absent' | 'on' | 'off'
+  suppressedBy?: string
+}
+
 export function FirstTaskActivation({
   route,
   onRouteChange,
@@ -106,6 +111,12 @@ export function FirstTaskActivation({
   const [loginBusyAgent, setLoginBusyAgent] = useState<IssueAgentKind | null>(null)
   const [loginSessionId, setLoginSessionId] = useState<SessionId | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [telemetryState, setTelemetryState] = useState<TelemetryStateWire | null>(null)
+  const [telemetryUnavailable, setTelemetryUnavailable] = useState(false)
+  const [usageTelemetry, setUsageTelemetry] = useState(false)
+  const [crashTelemetry, setCrashTelemetry] = useState(false)
+  const [finishBusy, setFinishBusy] = useState(false)
+  const [finishError, setFinishError] = useState<string | null>(null)
 
   const setDraft = useCallback(
     (next: typeof draft) => {
@@ -133,6 +144,26 @@ export function FirstTaskActivation({
       cancelled = true
     }
   }, [trpc])
+
+  useEffect(() => {
+    if (route !== 'first-task' || telemetryState || telemetryUnavailable) return
+    let cancelled = false
+    void trpc.telemetry.state.query().then(
+      (state) => {
+        if (cancelled) return
+        const next = state as TelemetryStateWire
+        setTelemetryState(next)
+        setUsageTelemetry(next.usage === 'on')
+        setCrashTelemetry(next.crash === 'on')
+      },
+      () => {
+        if (!cancelled) setTelemetryUnavailable(true)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [route, telemetryState, telemetryUnavailable, trpc])
 
   const selectedRepo = repoChoices.find((repo) => repo.path === draft.repoPath) ?? repoChoices[0]
   useEffect(() => {
@@ -187,30 +218,178 @@ export function FirstTaskActivation({
   }
 
   if (route === 'first-task') {
+    const finish = async (): Promise<void> => {
+      if (finishBusy) return
+      setFinishBusy(true)
+      setFinishError(null)
+      try {
+        if (telemetryState && !telemetryState.suppressedBy) {
+          await trpc.telemetry.set.mutate({
+            usage: usageTelemetry ? 'on' : 'off',
+            crash: crashTelemetry ? 'on' : 'off',
+          })
+        }
+        onComplete()
+      } catch (cause) {
+        setFinishError(cause instanceof Error ? cause.message : String(cause))
+        setFinishBusy(false)
+      }
+    }
+
     return (
-      <ActivationShell
-        eyebrow="Activate Podium · Step 3 of 3"
-        title="Podium is ready."
-        description="Your project is connected and at least one agent is available. Continue into Podium; when no task is selected, the workspace will help you start one."
-        onExplore={onExplore}
-      >
-        <ActivationSteps current="ready" />
-        <div className="max-w-[680px] rounded-xl border border-border bg-background/45 px-5 py-6 shadow-sm">
-          <div className="flex size-10 items-center justify-center rounded-full border border-success/25 bg-success/10 text-success">
-            <Check size={20} aria-hidden="true" />
+      <main className="native-agents-pane relative" aria-labelledby="activation-title">
+        <div className="workspace-sheet min-h-0 overflow-y-auto bg-card">
+          <div className="flex min-h-full w-full flex-col bg-card px-5 pt-12 pb-14 font-sans sm:px-10 lg:px-24 lg:pt-16">
+            <div className="flex max-w-[1060px] items-center gap-3.5">
+              <p className="inline-flex items-center gap-[7px] font-mono text-[8.5px] leading-none tracking-[0.2em] text-[#8b83ff] uppercase">
+                <span className="size-[5px] rounded-full bg-[#8b83ff]" aria-hidden="true" />
+                Activate
+              </p>
+              <span className="h-px flex-1 bg-border" aria-hidden="true" />
+              <span className="font-mono text-[10.5px] leading-none text-muted-foreground">
+                step 3 of 3
+              </span>
+            </div>
+
+            <div className="mt-7 flex max-w-[820px] items-start gap-4">
+              <span className="mt-0.5 flex size-10 flex-none items-center justify-center rounded-full bg-[#6f9dff]/12 text-[#6f9dff] shadow-[inset_0_0_0_1px_rgba(111,157,255,.3)]">
+                <Check size={20} aria-hidden="true" />
+              </span>
+              <div>
+                <h1
+                  id="activation-title"
+                  className="text-[clamp(28px,3vw,36px)] leading-[1.15] font-semibold tracking-[-0.022em] text-foreground"
+                >
+                  Podium is ready.
+                </h1>
+                <p className="mt-2 max-w-[62ch] text-[13px] leading-5 text-muted-foreground">
+                  {selectedRepo ? repoLabel(selectedRepo.path) : 'Your project'} and your agents are
+                  set up. There is one last optional privacy choice, then you can start working.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-[22px] max-w-[1060px]">
+              <ActivationSteps current="ready" />
+            </div>
+
+            <section className="mt-[26px] max-w-[820px] overflow-hidden rounded-[14px] border border-border bg-background/20 shadow-sm">
+              <div className="border-b border-border px-5 py-4">
+                <p className="font-mono text-[8.5px] leading-none tracking-[0.16em] text-[#8b83ff] uppercase">
+                  One more thing
+                </p>
+                <h2 className="mt-2 text-[16px] font-semibold text-foreground">
+                  Help improve Podium with anonymous telemetry
+                </h2>
+                <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
+                  Nothing is sent unless you opt in. Podium never includes paths, repository names,
+                  prompts, code, or other free text, and IP addresses are dropped at ingest.
+                </p>
+              </div>
+
+              {telemetryState?.suppressedBy ? (
+                <div className="px-5 py-4 text-[12.5px] text-muted-foreground">
+                  Telemetry is disabled by {telemetryState.suppressedBy}; no choice is needed here.
+                </div>
+              ) : telemetryUnavailable ? (
+                <div className="px-5 py-4 text-[12.5px] text-muted-foreground">
+                  Telemetry preferences are unavailable right now. You can change them later in
+                  Settings → Privacy.
+                </div>
+              ) : telemetryState ? (
+                <div className="divide-y divide-border">
+                  <label className="flex cursor-pointer items-start gap-3 px-5 py-3.5 hover:bg-muted/20">
+                    <input
+                      type="checkbox"
+                      checked={usageTelemetry}
+                      onChange={(event) => setUsageTelemetry(event.currentTarget.checked)}
+                      className="mt-0.5 size-4 accent-[#e3ba52]"
+                    />
+                    <span>
+                      <span className="block text-[13px] font-medium text-foreground">
+                        Send anonymous usage reports
+                      </span>
+                      <span className="mt-0.5 block text-[11.5px] leading-4 text-muted-foreground">
+                        One compact report per day about versions, feature counts, and reliability.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-3 px-5 py-3.5 hover:bg-muted/20">
+                    <input
+                      type="checkbox"
+                      checked={crashTelemetry}
+                      onChange={(event) => setCrashTelemetry(event.currentTarget.checked)}
+                      className="mt-0.5 size-4 accent-[#e3ba52]"
+                    />
+                    <span>
+                      <span className="block text-[13px] font-medium text-foreground">
+                        Send scrubbed crash reports
+                      </span>
+                      <span className="mt-0.5 block text-[11.5px] leading-4 text-muted-foreground">
+                        Error type and Podium source lines only; error messages and outside frames
+                        are dropped.
+                      </span>
+                    </span>
+                  </label>
+                  <details className="px-5 py-3 text-[11.5px] text-muted-foreground">
+                    <summary className="cursor-pointer font-medium text-foreground">
+                      See exactly what a usage report contains
+                    </summary>
+                    <pre className="mt-3 max-w-full overflow-x-auto rounded-lg bg-muted/45 p-3 font-mono text-[10.5px] leading-relaxed text-muted-foreground">
+                      {TELEMETRY_EXAMPLE}
+                    </pre>
+                    <p className="mt-2">
+                      You can change this anytime in Settings → Privacy or with{' '}
+                      <code>podium telemetry off</code>.
+                    </p>
+                  </details>
+                </div>
+              ) : (
+                <div
+                  className="px-5 py-4 font-mono text-[11px] text-muted-foreground"
+                  role="status"
+                >
+                  Loading privacy choices…
+                </div>
+              )}
+            </section>
+
+            {finishError && (
+              <div className="mt-3 max-w-[820px]">
+                <SetupError>{finishError}</SetupError>
+              </div>
+            )}
+
+            <div className="mt-[22px] flex max-w-[820px] items-center gap-3">
+              <button
+                type="button"
+                disabled={finishBusy}
+                onClick={() => onRouteChange('agent')}
+                className="inline-flex items-center gap-2 text-[11.5px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                <ArrowLeft size={15} aria-hidden="true" />
+                Back to agents
+              </button>
+              <span className="flex-1" />
+              <button
+                type="button"
+                disabled={finishBusy || (!telemetryState && !telemetryUnavailable)}
+                onClick={() => void finish()}
+                className="inline-flex h-9 items-center gap-2 rounded-[9px] bg-primary px-4 text-[12px] font-semibold text-primary-foreground hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {finishBusy ? (
+                  <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <>
+                    Finish setup
+                    <ArrowRight size={15} aria-hidden="true" />
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-          <p className="mt-4 text-sm font-medium text-foreground">
-            {selectedRepo ? repoLabel(selectedRepo.path) : 'Your project'} is ready to use.
-          </p>
-          <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">
-            You can add more projects, agents, and machines later without returning to setup.
-          </p>
-          <Button type="button" size="lg" className="mt-6 min-w-40" onClick={onComplete}>
-            Let&apos;s go
-            <ArrowRight data-icon="inline-end" aria-hidden="true" />
-          </Button>
         </div>
-      </ActivationShell>
+      </main>
     )
   }
 
@@ -347,8 +526,8 @@ export function FirstTaskActivation({
 
   return (
     <main className="native-agents-pane relative" aria-labelledby="activation-title">
-      <div className="workspace-sheet min-h-0 overflow-y-auto bg-[#131417]">
-        <div className="flex min-h-full w-full flex-col bg-[#131417] px-5 pt-12 pb-14 font-sans sm:px-10 lg:px-24 lg:pt-16">
+      <div className="workspace-sheet min-h-0 overflow-y-auto bg-card">
+        <div className="flex min-h-full w-full flex-col bg-card px-5 pt-12 pb-14 font-sans sm:px-10 lg:px-24 lg:pt-16">
           <div className="flex max-w-[1060px] items-center gap-3.5">
             <p className="inline-flex items-center gap-[7px] font-mono text-[8.5px] leading-none tracking-[0.2em] text-[#8b83ff] uppercase">
               <span className="size-[5px] rounded-full bg-[#8b83ff]" aria-hidden="true" />

@@ -23,7 +23,6 @@ import {
 } from '@/features/setup/use-vps-activation'
 import {
   isDestinationOrigin,
-  startVpsPairingState,
   type VpsActivationState,
   vpsDestinationUrl,
   vpsIntroState,
@@ -114,35 +113,42 @@ export function GuidedVpsActivation({
   }
 
   if (!vps.ready || !vps.state) {
-    const restartPairing = async (): Promise<void> => {
-      const next = startVpsPairingState(
-        'welcome',
-        machines.map((machine) => machine.id),
-      )
+    const beginFreshSetup = async (): Promise<void> => {
+      const next = vpsIntroState('welcome')
       await vps.persist(next)
       onRouteChange(next.route)
     }
     return (
       <ActivationShell
         eyebrow="Always-on Podium"
-        title={vps.ready ? 'VPS setup needs a fresh start.' : 'Checking your saved VPS setup'}
-        description={
-          vps.ready
-            ? 'No saved pairing was found. Return to activation and start the assisted route again.'
-            : 'Podium is checking the saved pairing before continuing. Nothing is being transferred yet.'
-        }
+        title="Set up an always-on VPS."
+        description="You will get one secure command to run on a new VPS. Once it connects, Podium can move its shared server state there while your projects, credentials, and agents stay on their own machines."
         onExplore={onExplore}
       >
-        <div className="flex flex-wrap gap-2">
+        <div className="max-w-[640px] space-y-4">
+          <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-4">
+            <h2 className="text-sm font-semibold text-foreground">What you need</h2>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-[12.5px] leading-5 text-muted-foreground">
+              <li>A fresh Linux VPS you can access over SSH.</li>
+              <li>Permission to install and run Podium on that VPS.</li>
+              <li>About five minutes; no project or agent credentials are transferred.</li>
+            </ul>
+            <Button
+              type="button"
+              className="mt-4"
+              disabled={!vps.ready || vps.saving}
+              pending={vps.saving}
+              pendingLabel="Preparing setup…"
+              onClick={() => runSafely(beginFreshSetup())}
+            >
+              Show VPS setup
+              <ArrowRight data-icon="inline-end" aria-hidden="true" />
+            </Button>
+          </div>
           <Button type="button" variant="outline" onClick={() => onRouteChange('welcome')}>
             <ArrowLeft aria-hidden="true" />
             Back to activation
           </Button>
-          {vps.ready && (
-            <Button type="button" onClick={() => runSafely(restartPairing())}>
-              Start machine pairing
-            </Button>
-          )}
         </div>
         <PersistError error={vps.error} />
       </ActivationShell>

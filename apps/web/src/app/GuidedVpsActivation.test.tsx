@@ -85,6 +85,30 @@ function controller(
 }
 
 describe('guided VPS return route', () => {
+  it('turns a missing fresh checkpoint into VPS setup instructions', async () => {
+    const onRouteChange = vi.fn()
+    const vps = controller('welcome', vi.fn())
+    vps.state = null
+    vps.persist = vi.fn().mockImplementation(async (next) => next)
+
+    render(
+      <GuidedVpsActivation
+        route="vps-pairing"
+        vps={vps}
+        onRouteChange={onRouteChange}
+        onExplore={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Set up an always-on VPS.' })).toBeTruthy()
+    expect(screen.getByText('What you need')).toBeTruthy()
+    expect(screen.queryByText(/checking your saved VPS setup/i)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show VPS setup' }))
+
+    await waitFor(() => expect(vps.persist).toHaveBeenCalledWith(vpsIntroState('welcome')))
+    expect(onRouteChange).toHaveBeenCalledWith('vps-intro')
+  })
+
   it('does not navigate away until the server confirms the checkpoint is cleared', async () => {
     let confirmClear: (() => void) | undefined
     const clear = vi.fn(

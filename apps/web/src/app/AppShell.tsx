@@ -15,7 +15,7 @@ import { hasActivationState, isActivationEligible } from '@/features/setup/activ
 import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
-import { activationRouteLabel, startVpsPairingState } from '@/features/setup/vps-activation'
+import { activationRouteLabel, vpsIntroState } from '@/features/setup/vps-activation'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
@@ -242,7 +242,6 @@ function AppBody(): JSX.Element {
     paletteOpen,
     setPaletteOpen,
     uiState,
-    machines,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -254,7 +253,6 @@ function AppBody(): JSX.Element {
       paletteOpen: s.paletteOpen,
       setPaletteOpen: s.setPaletteOpen,
       uiState: s.uiState,
-      machines: s.machines,
     }),
     shallowEqual,
   )
@@ -316,13 +314,9 @@ function AppBody(): JSX.Element {
   ])
 
   const enterVpsActivation = async (returnRoute: 'welcome' | 'local-project'): Promise<void> => {
-    // The welcome action is already an explicit choice to add a VPS. Enter the same
-    // machine-pairing surface used by Settings immediately; the overview remains a
-    // resumable route, but should not make a new setup look like remote discovery.
-    const next = startVpsPairingState(
-      returnRoute,
-      machines.map((machine) => machine.id),
-    )
+    // A fresh install needs the topology explanation before Podium starts minting
+    // credentials or waiting for another machine. Pairing follows from this overview.
+    const next = vpsIntroState(returnRoute)
     await vpsActivation.persist(next)
     navigateActivation(next.route)
   }
