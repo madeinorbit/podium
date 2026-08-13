@@ -186,6 +186,9 @@ export default defineConfig(({ mode }) => {
         '@podium/model/browser': fileURLToPath(
           new URL('../../packages/model/src/browser.ts', import.meta.url),
         ),
+        '@podium/model/shipping-projection': fileURLToPath(
+          new URL('../../packages/model/src/shipping-projection.ts', import.meta.url),
+        ),
         '@podium/model': fileURLToPath(
           new URL('../../packages/model/src/index.ts', import.meta.url),
         ),

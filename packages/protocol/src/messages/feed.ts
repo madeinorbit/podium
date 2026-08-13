@@ -62,8 +62,8 @@ import {
   IssueWire,
   RepoProjection,
   SessionMeta,
-  ShipOrderProjection,
 } from '@podium/model'
+import { ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
 import { FeedEpochField, ScopedChangeOp } from '../planes/scoped-feed'
 import { changeRowArm } from './change-row'

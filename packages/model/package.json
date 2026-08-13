@@ -19,6 +19,11 @@
       "@podium/source": "./src/browser.ts",
       "types": "./src/browser.ts",
       "import": "./src/browser.ts"
+    },
+    "./shipping-projection": {
+      "@podium/source": "./src/shipping-projection.ts",
+      "types": "./src/shipping-projection.ts",
+      "import": "./src/shipping-projection.ts"
     }
   },
   "files": [

@@ -15,8 +15,8 @@ import {
   RepoProjection,
   SessionMeta,
   type SessionId,
-  ShipOrderProjection,
 } from '@podium/model'
+import { ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
 

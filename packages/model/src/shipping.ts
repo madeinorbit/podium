@@ -10,6 +10,16 @@ import {
   ShipOrderIdField,
   ShipStepIdField,
 } from './ids'
+import { ShipHoldAction, ShipHoldCode } from './shipping-projection'
+
+export {
+  ReplicatedShipOrderState,
+  ShipHoldAction,
+  ShipHoldCode,
+  ShipOrderActivity,
+  ShipOrderHumanState,
+  ShipOrderProjection,
+} from './shipping-projection'
 
 export const ShipOrderState = z.enum([
   'queued',
@@ -33,26 +43,6 @@ export const TERMINAL_SHIP_ORDER_STATES = [
 export type TerminalShipOrderState = (typeof TERMINAL_SHIP_ORDER_STATES)[number]
 export const isTerminalShipOrderState = (state: ShipOrderState): state is TerminalShipOrderState =>
   (TERMINAL_SHIP_ORDER_STATES as readonly string[]).includes(state)
-
-export const ShipHoldCode = z.union([
-  z.enum([
-    'approval-stale',
-    'dependency-blocked',
-    'validation-failed',
-    'landing-conflict',
-    'destination-mismatch',
-    'machine-unavailable',
-    'policy-refused',
-  ]),
-  z.string().regex(/^policy:[a-z0-9][a-z0-9._-]*$/),
-])
-export type ShipHoldCode = z.infer<typeof ShipHoldCode>
-
-export const ShipHoldAction = z.union([
-  z.enum(['retry', 'return-to-issue', 'open-repair']),
-  z.string().regex(/^policy:[a-z0-9][a-z0-9._-]*$/),
-])
-export type ShipHoldAction = z.infer<typeof ShipHoldAction>
 
 export const DescendantTip = z.object({
   issueId: IssueIdField,
@@ -271,50 +261,3 @@ export const DeliveryReceipt = z.object({
   completedAt: z.string(),
 })
 export type DeliveryReceipt = z.infer<typeof DeliveryReceipt>
-
-export const ShipOrderHumanState = z.enum(['waiting', 'in_progress', 'needs_you', 'shipped'])
-export type ShipOrderHumanState = z.infer<typeof ShipOrderHumanState>
-
-export const ReplicatedShipOrderState = ShipOrderState.exclude(['cancelled'])
-export type ReplicatedShipOrderState = z.infer<typeof ReplicatedShipOrderState>
-
-export const ShipOrderActivity = z.enum([
-  'waiting',
-  'checking',
-  'composing',
-  'validating',
-  'repairing',
-  'landing',
-  'publishing',
-  'verifying',
-  'held',
-  'shipped',
-])
-export type ShipOrderActivity = z.infer<typeof ShipOrderActivity>
-
-/** Compact replicated order row. It is keyed by order id and joined locally by
- * issueId; it never nests into IssueAggregate/IssueProjection. */
-export const ShipOrderProjection = z.object({
-  id: ShipOrderIdField,
-  issueId: IssueIdField,
-  repoId: RepoIdField,
-  targetBranch: z.string().min(1),
-  destination: z.string().min(1),
-  state: ReplicatedShipOrderState,
-  humanState: ShipOrderHumanState,
-  activity: ShipOrderActivity,
-  queuedAt: z.string(),
-  stateChangedAt: z.string(),
-  queueRank: z.number().int().positive().optional(),
-  hold: z
-    .object({
-      id: ShipHoldIdField,
-      generation: z.number().int().positive(),
-      reasonCode: ShipHoldCode,
-      headline: z.string().min(1),
-      actions: z.array(ShipHoldAction).min(1),
-    })
-    .optional(),
-  receiptId: DeliveryReceiptIdField.optional(),
-})
-export type ShipOrderProjection = z.infer<typeof ShipOrderProjection>
