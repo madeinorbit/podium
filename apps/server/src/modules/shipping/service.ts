@@ -132,6 +132,7 @@ export interface ShippingIssuePort {
     mutation: ShippingIssueMutation,
     write: () => T,
   ): { issue: IssueWire; result: T }
+  takeBranchCustody?(issue: IssueWire): Promise<{ ok: boolean; detail: string }>
 }
 
 export interface ShippingLedgerPort {
@@ -158,8 +159,25 @@ export interface ShippingAuthorizationPort {
     order: ShipOrder
     issue: IssueWire
     machineId: MachineId
-    effect: 'preflight' | 'compatibility-land' | 'verify' | 'cancel'
+    effect:
+      | 'preflight'
+      | 'prepare-merge-group'
+      | 'validate'
+      | 'commit-merge-group'
+      | 'publish'
+      | 'verify'
+      | 'cancel'
   }): void
+}
+
+export interface ShippingResourceAdmissionPort {
+  acquire(input: {
+    order: ShipOrder
+    issue: IssueWire
+    names: readonly string[]
+    ttlSeconds: number
+  }): boolean
+  release(input: { order: ShipOrder; issue: IssueWire; names: readonly string[] }): void
 }
 
 export interface AcceptedReviewEvidence {
@@ -189,6 +207,7 @@ export interface ShippingServiceDeps {
   authorization: ShippingAuthorizationPort
   evidence: ShippingEvidencePort
   policy: ShippingPolicyResolver
+  resourceAdmission?: ShippingResourceAdmissionPort
   machineFor(issue: IssueWire): MachineId
   resolveBranchTip(issue: IssueWire): Promise<string>
   resolveRefTip(issue: IssueWire, ref: string): Promise<string>
@@ -574,118 +593,190 @@ export class ShippingService {
         return
       }
       const lease = attempt ? this.leases.get(order.id) : undefined
-      if (
-        !attempt ||
+      if (!attempt || attempt.finishedAt) {
+        const claimed = this.claimAttempt(order, attempt)
+        order = claimed.order
+        attempt = claimed.attempt
+      } else if (
         !lease ||
         lease.attemptId !== attempt.id ||
         lease.generation !== attempt.leaseGeneration ||
         lease.expiresAt <= Date.now()
       ) {
-        const claimed = this.claimAttempt(order, attempt)
-        order = claimed.order
-        attempt = claimed.attempt
+        // The durable attempt remains the winner across a server restart or an
+        // RPC deadline. Reconstituting its lease lets the daemon replay/observe
+        // the same generation and proof chain instead of abandoning a commit
+        // that may already have crossed an external effect boundary.
+        this.leases.set(order.id, {
+          attemptId: attempt.id,
+          generation: attempt.leaseGeneration,
+          expiresAt: Date.now() + LEASE_MS,
+        })
       }
       const issue = this.deps.issues.get(order.issueId)
       const policy = this.deps.policy.resolve(issue)
 
+      if (
+        policy.id !== order.policyId ||
+        policy.validationProfile.id !== policy.validationProfileId
+      ) {
+        await this.hold(
+          order,
+          attempt,
+          'policy-refused',
+          'Shipping policy changed',
+          'Repository policy or its named validation profile changed after approval.',
+        )
+        return
+      }
+
       if (order.state === 'preflight') {
+        if (this.deps.issues.takeBranchCustody) {
+          const custody = await this.deps.issues.takeBranchCustody(issue)
+          if (!custody.ok) {
+            await this.hold(
+              order,
+              attempt,
+              'policy:branch-custody',
+              'Source branch custody is not available',
+              custody.detail,
+            )
+            return
+          }
+        }
         const result = await this.runEffect(order, attempt, issue, 'preflight', 'composing')
         if (result?.state !== 'succeeded') return
         order = this.requiredOrder(order.id)
       }
-      if (order.state === 'composing') order = this.transition(order, 'validating')
-      if (order.state === 'repairing') order = this.transition(order, 'validating')
-      if (order.state === 'validating') order = this.transition(order, 'landing')
-      if (order.state === 'landing') {
-        try {
-          if (policy.id !== order.policyId) {
-            throw new Error('repository shipping policy changed after admission')
-          }
-        } catch (error) {
-          await this.hold(
-            order,
-            attempt,
-            'policy-refused',
-            'Shipping authorization changed',
-            error instanceof Error ? error.message : String(error),
-          )
-          return
-        }
+      if (order.state === 'composing') {
         const result = await this.runEffect(
           order,
           attempt,
           issue,
-          'compatibility-land',
-          'verifying',
+          'prepare-merge-group',
+          'validating',
         )
         if (result?.state !== 'succeeded') return
         order = this.requiredOrder(order.id)
       }
-      if (order.state === 'verifying') {
-        const result = await this.runEffect(order, attempt, issue, 'verify')
-        if (result?.state !== 'succeeded') return
-        const destinationSha = result.observedDestinationSha ?? result.observedTargetSha
-        if (!destinationSha) {
-          await this.hold(
-            order,
-            attempt,
-            'destination-mismatch',
-            'Destination proof is incomplete',
-            result.summary,
-            result.artifactRefs,
-            this.effectCommit(order, attempt, 'verify', result),
-          )
-          return
-        }
-        const finishedAt = this.now()
-        const receipt: DeliveryReceipt = {
-          id: asDeliveryReceiptId(`receipt_${order.id}`),
-          orderId: order.id,
-          approvedBaseSha: order.approvedBaseSha,
-          approvedHeadSha: order.approvedHeadSha,
-          testedIntegrationSha: order.approvedHeadSha,
-          landedRefSha: result.observedTargetSha ?? destinationSha,
-          destinationSha,
-          validationProfileId: policy.validationProfileId,
-          validationResult: 'passed',
-          destination: order.destination,
-          completedAt: finishedAt,
-        }
-        const shipped = { ...order, state: 'shipped' as const, stateChangedAt: finishedAt }
-        const specs = this.projectionSpecs(this.replaceOrder(shipped), undefined, receipt)
-        this.deps.beforeCompletionCommit?.(receipt)
+      if (order.state === 'repairing') order = this.transition(order, 'validating')
+      if (order.state === 'validating') {
+        const names = policy.validationProfile.resourceLocks
+        const acquired = this.acquireResources(
+          order,
+          issue,
+          names,
+          Math.ceil(policy.validationProfile.timeoutMs / 1000) + 30,
+        )
+        if (!acquired) return
         try {
-          this.deps.issues.shippingCommit(
-            order.issueId,
-            {
-              expectedStage: 'shipping',
-              nextStage: 'done',
-              needsHuman: false,
-              shipOrderChanges: specs,
-              event: {
-                kind: 'issue.shipped',
-                payload: { orderId: order.id, receiptId: receipt.id },
-              },
-            },
-            () =>
-              this.deps.repository.commitEffectResult({
-                orderId: order.id,
-                expectedState: 'verifying',
-                attemptId: attempt.id,
-                generation: attempt.leaseGeneration,
-                ...this.effectCommit(order, attempt, 'verify', result),
-                outcome: { kind: 'verified', receipt, attemptFinishedAt: finishedAt },
-              }),
-          )
-        } catch (error) {
-          if (this.isEffectCustodyRefusal(error)) return
-          throw error
+          const result = await this.runEffect(order, attempt, issue, 'validate', 'landing')
+          if (result?.state !== 'succeeded') return
+          order = this.requiredOrder(order.id)
+        } finally {
+          this.releaseResources(order, issue, names)
         }
-        this.audit('shipping.order_shipped', order.issueId, {
-          orderId: order.id,
-          receiptId: receipt.id,
-        })
-        this.leases.delete(order.id)
+      }
+
+      if (order.state === 'landing' || order.state === 'publishing' || order.state === 'verifying') {
+        const mergeLock = [`merge:${order.targetBranch}`]
+        if (!this.acquireResources(order, issue, mergeLock, 120)) return
+        try {
+          if (order.state === 'landing') {
+            const result = await this.runEffect(
+              order,
+              attempt,
+              issue,
+              'commit-merge-group',
+              'publishing',
+            )
+            if (result?.state !== 'succeeded') return
+            order = this.requiredOrder(order.id)
+          }
+          if (order.state === 'publishing') {
+            if (!this.acquireResources(order, issue, mergeLock, 120)) return
+            const result = await this.runEffect(order, attempt, issue, 'publish', 'verifying')
+            if (result?.state !== 'succeeded') return
+            order = this.requiredOrder(order.id)
+          }
+          if (order.state !== 'verifying') return
+          if (!this.acquireResources(order, issue, mergeLock, 120)) return
+          const result = await this.runEffect(order, attempt, issue, 'verify')
+          if (result?.state !== 'succeeded') return
+          const destinationSha = result.observedDestinationSha
+          const testedIntegrationSha = result.testedIntegrationSha
+          const landedRefSha = result.landedRefSha
+          if (
+            !destinationSha ||
+            !testedIntegrationSha ||
+            !landedRefSha ||
+            result.validationProfileId !== policy.validationProfileId ||
+            result.validationResult !== 'passed'
+          ) {
+            await this.hold(
+              order,
+              attempt,
+              'destination-mismatch',
+              'Destination proof is incomplete',
+              result.summary,
+              result.artifactRefs,
+              this.effectCommit(order, attempt, 'verify', result),
+            )
+            return
+          }
+          const finishedAt = this.now()
+          const receipt: DeliveryReceipt = {
+            id: asDeliveryReceiptId(`receipt_${order.id}`),
+            orderId: order.id,
+            approvedBaseSha: order.approvedBaseSha,
+            approvedHeadSha: order.approvedHeadSha,
+            testedIntegrationSha,
+            landedRefSha,
+            destinationSha,
+            validationProfileId: result.validationProfileId,
+            validationResult: 'passed',
+            destination: order.destination,
+            completedAt: finishedAt,
+          }
+          const shipped = { ...order, state: 'shipped' as const, stateChangedAt: finishedAt }
+          const specs = this.projectionSpecs(this.replaceOrder(shipped), undefined, receipt)
+          this.deps.beforeCompletionCommit?.(receipt)
+          try {
+            this.deps.issues.shippingCommit(
+              order.issueId,
+              {
+                expectedStage: 'shipping',
+                nextStage: 'done',
+                needsHuman: false,
+                shipOrderChanges: specs,
+                event: {
+                  kind: 'issue.shipped',
+                  payload: { orderId: order.id, receiptId: receipt.id },
+                },
+              },
+              () =>
+                this.deps.repository.commitEffectResult({
+                  orderId: order.id,
+                  expectedState: 'verifying',
+                  attemptId: attempt.id,
+                  generation: attempt.leaseGeneration,
+                  ...this.effectCommit(order, attempt, 'verify', result),
+                  outcome: { kind: 'verified', receipt, attemptFinishedAt: finishedAt },
+                }),
+            )
+          } catch (error) {
+            if (this.isEffectCustodyRefusal(error)) return
+            throw error
+          }
+          await this.acknowledgeEffect(order, attempt, issue, 'verify')
+          this.audit('shipping.order_shipped', order.issueId, {
+            orderId: order.id,
+            receiptId: receipt.id,
+          })
+          this.leases.delete(order.id)
+        } finally {
+          this.releaseResources(order, issue, mergeLock)
+        }
       }
     } finally {
       this.inFlight.delete(orderId)
@@ -1039,7 +1130,7 @@ export class ShippingService {
     order: ShipOrder,
     attempt: ShipAttempt,
     issue: IssueWire,
-    operation: 'preflight' | 'compatibility-land' | 'verify',
+    operation: ShippingJobResult['operation'],
     nextState?: Exclude<ShipOrderState, 'held' | 'shipped'>,
   ): Promise<ShippingJobResult | null> {
     const effectKey = `${operation}:${attempt.leaseGeneration}`
@@ -1125,6 +1216,7 @@ export class ShippingService {
         from: order.state,
         to: nextState,
       })
+      await this.acknowledgeEffect(order, attempt, issue, operation)
     }
     if (result.state === 'held') {
       await this.hold(
@@ -1136,6 +1228,7 @@ export class ShippingService {
         result.artifactRefs,
         effect,
       )
+      await this.acknowledgeEffect(order, attempt, issue, operation)
     } else if (result.state === 'cancelled') {
       // The daemon may durably record cancellation before the server commits
       // its own cancellation transition. Recovery must classify that boundary
@@ -1149,6 +1242,7 @@ export class ShippingService {
         result.artifactRefs,
         effect,
       )
+      await this.acknowledgeEffect(order, attempt, issue, operation)
     }
     return result
   }
@@ -1279,7 +1373,7 @@ export class ShippingService {
   private effectCommit(
     order: ShipOrder,
     attempt: ShipAttempt,
-    operation: 'preflight' | 'compatibility-land' | 'verify',
+    operation: ShippingJobResult['operation'],
     result: ShippingJobResult,
     startedAt = this.deps.repository.latestStepForEffect(
       attempt.id,
@@ -1395,8 +1489,8 @@ export class ShippingService {
     order: ShipOrder,
     attempt: ShipAttempt,
     issue: IssueWire,
-    operation: 'preflight' | 'compatibility-land' | 'verify',
-    action: 'start' | 'status' | 'cancel',
+    operation: ShippingJobResult['operation'],
+    action: 'start' | 'status' | 'cancel' | 'acknowledge',
   ): Omit<ShippingJobRequestMessage, 'type' | 'requestId'> {
     return {
       action,
@@ -1412,16 +1506,68 @@ export class ShippingService {
       approvedHeadSha: order.approvedHeadSha,
       expectedTargetSha: attempt.expectedTargetSha,
       destination: order.destination,
+      validationProfile: this.deps.policy.resolve(issue).validationProfile,
+      ...(order.providerRef ? { providerRef: order.providerRef } : {}),
     }
   }
 
   private operationFor(
     state: ShipOrderState,
-  ): 'preflight' | 'compatibility-land' | 'verify' | null {
+  ): ShippingJobResult['operation'] | null {
     if (state === 'preflight') return 'preflight'
-    if (state === 'landing') return 'compatibility-land'
+    if (state === 'composing') return 'prepare-merge-group'
+    if (state === 'validating' || state === 'repairing') return 'validate'
+    if (state === 'landing') return 'commit-merge-group'
+    if (state === 'publishing') return 'publish'
     if (state === 'verifying') return 'verify'
     return null
+  }
+
+  private acquireResources(
+    order: ShipOrder,
+    issue: IssueWire,
+    names: readonly string[],
+    ttlSeconds: number,
+  ): boolean {
+    if (names.length === 0 || !this.deps.resourceAdmission) return true
+    return this.deps.resourceAdmission.acquire({ order, issue, names, ttlSeconds })
+  }
+
+  private releaseResources(order: ShipOrder, issue: IssueWire, names: readonly string[]): void {
+    if (names.length === 0 || !this.deps.resourceAdmission) return
+    try {
+      this.deps.resourceAdmission.release({ order, issue, names })
+    } catch (error) {
+      this.audit('shipping.resource_release_failed', order.issueId, {
+        orderId: order.id,
+        names,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async acknowledgeEffect(
+    order: ShipOrder,
+    attempt: ShipAttempt,
+    issue: IssueWire,
+    operation: ShippingJobResult['operation'],
+  ): Promise<void> {
+    try {
+      const result = await this.deps.daemon.shippingJob(
+        this.jobInput(order, attempt, issue, operation, 'acknowledge'),
+        attempt.machineId,
+      )
+      this.assertJobResultFence(order, attempt, operation, result)
+    } catch (error) {
+      // The server commit is authoritative. A missing ack retains the daemon
+      // journal for reconciliation; it must never roll back a committed effect.
+      this.audit('shipping.effect_ack_pending', order.issueId, {
+        orderId: order.id,
+        attemptId: attempt.id,
+        operation,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   private requiredBranch(issue: IssueWire): string {
@@ -1449,7 +1595,12 @@ export class ShippingService {
   private holdCode(classification: ShippingJobResult['classification']): ShipHold['reasonCode'] {
     if (classification === 'source-moved') return 'approval-stale'
     if (classification === 'target-moved') return 'landing-conflict'
+    if (classification === 'merge-conflict') return 'landing-conflict'
+    if (classification === 'validation-failed') return 'validation-failed'
     if (classification === 'destination-mismatch') return 'destination-mismatch'
+    if (classification === 'publish-rejected' || classification === 'provider-failed') {
+      return 'destination-mismatch'
+    }
     if (classification === 'stale-generation') return 'machine-unavailable'
     return 'policy-refused'
   }
@@ -1457,7 +1608,11 @@ export class ShippingService {
   private holdHeadline(result: ShippingJobResult): string {
     if (result.classification === 'source-moved') return 'Approved source changed'
     if (result.classification === 'target-moved') return 'Target changed during shipping'
+    if (result.classification === 'merge-conflict') return 'Approved work no longer composes'
+    if (result.classification === 'validation-failed') return 'Named validation profile failed'
     if (result.classification === 'dirty-worktree') return 'Repository checkout is not clean'
+    if (result.classification === 'wrong-target-checkout') return 'Target checkout needs adoption'
+    if (result.classification === 'publish-rejected') return 'Destination rejected publication'
     if (result.classification === 'destination-mismatch') return 'Destination proof failed'
     return 'Shipping needs a supported destination executor'
   }

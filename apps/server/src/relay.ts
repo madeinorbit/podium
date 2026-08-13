@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
-import type { AgentKind, IssueEventWire, MachineId, SessionId, SessionMeta } from '@podium/model'
+import type { AgentKind, IssueEventWire, IssueId, MachineId, SessionId, SessionMeta } from '@podium/model'
 import {
   actorAgent,
   actorSystem,
@@ -1714,6 +1714,13 @@ export class SessionRegistry {
       })
     })
     this.issueCommands = issueCommands
+    const shippingLocks = new Map<string, Set<string>>()
+    const shippingLockCaller = (orderId: string, issueId: IssueId) => ({
+      sessionId: `system:shipping:${orderId}` as `system:${string}`,
+      issueId,
+      label: `Shipping ${orderId}`,
+      workspace: null,
+    })
     shipping = new ShippingService({
       repository: this.store.shipping,
       issues: {
@@ -1724,6 +1731,22 @@ export class SessionRegistry {
         },
         children: (id, recursive) => issues.children(id, recursive),
         shippingCommit: (id, mutation, write) => issues.shippingCommit(id, mutation, write),
+        takeBranchCustody: async (issue) => {
+          const stopped = await issueSessionLifecycle.stopIssue({
+            issueId: issue.id,
+            principal: systemPrincipal('shipping-custody'),
+          })
+          const live = issues.get(issue.id)
+          const freed = live?.worktreePath == null
+          return {
+            ok: stopped.ok && freed,
+            detail:
+              stopped.reason ??
+              (freed
+                ? `Podium has custody of ${issue.branch ?? issue.displayRef ?? issue.id}`
+                : 'write-capable sessions or a non-clean worktree still own the source branch'),
+          }
+        },
       },
       ledger,
       daemon: rpc,
@@ -1831,6 +1854,58 @@ export class SessionRegistry {
       policy: new CompatibilityShippingPolicyResolver(
         () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
       ),
+      resourceAdmission: {
+        acquire: ({ order, issue, names, ttlSeconds }) => {
+          const held = shippingLocks.get(order.id) ?? new Set<string>()
+          shippingLocks.set(order.id, held)
+          for (const name of [...new Set(names)].sort()) {
+            const result = locks.acquire(shippingLockCaller(order.id, issue.id), {
+              repoPath: issue.repoPath,
+              name,
+              ttlSeconds,
+              note: `exact landing for ${order.id}`,
+            })
+            if (result.granted) {
+              held.add(name)
+              continue
+            }
+            // Preserve FIFO admission when the first resource is busy. If a
+            // later resource blocks, cancel that waiter before releasing the
+            // sorted prefix so a granted suffix can never deadlock the prefix.
+            if (held.size > 0) {
+              try {
+                locks.cancel(shippingLockCaller(order.id, issue.id), {
+                  repoPath: issue.repoPath,
+                  name,
+                })
+              } catch {}
+            }
+            for (const acquired of [...held]) {
+              try {
+                locks.release(shippingLockCaller(order.id, issue.id), {
+                  repoPath: issue.repoPath,
+                  name: acquired,
+                })
+              } catch {}
+              held.delete(acquired)
+            }
+            return false
+          }
+          return true
+        },
+        release: ({ order, issue, names }) => {
+          const held = shippingLocks.get(order.id)
+          for (const name of [...new Set(names)].sort().reverse()) {
+            if (!held?.has(name)) continue
+            locks.release(shippingLockCaller(order.id, issue.id), {
+              repoPath: issue.repoPath,
+              name,
+            })
+            held.delete(name)
+          }
+          if (held?.size === 0) shippingLocks.delete(order.id)
+        },
+      },
       machineFor: (issue) =>
         issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath),
       resolveBranchTip: async (issue) => {

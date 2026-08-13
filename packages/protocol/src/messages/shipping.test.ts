@@ -17,6 +17,13 @@ const request = {
   approvedHeadSha: 'b'.repeat(40),
   expectedTargetSha: 'a'.repeat(40),
   destination: 'local:main',
+  validationProfile: {
+    id: 'agent',
+    argv: ['bun', 'run', 'test'],
+    cwd: 'integration-root' as const,
+    timeoutMs: 60_000,
+    resourceLocks: ['validation:agent'],
+  },
 }
 
 describe('shipping machine protocol', () => {

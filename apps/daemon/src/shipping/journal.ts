@@ -15,6 +15,7 @@ const MAX_ARTIFACT_REFS = 16
 export interface ShippingJournalEntry {
   request: Omit<ShippingJobRequest, 'type' | 'requestId' | 'action'>
   result: ShippingJobResultValue
+  acknowledgedAt?: string
 }
 
 const boundedLine = (line: string): string =>
@@ -60,7 +61,13 @@ export class ShippingJobJournal {
         requestId: true,
         action: true,
       }).parse(parsed.request)
-      return { request, result: ShippingJobResult.parse(parsed.result) }
+      return {
+        request,
+        result: ShippingJobResult.parse(parsed.result),
+        ...(typeof parsed.acknowledgedAt === 'string'
+          ? { acknowledgedAt: parsed.acknowledgedAt }
+          : {}),
+      }
     } catch {
       return null
     }
@@ -82,6 +89,9 @@ export class ShippingJobJournal {
                 action: true,
               }).parse(parsed.request),
               result: ShippingJobResult.parse(parsed.result),
+              ...(typeof parsed.acknowledgedAt === 'string'
+                ? { acknowledgedAt: parsed.acknowledgedAt }
+                : {}),
             },
           ]
         } catch {
@@ -121,11 +131,31 @@ export class ShippingJobJournal {
     if (!existing || existing.request.generation !== generation) {
       throw new Error(`shipping job ${jobId} generation fence failed`)
     }
-    return this.write({ request: existing.request, result })
+    return this.write({
+      request: existing.request,
+      result,
+      ...(existing.acknowledgedAt ? { acknowledgedAt: existing.acknowledgedAt } : {}),
+    })
+  }
+
+  acknowledge(jobId: string, generation: number, at: string): ShippingJournalEntry {
+    const existing = this.get(jobId)
+    if (!existing || existing.request.generation !== generation) {
+      throw new Error(`shipping job ${jobId} generation fence failed`)
+    }
+    if (existing.result.state === 'running') {
+      throw new Error(`running shipping job ${jobId} cannot be acknowledged`)
+    }
+    if (existing.acknowledgedAt) return existing
+    return this.write({ ...existing, acknowledgedAt: at })
   }
 
   private write(entry: ShippingJournalEntry): ShippingJournalEntry {
-    const next = { request: entry.request, result: boundShippingResult(entry.result) }
+    const next = {
+      request: entry.request,
+      result: boundShippingResult(entry.result),
+      ...(entry.acknowledgedAt ? { acknowledgedAt: entry.acknowledgedAt } : {}),
+    }
     const target = this.path(entry.request.jobId)
     const temporary = join(this.dir, `.${randomUUID()}.tmp`)
     writeFileSync(temporary, `${JSON.stringify(next)}\n`, { mode: 0o600 })

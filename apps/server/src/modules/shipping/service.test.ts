@@ -43,6 +43,8 @@ function harness(
     resolveBranchTip?: ConstructorParameters<typeof ShippingService>[0]['resolveBranchTip']
     resolveRefTip?: ConstructorParameters<typeof ShippingService>[0]['resolveRefTip']
     policy?: ShippingPolicyResolver
+    takeBranchCustody?: ConstructorParameters<typeof ShippingService>[0]['issues']['takeBranchCustody']
+    resourceAdmission?: ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
   } = {},
 ) {
   const store = new SessionStore(':memory:')
@@ -85,6 +87,7 @@ function harness(
         branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
       })),
     shippingCommit: issues.shippingCommit.bind(issues),
+    ...(options.takeBranchCustody ? { takeBranchCustody: options.takeBranchCustody } : {}),
   }
   const deps: ConstructorParameters<typeof ShippingService>[0] = {
     repository: store.shipping,
@@ -112,6 +115,7 @@ function harness(
       acceptedReviewEvidence: options.acceptedReviewEvidence ?? (() => null),
     },
     policy: options.policy ?? new CompatibilityShippingPolicyResolver(() => 'main'),
+    ...(options.resourceAdmission ? { resourceAdmission: options.resourceAdmission } : {}),
     machineFor: () => asMachineId('machine-1'),
     resolveBranchTip: options.resolveBranchTip ?? (async () => 'head-sha'),
     resolveRefTip: options.resolveRefTip ?? (async () => 'base-sha'),
@@ -139,6 +143,35 @@ const approval = {
     previewLeaseIds: [],
   },
 }
+
+const provedShippingJob: NonNullable<
+  ConstructorParameters<typeof ShippingService>[0]['daemon']
+>['shippingJob'] = async (input, machineId) => ({
+  jobId: input.jobId,
+  orderId: input.orderId,
+  attemptId: input.attemptId,
+  machineId,
+  generation: input.generation,
+  operation: input.operation,
+  state: 'succeeded',
+  classification: 'proved',
+  summary: `${input.operation} proved`,
+  observedSourceSha: input.approvedHeadSha,
+  observedTargetSha: input.approvedHeadSha,
+  ...(input.operation === 'verify'
+    ? {
+        observedDestinationSha: input.approvedHeadSha,
+        testedIntegrationSha: input.approvedHeadSha,
+        landedRefSha: input.approvedHeadSha,
+        validationProfileId: input.validationProfile.id,
+        validationResult: 'passed' as const,
+      }
+    : {}),
+  logs: [],
+  artifactRefs: [],
+  heartbeatedAt: '2026-08-13T10:00:00.000Z',
+  finishedAt: '2026-08-13T10:00:00.000Z',
+})
 
 describe('ShippingService enqueue transaction', () => {
   it('atomically freezes the order, moves review to shipping, and publishes compact rows', async () => {
@@ -493,11 +526,11 @@ describe('ShippingService enqueue transaction', () => {
       machineId,
       generation: input.generation,
       operation: input.operation,
-      state: input.operation === 'compatibility-land' ? 'held' : 'succeeded',
+      state: input.operation === 'commit-merge-group' ? 'held' : 'succeeded',
       classification:
-        input.operation === 'compatibility-land' ? 'unsupported-destination-effect' : 'observed',
+        input.operation === 'commit-merge-group' ? 'unsupported-destination-effect' : 'observed',
       summary:
-        input.operation === 'compatibility-land'
+        input.operation === 'commit-merge-group'
           ? 'executor stopped before mutation'
           : 'fences match',
       observedSourceSha: input.approvedHeadSha,
@@ -547,7 +580,7 @@ describe('ShippingService enqueue transaction', () => {
   it('authorizes admission and hold resolution and reauthorizes before landing', async () => {
     const authorize = vi.fn()
     const reauthorize = vi.fn((input: { effect: string }) => {
-      if (input.effect === 'compatibility-land') throw new Error('grant revoked')
+      if (input.effect === 'commit-merge-group') throw new Error('grant revoked')
     })
     const { issues, service, store } = harness(
       async (input, machineId) => ({
@@ -575,10 +608,61 @@ describe('ShippingService enqueue transaction', () => {
     await service.runOrder(order.id)
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: 'enqueue' }))
     expect(reauthorize).toHaveBeenCalledWith(
-      expect.objectContaining({ effect: 'compatibility-land', machineId: 'machine-1' }),
+      expect.objectContaining({ effect: 'commit-merge-group', machineId: 'machine-1' }),
     )
     expect(store.shipping.getOrder(order.id)?.state).toBe('held')
     expect(store.shipping.getOrder(order.id)?.holdCode).toBe('policy-refused')
+    service.dispose()
+  })
+
+  it('takes non-forcing branch custody before dispatching preflight', async () => {
+    const shippingJob = vi.fn(provedShippingJob)
+    const takeBranchCustody = vi.fn(async () => ({
+      ok: false,
+      detail: 'source worktree has unsaved changes',
+    }))
+    const { store, issues, service } = harness(shippingJob, { takeBranchCustody })
+    const issue = issues.create({ repoPath: '/repo', title: 'custody', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+
+    await service.runOrder(order.id)
+    expect(takeBranchCustody).toHaveBeenCalledOnce()
+    expect(shippingJob).not.toHaveBeenCalled()
+    expect(store.shipping.getOrder(order.id)).toMatchObject({
+      state: 'held',
+      holdCode: 'policy:branch-custody',
+    })
+    expect(store.shipping.openHoldForOrder(order.id)?.detail).toContain('unsaved changes')
+    service.dispose()
+  })
+
+  it('admits validation before taking the short canonical merge lock', async () => {
+    const events: string[] = []
+    const resourceAdmission = {
+      acquire: vi.fn(({ names }: { names: readonly string[] }) => {
+        events.push(`acquire:${names.join(',')}`)
+        return true
+      }),
+      release: vi.fn(({ names }: { names: readonly string[] }) => {
+        events.push(`release:${names.join(',')}`)
+      }),
+    }
+    const { store, issues, service } = harness(provedShippingJob, { resourceAdmission })
+    const issue = issues.create({ repoPath: '/repo', title: 'resource locks', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+
+    await service.runOrder(order.id)
+    expect(store.shipping.getOrder(order.id)?.state).toBe('shipped')
+    expect(events[0]).toBe('acquire:validation:agent')
+    expect(events[1]).toBe('release:validation:agent')
+    expect(events.slice(2)).toEqual([
+      'acquire:merge:main',
+      'acquire:merge:main',
+      'acquire:merge:main',
+      'release:merge:main',
+    ])
     service.dispose()
   })
 
@@ -603,7 +687,15 @@ describe('ShippingService enqueue transaction', () => {
       summary: 'durable proof',
       observedSourceSha: input.approvedHeadSha,
       observedTargetSha: input.expectedTargetSha,
-      ...(input.operation === 'verify' ? { observedDestinationSha: input.expectedTargetSha } : {}),
+      ...(input.operation === 'verify'
+        ? {
+            observedDestinationSha: input.approvedHeadSha,
+            testedIntegrationSha: input.approvedHeadSha,
+            landedRefSha: input.approvedHeadSha,
+            validationProfileId: input.validationProfile.id,
+            validationResult: 'passed' as const,
+          }
+        : {}),
       logs: [],
       artifactRefs: [],
       heartbeatedAt: '2026-08-13T10:00:00.000Z',
@@ -645,8 +737,8 @@ describe('ShippingService enqueue transaction', () => {
       approvedBaseSha: 'base-sha',
       approvedHeadSha: 'head-sha',
       testedIntegrationSha: 'head-sha',
-      landedRefSha: 'base-sha',
-      destinationSha: 'base-sha',
+      landedRefSha: 'head-sha',
+      destinationSha: 'head-sha',
       validationResult: 'passed',
     })
     expect(store.issues.getIssue(issue.id)?.stage).toBe('done')
@@ -692,7 +784,7 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
   })
 
-  it('supersedes an unfinished attempt with one durable generation on restart', async () => {
+  it('resumes the durable attempt generation after restart', async () => {
     const generations: number[] = []
     const { store, issues, service, deps } = harness(async (input, machineId) => {
       generations.push(input.generation)
@@ -721,9 +813,9 @@ describe('ShippingService enqueue transaction', () => {
 
     const restarted = new ShippingService(deps)
     await restarted.reconcile()
-    expect(generations).toEqual([1, 2])
-    expect(store.shipping.getAttempt(first!.id)).toMatchObject({ outcome: 'failed' })
-    expect(store.shipping.latestAttemptForOrder(order.id)).toMatchObject({ leaseGeneration: 2 })
+    expect(generations).toEqual([1, 1])
+    expect(store.shipping.getAttempt(first!.id)).toMatchObject({ outcome: undefined })
+    expect(store.shipping.latestAttemptForOrder(order.id)).toMatchObject({ leaseGeneration: 1 })
     restarted.dispose()
   })
 

@@ -79,6 +79,20 @@ const issuePort = {
   children: (id: string, recursive?: boolean) => issues.children(id, recursive),
   shippingCommit: issues.shippingCommit.bind(issues),
 }
+const compatibilityPolicy = new CompatibilityShippingPolicyResolver(() => 'main')
+const recoveryPolicy = {
+  resolve: (issue: IssueWire) => ({
+    ...compatibilityPolicy.resolve(issue),
+    validationProfileId: 'recovery-proof',
+    validationProfile: {
+      id: 'recovery-proof',
+      argv: ['git', 'diff', '--quiet'],
+      cwd: 'integration-root' as const,
+      timeoutMs: 30_000,
+      resourceLocks: [],
+    },
+  }),
+}
 const service = new ShippingService({
   repository: store.shipping,
   issues: issuePort,
@@ -99,7 +113,7 @@ const service = new ShippingService({
     // policy permits shipping without an accepted-review repository.
     acceptedReviewEvidence: () => null,
   },
-  policy: new CompatibilityShippingPolicyResolver(() => 'main'),
+  policy: recoveryPolicy,
   machineFor: () => machineId,
   resolveBranchTip: async (issue) => git('rev-parse', `refs/heads/${issue.branch}`),
   resolveRefTip: async (_issue, ref) => git('rev-parse', `refs/heads/${ref}`),
@@ -151,10 +165,10 @@ const issue = issuePort.get(order.issueId)
 const staleGeneration = await rpc.shippingJob(
   {
     action: 'status',
-    jobId: `attempt:${order.id}:1:verify`,
+    jobId: `attempt:${order.id}:0:verify`,
     orderId: order.id,
-    attemptId: asShipAttemptId(`attempt:${order.id}:1`),
-    generation: 1,
+    attemptId: asShipAttemptId(`attempt:${order.id}:0`),
+    generation: 0,
     operation: 'verify',
     repoPath,
     sourceBranch: issue.branch!,
@@ -163,6 +177,7 @@ const staleGeneration = await rpc.shippingJob(
     approvedHeadSha: order.approvedHeadSha,
     expectedTargetSha: order.approvedBaseSha,
     destination: order.destination,
+    validationProfile: recoveryPolicy.resolve(issue).validationProfile,
   },
   machineId,
 )

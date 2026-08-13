@@ -1,11 +1,36 @@
-import { MachineIdField, ShipAttemptIdField, ShipOrderIdField } from '@podium/model'
+import {
+  MachineIdField,
+  ProviderPullRequestRef,
+  ShipAttemptIdField,
+  ShipOrderIdField,
+} from '@podium/model'
 import { z } from 'zod'
 
-export const ShippingJobAction = z.enum(['start', 'status', 'cancel'])
+export const ShippingJobAction = z.enum(['start', 'status', 'cancel', 'acknowledge'])
 export type ShippingJobAction = z.infer<typeof ShippingJobAction>
 
-export const ShippingJobOperation = z.enum(['preflight', 'compatibility-land', 'verify'])
+export const ShippingJobOperation = z.enum([
+  'preflight',
+  'prepare-merge-group',
+  'validate',
+  'commit-merge-group',
+  'publish',
+  'verify',
+])
 export type ShippingJobOperation = z.infer<typeof ShippingJobOperation>
+
+/** A trusted, named repository policy profile. The command is resolved by the
+ * server; no argv or resource name comes from the ship-order command. */
+export const ShippingValidationProfile = z
+  .object({
+    id: z.string().min(1),
+    argv: z.array(z.string().min(1)).min(1),
+    cwd: z.literal('integration-root'),
+    timeoutMs: z.number().int().positive().max(60 * 60 * 1000),
+    resourceLocks: z.array(z.string().min(1)),
+  })
+  .strict()
+export type ShippingValidationProfile = z.infer<typeof ShippingValidationProfile>
 
 /**
  * One daemon-owned shipping effect. The server supplies immutable facts and an
@@ -29,6 +54,8 @@ export const ShippingJobRequestMessage = z
     approvedHeadSha: z.string().min(1),
     expectedTargetSha: z.string().min(1),
     destination: z.string().min(1),
+    validationProfile: ShippingValidationProfile,
+    providerRef: ProviderPullRequestRef.optional(),
   })
   .strict()
 export type ShippingJobRequestMessage = z.infer<typeof ShippingJobRequestMessage>
@@ -43,6 +70,10 @@ export const ShippingJobClassification = z.enum([
   'target-moved',
   'dirty-worktree',
   'wrong-target-checkout',
+  'merge-conflict',
+  'validation-failed',
+  'publish-rejected',
+  'provider-failed',
   'unsupported-destination-effect',
   'destination-mismatch',
   'stale-generation',
@@ -64,6 +95,10 @@ export const ShippingJobResult = z.object({
   observedSourceSha: z.string().min(1).optional(),
   observedTargetSha: z.string().min(1).optional(),
   observedDestinationSha: z.string().min(1).optional(),
+  testedIntegrationSha: z.string().min(1).optional(),
+  landedRefSha: z.string().min(1).optional(),
+  validationProfileId: z.string().min(1).optional(),
+  validationResult: z.enum(['passed', 'failed']).optional(),
   logs: z.array(z.string()),
   artifactRefs: z.array(z.string()),
   heartbeatedAt: z.string(),

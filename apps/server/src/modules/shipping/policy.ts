@@ -1,10 +1,12 @@
 import type { IssueWire, ProviderPullRequestRef, ShipOrderId } from '@podium/model'
+import type { ShippingValidationProfile } from '@podium/protocol'
 
 export interface ResolvedShippingPolicy {
   id: string
   targetBranch: string
   destination: string
   validationProfileId: string
+  validationProfile: ShippingValidationProfile
   closeMode: 'after-destination' | 'leave-open'
   evidenceOptional: boolean
   deliveryDependsOn: ShipOrderId[]
@@ -26,7 +28,14 @@ export class CompatibilityShippingPolicyResolver implements ShippingPolicyResolv
       id: `compatibility-local:${targetBranch}`,
       targetBranch,
       destination: `local:${targetBranch}`,
-      validationProfileId: 'compatibility-proof',
+      validationProfileId: 'podium-agent',
+      validationProfile: {
+        id: 'podium-agent',
+        argv: ['bun', 'run', 'test'],
+        cwd: 'integration-root',
+        timeoutMs: 10 * 60 * 1000,
+        resourceLocks: ['validation:agent'],
+      },
       closeMode: 'after-destination',
       evidenceOptional: true,
       deliveryDependsOn: [],
