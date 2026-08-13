@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { AboutPodium } from './AboutPodium'
 import {
   ABOUT_EVENT,
@@ -8,6 +9,7 @@ import {
   installDesktopMenuHooks,
   openAboutPodium,
   openAddProject,
+  sidebarToggleFromEvent,
 } from './desktop-menu'
 import { DesktopCloseTab } from './use-desktop-close-tab'
 
@@ -42,6 +44,24 @@ export function DesktopMenuHost({
       toggleFlightDeck,
       toggleRightSidebar,
     })
+  })
+
+  // ⌘B / ⌥⌘B — same chords as View > Toggle Left/Right Sidebar. The rebuilt
+  // macOS menu owns them (an unclaimed accelerator never reaches the webview)
+  // and evals the hooks above. This keydown covers Linux/Windows and a macOS
+  // binary old enough that no menu item claimed them yet. Browser tabs are
+  // left alone: ⌘B is bookmarks there.
+  useEffect(() => {
+    if (!nativeDesktopBridge()) return
+    const onKey = (event: KeyboardEvent): void => {
+      const which = sidebarToggleFromEvent(event)
+      if (!which) return
+      event.preventDefault()
+      if (which === 'left') toggleLeftSidebar()
+      else toggleRightSidebar()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   })
 
   return (

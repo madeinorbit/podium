@@ -28,9 +28,12 @@ vi.mock('./AboutPodium', () => ({
 
 import { DesktopMenuHost } from './DesktopMenuHost'
 
+const desktopGlobal = globalThis as { __PODIUM_DESKTOP__?: { platform: string } }
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  delete desktopGlobal.__PODIUM_DESKTOP__
   delete (globalThis as { __PODIUM_ABOUT__?: unknown }).__PODIUM_ABOUT__
   delete (globalThis as { __PODIUM_ADD_PROJECT__?: unknown }).__PODIUM_ADD_PROJECT__
   delete (globalThis as { __PODIUM_TOGGLE_LEFT_SIDEBAR__?: unknown }).__PODIUM_TOGGLE_LEFT_SIDEBAR__
@@ -66,5 +69,41 @@ describe('DesktopMenuHost', () => {
     expect(mocks.toggleLeft).toHaveBeenCalledOnce()
     expect(mocks.toggleFlight).toHaveBeenCalledOnce()
     expect(mocks.toggleRight).toHaveBeenCalledOnce()
+  })
+
+  it('toggles the left sidebar on ⌘B and the right on ⌥⌘B in the desktop shell', () => {
+    desktopGlobal.__PODIUM_DESKTOP__ = { platform: 'macos' }
+    render(
+      <DesktopMenuHost
+        toggleLeftSidebar={mocks.toggleLeft}
+        toggleFlightDeck={mocks.toggleFlight}
+        toggleRightSidebar={mocks.toggleRight}
+      />,
+    )
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }),
+    )
+    expect(mocks.toggleLeft).toHaveBeenCalledOnce()
+    expect(mocks.toggleRight).not.toHaveBeenCalled()
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'b', metaKey: true, altKey: true, bubbles: true }),
+    )
+    expect(mocks.toggleRight).toHaveBeenCalledOnce()
+    expect(mocks.toggleFlight).not.toHaveBeenCalled()
+  })
+
+  it('leaves ⌘B to the browser when this is not the desktop shell', () => {
+    render(
+      <DesktopMenuHost
+        toggleLeftSidebar={mocks.toggleLeft}
+        toggleFlightDeck={mocks.toggleFlight}
+        toggleRightSidebar={mocks.toggleRight}
+      />,
+    )
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }))
+    expect(mocks.toggleLeft).not.toHaveBeenCalled()
   })
 })
