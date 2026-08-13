@@ -747,7 +747,12 @@ function PaletteDialog({
         if (!o) onClose()
       }}
     >
-      <DialogContent aria-label="Command palette" showCloseButton={false} className="cmdk-panel">
+      <DialogContent
+        aria-label="Command palette"
+        showCloseButton={false}
+        position="viewport"
+        className="cmdk-panel"
+      >
         <div className="cmdk-surface">
           <DialogTitle className="sr-only">Command palette</DialogTitle>
           {/* THE FIELD IS THE WELL. The command bar's signature control — a groove

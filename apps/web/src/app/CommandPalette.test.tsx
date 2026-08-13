@@ -105,15 +105,17 @@ afterEach(() => {
 })
 
 describe('CommandPalette', () => {
-  it('pins the dialog to the viewport so DialogContent cannot yank the card', () => {
-    const stage = styles.match(
-      /\[data-slot="dialog-content"\]\.cmdk-panel,\s*\[data-slot="dialog-content"\]\.cmdk-panel\[data-open\],\s*\[data-slot="dialog-content"\]\.cmdk-panel\[data-closed\]\s*\{(?<body>[^}]*)\}/,
-    )?.groups?.body
+  it('uses an untransformed viewport stage to center the card', () => {
+    render(<CommandPalette />)
+    const stage = screen.getByLabelText('Command palette')
+    const stageRule = styles.match(/\.cmdk-panel\s*\{(?<body>[^}]*)\}/)?.groups?.body
     const drop = styles.match(/@keyframes cmdk-drop\s*\{(?<body>[\s\S]*?)\n\}/)?.groups?.body
 
-    expect(stage).toContain('inset: 0;')
-    expect(stage).toContain('transform: none;')
-    expect(stage).toContain('animation: none;')
+    expect(stage.classList).toContain('inset-0')
+    expect(stage.classList).not.toContain('left-1/2')
+    expect(stage.classList).not.toContain('-translate-x-1/2')
+    expect(stage.classList).not.toContain('data-open:animate-in')
+    expect(stageRule).toContain('align-items: center;')
     expect(styles).toContain('.cmdk-surface')
     // The drop may translate the card, never the stage that places it.
     expect(drop).toContain('translateY(-9px)')

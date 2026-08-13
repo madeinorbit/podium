@@ -1621,13 +1621,11 @@ html[data-density="balanced"] .header-quota-pools {
      · ONE YELLOW THING. `.cmdk-row-cap` marks what Enter will do, on the row it
        will do it to, and nothing else in the surface may take the signal.
 
-   DialogContent is a full-viewport STAGE, not the card. Its utilities
-   (`top-1/2 left-1/2 -translate-x/y-1/2`, `animate-in`/`zoom-in-95`) used
-   to own the same box that `transform: translateX(-50%)` and the drop
-   animation also wrote — first paint centred, then the enter keyframes
-   wiped the centering transform and the panel snapped to the origin.
-   Pinning the popup to `inset: 0` and drawing the chrome on `.cmdk-surface`
-   means those utilities can no longer move the thing you look at.
+   DialogContent is a full-viewport STAGE, not the card. The component's
+   viewport position mode omits its usual centering and animation utilities,
+   so this rule owns the stage while `.cmdk-surface` owns the visible card.
+   Keeping those responsibilities separate prevents an enter keyframe from
+   replacing the transform that positions the palette.
    ───────────────────────────────────────────────────────────────────────────*/
 /* The palette keeps the SHARED backdrop rather than inventing a deeper one.
    A literal black scrim was one step darker on the old navy chassis and simply
@@ -1636,21 +1634,12 @@ html[data-density="balanced"] .header-quota-pools {
    A color-mix over --carve-popover-* would theme correctly and collapse to an
    opaque black wall on the Lightning CSS fallback path the well tokens already
    document. The blur plus the popover lift separate the palette; that is enough. */
-[data-slot="dialog-content"].cmdk-panel,
-[data-slot="dialog-content"].cmdk-panel[data-open],
-[data-slot="dialog-content"].cmdk-panel[data-closed] {
-  inset: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
+.cmdk-panel {
   display: flex;
   width: 100%;
   max-width: none;
   height: 100%;
   max-height: none;
-  translate: none;
-  transform: none;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
@@ -1660,7 +1649,6 @@ html[data-density="balanced"] .header-quota-pools {
   background: transparent;
   box-shadow: none;
   overflow: visible;
-  animation: none;
   pointer-events: none;
 }
 .cmdk-surface {
