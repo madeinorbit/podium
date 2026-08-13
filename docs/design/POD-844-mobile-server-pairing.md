@@ -27,7 +27,7 @@ Keep the existing `?server=` behavior as an explicit ephemeral development/test 
 
 On native only, do not construct `AuthGate`, tRPC, the socket, or a replica until a server profile has been selected. With no profiles, replace the current unreachable-loopback launch with a real welcome screen:
 
-> Connect to your Podium  
+> Connect to your Podium<br>
 > Scan the code shown in Podium on your computer.
 
 - Primary: **Scan QR code**
@@ -38,12 +38,12 @@ Camera permission is requested only after the scan button is tapped. The scanner
 
 After a valid scan, the phone shows the normalized origin before making a credential-bearing request:
 
-> **Connect to Alice's Podium?**  
+> **Connect to Alice's Podium?**<br>
 > `podium.alice.ts.net` · Private Tailscale connection
 
 The phone proposes a friendly device name such as “Sam's iPhone,” editable before continuing. Once it claims the pairing request, both screens show the same three memorable words:
 
-> **velvet · orbit · pine**  
+> **velvet · orbit · pine**<br>
 > Confirm these words on your computer.
 
 The computer shows “Sam's iPhone wants to connect,” the origin, the same phrase, **Approve**, and **Deny**. Approval signs the phone in as the same user who created the QR. Native transitions directly into the app and offers to rename the server profile; the hostname is a good default. Web-mobile simply opens the already-origin-bound app.

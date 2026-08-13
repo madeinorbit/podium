@@ -1,7 +1,7 @@
 # Mobile pairing design review
 
-Date: 2026-08-12  
-Reviewer: independent Claude Opus 5, high effort  
+Date: 2026-08-12<br>
+Reviewer: independent Claude Opus 5, high effort<br>
 Verdict: **Approve with changes**
 
 The reviewer traced the proposed design against the current daemon enrollment, auth session, mobile provider, Expo web export, and server static-routing code. It approved the core architecture: reuse the versioned join envelope and one-shot grant primitive, keep mobile clients out of daemon enrollment, require two-sided approval for secret-bearing QR pairing, and isolate local state by server profile plus user.
