@@ -131,6 +131,19 @@ const webServerEntry = (value: unknown): { command: string; timeout?: number } =
 const webServerCommand = (value: unknown): string => webServerEntry(value).command
 
 describe('test lane configuration', () => {
+  it('resolves the daemon protocol subpath without prefix-rewriting the common barrel', () => {
+    const aliases = sharedVitestConfig.resolve.alias
+    const common = aliases.find(({ find }) => String(find) === '/^@podium\\/protocol$/')
+    const daemon = aliases.find(({ find }) => String(find) === '/^@podium\\/protocol\\/daemon$/')
+
+    expect(common?.replacement).toBe(
+      fileURLToPath(new URL('../packages/protocol/src/index.ts', import.meta.url)),
+    )
+    expect(daemon?.replacement).toBe(
+      fileURLToPath(new URL('../packages/protocol/src/daemon.ts', import.meta.url)),
+    )
+  })
+
   it('never collects ignored nested worktrees', () => {
     expect(nodeProject(rootConfig).test?.exclude).toContain('**/.worktrees/**')
   })

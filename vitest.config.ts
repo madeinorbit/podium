@@ -87,8 +87,12 @@ export const sharedVitestConfig = {
         replacement: fileURLToPath(new URL('./packages/model/src/index.ts', import.meta.url)),
       },
       {
-        find: '@podium/protocol',
+        find: /^@podium\/protocol$/,
         replacement: fileURLToPath(new URL('./packages/protocol/src/index.ts', import.meta.url)),
+      },
+      {
+        find: /^@podium\/protocol\/daemon$/,
+        replacement: fileURLToPath(new URL('./packages/protocol/src/daemon.ts', import.meta.url)),
       },
       // ANCHORED, and added by POD-736 after it cost a real defect. `@podium/sync`
       // was absent from this list, so a `scripts/` test importing it took the
