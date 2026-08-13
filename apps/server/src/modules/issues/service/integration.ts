@@ -55,9 +55,11 @@ export class IssueEpicIntegrationModule {
    * REBUILD semantics: every run resets `integrate/<seq>-<slug>` (in worktree
    * `<repo>/.worktrees/integrate-<seq>-<slug>`) to the epic's parentBranch tip and
    * replays every closed child branch in topological order over the children's
-   * blocks-deps (tie-break by seq) — idempotent, no drift. Per child: ff-merge onto
-   * the integration head; if not ff, rebase a TEMP copy (`integrate-tmp/<childSeq>`,
-   * never the child's own branch) and ff-merge that. On conflict: abort the rebase,
+   * blocks-deps (tie-break by seq) — idempotent, no drift. It freezes every child
+   * branch to an object id before the first merge, then per child: ff-merge that
+   * commit onto the integration head; if not ff, rebase a TEMP copy
+   * (`integrate-tmp/<childSeq>`, never the child's own branch) and ff-merge that.
+   * On conflict: abort the rebase,
    * leave the integration branch at the last good state, flag the epic needs_human,
    * and stop — no further children attempted, no conflict markers ever committed.
    *
@@ -123,7 +125,70 @@ export class IssueEpicIntegrationModule {
     const stem = this.store.slug(row.seq, row.title).replace(/^issue\//, '')
     const intBranch = `integrate/${stem}`
     const worktree = `${row.repoPath}/.worktrees/integrate-${stem}`
-    // Reset-or-create the integration worktree at the parentBranch tip.
+    // Freeze every mutable source ref before the first integration effect. Git
+    // consumes these exact object ids below, and the receipt is minted from the
+    // same snapshot, so a branch advancing during the rebuild cannot be falsely
+    // attested. Nested tips are used only to bind an already-immutable child
+    // receipt; the proven receipt descendants, not the mutable refs, are carried
+    // into the parent proof.
+    const frozenInputs: Array<{
+      issue: IssueRow & { branch: string }
+      approvedHeadSha: string
+      provenDescendants: DescendantTip[]
+    }> = []
+    for (const child of ordered) {
+      const tip = await this.store.d.repoOp('revParseVerify', row.repoPath, {
+        ref: child.branch,
+      })
+      if (!tip.ok) {
+        return refuse(
+          `integrate: cannot resolve descendant #${child.seq} head: ${this.gitSummary(tip.output)}`,
+        )
+      }
+      const approvedHeadSha = tip.output.trim()
+      const nested = this.descendantsOf(child.id)
+      let provenDescendants: DescendantTip[] = []
+      if (nested.length > 0) {
+        const nestedTips: DescendantTip[] = []
+        for (const descendant of nested) {
+          if (!this.store.isClosed(descendant) || !descendant.branch) {
+            return refuse(
+              `integrate: cannot mint receipt: nested descendant #${descendant.seq} is not a closed branch-backed integration input`,
+            )
+          }
+          const nestedTip = await this.store.d.repoOp('revParseVerify', row.repoPath, {
+            ref: descendant.branch,
+          })
+          if (!nestedTip.ok) {
+            return refuse(
+              `integrate: cannot resolve nested descendant #${descendant.seq} head: ${this.gitSummary(nestedTip.output)}`,
+            )
+          }
+          nestedTips.push({ issueId: descendant.id, approvedHeadSha: nestedTip.output.trim() })
+        }
+        const childReceipt = this.integrationReceipts.rootIntegrationReceipt(
+          child.id,
+          approvedHeadSha,
+        )
+        if (
+          !childReceipt ||
+          !integrationReceiptMatchesOrder(childReceipt, {
+            issueId: child.id,
+            approvedHeadSha,
+            descendantManifest: nestedTips,
+          })
+        ) {
+          return refuse(
+            `integrate: cannot mint receipt: child #${child.seq} has no current integration receipt for its exact nested descendant tips`,
+          )
+        }
+        provenDescendants = [...childReceipt.descendants]
+      }
+      frozenInputs.push({ issue: child, approvedHeadSha, provenDescendants })
+    }
+
+    // Reset-or-create the integration worktree at the parentBranch tip only
+    // after the complete input/provenance snapshot has succeeded.
     const st = await this.store.d.repoOp('status', worktree)
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
       const add = await this.store.d.repoOp('worktreeAddReset', row.repoPath, {
@@ -146,12 +211,16 @@ export class IssueEpicIntegrationModule {
       })
       if (!reset.ok) return refuse(`integrate: branch reset failed: ${reset.output}`)
     }
+
     // Replay children in order; stop at the first conflict/failure.
     const integrated: number[] = []
     let blockedAt: number | undefined
     let blockedWhy = ''
-    for (const child of ordered) {
-      const ff = await this.store.d.repoOp('mergeFfOnly', worktree, { branch: child.branch })
+    for (const input of frozenInputs) {
+      const child = input.issue
+      const ff = await this.store.d.repoOp('mergeFfOnly', worktree, {
+        branch: input.approvedHeadSha,
+      })
       if (ff.ok) {
         integrated.push(child.seq)
         continue
@@ -160,7 +229,7 @@ export class IssueEpicIntegrationModule {
       const temp = `integrate-tmp/${child.seq}`
       const co = await this.store.d.repoOp('checkoutReset', worktree, {
         branch: temp,
-        startPoint: child.branch,
+        startPoint: input.approvedHeadSha,
       })
       if (!co.ok) {
         blockedAt = child.seq
@@ -205,56 +274,10 @@ export class IssueEpicIntegrationModule {
           `integrate: cannot resolve rebuilt root head: ${this.gitSummary(rootHead.output)}`,
         )
       }
-      const descendantTips: DescendantTip[] = []
-      for (const child of ordered) {
-        const tip = await this.store.d.repoOp('revParseVerify', worktree, {
-          ref: child.branch,
-        })
-        if (!tip.ok) {
-          return refuse(
-            `integrate: cannot resolve descendant #${child.seq} head: ${this.gitSummary(tip.output)}`,
-          )
-        }
-        const approvedHeadSha = tip.output.trim()
-        descendantTips.push({ issueId: child.id, approvedHeadSha })
-
-        const nested = this.descendantsOf(child.id)
-        if (nested.length === 0) continue
-        const nestedTips: DescendantTip[] = []
-        for (const descendant of nested) {
-          if (!this.store.isClosed(descendant) || !descendant.branch) {
-            return refuse(
-              `integrate: cannot mint receipt: nested descendant #${descendant.seq} is not a closed branch-backed integration input`,
-            )
-          }
-          const nestedTip = await this.store.d.repoOp('revParseVerify', worktree, {
-            ref: descendant.branch,
-          })
-          if (!nestedTip.ok) {
-            return refuse(
-              `integrate: cannot resolve nested descendant #${descendant.seq} head: ${this.gitSummary(nestedTip.output)}`,
-            )
-          }
-          nestedTips.push({ issueId: descendant.id, approvedHeadSha: nestedTip.output.trim() })
-        }
-        const childReceipt = this.integrationReceipts.rootIntegrationReceipt(
-          child.id,
-          approvedHeadSha,
-        )
-        if (
-          !childReceipt ||
-          !integrationReceiptMatchesOrder(childReceipt, {
-            issueId: child.id,
-            approvedHeadSha,
-            descendantManifest: nestedTips,
-          })
-        ) {
-          return refuse(
-            `integrate: cannot mint receipt: child #${child.seq} has no current integration receipt for its exact nested descendant tips`,
-          )
-        }
-        descendantTips.push(...childReceipt.descendants)
-      }
+      const descendantTips = frozenInputs.flatMap((input): DescendantTip[] => [
+        { issueId: input.issue.id, approvedHeadSha: input.approvedHeadSha },
+        ...input.provenDescendants,
+      ])
       try {
         this.integrationReceipts.recordRootIntegrationReceipt({
           rootIssueId: row.id,

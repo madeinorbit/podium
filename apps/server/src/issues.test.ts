@@ -3892,20 +3892,26 @@ describe('IssueService.integrate (issue #70)', () => {
     const calls = scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
-    expect(calls.slice(0, 4)).toEqual([
+    expect(calls).toEqual([
+      { op: 'revParseVerify', cwd: '/r', args: { ref: children[0]!.branch! } },
+      { op: 'revParseVerify', cwd: '/r', args: { ref: children[1]!.branch! } },
       { op: 'status', cwd: INT_WT },
       {
         op: 'worktreeAddReset',
         cwd: '/r',
         args: { path: INT_WT, branch: INT_BR, startPoint: 'main' },
       },
-      { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: children[0]!.branch! } },
-      { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: children[1]!.branch! } },
-    ])
-    expect(calls.slice(4)).toEqual([
+      {
+        op: 'mergeFfOnly',
+        cwd: INT_WT,
+        args: { branch: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' },
+      },
+      {
+        op: 'mergeFfOnly',
+        cwd: INT_WT,
+        args: { branch: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' },
+      },
       { op: 'revParseVerify', cwd: INT_WT, args: { ref: INT_BR } },
-      { op: 'revParseVerify', cwd: INT_WT, args: { ref: children[0]!.branch! } },
-      { op: 'revParseVerify', cwd: INT_WT, args: { ref: children[1]!.branch! } },
     ])
     expect(
       h.store.shipping.rootIntegrationReceipt(epic.id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
@@ -3919,8 +3925,10 @@ describe('IssueService.integrate (issue #70)', () => {
         }))
         .sort((left, right) => left.issueId.localeCompare(right.issueId)),
     })
-    // boundary: the ONLY op with the repo root as cwd is the worktree add itself
-    expect(calls.filter((c) => c.cwd === '/r').map((c) => c.op)).toEqual(['worktreeAddReset'])
+    // Source snapshots are read from the repo, but the only root mutation is the worktree add.
+    expect(
+      calls.filter((c) => c.cwd === '/r' && c.op !== 'revParseVerify').map((c) => c.op),
+    ).toEqual(['worktreeAddReset'])
     const comments = h.store.issues.listIssueComments(epic.id)
     expect(comments.filter((c) => c.author === 'system:integrate').length).toBe(1)
     expect(comments[0]!.body).toContain(`rebuilt '${INT_BR}' from 'main'`)
@@ -4000,6 +4008,79 @@ describe('IssueService.integrate (issue #70)', () => {
       rootIssueId: epic.id,
       approvedHeadSha: rootSha,
       descendants: expected,
+    })
+  })
+
+  it('uses one frozen source snapshot when direct and nested refs advance during rebuild', async () => {
+    const h = harness()
+    const { epic, children } = epicWith(h, [{}])
+    const child = children[0]!
+    const grandchild = h.svc.create({
+      repoPath: '/r',
+      title: 'Nested',
+      parentId: child.id,
+      startNow: false,
+    })
+    const grandchildBranch = `issue/${grandchild.seq}-nested`
+    h.svc.update(grandchild.id, { branch: grandchildBranch })
+    h.svc.close(grandchild.id)
+    const rootSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const frozenChildSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    const laterChildSha = 'cccccccccccccccccccccccccccccccccccccccc'
+    const frozenGrandchildSha = 'dddddddddddddddddddddddddddddddddddddddd'
+    const laterGrandchildSha = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+    h.store.shipping.recordRootIntegrationReceipt({
+      rootIssueId: child.id,
+      approvedHeadSha: frozenChildSha,
+      descendants: [{ issueId: grandchild.id, approvedHeadSha: frozenGrandchildSha }],
+    })
+    let sourceRefsAdvanced = false
+    let childRefReads = 0
+    let grandchildRefReads = 0
+    const calls = scriptOps(h.deps, (op, args) => {
+      if (op === 'status') return GONE
+      if (op === 'revParseVerify' && args?.ref === child.branch) {
+        childRefReads++
+        return { ok: true, output: sourceRefsAdvanced ? laterChildSha : frozenChildSha }
+      }
+      if (op === 'revParseVerify' && args?.ref === grandchildBranch) {
+        grandchildRefReads++
+        return {
+          ok: true,
+          output: sourceRefsAdvanced ? laterGrandchildSha : frozenGrandchildSha,
+        }
+      }
+      if (op === 'mergeFfOnly' && args?.branch === frozenChildSha) {
+        sourceRefsAdvanced = true
+        return { ok: true, output: '' }
+      }
+      if (op === 'revParseVerify' && args?.ref === INT_BR) {
+        return { ok: true, output: rootSha }
+      }
+      return undefined
+    })
+
+    const result = await h.svc.integrate(epic.id, AS_OPERATOR)
+
+    expect(result.ok).toBe(true)
+    expect(sourceRefsAdvanced).toBe(true)
+    expect(childRefReads).toBe(1)
+    expect(grandchildRefReads).toBe(1)
+    const firstMerge = calls.findIndex((call) => call.op === 'mergeFfOnly')
+    expect(calls.findIndex((call) => call.args?.ref === child.branch)).toBeLessThan(firstMerge)
+    expect(calls.findIndex((call) => call.args?.ref === grandchildBranch)).toBeLessThan(firstMerge)
+    expect(calls).toContainEqual({
+      op: 'mergeFfOnly',
+      cwd: INT_WT,
+      args: { branch: frozenChildSha },
+    })
+    expect(h.store.shipping.rootIntegrationReceipt(epic.id, rootSha)).toEqual({
+      rootIssueId: epic.id,
+      approvedHeadSha: rootSha,
+      descendants: [
+        { issueId: child.id, approvedHeadSha: frozenChildSha },
+        { issueId: grandchild.id, approvedHeadSha: frozenGrandchildSha },
+      ].sort((left, right) => left.issueId.localeCompare(right.issueId)),
     })
   })
 
@@ -4096,14 +4177,16 @@ describe('IssueService.integrate (issue #70)', () => {
 
   it('existing worktree: resets the integration branch to the parent tip (checkoutReset), no worktreeAdd', async () => {
     const h = harness()
-    const { epic } = epicWith(h, [{}])
+    const { epic, children } = epicWith(h, [{}])
+    const child = children[0]!
     const calls = scriptOps(h.deps, () => undefined) // status ok → worktree exists
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
-    expect(calls[0]).toEqual({ op: 'status', cwd: INT_WT })
+    expect(calls[0]).toEqual({ op: 'revParseVerify', cwd: '/r', args: { ref: child.branch! } })
+    expect(calls[1]).toEqual({ op: 'status', cwd: INT_WT })
     // defensive un-wedge before the reset (result ignored; healthy = "no rebase in progress")
-    expect(calls[1]).toEqual({ op: 'rebaseAbort', cwd: INT_WT })
-    expect(calls[2]).toEqual({
+    expect(calls[2]).toEqual({ op: 'rebaseAbort', cwd: INT_WT })
+    expect(calls[3]).toEqual({
       op: 'checkoutReset',
       cwd: INT_WT,
       args: { branch: INT_BR, startPoint: 'main' },
@@ -4138,7 +4221,7 @@ describe('IssueService.integrate (issue #70)', () => {
     let run = 1
     const calls = scriptOps(h.deps, (op, args) => {
       if (run === 1) {
-        if (op === 'mergeFfOnly' && args?.branch === child.branch) {
+        if (op === 'mergeFfOnly' && args?.branch === 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb') {
           return { ok: false, output: 'fatal: Not possible to fast-forward, aborting.' }
         }
         if (op === 'rebase')
@@ -4155,7 +4238,7 @@ describe('IssueService.integrate (issue #70)', () => {
     calls.length = 0
     const r2 = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r2.ok).toBe(true)
-    expect(calls.slice(0, 3).map((c) => c.op)).toEqual(['status', 'rebaseAbort', 'checkoutReset'])
+    expect(calls.slice(1, 4).map((c) => c.op)).toEqual(['status', 'rebaseAbort', 'checkoutReset'])
   })
 
   it('topological order: A blocks B ⇒ A integrates first (beats seq order)', async () => {
@@ -4163,10 +4246,17 @@ describe('IssueService.integrate (issue #70)', () => {
     const { epic, children } = epicWith(h, [{}, {}]) // B=children[0] (seq 2), A=children[1] (seq 3)
     const [b, a] = children
     h.svc.addDep(b!.id, a!.id, 'blocks') // B is blocked by A ⇒ A first
-    const calls = scriptOps(h.deps, () => undefined)
+    const aSha = 'dddddddddddddddddddddddddddddddddddddddd'
+    const bSha = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+    const calls = scriptOps(h.deps, (op, args) => {
+      if (op !== 'revParseVerify') return undefined
+      if (args?.ref === a!.branch) return { ok: true, output: aSha }
+      if (args?.ref === b!.branch) return { ok: true, output: bSha }
+      return undefined
+    })
     await h.svc.integrate(epic.id, AS_OPERATOR)
     const merges = calls.filter((c) => c.op === 'mergeFfOnly').map((c) => c.args?.branch)
-    expect(merges).toEqual([a!.branch, b!.branch])
+    expect(merges).toEqual([aSha, bSha])
     const ev = h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect((ev[0]!.payload as { integrated: number[] }).integrated).toEqual([a!.seq, b!.seq])
   })
@@ -4183,7 +4273,7 @@ describe('IssueService.integrate (issue #70)', () => {
     let mergedTempResult: string | undefined
     let tempDeleted = false
     const calls = scriptOps(h.deps, (op, args) => {
-      if (op === 'mergeFfOnly' && args?.branch === child.branch && !ffTried) {
+      if (op === 'mergeFfOnly' && args?.branch === originalChildSha && !ffTried) {
         ffTried = true
         return { ok: false, output: 'fatal: Not possible to fast-forward, aborting.' }
       }
@@ -4205,10 +4295,13 @@ describe('IssueService.integrate (issue #70)', () => {
     })
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
-    const receiptProbe = calls.findIndex((call) => call.op === 'revParseVerify')
-    expect(calls.slice(3, receiptProbe)).toEqual([
-      { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: child.branch! } },
-      { op: 'checkoutReset', cwd: INT_WT, args: { branch: temp, startPoint: child.branch! } },
+    const firstMerge = calls.findIndex((call) => call.op === 'mergeFfOnly')
+    const rootProbe = calls.findIndex(
+      (call) => call.op === 'revParseVerify' && call.args?.ref === INT_BR,
+    )
+    expect(calls.slice(firstMerge, rootProbe)).toEqual([
+      { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: originalChildSha } },
+      { op: 'checkoutReset', cwd: INT_WT, args: { branch: temp, startPoint: originalChildSha } },
       { op: 'rebase', cwd: INT_WT, args: { parentBranch: INT_BR } },
       { op: 'checkout', cwd: INT_WT, args: { branch: INT_BR } },
       { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: temp } },
@@ -4231,8 +4324,20 @@ describe('IssueService.integrate (issue #70)', () => {
     const { epic, children } = epicWith(h, [{}, {}, {}])
     const [ok1, bad, never] = children
     const temp = `integrate-tmp/${bad!.seq}`
+    const okSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    const badSha = 'dddddddddddddddddddddddddddddddddddddddd'
+    const neverSha = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
     const calls = scriptOps(h.deps, (op, args) => {
-      if (op === 'mergeFfOnly' && args?.branch === bad!.branch) {
+      if (op === 'revParseVerify' && args?.ref === ok1!.branch) {
+        return { ok: true, output: okSha }
+      }
+      if (op === 'revParseVerify' && args?.ref === bad!.branch) {
+        return { ok: true, output: badSha }
+      }
+      if (op === 'revParseVerify' && args?.ref === never!.branch) {
+        return { ok: true, output: neverSha }
+      }
+      if (op === 'mergeFfOnly' && args?.branch === badSha) {
         return { ok: false, output: 'fatal: Not possible to fast-forward, aborting.' }
       }
       if (op === 'rebase')
@@ -4251,8 +4356,8 @@ describe('IssueService.integrate (issue #70)', () => {
       { op: 'checkout', cwd: INT_WT, args: { branch: INT_BR } },
       { op: 'branchDeleteForce', cwd: INT_WT, args: { branch: temp } },
     ])
-    // never touches the third child
-    expect(calls.some((c) => c.args?.branch === never!.branch)).toBe(false)
+    // All inputs are snapshotted up front, but the third is never merged after #3 blocks.
+    expect(calls.some((c) => c.op === 'mergeFfOnly' && c.args?.branch === neverSha)).toBe(false)
     // epic flagged for a human with the precise blocker
     const row = h.store.issues.getIssue(epic.id)!
     expect(row.needsHuman).toBe(true)
@@ -4315,7 +4420,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
     expect(calls.filter((c) => c.op === 'mergeFfOnly').map((c) => c.args?.branch)).toEqual([
-      children[0]!.branch,
+      'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
     ])
   })
 })
