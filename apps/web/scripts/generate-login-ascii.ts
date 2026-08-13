@@ -1,7 +1,11 @@
 /**
- * Regenerates src/features/setup/podium-ascii.ts from podium-ascii-src.svg.
+ * Regenerates the PODIUM ASCII coverage grid from podium-ascii-src.svg.
  *
- * The login screen's ASCII wordmark is precomputed (spec: Podium Login 2b Handoff):
+ * Writes the same bytes to both consumers so they cannot drift:
+ *   - apps/web/src/features/setup/podium-ascii.ts  (LoginGate)
+ *   - apps/mobile/src/components/podium-ascii.ts   (login + BootSplash)
+ *
+ * The login/loader wordmark is precomputed (spec: Podium Login 2b Handoff):
  * the SVG is alpha-sampled on a 96×22 grid (4× supersampled), coverage < 0.45 is
  * dropped, and the rest is quantized to 4 bits per cell. The runtime maps coverage
  * to a density ramp — statically, or per-frame for the idle shimmer.
@@ -71,5 +75,9 @@ export const ASCII_COVERAGE: readonly string[] = [
 ${grid.map((l) => `  '${l}',`).join('\n')}
 ]
 `
-writeFileSync(join(here, '..', 'src', 'features', 'setup', 'podium-ascii.ts'), out)
-console.log(`wrote ${COLS}×${ROWS} grid`)
+const outputs = [
+  join(here, '..', 'src', 'features', 'setup', 'podium-ascii.ts'),
+  join(here, '..', '..', 'mobile', 'src', 'components', 'podium-ascii.ts'),
+]
+for (const dest of outputs) writeFileSync(dest, out)
+console.log(`wrote ${COLS}×${ROWS} grid → ${outputs.length} files`)
