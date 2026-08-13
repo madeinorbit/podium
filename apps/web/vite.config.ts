@@ -159,6 +159,12 @@ export default defineConfig(({ mode }) => {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
         // Resolve workspace source directly so a freshly pulled desktop checkout does not
         // depend on a previously generated node_modules/@podium/model symlink.
+        // Subpath alias must precede the bare-package one — the bare alias also
+        // prefix-matches subpath imports and would resolve them to a path INSIDE
+        // index.ts, which fails at build time.
+        '@podium/commands/settings-write-plan': fileURLToPath(
+          new URL('../../packages/commands/src/settings/write-plan.ts', import.meta.url),
+        ),
         '@podium/commands': fileURLToPath(
           new URL('../../packages/commands/src/index.ts', import.meta.url),
         ),
