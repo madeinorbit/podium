@@ -257,12 +257,29 @@ export function windowPace(w: QuotaWindowWire, nowMs: number): QuotaPace | null 
 export function paceLabel(pace: QuotaPace): string {
   switch (pace) {
     case 'comfortable':
-      return 'Headroom'
+      return 'Do more'
     case 'on-pace':
       return 'On pace'
     case 'hot':
       return "Won't last"
   }
+}
+
+/** Pace of the gating window the header meter reports — one chip per harness. */
+export function groupGatingPace(g: AccountQuotaGroup, nowMs: number): QuotaPace | null {
+  const { gating } = splitQuotaWindows(g.windows)
+  if (gating.length === 0) return null
+  let worst = gating[0]!
+  for (const w of gating) if (w.usedPercent > worst.usedPercent) worst = w
+  return windowPace(worst, nowMs)
+}
+
+/** A one-shot bar surge fires only on a real jump, not a 60s poll tick. */
+export const QUOTA_SURGE_DELTA = 15
+
+export function quotaSurge(prev: number | undefined, next: number): boolean {
+  if (prev === undefined) return false
+  return Math.abs(next - prev) >= QUOTA_SURGE_DELTA
 }
 
 /**

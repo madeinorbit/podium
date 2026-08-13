@@ -405,10 +405,8 @@ export function HeaderHostIndicators(): JSX.Element {
         )
       })}
       <OutboxRecoveryIndicator compact />
-      {/* POD-318/POD-365 — the hairline that divides the host group from the
-          quota group INSIDE the instrument well. Grouping by hairline is how
-          every other section of the shell divides; a wider gap alone read as one
-          undifferentiated run. */}
+      {/* The chamber rule between host pressure and plan quota. Taller and
+          given air so the two groups stop reading as one run of meters. */}
       <span className="header-strip-seam" aria-hidden="true" />
       <QuotaIndicator header />
       {info && (

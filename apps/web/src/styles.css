@@ -477,9 +477,10 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 .header-strip-seam {
   flex: none;
   width: 1px;
-  height: 14px;
-  margin: 0 1px;
-  background: var(--hairline-soft, var(--border));
+  height: 18px;
+  margin: 0 7px;
+  background: color-mix(in srgb, var(--border-strong) 55%, var(--hairline-bar, var(--seam)));
+  border-radius: 1px;
 }
 /* A divider needs something on both sides. The quota chip renders nothing when
    no plan is reporting, which would otherwise leave a rule at the well's edge. */
@@ -571,6 +572,47 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 .header-quota-pools {
   gap: 13px;
 }
+/* One-shot surge when a pool jumps (≥15pp or a reset): icon + meter grow,
+   fill travels via the existing width transition, then they settle. Layout
+   never moves — only transform. */
+.header-quota-surge .header-harness-icon {
+  animation: header-quota-icon-surge 1000ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.header-quota-surge .header-quota-meter {
+  animation: header-quota-meter-surge 1000ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes header-quota-icon-surge {
+  0% {
+    transform: scale(1);
+    opacity: 0.82;
+  }
+  16% {
+    transform: scale(1.28);
+    opacity: 1;
+  }
+  72% {
+    transform: scale(1.16);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.82;
+  }
+}
+@keyframes header-quota-meter-surge {
+  0% {
+    transform: scaleY(1) scaleX(1);
+  }
+  16% {
+    transform: scaleY(1.85) scaleX(1.08);
+  }
+  72% {
+    transform: scaleY(1.45) scaleX(1.04);
+  }
+  100% {
+    transform: scaleY(1) scaleX(1);
+  }
+}
 /* Harness silhouettes make adjacent quota pools identifiable before the mono
    abbreviations resolve. They deliberately inherit the neutral label ramp:
    quota state still belongs only to the meter and percentage. */
@@ -580,6 +622,7 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   flex: none;
   color: var(--muted-foreground);
   opacity: 0.82;
+  transform-origin: center;
   transition:
     color 150ms ease,
     opacity 150ms ease;
@@ -675,6 +718,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .header-quota-meter {
   width: 30px;
+  transform-origin: left center;
 }
 .header-machine-chip:hover .header-meter,
 .header-quota-chip:hover .header-meter,
@@ -684,6 +728,11 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .header-meter > span {
   transition: filter 150ms ease;
+}
+.header-quota-meter > span {
+  transition:
+    width 640ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 150ms ease;
 }
 .header-machine-chip:hover .header-meter > span,
 .header-quota-chip:hover .header-meter > span,
@@ -789,11 +838,16 @@ html[data-density="balanced"] .header-quota-pools {
   .header-quota-rail-seg > span {
     transition: none;
   }
+  .header-quota-surge .header-harness-icon,
+  .header-quota-surge .header-quota-meter {
+    animation: none;
+  }
 }
 
 /* Health popovers (POD-173): the quota / machine-load chips' anchored panel.
-   Hover shows the preview; click pins + widens it into the full breakdown.
-   The only lifted surface tier — popover shadow per the carved-elevation rule. */
+   Hover shows the preview. Machine load can still pin + widen; quota stays on
+   the hover tier. The only lifted surface tier — popover shadow per the
+   carved-elevation rule. */
 .health-popover {
   display: flex;
   flex-direction: column;
@@ -1020,6 +1074,10 @@ html[data-density="balanced"] .header-quota-pools {
 .hp-pace-ok {
   color: var(--success);
   background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+.hp-pace-even {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--muted-foreground) 10%, transparent);
 }
 .hp-pace-hot {
   color: var(--warning);

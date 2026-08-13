@@ -5,15 +5,15 @@ import { cn } from '@/lib/utils'
 
 /**
  * The topbar health-chip popover shell (quota + machine load): hover opens a
- * read-only preview anchored under the chip; clicking the chip PINS the same
- * panel — it stays up, grows the full breakdown, and becomes interactive —
- * until Esc / outside click. One anatomy at two zoom levels instead of a text
- * tooltip plus a centered modal, so the board stays visible behind it.
+ * read-only preview anchored under the chip. Machine load can still pin that
+ * panel on click (stays up, grows the breakdown) until Esc / outside click.
+ * Quota does not — `pinOnClick={false}` keeps one hover tier, no second zoom.
  */
 export function HealthPopover({
   trigger,
   children,
   pinnedWide = true,
+  pinOnClick = true,
 }: {
   /** The chip button; rendered as the popover trigger. Its props are widened so
    *  the shell can stamp the `data-pinned` flag onto it (see below). */
@@ -22,6 +22,8 @@ export function HealthPopover({
   children: (pinned: boolean) => ReactNode
   /** Widen the panel from 296px to 336px once pinned. */
   pinnedWide?: boolean
+  /** When false, click toggles the same hover panel and never pins it. */
+  pinOnClick?: boolean
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [pinned, setPinned] = useState(false)
@@ -29,10 +31,9 @@ export function HealthPopover({
     <Popover.Root
       open={open}
       onOpenChange={(next, details) => {
-        // A click on the chip always means "pin the breakdown": when the panel
-        // is already hover-open, Base UI would toggle it closed — swallow that
-        // and pin instead. A click while closed opens straight into pinned.
-        if (details.reason === 'trigger-press') {
+        // A click on the chip means "pin the breakdown" only when this shell
+        // offers a second zoom. Quota's hover panel is the whole story.
+        if (pinOnClick && details.reason === 'trigger-press') {
           setPinned(true)
           setOpen(true)
           return

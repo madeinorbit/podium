@@ -165,6 +165,7 @@ beforeEach(() => {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   }) as unknown as typeof window.matchMedia
+  sessionStorage.clear()
 })
 
 afterEach(cleanup)
@@ -353,17 +354,64 @@ describe('quota overlay groups by account', () => {
   })
 })
 
-// POD-318: Base UI flags the trigger `data-popup-open` for the HOVER preview
-// too, so pinned needs its own marker — without it a panel you clicked open
-// renders exactly like one you merely pointed at.
-describe('header chips mark a pinned panel apart from a hover preview', () => {
-  it('sets data-pinned only once the chip is clicked', async () => {
+describe('header quota chip does not pin a detailed breakdown', () => {
+  it('opens the hover panel without data-pinned', async () => {
     quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
     render(<QuotaIndicator header />)
     const chip = await screen.findByRole('button', { name: /agent quota/i })
-    expect(chip.hasAttribute('data-pinned')).toBe(false)
     fireEvent.click(chip)
-    await waitFor(() => expect(chip.hasAttribute('data-pinned')).toBe(true))
+    await waitFor(() => expect(screen.getByText('lasts until reset')).toBeTruthy())
+    expect(chip.hasAttribute('data-pinned')).toBe(false)
+    expect(document.querySelector('.health-popover-pinned')).toBeNull()
+    expect(screen.queryByText(/click to pin breakdown/i)).toBeNull()
+  })
+
+  it('puts a pace chip on each harness in the hover panel', async () => {
+    const now = Date.now()
+    const windowOf = (usedPercent: number, elapsedPercent: number) => ({
+      key: '5h' as const,
+      label: '5-hour',
+      usedPercent,
+      resetsAt: new Date(now + ((100 - elapsedPercent) / 100) * 300 * 60_000).toISOString(),
+      windowMinutes: 300,
+    })
+    quotaSummary.mockResolvedValue([
+      {
+        machineId: asMachineId('solo'),
+        machineName: 'solo',
+        hostname: 'solo',
+        agents: [
+          {
+            agent: 'claude-code' as const,
+            status: 'ok' as const,
+            account: { email: 'a@example.com', plan: 'max' },
+            windows: [windowOf(18, 55)],
+            fetchedAt: '2026-07-07T00:00:00.000Z',
+          },
+          {
+            agent: 'codex' as const,
+            status: 'ok' as const,
+            account: { email: 'b@example.com', plan: 'plus' },
+            windows: [windowOf(62, 58)],
+            fetchedAt: '2026-07-07T00:00:00.000Z',
+          },
+          {
+            agent: 'grok' as const,
+            status: 'ok' as const,
+            account: { email: 'c@example.com', plan: 'super' },
+            windows: [windowOf(81, 48)],
+            fetchedAt: '2026-07-07T00:00:00.000Z',
+          },
+        ],
+      },
+    ])
+    render(<QuotaIndicator header />)
+    const chip = await screen.findByRole('button', { name: /agent quota/i })
+    expect(within(chip).queryByText('Do more')).toBeNull()
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.getByText('Do more')).toBeTruthy())
+    expect(screen.getByText('On pace')).toBeTruthy()
+    expect(screen.getByText("Won't last")).toBeTruthy()
   })
 })
 
