@@ -17,18 +17,19 @@ the whole architecture.
 ## Ground truth first (hour one)
 
 `codex --version`; `codex app-server --help`. Establish the listen story on the pinned
-version: the epic's research verified stdio (default), WebSocket (`--listen ws://…`,
-experimental with `--ws-auth`), and unix-socket transports — confirm which this version
-offers and prefer **unix socket in the instance state dir**; if only stdio exists on the
-pinned version, stdio-as-child is acceptable for v1 (the socket is then moot — note it and
-move on; a child's stdio is private by construction). Capture the handshake and every
-method/notification you use as recorded fixtures immediately. Protocol names the epic
-verified (re-verify against the binary — Codex has renamed approval methods before):
-`initialize`/`initialized` (with `optOutNotificationMethods`), `thread/start|resume|fork`,
-`turn/start`, `turn/steer`, `turn/interrupt`, notifications `thread/started`,
-`turn/started|completed`, `item/started|completed`, `item/agentMessage/delta`, and
-server→client requests `item/commandExecution/requestApproval`,
-`item/fileChange/requestApproval` (+ MCP elicitation). Repo grounding to read:
+version: the repo reference (§15) documents `--listen stdio:// | unix:// | ws://IP:PORT | off`
+(plus `app-server daemon`/`proxy --sock`) — prefer **unix socket in the instance state
+dir**; if only stdio exists on the pinned version, stdio-as-child is acceptable for v1 (a
+child's stdio is private by construction). Capture the handshake and every
+method/notification you use as recorded fixtures immediately. Method names below are
+epic-research provenance, mostly NOT repo-verified — the binary + your fixtures are the
+truth (Codex has renamed approval methods before): `initialize`/`initialized` (with
+`optOutNotificationMethods`), `thread/start|resume|fork`, `turn/start` (**known alternate
+name in the repo reference: `sendUserTurn` — recognize it, it is not a mystery rename**),
+`turn/steer`, `turn/interrupt`, notifications `thread/started`, `turn/started|completed`,
+`item/started|completed`, `item/agentMessage/delta`, and server→client requests
+`item/commandExecution/requestApproval`, `item/fileChange/requestApproval` (+ MCP
+elicitation). Repo grounding to read:
 `docs/agent-harness-reference/codex.md`, `packages/harness/src/manifests/codex.ts`
 (incl. `codexMcpArgs`), `apps/daemon/src/codex-hooks.ts` (the version-gate house pattern —
 extend/reuse its range logic), the codex agent-state/observer files.
@@ -37,29 +38,48 @@ extend/reuse its range logic), the codex agent-state/observer files.
 
 1. **Process management** (`apps/daemon/src/runtime/codex-server.ts`): one `codex
    app-server` per session under a systemd scope (reuse whatever POD-2023 extracted for
-   scope-wrapping non-PTY children); transport per ground-truth (unix socket 0600 in the
-   instance state dir, or child-stdio); binding journal (socket/pid/scope/thread id) for
-   `adopt()`; version gate with machine diagnostic.
+   scope-wrapping non-PTY children, incl. its reclaim-guard pattern); transport per
+   ground-truth (unix socket 0600 in the instance state dir, or child-stdio); binding
+   journal (socket/pid/scope/thread id) for `adopt()`; version gate with machine
+   diagnostic. **Spawn config, stated explicitly:** the driver passes the sandbox/approval
+   knobs — `approval_policy` must be one that routes approvals to server→client requests
+   (NOT `-a never`, which silences them and makes the approval acceptance item impossible),
+   plus `-c sandbox_workspace_write.network_access=true` if Podium MCP is mounted (the
+   terminal launch already does this for the loopback CLI). **Env hygiene:** strip
+   `OPENAI_API_KEY`/`CODEX_API_KEY`/`CODEX_ACCESS_TOKEN`/`OPENAI_ORGANIZATION` from the
+   child env — Codex prefers inherited keys over the stored ChatGPT login, and the
+   subscription-auth demonstration must not silently pass on an API key (assert
+   `auth_mode: "chatgpt"` where the protocol exposes it). **Channel exclusivity:** the
+   app-server driver does NOT inject the hook env (global hooks stay fail-open-dormant) and
+   does NOT start the manifest rollout observer — JSON-RPC events are the sole state
+   channel; a dual-channel session would double-report state.
 2. **JSON-RPC client** (`packages/agent-runtime/src/drivers/codex/`): minimal bidirectional
    JSON-RPC over the transport — requests out, notifications in, **and server→client
    requests in** (the approval inversion). Strict handshake ordering. `optOut` the delta
    notifications by default; enable on `watch('fine')` (spec §5's watch-level knob, natively).
 3. **Mapping** (`map.ts`): approvals → PendingInteractions (structured; answer = the JSON-RPC
    response `accept`/`decline`, optionally with amended policy → map from the W2 answer
-   shapes); `turn/started` ack ⇒ `accepted` receipts; `turn/steer` ⇒ native steer
-   (`deliveredAs: 'steer'` — the first driver where it's real); `turn/interrupt` ⇒ fence on
-   the confirming event; items/deltas → `item` events (reuse `packages/transcript` codex
-   mappers for shapes); `token_count`/`turn_context` → observed runtime facts; thread id =
-   resume ref (`codex-thread` kind, consistent with the existing manifest `resumeKind`).
+   shapes); `turn/started` ack ⇒ `accepted` receipts; steer: **`turn/steer` has zero repo
+   grounding** — if the pinned binary offers a steer RPC, wire it (`deliveredAs: 'steer'`);
+   if not, degrade to `deliveredAs: 'queue'`, record the evidence in the issue, and the
+   steer acceptance item converts to "downgrade correctly reported"; `turn/interrupt` ⇒
+   fence on the confirming event; items/deltas → `item` events (reuse `packages/transcript`
+   codex mappers — `codexRecordToItems`, `codexRuntime` for token facts); thread id =
+   resume ref (`codex-thread` kind, matching the manifest `resumeKind`). **MCP wiring is IN
+   scope:** mount Podium's MCP servers from `SessionSpec.mcpServers` via the
+   0.144.5-verified `codexMcpArgs` `-c` override mechanism.
 4. **Driver assembly + selection**: registry registration; `manifests/codex.ts`
    `runtime.server` fleshed out; same explicit per-spawn opt-in as opencode; default stays
    terminal (the terminal driver is Codex's permanent fallback — spec churn section).
 5. **Auth**: none to build — the app-server child inherits `~/.codex/auth.json`. Do not
    touch, rotate, or copy tokens (`codex-auth.ts`'s read-only discipline applies). Verify a
    subscription-authed turn works headless; that demonstration is part of acceptance.
-6. **Conformance + e2e**: zero exemptions; fixtures for every protocol shape; e2e mirror of
-   POD-2023's flow (send/state/approval-answer/interrupt/steer/hibernate-resume) plus one
-   steer demonstration. Default-path Codex sessions byte-identical.
+6. **Contract completeness + conformance + e2e**: POD-2023's "contract completeness"
+   section (state/snapshot/export/hibernate/attach-declared/health) applies unchanged here.
+   Conformance: zero exemptions; fixtures for every protocol shape; e2e mirror of
+   POD-2023's flow (send/state/approval-answer/interrupt/hibernate-resume) plus the steer
+   demonstration-or-documented-downgrade per step 3. Default-path Codex sessions
+   byte-identical.
 
 ## Out of scope
 Attach via `codex --remote` (attach v2). Cloud. Superagent migration. Any change to the
@@ -70,7 +90,10 @@ Codex terminal path (it is the permanent fallback). WebSocket listen mode (unix/
 - [ ] Subscription-authed headless turn demonstrated end-to-end from the web UI.
 - [ ] Approval round-trip: server→client request → PendingInteraction → answer → turn
       continues (fixture-tested + e2e).
-- [ ] Native steer demonstrated (`deliveredAs: 'steer'`).
+- [ ] Steer: native steer demonstrated (`deliveredAs: 'steer'`) OR the pinned binary's lack
+      of a steer RPC evidenced and the `deliveredAs: 'queue'` downgrade tested.
+- [ ] Subscription-auth demonstration proven NOT to ride an inherited API key (env stripped;
+      `auth_mode` asserted where exposed).
 - [ ] Daemon-restart adopt works; version gate refuses out-of-range codex (unit-tested).
 
 ## Pitfalls
