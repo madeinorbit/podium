@@ -6,6 +6,7 @@ import {
   agentLabel,
   agentShortLabel,
   formatReset,
+  groupGatingPace,
   groupQuotaByAccount,
   modelLimitNote,
   paceHint,
@@ -13,6 +14,7 @@ import {
   percentTone,
   quotaPace,
   quotaPoolVerdict,
+  quotaSurge,
   quotaVerdict,
   spentModels,
   splitQuotaWindows,
@@ -267,11 +269,46 @@ describe('quotaPace / windowPace', () => {
   })
 
   it('labels and hints pace for UI copy', () => {
-    expect(paceLabel('comfortable')).toBe('Headroom')
+    expect(paceLabel('comfortable')).toBe('Do more')
     expect(paceLabel('on-pace')).toBe('On pace')
     expect(paceLabel('hot')).toBe("Won't last")
     expect(paceHint('hot', 70, 50)).toContain('70%')
     expect(paceHint('hot', 70, 50)).toContain('50%')
+  })
+
+  it('surges only on a significant jump, never the first paint', () => {
+    expect(quotaSurge(undefined, 80)).toBe(false)
+    expect(quotaSurge(18, 20)).toBe(false)
+    expect(quotaSurge(18, 33)).toBe(true)
+    expect(quotaSurge(87, 4)).toBe(true)
+  })
+
+  it('takes gating pace from the window the header meter reports', () => {
+    const group: AccountQuotaGroup = {
+      key: 'claude',
+      agent: 'claude-code',
+      machineNames: ['solo'],
+      status: 'ok',
+      windows: [
+        {
+          key: '5h',
+          label: '5-hour',
+          usedPercent: 18,
+          resetsAt: new Date(now + 135 * 60_000).toISOString(),
+          windowMinutes: 300,
+        },
+        {
+          key: 'weekly-scoped:model:fable',
+          label: 'Fable',
+          usedPercent: 100,
+          resetsAt: new Date(now + 1000 * 60_000).toISOString(),
+          windowMinutes: 10080,
+          scopeModel: 'Fable',
+        },
+      ],
+      fetchedAt: new Date(now).toISOString(),
+    }
+    expect(groupGatingPace(group, now)).toBe('comfortable')
   })
 
   it('composes window pace from wire fields', () => {

@@ -33,6 +33,7 @@ import {
 import { cn } from '@/lib/utils'
 import { HealthPopover } from './HealthPopover'
 import { QuotaPanel } from './QuotaPanel'
+import { useQuotaSurge } from './useQuotaSurge'
 
 // Severity → status-strip colors, matching the host memory glyph's contract
 // (HostIndicators): the bar fill is always tinted; the icon stays neutral while
@@ -117,8 +118,8 @@ function worstWindow(
  * Agent-quota status item. Lives in the host status strip (HostIndicators),
  * beside the memory and connection glyphs — a compact labeled meter for each
  * independently usable quota pool, so one constrained plan does not make every
- * subscription look spent. Hover shows the per-account summary; click pins the
- * full per-window breakdown.
+ * subscription look spent. The header chip hovers a per-account summary with a
+ * pace chip on each harness; it does not pin a denser breakdown.
  * Rate limits are per-account, so the breakdown is grouped by account (with the
  * machine[s] each is used on) and deduped — never the same limit twice. Distinct
  * from Usage & analytics (transcript-harvested token cost) — this is plan
@@ -131,7 +132,7 @@ export function QuotaIndicator({
 }: {
   compact?: boolean
   /** 44px desktop-header treatment: label + scoped per-pool mini-meters whose
-   *  hover previews the quota panel and whose click pins the full breakdown. */
+   *  hover opens the quota panel (no click-to-pin breakdown). */
   header?: boolean
   /** Render the worst window as inline text ("Claude Code 68% · resets in 2h 14m"). */
   detail?: boolean
@@ -163,16 +164,18 @@ export function QuotaIndicator({
   // Nothing to show until the first payload arrives, or when no account is
   // signed in on any machine (unauthenticated agents are dropped by grouping).
   const groups = groupQuotaByAccount(machines ?? [])
+  const pools = quotaPools(groups)
+  const surging = useQuotaSurge(pools.map((pool) => ({ key: pool.group.key, percent: pool.percent })))
   if (!machines || groups.length === 0) return null
 
   const worst = worstPercent(groups)
   const tone = TONE[percentTone(worst)]
   const worstW = worstWindow(groups)
 
-  // Desktop 44px header: hover previews the panel, click pins the breakdown —
-  // no tooltip, no modal (POD-173). Other placements keep the legacy pair.
+  // Desktop 44px header: hover opens the panel. Click does not pin a second
+  // zoom — the hover tier carries the pace chips. Other placements keep the
+  // legacy tooltip + dialog pair.
   if (header) {
-    const pools = quotaPools(groups)
     const poolSummary = pools
       .map(({ group, percent, models }) => {
         const account = group.account?.email ? ` (${group.account.email})` : ''
@@ -186,6 +189,7 @@ export function QuotaIndicator({
       .join('; ')
     return (
       <HealthPopover
+        pinOnClick={false}
         trigger={
           <button
             data-pressable
@@ -209,7 +213,11 @@ export function QuotaIndicator({
                   </span>
                 )
                 return (
-                  <span key={group.key} className="header-quota-pool" data-harness={group.agent}>
+                  <span
+                    key={group.key}
+                    className={cn('header-quota-pool', surging.has(group.key) && 'header-quota-surge')}
+                    data-harness={group.agent}
+                  >
                     <QuotaHarnessIcon agent={group.agent} />
                     <span className="header-mark">{agentShortLabel(group.agent)}</span>
                     {/* The fallback rail exists only for a pool that reports
@@ -247,7 +255,7 @@ export function QuotaIndicator({
           </button>
         }
       >
-        {(pinned) => <QuotaPanel groups={groups} pinned={pinned} now={Date.now()} />}
+        {() => <QuotaPanel groups={groups} now={Date.now()} />}
       </HealthPopover>
     )
   }

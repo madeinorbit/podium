@@ -6,9 +6,9 @@ import { openApp } from './_harness'
  * see serve-harness.ts) so the header quota control is exercised end to end:
  * relay → daemon → the real Claude/Codex quota endpoints. It verifies that the
  * header renders independently scoped pool meters, hover opens the read-only
- * preview, click pins the same breakdown, and Escape dismisses it.
+ * preview, click does not pin a denser breakdown, and Escape dismisses it.
  */
-test('agent quota: scoped header meters preview and pin the breakdown', async ({
+test('agent quota: scoped header meters open a hover panel', async ({
   page,
   isMobile,
 }) => {
@@ -34,12 +34,12 @@ test('agent quota: scoped header meters preview and pin the breakdown', async ({
   await expect(panel).toContainText('Agent quota')
   await expect(panel).toContainText('2 healthy')
   await expect(panel).not.toHaveClass(/health-popover-pinned/)
-
-  // A real click pins and expands the same anchored surface; it does not open a
-  // centered dialog or replace the account/window content.
-  await chip.click()
-  await expect(panel).toHaveClass(/health-popover-pinned/)
   await expect(panel.locator('.hp-section').first()).toBeVisible()
+  await expect(panel.locator('.hp-pace-chip').first()).toBeVisible()
+
+  await chip.click()
+  await expect(panel).not.toHaveClass(/health-popover-pinned/)
+  await expect(page.getByText(/click to pin breakdown/i)).toHaveCount(0)
 
   await page.keyboard.press('Escape')
   await expect(panel).toBeHidden()
