@@ -6,7 +6,6 @@ import {
   type IssueDepProjection,
   type IssueGitState,
   type IssueId,
-  type UserId,
   type IssuePanel,
   type IssueProjection,
   type IssueUserOverlay,
@@ -22,6 +21,7 @@ import {
   requireInstant,
   type SessionId,
   type SessionMeta,
+  type UserId,
 } from '@podium/model'
 import { formatIssueRef, parseIssueRef } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -839,7 +839,7 @@ export class IssueStore {
        * every replica, healed by nothing.
        */
       /** Extra entity changes this write declares — {@link EntityChangeSpec}, composed. */
-      extraChanges?: readonly EntityChangeSpec[]
+      extraChanges?: readonly EntityChangeSpec[] | (() => readonly EntityChangeSpec[])
     },
   ): IssueWire {
     // In-place rollback seam (#247): for an EXISTING issue, `row` is the
@@ -886,7 +886,9 @@ export class IssueStore {
         changes: (w) => [
           { entity: 'issue', id: row.id, op: 'upsert', value: w },
           ...this.projectionChanges(row),
-          ...(opts?.extraChanges ?? []),
+          ...(typeof opts?.extraChanges === 'function'
+            ? opts.extraChanges()
+            : (opts?.extraChanges ?? [])),
         ],
       }).result
     } catch (err) {

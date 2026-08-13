@@ -1,4 +1,5 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -65,8 +66,59 @@ describe('shipping daemon restart recovery', () => {
         operation: 'preflight',
       }),
     ).toMatchObject({ state: 'succeeded', classification: 'observed', generation: 2 })
-    expect(
-      recovered.handle({ ...common, requestId: 'request-3', action: 'status' }),
-    ).toMatchObject({ state: 'held', classification: 'stale-generation' })
+    expect(recovered.handle({ ...common, requestId: 'request-3', action: 'status' })).toMatchObject(
+      { state: 'held', classification: 'stale-generation' },
+    )
   })
+
+  it.skipIf(process.platform === 'win32')(
+    'recovers an atomic completion after a server process dies across daemon RPCs',
+    async () => {
+      const processRepo = join(root, 'process-repo')
+      const dbPath = join(root, 'process-server', 'podium.db')
+      const daemonRuntime = join(root, 'process-daemon')
+      execFileSync('git', ['init', '--initial-branch=main', processRepo])
+      execFileSync('git', ['-C', processRepo, 'config', 'user.email', 'shipping@test.invalid'])
+      execFileSync('git', ['-C', processRepo, 'config', 'user.name', 'Shipping Test'])
+      writeFileSync(join(processRepo, 'base.txt'), 'base\n')
+      execFileSync('git', ['-C', processRepo, 'add', 'base.txt'])
+      execFileSync('git', ['-C', processRepo, 'commit', '-m', 'base'])
+
+      const worker = join(import.meta.dirname, 'fixtures', 'server-recovery-worker.ts')
+      const crashed = spawn('bun', [
+        '--conditions=@podium/source',
+        worker,
+        'crash',
+        dbPath,
+        processRepo,
+        daemonRuntime,
+      ])
+      let crashOutput = ''
+      crashed.stdout.setEncoding('utf8')
+      crashed.stdout.on('data', (chunk: string) => {
+        crashOutput += chunk
+      })
+      const [code, signal] = (await once(crashed, 'close')) as [
+        number | null,
+        NodeJS.Signals | null,
+      ]
+      expect(crashOutput).toContain('completion-boundary')
+      expect({ code, signal }).toEqual({ code: null, signal: 'SIGKILL' })
+
+      const recoveredOutput = execFileSync(
+        'bun',
+        ['--conditions=@podium/source', worker, 'recover', dbPath, processRepo, daemonRuntime],
+        { encoding: 'utf8' },
+      )
+      const recoveryLine = recoveredOutput.trim().split('\n').at(-1)
+      if (!recoveryLine) throw new Error('recovery worker returned no result')
+      const recovered = JSON.parse(recoveryLine)
+      expect(recovered).toMatchObject({
+        orderState: 'shipped',
+        issueStage: 'done',
+        attempt: { outcome: 'succeeded', validationResult: 'passed' },
+        receipt: { validationResult: 'passed' },
+      })
+    },
+  )
 })

@@ -4,6 +4,10 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { AgentKind, IssueEventWire, MachineId, SessionId, SessionMeta } from '@podium/model'
 import {
+  actorAgent,
+  actorSystem,
+  actorUser,
+  asAgentIdentityId,
   asIssueId,
   asMachineId,
   asMutationId,
@@ -48,6 +52,7 @@ import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
 import { PresenceRouting } from './gateway/presence-routing'
+import { checkIssueAccess } from './issue-authz'
 import { checkMachineUse, ownershipFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { NativeLoginService } from './modules/accounts/native-login'
@@ -1711,6 +1716,52 @@ export class SessionRegistry {
       },
       ledger,
       daemon: rpc,
+      authorization: {
+        attribution: (principal) => {
+          if (principal.kind === 'user') {
+            return { actor: actorUser(principal.user), onBehalfOf: principal.user }
+          }
+          if (principal.kind === 'agent') {
+            return {
+              actor: actorAgent(asAgentIdentityId(principal.agentSessionId)),
+              onBehalfOf: principal.onBehalfOf,
+            }
+          }
+          return { actor: actorSystem(principal.job), onBehalfOf: null }
+        },
+        authorize: ({ principal, action, issue, overrideScope }) => {
+          if (principal.kind === 'system') {
+            throw new Error(`system job ${principal.job} cannot ${action} a shipping order`)
+          }
+          checkIssueAccess(
+            { capability: principal.capability, overrideScope },
+            issueAccess,
+            `shipping.${action}`,
+            'write',
+            issue.id,
+          )
+        },
+        reauthorize: ({ order, issue, effect }) => {
+          const userId = order.requestedBy.onBehalfOf
+          if (!userId) throw new Error('shipping order has no human authorization owner')
+          const role = this.store.users.roleOf(userId)
+          if (!role) throw new Error(`shipping requester ${userId} is no longer active`)
+          checkIssueAccess(
+            { capability: userCommandPrincipal(userId, role).capability },
+            issueAccess,
+            `shipping.${effect}`,
+            'write',
+            issue.id,
+          )
+        },
+      },
+      evidence: {
+        // Replaced by the typed durable receipt repository when the blocking
+        // foundation amendment lands. Refusing is safer than treating an event
+        // payload as the evidence record.
+        resolveIntegrationReceipt: () => null,
+        persistAccepted: () => {},
+      },
       policy: new CompatibilityShippingPolicyResolver(
         () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
       ),

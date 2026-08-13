@@ -7,8 +7,8 @@ import {
   type GrantVerb,
   type IssueId,
   type IssueWire,
-  isSortKey,
   isIssueStage,
+  isSortKey,
   isSystemOwnedIssueStage,
   normalizeClosedPatch,
   type RepoId,
@@ -105,11 +105,14 @@ export interface IssueLifecyclePlan {
  * normalized repository write and its compact shipOrder row ride the same
  * outer Ledger transaction as any issue stage/attention change. */
 export interface ShippingIssueMutation {
-  expectedStage: 'review' | 'shipping'
+  expectedStage: 'review' | 'shipping' | readonly ('review' | 'shipping')[]
   nextStage?: 'shipping' | 'review' | 'done'
+  nextStageForResult?: (result: unknown) => 'shipping' | 'review' | 'done' | undefined
   needsHuman?: boolean
-  shipOrderChanges: readonly EntityChangeSpec[]
-  event?: { kind: string; payload: Record<string, unknown> }
+  shipOrderChanges: readonly EntityChangeSpec[] | ((result: unknown) => readonly EntityChangeSpec[])
+  event?:
+    | { kind: string; payload: Record<string, unknown> }
+    | ((result: unknown) => { kind: string; payload: Record<string, unknown> } | undefined)
 }
 
 /**
@@ -147,41 +150,50 @@ export class IssueCrudModule {
     write: () => T,
   ): { issue: IssueWire; result: T } {
     const row = this.store.rowOrThrow(this.store.resolveRef(id))
-    if (row.stage !== mutation.expectedStage) {
-      throw new Error(
-        `issue ${row.id} shipping stage fence failed: expected ${mutation.expectedStage}`,
-      )
-    }
-    if (mutation.nextStage) {
-      const legal =
-        (mutation.expectedStage === 'review' && mutation.nextStage === 'shipping') ||
-        (mutation.expectedStage === 'shipping' &&
-          (mutation.nextStage === 'review' || mutation.nextStage === 'done'))
-      if (!legal) {
-        throw new Error(
-          `illegal shipping issue-stage transition ${mutation.expectedStage} → ${mutation.nextStage}`,
-        )
-      }
-      row.stage = mutation.nextStage
-    }
+    const expectedStages = Array.isArray(mutation.expectedStage)
+      ? mutation.expectedStage
+      : [mutation.expectedStage]
     const needsHumanBefore = row.needsHuman
-    if (mutation.needsHuman !== undefined) {
-      row.needsHuman = mutation.needsHuman
-      // A ship hold is typed on ShipOrderProjection, never a fake session question.
-      row.humanQuestion = null
-      row.humanQuestionOptions = null
-      row.humanQuestionAskedBy = null
-      row.humanQuestionAskedAt = null
-    }
     let result: T | undefined
     const issue = this.store.persistWith(
       row,
       () => {
+        if (!(expectedStages as readonly string[]).includes(row.stage)) {
+          throw new Error(
+            `issue ${row.id} shipping stage fence failed: expected ${expectedStages.join(' or ')}`,
+          )
+        }
         result = write()
+        const nextStage = mutation.nextStageForResult?.(result as T) ?? mutation.nextStage
+        if (nextStage) {
+          const legal =
+            (row.stage === 'review' && nextStage === 'shipping') ||
+            (row.stage === 'shipping' &&
+              (nextStage === 'review' || nextStage === 'done' || nextStage === 'shipping'))
+          if (!legal) {
+            throw new Error(`illegal shipping issue-stage transition ${row.stage} → ${nextStage}`)
+          }
+          row.stage = nextStage
+        }
+        if (mutation.needsHuman !== undefined) {
+          row.needsHuman = mutation.needsHuman
+          // A ship hold is typed on ShipOrderProjection, never a fake session question.
+          row.humanQuestion = null
+          row.humanQuestionOptions = null
+          row.humanQuestionAskedBy = null
+          row.humanQuestionAskedAt = null
+        }
       },
-      { extraChanges: mutation.shipOrderChanges },
+      {
+        extraChanges: () =>
+          typeof mutation.shipOrderChanges === 'function'
+            ? mutation.shipOrderChanges(result as T)
+            : mutation.shipOrderChanges,
+      },
     )
-    if (mutation.event) this.store.emitEvent(mutation.event.kind, row.id, mutation.event.payload)
+    const event =
+      typeof mutation.event === 'function' ? mutation.event(result as T) : mutation.event
+    if (event) this.store.emitEvent(event.kind, row.id, event.payload)
     if (!needsHumanBefore && mutation.needsHuman === true) {
       this.store.emitEvent('issue.needs_human', row.id, { seq: row.seq, kind: 'ship-hold' })
     } else if (needsHumanBefore && mutation.needsHuman === false) {

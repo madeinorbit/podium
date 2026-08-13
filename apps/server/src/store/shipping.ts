@@ -1,12 +1,12 @@
 import {
+  type ActorKind,
   actorColumns,
   actorFromColumns,
-  type ActorKind,
   DeliveryReceipt,
   type DeliveryReceipt as DeliveryReceiptValue,
   isLegalShipOrderTransition,
-  isTerminalShipStepState,
   isTerminalShipOrderState,
+  isTerminalShipStepState,
   legalHoldResolutionStates,
   RootIntegrationReceipt,
   type RootIntegrationReceipt as RootIntegrationReceiptValue,
@@ -16,8 +16,8 @@ import {
   type ShipHoldAction,
   type ShipHold as ShipHoldValue,
   ShipOrder,
-  type ShipOrder as ShipOrderValue,
   type ShipOrderState,
+  type ShipOrder as ShipOrderValue,
   ShipStep,
   type ShipStep as ShipStepValue,
 } from '@podium/model'
@@ -384,6 +384,29 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     })
   }
 
+  /** The admission race closes here, inside the caller's outer transaction.
+   * An identical active approval is the same command; a changed approval is a
+   * new review and must not replace the frozen order. */
+  createOrReturnActiveOrder(input: ShipOrderValue): {
+    order: ShipOrderValue
+    created: boolean
+  } {
+    const candidate = ShipOrder.parse(input)
+    return transaction(this.db, () => {
+      const active = this.activeOrderForIssue(candidate.issueId)
+      if (active) {
+        if (
+          active.approvedBaseSha === candidate.approvedBaseSha &&
+          active.approvedHeadSha === candidate.approvedHeadSha
+        ) {
+          return { order: active, created: false }
+        }
+        throw new Error(`issue ${candidate.issueId} already has a different active ship order`)
+      }
+      return { order: this.createOrder(candidate), created: true }
+    })
+  }
+
   /** Compare-and-swap an operational state. Held and verified-terminal changes
    * have dedicated methods because they must update their normalized child row
    * in the same transaction. */
@@ -473,6 +496,45 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     return this.getAttempt(attempt.id) as ShipAttemptValue
   }
 
+  latestAttemptForOrder(orderId: string): ShipAttemptValue | null {
+    const row = this.db
+      .prepare(`${attemptSelect} WHERE order_id = ? ORDER BY lease_generation DESC LIMIT 1`)
+      .get(orderId) as SqlRow | undefined
+    return row ? mapAttempt(row) : null
+  }
+
+  /** Acquire the next durable lease generation and queued→preflight custody in
+   * one compare-and-swap transaction. A restarted server resumes the existing
+   * attempt; only an explicitly re-queued order can mint a later generation. */
+  beginAttempt(input: {
+    orderId: string
+    machineId: ShipAttemptValue['machineId']
+    startedAt: string
+  }): { order: ShipOrderValue; attempt: ShipAttemptValue } {
+    return transaction(this.db, () => {
+      const order = this.getOrder(input.orderId)
+      if (!order) throw new Error(`unknown ship order ${input.orderId}`)
+      if (order.state !== 'queued') {
+        throw new Error(`ship order ${order.id} lease fence failed: expected queued`)
+      }
+      const latest = this.latestAttemptForOrder(order.id)
+      const generation = (latest?.leaseGeneration ?? 0) + 1
+      const attempt = this.createAttempt({
+        id: `attempt:${order.id}:${generation}` as ShipAttemptValue['id'],
+        orderId: order.id,
+        expectedSourceBaseSha: order.approvedBaseSha,
+        approvedHeadSha: order.approvedHeadSha,
+        expectedTargetSha: order.approvedBaseSha,
+        machineId: input.machineId,
+        leaseGeneration: generation,
+        startedAt: input.startedAt,
+        submittedHeadSha: order.approvedHeadSha,
+      })
+      const next = this.transitionOrder(order.id, 'queued', 'preflight', input.startedAt)
+      return { order: next, attempt }
+    })
+  }
+
   finishAttempt(
     id: string,
     leaseGeneration: number,
@@ -490,7 +552,6 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (!attempt) throw new Error(`unknown ship attempt ${id}`)
     if (attempt.finishedAt) {
       const identical =
-        attempt.finishedAt === result.finishedAt &&
         attempt.outcome === result.outcome &&
         attempt.testedIntegrationSha === result.testedIntegrationSha &&
         attempt.landedRefSha === result.landedRefSha &&
@@ -526,6 +587,32 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`ship attempt ${id} generation fence failed: expected ${leaseGeneration}`)
     }
     return this.getAttempt(id) as ShipAttemptValue
+  }
+
+  cancelAttemptAndOrder(
+    orderId: string,
+    expectedState: Extract<
+      ShipOrderState,
+      'queued' | 'preflight' | 'composing' | 'validating' | 'repairing'
+    >,
+    cancelledAt: string,
+  ): ShipOrderValue {
+    return transaction(this.db, () => {
+      const order = this.getOrder(orderId)
+      if (!order || order.state !== expectedState) {
+        throw new Error(
+          `ship order ${orderId} cancellation fence failed: expected ${expectedState}`,
+        )
+      }
+      const attempt = this.latestAttemptForOrder(orderId)
+      if (attempt && !attempt.finishedAt) {
+        this.finishAttempt(attempt.id, attempt.leaseGeneration, {
+          finishedAt: cancelledAt,
+          outcome: 'cancelled',
+        })
+      }
+      return this.transitionOrder(orderId, expectedState, 'cancelled', cancelledAt)
+    })
   }
 
   appendStep(input: ShipStepValue): ShipStepValue {
