@@ -31,23 +31,39 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.useRealTimers()
 })
 
 describe('OfferBar', () => {
-  it('renders the message and one button per action', () => {
+  it('folds supporting actions by default while keeping the recommendation visible', () => {
     act(() => root.render(<OfferBar offer={offer} disabled={false} onAction={() => {}} />))
     expect(container.textContent).toContain('Tests are red on main')
-    const buttons = container.querySelectorAll('button')
-    expect(buttons.length).toBe(2)
-    expect(buttons[0]?.textContent).toContain('Fix them')
-    expect(buttons[1]?.textContent).toContain('Show failures')
+    expect(container.querySelector('[data-testid="offer-primary-action"]')?.textContent).toContain(
+      'Fix them',
+    )
+    expect(
+      container.querySelector('[data-testid="offer-detail"]')?.getAttribute('aria-hidden'),
+    ).toBe('true')
+    expect(
+      container.querySelector('[data-testid="offer-disclosure"]')?.getAttribute('aria-expanded'),
+    ).toBe('false')
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
+    })
+    expect(
+      container.querySelector('[data-testid="offer-detail"]')?.getAttribute('aria-hidden'),
+    ).toBe('false')
+    expect(container.textContent).toContain('Show failures')
   })
 
   it('reports the clicked action prompt with the offer createdAt', () => {
     const onAction = vi.fn()
     act(() => root.render(<OfferBar offer={offer} disabled={false} onAction={onAction} />))
     act(() => {
-      container.querySelectorAll('button')[1]?.click()
+      ;[...container.querySelectorAll('button')]
+        .find((button) => button.textContent?.includes('Show failures'))
+        ?.click()
     })
     expect(onAction).toHaveBeenCalledWith(
       'Show me the failing test output',
@@ -66,7 +82,9 @@ describe('OfferBar', () => {
     await act(async () => {
       root.render(<OfferBar offer={offer} disabled={false} onAction={onAction} />)
     })
-    const button = container.querySelector('button')
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-testid="offer-primary-action"]',
+    )
     await act(async () => {
       button?.click()
       await Promise.resolve()
@@ -92,7 +110,7 @@ describe('OfferBar', () => {
     const onAction = vi.fn()
     act(() => root.render(<OfferBar offer={offer} disabled={true} onAction={onAction} />))
     act(() => {
-      container.querySelector('button')?.click()
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-primary-action"]')?.click()
     })
     expect(onAction).not.toHaveBeenCalled()
   })
@@ -145,7 +163,9 @@ describe('OfferBar', () => {
       actions: [{ label: 'Send back', prompt: 'Revise:', input: true }],
     }
     act(() => root.render(<OfferBar offer={withInput} disabled={false} onAction={onAction} />))
-    act(() => container.querySelector('button')?.click())
+    act(() =>
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-primary-action"]')?.click(),
+    )
     expect(container.querySelector('[data-testid="offer-feedback"]')).not.toBeNull()
     const cancel = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')
     act(() => cancel?.click())
@@ -158,7 +178,8 @@ describe('OfferBar', () => {
     expect(container.querySelector('[data-testid="offer-dismiss"]')).toBeNull()
   })
 
-  it('dismisses the offer it names, without sending anything', () => {
+  it('dismisses after a ten-second undo window, without sending anything', () => {
+    vi.useFakeTimers()
     const onAction = vi.fn()
     const onDismiss = vi.fn()
     act(() =>
@@ -169,11 +190,75 @@ describe('OfferBar', () => {
     act(() => {
       container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.click()
     })
+    expect(onDismiss).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(180))
+    expect(container.querySelector('[data-testid="offer-undo"]')?.textContent).toContain('Undo')
+    act(() => vi.advanceTimersByTime(10_000))
     expect(onDismiss).toHaveBeenCalledWith('2026-07-17T07:00:00.000Z')
     expect(onAction).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('undoes a dismissal before it reaches the server', () => {
+    vi.useFakeTimers()
+    const onDismiss = vi.fn()
+    act(() =>
+      root.render(
+        <OfferBar offer={offer} disabled={false} onAction={() => {}} onDismiss={onDismiss} />,
+      ),
+    )
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.click()
+      vi.advanceTimersByTime(180)
+    })
+    act(() => {
+      ;[...container.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Undo')
+        ?.click()
+      vi.advanceTimersByTime(10_000)
+    })
+    expect(onDismiss).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-testid="offer-bar"]')).not.toBeNull()
+    vi.useRealTimers()
+  })
+
+  it('shows a newer offer instead of inheriting the previous undo state', () => {
+    vi.useFakeTimers()
+    const onDismiss = vi.fn()
+    act(() =>
+      root.render(
+        <OfferBar offer={offer} disabled={false} onAction={() => {}} onDismiss={onDismiss} />,
+      ),
+    )
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.click()
+      vi.advanceTimersByTime(180)
+    })
+    expect(container.querySelector('[data-testid="offer-undo"]')).not.toBeNull()
+
+    act(() =>
+      root.render(
+        <OfferBar
+          offer={{
+            ...offer,
+            message: 'A newer decision is ready',
+            createdAt: '2026-07-17T07:01:00.000Z',
+          }}
+          disabled={false}
+          onAction={() => {}}
+          onDismiss={onDismiss}
+        />,
+      ),
+    )
+    expect(container.querySelector('[data-testid="offer-bar"]')?.textContent).toContain(
+      'A newer decision is ready',
+    )
+    act(() => vi.advanceTimersByTime(10_000))
+    expect(onDismiss).toHaveBeenCalledWith('2026-07-17T07:00:00.000Z')
   })
 
   it('dismissal stays available on a session that can no longer take a turn', () => {
+    vi.useFakeTimers()
     // `disabled` is "this session cannot be sent to" — an exited, unresumable
     // one. That is exactly where a stuck offer needs its way out, so the x is
     // the one control in this bar that survives it.
@@ -185,11 +270,14 @@ describe('OfferBar', () => {
     )
     act(() => {
       container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.click()
+      vi.advanceTimersByTime(10_180)
     })
     expect(onDismiss).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
   })
 
   it('a failed dismissal says so and leaves the offer standing', async () => {
+    vi.useFakeTimers()
     let reject: ((cause: Error) => void) | undefined
     const onDismiss = vi.fn(
       () =>
@@ -205,10 +293,9 @@ describe('OfferBar', () => {
     const x = container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')
     await act(async () => {
       x?.click()
+      vi.advanceTimersByTime(10_180)
       await Promise.resolve()
     })
-    // A second click while the first is in flight must not fire twice.
-    x?.click()
     expect(onDismiss).toHaveBeenCalledTimes(1)
 
     await act(async () => {
@@ -217,7 +304,10 @@ describe('OfferBar', () => {
     })
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('Try again')
     expect(container.textContent).toContain('Tests are red on main')
-    expect(x?.disabled).toBe(false)
+    expect(
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-dismiss"]')?.disabled,
+    ).toBe(false)
+    vi.useRealTimers()
   })
 
   it('renders no button row for an action-less offer', () => {
@@ -227,6 +317,6 @@ describe('OfferBar', () => {
       ),
     )
     expect(container.textContent).toContain('Tests are red on main')
-    expect(container.querySelectorAll('button').length).toBe(0)
+    expect(container.querySelector('[data-testid="offer-primary-action"]')).toBeNull()
   })
 })
