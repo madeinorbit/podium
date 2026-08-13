@@ -277,3 +277,16 @@ jobs:
           done
           gh release view "$target_tag" >/dev/null
           gh release upload "$target_tag" dist-desktop/* --clobber
+          # Edge is a rolling release, and DMG/AppImage names embed the version, so --clobber
+          # never replaces them: every past edge build keeps offering its (possibly
+          # pre-notarization) installer. Prune desktop assets this upload did not replace —
+          # after the upload, so a failed publish leaves the previous build downloadable.
+          # Headless assets on the same release belong to the other workflow and are kept.
+          if [ "$CHANNEL" = edge ]; then
+            gh release view edge --json assets --jq '.assets[].name' \
+              | bun scripts/desktop-release.ts --list-stale \
+              | while IFS= read -r asset; do
+                  echo "pruning stale edge desktop asset $asset"
+                  gh release delete-asset edge "$asset" --yes
+                done
+          fi

@@ -63,6 +63,20 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('gh release upload "$target_tag"')
   })
 
+  it('prunes stale desktop assets from the rolling edge release after uploading', () => {
+    // DMG/AppImage names embed the version, so --clobber never replaces them: without
+    // pruning, every past edge build — including pre-notarization installers — stays
+    // downloadable from the release page.
+    expect(desktopWorkflow).toContain('--list-stale')
+    expect(desktopWorkflow).toContain('gh release delete-asset edge "$asset" --yes')
+    // Only the rolling edge release accumulates; stable releases are immutable per-tag cuts.
+    expect(desktopWorkflow).toMatch(/if \[ "\$CHANNEL" = edge ]; then\n\s+gh release view edge/)
+    // Prune after the upload so a failed publish leaves the previous build downloadable.
+    const upload = desktopWorkflow.indexOf('gh release upload "$target_tag"')
+    const prune = desktopWorkflow.indexOf('gh release delete-asset')
+    expect(prune).toBeGreaterThan(upload)
+  })
+
   it('builds Linux and Apple Silicon macOS with signing before an atomic upload', () => {
     expect(desktopWorkflow).toContain('release_notes:')
     expect(desktopWorkflow).toContain('TAURI_SIGNING_PRIVATE_KEY:')
@@ -91,7 +105,9 @@ describe('desktop release workflow', () => {
     const validation = desktopWorkflow.indexOf('--validate-only')
     const build = desktopWorkflow.indexOf('bun run --cwd apps/desktop build')
     const collect = desktopWorkflow.indexOf('actions/download-artifact@v4')
-    const prepare = desktopWorkflow.lastIndexOf('bun scripts/desktop-release.ts')
+    // The prepare step is the one reading the collected bundles; the script is also invoked
+    // for --validate-only earlier and --list-stale pruning later.
+    const prepare = desktopWorkflow.indexOf('--bundle-dir dist-desktop-input')
     const upload = desktopWorkflow.indexOf('gh release upload')
     // Proof of notarization gates the staged artifact: an un-notarized bundle must never become a
     // published one, and `tauri build` exits 0 in every failure mode this script catches.

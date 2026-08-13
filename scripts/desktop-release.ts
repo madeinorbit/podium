@@ -46,6 +46,25 @@ const targetBundles: TargetBundle[] = [
   },
 ]
 
+// Every asset kind this workflow publishes, signatures included. Pruning matches on these
+// suffixes so it can never touch the headless workflow's assets on the same rolling release.
+const desktopAssetSuffixes = targetBundles
+  .flatMap((bundle) => [bundle.updaterSuffix, ...bundle.requiredDownloadSuffixes])
+  .flatMap((suffix) => [suffix, `${suffix}.sig`])
+
+/**
+ * Desktop assets on the release that this publish does not replace. DMG and AppImage names
+ * embed the version, so `gh release upload --clobber` accumulates one pair per edge build —
+ * including pre-notarization installers — unless the publish step deletes the leftovers.
+ */
+export function staleDesktopAssets(existingAssets: string[], currentAssets: string[]): string[] {
+  const current = new Set(currentAssets)
+  return existingAssets.filter(
+    (name) =>
+      desktopAssetSuffixes.some((suffix) => name.endsWith(suffix)) && !current.has(name),
+  )
+}
+
 export function desktopReleaseTag(
   channel: DesktopReleaseChannel,
   version: string,
@@ -282,6 +301,17 @@ export function resolveNotes(
 }
 
 function main(): void {
+  // Reads the release's current asset names from stdin and prints the desktop assets this
+  // prepared output does not replace, one per line, for the workflow to delete.
+  if (process.argv.includes('--list-stale')) {
+    const existing = readFileSync(0, 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+    const current = readdirSync(arg('--output-dir') ?? 'dist-desktop')
+    for (const name of staleDesktopAssets(existing, current)) console.log(name)
+    return
+  }
   const channel = arg('--channel')
   if (channel !== 'stable' && channel !== 'edge') {
     throw new Error('--channel must be stable or edge')

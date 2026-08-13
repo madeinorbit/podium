@@ -7,6 +7,7 @@ import {
   desktopReleaseTag,
   prepareDesktopRelease,
   resolveNotes,
+  staleDesktopAssets,
   validateDesktopManifest,
 } from './desktop-release'
 
@@ -152,6 +153,51 @@ describe('desktop release manifest', () => {
       url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium.app.tar.gz',
       signature: 'MAC-SIGNATURE',
     })
+  })
+
+  it('lists desktop assets from earlier edge builds as stale', () => {
+    // Version-named DMG/AppImage pairs are never clobbered, so each edge publish leaves the
+    // previous build's installers behind — including ones from before macOS notarization.
+    const existing = [
+      'Podium_0.1.2-edge.1_aarch64.dmg',
+      'Podium_0.1.4-edge.3_amd64.AppImage',
+      'Podium_0.1.4-edge.3_amd64.AppImage.sig',
+      'Podium_0.1.4-edge.4_aarch64.dmg',
+      'Podium_0.1.4-edge.4_amd64.AppImage',
+      'Podium_0.1.4-edge.4_amd64.AppImage.sig',
+      'Podium.app.tar.gz',
+      'Podium.app.tar.gz.sig',
+      'latest.json',
+    ]
+    const current = [
+      'Podium_0.1.4-edge.4_aarch64.dmg',
+      'Podium_0.1.4-edge.4_amd64.AppImage',
+      'Podium_0.1.4-edge.4_amd64.AppImage.sig',
+      'Podium.app.tar.gz',
+      'Podium.app.tar.gz.sig',
+      'latest.json',
+    ]
+    expect(staleDesktopAssets(existing, current)).toEqual([
+      'Podium_0.1.2-edge.1_aarch64.dmg',
+      'Podium_0.1.4-edge.3_amd64.AppImage',
+      'Podium_0.1.4-edge.3_amd64.AppImage.sig',
+    ])
+  })
+
+  it('never lists the headless assets sharing the rolling edge release', () => {
+    // The edge release is shared with the headless workflow; pruning desktop leftovers must
+    // not delete its assets even though none of them appear in the desktop output directory.
+    const headlessAssets = [
+      'podium-headless-linux-x64.tar.gz',
+      'podium-headless-linux-x64.tar.gz.sig',
+      'podium-headless-linux-arm64.tar.gz',
+      'podium-headless-linux-arm64.tar.gz.sig',
+      'podium-update.json',
+      'SHA256SUMS',
+      'VERSION',
+      'install.sh',
+    ]
+    expect(staleDesktopAssets(headlessAssets, [])).toEqual([])
   })
 
   it('refuses ambiguous AppImage output', () => {
