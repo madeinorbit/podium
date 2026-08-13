@@ -206,6 +206,89 @@ describe('updates tRPC', () => {
     registry.dispose()
   })
 
+  it('does not grant dest machines a dest+commit that dest cannot deliver', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+    const { registry, caller } = harness({ servedWebDigest: '47a01e3' })
+    const grants: unknown[] = []
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.sessionStore.machines.upsertMachine({
+      id: 'installed-edge',
+      name: 'Installed',
+      hostname: 'installed',
+      tokenHash: 'installed-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
+    registry.modules.machines.setMachineBuild(
+      asMachineId('installed-edge'),
+      { appVersion: 'dev+aaaaaaa' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    })
+
+    const fleet = await caller.updates.fleet()
+    expect(fleet.behind).toBe(0)
+    await expect(caller.updates.converge()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Podium is already at this version everywhere.',
+    })
+    expect(grants).toEqual([])
+    registry.dispose()
+  })
+
+  it('rebuilds dest web without dest-granting dest remotes when dest has no dest tarball', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+    const requestWebRebuild = vi.fn()
+    const { registry, caller } = harness({
+      requestWebRebuild,
+      servedWebDigest: 'aaaaaaa',
+    })
+    const grants: unknown[] = []
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.sessionStore.machines.upsertMachine({
+      id: 'installed-edge',
+      name: 'Installed',
+      hostname: 'installed',
+      tokenHash: 'installed-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
+    registry.modules.machines.setMachineBuild(
+      asMachineId('installed-edge'),
+      { appVersion: 'dev+aaaaaaa' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    })
+
+    const result = await caller.updates.converge()
+    expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
+    expect(requestWebRebuild).toHaveBeenCalledOnce()
+    expect(grants).toEqual([])
+    registry.dispose()
+  })
+
   it('still refuses when server, web stamp, and fleet all match', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
     const requestWebRebuild = vi.fn()

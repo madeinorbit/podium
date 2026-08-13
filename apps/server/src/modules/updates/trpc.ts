@@ -23,6 +23,15 @@ function isDevelopmentMachine(machine: { channel?: string }): boolean {
   return (machine.channel ?? 'dev') === 'dev'
 }
 
+/** dest+HEAD with no dest tarball cannot be delivered to dest bundle/feed machines. */
+function canGrantDevelopmentFleet(target: {
+  version: string
+  artifacts: { headless?: unknown }
+}): boolean {
+  if (!target.version.startsWith('dev+')) return true
+  return target.artifacts.headless !== undefined
+}
+
 export interface UpdateFleetMachine {
   id: MachineId
   name?: string
@@ -58,16 +67,21 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
     .fleet()
     .map((machine) => ({ ...machine, id: asMachineId(machine.id) }))
   const machines = allMachines.filter((machine) => isDevelopmentMachine(machine))
-  const behind = targetVersion
-    ? machines.filter((machine) => machine.version !== targetVersion).length
-    : 0
+  const target = updates.target()
+  const grantable = target !== undefined && canGrantDevelopmentFleet(target)
+  const behind =
+    targetVersion && grantable
+      ? machines.filter((machine) => machine.version !== targetVersion).length
+      : 0
 
   return {
     targetVersion: targetVersion ?? null,
     total: machines.length,
     behind,
-    converging: machines.filter((machine) => IN_FLIGHT.has(machine.state)).length,
-    failed: machines.filter((machine) => FAILED.has(machine.state)).length,
+    converging: grantable
+      ? machines.filter((machine) => IN_FLIGHT.has(machine.state)).length
+      : 0,
+    failed: grantable ? machines.filter((machine) => FAILED.has(machine.state)).length : 0,
     machines,
     allMachines,
   }
@@ -183,7 +197,7 @@ export function startUpdate(
     })
   }
 
-  const grantedMachineIds = updates.authorize()
+  const grantedMachineIds = canGrantDevelopmentFleet(target) ? updates.authorize() : []
   const fleet = fleetSnapshot(updates)
   if (serverBehind && requestCoordinatorRestart) {
     const affectedMachineIds = initialFleet.machines
