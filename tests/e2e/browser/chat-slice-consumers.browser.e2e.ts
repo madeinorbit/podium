@@ -154,6 +154,19 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
   await expect(msg('SLICE_PROMPT_ONE find the needle please')).toHaveCount(1, { timeout: 30_000 })
   await expect(msg('SLICE_ANSWER_THREE done')).toBeVisible()
 
+  // The transcript can fall back to synchronous compute when Worker is absent,
+  // so rendered rows alone do not prove the production module boundary loaded.
+  // Keep this assertion at the browser seam: the dedicated worker must be alive
+  // after the initial index response, before search starts reusing that index.
+  await expect
+    .poll(() => page.workers().filter((worker) => worker.url().includes('transcript-compute')).length)
+    .toBe(1)
+  const transcriptWorker = page
+    .workers()
+    .find((worker) => worker.url().includes('transcript-compute'))
+  expect(transcriptWorker).toBeDefined()
+  expect(await transcriptWorker?.evaluate(() => typeof self.onmessage)).toBe('function')
+
   // ---- 1. TRANSCRIPT SEARCH ------------------------------------------------
   // Search is intentionally absent at rest: POD-376 reclaimed the permanent
   // header row and moved the unchanged search model behind the platform find

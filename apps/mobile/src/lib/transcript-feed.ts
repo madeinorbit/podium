@@ -1,7 +1,8 @@
 import {
-  buildChatRows,
   type ChatBlock,
+  type ChatRow,
   type ChatVerbosity,
+  computeTranscript,
   envelopePrincipal,
   formatChurn,
   isAskUserQuestion,
@@ -9,10 +10,8 @@ import {
   MACHINE_CONTEXT_RE,
   machineContextLabel,
   type ParsedEnvelope,
-  pairToolResults,
   parseAskQuestions,
   parseEnvelopeBatch,
-  rowSurvivesSummary,
   searchBlocks,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
@@ -51,6 +50,33 @@ export interface MobileTranscriptModel {
   rows: MobileTranscriptRow[]
 }
 
+interface MobileTranscriptIndex {
+  blocks: ChatBlock[]
+  rows: ChatRow[]
+}
+
+// Search changes frequently while the transcript snapshot usually does not.
+// Keep the paired/row-shaped graph per immutable item array and verbosity so a
+// query does not repeat the same shaping work on the React Native JS thread.
+const transcriptIndexCache = new WeakMap<object, Map<ChatVerbosity, MobileTranscriptIndex>>()
+
+function indexedTranscript(
+  items: TranscriptItem[],
+  verbosity: ChatVerbosity,
+): MobileTranscriptIndex {
+  let byVerbosity = transcriptIndexCache.get(items)
+  if (!byVerbosity) {
+    byVerbosity = new Map()
+    transcriptIndexCache.set(items, byVerbosity)
+  }
+  const cached = byVerbosity.get(verbosity)
+  if (cached) return cached
+  const result = computeTranscript({ items, verbosity, query: '', cursor: 0 })
+  const index = { blocks: result.blocks, rows: result.rows }
+  byVerbosity.set(verbosity, index)
+  return index
+}
+
 export function transcriptItemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
 }
@@ -65,14 +91,13 @@ export function buildMobileTranscript(
     searching?: boolean
   } = {},
 ): MobileTranscriptModel {
-  const blocks = pairToolResults(items)
-  const chatRows = buildChatRows(blocks)
   const rows: MobileTranscriptRow[] = []
   const verbosity =
     options.searching && options.verbosity === 'summary' ? 'normal' : options.verbosity
+  const index = indexedTranscript(items, verbosity ?? 'normal')
+  const { blocks, rows: chatRows } = index
 
   for (const chatRow of chatRows) {
-    if (verbosity === 'summary' && !rowSurvivesSummary(chatRow)) continue
     const blockIndices = chatRow.kind === 'tools' ? chatRow.blockIndices : [chatRow.blockIndex]
 
     if (chatRow.kind === 'tools') {

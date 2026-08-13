@@ -257,8 +257,8 @@ export function ChatView({
           phase={chat.phase}
           rows={chat.rowsToRender}
           blocks={chat.blocks}
+          markdownHtml={chat.markdownHtml}
           search={chat.search}
-          query={chat.query}
           moreAbove={chat.moreAbove}
           loadingOlder={chat.loadingOlder}
           loadOlder={chat.loadOlder}

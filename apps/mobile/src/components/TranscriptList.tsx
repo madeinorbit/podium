@@ -627,6 +627,8 @@ export function TranscriptList({
   /** Rows that arrived while the operator was reading further up. */
   const [unread, setUnread] = useState(0)
 
+  const searching = findOpen && query.trim().length > 0
+
   const setVerbosity = useCallback(
     (value: ChatVerbosity) => uiState.set(CHAT_VERBOSITY_KEY, value === 'normal' ? null : value),
     [uiState],
@@ -637,9 +639,9 @@ export function TranscriptList({
       buildMobileTranscript(items, {
         collapseContext,
         verbosity,
-        searching: findOpen && query.trim().length > 0,
+        searching,
       }),
-    [collapseContext, findOpen, items, query, verbosity],
+    [collapseContext, items, searching, verbosity],
   )
   const rows = useMemo(() => {
     const built: Row[] = [...model.rows]

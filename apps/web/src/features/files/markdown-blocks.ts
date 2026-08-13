@@ -1,8 +1,10 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-// Importing markdown.ts applies the shared marked config (gfm/breaks + diff-aware
-// code renderer) as a module side effect, and gives us the file-path linkifier
-// plus the new-tab link rewriter (shared with the chat render path).
+// Importing the DOM-free renderer applies the shared marked config (gfm/breaks +
+// diff-aware code renderer) in both the file preview and transcript Worker.
+import '@/lib/markdown-renderer'
+// The file preview additionally shares the path linkifier and new-tab rewriter
+// with the chat render path.
 import { externalizeLinks, linkifyCodePaths } from '@/lib/markdown'
 
 export interface RenderBlocksOptions {

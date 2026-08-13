@@ -43,8 +43,8 @@ function render(
         phase={opts.phase ?? 'ready'}
         rows={rowsFor(items)}
         blocks={blocks}
+        markdownHtml={new Map()}
         search={{ activeRow: -1, filtering: false, matches: [], activeMatch: 0 } as never}
-        query=""
         moreAbove={opts.moreAbove ?? false}
         loadingOlder={opts.loadingOlder ?? false}
         loadOlder={() => {}}

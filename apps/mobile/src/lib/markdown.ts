@@ -41,9 +41,30 @@ export type PodiumRefPart =
       offset: number
     }
 
+const MARKDOWN_TOKEN_CACHE_LIMIT = 256
+const markdownTokenCache = new Map<string, MarkdownToken[]>()
+
 /** Parse GFM into data rather than HTML so native renderers never need a DOM sanitizer. */
 export function parseMarkdown(text: string): MarkdownToken[] {
-  return marked.lexer(text, { gfm: true, breaks: true }) as MarkdownToken[]
+  const cached = markdownTokenCache.get(text)
+  if (cached) {
+    markdownTokenCache.delete(text)
+    markdownTokenCache.set(text, cached)
+    return cached
+  }
+  const tokens = marked.lexer(text, { gfm: true, breaks: true }) as MarkdownToken[]
+  markdownTokenCache.set(text, tokens)
+  while (markdownTokenCache.size > MARKDOWN_TOKEN_CACHE_LIMIT) {
+    const oldest = markdownTokenCache.keys().next().value
+    if (oldest === undefined) break
+    markdownTokenCache.delete(oldest)
+  }
+  return tokens
+}
+
+/** Clear the bounded parser cache in isolated tests or an embedded host reset. */
+export function resetMarkdownTokenCache(): void {
+  markdownTokenCache.clear()
 }
 
 /**

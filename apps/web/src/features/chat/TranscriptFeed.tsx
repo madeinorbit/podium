@@ -7,12 +7,12 @@ import type {
   TranscriptPhase,
   TranscriptSearchState,
 } from '@podium/client-core/viewmodels'
-import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/client-core/viewmodels'
+import { attributionForRole, isInteractiveTool } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
 import { ArrowUp, Image as ImageIcon, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
-import { Fragment, useMemo } from 'react'
-import { type IssueReferenceLookup, renderMarkdown } from '@/lib/markdown'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { type IssueReferenceLookup, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { PendingItem, QueuedChatMessage } from './chat'
@@ -23,8 +23,74 @@ import { TranscriptTail, trailingRunIsLive, transcriptTailState } from './Transc
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
+import { transcriptComputeClient } from './transcript-compute-client'
 
 const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
+
+/** Render a live partial through the same worker boundary as settled messages. */
+function StreamingMarkdown({
+  text,
+  issueReferences,
+}: {
+  text: string
+  issueReferences: IssueReferenceLookup
+}): JSX.Element {
+  const client = transcriptComputeClient()
+  const [computed, setComputed] = useState<{ text: string; unsafeHtml: string } | null>(null)
+
+  useEffect(() => {
+    if (!client.usesWorker) return
+    let cancelled = false
+    // Provider deltas can arrive token by token. Wait for a short quiet edge so
+    // superseded partials do not fill the shared worker queue ahead of settled
+    // transcript indexing and search requests.
+    const timer = window.setTimeout(() => {
+      void client.computeMarkdown(text).then(
+        (unsafeHtml) => {
+          if (!cancelled) setComputed({ text, unsafeHtml })
+        },
+        () => {
+          if (!cancelled) setComputed({ text, unsafeHtml: client.computeMarkdownOnMain(text) })
+        },
+      )
+    }, 80)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [client, text])
+
+  if (!client.usesWorker) {
+    return (
+      <div
+        className="chat-md chat-md--streaming opacity-80"
+        data-testid="streaming-text"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: renderMarkdown sanitizes its result
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(text, issueReferences) }}
+      />
+    )
+  }
+
+  const unsafeHtml = computed?.text === text ? computed.unsafeHtml : undefined
+  if (unsafeHtml === undefined) {
+    return (
+      <div
+        className="chat-md chat-md--streaming whitespace-pre-wrap opacity-80"
+        data-testid="streaming-text"
+      >
+        {text}
+      </div>
+    )
+  }
+  return (
+    <div
+      className="chat-md chat-md--streaming opacity-80"
+      data-testid="streaming-text"
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized below on the browser thread
+      dangerouslySetInnerHTML={{ __html: sanitizeRenderedMarkdown(unsafeHtml, issueReferences) }}
+    />
+  )
+}
 
 /**
  * TURN STRUCTURE (POD-376). Thirty-one blocks used to render as thirty-one
@@ -112,8 +178,8 @@ export function TranscriptFeed({
   phase,
   rows,
   blocks,
+  markdownHtml,
   search,
-  query,
   moreAbove,
   loadingOlder,
   loadOlder,
@@ -149,10 +215,9 @@ export function TranscriptFeed({
   phase: TranscriptPhase
   rows: readonly RenderableRow[]
   blocks: readonly ChatBlock[]
+  /** Unsafe HTML produced by the shared worker; ChatBlockView sanitizes it. */
+  markdownHtml: ReadonlyMap<string, string>
   search: TranscriptSearchState
-  /** The raw query, for the per-block dimming predicate. `search` says WHICH row
-   *  is active; the query says which rows are merely not matches. */
-  query: string
   moreAbove: boolean
   loadingOlder: boolean
   loadOlder: () => void
@@ -192,6 +257,7 @@ export function TranscriptFeed({
   // use-feed-arrivals. Identity is per row and index-free, so paging older
   // messages in above does not read as the whole feed arriving at once.
   const arriving = useFeedArrivals(useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows]))
+  const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
   // midnight, and by the time it does the next row to land refreshes it.
   const dayMarks = useMemo(() => dayMarksByPosition(rows, new Date()), [rows])
@@ -284,7 +350,7 @@ export function TranscriptFeed({
               highlighted={idx === search.activeRow}
               forceOpen={expandRuns || idx === search.activeRow}
               dimmed={
-                search.filtering && !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))
+                search.filtering && !row.blockIndices.some((bi) => searchMatches.has(bi))
               }
               // The work line reads as LIVE only for the trailing run of a turn
               // with a call actually IN FLIGHT: the spinner and counting timer
@@ -318,8 +384,9 @@ export function TranscriptFeed({
               key={`${idx}-${row.block.item.id}`}
               block={row.block}
               index={idx}
+              markdownHtml={markdownHtml}
               highlighted={idx === search.activeRow}
-              dimmed={search.filtering && !blockMatches(row.block, query)}
+              dimmed={search.filtering && !searchMatches.has(row.blockIndex)}
               sessionId={sessionId}
               cwd={cwd}
               openFile={openFile}
@@ -431,14 +498,7 @@ export function TranscriptFeed({
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
           <div className="transcript-body">
             {overlay.text !== undefined && (
-              <div
-                className="chat-md chat-md--streaming opacity-80"
-                data-testid="streaming-text"
-                // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify
-                dangerouslySetInnerHTML={{
-                  __html: renderMarkdown(overlay.text, issueReferences),
-                }}
-              />
+              <StreamingMarkdown text={overlay.text} issueReferences={issueReferences} />
             )}
             {overlay.status && (
               <div className="mt-1 text-xs text-muted-foreground italic">{overlay.status}</div>

@@ -25,7 +25,12 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'r
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
-import { type IssueReferenceLookup, isKnownRefPrefix, renderMarkdown } from '@/lib/markdown'
+import {
+  type IssueReferenceLookup,
+  isKnownRefPrefix,
+  renderMarkdown,
+  sanitizeRenderedMarkdown,
+} from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
@@ -198,6 +203,7 @@ function MessageEnvelopeRow({
   cwd,
   openFile,
   issueReferences,
+  markdownHtml,
   ts,
 }: {
   envelope: ParsedEnvelope
@@ -207,12 +213,15 @@ function MessageEnvelopeRow({
   cwd: string
   openFile: (sessionId: SessionId, path: string) => void
   issueReferences: IssueReferenceLookup
+  markdownHtml?: ReadonlyMap<string, string>
   ts?: string | undefined
 }): JSX.Element {
-  const html = useMemo(
-    () => renderMarkdown(envelope.body, issueReferences),
-    [envelope.body, issueReferences],
-  )
+  const html = useMemo(() => {
+    const unsafeHtml = markdownHtml?.get(envelope.body)
+    return unsafeHtml === undefined
+      ? renderMarkdown(envelope.body, issueReferences)
+      : sanitizeRenderedMarkdown(unsafeHtml, issueReferences)
+  }, [envelope.body, issueReferences, markdownHtml])
   return (
     <div
       className={className}
@@ -360,8 +369,9 @@ function usePinnable(enabled: boolean, ref: RefObject<HTMLElement | null>): bool
 
 // Memoized: ChatView re-renders on every search keystroke, every 700ms
 // transcript poll, and every session-state change in the store. Block identity
-// is stable across renders that don't change `items` (pairToolResults is
-// memoized), so memo skips the expensive markdown re-render for unaffected rows.
+// is stable across renders that don't change `items` (the compute client reuses
+// its indexed graph), so memo skips the expensive markdown re-render for
+// unaffected rows.
 export const ChatBlockView = memo(function ChatBlockView({
   block,
   index,
@@ -383,6 +393,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   arrived = false,
   onQuote,
   issueReferences = EMPTY_ISSUE_REFERENCES,
+  markdownHtml,
 }: {
   block: ChatBlock
   index: number
@@ -422,6 +433,8 @@ export const ChatBlockView = memo(function ChatBlockView({
   /** Quote this message into the composer. Absent → no Quote action. */
   onQuote?: ((markdown: string) => void) | undefined
   issueReferences?: IssueReferenceLookup
+  /** Unsafe HTML produced off-thread; sanitation and link policy stay here. */
+  markdownHtml?: ReadonlyMap<string, string>
 }): JSX.Element | null {
   const { item } = block
   // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
@@ -444,10 +457,12 @@ export const ChatBlockView = memo(function ChatBlockView({
       : null
   }, [compact, item.role, item.answer, item.text])
   const displayText = envelopeBatch?.operatorText || nextSplit?.body || item.text
-  const html = useMemo(
-    () => renderMarkdown(displayText, issueReferences),
-    [displayText, issueReferences],
-  )
+  const html = useMemo(() => {
+    const unsafeHtml = markdownHtml?.get(displayText)
+    return unsafeHtml === undefined
+      ? renderMarkdown(displayText, issueReferences)
+      : sanitizeRenderedMarkdown(unsafeHtml, issueReferences)
+  }, [displayText, issueReferences, markdownHtml])
   // Envelopes render as rows AHEAD of this block's own row (a provider turn can
   // deliver several frames before the operator's text), so when they exist they
   // are what opens the exchange and the body row binds to them.
@@ -621,6 +636,7 @@ export const ChatBlockView = memo(function ChatBlockView({
       cwd={cwd}
       openFile={openFile}
       issueReferences={issueReferences}
+      markdownHtml={markdownHtml}
       ts={item.ts}
     />
   ))

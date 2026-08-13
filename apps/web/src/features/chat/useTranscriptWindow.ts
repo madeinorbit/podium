@@ -1,20 +1,22 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
-import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/viewmodels'
+import { type ChatVerbosity, type TranscriptSearchState } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import {
-  buildChatRows,
   type ChatBlock,
   type ChatRow,
   dedupeByCursor,
   freshOlderPage,
   mergeByCursor,
-  pairToolResults,
   reconcileReset,
   sameItems,
 } from './chat'
+import {
+  transcriptComputeClient,
+  type WebTranscriptComputeResult,
+} from './transcript-compute-client'
 
 // Windowing: a marathon session can hold tens of thousands of items, and
 // rendering every one mounts a matching count of (markdown-parsed) DOM
@@ -52,6 +54,16 @@ const SEARCH_DEPTH = 1000
 // whether the agent is alive.
 const LIVE_HEARTBEAT_MS = 6_000
 
+const EMPTY_TRANSCRIPT_SEARCH: TranscriptSearchState = {
+  matches: [],
+  activeMatch: undefined,
+  activeRow: undefined,
+  position: 0,
+  total: 0,
+  filtering: false,
+}
+const EMPTY_MARKDOWN_HTML: ReadonlyMap<string, string> = new Map()
+
 export interface UseTranscriptWindowOptions {
   sessionId: SessionId
   hub: Store['hub']
@@ -69,11 +81,21 @@ export interface UseTranscriptWindowOptions {
    *  cannot disagree about which rows exist. `normal` (the default) filters
    *  nothing, so this is inert until someone changes it. */
   verbosity?: ChatVerbosity
+  /** Search is part of the same worker/index request as block shaping. */
+  query?: string
+  cursor?: number
 }
 
 export interface UseTranscriptWindowResult {
   blocks: ChatBlock[]
   rows: ChatRow[]
+  /** Search over the same worker-produced block/row graph. */
+  search: TranscriptSearchState
+  /** Unsafe HTML from the worker, keyed by source Markdown. The feed sanitizes
+   * it on the browser thread immediately before DOM insertion. */
+  markdownHtml: ReadonlyMap<string, string>
+  /** False only while the first worker/index result for this read is pending. */
+  computeReady: boolean
   /** Only the trailing window of `rows` — the DOM node count stays bounded for
    *  arbitrarily long transcripts. */
   visibleRows: ChatRow[]
@@ -117,14 +139,25 @@ export interface UseTranscriptWindowResult {
  * Owns the held transcript window for ChatView: an initial disk read (any
  * session status — the single source, not a live-only path) plus a live-delta
  * subscription from the read's tail cursor, scroll-up back-paging, and the
- * derived render pipeline (pairToolResults → buildChatRows → the bounded
- * trailing window). Pure data/paging concerns; the scroll DOM itself
+ * worker-backed transcript index that supplies the bounded trailing window.
+ * Pure data/paging concerns; the scroll DOM itself
  * (onScroll, the sticky-user header, the minimap, the actual scrollTop
  * writes) stays in ChatView, which is handed the refs it needs to coordinate
  * with (`pinnedToBottom`, `didInitialScroll`, `prependAnchor`).
  */
 export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTranscriptWindowResult {
-  const { sessionId, hub, trpc, replica, active, session, scrollerRef, verbosity = 'normal' } = opts
+  const {
+    sessionId,
+    hub,
+    trpc,
+    replica,
+    active,
+    session,
+    scrollerRef,
+    verbosity = 'normal',
+    query = '',
+    cursor = 0,
+  } = opts
 
   const [items, setItems] = useState<TranscriptItem[]>([])
   // Cursor of the OLDEST loaded item (the read's `head`) — the anchor for
@@ -144,6 +177,13 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // True while we still believe earlier items exist on disk beyond what's loaded.
   const [hasMoreOlder, setHasMoreOlder] = useState(true)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  const [computed, setComputed] = useState<{
+    items: TranscriptItem[]
+    verbosity: ChatVerbosity
+    query: string
+    cursor: number
+    result: WebTranscriptComputeResult
+  } | null>(null)
   // True while `ensureSearchDepth` is still back-paging: the match count on screen
   // is over a window that is still growing, and the search bar says so.
   const [deepeningSearch, setDeepeningSearch] = useState(false)
@@ -264,6 +304,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     setInitialLoaded(false)
     setOfflineAsOf(null)
     setLoadingOlder(false)
+    setComputed(null)
     setDeepeningSearch(false)
     setRenderCount(RENDER_WINDOW)
     loadingOlderRef.current = false
@@ -465,16 +506,52 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // render-time ref-mirror pattern as headCursorRef above.
   const loadedRef = useRef<TranscriptItem[]>([])
   loadedRef.current = effectiveItems
-  const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
-  // Render unit: consecutive tool calls fold into one collapsed batch row; the
-  // minimap, scroll-to-match, and [data-block] indices are all keyed by ROW.
-  // Verbosity is applied at the ONE place rows are built, so `renderStart`, the
-  // search cursor and the minimap all index the same list (POD-376). `normal`
-  // returns the array referentially, so the default path allocates nothing.
-  const rows = useMemo(
-    () => applyChatVerbosity(buildChatRows(blocks), verbosity) as ChatRow[],
-    [blocks, verbosity],
+  // The loaded item array is the request identity. A refresh that preserves
+  // `sameItems` keeps this identity and therefore keeps the worker result too.
+  // New data/query/cursor posts one serializable request; stale responses are
+  // rejected by the effect cleanup and never replace a newer transcript.
+  const computeInput = useMemo(
+    () => ({ items: effectiveItems, verbosity, query, cursor }),
+    [effectiveItems, verbosity, query, cursor],
   )
+  const computeClient = transcriptComputeClient()
+  useEffect(() => {
+    let cancelled = false
+    const input = computeInput
+    if (!computeClient.usesWorker) {
+      setComputed({ ...input, result: computeClient.computeOnMain(input) })
+      return () => {
+        cancelled = true
+      }
+    }
+    void computeClient.compute(input).then(
+      (result) => {
+        if (cancelled) return
+        setComputed({ ...input, result })
+      },
+      () => {
+        // A construction/runtime failure should never blank the transcript.
+        // Preserve the same data contract and fall back to the pure index; the
+        // row renderer will use its existing main-thread Markdown path when no
+        // worker HTML is available.
+        if (cancelled) return
+        setComputed({ ...input, result: computeClient.computeOnMain(input) })
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [computeClient, computeInput, sessionId])
+
+  const blocks = computed?.result.blocks ?? []
+  const rows = computed?.result.rows ?? []
+  const search = computed?.result.search ?? EMPTY_TRANSCRIPT_SEARCH
+  const markdownHtml = computed?.result.markdownHtml ?? EMPTY_MARKDOWN_HTML
+  // Keep the previous graph on screen while a fresher index/search result is in
+  // flight. Readiness gates only the first result for this session; tying it to
+  // query freshness makes a genuinely empty transcript flash back to “loading”
+  // on every search keystroke even though its initial read is complete.
+  const computeReady = computed !== null
 
   // Switch-latency trace marks [POD-701] — both no-ops unless a switch to this
   // session is being traced. `chat:rows-built` stamps the commit in which the
@@ -642,6 +719,9 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   return {
     blocks,
     rows,
+    search,
+    markdownHtml,
+    computeReady,
     visibleRows,
     renderStart,
     moreAbove,

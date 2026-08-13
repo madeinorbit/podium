@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseMarkdown, safeExternalUrl, splitPodiumRefs } from './markdown'
+import {
+  parseMarkdown,
+  resetMarkdownTokenCache,
+  safeExternalUrl,
+  splitPodiumRefs,
+} from './markdown'
 
 describe('parseMarkdown', () => {
   it('uses GFM tables and keeps formatted cell tokens', () => {
@@ -21,6 +26,13 @@ describe('parseMarkdown', () => {
       'list',
       'code',
     ])
+  })
+
+  it('reuses tokens for a remounted message', () => {
+    resetMarkdownTokenCache()
+    const first = parseMarkdown('**cached** message')
+    expect(parseMarkdown('**cached** message')).toBe(first)
+    resetMarkdownTokenCache()
   })
 })
 

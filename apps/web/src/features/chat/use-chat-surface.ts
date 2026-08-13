@@ -24,7 +24,6 @@ import {
   type TranscriptSearchState,
   transcriptAttributionTable,
   transcriptPhase,
-  transcriptSearchState,
   visibleOffer,
 } from '@podium/client-core/viewmodels'
 import { isAgentComputing, type SessionId, type SessionMeta } from '@podium/model'
@@ -90,6 +89,8 @@ export interface ChatSurface {
   blocks: ReturnType<typeof useTranscriptWindow>['blocks']
   rows: ChatRow[]
   rowsToRender: readonly RenderableRow[]
+  /** Unsafe worker HTML keyed by source Markdown; TranscriptFeed sanitizes it. */
+  markdownHtml: ReadonlyMap<string, string>
   phase: TranscriptPhase
   moreAbove: boolean
   loadingOlder: boolean
@@ -260,6 +261,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     pinnedToBottom,
     didInitialScroll,
     prependAnchor,
+    search,
+    markdownHtml,
+    computeReady,
   } = useTranscriptWindow({
     sessionId,
     hub,
@@ -269,6 +273,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     session,
     scrollerRef,
     verbosity,
+    query,
+    cursor: matchCursor,
   })
 
   // Operator-prompt recognition needs the message-envelope parser, which is a
@@ -289,10 +295,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const rowsToRender = useMemo(
     () => renderableRows({ rows, visibleRows, renderStart, stickyEnabled, promptOptions }),
     [rows, visibleRows, renderStart, stickyEnabled, promptOptions],
-  )
-  const search = useMemo(
-    () => transcriptSearchState({ blocks, rows, query, cursor: matchCursor }),
-    [blocks, rows, query, matchCursor],
   )
   const livePendingAskIndex = useMemo(
     () => livePendingAskIndexOf(blocks, session?.status),
@@ -426,9 +428,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
         reference,
         blockCount: blocks.length,
         pendingCount: send.pending.length,
-        initialLoaded,
+        initialLoaded: initialLoaded && computeReady,
       }),
-    [reference, blocks.length, send.pending.length, initialLoaded],
+    [reference, blocks.length, send.pending.length, initialLoaded, computeReady],
   )
 
   const activity = useMemo(
@@ -567,6 +569,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     blocks,
     rows,
     rowsToRender,
+    markdownHtml,
     phase,
     moreAbove,
     loadingOlder,

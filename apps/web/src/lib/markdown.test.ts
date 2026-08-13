@@ -1,7 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { linkifyCodePaths, linkifyRefs, renderMarkdown, setKnownRefPrefixes } from './markdown'
+import {
+  linkifyCodePaths,
+  linkifyRefs,
+  renderMarkdown,
+  sanitizeRenderedMarkdown,
+  setKnownRefPrefixes,
+} from './markdown'
 
 const stylesPath = ['src/styles.css', 'apps/web/src/styles.css']
   .map((path) => resolve(process.cwd(), path))
@@ -63,6 +69,12 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('see POD-13')
     const refAnchor = html.slice(html.indexOf('<a class="ref-link'))
     expect(refAnchor.slice(0, refAnchor.indexOf('>'))).not.toContain('target=')
+  })
+
+  it('sanitizes unsafe worker HTML before it reaches the DOM', () => {
+    const html = sanitizeRenderedMarkdown('<img src="x" onerror="alert(1)"><p>safe</p>')
+    expect(html).not.toContain('onerror')
+    expect(html).toContain('safe')
   })
 })
 

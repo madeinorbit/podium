@@ -1,9 +1,7 @@
 import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import DOMPurify from 'dompurify'
-import { marked, type Tokens } from 'marked'
-
-marked.setOptions({ gfm: true, breaks: true })
+import { renderMarkdownUnsafe } from './markdown-renderer'
 
 // External links in a transcript should open in a new tab — clicking one must
 // never navigate away from Podium. file-link anchors (internal file opens) carry
@@ -26,48 +24,6 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 }
-
-// Colourize unified-diff code blocks (```diff / ```patch, or an unlabelled block
-// that clearly is one). Agents emit diffs constantly, and line-level +/- colour
-// reads far more natively than a flat grey block — the readability win we can
-// offer outside a terminal. Other code blocks render escaped, as before.
-// Copy affordance injected into every rendered code block. Empty button (the icon
-// is a CSS mask, so it survives DOMPurify untouched); the click handler reads the
-// sibling <code> text at click time, so the code isn't duplicated into the markup.
-// Handled by handleCodeCopyClick on the chat/preview containers.
-const COPY_BUTTON =
-  '<button type="button" class="code-copy" aria-label="Copy code" title="Copy"></button>'
-
-function renderDiff(text: string): string {
-  const body = text
-    .split('\n')
-    .map((line) => {
-      const cls =
-        line.startsWith('+') && !line.startsWith('+++')
-          ? 'diff-add'
-          : line.startsWith('-') && !line.startsWith('---')
-            ? 'diff-del'
-            : line.startsWith('@@')
-              ? 'diff-hunk'
-              : ''
-      const html = escapeHtml(line)
-      return cls ? `<span class="${cls}">${html}</span>` : html
-    })
-    .join('\n')
-  return `<pre class="chat-diff"><code>${body}</code>${COPY_BUTTON}</pre>`
-}
-
-marked.use({
-  renderer: {
-    code({ text, lang }: Tokens.Code): string {
-      const language = (lang ?? '').trim().toLowerCase()
-      const looksLikeDiff = language === '' && /^@@ /m.test(text) && /^[+-]/m.test(text)
-      if (language === 'diff' || language === 'patch' || looksLikeDiff) return renderDiff(text)
-      const cls = language ? ` class="language-${escapeHtml(language)}"` : ''
-      return `<pre><code${cls}>${escapeHtml(text)}</code>${COPY_BUTTON}</pre>`
-    },
-  },
-})
 
 // A token looks like a file path if it has a directory separator or a known
 // code-file extension. Conservative on purpose — the backtick is the intent
@@ -148,7 +104,19 @@ export function linkifyRefs(html: string, issueReferences?: IssueReferenceLookup
 }
 
 /** Markdown → sanitized HTML. The single render path for all chat surfaces. */
-export function renderMarkdown(text: string, issueReferences?: IssueReferenceLookup): string {
-  const rendered = linkifyCodePaths(marked.parse(text, { async: false }))
+/**
+ * Finish an unsafe worker result on the browser thread. This is the only
+ * function allowed to cross from transcript compute into the DOM render path:
+ * path/ref linkification and DOMPurify remain main-thread policy decisions.
+ */
+export function sanitizeRenderedMarkdown(
+  unsafeHtml: string,
+  issueReferences?: IssueReferenceLookup,
+): string {
+  const rendered = linkifyCodePaths(unsafeHtml)
   return externalizeLinks(linkifyRefs(DOMPurify.sanitize(rendered), issueReferences))
+}
+
+export function renderMarkdown(text: string, issueReferences?: IssueReferenceLookup): string {
+  return sanitizeRenderedMarkdown(renderMarkdownUnsafe(text), issueReferences)
 }
