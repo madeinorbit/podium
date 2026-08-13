@@ -78,7 +78,7 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
   await page.getByRole('button', { name: 'New work' }).click()
   await expect(page.getByText('New work', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Choose project' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Auto' }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Model, Auto' })).toBeVisible()
   await page.screenshot({ path: resolve(ARTIFACTS, 'new-work-session-flow.png'), fullPage: true })
   await page.getByRole('button', { name: 'New work', exact: true }).click().catch(() => {})
   await page.keyboard.press('Escape').catch(() => {})

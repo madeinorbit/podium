@@ -3,7 +3,6 @@ import { useSlice } from '@podium/client-core/react'
 import {
   lastUsedMaps,
   machineViewsFromWire,
-  panelLabel,
   type RepoNavView,
   resolveSpawnTargetMachine,
   spawnTargetForRepo,
@@ -11,9 +10,9 @@ import {
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind, MachineId } from '@podium/model'
-import { machinesWithRepo } from '@podium/model'
+import { lastUsedMachine } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
-import { ChevronLeft, ChevronRight, GitBranch, Plus } from 'lucide-react-native'
+import { ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore, useSessions } from '../client/hooks'
@@ -23,33 +22,27 @@ import {
   allConnectorModelOptions,
   decodeModelPick,
   effortOptionsForModel,
+  groupedCatalogOptions,
   isEffortValid,
   spawnSelection,
+  type CatalogOption,
   type IssueAgentKind,
 } from '../lib/agent-models'
+import { reposOnMachine } from '../lib/new-work'
 import { sessionHref } from '../lib/session-route'
 import { alpha } from '../theme/mix'
-import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { HeaderButton } from './Screen'
 
-type PickerStep = 'launch' | 'repo' | 'machine' | null
+type PickerStep = 'launch' | 'model' | 'effort' | 'machine' | 'repo' | null
 
 /**
- * The pocket equivalent of desktop's New Agent dropdown. Every quick launch goes
- * through `store.spawnDraftAgent`, so the session is born inside a durable draft
- * issue and receives the same issue-prime lifecycle as the desk.
- *
- * WHY THIS IS NOT AN ACTION LIST [POD-724]. It was one — nine centred labels in
- * a stack, with "New task", six harness names and "Session options…" all at the
- * same weight and the same size, so the one choice that decides where the work
- * LANDS (tracked task with a branch and worktree, versus a bare session in a
- * draft vessel) looked exactly like the choice of which CLI to run. This sheet
- * says the two things in two languages: the task is a card with its consequence
- * written on it, and the model list is every harness's catalog in one place —
- * plus effort and, when the repo lives on more than one host, the machine.
+ * Pocket launch sheet: model, then effort, then a machine when more than one
+ * host is visible, then the project. Tracked tasks are created from the Tasks
+ * tab — this sheet only starts an agent.
  */
 export function NewWorkButton() {
   const pathname = usePathname()
@@ -61,7 +54,7 @@ export function NewWorkButton() {
   const [harness, setHarness] = useState<AgentKind>('claude-code')
   const [modelPick, setModelPick] = useState(AUTO)
   const [effort, setEffort] = useState(AUTO)
-  const [repoPath, setRepoPath] = useState<string | null>(null)
+  const [machinePick, setMachinePick] = useState<MachineId | null>(null)
 
   // Machines as THIS principal may act on them (doc §3.1.4 M1/M5): `see` is
   // already applied by the server's per-principal projection, `use` is read per
@@ -70,6 +63,16 @@ export function NewWorkButton() {
   // "may I run here" is exactly how one surface comes to offer a machine
   // another refuses.
   const machineViews = useMemo(() => machineViewsFromWire(store.machines), [store.machines])
+  const usable = useMemo(() => usableMachines(machineViews), [machineViews])
+  const showMachine = machineViews.length > 1
+  const machineId =
+    (machinePick && machineViews.some((view) => view.machine.id === machinePick)
+      ? machinePick
+      : null) ??
+    (lastUsedMachine(sessions, usable) as MachineId | undefined) ??
+    (usable[0]?.id as MachineId | undefined) ??
+    null
+  const selectedMachine = machineViews.find((view) => view.machine.id === machineId)
 
   const { repos, lastUsedByRepo } = useMemo(() => {
     const choices = [...sections.pinnedRepos, ...sections.repos]
@@ -84,7 +87,10 @@ export function NewWorkButton() {
     }
   }, [sections, sessions])
 
-  const selectedRepo = repos.find((repo) => repo.path === repoPath)
+  const visibleRepos = useMemo(
+    () => reposOnMachine(repos, machineId, machineViews.length),
+    [repos, machineId, machineViews.length],
+  )
 
   /**
    * Where this spawn lands, or `null` to refuse it outright — the same shape
@@ -99,30 +105,21 @@ export function NewWorkButton() {
    */
   const resolveSpawnMachine = (
     repo: RepoNavView,
-    machineId?: MachineId,
+    explicit?: MachineId,
   ): MachineId | undefined | null => {
-    if (machineId !== undefined)
-      return usableMachines(machineViews).some((m) => m.id === machineId) ? machineId : null
+    if (explicit !== undefined)
+      return usable.some((machine) => machine.id === explicit) ? explicit : null
     const { machineId: resolved, refusal } = resolveSpawnTargetMachine(repo, sessions, machineViews)
     return refusal === 'unauthorized' ? null : resolved
   }
 
-  /** The machines that hold this repo, as views — the population the two
-   *  refusals are distinguished within. */
-  const machineChoices = (repo: RepoNavView) => {
-    const withRepo = new Set(
-      machinesWithRepo(
-        repo,
-        machineViews.map((v) => v.machine),
-      ).map((m) => m.id),
-    )
-    return machineViews.filter((v) => withRepo.has(v.machine.id))
-  }
-
   const close = () => setStep(null)
 
-  const start = (repo: RepoNavView, machineId?: MachineId) => {
-    const targetMachine = resolveSpawnMachine(repo, machineId)
+  const start = (repo: RepoNavView, explicit?: MachineId) => {
+    const targetMachine = resolveSpawnMachine(
+      repo,
+      explicit ?? (showMachine ? (machineId ?? undefined) : undefined),
+    )
     if (targetMachine === null) return
     const { worktree } = spawnTargetForRepo(repo, targetMachine)
     const selection = spawnSelection(modelPick, effort)
@@ -136,41 +133,53 @@ export function NewWorkButton() {
     router.push(sessionHref(sessionId, pathname))
   }
 
-  const applyModel = (value: string, nextHarness?: AgentKind) => {
+  const applyModel = (value: string) => {
     setModelPick(value)
     const decoded = decodeModelPick(value)
-    const kind = nextHarness ?? decoded.agentKind ?? harness
-    if (kind !== 'shell') setHarness(kind)
+    if (decoded.agentKind) setHarness(decoded.agentKind)
     const options = decoded.agentKind
       ? effortOptionsForModel(decoded.agentKind, decoded.model)
       : []
-    if (options.length === 0 || !isEffortValid((decoded.agentKind ?? kind) as IssueAgentKind, effort)) {
+    const kind = (decoded.agentKind ?? harness) as IssueAgentKind
+    if (options.length === 0 || !isEffortValid(kind, effort)) {
       setEffort(AUTO)
     }
+    setStep('launch')
   }
 
   const decoded = decodeModelPick(modelPick)
+  const modelSelected = modelPick !== AUTO
   const effortChoices =
-    harness === 'shell'
+    !modelSelected || harness === 'shell'
       ? []
       : effortOptionsForModel((decoded.agentKind ?? harness) as IssueAgentKind, decoded.model)
   const modelOptions = allConnectorModelOptions()
-  const modelCaption = allConnectorModelLabel(decoded.agentKind, decoded.model)
+  const modelValue = allConnectorModelLabel(decoded.agentKind, decoded.model)
+  const canStart = !showMachine || selectedMachine?.availability === 'available'
 
   const title =
-    step === 'repo'
-      ? harness === 'shell'
-        ? 'New Shell'
-        : `New ${panelLabel(harness)}`
-      : step === 'machine' && selectedRepo
-        ? selectedRepo.name
-        : 'New work'
-  const caption =
-    step === 'repo'
-      ? 'Choose a repository'
-      : step === 'machine'
-        ? 'Choose a machine'
-        : 'Track it as a task, or put an agent on it now'
+    step === 'model'
+      ? 'Model'
+      : step === 'effort'
+        ? 'Effort'
+        : step === 'machine'
+          ? 'Machine'
+          : step === 'repo'
+            ? 'Project'
+            : 'New work'
+
+  const pickMachine = (id: MachineId) => {
+    const view = machineViews.find((candidate) => candidate.machine.id === id)
+    if (view?.availability !== 'available') return
+    setMachinePick(id)
+    setStep('launch')
+  }
+
+  const goToProject = () => {
+    const decodedPick = decodeModelPick(modelPick)
+    if (decodedPick.agentKind) setHarness(decodedPick.agentKind)
+    setStep('repo')
+  }
 
   return (
     <>
@@ -189,7 +198,7 @@ export function NewWorkButton() {
               <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel="Back"
-                onPress={() => setStep(step === 'machine' ? 'repo' : 'launch')}
+                onPress={() => setStep('launch')}
                 style={({ pressed }) => [styles.headBack, pressed && styles.pressed]}
               >
                 <Icon as={ChevronLeft} size={16} color={color.textDim} />
@@ -199,96 +208,46 @@ export function NewWorkButton() {
               <Text style={styles.headTitle} numberOfLines={1}>
                 {title}
               </Text>
-              <Text style={styles.headCaption} numberOfLines={1}>
-                {caption}
-              </Text>
             </View>
           </View>
         }
       >
         {step === 'launch' ? (
           <>
-            {/* The one choice that changes where the work LIVES gets a card of
-                its own, with its consequence written on it. */}
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="New task"
-              accessibilityHint="Tracked work with its own branch and worktree"
-              onPress={() => {
-                close()
-                router.push('/new-issue')
-              }}
-              scaleTo={0.985}
-              style={({ pressed }) => [styles.taskCard, pressed && styles.taskCardPressed]}
-            >
-              <View style={styles.taskIcon}>
-                <Icon as={GitBranch} size={17} color={color.accentTint} />
-              </View>
-              <View style={styles.taskText}>
-                <Text style={styles.taskTitle}>New task</Text>
-                <Text style={styles.taskSub}>Tracked work, with its own branch and worktree</Text>
-              </View>
-              <Icon as={ChevronRight} size={16} color={alpha(color.accentTint, 0.75)} />
-            </PressableScale>
-
-            <Text style={styles.groupLabel}>START AN AGENT</Text>
-            <Text style={styles.fieldLabel}>Model</Text>
-            <Text style={styles.fieldHint}>{modelCaption}</Text>
-            <View style={styles.chipWrap}>
-              {modelOptions.map((option) => {
-                const active = modelPick === option.value
-                return (
-                  <PressableScale
-                    key={option.value}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      option.group ? `${option.group} ${option.label}` : option.label
-                    }
-                    onPress={() => applyModel(option.value)}
-                    style={[styles.chip, active && styles.chipActive]}
-                  >
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {option.group ? `${option.label}` : option.label}
-                    </Text>
-                  </PressableScale>
-                )
-              })}
-            </View>
+            <FieldSelect
+              label="Model"
+              value={modelValue}
+              onPress={() => setStep('model')}
+            />
 
             {effortChoices.length > 0 ? (
-              <>
-                <Text style={styles.fieldLabel}>Effort</Text>
-                <View style={styles.chipWrap}>
-                  {effortChoices.map((option) => {
-                    const active = effort === option.value
-                    return (
-                      <PressableScale
-                        key={option.value}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Effort ${option.label}`}
-                        onPress={() => setEffort(option.value)}
-                        style={[styles.chip, active && styles.chipActive]}
-                      >
-                        <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                          {option.label}
-                        </Text>
-                      </PressableScale>
-                    )
-                  })}
-                </View>
-              </>
+              <FieldSelect
+                label="Effort"
+                value={effortChoices.find((option) => option.value === effort)?.label ?? 'Auto'}
+                onPress={() => setStep('effort')}
+              />
+            ) : null}
+
+            {showMachine ? (
+              <FieldSelect
+                label="Machine"
+                value={selectedMachine?.machine.name ?? 'Choose a machine'}
+                onPress={() => setStep('machine')}
+              />
             ) : null}
 
             <PressableScale
               accessibilityRole="button"
               accessibilityLabel="Choose project"
-              onPress={() => {
-                const decodedPick = decodeModelPick(modelPick)
-                if (decodedPick.agentKind) setHarness(decodedPick.agentKind)
-                setStep('repo')
-              }}
+              accessibilityState={{ disabled: !canStart || visibleRepos.length === 0 }}
+              disabled={!canStart || visibleRepos.length === 0}
+              onPress={goToProject}
               scaleTo={0.985}
-              style={({ pressed }) => [styles.continue, pressed && styles.continuePressed]}
+              style={({ pressed }) => [
+                styles.continue,
+                (!canStart || visibleRepos.length === 0) && styles.continueDisabled,
+                pressed && canStart && styles.continuePressed,
+              ]}
             >
               <Text style={styles.continueText}>Choose project</Text>
               <Icon as={ChevronRight} size={16} color={color.accentText} />
@@ -311,26 +270,85 @@ export function NewWorkButton() {
           </>
         ) : null}
 
+        {step === 'model' ? (
+          <OptionList
+            groups={groupedCatalogOptions(modelOptions)}
+            selected={modelPick}
+            onPick={applyModel}
+          />
+        ) : null}
+
+        {step === 'effort' ? (
+          <OptionList
+            groups={[{ options: effortChoices }]}
+            selected={effort}
+            onPick={(value) => {
+              setEffort(value)
+              setStep('launch')
+            }}
+          />
+        ) : null}
+
+        {step === 'machine' ? (
+          <View style={styles.list}>
+            {/* UNAUTHORIZED AND UNREACHABLE ARE DIFFERENT WORDS (§3.1.4 M5).
+                Both produce a machine you cannot spawn on, and collapsing them
+                makes a person wait for a wake-up that will never help. Neither
+                is pressable — the picker must not OFFER a machine the principal
+                lacks `use` on — but the denied one says so rather than
+                vanishing. */}
+            {machineViews.map((view, i) => {
+              const ok = view.availability === 'available'
+              const selected = view.machine.id === machineId
+              return (
+                <PressableScale
+                  key={view.machine.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={view.machine.name}
+                  accessibilityState={{ disabled: !ok, selected }}
+                  disabled={!ok}
+                  scaleTo={0.99}
+                  onPress={() => pickMachine(view.machine.id)}
+                  style={({ pressed }) => [
+                    styles.row,
+                    i > 0 && styles.rowDivider,
+                    !ok && styles.rowDisabled,
+                    pressed && styles.rowPressed,
+                  ]}
+                >
+                  <View
+                    style={[styles.dot, { backgroundColor: ok ? color.success : color.textMicro }]}
+                  />
+                  <View style={styles.rowText}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {view.machine.name}
+                    </Text>
+                    {ok ? null : (
+                      <Text style={styles.rowSub}>
+                        {view.availability === 'unauthorized' ? 'No access' : 'Offline'}
+                      </Text>
+                    )}
+                  </View>
+                  {selected ? <Text style={styles.check}>✓</Text> : null}
+                </PressableScale>
+              )
+            })}
+          </View>
+        ) : null}
+
         {step === 'repo' ? (
-          repos.length === 0 ? (
+          visibleRepos.length === 0 ? (
             <Text style={styles.none}>No repositories are available on this account.</Text>
           ) : (
             <View style={styles.list}>
-              {repos.map((repo, i) => {
+              {visibleRepos.map((repo, i) => {
                 const used = lastUsedByRepo.get(repo.path)
                 return (
                   <PressableScale
                     key={repo.path}
                     accessibilityRole="button"
                     accessibilityLabel={repo.name}
-                    onPress={() => {
-                      if (machineChoices(repo).length <= 1) {
-                        start(repo)
-                        return
-                      }
-                      setRepoPath(repo.path)
-                      setStep('machine')
-                    }}
+                    onPress={() => start(repo)}
                     scaleTo={0.99}
                     style={({ pressed }) => [
                       styles.row,
@@ -358,54 +376,79 @@ export function NewWorkButton() {
             </View>
           )
         ) : null}
-
-        {step === 'machine' && selectedRepo ? (
-          <View style={styles.list}>
-            {/* UNAUTHORIZED AND UNREACHABLE ARE DIFFERENT WORDS (§3.1.4 M5).
-                Both produce a machine you cannot spawn on, and collapsing them
-                makes a person wait for a wake-up that will never help. Neither
-                is pressable — the picker must not OFFER a machine the principal
-                lacks `use` on — but the denied one says so rather than
-                vanishing. */}
-            {machineChoices(selectedRepo).map((view, i) => {
-              const ok = view.availability === 'available'
-              return (
-                <PressableScale
-                  key={view.machine.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={view.machine.name}
-                  accessibilityState={{ disabled: !ok }}
-                  disabled={!ok}
-                  scaleTo={0.99}
-                  onPress={() => start(selectedRepo, view.machine.id)}
-                  style={({ pressed }) => [
-                    styles.row,
-                    i > 0 && styles.rowDivider,
-                    !ok && styles.rowDisabled,
-                    pressed && styles.rowPressed,
-                  ]}
-                >
-                  <View
-                    style={[styles.dot, { backgroundColor: ok ? color.success : color.textMicro }]}
-                  />
-                  <View style={styles.rowText}>
-                    <Text style={styles.rowTitle} numberOfLines={1}>
-                      {view.machine.name}
-                    </Text>
-                    {ok ? null : (
-                      <Text style={styles.rowSub}>
-                        {view.availability === 'unauthorized' ? 'No access' : 'Offline'}
-                      </Text>
-                    )}
-                  </View>
-                  {ok ? <Icon as={ChevronRight} size={15} color={color.textMicro} /> : null}
-                </PressableScale>
-              )
-            })}
-          </View>
-        ) : null}
       </BottomSheet>
     </>
+  )
+}
+
+function FieldSelect({
+  label,
+  value,
+  onPress,
+}: {
+  label: string
+  value: string
+  onPress: () => void
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={`${label}, ${value}`}
+        onPress={onPress}
+        scaleTo={0.99}
+        style={({ pressed }) => [styles.select, pressed && styles.selectPressed]}
+      >
+        <Text style={styles.selectValue} numberOfLines={1}>
+          {value}
+        </Text>
+        <Icon as={ChevronDown} size={16} color={color.textMicro} />
+      </PressableScale>
+    </View>
+  )
+}
+
+function OptionList({
+  groups,
+  selected,
+  onPick,
+}: {
+  groups: { label?: string; options: CatalogOption[] }[]
+  selected: string
+  onPick: (value: string) => void
+}) {
+  return (
+    <View style={styles.optionStack}>
+      {groups.map((group) => (
+        <View key={group.label ?? group.options[0]?.value ?? 'group'} style={styles.list}>
+          {group.label ? <Text style={styles.groupLabel}>{group.label}</Text> : null}
+          {group.options.map((option, i) => {
+            const on = option.value === selected
+            return (
+              <PressableScale
+                key={option.value}
+                accessibilityRole="button"
+                accessibilityLabel={option.group ? `${option.group} ${option.label}` : option.label}
+                accessibilityState={{ selected: on }}
+                onPress={() => onPick(option.value)}
+                scaleTo={0.99}
+                style={({ pressed }) => [
+                  styles.row,
+                  (i > 0 || group.label) && styles.rowDivider,
+                  pressed && styles.rowPressed,
+                ]}
+              >
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {option.label}
+                </Text>
+                {on ? <Text style={styles.check}>✓</Text> : null}
+              </PressableScale>
+            )
+          })}
+        </View>
+      ))}
+    </View>
   )
 }
 
@@ -430,7 +473,6 @@ const styles = StyleSheet.create({
   headText: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
   },
   headTitle: {
     ...sans(600),
@@ -438,111 +480,66 @@ const styles = StyleSheet.create({
     fontSize: font.heading,
     letterSpacing: -0.35,
   },
-  headCaption: {
-    ...sans(400),
-    color: color.textFaint,
-    fontSize: font.tiny,
-  },
   content: {
     paddingHorizontal: space.lg,
     paddingBottom: space.sm,
   },
 
-  taskCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.accentBorder,
-    backgroundColor: color.accentSoft,
-  },
-  taskCardPressed: {
-    backgroundColor: 'rgba(245, 197, 24, 0.2)',
-  },
-  taskIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.bgSunken,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.accentBorder,
-  },
-  taskText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  taskTitle: {
-    ...sans(600),
-    color: color.text,
-    fontSize: font.small,
-  },
-  taskSub: {
-    ...sans(400),
-    color: color.accentTint,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny),
-  },
-
-  groupLabel: {
-    ...monoLabel(),
-    color: color.label,
-    marginTop: space.lg,
-    marginBottom: space.sm,
+  field: {
+    marginBottom: space.md,
   },
   fieldLabel: {
     ...monoLabel(),
     color: color.textFaint,
-    marginBottom: 4,
+    marginBottom: space.xs,
   },
-  fieldHint: {
-    ...sans(400),
-    color: color.textDim,
-    fontSize: font.tiny,
-    marginBottom: space.sm,
-  },
-  chipWrap: {
+  select: {
+    minHeight: 48,
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     gap: space.sm,
-    marginBottom: space.md,
-  },
-  chip: {
-    borderRadius: radius.full,
     paddingHorizontal: space.md,
-    paddingVertical: space.xs + 2,
-    backgroundColor: color.surface,
-    borderColor: color.border,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.borderStrong,
+    backgroundColor: color.surface,
   },
-  chipActive: {
-    backgroundColor: color.accent,
-    borderColor: color.accent,
+  selectPressed: {
+    backgroundColor: color.surfacePressed,
   },
-  chipText: {
-    ...sans(600),
-    color: color.textDim,
-    fontSize: font.tiny,
+  selectValue: {
+    ...sans(500),
+    flex: 1,
+    color: color.text,
+    fontSize: font.small,
   },
-  chipTextActive: {
-    color: color.accentText,
+
+  optionStack: {
+    gap: space.md,
   },
+  groupLabel: {
+    ...monoLabel(),
+    color: color.label,
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+    paddingBottom: 2,
+  },
+
   continue: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: space.sm,
-    minHeight: 44,
+    minHeight: 48,
     borderRadius: radius.md,
     backgroundColor: color.accent,
     marginTop: space.sm,
   },
   continuePressed: {
     opacity: 0.88,
+  },
+  continueDisabled: {
+    opacity: 0.4,
   },
   continueText: {
     ...sans(700),
@@ -574,12 +571,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   row: {
-    minHeight: 56,
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.md,
     paddingHorizontal: space.md,
-    paddingVertical: 9,
+    paddingVertical: 11,
   },
   rowDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -598,6 +595,7 @@ const styles = StyleSheet.create({
   },
   rowTitle: {
     ...sans(500),
+    flex: 1,
     color: color.text,
     fontSize: font.small,
   },
@@ -626,6 +624,11 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     marginLeft: 4,
+  },
+  check: {
+    ...mono(600),
+    color: color.accentTint,
+    fontSize: font.small,
   },
   none: {
     ...sans(400),

@@ -4,6 +4,7 @@ import {
   decodeModelPick,
   encodeModelPick,
   effortOptionsForModel,
+  groupedCatalogOptions,
   spawnSelection,
 } from './agent-models'
 
@@ -25,6 +26,16 @@ describe('cross-harness model picks', () => {
     )
     expect(options.some((o) => o.value === 'codex:gpt-5.5' && o.group === 'Codex')).toBe(true)
     expect(options.some((o) => o.value === 'grok:grok-4.5' && o.group === 'Grok')).toBe(true)
+  })
+
+  it('groups catalog options so a select can render section headers', () => {
+    const groups = groupedCatalogOptions(allConnectorModelOptions())
+    expect(groups[0]).toEqual({ options: [{ value: 'auto', label: 'Auto' }] })
+    expect(groups.find((g) => g.label === 'Claude Code')?.options.map((o) => o.label)).toEqual([
+      'Opus',
+      'Sonnet',
+      'Haiku',
+    ])
   })
 
   it('hides effort for haiku and keeps the Claude ladder for opus', () => {

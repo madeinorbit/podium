@@ -35,7 +35,7 @@ test('Expo terminal keyboard is compact, mono, and visibly scrollable', async ({
   await page.goto(`/mobile?server=${RELAY}&e2e=1`)
   await page.getByRole('button', { name: 'New work' }).click()
   const launcher = page.getByRole('dialog')
-  await launcher.getByRole('button', { name: 'Claude Code' }).click()
+  await launcher.getByRole('button', { name: 'Choose project' }).click()
   await launcher.getByRole('button', { name: 'podium', exact: true }).click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
 

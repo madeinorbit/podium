@@ -195,6 +195,22 @@ export function allConnectorModelOptions(
   return options
 }
 
+/** Consecutive options that share a `group`, so a select can render section headers. */
+export function groupedCatalogOptions(
+  options: readonly CatalogOption[],
+): { label?: string; options: CatalogOption[] }[] {
+  const groups: { label?: string; options: CatalogOption[] }[] = []
+  for (const option of options) {
+    const last = groups[groups.length - 1]
+    if (last && last.label === option.group) {
+      last.options.push(option)
+    } else {
+      groups.push({ ...(option.group ? { label: option.group } : {}), options: [option] })
+    }
+  }
+  return groups
+}
+
 export function allConnectorModelLabel(
   kind: IssueAgentKind | undefined,
   model: string | null | undefined,

@@ -15,7 +15,7 @@ test('Expo native agent view keeps rapid TUI redraws legible', async ({ page }) 
   await page.goto(`/mobile?server=${RELAY}`)
   await page.getByRole('button', { name: 'New work' }).click()
   const launcher = page.getByRole('dialog')
-  await launcher.getByRole('button', { name: 'Claude Code' }).click()
+  await launcher.getByRole('button', { name: 'Choose project' }).click()
   await launcher.getByRole('button', { name: 'podium', exact: true }).click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
 
