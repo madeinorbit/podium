@@ -271,7 +271,14 @@ export interface PodiumClientApi {
     listThreads: ApiQuery<void, SuperThreadView[]>
     startBtw: ApiMutation<{ sessionId: SessionId }>
     sendTurn: ApiMutation<
-      { threadId: ThreadId; text: string },
+      {
+        threadId: ThreadId
+        text: string
+        /** Prompt-box backend (POD-782). Omitted leaves the thread's choice. */
+        model?: string
+        effort?: string
+        agentKind?: AgentKind
+      },
       { threadId: ThreadId; podiumSessionId?: SessionId }
     >
     /** Mint the thread's headless session without running a turn (POD-782), so

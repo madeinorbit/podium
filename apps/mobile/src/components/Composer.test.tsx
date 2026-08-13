@@ -69,6 +69,22 @@ describe('Composer floating dock', () => {
     expect(dockOf(container)?.style.paddingBottom).toBe('42px')
   })
 
+  it('renders a below slot outside the well', () => {
+    const { container } = render(
+      <Composer
+        placeholder="Message the agent…"
+        onSend={vi.fn()}
+        below={<div data-testid="composer-below">rail</div>}
+      />,
+    )
+    const bar = container.querySelector('[data-testid="composer-bar"]')
+    const below = container.querySelector('[data-testid="composer-below"]')
+    expect(bar).not.toBeNull()
+    expect(below).not.toBeNull()
+    expect(bar?.contains(below)).toBe(false)
+    expect(dockOf(container)?.contains(below)).toBe(true)
+  })
+
   it('lets chrome below it replace that inset rather than stacking on it', () => {
     // The tab bar's measured inset already contains the safe area [POD-420];
     // adding the composer's own would float it a home-indicator too high.

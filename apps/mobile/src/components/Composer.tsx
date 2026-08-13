@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur'
 import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp } from 'lucide-react-native'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
   LayoutChangeEvent,
   NativeSyntheticEvent,
@@ -65,6 +65,7 @@ export function Composer({
   caption,
   captionTone = 'working',
   draftInsertion,
+  below,
   bottomInset = 0,
   scrimColor,
   onRestingHeight,
@@ -77,6 +78,11 @@ export function Composer({
   captionTone?: 'working' | 'attention'
   /** A keyed insertion from a transcript action (for example Quote in reply). */
   draftInsertion?: { id: number; text: string } | null
+  /**
+   * Sits UNDER the well, still inside the dock — the Superagent model/effort
+   * rail. Outside the capsule so it is never an unreachable text target.
+   */
+  below?: ReactNode
   /**
    * Chrome already sitting below the composer that has paid the bottom safe
    * area for it — the floating tab bar. Zero (the default) means the composer
@@ -242,6 +248,7 @@ export function Composer({
           <SendButton ready={canSend} onPress={send} reduceMotion={reduceMotion} />
         </View>
       </BlurView>
+      {below}
     </View>
   )
 }

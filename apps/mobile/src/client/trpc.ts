@@ -66,7 +66,7 @@ interface MobileTrpcExtras {
     // answers `SuperThreadView[]` — the type the superagent SLICE publishes — so
     // the phone and the desktop render one thread shape. `history` is deleted
     // outright rather than re-typed: it is the FROZEN legacy buffer, and this
-    // app never called it (see SuperagentScreen's header for why folding it back
+    // app never called it (see SuperagentScreen for why folding it back
     // in is a trap). Only turn control is mobile's own.
     interruptTurn: MutationProcedure<{ threadId: ThreadId }>
     clear: MutationProcedure<{ threadId: ThreadId }>

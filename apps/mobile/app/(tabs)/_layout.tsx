@@ -15,7 +15,7 @@ export default function TabsLayout() {
       <Tabs.Screen name={MOBILE_TABS[0].name} options={{ title: MOBILE_TABS[0].title }} />
       <Tabs.Screen name={MOBILE_TABS[1].name} options={{ title: MOBILE_TABS[1].title }} />
       {/* "Super", not "Super Agent": a quarter of a 393pt bar cannot hold two
-          words, and the screen's own section bar says "Super agent" [POD-402].
+          words, and the screen's own large title says "Superagent".
           The accessibility label keeps the full name. */}
       <Tabs.Screen
         name={MOBILE_TABS[2].name}

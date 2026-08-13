@@ -9,29 +9,34 @@ import * as Haptics from 'expo-haptics'
 import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { readTranscriptPage, useBooting, useHub, useMobileStore } from '../client/hooks'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { BootstrapCrossfade, TranscriptSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
-import { Screen } from '../components/Screen'
+import { HeaderButton, Screen } from '../components/Screen'
+import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
 import { BrailleSpinner } from '../components/StatusGlyphs'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
+import {
+  applySuperagentModelPick,
+  resolveSuperagentBackend,
+  superagentTurnChoice,
+  type SuperagentBackendPick,
+} from '../lib/superagent-backend'
 import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
-import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
+import { color, font, mono, sans, space } from '../theme/theme'
 
 /**
- * The Super agent — the phone half of the engraved column's overarching chat
- * [POD-338]. It is the desktop surface, not a variant of it:
+ * The Superagent — the phone half of the engraved column's chat [POD-338].
+ * It is the desktop surface, not a variant of it:
  *
- *  - ONE thread, always `global` (desktop `THREAD_ID`). The old global/btw chip
- *    strip is gone: per-thread history is not a phone decision, and the scope
- *    label already says the chat is overarching.
+ *  - ONE thread, always `global` (desktop `THREAD_ID`). Per-thread history is
+ *    not a phone decision.
  *  - The SAME Flat Field transcript the session chat renders (the desktop
  *    embeds `ChatView` here for exactly this reason) instead of a second,
  *    bespoke chat vocabulary — and, since POD-344, over the same SOURCE: the
@@ -40,8 +45,9 @@ import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
  *    turn it just sent nor the reply — the phone hung on "sending" forever.
  *    The desktop reads none of it and neither does this; see
  *    ../lib/superagent-transcript for why folding it back in is a trap.
- *  - Laid out like every other tab: safe-area header, one scroller, composer
- *    docked directly above the tab bar — no hand-tuned lift leaving dead space.
+ *  - Laid out like every other tab: the large Screen header Work and Tasks
+ *    wear, one scroller, composer docked above the tab bar. Model and effort
+ *    sit under the well, same contract as the desktop prompt-box rail.
  */
 const THREAD_ID = asThreadId('global')
 
@@ -57,12 +63,11 @@ export function SuperagentScreen() {
   //
   // The slice keys on `store.superThreadId`, which is 'global' by default and
   // which this screen never changes: one thread, always global, is the phone's
-  // whole superagent model (see the header). `threadById` is deliberately not
+  // whole superagent model. `threadById` is deliberately not
   // used — the slice exposes no lookup that takes a bare id and goes looking,
   // which is what makes another user's thread unaddressable from here
   // (doc §3.1.6 S2).
   const superagent = useSlice(superagentSlice)
-  const insets = useSafeAreaInsets()
   const tabBarInset = useTabBarInset()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
@@ -77,6 +82,11 @@ export function SuperagentScreen() {
   // back a fresher one (the FIRST turn learns its session from the ack alone).
   const [ackedSid, setAckedSid] = useState<SessionId | undefined>(undefined)
   const podiumSid = ackedSid ?? superagent.activeSessionId
+  const [backendPick, setBackendPick] = useState<SuperagentBackendPick>({})
+  const backend = useMemo(
+    () => resolveSuperagentBackend(superagent.active, backendPick),
+    [superagent.active, backendPick],
+  )
   const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
@@ -247,9 +257,10 @@ export function SuperagentScreen() {
     (id: string, text: string) => {
       setRunning(true)
       void trpc.superagent.sendTurn
-        .mutate({ threadId: THREAD_ID, text })
+        .mutate({ threadId: THREAD_ID, text, ...superagentTurnChoice(backend) })
         .then((ack) => {
           if (ack?.podiumSessionId) setAckedSid(ack.podiumSessionId)
+          void store.refreshSuperThreads().catch(() => {})
         })
         .catch((e: unknown) => {
           const message = e instanceof Error ? e.message : String(e)
@@ -260,7 +271,7 @@ export function SuperagentScreen() {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
         })
     },
-    [trpc],
+    [trpc, backend, store.refreshSuperThreads],
   )
 
   const send = useCallback(
@@ -329,34 +340,31 @@ export function SuperagentScreen() {
   const empty = resolved && rendered.length === 0 && pendingTurns.length === 0 && !running
 
   return (
-    <Screen noHeader>
-      <View style={styles.column}>
-        {/* Super-agent section bar — the desktop SectionBar, at bar density. */}
-        <View style={[styles.bar, { paddingTop: insets.top + 7 }]}>
-          <Text style={styles.glyph}>✦</Text>
-          <Text style={styles.title}>Super agent</Text>
-          <Text style={styles.scope}>OVERARCHING</Text>
-          <View style={styles.barActions}>
-            {running ? (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="Stop turn"
-                onPress={() => void interrupt()}
-                hitSlop={8}
-              >
-                <Text style={styles.stop}>Stop</Text>
-              </PressableScale>
-            ) : null}
+    <Screen
+      large
+      title="Superagent"
+      right={
+        <>
+          {running ? (
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="Clear context — start the chat fresh"
-              onPress={() => void clear()}
+              accessibilityLabel="Stop turn"
+              onPress={() => void interrupt()}
               hitSlop={8}
             >
-              <Icon as={Eraser} size={13} color={color.textFaint} />
+              <Text style={styles.stop}>Stop</Text>
             </PressableScale>
-          </View>
-        </View>
+          ) : null}
+          <HeaderButton
+            label="Clear context — start the chat fresh"
+            onPress={() => void clear()}
+          >
+            <Icon as={Eraser} size={15} color={color.textDim} />
+          </HeaderButton>
+        </>
+      }
+    >
+      <View style={styles.column}>
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -428,6 +436,15 @@ export function SuperagentScreen() {
             onSend={send}
             draftInsertion={draftInsertion}
             bottomInset={tabBarInset}
+            below={
+              <SuperagentBackendRail
+                backend={backend}
+                onModelChange={(model, agentKind) =>
+                  setBackendPick((pick) => applySuperagentModelPick(pick, model, agentKind))
+                }
+                onEffortChange={(effort) => setBackendPick((pick) => ({ ...pick, effort }))}
+              />
+            }
           />
         </KeyboardAvoidingView>
       </View>
@@ -444,35 +461,6 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
     minHeight: 0,
-  },
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: color.bar,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairlineBar,
-    paddingHorizontal: 13,
-    paddingBottom: 7,
-  },
-  glyph: {
-    color: color.accentTint,
-    fontSize: 12,
-  },
-  title: {
-    ...sans(600),
-    color: color.text,
-    fontSize: font.small,
-  },
-  scope: {
-    ...monoLabel(),
-    color: color.textMicro,
-  },
-  barActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    marginLeft: 'auto',
   },
   stop: {
     ...sans(700),
