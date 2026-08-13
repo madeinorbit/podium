@@ -104,6 +104,28 @@ describe('MachinePairing', () => {
     expect(onChangeUrl).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps VPS ownership choices out of the primary pairing path', () => {
+    render(
+      <MachinePairing
+        {...props({
+          pairingCode: 'ABCD-EFGH',
+          joinCommand: 'podium join ABCD-EFGH',
+          publicUrl: 'https://podium.example',
+          recommendServer: true,
+          makeServerAfterPair: true,
+          variant: 'vps',
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Ready for an always-on Podium server')).toBeTruthy()
+    expect(screen.getByText('Advanced VPS options')).toBeTruthy()
+    expect(screen.getByRole('checkbox', { name: /let podium manage agent tools/i })).toBeTruthy()
+    expect(screen.getByRole('checkbox', { name: /move the podium server here/i })).toBeTruthy()
+    expect(screen.queryByText('Podium-managed machine')).toBeNull()
+    expect(screen.queryByText('Recommended: make this the server')).toBeNull()
+  })
+
   it('announces the newly paired machine and exposes review as an explicit action', () => {
     const onReviewPairedMachine = vi.fn()
     render(

@@ -9,8 +9,8 @@ import { clearVpsCheckpointAndReturn, GuidedVpsActivation } from './GuidedVpsAct
 const mocks = vi.hoisted(() => ({
   store: { machines: [], trpc: {} },
   pairing: {
-    pairingCode: null,
-    joinCommand: null,
+    pairingCode: null as string | null,
+    joinCommand: null as string | null,
     publicUrl: '',
     loading: false,
     error: null,
@@ -39,6 +39,11 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'scrollIntoView',
+)
+
 vi.mock('@/app/store', () => ({
   useStoreSelector: (selector: (store: typeof mocks.store) => unknown) => selector(mocks.store),
 }))
@@ -53,21 +58,37 @@ vi.mock('@/features/machines/server-transfer', () => ({
   useServerTransferStatus: () => mocks.status,
 }))
 
-vi.mock('@/features/machines/MachinePairing', () => ({ MachinePairing: () => null }))
+vi.mock('@/features/machines/MachinePairing', () => ({
+  MachinePairing: ({ onChangeUrl }: { onChangeUrl?: () => void }) =>
+    onChangeUrl ? (
+      <button type="button" onClick={onChangeUrl}>
+        Set up the connection
+      </button>
+    ) : null,
+}))
 vi.mock('@/features/machines/ServerTransfer', () => ({
   ServerTransfer: () => null,
   ServerTransferProgress: () => null,
 }))
-vi.mock('@/features/setup/SetupView', () => ({ NetworkStep: () => null }))
+vi.mock('@/features/setup/SetupView', () => ({
+  NetworkStep: () => <div>Network setup form</div>,
+}))
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  mocks.pairing.pairingCode = null
+  mocks.pairing.joinCommand = null
   mocks.pairing.newMachine = null
   mocks.transfer.transfer = null
   mocks.transfer.publicUrl = ''
   mocks.transfer.displayState = null
   mocks.transfer.showProgress = false
+  if (originalScrollIntoView) {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView)
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+  }
 })
 
 function controller(
@@ -139,6 +160,38 @@ describe('guided VPS return route', () => {
     fireEvent.click(backButton)
 
     expect(onRouteChange).toHaveBeenCalledWith('welcome')
+  })
+
+  it('moves focus to connection setup even when the form was already visible', async () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    const vps = controller('welcome', vi.fn())
+    vps.state = vpsPairingState(vps.state!, [], true)
+    mocks.pairing.pairingCode = 'ABCD-EFGH'
+
+    render(
+      <GuidedVpsActivation
+        route="vps-pairing"
+        vps={vps}
+        onRouteChange={vi.fn()}
+        onExplore={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Network setup form')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Set up the connection' }))
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+      expect(document.activeElement?.id).toBe('vps-network-setup')
+    })
+    expect(mocks.pairing.mint).toHaveBeenCalledWith({
+      podiumManaged: true,
+      copyAgentCredentials: false,
+    })
   })
 
   it('does not navigate away until the server confirms the checkpoint is cleared', async () => {

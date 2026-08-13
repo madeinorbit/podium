@@ -189,6 +189,17 @@ export function GuidedVpsActivation({
     () => vps.state?.moveServer ?? true,
   )
   const [showNetwork, setShowNetwork] = useState(false)
+  const networkSetupRef = useRef<HTMLDivElement | null>(null)
+
+  const openNetworkSetup = (): void => {
+    setShowNetwork(true)
+    // The network form is already expanded when no join command exists. Always move focus to it
+    // anyway; merely setting the same boolean made the old "Set server URL" button look inert.
+    setTimeout(() => {
+      networkSetupRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      networkSetupRef.current?.focus({ preventScroll: true })
+    }, 0)
+  }
 
   // Pairing credentials are intentionally ephemeral. Re-mint on mount, but keep using the
   // durable pre-pairing machine baseline so a machine connected during downtime is detected.
@@ -197,7 +208,7 @@ export function GuidedVpsActivation({
     if (route !== 'vps-pairing' || !state) return
     const controller = pairingRef.current
     controller.watchForNewMachine(new Set(state.baselineMachineIds))
-    void controller.mint()
+    void controller.mint({ podiumManaged: true, copyAgentCredentials: false })
     return () => controller.stopWatchingForNewMachine()
     // The baseline string is the durable identity of this pairing attempt.
   }, [pairingBaseline, route])
@@ -281,6 +292,26 @@ export function GuidedVpsActivation({
         (target) => target.targetMachineId === pairedMachine.id,
       )
     : undefined
+  const pairingSteps = [
+    {
+      number: '01',
+      label: 'Connect this Podium',
+      complete: Boolean(pairing.joinCommand),
+      active: !pairing.joinCommand,
+    },
+    {
+      number: '02',
+      label: 'Run command on VPS',
+      complete: Boolean(pairedMachine),
+      active: Boolean(pairing.joinCommand) && !pairedMachine,
+    },
+    {
+      number: '03',
+      label: 'Review server move',
+      complete: false,
+      active: Boolean(pairedMachine),
+    },
+  ]
   const reviewTransfer = async (): Promise<void> => {
     if (!pairedMachine) return
     const next = vpsTransferState(vps.state as VpsActivationState, {
@@ -292,7 +323,10 @@ export function GuidedVpsActivation({
   }
   const retryPairing = (): void => {
     pairing.watchForNewMachine(new Set(vps.state?.baselineMachineIds ?? []))
-    void pairing.mint({ podiumManaged: pairing.podiumManaged })
+    void pairing.mint({
+      podiumManaged: pairing.podiumManaged,
+      copyAgentCredentials: false,
+    })
   }
   const changeMoveServer = async (value: boolean): Promise<void> => {
     const previous = makeServerAfterPair
@@ -311,11 +345,32 @@ export function GuidedVpsActivation({
   return (
     <ActivationShell
       eyebrow="Pair the VPS"
-      title="Run one command on your always-on machine."
-      description="Podium will detect the new daemon live. The pairing command expires, so a reload safely creates a fresh one while retaining the original machine baseline."
+      title="Connect your VPS, then make it the server."
+      description="This Podium creates a one-use install command. The VPS connects back once; after Podium detects it, you review moving shared server state there. Nothing moves until you confirm."
       onExplore={onExplore}
+      contentClassName="mt-[34px]"
     >
-      <div className="max-w-[700px] space-y-4">
+      <div className="max-w-[760px] space-y-5">
+        <ol className="grid overflow-hidden rounded-[12px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d] sm:grid-cols-3">
+          {pairingSteps.map(({ number, label, complete, active }, index) => (
+            <li
+              key={String(number)}
+              className={`flex items-center gap-3 px-4 py-3.5 ${index > 0 ? 'border-t border-[#2b2f37] sm:border-t-0 sm:border-l' : ''}`}
+            >
+              <span
+                className={`font-mono text-[10px] font-semibold tracking-[0.12em] ${complete ? 'text-[#6fbc8c]' : active ? 'text-[#e3ba52]' : 'text-[#6f757f]'}`}
+              >
+                {complete ? '✓' : number}
+              </span>
+              <span
+                className={`text-[12.5px] font-medium ${complete || active ? 'text-[#d7dae0]' : 'text-[#6f757f]'}`}
+              >
+                {label}
+              </span>
+            </li>
+          ))}
+        </ol>
+
         <MachinePairing
           pairingCode={pairing.pairingCode}
           joinCommand={pairing.joinCommand}
@@ -330,27 +385,48 @@ export function GuidedVpsActivation({
               ? pairedMachine
               : null
           }
-          onManagedChange={(managed) => void pairing.mint({ podiumManaged: managed })}
+          onManagedChange={(managed) =>
+            void pairing.mint({ podiumManaged: managed, copyAgentCredentials: false })
+          }
           onMakeServerAfterPairChange={(value) => runSafely(changeMoveServer(value))}
-          onChangeUrl={() => setShowNetwork(true)}
+          onChangeUrl={openNetworkSetup}
           onReviewPairedMachine={() => runSafely(reviewTransfer())}
+          variant="vps"
         />
 
         {(showNetwork || (pairing.pairingCode && !pairing.joinCommand)) && (
-          <div className="rounded-xl border border-border bg-background/55 p-4">
-            <h2 className="settings-h">Make this server reachable first</h2>
-            <p className="settings-prose mt-1 mb-4">
-              The current Podium server needs a reachable URL so it can create a working VPS join
-              command. You will confirm the VPS destination URL separately before transfer.
-            </p>
-            <NetworkStep
-              embedded
-              trpc={trpc}
-              onSaved={() => {
-                setShowNetwork(false)
-                retryPairing()
-              }}
-            />
+          <div
+            id="vps-network-setup"
+            ref={networkSetupRef}
+            tabIndex={-1}
+            className="scroll-mt-4 rounded-[13px] bg-[#1b1e24] p-5 outline-none shadow-[inset_0_0_0_1px_#2f343d] sm:p-6"
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex size-7 flex-none items-center justify-center rounded-[8px] bg-[#2b2f37] font-mono text-[10px] font-semibold text-[#e3ba52] shadow-[inset_0_0_0_1px_#3a4049]">
+                01
+              </span>
+              <div>
+                <h2 className="text-[15px] leading-[1.3] font-semibold text-[#f2f3f5]">
+                  Give the VPS a temporary way to reach this Podium
+                </h2>
+                <p className="mt-1.5 max-w-[670px] text-[13.5px] leading-[1.55] text-[#9ba1ab]">
+                  This is required by the current transfer method: the VPS joins this machine first,
+                  then becomes the server after your confirmation. Choose one connection method;
+                  private Tailscale works when the VPS is already in your tailnet.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 border-t border-[#2b2f37] pt-5">
+              <NetworkStep
+                embedded
+                trpc={trpc}
+                variant="vps"
+                onSaved={() => {
+                  setShowNetwork(false)
+                  retryPairing()
+                }}
+              />
+            </div>
           </div>
         )}
 
