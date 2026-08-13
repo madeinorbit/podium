@@ -46,6 +46,8 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain(
       'MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")',
     )
+    expect(mainSource).toContain('.accelerator("CmdOrCtrl+B")')
+    expect(mainSource).toContain('.accelerator("Shift+CmdOrCtrl+B")')
     expect(mainSource).toContain('__PODIUM_ABOUT__')
     expect(mainSource).toContain('__PODIUM_CHECK_UPDATES__')
     expect(mainSource).toContain('__PODIUM_ADD_PROJECT__')

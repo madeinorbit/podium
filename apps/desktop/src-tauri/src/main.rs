@@ -728,7 +728,7 @@ fn main() {
                         .build(app)?;
                 let toggle_right =
                     MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")
-                        .accelerator("Alt+CmdOrCtrl+B")
+                        .accelerator("Shift+CmdOrCtrl+B")
                         .build(app)?;
                 let view_menu = SubmenuBuilder::new(app, "View")
                     .item(&toggle_left)

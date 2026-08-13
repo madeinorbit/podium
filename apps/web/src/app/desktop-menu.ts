@@ -18,20 +18,17 @@ export function openAboutPodium(): void {
 
 /**
  * Sidebar chords for the desktop shell. ⌘B / Ctrl+B is the left work list
- * (the same as most editors). ⌥⌘B / Alt+Ctrl+B is the right dock — VS Code's
- * secondary-sidebar chord, so it does not steal ⌘B and stays on a real letter
- * on ISO keyboards where `\` is a stretch.
- *
- * Bare Command only for the left; Option must ride along for the right. Shift
- * and the opposite extra modifier are refused so screenshot chords and the
- * flight-deck toggle stay untouched.
+ * (the same as most editors). ⇧⌘B / Shift+Ctrl+B is the right dock — same
+ * letter, one extra modifier, no Option (ISO keyboards, and ⌥⌘B is easy to
+ * miss). Option on either chord is refused so it cannot collide with the
+ * flight-deck toggle (⌥⌘F).
  */
 export function sidebarToggleFromEvent(
   event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>,
 ): 'left' | 'right' | null {
-  if (!(event.metaKey || event.ctrlKey) || event.shiftKey) return null
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null
   if (event.key.toLowerCase() !== 'b') return null
-  return event.altKey ? 'right' : 'left'
+  return event.shiftKey ? 'right' : 'left'
 }
 
 type MenuHook = () => void | boolean
