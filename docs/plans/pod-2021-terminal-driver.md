@@ -43,30 +43,43 @@ disagrees, fix the manifest deliberately (like POD-2019 did), don't smuggle impo
   paths the server already triggers (the daemon side of the survival table).
 - `binding` → project from `binding-store.ts` state. `snapshot()` → the bootstrap-snapshot
   fold the observers already produce on reattach (one snapshot, per reattachment-design).
-- `export()` → wrap `handoff-package.ts` (`transcriptForExport` + workspace pieces as the
-  existing handoff export does). `health()` → per-session memory attribution that
+- `export()` → wrap `handoff-package.ts` — note `transcriptForExport` is module-private
+  (~:326): export it or go through the exported handoff-handler surface. `health()` → per-session memory attribution that
   `memory-breakdown.ts` already computes.
 
-### 3. send() with honest receipts — the heart of this item
-Wrap the existing injection mechanics (currently server-side `inbox.ts` `typeText` drives
-via frames; the daemon executes the PTY writes). For W3, implement the receipt logic
-daemon-side behind a new frame family (see step 5) so W4 can migrate server callers onto it:
-- delivery `when-ready` / `queue` / `interrupt`: reuse the exact timing/queue mechanics that
-  exist (paste-bracket + CR, ready-floor/quiet windows, ESC for interrupt-delivery). Do not
-  re-tune any constant.
-- **Accept proof, in priority order:** (a) hook-anchored — for Claude, a `UserPromptSubmit`
-  hook arriving after injection with a prompt fingerprint correlating to the sent text
-  (`claudePromptHookFingerprint` exists in `packages/harness/src/agent-state/claude-code.ts`
-  — reuse it) ⇒ `accepted` with the new turnEpoch; (b) `submitVerification`-style transcript
-  echo (the user-turn-count/echo check `inbox.ts` does today) ⇒ `accepted`; (c) window
-  closes with neither ⇒ **`unverified`** — return it; never re-send `\r` beyond the existing
-  bounded retries, and never convert timeout into `refused`.
-- `refused` only for the cases the code already refuses (needs_user without post-ESC, lease
-  held). `queued` returns durable position from the existing queue.
-- delivery `steer` ⇒ perform `queue` and set `deliveredAs: 'queue'` on the receipt.
-- `interrupt()` ⇒ ESC via existing path; the FENCE is not emitted by you — it arrives (or
-  doesn't) as the provider-confirmed terminal event through the observers. Receipt =
-  "requested".
+### 3. send() with honest receipts — the heart of this item, and its true cost (reviewed)
+**Reality check first:** the injection mechanics are SERVER-side, not daemon-side.
+`apps/server/src/modules/sessions/inbox.ts` owns all of it — `typeText` paste-bracket + 90ms
+CR (`SUBMIT_CR_DELAY_MS`), `scheduleSubmitVerify` echo retries, the `READY_FLOOR/QUIET/MAX`
+tick loop, the DB-backed durable queue, ESC interrupt, raw-first-turn, and the
+AskUserQuestion digit script. The daemon only writes base64 `input` frames
+(`control/session.ts:792`). So this step is an **extract-and-port, not a wrap** — the plan
+says so openly, and it is the largest chunk of the item:
+- **Extract the injection/receipt state machine** into
+  `packages/agent-runtime/src/drivers/terminal/injection.ts` as a pure state machine over
+  ports (`write(bytes)`, `transcriptUserTurns()`, `hookAccept(signal)`, clock) — constants
+  moved **verbatim** from `inbox.ts` (no re-tuning). The daemon driver composes it with real
+  ports. **The server's `inbox.ts` copy remains authoritative for the flag-off path until W4
+  retires it** — duplication for one phase is deliberate and ends in W4.
+- **Split of delivery modes across the wire:** `queue` is completed SERVER-side — the
+  durable FIFO is a server DB table (`deps.queue` / `SessionInbox.drain`), so the server's
+  runtime pass-through answers `queued(position)` from it directly and never forwards.
+  `when-ready` / `interrupt` forward to the daemon driver, which runs the extracted state
+  machine and returns the receipt.
+- **Accept proof, in priority order:** (a) hook-anchored — Claude's `UserPromptSubmit` with
+  `claudePromptHookFingerprint` (exported at
+  `packages/harness/src/agent-state/claude-code.ts:929`); keep the harness import
+  DAEMON-side and inject the fingerprint fn into the package state machine as a port (the
+  boundary manifest restricts harness consumers — do NOT widen it for this); (b) transcript
+  echo (the ported submit-verify) ⇒ `accepted`; (c) window closes ⇒ **`unverified`** —
+  never converted to `refused`, never extra retries.
+- `refused` cases are exactly today's two: session-not-running, and `needs_user` without
+  post-ESC (inbox.ts ~713–716). There is no lease-based refusal today — do not invent one.
+- delivery `steer` ⇒ `queue` + `deliveredAs: 'queue'`.
+- `interrupt()` ⇒ ESC; the fence arrives (or doesn't) as the provider-confirmed terminal
+  event through the observers. Receipt = "requested".
+- `answer()` for menu asks stays THIN in W3: delegate to the existing server-side digit path;
+  the full port of the ask-menu drive belongs to W2 integration, not here.
 
 ### 4. events(), state(), transcript, draft, attach
 - `events()` — adapt what `session-observers.ts` already emits (normalized
@@ -91,16 +104,26 @@ daemon-side behind a new frame family (see step 5) so W4 can migrate server call
   driver-local list conformant and note the wiring as a follow-up subissue of POD-1761.
 
 ### 5. Wire exposure
-New daemon frame family `runtime.*` (send/answer/interrupt/state/events-subscribe …)
-following the existing frame-handler registry conventions, routed like other families in the
-server's `gateway/daemon-frame-routing.ts`. W3 only needs the daemon side + the minimal
-server-side pass-through used by tests; W4 migrates the real callers.
+New daemon frames named in the existing FLAT camelCase convention (`runtimeSend`,
+`runtimeAnswer`, `runtimeInterrupt`, `runtimeEvents` — both registries are compile-total
+over flat type strings; dotted names fight the mapped types). Complete touch-point list so
+you don't discover it by compile error: `packages/protocol` message defs +
+`messages/message-class.ts` classification + `DAEMON_PLANE_CLASS` +
+`DAEMON_FRAME_PORTS` (server `gateway/daemon-frame-routing.ts`) + `CONTROL_HANDLERS`
+(daemon `control/registry.ts`). Also: `apps/daemon/package.json` must declare
+`@podium/agent-runtime` (`declared-deps` lint), and the per-spawn flag rides `SpawnControl`
+in protocol — the SERVER builds that frame, so add the field + pass-through there too.
+W3 ships the daemon side + the minimal server pass-through (incl. the server-side `queued`
+completion from step 3); W4 migrates the real callers.
 
 ### 6. Conformance + gates
-- Run `runConformance(terminalDriver, { exemptions: TERMINAL_PERMITTED_FAILURES })` in the
-  e2e harness (`tests/e2e/serve-harness.ts` and the harness fixtures) against a real Claude
-  session where CI allows; where it doesn't, against the recorded fixture corpus the
-  agent-state tests already use.
+- Run `runConformance(makeTerminalDriver, { exemptions: TERMINAL_PERMITTED_FAILURES })`
+  (factory signature per POD-2019; define `TERMINAL_PERMITTED_FAILURES` in
+  `drivers/terminal/` — it doesn't exist yet, this item creates it). **Which lane proves
+  which receipt:** the e2e harness (`tests/e2e/serve-harness.ts`) runs a keyecho jig, not
+  real Claude — no hooks fire there. So: hook-anchored `accepted` is proven at the
+  fixture level (the harness agent-state fixture corpus feeding the injected hook port);
+  the flag-on e2e lane proves echo-based `accepted` and `unverified`.
 - Flag OFF: the full existing daemon/server suites pass unmodified — run the daemon and
   sessions/messages suites to prove it.
 - Flag ON: an e2e Claude session spawn→send(receipt)→state→transcript→hibernate→resume

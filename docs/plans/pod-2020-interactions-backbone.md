@@ -20,8 +20,16 @@ For each kind, one versioned payload + one answer shape, normalizing what all so
 produce (the schemas land in `packages/protocol`'s runtime family, tightening the loose
 `…PayloadV1` types POD-2019 left):
 - `permission`: tool name, one-line detail (see `permissionDetail` in
-  `packages/harness/src/agent-state/claude-code.ts` — the extraction exists), always-allow
-  offered?, suggestions. Answer: `allow-once | allow-always | deny` + optional message.
+  `packages/harness/src/agent-state/claude-code.ts:176`, feeding `AgentPermissionAsk` in
+  `packages/model`), always-allow offered (boolean — raw `permission_suggestions` never
+  reach the server today; RESERVE a suggestions field, nothing fills it in this item).
+  Answer schema: `allow-once | allow-always | deny` + optional message — **but answering a
+  terminal permission by keystroke is deliberately UNSHIPPED and stays that way here**:
+  `docs/agents/evidence/pod-707-permission-menu.md` documents that menu ordinals vary per
+  ask (deny-by-digit is unsafe) and always-allow must never be pressed programmatically. So
+  `answer()` for keystroke-emulated `permission` returns the same typed not-yet-supported
+  refusal as `structured` — the schema exists for W5's protocol drivers, where answering is
+  safe.
 - `question` (AskUserQuestion): questions[] with options, multiSelect, other-index,
   preview-layout flag — reuse the parsing that exists in
   `packages/client-core/src/viewmodels/ask-question.ts` (`parseAskQuestions`,
@@ -34,22 +42,38 @@ produce (the schemas land in `packages/protocol`'s runtime family, tightening th
   `full-resume` where offered (spec §4 default).
 Every payload carries `v: 1`, `source`, `answerable`, and a **dedupe fingerprint** (kind +
 session + stable content hash) — classifier-sourced asks are at-least-once by contract, and
-the fingerprint is what keeps the list sane.
+the fingerprint is what keeps the list sane. Two source realities to design around (reviewed):
+today's bus signal (`AgentNeed.kind`) only carries `question | permission`, so
+plan-approval/elicitation/login/recovery are schema-only until W3/W5 emit them — the
+`recovery → full-resume` default stays one function + one unit test with no e2e acceptance;
+and POD-2019's `…PayloadV1` placeholder types may not exist yet when you start — depend on
+the landed shape, don't assume this plan's sketch.
 
 ### 2. The module (house shape)
-`apps/server/src/modules/interactions/` mirroring an existing healthy vertical slice (look at
-how `modules/notify` or `modules/approvals` are structured: registry/service/repo/trpc):
-- **Store**: new table via a numbered migration (follow the store's migration conventions),
-  row = interaction with lifecycle state `asked → answered | expired | superseded`,
-  fingerprint-unique per session while open.
+`apps/server/src/modules/interactions/` mirroring `modules/approvals` (the right template:
+`registry / service / queries / trpc` — notify is a single service.ts, not a slice):
+- **Store**: the store is drizzle schema-as-code, not hand-numbered migrations — edit
+  `apps/server/src/migrations/schema.ts`, run `drizzle-kit generate` (timestamped folder
+  under `migrations/drizzle/`, bundled into `drizzle-manifest.generated.ts`; see
+  `migrations/index.ts` header). Row = interaction with lifecycle
+  `asked → answered | expired | superseded`, fingerprint-unique per session while open.
 - **Service**: `ask()` (idempotent on fingerprint — a duplicate classifier ask refreshes,
   never duplicates), `answer()` (idempotent; typed `already-answered`/`expired` errors),
-  `expireSweep()` (escalation deadline passes ⇒ marked expired + notification via the
-  existing notify module; NO auto-deny), `listOpen(session|all)`.
+  `expireSweep()` (escalation deadline passes ⇒ marked expired + a notification; NO
+  auto-deny — note `NotifyService`'s methods are private/bus-driven, so add one small public
+  notify method or a dedicated bus subscription rather than ad-hoc coupling; the sweep timer
+  hangs off the existing maintenance/janitor convention, not its own interval),
+  `listOpen(session|all)`.
 - **Default answer table** (not a policy engine): per-session-role map kind→auto-answer,
   today only `recovery → full-resume`. One function, one test.
 - **Events**: asked/answered/expired on the in-process bus + durable-synced through the
-  write funnel so replicas see them (mirror how issue events flow).
+  write funnel (`modules/funnel.ts`; `modules/issue-events/feed.ts` is the pattern).
+  Durable sync is a CROSS-PACKAGE step, not just a module: new entity kind = a
+  `MetadataChange` arm + `MetadataEntityKind` enum entry in
+  `packages/protocol/src/messages/sync.ts` (~:211) + a Wire type in `packages/model`
+  (additive — older clients drop unknown kinds). And the service must be constructed in the
+  composition root and threaded into `AgentRelayDispatchDeps`/`RegistryModules`
+  (`apps/server/src/relay.ts`) for the relay arm and tRPC to reach it.
 
 ### 3. Sources (observe, don't rewire)
 Subscribe where the signals already land in the server:
@@ -63,13 +87,13 @@ Subscribe where the signals already land in the server:
   than the bus subscription provides.
 
 ### 4. Answering (wrap the machinery that exists)
-`answer()` delegates by `answerable`:
-- `keystroke-emulated` question/permission ⇒ the existing native-menu digit path — reuse
-  `apps/server/src/modules/superagent/answer-delivery.ts` (it already decides "is a live menu
-  up, which digits are safe") and the `answerAskUserQuestion` flow the web UI uses. Fail
+`answer()` delegates by `answerable` and kind:
+- `keystroke-emulated` **question** ⇒ the existing native-menu digit path —
+  `deliverAnswerToSession` in `apps/server/src/modules/superagent/answer-delivery.ts` (note
+  it hard-gates on `need.kind === 'question'`) → `sessions.answerAskUserQuestion`. Fail
   closed exactly as it does.
-- `structured` ⇒ not reachable in this item (no protocol driver yet) — return a typed
-  not-yet-supported refusal so W5 has a clean seam.
+- `keystroke-emulated` **permission** ⇒ typed not-yet-supported refusal (see §1 — POD-707).
+- `structured` (any kind) ⇒ typed not-yet-supported refusal so W5 has a clean seam.
 
 ### 5. Surfaces
 - tRPC list/answer procs (for future UI; no UI work in this item).
@@ -91,10 +115,13 @@ expiry notification.
 
 ## Acceptance checklist
 - [ ] A Claude session hitting a permission prompt or AskUserQuestion yields a durable
-      PendingInteraction visible via `podium interactions list`.
-- [ ] Answering via CLI drives the native menu (delegation proven in a characterization test);
-      answering twice returns the typed error; answering an ask resolved at the terminal
-      returns `already-answered`.
+      PendingInteraction visible via `podium interactions list` (source: `session.stateChanged`
+      on the bus — `next.need` carries kind/summary/ask; `session.exited` + needs_user-exit
+      drive supersede/resolve).
+- [ ] Answering a QUESTION via CLI drives the native menu (delegation proven in a
+      characterization test); answering twice returns the typed error; an ask resolved at the
+      terminal returns `already-answered`; a PERMISSION answer returns the typed
+      not-yet-supported refusal.
 - [ ] Typecheck + touched suites green; no existing UI behavior changes.
 
 ## Pitfalls

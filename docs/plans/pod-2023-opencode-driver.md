@@ -23,32 +23,52 @@ server (`GET /doc` per the docs). The repo has an opencode reference at
 `packages/harness/src/manifests/opencode.ts`, `packages/harness/src/opencode/*`,
 `packages/transcript/src/opencode.ts` (sqlite mappers), and the `resume-exec` headless path —
 read them. Pin the exact endpoint names/shapes you will use from the live `/doc`, and record
-them as fixtures immediately (they are your recorded-fixture contract tests). Web-verified
-shapes to confirm against `/doc` (names may have drifted): `POST /session`,
-`POST /session/:id/message` (+ `prompt_async`), `POST /session/:id/abort`,
-`GET /session/:id/message`, `GET /event` (SSE, first event `server.connected`),
-`POST /session/:id/permissions/:permissionID` (`once`/`always`/`reject`), server basic-auth
-via `OPENCODE_SERVER_PASSWORD`/`OPENCODE_SERVER_USERNAME`.
+them as fixtures immediately (they are your recorded-fixture contract tests). Repo-verified
+(reference doc, v1.17.8): `opencode serve --port <N> --hostname <H>`, basic-auth via
+`OPENCODE_SERVER_USERNAME`/`OPENCODE_SERVER_PASSWORD`, `GET /doc`, `GET /event` +
+`GET /global/event` (SSE), `POST /session/:id/message` (documented as "send and WAIT for
+response"), `POST /session/:id/abort`, `GET /session/:id/message`, `GET /global/health`.
+**Repo-UNCONFIRMED, web-sourced — these three MUST be pinned from `/doc` before `client.ts`
+exists:** `POST /session` (create), `prompt_async`, and the permission reply route
+(`POST /session/:id/permissions/:permissionID`, `once/always/reject`).
+
+**Hour-one decision gate (reviewed — do this before any code):** opencode's own model is
+one long-lived server, many sessions; our per-session servers would share
+`~/.local/share/opencode/opencode.db` across processes, which nothing in the repo verifies
+as safe. Probe it: run two `serve` processes against the default data dir, exercise
+concurrent sessions, check journal mode/locking behavior. If safe → shared DB (transcript
+source unchanged). If not → per-session `XDG_DATA_HOME` isolation AND parameterize the db
+path in the opencode transcript source (small rewire; these sessions' history then rides
+the driver, not the global discovery scan). Record the verdict + evidence as an issue
+comment; the rest of the plan is written for the shared-DB branch and needs only the stated
+rewire on the other branch.
 
 ## Implementation order
 
 ### 1. Process management (daemon-side)
 `apps/daemon/src/runtime/opencode-server.ts`:
-- Spawn `opencode serve` with `--port 0`-style ephemeral binding if supported (else pick a
-  free port and pass it), loopback only, cwd = session workdir, env: managed credentials +
-  `OPENCODE_SERVER_PASSWORD=<32-byte random per session>` — **secret in env, never argv**
-  (spec §6). Parse the bound port from stdout/health-probe.
-- Wrap in a systemd user scope exactly like abduco masters are wrapped (reuse the
-  scope helpers in `packages/pty` — `systemdScopeArgv`/`scopeUnitName` — they are not
-  PTY-specific; if they are entangled, extract the scope utility, don't duplicate it).
-  Non-systemd platforms: plain detached process (declare the degradation).
+- Spawn `opencode serve --port <daemon-picked-free-port> --hostname 127.0.0.1` — the
+  daemon picks the port (no `--port 0` support documented); readiness = probe
+  `GET /global/health` (stdout parsing is opportunistic logging only). Env: managed
+  credentials + `OPENCODE_SERVER_PASSWORD=<32-byte random per session>` — **secret in env,
+  never argv** (spec §6) — and **strip inherited provider keys** (`ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, …) from the child env: the reference warns they override stored OAuth.
+- Wrap in a systemd user scope: `systemdScopeArgv`/`scopeUnitName` from `packages/pty` are
+  pure argv/name builders — reuse directly. But **reclaim is NOT reusable as-is**:
+  `reclaimStaleScope`'s liveness guard is abduco-socket-based. Deterministic unit names hit
+  the documented "unit already exists → silent fallback into the service cgroup → dies on
+  redeploy" failure, so implement an opencode liveness guard (health-probe the journal's
+  port/pid) + reuse the pure `scopeReclaimArgvs` on the respawn path. Non-systemd
+  platforms: plain detached process (declare the degradation).
 - Persist a binding journal entry (port, secret ref, pid, scope unit, opencode session id)
   in the instance state dir so `adopt()` can rebind after a daemon restart; health-probe on
   adopt; `create` vs `adopt` vs `resume` (server restart + `--session`/session-id addressing)
   all land in the driver.
 - **Version gate**: read `opencode --version` at driver init; refuse outside the tested
-  range with a machine diagnostic (mirror `apps/daemon/src/codex-hooks.ts`'s
-  `SUPPORTED_*_MINOR` pattern).
+  range with a machine diagnostic. Mirror the codex-hooks PATTERN
+  (parse/gate/`CodexHookDiagnostic`-style reporting) but adapt the predicate — opencode is
+  at 1.x (the codex gate pins `major === 0` + a minor range; copying it literally rejects
+  everything).
 
 ### 2. Protocol client (package-side, node-safe)
 `packages/agent-runtime/src/drivers/opencode/`:
@@ -58,15 +78,23 @@ via `OPENCODE_SERVER_PASSWORD`/`OPENCODE_SERVER_USERNAME`.
   build a monotonic per-session cursor (session id + event ordinal — pin what `/doc`
   offers; if the stream has no ordinal, maintain one and persist the high-water mark in the
   binding journal so `events(after)` and provenance work across reconnects).
-- `map.ts` — protocol events → `RuntimeEvent`s: message/part updates → `item` (reuse
-  `packages/transcript/src/opencode.ts` part mapping where shapes align — same item schema,
-  one source of truth); session idle/busy → normalized `AgentStateEvent`s through the shared
-  reducer; permission/question asks → PendingInteraction `ask()` (structured source,
-  answered via the REST reply); turn lifecycle → `turn` events; server process exit →
-  `process` events.
-- Receipts: `send()` = `POST message` → protocol ack ⇒ `accepted` (with turnEpoch from your
-  turn bookkeeping); server refuses/busy ⇒ typed `refused`; there is NO `unverified` here —
-  if you find yourself wanting it, your mapping is wrong. `interrupt()` = `abort` ⇒ fence on
+- `map.ts` — protocol events → `RuntimeEvent`s: `message.updated`/`message.part.updated` →
+  `item` (reuse `packages/transcript/src/opencode.ts` — `opencodePartToItems`/
+  `opencodeRowsToItems` — same item schema, one source of truth); `session.idle`/
+  `session.status`/`session.error` → normalized `AgentStateEvent`s through the shared
+  reducer; **`permission.updated` on SSE** → PendingInteraction `ask()` (the
+  `permission.asked`/`question.asked` names are in-process plugin-hook names, NOT SSE —
+  verify hour one whether question asks are visible over SSE at all, and record the
+  answer); turn lifecycle → `turn` events; server process exit → `process` events.
+  **Child-session filter:** subagent child sessions (`parent_id`) ride the same SSE bus —
+  filter/track by session id or child idle events will flip the parent's state (the
+  reference prescribes suppress-or-track).
+- Receipts: `POST /session/:id/message` is documented as blocking until the turn completes —
+  `accepted` must NOT mean "turn finished". Use `prompt_async` if `/doc` confirms it;
+  otherwise fire the blocking POST and derive `accepted` from the SSE correlation (first
+  `message.updated` carrying your sent message id), with the POST completion feeding the
+  `turn` events. Server refuses/busy ⇒ typed `refused`. There is NO `unverified` here — if
+  you find yourself wanting it, your mapping is wrong. `interrupt()` = `abort` ⇒ fence on
   the resulting terminal event. `steer` unsupported ⇒ `deliveredAs: 'queue'`.
 
 ### 3. Driver assembly + selection
@@ -76,9 +104,9 @@ via `OPENCODE_SERVER_PASSWORD`/`OPENCODE_SERVER_USERNAME`.
   with the real spec; `select(ctx)` returns the server driver **only when the spawn carries
   the explicit opt-in** (per-spawn override field from the spawn frame / a settings flag) —
   default remains terminal.
-- Server-side: the minimal spawn plumbing so `podium`-side spawns can carry the driver
-  override (one field through session-start → spawn frame; do not build UI — a settings
-  flag + CLI flag is enough for the operator to test).
+- Server-side: extend the per-spawn field POD-2021 already added to the spawn frame into a
+  driver-id override (don't plumb a second field); a settings flag + CLI flag is enough for
+  the operator to test — no UI.
 
 ### 4. Contract completeness for the session surface
 `state()` (reducer projection incl. observed model), `transcript.history` (the sqlite source
@@ -90,7 +118,8 @@ but unimplemented* (attach v2 is out of scope; declare with reason), `health()` 
 memory via the existing attribution).
 
 ### 5. Conformance + e2e
-- `runConformance(opencodeDriver, { exemptions: [] })` — **zero exemptions**; server family
+- `runConformance(makeOpencodeDriver, { exemptions: [] })` (factory signature per POD-2019)
+  — **zero exemptions**; server family
   must not need them. Include the connect-without-secret refusal test (spec §6) — a client
   without the password must be rejected by the server; prove it.
 - Recorded-fixture protocol tests: every endpoint/event shape you rely on, replayable

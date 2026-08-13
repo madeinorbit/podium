@@ -20,20 +20,32 @@ so `bun scripts/test.ts --filter @podium/agent-runtime` works), `tsconfig.json`,
 (one page: what the contract is, pointer to spec §3, core-vs-extended tiers).
 
 ### 2. Contract types (`src/`)
-Split by primitive group, one file each, `index.ts` barrel:
-- `families.ts` — `DriverFamily = 'server' | 'embedded' | 'terminal'`, `DriverId`.
+Split by primitive group, one file each, `index.ts` barrel. **Dependency direction rule
+(reviewed):** agent-runtime imports from `@podium/harness` and `@podium/protocol` — never the
+reverse. Therefore every type the manifest's runtime axis needs (`DriverFamily`, `DriverId`,
+`ServerRuntimeSpec`, `EmbeddedRuntimeSpec`, `TerminalRuntimeSpec`, `SelectionContext`) is
+DEFINED in `packages/harness` (with the manifest, step 4) and **aliased/re-exported** here;
+a harness↔agent-runtime cycle is rejected by turbo, `declared-deps`, and the layer manifest.
+- `families.ts` — re-exports `DriverFamily`/`DriverId` from `@podium/harness`.
 - `session-spec.ts` — `SessionSpec`: harness kind, selection ctx (principal, platform, role),
   workdir, model policy (model, effort, `Declared` subagent-model override), role profile
   (interaction default-answer table ref, permission preset), instruction channel
-  (`AgentInstruction[]` — reuse the existing type from `packages/harness/src/instructions.ts`),
-  `mcpServers` (Declared transport), env, initial prompt.
+  (`AgentInstruction[]` — the type + zod schema already exist in `@podium/protocol`, defined
+  at `packages/protocol/src/messages/terminal.ts` — import from protocol; harness's
+  `instructions.ts` only holds `composeAgentInstructions` and itself imports from protocol),
+  `mcpServers` (Declared transport), env, initial prompt. The `principal` component of the
+  selection ctx MUST be an opaque local string/tag: the `harness-principal-free` lint
+  (`scripts/check-boundaries.ts` ~:381/:433) bans importing principal/user types into
+  harness/pty/transcript, and these types live in harness (see the rule above).
 - `turns.ts` — `TurnInput` (text, attachments, Declared per-turn overrides), `SendOptions`
   (`origin`, `delivery: 'when-ready' | 'queue' | 'interrupt' | 'steer'`), `TurnReceipt` as a
   discriminated union: `accepted` (turnEpoch, `deliveredAs`), `queued` (position),
   `refused` (typed reason), `unverified` (window, evidence). `AttachmentRef`.
 - `events.ts` — `RuntimeEvent` union (`turn | item | state | interaction | process |
-  workspace | open-url`) + the causal envelope (`at`, `provenance: 'bootstrap'|'live'|'replay'`,
-  `cursor`, `observerGeneration`, `turnEpoch`). Reuse `AgentStateEvent` from
+  workspace | open-url`) + the causal envelope (`at`, provenance, `cursor`,
+  `observerGeneration`, `turnEpoch`). Provenance: alias the existing
+  `ObservationProvenance` (`packages/protocol/src/messages/runtime-state.ts:31`) — do not
+  redeclare the literal union. Reuse `AgentStateEvent` from
   `packages/harness/src/agent-state/types.ts` for the `state` variant — do NOT invent a
   parallel vocabulary. Cursor type: reuse/alias the `ProviderCursor` shape from the
   reattachment work (see `packages/protocol/src/messages/runtime-state.ts` and
@@ -59,22 +71,26 @@ Split by primitive group, one file each, `index.ts` barrel:
   snapshot, export, hibernate/stop/kill, health).
 
 ### 3. Wire schemas (`packages/protocol`)
-New `runtime` message family following the existing organization in
-`packages/protocol/src/` (look at how `messages/runtime-state.ts` is structured and exported,
-and mirror it): `messages/runtime.ts` with zod schemas for the wire-crossing shapes
-(receipts, RuntimeEvent envelope, PendingInteraction, ask/answer commands, attach
-negotiation). Export through the package index the same way sibling families are. Message
-classes per spec: events + interactions durable-synced, attach negotiation command/live-only.
-Keep protocol browser-safe: no imports from `@podium/agent-runtime` (protocol defines wire
-shapes independently; agent-runtime MAY import protocol, never the reverse — check how
-`@podium/harness` vs protocol handle the same tension today and follow it).
+New `messages/runtime.ts` with zod schemas for: receipts, the RuntimeEvent envelope, and
+PendingInteraction + ask/answer commands. **Standalone schemas only, exactly like
+`messages/runtime-state.ts`** — do NOT add them to the `ServerMessage`/`ClientMessage`
+unions or the `MESSAGE_SYNC_CLASSES` tables in W1: those are `satisfies`-exhaustive and
+`createDispatcher` forces handler stubs across apps the moment a union grows, which is a
+behavior-adjacent ripple that belongs to W3/W4. Sync-class intent (durable-synced vs
+command) is a doc comment in W1, a table entry later. Defer attach-negotiation schemas
+entirely (first consumer is W5). Protocol stays browser-safe: it never imports
+agent-runtime or harness.
 
 ### 4. Manifest runtime axis (`packages/harness`)
-`AgentManifest` gains `runtime: { server?: Declared<ServerRuntimeSpec>; embedded?:
-Declared<EmbeddedRuntimeSpec>; terminal: TerminalRuntimeSpec; select(ctx: SelectionContext):
-DriverId }` in `packages/harness/src/manifest.ts`. The exhaustive registry
-(`packages/harness/src/registry.ts`) will force every manifest to declare it — that type
-error IS the migration checklist:
+Define here (per the dependency rule in step 2): `DriverFamily`, `DriverId`, the three
+`*RuntimeSpec` types, `SelectionContext` (opaque principal tag), and `AgentManifest.runtime:
+{ server?: Declared<ServerRuntimeSpec>; embedded?: Declared<EmbeddedRuntimeSpec>; terminal:
+TerminalRuntimeSpec; select(ctx): DriverId }` in `packages/harness/src/manifest.ts`. The
+exhaustive registry (`packages/harness/src/registry.ts`) forces every manifest to declare it
+— that type error IS the migration checklist. Expected, legitimate test edits: the
+`const minimal: AgentManifest` fixture in `packages/harness/src/registry.test.ts` (~:349)
+and possibly `DECLARED_FIELDS` must gain the new axis — type-driven fixture updates are in
+scope, not a behavior change:
 - all five manifests: `terminal` = a thin reference to existing behavior (no logic move),
   `select` = always the terminal driver id for now (behavior-neutral).
 - `manifests/opencode.ts`: `server` = `{ kind: 'http-sse', spawn: ['opencode','serve'],
@@ -84,13 +100,17 @@ error IS the migration checklist:
 - claude-code: `embedded` declared with `auth: ['api-key','bedrock','vertex']`;
   grok/cursor: server+embedded `unsupported(reason)`.
 
-### 5. FakeDriver (`test/fake-driver.ts`)
+### 5. FakeDriver (`src/testing/fake-driver.ts`)
 A full in-memory core-contract implementation with scripted behavior (queue a turn, emit
 items, raise an interaction, settle) — deterministic, no timers where avoidable. It is the
 reference semantics: if a question about contract meaning comes up, answer it here and in a
 doc comment.
 
-### 6. Conformance suite (`test/conformance/`)
+### 6. Conformance suite (`src/testing/conformance/` — under `src/`, reviewed)
+Layout matters: the composer-template tsconfig is `include: ["src"]` and the repo colocates
+tests as `src/**/*.test.ts`; a top-level `test/` dir escapes typecheck. Also W3/W5 must
+import `runConformance` from this package, so it ships as an exported subpath
+(`@podium/agent-runtime/testing`), not a test-only file.
 `runConformance(makeDriver, opts: { exemptions: PermittedFailure[] })` — parameterized, so
 W3/W5 reuse it. Properties (spec §3 callout): send accepted/queued/refused/unverified
 semantics; interaction asked→answered lifecycle + idempotent answer; interrupt =
