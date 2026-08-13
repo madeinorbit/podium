@@ -1174,21 +1174,38 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
-    fn ensure_executable_never_copies_the_signed_sidecar_out_of_the_bundle() {
+    fn ensure_executable_runs_in_place_on_macos_and_copies_elsewhere() {
         use std::fs;
-        // Copying the sidecar to ~/.podium/bin strands it outside the app's stapled notarization
-        // ticket and drags com.apple.quarantine along, which Gatekeeper reports to the user as
-        // `"podium-sidecar" is damaged and can't be opened`. Run it where it was notarized.
-        let dir = std::env::temp_dir().join("podium-ensure-exec-macos");
-        fs::create_dir_all(&dir).expect("temp dir");
-        let src = dir.join("podium");
+        // Both halves assert here rather than under #[cfg(target_os = "macos")], because the only
+        // lane that runs these tests is ubuntu — a macOS-gated test compiles to nothing there and
+        // would never run, which is the exact hole scripts/test-rust.ts exists to close.
+        //
+        // macOS must run the sidecar where it was notarized: a copy in ~/.podium/bin sits outside
+        // the app's stapled ticket and inherits com.apple.quarantine, which Gatekeeper reports as
+        // `"podium-sidecar" is damaged and can't be opened`. Linux still needs the copy, because
+        // an AppImage mount is read-only and may drop the executable bit.
+        let src_dir =
+            std::env::temp_dir().join(format!("podium-ensure-exec-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&src_dir);
+        fs::create_dir_all(&src_dir).expect("temp dir");
+        let src = src_dir.join("podium");
         fs::write(&src, b"#!/bin/sh\nexit 0\n").expect("write src");
 
-        let resolved = ensure_executable(&src).expect("ensure_executable failed");
+        // with_state_dir keeps the copying branch out of the developer's real ~/.podium.
+        with_state_dir("ensure-exec", None, || {
+            let resolved = ensure_executable(&src).expect("ensure_executable failed");
+            if cfg!(target_os = "macos") {
+                assert_eq!(resolved, src, "macOS must run the sidecar in place");
+            } else {
+                assert_ne!(resolved, src, "non-macOS must run a writable copy");
+                assert!(
+                    resolved.ends_with("bin/podium-sidecar"),
+                    "unexpected copy location: {resolved:?}"
+                );
+            }
+        });
 
-        assert_eq!(resolved, src, "macOS must run the sidecar in place");
-        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&src_dir);
     }
 
     #[test]
