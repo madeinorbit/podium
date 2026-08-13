@@ -167,10 +167,20 @@ describe('writeWebBuildStamp and pre-compressed index.html', () => {
 // POD-1655 added, and assertWebDirMatches (scripts/build-bun.ts) can fail a good build
 // when precompress writes during the copy. Asserted against the real package.json
 // because the ordering IS the fix — nothing else can hold it.
-describe('apps/web build script ordering', () => {
+//
+// BOTH WEBSITES ARE HELD TO IT (POD-1991). The phone shell is served by the same
+// `serveFile` that prefers a build-time `.br`/`.gz` sibling, so an export without
+// them makes the LIVE server compress 6.7 MB on demand, at the server's own
+// interactive tier, every time the export is rebuilt — which is now every commit.
+// Pre-compressing it moves that cost into the batch-tier build scope where the
+// rest of the build already runs.
+describe.each([
+  { pkg: 'apps/web', scripts: ['build', 'build:dev'] },
+  { pkg: 'apps/mobile', scripts: ['build:web'] },
+])('$pkg build script ordering', ({ pkg, scripts: names }) => {
   const scripts = (
     JSON.parse(
-      readFileSync(fileURLToPath(new URL('../apps/web/package.json', import.meta.url)), 'utf8'),
+      readFileSync(fileURLToPath(new URL(`../${pkg}/package.json`, import.meta.url)), 'utf8'),
     ) as { scripts: Record<string, string | undefined> }
   ).scripts
 
@@ -178,11 +188,11 @@ describe('apps/web build script ordering', () => {
    *  the guard loudly, not silently stop guarding anything. */
   const stepsOf = (name: string): string[] => {
     const script = scripts[name]
-    if (!script) throw new Error(`apps/web has no \`${name}\` script to check the order of`)
+    if (!script) throw new Error(`${pkg} has no \`${name}\` script to check the order of`)
     return script.split('&&').map((step) => step.trim())
   }
 
-  for (const name of ['build', 'build:dev']) {
+  for (const name of names) {
     it(`writes the build stamp as the last step of \`${name}\``, () => {
       const steps = stepsOf(name)
       expect(steps.at(-1)).toContain('write-web-build-stamp.ts')
