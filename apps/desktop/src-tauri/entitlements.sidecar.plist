@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hardened-runtime entitlements for the bundled `podium` sidecar (Contents/Resources/resources/podium).
+
+  The sidecar is a `bun build --compile` binary, so it embeds JavaScriptCore and allocates
+  writable-executable memory for JIT-compiled code. Under the hardened runtime that allocation is
+  refused and the process dies at startup, which is why this file is separate from the shell's:
+  the sidecar genuinely needs both entitlements, and the shell must not inherit them.
+
+  If the sidecar ever fails to start with a code-signing error after loading a native module,
+  com.apple.security.cs.disable-library-validation is the next knob — it is deliberately NOT here,
+  because it would let any unsigned dylib load into the process.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>

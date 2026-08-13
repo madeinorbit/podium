@@ -27,11 +27,45 @@ GitHub Actions must contain `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The private key must match `plugins.updater.pubkey` in
 `apps/desktop/src-tauri/tauri.conf.json`; changing the key strands existing installations.
 
-Apple Silicon builds currently use Tauri's ad-hoc macOS signing identity (`-`) because the
-repository has no Apple Developer ID or notarization secrets. The updater archive is still
-signed with the production Tauri updater key. Ad-hoc signing avoids an unsigned ARM executable,
-but first launch may require approval in macOS Privacy & Security. A normal public macOS release
-should eventually configure Developer ID signing and notarization.
+### macOS Developer ID signing and notarization
+
+Apple Silicon builds are signed with a Developer ID Application certificate, hardened, notarized
+by Apple, and stapled, so a downloaded DMG opens without a Gatekeeper warning. This is separate
+from the Tauri updater key: Apple's signature is what macOS trusts, and the Tauri key is what the
+updater trusts. A release needs both.
+
+These GitHub Actions secrets drive it. A missing one does not fail loudly at Apple — it degrades to
+a signed-but-un-notarized bundle — so the build runs `apps/desktop/scripts/verify-macos-signing.sh`
+and refuses to publish unless the bundle is genuinely notarized.
+
+| Secret | What it is |
+| --- | --- |
+| `APPLE_CERTIFICATE` | base64 of the Developer ID Application `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | password used when exporting that `.p12` |
+| `APPLE_SIGNING_IDENTITY` | `Developer ID Application: NAME (TEAMID)`, exactly as `security find-identity -v -p codesigning` prints it |
+| `APPLE_TEAM_ID` | the 10-character Apple Team ID |
+| `APPLE_API_KEY` | App Store Connect API **Key ID** |
+| `APPLE_API_ISSUER` | App Store Connect API **Issuer ID** |
+| `APPLE_API_KEY_P8` | base64 of the `AuthKey_<KEYID>.p8` file |
+
+Notarization uses an App Store Connect API key rather than an Apple ID and app-specific password:
+no personal account is coupled to releases, and there is no password to rotate when someone leaves.
+
+Two pieces of the macOS build are easy to get wrong when changing it:
+
+- **The bundled `podium` sidecar is signed separately**, by `apps/desktop/scripts/stage-sidecar.ts`,
+  before `tauri build` seals the app. Tauri does not sign inside `resources/`, and Apple rejects a
+  bundle containing any unsigned Mach-O. That is also why the release workflow imports the
+  certificate into a keychain itself instead of passing `APPLE_CERTIFICATE` to Tauri — Tauri's own
+  import happens after staging.
+- **The sidecar needs JIT entitlements** (`entitlements.sidecar.plist`). It is a `bun --compile`
+  binary embedding JavaScriptCore; under the hardened runtime without those entitlements it dies at
+  startup. The app shell deliberately gets the narrower `entitlements.plist`.
+
+The Developer ID certificate expires five years after issue. Expiry breaks *new* signing only;
+already-notarized releases keep working. Renew before it lapses — the certificate cap is 5 per team.
+
+Only Apple Silicon macOS is built. Intel Macs have no macOS build on either channel.
 
 ## Cut an edge desktop release
 
@@ -73,6 +107,12 @@ the rolling edge manifest. There is no way for an older stable-only binary to di
 manifest directly.
 
 ## Release verification
+
+CI proves the macOS bundle is notarized before publishing. The remaining manual check is Gatekeeper
+on a machine that did not build it — download the published DMG through a browser (so it carries
+the quarantine attribute a `gh release download` does not) and open it. No warning, no Privacy &
+Security approval step. `spctl --assess --type exec -vvv /Applications/Podium.app` should say
+`source=Notarized Developer ID`.
 
 For a real release, verify from an older signed AppImage or macOS app whose embedded public key
 matches the release signing key:

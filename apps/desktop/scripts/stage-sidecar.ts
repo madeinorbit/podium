@@ -54,6 +54,40 @@ const podiumDst = `${resourcesDir}/${bundleNames().compiled}`
 cpSync(podiumSrc, podiumDst)
 chmodSync(podiumDst, 0o755)
 
+// 2b. macOS: code-sign the staged sidecar BEFORE `tauri build` seals the .app.
+//
+//     Notarization rejects a bundle containing ANY unsigned Mach-O, and Tauri's signing step
+//     signs the app bundle without descending into `resources/` — so an unsigned sidecar here is
+//     an Apple rejection later, not a warning. Signing it now means `tauri build` seals an
+//     already-valid nested binary.
+//
+//     APPLE_SIGNING_IDENTITY is the same identity Tauri will use for the .app; the release
+//     workflow imports the Developer ID into a keychain before this runs. Unset means a local
+//     build, which gets an ad-hoc signature — required on Apple Silicon for the binary to run at
+//     all, and never valid for distribution.
+if (process.platform === 'darwin') {
+  const identity = process.env.APPLE_SIGNING_IDENTITY?.trim() || '-'
+  const adHoc = identity === '-'
+  execFileSync(
+    'codesign',
+    [
+      '--force',
+      '--entitlements',
+      `${desktopDir}src-tauri/entitlements.sidecar.plist`,
+      // The hardened runtime and a trusted timestamp are both notarization requirements, and
+      // both are rejected outright by an ad-hoc signature — so a local build gets neither.
+      ...(adHoc ? [] : ['--options', 'runtime', '--timestamp']),
+      '--sign',
+      identity,
+      podiumDst,
+    ],
+    { stdio: 'inherit' },
+  )
+  console.log(
+    `[stage-sidecar] signed resources/podium with ${adHoc ? 'ad-hoc identity' : identity}`,
+  )
+}
+
 // 3. Stage the web bundle as a resource (served to external clients via PODIUM_WEB_DIR).
 const webSrc = `${repoRoot}/apps/web/dist`
 const webDst = `${resourcesDir}/web`

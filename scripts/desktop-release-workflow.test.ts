@@ -40,7 +40,18 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('target: darwin-aarch64')
     expect(desktopWorkflow).toContain('--target aarch64-apple-darwin')
     expect(desktopWorkflow).toContain('APPLE_SIGNING_IDENTITY:')
-    expect(desktopWorkflow).toContain('apple_signing_identity: "-"')
+    // Ad-hoc signing shipped Gatekeeper warnings to every macOS user. The release identity is a
+    // real Developer ID, and the credentials below are what make Tauri notarize rather than only
+    // sign — a missing one degrades silently to a signed-but-unnotarized bundle.
+    expect(desktopWorkflow).not.toContain('apple_signing_identity: "-"')
+    expect(desktopWorkflow).toContain('secrets.APPLE_SIGNING_IDENTITY')
+    expect(desktopWorkflow).toContain('secrets.APPLE_CERTIFICATE')
+    expect(desktopWorkflow).toContain('secrets.APPLE_CERTIFICATE_PASSWORD')
+    expect(desktopWorkflow).toContain('secrets.APPLE_TEAM_ID')
+    expect(desktopWorkflow).toContain('secrets.APPLE_API_KEY')
+    expect(desktopWorkflow).toContain('secrets.APPLE_API_ISSUER')
+    expect(desktopWorkflow).toContain('secrets.APPLE_API_KEY_P8')
+    expect(desktopWorkflow).toContain('APPLE_API_KEY_PATH=')
     expect(desktopWorkflow).toContain('*.dmg')
     expect(desktopWorkflow).toContain('*.app.tar.gz')
     expect(desktopWorkflow).toContain('actions/upload-artifact@v4')
@@ -50,6 +61,12 @@ describe('desktop release workflow', () => {
     const collect = desktopWorkflow.indexOf('actions/download-artifact@v4')
     const prepare = desktopWorkflow.lastIndexOf('bun scripts/desktop-release.ts')
     const upload = desktopWorkflow.indexOf('gh release upload')
+    // Proof of notarization gates the staged artifact: an un-notarized bundle must never become a
+    // published one, and `tauri build` exits 0 in every failure mode this script catches.
+    const verify = desktopWorkflow.indexOf('verify-macos-signing.sh')
+    const stage = desktopWorkflow.indexOf('name: Stage desktop bundle')
+    expect(verify).toBeGreaterThan(build)
+    expect(stage).toBeGreaterThan(verify)
     expect(validation).toBeGreaterThan(0)
     expect(build).toBeGreaterThan(validation)
     expect(collect).toBeGreaterThan(build)

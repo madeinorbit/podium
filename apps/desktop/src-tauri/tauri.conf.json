@@ -21,6 +21,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "11.0"
+    },
     "createUpdaterArtifacts": true
   },
   "plugins": {

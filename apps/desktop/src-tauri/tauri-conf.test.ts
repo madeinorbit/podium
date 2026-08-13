@@ -24,6 +24,24 @@ describe('tauri desktop config', () => {
       expect(existsSync(join(__dirname, icon)), icon).toBe(true)
     }
   })
+  it('ships the entitlements notarization requires', () => {
+    // Without an entitlements file the hardened runtime kills the JIT the bundled Bun sidecar
+    // needs, and without the hardened runtime Apple refuses to notarize at all.
+    expect(conf.bundle.macOS.entitlements).toBe('entitlements.plist')
+    for (const plist of ['entitlements.plist', 'entitlements.sidecar.plist']) {
+      const path = join(__dirname, plist)
+      expect(existsSync(path), plist).toBe(true)
+      expect(readFileSync(path, 'utf8')).toContain('com.apple.security.cs.allow-jit')
+    }
+    // The sidecar is the one that allocates writable-executable memory; the shell must not.
+    expect(readFileSync(join(__dirname, 'entitlements.sidecar.plist'), 'utf8')).toContain(
+      'com.apple.security.cs.allow-unsigned-executable-memory',
+    )
+    expect(readFileSync(join(__dirname, 'entitlements.plist'), 'utf8')).not.toContain(
+      'com.apple.security.cs.allow-unsigned-executable-memory',
+    )
+  })
+
   it('claims ⌘N in the macOS menu and routes it to the web app (POD-790)', () => {
     // An accelerator no menu item owns never reaches the webview, so this item
     // IS the shortcut — a JS keydown handler alone could not see ⌘N.
