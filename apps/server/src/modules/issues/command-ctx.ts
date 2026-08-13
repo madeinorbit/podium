@@ -57,7 +57,7 @@ export interface IssueCommandDeps {
   issues: IssueTrackerCapabilities
   /** Cross-aggregate Shipping application port. Command handlers may nominate
    * or resolve once; atomic issue/order mutation stays inside the service. */
-  shipping: Pick<ShippingService, 'enqueueCurrent' | 'resolveHold'>
+  shipping: Pick<ShippingService, 'enqueueCurrent' | 'resolveHold' | 'cancel' | 'deliveryReceipt'>
   /** Request-local bridge that binds exp-rev commands to their issue commit. */
   arbitration: Pick<IssueAuthorityArbitration, 'run'>
   /**

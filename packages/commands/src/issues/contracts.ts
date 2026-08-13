@@ -58,6 +58,7 @@
 
 import {
   IssueColor,
+  DeliveryReceiptIdField,
   IssueIdField,
   IssueStage,
   IssueType,
@@ -503,6 +504,26 @@ export const resolveShipHoldInput = z.object({
   action: ShipHoldAction,
   expectedGeneration: z.number().int().positive(),
 })
+
+/** Cancellation names only the durable order. Root issue, live custody and
+ * cancellation generation are resolved and fenced inside Shipping. */
+export const cancelShipInput = z.object({ orderId: ShipOrderIdField })
+
+/** Immutable delivery proof may be followed from the compact projection's
+ * order id or from its receipt id, but never from an ambiguous pair. */
+export const deliveryReceiptInput = z
+  .object({
+    orderId: ShipOrderIdField.optional(),
+    receiptId: DeliveryReceiptIdField.optional(),
+  })
+  .superRefine((input, ctx) => {
+    if ((input.orderId === undefined) === (input.receiptId === undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'name exactly one of orderId or receiptId',
+      })
+    }
+  })
 
 export const reparentInput = z.object({ id: IssueIdField, parentId: IssueIdField.nullable() })
 
@@ -1250,7 +1271,7 @@ export const issueResolveShipHoldContract = {
   visibility: ISSUE_VISIBILITY,
   input: resolveShipHoldInput,
   policy: WRITE_POLICY,
-  exposure: SERVED_ON_WIRE,
+  exposure: SERVED_EVERYWHERE,
   delivery: SHIPPING_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
@@ -1260,6 +1281,38 @@ export const issueResolveShipHoldContract = {
   conflictRule:
     'generation-fenced Shipping hold state machine; only the service transaction clears issue attention',
 } as const satisfies MutatingCommandContract
+
+export const issueCancelShipContract = {
+  name: 'issues.cancelShip',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: cancelShipInput,
+  policy: WRITE_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: SHIPPING_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'live Shipping cancellation state machine; durable attempt generation and custody fence the service transaction',
+} as const satisfies MutatingCommandContract
+
+export const issueDeliveryReceiptContract = {
+  name: 'issues.deliveryReceipt',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: deliveryReceiptInput,
+  policy: READ_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: READ_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
+} as const satisfies CommandContract
 
 export const issueAddSessionContract = {
   name: 'issues.addSession',
@@ -1910,6 +1963,7 @@ export const ISSUE_CONTRACTS = {
   artifactRead: issueArtifactReadContract,
   attachSession: issueAttachSessionContract,
   blocked: issueBlockedContract,
+  cancelShip: issueCancelShipContract,
   children: issueChildrenContract,
   claim: issueClaimContract,
   cleanup: issueCleanupContract,
@@ -1924,6 +1978,7 @@ export const ISSUE_CONTRACTS = {
   depAdd: issueDepAddContract,
   depRemove: issueDepRemoveContract,
   depReport: issueDepReportContract,
+  deliveryReceipt: issueDeliveryReceiptContract,
   dismissSuggestion: issueDismissSuggestionContract,
   doctor: issueDoctorContract,
   duplicate: issueDuplicateContract,
@@ -2057,6 +2112,7 @@ const NON_MUTATING_NAMES = [
   'comments',
   'count',
   'depReport',
+  'deliveryReceipt',
   'doctor',
   'epicStatus',
   'events',

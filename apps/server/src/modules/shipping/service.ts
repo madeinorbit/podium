@@ -6,6 +6,7 @@ import {
   asShipOrderId,
   asShipStepId,
   type DeliveryReceipt,
+  type DeliveryReceiptId,
   type DescendantTip,
   type IssueId,
   type IssueWire,
@@ -94,6 +95,7 @@ export interface ResolveShipHoldInput {
   expectedGeneration: number
   principal: CommandPrincipal
   requestedBy?: Attribution
+  overrideScope?: boolean
 }
 
 export interface ResolvedShipHold {
@@ -104,8 +106,27 @@ export interface ResolvedShipHold {
 export interface CancelShipOrderInput {
   orderId: ShipOrderId
   principal: CommandPrincipal
-  requestedBy: Attribution
+  requestedBy?: Attribution
   overrideScope: boolean
+}
+
+export interface DeliveryReceiptDetailInput {
+  /** The command schema requires exactly one identity; the service repeats the
+   * default-closed check because it is also a direct application port. */
+  orderId?: ShipOrderId
+  receiptId?: DeliveryReceiptId
+  principal: CommandPrincipal
+  overrideScope: boolean
+}
+
+/** Deliberately collapses absent rows and rows whose delivery root is invisible.
+ * Order-addressed commands use TARGETED_ERRORS, so revealing which arm failed
+ * would turn an opaque order id into an issue-existence oracle. */
+export class ShippingOrderAccessError extends Error {
+  constructor() {
+    super('shipping order not found or inaccessible')
+    this.name = 'ShippingOrderAccessError'
+  }
 }
 
 export interface ShippingIssuePort {
@@ -134,7 +155,7 @@ export interface ShippingAuthorizationPort {
   attribution(principal: CommandPrincipal): Attribution
   authorize(input: {
     principal: CommandPrincipal
-    action: 'enqueue' | 'resolve-hold' | 'cancel'
+    action: 'enqueue' | 'resolve-hold' | 'cancel' | 'read-receipt'
     issue: IssueWire
     overrideScope: boolean
   }): void
@@ -194,6 +215,12 @@ export class ShippingService {
   async enqueueCurrent(input: CurrentShipOrderInput): Promise<EnqueuedShipOrder> {
     const issue = this.deps.issues.get(input.issueId)
     const policy = this.deps.policy.resolve(issue)
+    // Issue-panel artifacts are the durable, server-minted review evidence the
+    // human is shown. Only a snapshotted artifact id is authoritative here;
+    // legacy live paths and command-supplied strings are deliberately ignored.
+    const evidenceManifestRef = issue.panel.artifacts.find(
+      (artifact) => artifact.artifactId !== undefined && artifact.files !== undefined,
+    )?.artifactId
     const [sourceHeadSha, sourceBaseSha] = await Promise.all([
       this.deps.resolveBranchTip(issue),
       this.deps.resolveRefTip(issue, policy.targetBranch),
@@ -205,6 +232,7 @@ export class ShippingService {
         sourceBaseSha,
         sourceHeadSha,
         policyId: policy.id,
+        ...(evidenceManifestRef ? { evidenceManifestRef } : {}),
         previewLeaseIds: [],
       },
     })
@@ -637,14 +665,12 @@ export class ShippingService {
   }
 
   async cancel(input: CancelShipOrderInput): Promise<ShipOrder> {
-    const order = this.requiredOrder(input.orderId)
-    const issue = this.deps.issues.get(order.issueId)
-    this.deps.authorization.authorize({
-      principal: input.principal,
-      action: 'cancel',
-      issue,
-      overrideScope: input.overrideScope,
-    })
+    const { order, issue } = this.authorizedOrder(
+      input.orderId,
+      input.principal,
+      'cancel',
+      input.overrideScope,
+    )
     if (order.state === 'held') {
       const hold = this.deps.repository.openHoldForOrder(order.id)
       if (!hold) throw new Error(`held shipping order ${order.id} has no open hold`)
@@ -654,7 +680,7 @@ export class ShippingService {
           action: 'return-to-issue',
           expectedGeneration: hold.generation,
           principal: input.principal,
-          requestedBy: input.requestedBy,
+          overrideScope: input.overrideScope,
         })
       ).order
     }
@@ -838,15 +864,13 @@ export class ShippingService {
 
   async resolveHold(input: ResolveShipHoldInput): Promise<ResolvedShipHold> {
     const { orderId, action, expectedGeneration } = input
-    const order = this.requiredOrder(orderId)
-    const issue = this.deps.issues.get(order.issueId)
+    const { order, issue } = this.authorizedOrder(
+      orderId,
+      input.principal,
+      'resolve-hold',
+      input.overrideScope === true,
+    )
     const requestedBy = this.deps.authorization.attribution(input.principal)
-    this.deps.authorization.authorize({
-      principal: input.principal,
-      action: 'resolve-hold',
-      issue,
-      overrideScope: false,
-    })
     if (order.state !== 'held') throw new Error(`shipping order ${order.id} is not held`)
     const nextState =
       action === 'return-to-issue' ? 'cancelled' : action === 'open-repair' ? 'repairing' : 'queued'
@@ -893,6 +917,24 @@ export class ShippingService {
       requestedBy,
     })
     return { order: result, projection: this.requiredProjection(result.id) }
+  }
+
+  /** Immutable proof is addressed by its own id or by the order that owns it.
+   * The order-to-root authorization happens before a missing per-order receipt
+   * is reported, and receipt-id misses share the same opaque error as invisible
+   * roots. */
+  deliveryReceipt(input: DeliveryReceiptDetailInput): DeliveryReceipt | null {
+    if ((input.orderId === undefined) === (input.receiptId === undefined)) {
+      throw new Error('name exactly one of orderId or receiptId')
+    }
+    const receipt = input.receiptId
+      ? this.deps.repository.listReceipts().find((candidate) => candidate.id === input.receiptId)
+      : undefined
+    if (input.receiptId && !receipt) throw new ShippingOrderAccessError()
+    const orderId = receipt?.orderId ?? input.orderId
+    if (!orderId) throw new ShippingOrderAccessError()
+    this.authorizedOrder(orderId, input.principal, 'read-receipt', input.overrideScope)
+    return receipt ?? this.deps.repository.receiptForOrder(orderId)
   }
 
   dispose(): void {
@@ -1407,6 +1449,36 @@ export class ShippingService {
     const order = this.deps.repository.getOrder(id)
     if (!order) throw new Error(`unknown shipping order ${id}`)
     return order
+  }
+
+  private authorizedOrder(
+    id: ShipOrderId,
+    principal: CommandPrincipal,
+    action: 'resolve-hold' | 'cancel' | 'read-receipt',
+    overrideScope: boolean,
+  ): { order: ShipOrder; issue: IssueWire } {
+    const order = this.deps.repository.getOrder(id)
+    if (!order) throw new ShippingOrderAccessError()
+    let issue: IssueWire
+    try {
+      issue = this.deps.issues.get(order.issueId)
+    } catch {
+      throw new ShippingOrderAccessError()
+    }
+    try {
+      this.deps.authorization.authorize({ principal, action, issue, overrideScope })
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'NOT_FOUND'
+      ) {
+        throw new ShippingOrderAccessError()
+      }
+      throw error
+    }
+    return { order, issue }
   }
 
   private requiredProjection(id: ShipOrderId): ShipOrderProjection {

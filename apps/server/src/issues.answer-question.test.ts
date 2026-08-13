@@ -49,6 +49,12 @@ function harness(
       resolveHold: async () => {
         throw new Error('not used')
       },
+      cancel: async () => {
+        throw new Error('not used')
+      },
+      deliveryReceipt: () => {
+        throw new Error('not used')
+      },
     },
     arbitration: { run: (_input, operation) => operation() },
     deleteIssue: () => undefined,

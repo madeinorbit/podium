@@ -50,6 +50,67 @@ describe('IssueToolProvider', () => {
     expect(out).toContain('Podium owns it now')
   })
 
+  it('exposes cancel, hold resolution and full receipt detail through the same MCP table', async () => {
+    const cancelShip = vi.fn(async () => ({
+      id: 'ship_order',
+      issueId: 'iss_root',
+      state: 'cancelled',
+    }))
+    const resolveShipHold = vi.fn(async () => ({
+      order: { id: 'ship_order', state: 'queued' },
+    }))
+    const deliveryReceipt = vi.fn(async () => ({
+      id: 'receipt_order',
+      orderId: 'ship_order',
+      approvedBaseSha: 'base',
+      approvedHeadSha: 'head',
+      testedIntegrationSha: 'tested',
+      landedRefSha: 'landed',
+      destinationSha: 'destination',
+      validationProfileId: 'lean',
+      validationResult: 'passed',
+      destination: 'origin/main',
+      completedAt: '2026-08-13T10:00:00.000Z',
+    }))
+    const p = new IssueToolProvider()
+    p.setClient({
+      issues: {
+        cancelShip: { mutate: cancelShip },
+        resolveShipHold: { mutate: resolveShipHold },
+        deliveryReceipt: { query: deliveryReceipt },
+      },
+    } as unknown as IssueTrpc)
+    const names = p.mcpToolSpecs().map((entry) => entry.name)
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'issue_cancel_ship',
+        'issue_resolve_ship_hold',
+        'issue_delivery_receipt',
+      ]),
+    )
+    const receiptSpec = p.mcpToolSpecs().find((entry) => entry.name === 'issue_delivery_receipt')
+    expect(
+      Object.keys((receiptSpec?.inputSchema as { properties: Record<string, unknown> }).properties),
+    ).toEqual(['orderId', 'receiptId'])
+
+    await p.callMcpTool('issue_cancel_ship', { orderId: 'ship_order' })
+    expect(cancelShip).toHaveBeenCalledWith({ orderId: 'ship_order' })
+    await p.callMcpTool('issue_resolve_ship_hold', {
+      orderId: 'ship_order',
+      action: 'retry',
+      expectedGeneration: 4,
+    })
+    expect(resolveShipHold).toHaveBeenCalledWith({
+      orderId: 'ship_order',
+      action: 'retry',
+      expectedGeneration: 4,
+    })
+    const detail = await p.callMcpTool('issue_delivery_receipt', { orderId: 'ship_order' })
+    expect(deliveryReceipt).toHaveBeenCalledWith({ orderId: 'ship_order' })
+    expect(detail).toContain('approved: base..head')
+    expect(detail).toContain('validation: passed (lean)')
+  })
+
   it('issue_tree renders the subtree text via the set client [#82]', async () => {
     const p = new IssueToolProvider()
     p.setClient({

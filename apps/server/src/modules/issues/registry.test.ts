@@ -1,5 +1,5 @@
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
@@ -34,6 +34,7 @@ const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   stop: 'write',
   integrate: 'write',
   ship: 'write',
+  cancelShip: 'write',
   resolveShipHold: 'write',
   applySuggestion: 'write',
   dismissSuggestion: 'write',
@@ -86,6 +87,7 @@ const OLD_SCOPED_TARGET_FIELD: Record<string, 'id' | 'fromId' | 'oldId' | 'none'
   stop: 'id',
   integrate: 'id',
   ship: 'id',
+  cancelShip: 'none',
   resolveShipHold: 'none',
   applySuggestion: 'id',
   dismissSuggestion: 'id',
@@ -189,8 +191,8 @@ describe('issue command registry completeness', () => {
     const unscoped = ISSUE_COMMAND_NAMES.filter(
       (n) => ISSUE_CONTRACTS[n].policy.resource !== 'issue',
     )
-    expect(scoped.length).toBe(38)
-    expect(unscoped.length).toBe(36)
+    expect(scoped.length).toBe(39)
+    expect(unscoped.length).toBe(37)
     // The predicate the assertion above applies, run on PLANTED pairs so it is
     // observed saying NO before its silence is read as agreement.
     const agrees = (hasExtractor: boolean, resource: string) =>
@@ -222,7 +224,7 @@ describe('handler↔contract schema identity', () => {
       expect(def?.input, name).toBe(ISSUE_CONTRACTS[name].input)
       checked += 1
     }
-    expect(checked).toBe(74)
+    expect(checked).toBe(76)
   })
 
   it('`toBe` here is load-bearing: an equal-but-separate schema would pass toEqual', () => {
@@ -458,9 +460,32 @@ describe('Shipping command boundary', () => {
     const resolveHold = vi.fn(async (input: { orderId: string }) => ({
       order: { id: input.orderId, issueId: 'iss_root' },
     }))
+    const cancel = vi.fn(async (input: { orderId: string }) => ({
+      id: input.orderId,
+      issueId: 'iss_root',
+      state: 'cancelled',
+    }))
+    const deliveryReceipt = vi.fn((input: { orderId?: string; receiptId?: string }) => ({
+      id: input.receiptId ?? 'receipt_order',
+      orderId: input.orderId ?? 'ship_order',
+      approvedBaseSha: 'base',
+      approvedHeadSha: 'head',
+      testedIntegrationSha: 'tested',
+      landedRefSha: 'landed',
+      destinationSha: 'destination',
+      validationProfileId: 'lean',
+      validationResult: 'passed' as const,
+      destination: 'local:main',
+      completedAt: '2026-08-13T10:00:00.000Z',
+    }))
     const dispatcher = new IssueCommandDispatcher({
       issues: registry.issues,
-      shipping: { enqueueCurrent: enqueueCurrent as never, resolveHold: resolveHold as never },
+      shipping: {
+        enqueueCurrent: enqueueCurrent as never,
+        resolveHold: resolveHold as never,
+        cancel: cancel as never,
+        deliveryReceipt: deliveryReceipt as never,
+      },
       arbitration: { run: (_input, operation) => operation() },
       attachSession: () => {
         throw new Error('not used')
@@ -472,7 +497,7 @@ describe('Shipping command boundary', () => {
       repoPaths: () => ['/r'],
       inferRepoFromPath: () => undefined,
     })
-    return { registry, dispatcher, enqueueCurrent, resolveHold }
+    return { registry, dispatcher, enqueueCurrent, resolveHold, cancel, deliveryReceipt }
   }
 
   const agentCaller = (rootId: string, overrideScope = false) => {
@@ -586,8 +611,113 @@ describe('Shipping command boundary', () => {
         action: 'retry',
         expectedGeneration: 3,
         principal: expect.objectContaining({ kind: 'agent' }),
+        overrideScope: false,
       }),
     )
+  })
+
+  it('delegates cancel once with live root authorization and transport scope confirmation', async () => {
+    const { registry, dispatcher, cancel } = harness()
+    const root = registry.issues.create({ repoPath: '/r', title: 'Root', startNow: false })
+
+    await dispatcher.dispatch(agentCaller(root.id, true), 'issues', 'cancelShip', {
+      orderId: 'ship_order',
+    })
+
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(cancel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: 'ship_order',
+        principal: expect.objectContaining({ kind: 'agent' }),
+        overrideScope: true,
+      }),
+    )
+  })
+
+  it('returns the typed immutable receipt through either identity without projection casts', async () => {
+    const { registry, dispatcher, deliveryReceipt } = harness()
+    const root = registry.issues.create({ repoPath: '/r', title: 'Root', startNow: false })
+
+    const receipt = await dispatcher.dispatch(agentCaller(root.id), 'issues', 'deliveryReceipt', {
+      receiptId: 'receipt_order',
+    })
+
+    expect(deliveryReceipt).toHaveBeenCalledTimes(1)
+    expect(deliveryReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receiptId: 'receipt_order',
+        principal: expect.objectContaining({ kind: 'agent' }),
+        overrideScope: false,
+      }),
+    )
+    expect(receipt).toMatchObject({
+      approvedBaseSha: 'base',
+      approvedHeadSha: 'head',
+      testedIntegrationSha: 'tested',
+      landedRefSha: 'landed',
+      destinationSha: 'destination',
+      validationResult: 'passed',
+    })
+  })
+
+  it('intersects an agent subtree with the human current role and issue write right', () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    const root = registry.issues.create({
+      repoPath: '/r',
+      title: 'Delegated root',
+      ownerUserId: asUserId('user:other'),
+      startNow: false,
+    })
+    const caller = agentCaller(root.id)
+    const authorization = (
+      registry.shipping as unknown as {
+        deps: {
+          authorization: {
+            authorize(input: {
+              principal: NonNullable<typeof caller.principal>
+              action: 'enqueue'
+              issue: typeof root
+              overrideScope: boolean
+            }): void
+          }
+        }
+      }
+    ).deps.authorization
+
+    expect(() =>
+      authorization.authorize({
+        principal: caller.principal,
+        action: 'enqueue',
+        issue: root,
+        overrideScope: false,
+      }),
+    ).not.toThrow()
+
+    const store = registry as unknown as {
+      store: {
+        users: { roleOf: (id: typeof FIRST_ADMIN_USER_ID) => 'admin' | 'member' | undefined }
+      }
+    }
+    const roleOf = vi.spyOn(store.store.users, 'roleOf').mockReturnValue('member')
+    expect(() =>
+      authorization.authorize({
+        principal: caller.principal,
+        action: 'enqueue',
+        issue: root,
+        overrideScope: true,
+      }),
+    ).toThrow(/unknown issue/)
+
+    roleOf.mockReturnValue(undefined)
+    expect(() =>
+      authorization.authorize({
+        principal: caller.principal,
+        action: 'enqueue',
+        issue: root,
+        overrideScope: true,
+      }),
+    ).toThrow(/no longer active/)
   })
 })
 

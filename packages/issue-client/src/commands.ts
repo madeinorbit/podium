@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
+  type DeliveryReceipt,
   IssueColor,
   type IssueShowWire,
   type IssueTreeNode,
@@ -549,8 +550,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         // escalations than blind doubling. Both clamped to the proc's own input
         // bounds so the suggested command is always one the server accepts.
         const nextNodes = Math.min(1000, Math.max(maxNodes * 4, (t.totalNodes + t.omitted) * 2))
-        const truncationNotice =
-          `TRUNCATED: ${t.totalNodes} nodes shown, ${t.omitted} child issue${t.omitted === 1 ? '' : 's'} omitted by the ${hitNodes ? `node cap (--max-nodes ${maxNodes})` : `depth cap (--max-depth ${maxDepth})`}.`
+        const truncationNotice = `TRUNCATED: ${t.totalNodes} nodes shown, ${t.omitted} child issue${t.omitted === 1 ? '' : 's'} omitted by the ${hitNodes ? `node cap (--max-nodes ${maxNodes})` : `depth cap (--max-depth ${maxDepth})`}.`
         out.push(
           '',
           truncationNotice,
@@ -845,15 +845,82 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     args: z.strictObject({ id: idArg.optional() }),
     positionals: ['id'],
     async run(c, a) {
-      const accepted = (await c.issues.ship.mutate(
-        a.id != null ? { id: a.id as string } : {},
-      )) as {
+      const accepted = (await c.issues.ship.mutate(a.id != null ? { id: a.id as string } : {})) as {
         order: { id: string; issueId: string; destination: string }
         created: boolean
       }
       return {
         text: `shipping ${a.id ?? accepted.order.issueId} → ${accepted.order.destination}\nPodium owns it now.`,
         data: accepted,
+      }
+    },
+  },
+  {
+    name: 'cancel-ship',
+    summary:
+      'Cancel a live Shipping order through its durable custody path: cancel-ship <orderId> [--outside-scope].',
+    args: z.strictObject({ orderId: z.string().min(1) }),
+    positionals: ['orderId'],
+    async run(c, a) {
+      const order = (await c.issues.cancelShip.mutate({
+        orderId: a.orderId as string,
+      })) as { id: string; issueId: string; state: string }
+      return { text: `shipping order ${order.id} → ${order.state}`, data: order }
+    },
+  },
+  {
+    name: 'resolve-ship-hold',
+    summary:
+      'Resolve a Shipping hold with its generation fence: resolve-ship-hold <orderId> <action> <expectedGeneration> [--outside-scope].',
+    args: z.strictObject({
+      orderId: z.string().min(1),
+      action: z.enum(['retry', 'open-repair', 'return-to-issue']),
+      expectedGeneration: z.coerce.number().int().positive(),
+    }),
+    positionals: ['orderId', 'action', 'expectedGeneration'],
+    async run(c, a) {
+      const resolved = (await c.issues.resolveShipHold.mutate({
+        orderId: a.orderId as string,
+        action: a.action as 'retry' | 'open-repair' | 'return-to-issue',
+        expectedGeneration: a.expectedGeneration as number,
+      })) as { order: { id: string; state: string } }
+      return {
+        text: `shipping hold ${resolved.order.id} → ${resolved.order.state}`,
+        data: resolved,
+      }
+    },
+  },
+  {
+    name: 'delivery-receipt',
+    summary:
+      'Read immutable delivery proof: delivery-receipt [<orderId>] [--receipt-id <id>] [--outside-scope]. Name exactly one identity.',
+    args: z
+      .strictObject({
+        orderId: z.string().min(1).optional(),
+        receiptId: z.string().min(1).optional(),
+      })
+      .superRefine((input, ctx) => {
+        if ((input.orderId === undefined) === (input.receiptId === undefined)) {
+          ctx.addIssue({ code: 'custom', message: 'name exactly one of orderId or receiptId' })
+        }
+      }),
+    positionals: ['orderId'],
+    async run(c, a) {
+      const receipt = (await c.issues.deliveryReceipt.query({
+        ...(a.orderId ? { orderId: a.orderId as string } : {}),
+        ...(a.receiptId ? { receiptId: a.receiptId as string } : {}),
+      })) as DeliveryReceipt | null
+      if (!receipt) return { text: `no delivery receipt for ${a.orderId}`, data: null }
+      return {
+        text: [
+          `${receipt.id} (${receipt.orderId})`,
+          `approved: ${receipt.approvedBaseSha}..${receipt.approvedHeadSha}`,
+          `tested: ${receipt.testedIntegrationSha}`,
+          `landed: ${receipt.landedRefSha}`,
+          `destination: ${receipt.destinationSha}`,
+          `validation: ${receipt.validationResult} (${receipt.validationProfileId})`,
+        ].join('\n'),
+        data: receipt,
       }
     },
   },
@@ -1603,11 +1670,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           .filter(Boolean)
           .join(' ')
         const truncationNotice = `TRUNCATED: hit the ${limit}-event limit; there may be more.`
-        lines.push(
-          '',
-          truncationNotice,
-          `  Next page: ${next}`,
-        )
+        lines.push('', truncationNotice, `  Next page: ${next}`)
         lines.unshift(truncationNotice, '')
       }
       return { text: lines.length ? lines.join('\n') : '(no events)', data: rows }

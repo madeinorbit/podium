@@ -92,6 +92,63 @@ describe('runIssueCli', () => {
     expect(ship).toHaveBeenCalledWith({ id: 'POD-830' })
   })
 
+  it('cancel and hold commands forward only durable order identity and typed generation action', async () => {
+    const cancelShip = vi.fn(async () => ({
+      id: 'ship_order',
+      issueId: 'iss_root',
+      state: 'cancelled',
+    }))
+    const resolveShipHold = vi.fn(async () => ({
+      order: { id: 'ship_order', state: 'queued' },
+    }))
+    const c = {
+      issues: {
+        cancelShip: { mutate: cancelShip },
+        resolveShipHold: { mutate: resolveShipHold },
+      },
+    } as any
+
+    await runIssueCli(['cancel-ship', 'ship_order', '--outside-scope'], c)
+    expect(cancelShip).toHaveBeenCalledWith({ orderId: 'ship_order' })
+    await runIssueCli(['resolve-ship-hold', 'ship_order', 'retry', '4'], c)
+    expect(resolveShipHold).toHaveBeenCalledWith({
+      orderId: 'ship_order',
+      action: 'retry',
+      expectedGeneration: 4,
+    })
+  })
+
+  it('delivery-receipt exposes the full immutable proof by order or receipt identity', async () => {
+    const receipt = {
+      id: 'receipt_order',
+      orderId: 'ship_order',
+      approvedBaseSha: 'base',
+      approvedHeadSha: 'head',
+      testedIntegrationSha: 'tested',
+      landedRefSha: 'landed',
+      destinationSha: 'destination',
+      validationProfileId: 'lean',
+      validationResult: 'passed',
+      destination: 'origin/main',
+      completedAt: '2026-08-13T10:00:00.000Z',
+    }
+    const deliveryReceipt = vi.fn(async () => receipt)
+    const c = { issues: { deliveryReceipt: { query: deliveryReceipt } } } as any
+
+    const out = await runIssueCli(['delivery-receipt', '--receipt-id', 'receipt_order'], c)
+    expect(deliveryReceipt).toHaveBeenCalledWith({ receiptId: 'receipt_order' })
+    expect(out).toContain('approved: base..head')
+    expect(out).toContain('tested: tested')
+    expect(out).toContain('landed: landed')
+    expect(out).toContain('destination: destination')
+    expect(out).toContain('validation: passed (lean)')
+
+    await expect(runIssueCli(['delivery-receipt'], c)).rejects.toThrow(/exactly one/)
+    await expect(
+      runIssueCli(['delivery-receipt', 'ship_order', '--receipt-id', 'receipt_order'], c),
+    ).rejects.toThrow(/exactly one/)
+  })
+
   it('help for an unknown command throws', async () => {
     await expect(runIssueCli(['help', 'nope'], client)).rejects.toThrow(/unknown command/i)
   })

@@ -1652,6 +1652,8 @@ export class SessionRegistry {
       shipping: {
         enqueueCurrent: (input) => shipping.enqueueCurrent(input),
         resolveHold: (input) => shipping.resolveHold(input),
+        cancel: (input) => shipping.cancel(input),
+        deliveryReceipt: (input) => shipping.deliveryReceipt(input),
       },
       deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
       restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
@@ -1741,11 +1743,26 @@ export class SessionRegistry {
           if (principal.kind === 'system') {
             throw new Error(`system job ${principal.job} cannot ${action} a shipping order`)
           }
+          const humanId = onBehalfOfUser(principal)
+          if (!humanId) throw new Error('shipping command has no human authorization owner')
+          const liveRole = this.store.users.roleOf(humanId)
+          if (!liveRole) throw new Error(`shipping requester ${humanId} is no longer active`)
           checkIssueAccess(
             { capability: principal.capability, overrideScope },
             issueAccess,
             `shipping.${action}`,
-            'write',
+            action === 'read-receipt' ? 'read' : 'write',
+            issue.id,
+          )
+          // An agent's live subtree (and --outside-scope confirmation) is only
+          // half of delegated authority. Intersect it with the human's CURRENT
+          // account role and issue ownership/grants; overrideScope never widens
+          // this half, so a removed grant or demotion takes effect immediately.
+          checkIssueAccess(
+            { capability: userCommandPrincipal(humanId, liveRole).capability },
+            issueAccess,
+            `shipping.${action}.owner`,
+            action === 'read-receipt' ? 'read' : 'write',
             issue.id,
           )
         },

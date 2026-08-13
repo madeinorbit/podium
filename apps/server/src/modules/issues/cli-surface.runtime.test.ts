@@ -16,7 +16,8 @@
  * arm is wired and not merely present.
  *
  * NOT executed: `start`, `add-session`, `add-shell`, `action`, `cleanup`, `stop`,
- * `integrate`. Those spawn agent sessions, run git, or touch worktrees — driving them
+ * `integrate`, `ship`, `cancel-ship`, `resolve-ship-hold`, `delivery-receipt`. Those
+ * spawn agent sessions, run git, touch worktrees, or require a durable Shipping order — driving them
  * from a unit lane would spawn real processes on this machine. For those the check is
  * reachability against the real dispatcher object plus the source-half audit, and
  * saying so here is the point: a suite that quietly skipped them would be claiming
@@ -80,7 +81,7 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
   it('every cli/mcp-exposed contract has a live procedure on the real client', () => {
     const client = fresh().issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, { query: unknown; mutate: unknown }>
-    expect(CLI_EXPOSED).toHaveLength(64)
+    expect(CLI_EXPOSED).toHaveLength(67)
     for (const name of CLI_EXPOSED) {
       expect(typeof issues[name]?.query, name).toBe('function')
       expect(typeof issues[name]?.mutate, name).toBe('function')
@@ -101,6 +102,8 @@ describe('the podium issue CLI table renders over the real surface', () => {
     'delete',
     'restore',
     'ship',
+    'cancel-ship',
+    'resolve-ship-hold',
   ])
 
   it('every CLI verb names a real command and a summary the help screen can print', () => {
@@ -196,6 +199,10 @@ describe('the podium issue CLI table renders over the real surface', () => {
       'cleanup',
       'stop',
       'integrate',
+      'ship',
+      'cancelShip',
+      'resolveShipHold',
+      'deliveryReceipt',
     ]) {
       expect(issues[proc], proc).toBeDefined()
     }

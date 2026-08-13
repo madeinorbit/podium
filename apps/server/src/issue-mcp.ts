@@ -10,7 +10,13 @@ function zodToJsonSchema(schema: z.ZodType): {
   properties: Record<string, unknown>
   required: string[]
 } {
-  const shape = (schema as z.ZodObject<z.ZodRawShape>).shape ?? {}
+  let objectSchema = schema
+  while (
+    (objectSchema as unknown as { _def?: { typeName?: string } })._def?.typeName === 'ZodEffects'
+  ) {
+    objectSchema = (objectSchema as unknown as { _def: { schema: z.ZodType } })._def.schema
+  }
+  const shape = (objectSchema as z.ZodObject<z.ZodRawShape>).shape ?? {}
   const properties: Record<string, unknown> = {}
   const required: string[] = []
   for (const [key, raw] of Object.entries(shape)) {

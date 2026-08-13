@@ -1,4 +1,10 @@
-import { asMachineId, FIRST_ADMIN_USER_ID, type IssueWire } from '@podium/model'
+import {
+  asArtifactId,
+  asMachineId,
+  asShipOrderId,
+  FIRST_ADMIN_USER_ID,
+  type IssueWire,
+} from '@podium/model'
 import type { ShippingJobResult } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
@@ -6,7 +12,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { IssueService } from '../issues/service'
 import { CompatibilityShippingPolicyResolver } from './policy'
-import { ShippingService } from './service'
+import type { ShippingPolicyResolver } from './policy'
+import { ShippingOrderAccessError, ShippingService } from './service'
 
 const stores: SessionStore[] = []
 afterEach(() => {
@@ -29,6 +36,7 @@ function harness(
     useStoredReceipts?: boolean
     resolveBranchTip?: ConstructorParameters<typeof ShippingService>[0]['resolveBranchTip']
     resolveRefTip?: ConstructorParameters<typeof ShippingService>[0]['resolveRefTip']
+    policy?: ShippingPolicyResolver
   } = {},
 ) {
   const store = new SessionStore(':memory:')
@@ -96,7 +104,7 @@ function harness(
               })),
             })),
     },
-    policy: new CompatibilityShippingPolicyResolver(() => 'main'),
+    policy: options.policy ?? new CompatibilityShippingPolicyResolver(() => 'main'),
     machineFor: () => asMachineId('machine-1'),
     resolveBranchTip: options.resolveBranchTip ?? (async () => 'head-sha'),
     resolveRefTip: options.resolveRefTip ?? (async () => 'base-sha'),
@@ -352,6 +360,79 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
   })
 
+  it('freezes only a durable server-owned review artifact for evidence-required policy', async () => {
+    const compatibility = new CompatibilityShippingPolicyResolver(() => 'main')
+    const policy: ShippingPolicyResolver = {
+      resolve: (issue) => ({ ...compatibility.resolve(issue), evidenceOptional: false }),
+    }
+    const { issues, service } = harness(undefined, { policy })
+    const issue = issues.create({ repoPath: '/repo', title: 'evidence required', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+
+    await expect(
+      service.enqueueCurrent({
+        issueId: issue.id,
+        principal: approval.principal,
+        overrideScope: false,
+      }),
+    ).rejects.toMatchObject({ code: 'evidence' })
+
+    const artifactId = asArtifactId('review-evidence-snapshot')
+    issues.panelApply(issue.id, {
+      op: 'artifact-add',
+      path: 'review/evidence.json',
+      artifactId,
+      entry: 'evidence.json',
+      files: [{ path: 'evidence.json', size: 42 }],
+    })
+    const accepted = await service.enqueueCurrent({
+      issueId: issue.id,
+      principal: approval.principal,
+      overrideScope: false,
+    })
+    expect(accepted.order.evidenceManifestRef).toBe(artifactId)
+    service.dispose()
+  })
+
+  it('collapses unknown and invisible order identities before hold or receipt state leaks', async () => {
+    let hidden = false
+    const { issues, service } = harness(undefined, {
+      authorize: () => {
+        if (hidden) throw Object.assign(new Error('hidden root'), { code: 'NOT_FOUND' })
+      },
+    })
+    const issue = issues.create({ repoPath: '/repo', title: 'opaque order', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    hidden = true
+
+    for (const orderId of [order.id, asShipOrderId('ship_absent')]) {
+      expect(() =>
+        service.deliveryReceipt({
+          orderId,
+          principal: approval.principal,
+          overrideScope: false,
+        }),
+      ).toThrow(ShippingOrderAccessError)
+      await expect(
+        service.resolveHold({
+          orderId,
+          action: 'retry',
+          expectedGeneration: 1,
+          principal: approval.principal,
+        }),
+      ).rejects.toThrow('shipping order not found or inaccessible')
+      await expect(
+        service.cancel({
+          orderId,
+          principal: approval.principal,
+          overrideScope: false,
+        }),
+      ).rejects.toThrow('shipping order not found or inaccessible')
+    }
+    service.dispose()
+  })
+
   it('raises and generation-fences the typed hold before clearing needsHuman', async () => {
     const { store, ledger, issues, service } = harness(async (input, machineId) => ({
       jobId: input.jobId,
@@ -501,6 +582,29 @@ describe('ShippingService enqueue transaction', () => {
       validationResult: 'passed',
     })
     expect(store.shipping.receiptForOrder(order.id)).not.toBeNull()
+    const storedReceipt = store.shipping.receiptForOrder(order.id)!
+    expect(
+      restarted.deliveryReceipt({
+        orderId: order.id,
+        principal: approval.principal,
+        overrideScope: false,
+      }),
+    ).toEqual(storedReceipt)
+    expect(
+      restarted.deliveryReceipt({
+        receiptId: storedReceipt.id,
+        principal: approval.principal,
+        overrideScope: false,
+      }),
+    ).toEqual(storedReceipt)
+    expect(storedReceipt).toMatchObject({
+      approvedBaseSha: 'base-sha',
+      approvedHeadSha: 'head-sha',
+      testedIntegrationSha: 'head-sha',
+      landedRefSha: 'base-sha',
+      destinationSha: 'base-sha',
+      validationResult: 'passed',
+    })
     expect(store.issues.getIssue(issue.id)?.stage).toBe('done')
     restarted.dispose()
   })

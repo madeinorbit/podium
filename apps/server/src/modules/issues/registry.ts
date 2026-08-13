@@ -341,6 +341,17 @@ const defs = {
     kind: 'query',
     handler: (ctx, input) => ctx.reports.preflight(input.repoPath, (id) => ctx.mayReadIssue(id)),
   }),
+  deliveryReceipt: def('deliveryReceipt', {
+    kind: 'query',
+    // The input names an order or receipt. Shipping resolves the owning root and
+    // applies the same opaque order-to-root authorization used by mutations.
+    handler: (ctx, input) =>
+      ctx.shipping.deliveryReceipt({
+        ...input,
+        principal: ctx.requirePrincipal(),
+        overrideScope: ctx.caller.overrideScope === true,
+      }),
+  }),
   search: def('search', {
     kind: 'query',
     handler: (ctx, input) => ctx.reports.search(input, (id) => ctx.mayReadIssue(id)),
@@ -738,6 +749,18 @@ const defs = {
         overrideScope: ctx.caller.overrideScope === true,
       }),
   }),
+  cancelShip: def('cancelShip', {
+    kind: 'mutation',
+    // The input names an ORDER. Shipping resolves order -> delivery root before
+    // authorization and owns every durable generation/custody fence.
+    target: () => undefined,
+    handler: (ctx, input) =>
+      ctx.shipping.cancel({
+        orderId: input.orderId,
+        principal: ctx.requirePrincipal(),
+        overrideScope: ctx.caller.overrideScope === true,
+      }),
+  }),
   resolveShipHold: def('resolveShipHold', {
     kind: 'mutation',
     // The input names an ORDER. The Shipping service loads order -> root issue
@@ -749,6 +772,7 @@ const defs = {
         action: input.action,
         expectedGeneration: input.expectedGeneration,
         principal: ctx.requirePrincipal(),
+        overrideScope: ctx.caller.overrideScope === true,
       }),
   }),
   addSession: def('addSession', {
