@@ -141,8 +141,14 @@ export function PulseScreen() {
           )}
           {/* Which server, and what both ends are running — the question a
               redeploy leaves open and nothing else on the phone answers. Last
-              line on the tab, in both modes, deliberately quiet. */}
-          <Text style={styles.buildStamp} selectable numberOfLines={1}>
+              thing on the tab, in both modes, deliberately quiet.
+
+              TWO LINES, and the break is chosen rather than left to the layout:
+              on one line a real handset truncated it, and what it cut was the
+              versions. The third line is slack for a narrow screen, where the
+              version pair can wrap at its separator — never a clamp that would
+              eat half a version again. */}
+          <Text style={styles.buildStamp} selectable numberOfLines={3}>
             {buildStamp.text}
           </Text>
         </ScrollView>

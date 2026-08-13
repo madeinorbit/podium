@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { formatBuildStamp, originHost, probeServerVersion } from './build-stamp'
+import { buildStampLines, formatBuildStamp, originHost, probeServerVersion } from './build-stamp'
+
+const NBSP = '\u00A0'
 
 describe('originHost', () => {
   it('keeps host and port, drops the scheme and path', () => {
@@ -70,6 +72,45 @@ describe('formatBuildStamp', () => {
     expect(formatBuildStamp({ httpOrigin: '   ', server: { status: 'pending' }, app: 'dev' })).toBe(
       'not configured · app dev',
     )
+  })
+})
+
+describe('buildStampLines', () => {
+  const lines = (text: string) => text.split('\n')
+
+  it('puts the host on its own line and the versions on the next', () => {
+    expect(
+      lines(
+        buildStampLines({
+          httpOrigin: 'http://ludovico:18787',
+          server: { status: 'ok', version: 'dev+1863b42' },
+          app: 'dev',
+        }),
+      ),
+    ).toEqual([`ludovico:18787`, `server${NBSP}dev+1863b42 · app${NBSP}dev`])
+  })
+
+  it('never leaves a breakable space inside a segment', () => {
+    const text = buildStampLines({
+      httpOrigin: 'http://ludovico:18787',
+      server: { status: 'offline', lastVersion: 'dev+1863b42' },
+      app: '0.4.1',
+    })
+    expect(lines(text)).toEqual([
+      'offline',
+      `last${NBSP}server${NBSP}dev+1863b42 · app${NBSP}0.4.1`,
+    ])
+    // The only ordinary spaces left are the ones flanking a separator: those are
+    // the wrap points, and there is nowhere else a line can break.
+    for (const segment of text.replace(/\n/g, ' · ').split(' · ')) {
+      expect(segment).not.toContain(' ')
+    }
+  })
+
+  it('still splits when there are only two segments', () => {
+    expect(
+      lines(buildStampLines({ httpOrigin: undefined, server: { status: 'pending' }, app: 'dev' })),
+    ).toEqual([`not${NBSP}configured`, `app${NBSP}dev`])
   })
 })
 
