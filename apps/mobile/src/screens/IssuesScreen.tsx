@@ -1,8 +1,9 @@
 import type { IssueRow } from '@podium/client-core/viewmodels'
 import type { IssueBoardStage, IssueWire } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { ChevronDown, ChevronRight, Layers, Plus } from 'lucide-react-native'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues } from '../client/hooks'
 import { useMobileShell } from '../client/shell'
@@ -28,12 +29,12 @@ import { stageColor } from '../theme/stage'
 import { color, font, leading, mono, monoLabel, radius, sans, space, spring } from '../theme/theme'
 
 /**
- * THE TASKS TAB — the desktop board's population, order and nesting [POD-724].
+ * THE TASKS TAB — high-level work, plus proposals that need a call [POD-947].
  *
  * The rows themselves come from `../lib/task-board.ts`, which reads the SHARED
- * derivation the desktop board reads. See that module for what was wrong before
- * (every scoped issue rendered flat, so an epic's internal decomposition arrived
- * as top-level work) and for the section-order decision.
+ * derivation the desktop board reads and then applies the phone's one extra
+ * rule: a screenable proposal is promoted even when it has a parent. See that
+ * module for why the list is not a tree, and for the section-order decision.
  *
  * This file owns the two things that are genuinely the phone's: what a row looks
  * like at 390pt, and the sticky collapsible section header.
@@ -42,7 +43,6 @@ export function IssuesScreen() {
   const router = useRouter()
   const issues = useIssues()
   const [showDone, setShowDone] = useState(false)
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const booting = useBooting()
   const { notice } = useMobileShell()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
@@ -50,19 +50,7 @@ export function IssuesScreen() {
   const tabBarInset = useTabBarInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
 
-  const board = useMemo(
-    () => taskBoardSections(issues, expanded, { showDone }),
-    [issues, expanded, showDone],
-  )
-
-  const toggleExpand = useCallback((id: string) => {
-    setExpanded((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
+  const board = useMemo(() => taskBoardSections(issues, { showDone }), [issues, showDone])
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
   // flow is the fast way through them, so the board leads with it whenever any
@@ -96,6 +84,7 @@ export function IssuesScreen() {
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <StageSections
             board={board}
+            issues={issues}
             listRef={listRef}
             refreshControl={refreshControl}
             refreshAccessibilityProps={refreshAccessibilityProps}
@@ -105,7 +94,6 @@ export function IssuesScreen() {
             proposals={proposals.length}
             onScreenProposals={() => router.push('/screen-proposed')}
             onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
-            onToggleExpand={toggleExpand}
           />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
@@ -135,6 +123,7 @@ interface Section {
  */
 function StageSections({
   board,
+  issues,
   listRef,
   refreshControl,
   refreshAccessibilityProps,
@@ -144,9 +133,9 @@ function StageSections({
   proposals,
   onScreenProposals,
   onOpen,
-  onToggleExpand,
 }: {
   board: { stage: IssueBoardStage; title: string; rows: IssueRow<IssueWire>[] }[]
+  issues: readonly IssueWire[]
   listRef: RefreshableTab['listRef']
   // Typed from the hook rather than restated: a hand-written `ReactElement` here
   // drops the RefreshControlProps generic the list actually requires.
@@ -158,7 +147,6 @@ function StageSections({
   proposals: number
   onScreenProposals: () => void
   onOpen: (id: string) => void
-  onToggleExpand: (id: string) => void
 }) {
   // Keys come from `../lib/fold-keys` — the ui-state classifier is default-closed
   // and THROWS on an unregistered key, so an invented `tasks.stage.<stage>` took
@@ -181,11 +169,9 @@ function StageSections({
     key: s.stage,
     stage: s.stage,
     title: s.title,
-    // ROOTS, not rows. Counting rendered rows made the number climb every time
-    // an epic was opened — "Review 2" became "Review 7" for revealing children
-    // that are in four different stages. The count answers "how much work is in
-    // this lane", which expanding something does not change.
-    total: s.rows.filter((r) => r.depth === 0).length,
+    // Every row on this tab is a listed task (a root, or a promoted proposal).
+    // The count is the lane's work, not a tree of hidden children.
+    total: s.rows.length,
     // A folded section keeps its header (and therefore its count) and drops its
     // rows — the compression the operator asked for, with nothing hidden that
     // they did not choose to hide.
@@ -233,9 +219,7 @@ function StageSections({
           onToggle={folds[section.stage][1]}
         />
       )}
-      renderItem={({ item }) => (
-        <TaskRow row={item} onOpen={onOpen} onToggleExpand={onToggleExpand} />
-      )}
+      renderItem={({ item }) => <TaskRow row={item} issues={issues} onOpen={onOpen} />}
       ListEmptyComponent={
         // Guarded on `booting` even though the crossfade covers this screen:
         // ListEmptyComponent is rendered whenever the data is empty, with no
@@ -321,55 +305,28 @@ function StageHeader({
 }
 
 /**
- * One board row. A nested child is INSET and keeps its own stage glyph — that
- * glyph is what makes a done sub-task under an in-progress parent readable as
- * itself rather than as a member of the lane it is drawn in.
- *
- * THE EXPANDER SITS IN A GUTTER EVERY ROW PAYS FOR, not only the rows that have
- * one. It was drawn only on parents first, and the result was that the one card
- * in a lane with children started 22pt to the right of its siblings — the row
- * that is structurally MORE important than its neighbours read as the one that
- * had slipped. A reserved gutter costs 22pt of title width on every row and buys
- * a straight left edge down the whole board.
- *
- * It is also its own target rather than a gesture on the card: opening an epic
- * and opening the epic are different acts, and putting the second one behind a
- * long-press is a thing every operator would have to be taught.
+ * One board row. Flat — no expander, no indent. Children live on the task
+ * page; a parent that has any says so with a quiet count so they do not look
+ * vanished. A promoted proposal (a row that still has a parent) keeps a
+ * "from POD-…" mark so the epic that spawned it is still in view.
  */
 function TaskRow({
   row,
+  issues,
   onOpen,
-  onToggleExpand,
 }: {
   row: IssueRow<IssueWire>
+  issues: readonly IssueWire[]
   onOpen: (id: string) => void
-  onToggleExpand: (id: string) => void
 }) {
   const issue = row.issue
   const hex = issueColorHex(issue.color)
   const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? ''
+  const parent = issue.parentId ? issues.find((item) => item.id === issue.parentId) : undefined
+  const childCount = issue.childCount
   return (
-    <View style={[styles.rowWrap, row.depth > 0 && { marginLeft: row.depth * space.lg }]}>
-      <View style={styles.gutter}>
-        {row.childCount > 0 ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityState={{ expanded: row.expanded }}
-            accessibilityLabel={`${row.expanded ? 'Collapse' : 'Expand'} ${row.childCount} sub-task${row.childCount === 1 ? '' : 's'}`}
-            onPress={() => onToggleExpand(issue.id)}
-            hitSlop={11}
-            style={({ pressed }) => [styles.expander, pressed && styles.expanderPressed]}
-          >
-            <Icon
-              as={row.expanded ? ChevronDown : ChevronRight}
-              size={15}
-              color={color.textFaint}
-            />
-            <Text style={styles.expanderCount}>{row.childCount}</Text>
-          </PressableScale>
-        ) : null}
-      </View>
+    <View style={styles.rowWrap}>
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`Task ${issue.seq}: ${issue.title}`}
@@ -397,9 +354,6 @@ function TaskRow({
           <Text style={[styles.title, hex ? { color: flow.text(hex) } : null]} numberOfLines={2}>
             {issue.title}
           </Text>
-          {/* A nested row's own stage, in its own colour — the one mark that
-              tells you a child in the In-progress lane is actually done. */}
-          {row.depth > 0 ? <StageGlyph stage={issue.stage} size={13} /> : null}
         </View>
         <View style={styles.metaRow}>
           <Pill label={issue.type} />
@@ -408,6 +362,10 @@ function TaskRow({
           {issue.blockedByNotes.length > 0 ? (
             <Pill label={`blocked by ${issue.blockedByNotes.length}`} toneKey="danger" />
           ) : null}
+          {childCount > 0 ? (
+            <Pill label={`${childCount} sub-task${childCount === 1 ? '' : 's'}`} />
+          ) : null}
+          {parent ? <Text style={styles.from}>from {issueDisplayRef(parent)}</Text> : null}
           <Text style={styles.repo} numberOfLines={1}>
             {repo}
           </Text>
@@ -531,25 +489,6 @@ const styles = StyleSheet.create({
     marginHorizontal: space.sm + 2,
     marginBottom: 3,
   },
-  gutter: {
-    width: 22,
-    alignSelf: 'stretch',
-    justifyContent: 'center',
-  },
-  expander: {
-    minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 1,
-  },
-  expanderPressed: {
-    opacity: 0.55,
-  },
-  expanderCount: {
-    ...mono(500),
-    color: color.textMicro,
-    fontSize: 9,
-  },
   card: {
     flex: 1,
     minWidth: 0,
@@ -579,6 +518,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     flexWrap: 'wrap',
+  },
+  from: {
+    ...mono(400),
+    color: color.textDim,
+    fontSize: font.micro,
   },
   repo: {
     ...mono(400),

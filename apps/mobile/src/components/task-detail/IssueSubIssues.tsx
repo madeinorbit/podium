@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
+import { stageColor } from '../../theme/stage'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
 import { PressableScale } from '../PressableScale'
@@ -27,9 +28,11 @@ import { Disclosure, SectionHeading } from './chrome'
  * existence fact, and the policy on those is settled the same way here as on the
  * desktop: say nothing rather than leak a number.
  *
- * The trailing word is derived from the WIRE alone — needs you, blocked, or a
- * subtree fraction. The desktop additionally ranks "N working" from the child's
- * live sessions; the phone leaves that slot out rather than joining the session
+ * The trailing word is derived from the WIRE alone — needs you, blocked,
+ * proposed, or a subtree fraction. Proposed children sort first: they are the
+ * decisions this page now owns, because the Tasks tab no longer unfolds them
+ * [POD-947]. The desktop additionally ranks "N working" from the child's live
+ * sessions; the phone leaves that slot out rather than joining the session
  * world per child row, and the row stays honest about what it does say.
  */
 export function IssueSubIssues({
@@ -51,7 +54,10 @@ export function IssueSubIssues({
 
   const finished = (c: IssueWire) => c.stage === 'done' || c.closedReason != null
   const done = subIssues.filter(finished)
-  const open = subIssues.filter((c) => !finished(c))
+  // Proposed first: a child that still needs a call is why you opened the parent.
+  const open = subIssues
+    .filter((c) => !finished(c))
+    .sort((a, b) => Number(b.stage === 'proposed') - Number(a.stage === 'proposed') || a.seq - b.seq)
 
   const create = () => {
     const next = title.trim()
@@ -149,9 +155,11 @@ function SubTaskRow({
     ? { text: 'needs you', tint: color.needsYou }
     : child.blocked
       ? { text: 'blocked', tint: color.danger }
-      : child.childCount > 0
-        ? { text: `${child.childDoneCount}/${child.childCount}`, tint: color.textFaint }
-        : null
+      : child.stage === 'proposed'
+        ? { text: 'proposed', tint: stageColor('proposed') }
+        : child.childCount > 0
+          ? { text: `${child.childDoneCount}/${child.childCount}`, tint: color.textFaint }
+          : null
   return (
     <PressableScale
       accessibilityRole="button"

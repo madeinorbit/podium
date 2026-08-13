@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { taskBoardOrder, taskBoardSections, taskNeighbours } from './task-board'
 
 /**
- * The defect POD-724 fixes is a POPULATION defect, so these cases are about which
- * rows exist and in what order — not about how they look. The nesting emitter
- * itself is covered where it lives now
- * (`packages/client-core/src/viewmodels/issue-board-rows.test.ts`); what is
- * asserted here is that the phone feeds it the desktop's arguments.
+ * The defect this file guards is a POPULATION defect: which rows exist on the
+ * phone's Tasks tab, and in what order. Nesting itself lives in
+ * `packages/client-core/src/viewmodels/issue-board-rows.test.ts`; what is
+ * asserted here is that the phone asks that derivation for roots only, then
+ * promotes screenable proposals so they are not trapped under an epic.
  */
 function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
@@ -44,24 +44,44 @@ const rowIds = (sections: ReturnType<typeof taskBoardSections>) =>
   sections.flatMap((s) => s.rows.map((r) => r.issue.id))
 
 describe('taskBoardSections', () => {
-  it('nests children under their parent instead of listing them at top level', () => {
+  it('lists roots only — an epic\'s decomposition stays off the tab', () => {
     const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 2 })
     const kid1 = issue({ id: 'k1', parentId: 'epic', stage: 'in_progress', seq: 2 })
     const kid2 = issue({ id: 'k2', parentId: 'epic', stage: 'done', seq: 3 })
 
-    const collapsed = taskBoardSections([epic, kid1, kid2], new Set(), { showDone: true })
-    expect(rowIds(collapsed)).toEqual(['epic'])
-    expect(collapsed[0]?.rows[0]).toMatchObject({ depth: 0, childCount: 2, expanded: false })
+    const sections = taskBoardSections([epic, kid1, kid2], { showDone: true })
+    expect(rowIds(sections)).toEqual(['epic'])
+    expect(sections[0]?.rows[0]).toMatchObject({ depth: 0, childCount: 2, expanded: false })
+    expect(sections.map((s) => s.stage)).toEqual(['in_progress'])
+  })
 
-    const open = taskBoardSections([epic, kid1, kid2], new Set(['epic']), { showDone: true })
-    // The done child rides under its in-progress parent — the desktop's rule,
-    // with the child's own stage glyph doing the disambiguating.
-    expect(open.map((s) => s.stage)).toEqual(['in_progress'])
-    expect(open[0]?.rows.map((r) => [r.issue.id, r.depth])).toEqual([
-      ['epic', 0],
-      ['k1', 1],
-      ['k2', 1],
+  it('promotes a proposal parented under an approved epic into Proposed', () => {
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
+    const proposal = issue({
+      id: 'prop',
+      parentId: 'epic',
+      stage: 'proposed',
+      seq: 2,
+      priority: 0,
+    })
+    const peer = issue({ id: 'peer', stage: 'proposed', seq: 5, priority: 1 })
+
+    const sections = taskBoardSections([epic, proposal, peer], { showDone: false })
+    expect(sections.map((s) => s.stage)).toEqual(['in_progress', 'proposed'])
+    expect(rowIds(sections)).toEqual(['epic', 'prop', 'peer'])
+    const proposed = sections.find((s) => s.stage === 'proposed')
+    expect(proposed?.rows.map((r) => [r.issue.id, r.depth])).toEqual([
+      ['prop', 0],
+      ['peer', 0],
     ])
+  })
+
+  it('leaves a proposal nested under another proposal off the list', () => {
+    const root = issue({ id: 'root', stage: 'proposed', seq: 1 })
+    const child = issue({ id: 'child', parentId: 'root', stage: 'proposed', seq: 2 })
+
+    const sections = taskBoardSections([root, child], { showDone: false })
+    expect(rowIds(sections)).toEqual(['root'])
   })
 
   it('orders a stage by priority then seq, matching DEFAULT_DISPLAY', () => {
@@ -71,7 +91,6 @@ describe('taskBoardSections', () => {
         issue({ id: 'urgent', stage: 'review', priority: 0, seq: 9 }),
         issue({ id: 'tie', stage: 'review', priority: 0, seq: 4 }),
       ],
-      new Set(),
       { showDone: false },
     )
     expect(rowIds(rows)).toEqual(['tie', 'urgent', 'late'])
@@ -82,12 +101,10 @@ describe('taskBoardSections', () => {
     const internal = issue({ id: 'agent', parentId: 'p', stage: 'in_progress', audience: 'agent' })
     const loose = issue({ id: 'loose', stage: 'in_progress', audience: 'agent' })
 
-    const collapsed = taskBoardSections([parent, internal, loose], new Set(), { showDone: false })
+    const sections = taskBoardSections([parent, internal, loose], { showDone: false })
     // The loose internal task has no visible ancestor and is gone entirely; the
-    // nested one exists but only under its parent.
-    expect(rowIds(collapsed)).toEqual(['p'])
-    const open = taskBoardSections([parent, internal, loose], new Set(['p']), { showDone: false })
-    expect(rowIds(open)).toEqual(['p', 'agent'])
+    // nested one exists only as a child, so it stays off this list.
+    expect(rowIds(sections)).toEqual(['p'])
   })
 
   it('drops drafts, archived rows and tombstones, and empty stages', () => {
@@ -98,7 +115,6 @@ describe('taskBoardSections', () => {
         issue({ id: 'gone', stage: 'backlog', archived: true }),
         issue({ id: 'tomb', stage: 'backlog', deletedAt: '2026-06-02T00:00:00.000Z' }),
       ],
-      new Set(),
       { showDone: false },
     )
     expect(rows.map((s) => s.stage)).toEqual(['backlog'])
@@ -114,14 +130,14 @@ describe('taskBoardSections', () => {
       issue({ id: 'e', stage: 'review' }),
       issue({ id: 'f', stage: 'done' }),
     ]
-    expect(taskBoardSections(all, new Set(), { showDone: false }).map((s) => s.stage)).toEqual([
+    expect(taskBoardSections(all, { showDone: false }).map((s) => s.stage)).toEqual([
       'in_progress',
       'review',
       'planning',
       'backlog',
       'proposed',
     ])
-    expect(taskBoardSections(all, new Set(), { showDone: true }).map((s) => s.stage)).toEqual([
+    expect(taskBoardSections(all, { showDone: true }).map((s) => s.stage)).toEqual([
       'in_progress',
       'review',
       'planning',
