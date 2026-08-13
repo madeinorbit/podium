@@ -165,6 +165,18 @@ export const WRITE_DELIVERY: DeliveryPolicy = {
   applyTimeReauthorization: REAUTHORIZATION,
 }
 
+/** Shipping handoff and hold decisions must reach the live authority. A handoff
+ * freezes repository refs and transfers custody, while a hold decision is fenced
+ * by its current generation; neither is honest as a delayed client-outbox replay. */
+export const SHIPPING_DELIVERY: DeliveryPolicy = {
+  class: 'online-sensitive',
+  outboxReconciliation:
+    'Never queued in the client Outbox. Shipping admission must freeze current repository refs and ' +
+    'a hold decision must compare-and-swap the live hold generation. The Shipping service provides ' +
+    'its own atomic idempotency for an immediate retry; a delayed replay would act on stale approval.',
+  applyTimeReauthorization: REAUTHORIZATION,
+}
+
 /**
  * A READ IS `online-only` BECAUSE THERE IS NOTHING TO REPLAY. The three-member class
  * vocabulary has no "not applicable", and the honest member is the one that says a

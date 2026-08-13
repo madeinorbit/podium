@@ -242,7 +242,7 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
 // input SCHEMAS it used to sit beside now live on the contracts.
 // ---------------------------------------------------------------------------
 
-const targetId = (i: Record<string, unknown>) => i.id as string
+const targetId = (i: Record<string, unknown>) => i.id as string | undefined
 
 // ---------------------------------------------------------------------------
 // The table. Grouped as the old service was: reads, writes, agent mail,
@@ -725,6 +725,31 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) => ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
+  }),
+  ship: def('ship', {
+    kind: 'mutation',
+    // Optional by design. An explicit raw id is guarded before parsing; an
+    // omission is resolved only from the authenticated subtree in the handler.
+    target: targetId,
+    handler: (ctx, input) =>
+      ctx.shipping.enqueueCurrent({
+        issueId: ctx.shipIssue(input.id),
+        principal: ctx.requirePrincipal(),
+        overrideScope: ctx.caller.overrideScope === true,
+      }),
+  }),
+  resolveShipHold: def('resolveShipHold', {
+    kind: 'mutation',
+    // The input names an ORDER. The Shipping service loads order -> root issue
+    // and runs the same live issue authorization there.
+    target: () => undefined,
+    handler: (ctx, input) =>
+      ctx.shipping.resolveHold({
+        orderId: input.orderId,
+        action: input.action,
+        expectedGeneration: input.expectedGeneration,
+        principal: ctx.requirePrincipal(),
+      }),
   }),
   addSession: def('addSession', {
     kind: 'mutation',

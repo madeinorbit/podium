@@ -86,7 +86,9 @@ interface HelpableCommand {
 export function commandHelpText(tool: string, cmd: HelpableCommand): string {
   const shape =
     ((cmd.args as { shape?: Record<string, { isOptional?: () => boolean }> }).shape ?? {}) || {}
-  const pos = (cmd.positionals ?? []).map((p) => `<${p}>`).join(' ')
+  const pos = (cmd.positionals ?? [])
+    .map((p) => ((shape[p]?.isOptional?.() ?? false) ? `[<${p}>]` : `<${p}>`))
+    .join(' ')
   const rest = cmd.restKey ? ` [<${cmd.restKey}>…]` : ''
   const keys = Object.keys(shape)
   const flag = (k: string): string =>

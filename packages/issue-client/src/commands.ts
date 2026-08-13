@@ -839,6 +839,25 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'ship',
+    summary:
+      'Hand an approved top-level issue to Shipping: ship [<id>] [--outside-scope]. An attached agent may omit id for its own issue; operator/unattached callers and slice-1 operator MCP must name it.',
+    args: z.strictObject({ id: idArg.optional() }),
+    positionals: ['id'],
+    async run(c, a) {
+      const accepted = (await c.issues.ship.mutate(
+        a.id != null ? { id: a.id as string } : {},
+      )) as {
+        order: { id: string; issueId: string; destination: string }
+        created: boolean
+      }
+      return {
+        text: `shipping ${a.id ?? accepted.order.issueId} → ${accepted.order.destination}\nPodium owns it now.`,
+        data: accepted,
+      }
+    },
+  },
+  {
     name: 'claim',
     summary: 'Claim an issue (set assignee + in_progress): claim <id> --assignee me.',
     args: z.strictObject({ id: idArg, assignee: z.string() }),

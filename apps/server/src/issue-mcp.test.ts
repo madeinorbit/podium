@@ -34,6 +34,22 @@ describe('IssueToolProvider', () => {
     expect(specs.some((s) => s.name === 'issue_tree')).toBe(true)
   })
 
+  it('exposes ship through the shared table and documents slice-1 explicit-id MCP', async () => {
+    const ship = vi.fn(async () => ({
+      created: true,
+      order: { id: 'ship_order', issueId: 'iss_root', destination: 'local:main' },
+    }))
+    const p = new IssueToolProvider()
+    p.setClient({ issues: { ship: { mutate: ship } } } as unknown as IssueTrpc)
+    const spec = p.mcpToolSpecs().find((entry) => entry.name === 'issue_ship')
+    expect(spec?.description).toContain('operator MCP must name it')
+    expect((spec?.inputSchema as { required: string[] }).required).toEqual([])
+
+    const out = await p.callMcpTool('issue_ship', { id: 'POD-830' })
+    expect(ship).toHaveBeenCalledWith({ id: 'POD-830' })
+    expect(out).toContain('Podium owns it now')
+  })
+
   it('issue_tree renders the subtree text via the set client [#82]', async () => {
     const p = new IssueToolProvider()
     p.setClient({

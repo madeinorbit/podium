@@ -1641,10 +1641,18 @@ export class SessionRegistry {
         } catch {}
       },
     })
+    // Commands are assembled immediately before Shipping, but handlers run only
+    // after construction. Bind the narrow service port through one initialized-
+    // once cell instead of making either module construct the other.
+    let shipping!: ShippingService
     const issueCommands = new IssueCommandDispatcher({
       arbitration: issueArbitration,
       attachSession: (caller, input) => issueAttach.execute(caller, input),
       issues,
+      shipping: {
+        enqueueCurrent: (input) => shipping.enqueueCurrent(input),
+        resolveHold: (input) => shipping.resolveHold(input),
+      },
       deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
       restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
       mutations,
@@ -1703,7 +1711,7 @@ export class SessionRegistry {
       })
     })
     this.issueCommands = issueCommands
-    const shipping = new ShippingService({
+    shipping = new ShippingService({
       repository: this.store.shipping,
       issues: {
         get: (id) => {

@@ -66,6 +66,8 @@ import {
   MutationIdField,
   Revision,
   SessionIdField,
+  ShipHoldAction,
+  ShipOrderIdField,
   UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
@@ -86,6 +88,7 @@ import {
   REAUTHORIZATION,
   SERVED_EVERYWHERE,
   SERVED_ON_WIRE,
+  SHIPPING_DELIVERY,
   TARGETED_ERRORS,
   UNTARGETED_ERRORS,
   WRITE_DELIVERY,
@@ -487,6 +490,19 @@ export const setNeedsHumanInput = z.object({
 export const answerQuestionInput = z.object({ id: IssueIdField, answer: z.string().trim().min(1) })
 
 export const clearNeedsHumanInput = byIssueId
+
+/** The issue id is deliberately optional: only a subtree-scoped attached caller
+ * may have it resolved server-side. No branch, policy, SHA, or evidence fact is
+ * accepted from this surface. */
+export const shipInput = z.object({ id: IssueIdField.optional() })
+
+/** A hold decision addresses the durable order, then resolves its delivery root
+ * server-side before authorization. The generation is the service CAS fence. */
+export const resolveShipHoldInput = z.object({
+  orderId: ShipOrderIdField,
+  action: ShipHoldAction,
+  expectedGeneration: z.number().int().positive(),
+})
 
 export const reparentInput = z.object({ id: IssueIdField, parentId: IssueIdField.nullable() })
 
@@ -1207,6 +1223,44 @@ export const issueIntegrateContract = {
   conflictRule: 'local git integrate; guarded by worktree/branch state, not a revision',
 } as const satisfies MutatingCommandContract
 
+export const issueShipContract = {
+  name: 'issues.ship',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: shipInput,
+  policy: WRITE_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: SHIPPING_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: owns(
+    ['shipOrder'],
+    'parent',
+    'Admission creates one durable order owned with its delivery-root issue and attributed to the requesting human.',
+  ),
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'atomic Shipping admission; the service owns idempotent order creation and review-to-shipping custody',
+} as const satisfies MutatingCommandContract
+
+export const issueResolveShipHoldContract = {
+  name: 'issues.resolveShipHold',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: resolveShipHoldInput,
+  policy: WRITE_POLICY,
+  exposure: SERVED_ON_WIRE,
+  delivery: SHIPPING_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'generation-fenced Shipping hold state machine; only the service transaction clears issue attention',
+} as const satisfies MutatingCommandContract
+
 export const issueAddSessionContract = {
   name: 'issues.addSession',
   version: 1,
@@ -1896,6 +1950,7 @@ export const ISSUE_CONTRACTS = {
   ready: issueReadyContract,
   refreshAssistant: issueRefreshAssistantContract,
   reparent: issueReparentContract,
+  resolveShipHold: issueResolveShipHoldContract,
   restore: issueRestoreContract,
   search: issueSearchContract,
   setCoordinator: issueSetCoordinatorContract,
@@ -1905,6 +1960,7 @@ export const ISSUE_CONTRACTS = {
   setNeedsHuman: issueSetNeedsHumanContract,
   setState: issueSetStateContract,
   setTucked: issueSetTuckedContract,
+  ship: issueShipContract,
   stale: issueStaleContract,
   start: issueStartContract,
   stats: issueStatsContract,

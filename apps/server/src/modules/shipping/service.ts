@@ -50,6 +50,15 @@ export interface ApprovedShipOrderInput {
   }
 }
 
+/** Command-facing nomination. Approval is the live review-stage repository
+ * snapshot; no SHA, policy id, destination, or evidence claim crosses the
+ * untrusted command input. */
+export interface CurrentShipOrderInput {
+  issueId: IssueId
+  principal: CommandPrincipal
+  overrideScope: boolean
+}
+
 export interface EnqueuedShipOrder {
   order: ShipOrder
   projection: ShipOrderProjection
@@ -84,7 +93,7 @@ export interface ResolveShipHoldInput {
   action: ShipHoldAction
   expectedGeneration: number
   principal: CommandPrincipal
-  requestedBy: Attribution
+  requestedBy?: Attribution
 }
 
 export interface ResolvedShipHold {
@@ -179,6 +188,28 @@ export class ShippingService {
     }
   }
 
+  /** Resolve the intentionally tiny `issues.ship` command into the live approval
+   * snapshot, then enter the same atomic/idempotent admission transaction used by
+   * every other Shipping caller. */
+  async enqueueCurrent(input: CurrentShipOrderInput): Promise<EnqueuedShipOrder> {
+    const issue = this.deps.issues.get(input.issueId)
+    const policy = this.deps.policy.resolve(issue)
+    const [sourceHeadSha, sourceBaseSha] = await Promise.all([
+      this.deps.resolveBranchTip(issue),
+      this.deps.resolveRefTip(issue, policy.targetBranch),
+    ])
+    return this.enqueue({
+      ...input,
+      requestedBy: this.deps.authorization.attribution(input.principal),
+      approved: {
+        sourceBaseSha,
+        sourceHeadSha,
+        policyId: policy.id,
+        previewLeaseIds: [],
+      },
+    })
+  }
+
   /** Admission + handoff port consumed by the command layer. All reads finish
    * before the single outer commit; order, issue custody and replica rows then
    * commit or roll back together. */
@@ -250,12 +281,13 @@ export class ShippingService {
       let replayReceipt: ShipOrder['currentIntegrationReceipt']
       const receipt = this.deps.evidence.rootIntegrationReceipt(issue.id, currentSourceHead)
       if (
-        !receipt ||
-        !integrationReceiptMatchesOrder(receipt, {
-          issueId: issue.id,
-          approvedHeadSha: currentSourceHead,
-          descendantManifest,
-        })
+        descendantManifest.length > 0 &&
+        (!receipt ||
+          !integrationReceiptMatchesOrder(receipt, {
+            issueId: issue.id,
+            approvedHeadSha: currentSourceHead,
+            descendantManifest,
+          }))
       ) {
         throw new ShippingAdmissionError(
           'evidence',
@@ -263,7 +295,7 @@ export class ShippingService {
         )
       }
       replayManifest = descendantManifest
-      replayReceipt = receipt
+      replayReceipt = receipt ?? undefined
       const candidate: ShipOrder = {
         id: asShipOrderId(`ship_${randomUUID()}`),
         issueId: issue.id,
@@ -312,12 +344,13 @@ export class ShippingService {
       currentSourceHead,
     )
     if (
-      !currentIntegrationReceipt ||
-      !integrationReceiptMatchesOrder(currentIntegrationReceipt, {
-        issueId: issue.id,
-        approvedHeadSha: currentSourceHead,
-        descendantManifest,
-      })
+      descendantManifest.length > 0 &&
+      (!currentIntegrationReceipt ||
+        !integrationReceiptMatchesOrder(currentIntegrationReceipt, {
+          issueId: issue.id,
+          approvedHeadSha: currentSourceHead,
+          descendantManifest,
+        }))
     ) {
       throw new ShippingAdmissionError(
         'evidence',
@@ -338,7 +371,7 @@ export class ShippingService {
       ...(input.approved.evidenceManifestRef
         ? { evidenceManifestRef: input.approved.evidenceManifestRef }
         : {}),
-      currentIntegrationReceipt,
+      ...(currentIntegrationReceipt ? { currentIntegrationReceipt } : {}),
       ...(policy.providerRef ? { providerRef: policy.providerRef } : {}),
       requestedBy,
       requestedAt: at,
@@ -388,13 +421,14 @@ export class ShippingService {
           }
           const receipt = this.deps.evidence.rootIntegrationReceipt(issue.id, currentSourceHead)
           if (
-            !receipt ||
-            !integrationReceiptMatchesOrder(receipt, {
-              issueId: issue.id,
-              approvedHeadSha: currentSourceHead,
-              descendantManifest,
-            }) ||
-            JSON.stringify(receipt) !== JSON.stringify(currentIntegrationReceipt)
+            (descendantManifest.length > 0 &&
+              (!receipt ||
+                !integrationReceiptMatchesOrder(receipt, {
+                  issueId: issue.id,
+                  approvedHeadSha: currentSourceHead,
+                  descendantManifest,
+                }))) ||
+            JSON.stringify(receipt ?? null) !== JSON.stringify(currentIntegrationReceipt ?? null)
           ) {
             throw new ShippingAdmissionError(
               'evidence',
@@ -403,7 +437,7 @@ export class ShippingService {
           }
           const result = this.deps.repository.createOrReturnActiveOrder({
             ...order,
-            currentIntegrationReceipt: receipt,
+            ...(receipt ? { currentIntegrationReceipt: receipt } : {}),
           })
           return result
         },
@@ -806,6 +840,7 @@ export class ShippingService {
     const { orderId, action, expectedGeneration } = input
     const order = this.requiredOrder(orderId)
     const issue = this.deps.issues.get(order.issueId)
+    const requestedBy = this.deps.authorization.attribution(input.principal)
     this.deps.authorization.authorize({
       principal: input.principal,
       action: 'resolve-hold',
@@ -855,7 +890,7 @@ export class ShippingService {
       action,
       generation: expectedGeneration,
       principalKind: input.principal.kind,
-      requestedBy: input.requestedBy,
+      requestedBy,
     })
     return { order: result, projection: this.requiredProjection(result.id) }
   }
@@ -869,9 +904,12 @@ export class ShippingService {
     if (issue.parentId) {
       let root = this.deps.issues.get(issue.parentId)
       while (root.parentId) root = this.deps.issues.get(root.parentId)
+      const issueRef = issue.displayRef ?? issue.id
+      const rootRef = root.displayRef ?? root.id
       throw new ShippingAdmissionError(
         'nested-root',
-        `issue ${issue.id} is nested and cannot ship separately`,
+        `${issueRef} is a sub-issue of delivery root ${rootRef} and cannot ship separately.\n` +
+          `To nominate the approved root: podium issue ship ${rootRef} --outside-scope`,
         root.id,
       )
     }

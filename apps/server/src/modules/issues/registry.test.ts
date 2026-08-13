@@ -5,6 +5,7 @@ import { z } from 'zod'
 
 import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
+import { IssueCommandDispatcher } from './dispatcher'
 import { guardIssueCommand, issueRegistry } from './registry'
 
 /**
@@ -32,6 +33,8 @@ const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   cleanup: 'write',
   stop: 'write',
   integrate: 'write',
+  ship: 'write',
+  resolveShipHold: 'write',
   applySuggestion: 'write',
   dismissSuggestion: 'write',
   refreshAssistant: 'write',
@@ -82,6 +85,8 @@ const OLD_SCOPED_TARGET_FIELD: Record<string, 'id' | 'fromId' | 'oldId' | 'none'
   cleanup: 'id',
   stop: 'id',
   integrate: 'id',
+  ship: 'id',
+  resolveShipHold: 'none',
   applySuggestion: 'id',
   dismissSuggestion: 'id',
   refreshAssistant: 'id',
@@ -184,8 +189,8 @@ describe('issue command registry completeness', () => {
     const unscoped = ISSUE_COMMAND_NAMES.filter(
       (n) => ISSUE_CONTRACTS[n].policy.resource !== 'issue',
     )
-    expect(scoped.length).toBe(36)
-    expect(unscoped.length).toBe(35)
+    expect(scoped.length).toBe(38)
+    expect(unscoped.length).toBe(36)
     // The predicate the assertion above applies, run on PLANTED pairs so it is
     // observed saying NO before its silence is read as agreement.
     const agrees = (hasExtractor: boolean, resource: string) =>
@@ -217,7 +222,7 @@ describe('handler↔contract schema identity', () => {
       expect(def?.input, name).toBe(ISSUE_CONTRACTS[name].input)
       checked += 1
     }
-    expect(checked).toBe(71)
+    expect(checked).toBe(74)
   })
 
   it('`toBe` here is load-bearing: an equal-but-separate schema would pass toEqual', () => {
@@ -434,6 +439,155 @@ describe('guardIssueCommand authorization matrix', () => {
         id: b.id,
       }),
     ).not.toThrow()
+  })
+})
+
+describe('Shipping command boundary', () => {
+  const registries: SessionRegistry[] = []
+  afterAll(() => {
+    for (const registry of registries.splice(0)) registry.dispose()
+  })
+
+  const harness = () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    const enqueueCurrent = vi.fn(async (input: { issueId: string }) => ({
+      created: true,
+      order: { id: 'ship_order', issueId: input.issueId, destination: 'local:main' },
+    }))
+    const resolveHold = vi.fn(async (input: { orderId: string }) => ({
+      order: { id: input.orderId, issueId: 'iss_root' },
+    }))
+    const dispatcher = new IssueCommandDispatcher({
+      issues: registry.issues,
+      shipping: { enqueueCurrent: enqueueCurrent as never, resolveHold: resolveHold as never },
+      arbitration: { run: (_input, operation) => operation() },
+      attachSession: () => {
+        throw new Error('not used')
+      },
+      deleteIssue: () => undefined,
+      restoreIssue: () => undefined,
+      mutations: registry.modules.mutations,
+      listSessions: () => [],
+      repoPaths: () => ['/r'],
+      inferRepoFromPath: () => undefined,
+    })
+    return { registry, dispatcher, enqueueCurrent, resolveHold }
+  }
+
+  const agentCaller = (rootId: string, overrideScope = false) => {
+    const actorSessionId = asSessionId('shipping-agent')
+    const capability = {
+      role: 'worker' as const,
+      scope: { kind: 'subtree' as const, rootId: asIssueId(rootId) },
+      actorSessionId,
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+    }
+    return {
+      capability,
+      principal: {
+        kind: 'agent' as const,
+        agentSessionId: actorSessionId,
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+        capability,
+        chain: [],
+      },
+      ...(overrideScope ? { overrideScope: true } : {}),
+    }
+  }
+
+  it('resolves an omitted id only from an attached subtree and delegates once', async () => {
+    const { registry, dispatcher, enqueueCurrent } = harness()
+    const root = registry.issues.create({ repoPath: '/r', title: 'Root', startNow: false })
+
+    await dispatcher.dispatch(agentCaller(root.id), 'issues', 'ship', {})
+
+    expect(enqueueCurrent).toHaveBeenCalledTimes(1)
+    expect(enqueueCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: root.id,
+        overrideScope: false,
+        principal: expect.objectContaining({ kind: 'agent' }),
+      }),
+    )
+  })
+
+  it('requires operator/unattached callers to name an id and requires a principal', async () => {
+    const { registry, dispatcher, enqueueCurrent } = harness()
+    const root = registry.issues.create({ repoPath: '/r', title: 'Root', startNow: false })
+    const operator = {
+      capability: OPERATOR,
+      principal: {
+        kind: 'user' as const,
+        user: FIRST_ADMIN_USER_ID,
+        capability: OPERATOR,
+      },
+    }
+    await expect(dispatcher.dispatch(operator, 'issues', 'ship', {})).rejects.toThrow(
+      /pass an issue id/,
+    )
+    await expect(
+      dispatcher.run(agentCaller(root.id), 'ship', issueRegistry.defs.ship, {}),
+    ).resolves.toBeDefined()
+    await expect(
+      dispatcher.run(
+        { capability: agentCaller(root.id).capability },
+        'ship',
+        issueRegistry.defs.ship,
+        {},
+      ),
+    ).rejects.toThrow(/missing authenticated command principal/)
+    expect(enqueueCurrent).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves the raw-target confirmation guard; override widens scope only', async () => {
+    const { registry, dispatcher, enqueueCurrent } = harness()
+    const own = registry.issues.create({ repoPath: '/r', title: 'Own', startNow: false })
+    const outside = registry.issues.create({ repoPath: '/r', title: 'Outside', startNow: false })
+
+    await expect(
+      dispatcher.dispatch(agentCaller(own.id), 'issues', 'ship', { id: outside.id }),
+    ).rejects.toThrow(/outside your subtree.*--outside-scope/)
+    expect(enqueueCurrent).not.toHaveBeenCalled()
+
+    await dispatcher.dispatch(agentCaller(own.id, true), 'issues', 'ship', { id: outside.id })
+    expect(enqueueCurrent).toHaveBeenCalledTimes(1)
+    expect(enqueueCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({ issueId: outside.id, overrideScope: true }),
+    )
+
+    expect(() =>
+      guardIssueCommand(
+        {
+          capability: { role: 'viewer', scope: { kind: 'all' } },
+          overrideScope: true,
+        },
+        registry.issues,
+        'ship',
+        issueRegistry.defs.ship,
+        { id: outside.id },
+      ),
+    ).toThrow(/not allowed/)
+  })
+
+  it('forwards typed hold action and generation once without a fake question path', async () => {
+    const { registry, dispatcher, resolveHold } = harness()
+    const root = registry.issues.create({ repoPath: '/r', title: 'Root', startNow: false })
+
+    await dispatcher.dispatch(agentCaller(root.id), 'issues', 'resolveShipHold', {
+      orderId: 'ship_order',
+      action: 'retry',
+      expectedGeneration: 3,
+    })
+    expect(resolveHold).toHaveBeenCalledTimes(1)
+    expect(resolveHold).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: 'ship_order',
+        action: 'retry',
+        expectedGeneration: 3,
+        principal: expect.objectContaining({ kind: 'agent' }),
+      }),
+    )
   })
 })
 

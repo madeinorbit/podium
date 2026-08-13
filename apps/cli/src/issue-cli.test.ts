@@ -14,6 +14,15 @@ describe('parseIssueArgs', () => {
     const { args } = parseIssueArgs(['update', '--id=B', '--outside-scope'])
     expect(args.outsideScope).toBe(true)
   })
+
+  it('parses ship with an optional positional id and outside-scope confirmation', () => {
+    expect(parseIssueArgs(['ship'])).toMatchObject({ command: 'ship', positionals: [] })
+    expect(parseIssueArgs(['ship', 'POD-830', '--outside-scope'])).toMatchObject({
+      command: 'ship',
+      positionals: ['POD-830'],
+      args: { outsideScope: true },
+    })
+  })
 })
 
 describe('runIssueCli', () => {
@@ -50,6 +59,37 @@ describe('runIssueCli', () => {
       expect(out).toContain('--assignee <value>')
       expect(out).toContain('(required)')
     }
+  })
+
+  it('ship help renders the optional id and shared outside-scope convention', async () => {
+    const out = await runIssueCli(['ship', '--help'], client)
+    expect(out).toContain('podium issue ship [<id>]')
+    expect(out).toContain('--outside-scope')
+  })
+
+  it('ship forwards no client-derived target when omitted and renders service custody', async () => {
+    const ship = vi.fn(async () => ({
+      created: true,
+      order: {
+        id: 'ship_order',
+        issueId: 'iss_attached',
+        destination: 'local:main',
+      },
+    }))
+    const c = { issues: { ship: { mutate: ship } } } as any
+    const out = await runIssueCli(['ship'], c)
+    expect(ship).toHaveBeenCalledWith({})
+    expect(out).toBe('shipping iss_attached → local:main\nPodium owns it now.')
+  })
+
+  it('ship maps an explicit positional id while outside-scope stays on the transport', async () => {
+    const ship = vi.fn(async () => ({
+      created: false,
+      order: { id: 'ship_order', issueId: 'iss_root', destination: 'local:main' },
+    }))
+    const c = { issues: { ship: { mutate: ship } } } as any
+    await runIssueCli(['ship', 'POD-830', '--outside-scope'], c)
+    expect(ship).toHaveBeenCalledWith({ id: 'POD-830' })
   })
 
   it('help for an unknown command throws', async () => {

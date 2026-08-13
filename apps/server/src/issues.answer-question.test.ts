@@ -42,6 +42,14 @@ function harness(
   const svc = new IssueService(deps)
   const dispatcher = new IssueCommandDispatcher({
     issues: svc,
+    shipping: {
+      enqueueCurrent: async () => {
+        throw new Error('not used')
+      },
+      resolveHold: async () => {
+        throw new Error('not used')
+      },
+    },
     arbitration: { run: (_input, operation) => operation() },
     deleteIssue: () => undefined,
     attachSession: (_caller, input) => svc.attachSession(input),

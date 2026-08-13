@@ -10,7 +10,12 @@ import { OWNERSHIP_MATRIX, visibilityClassOf } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { AnyCommandContract, ContractConflictClass } from '../contract'
 import { classificationErrors, registryClassificationErrors } from '../contract'
-import { PER_USER_VISIBILITY, SERVED_EVERYWHERE, SERVED_ON_WIRE } from './cells'
+import {
+  PER_USER_VISIBILITY,
+  SERVED_EVERYWHERE,
+  SERVED_ON_WIRE,
+  SHIPPING_DELIVERY,
+} from './cells'
 import type { IssueContractName } from './contracts'
 import {
   eventsInput,
@@ -38,8 +43,8 @@ const rowExists = (row: string): boolean => OWNERSHIP_MATRIX.some((r) => (r.id a
 
 describe('the issue contract table', () => {
   it('is populated, is keyed by its own names, and every name is dotted `issues.*`', () => {
-    expect(ISSUE_CONTRACT_LIST).toHaveLength(72)
-    expect(ISSUE_COMMAND_NAMES).toHaveLength(72)
+    expect(ISSUE_CONTRACT_LIST).toHaveLength(74)
+    expect(ISSUE_COMMAND_NAMES).toHaveLength(74)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
     for (const key of ISSUE_COMMAND_NAMES) {
       expect(ISSUE_CONTRACTS[key].name, key).toBe(`issues.${key}`)
@@ -121,14 +126,15 @@ describe('transport exposure', () => {
     'markRead',
     'markUnread',
     'refreshAssistant',
+    'resolveShipHold',
     'setTucked',
     'subscriptionSetEnabled',
   ]
 
-  it('tRPC and relay serve all seventy-two; CLI and MCP serve sixty-three', () => {
+  it('tRPC and relay serve all seventy-four; CLI and MCP serve sixty-four', () => {
     const onCli = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
     const onMcp = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('mcp'))
-    expect(onCli).toHaveLength(63)
+    expect(onCli).toHaveLength(64)
     // CLI and MCP are the SAME table (issue-mcp.ts derives its tools from
     // ISSUE_COMMANDS), so they must be the same set — not merely the same size.
     expect(onCli).toEqual(onMcp)
@@ -137,6 +143,31 @@ describe('transport exposure', () => {
       expect(ISSUE_CONTRACTS[key].exposure, key).toContain('relay')
     }
     expect(ISSUE_COMMAND_NAMES.filter((n) => !onCli.includes(n)).sort()).toEqual(NOT_ON_CLI_OR_MCP)
+  })
+
+  it('Shipping commands are live-only, typed, and share the command handler surfaces', () => {
+    expect(ISSUE_CONTRACTS.ship.input.parse({})).toEqual({})
+    expect(ISSUE_CONTRACTS.ship.input.parse({ id: 'iss_root' })).toEqual({ id: 'iss_root' })
+    expect(ISSUE_CONTRACTS.ship.policy).toBe(ISSUE_CONTRACTS.update.policy)
+    expect(ISSUE_CONTRACTS.ship.delivery).toBe(SHIPPING_DELIVERY)
+    expect(ISSUE_CONTRACTS.ship.exposure).toEqual(SERVED_EVERYWHERE)
+
+    expect(
+      ISSUE_CONTRACTS.resolveShipHold.input.parse({
+        orderId: 'ship_order',
+        action: 'retry',
+        expectedGeneration: 2,
+      }),
+    ).toEqual({ orderId: 'ship_order', action: 'retry', expectedGeneration: 2 })
+    expect(ISSUE_CONTRACTS.resolveShipHold.delivery).toBe(SHIPPING_DELIVERY)
+    expect(ISSUE_CONTRACTS.resolveShipHold.exposure).toEqual(SERVED_ON_WIRE)
+    expect(
+      ISSUE_CONTRACTS.resolveShipHold.input.safeParse({
+        orderId: 'ship_order',
+        action: 'not-a-hold-action',
+        expectedGeneration: 2,
+      }).success,
+    ).toBe(false)
   })
 
   it('nothing is exposed on `outbox`, and the two exposure cells are distinct', () => {
@@ -225,7 +256,7 @@ describe('redaction', () => {
       cmd += 1
       expect(contract.conflictRule?.trim().length ?? 0, key).toBeGreaterThan(0)
     }
-    expect(cmd).toBe(17)
+    expect(cmd).toBe(19)
   })
 
   it('every command declares a class, mutations a real one and reads `n/a`', () => {
@@ -248,7 +279,7 @@ describe('redaction', () => {
 
     const mutations = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) !== 'n/a')
     const nonMutating = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === 'n/a')
-    expect(mutations.length).toBe(46)
+    expect(mutations.length).toBe(48)
     expect(nonMutating.length).toBe(26)
     // The named case, kept from the original: write-grade authority, no row.
     expect(classOf('linearSearch')).toBe('n/a')

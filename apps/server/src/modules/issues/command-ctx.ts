@@ -41,6 +41,7 @@ import type {
   IssueReportsCapability,
   IssueTrackerCapabilities,
 } from './service'
+import type { ShippingService } from '../shipping'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
@@ -54,6 +55,9 @@ export interface IssueCaller {
 export interface IssueCommandDeps {
   /** Fully constructed tracker; command dispatch is activated after features. */
   issues: IssueTrackerCapabilities
+  /** Cross-aggregate Shipping application port. Command handlers may nominate
+   * or resolve once; atomic issue/order mutation stays inside the service. */
+  shipping: Pick<ShippingService, 'enqueueCurrent' | 'resolveHold'>
   /** Request-local bridge that binds exp-rev commands to their issue commit. */
   arbitration: Pick<IssueAuthorityArbitration, 'run'>
   /**
@@ -167,6 +171,9 @@ export class IssueCommandCtx {
   }
   get reports(): IssueReportsCapability {
     return this.deps.issues.reports
+  }
+  get shipping(): IssueCommandDeps['shipping'] {
+    return this.deps.shipping
   }
   get access(): IssueCommandAccess {
     return commandAccess(this.deps.issues)
@@ -311,6 +318,25 @@ export class IssueCommandCtx {
   mailOwnIssue(id?: string): string {
     if (id) return id
     if (this.caller.capability.scope.kind === 'subtree') return this.caller.capability.scope.rootId
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'no issue bound to this caller; pass an issue id',
+    })
+  }
+
+  /** Resolve `issues.ship`'s optional target only from authenticated server
+   * scope. Operators and unattached agents have no implicit issue. */
+  shipIssue(id?: string): IssueId {
+    if (id) {
+      const scopeRepoPath =
+        this.caller.capability.scope.kind === 'subtree'
+          ? (this.reports.getMeta(this.caller.capability.scope.rootId)?.repoPath ?? undefined)
+          : undefined
+      return this.reports.resolveRef(id, scopeRepoPath)
+    }
+    if (this.caller.capability.scope.kind === 'subtree') {
+      return this.caller.capability.scope.rootId
+    }
     throw new TRPCError({
       code: 'BAD_REQUEST',
       message: 'no issue bound to this caller; pass an issue id',

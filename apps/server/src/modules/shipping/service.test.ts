@@ -247,6 +247,34 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
   })
 
+  it('rejects a nested issue with the highest root and exact safe retry command', async () => {
+    const { issues, service } = harness()
+    const root = issues.create({ repoPath: '/repo', title: 'root', startNow: false })
+    const middle = issues.create({
+      repoPath: '/repo',
+      title: 'middle',
+      parentId: root.id,
+      startNow: false,
+    })
+    const leaf = issues.create({
+      repoPath: '/repo',
+      title: 'leaf',
+      parentId: middle.id,
+      startNow: false,
+    })
+    const rootRef = issues.get(root.id)?.displayRef ?? root.id
+    const leafRef = issues.get(leaf.id)?.displayRef ?? leaf.id
+
+    await expect(service.enqueue({ issueId: leaf.id, ...approval })).rejects.toMatchObject({
+      code: 'nested-root',
+      rootIssueId: root.id,
+      message:
+        `${leafRef} is a sub-issue of delivery root ${rootRef} and cannot ship separately.\n` +
+        `To nominate the approved root: podium issue ship ${rootRef} --outside-scope`,
+    })
+    service.dispose()
+  })
+
   it('freezes the exact typed integration receipt for the live root and descendant tips', async () => {
     const { store, issues, service } = harness(undefined, { useStoredReceipts: true })
     const root = issues.create({ repoPath: '/repo', title: 'root', startNow: false })
@@ -311,16 +339,16 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
   })
 
-  it('refuses an empty root manifest when immutable integration proof is missing', async () => {
+  it('admits a top-level leaf without fabricating a descendant integration receipt', async () => {
     const { store, issues, service } = harness(undefined, { rootIntegrationReceipt: () => null })
-    const issue = issues.create({ repoPath: '/repo', title: 'missing root proof', startNow: false })
+    const issue = issues.create({ repoPath: '/repo', title: 'top-level leaf', startNow: false })
     issues.update(issue.id, { stage: 'review' })
 
-    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
-      code: 'evidence',
-    })
-    expect(store.shipping.activeOrderForIssue(issue.id)).toBeNull()
-    expect(store.issues.getIssue(issue.id)?.stage).toBe('review')
+    const accepted = await service.enqueue({ issueId: issue.id, ...approval })
+    expect(accepted.descendantManifest).toEqual([])
+    expect(accepted.order.currentIntegrationReceipt).toBeUndefined()
+    expect(store.shipping.activeOrderForIssue(issue.id)?.id).toBe(accepted.order.id)
+    expect(store.issues.getIssue(issue.id)?.stage).toBe('shipping')
     service.dispose()
   })
 
