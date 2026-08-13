@@ -103,6 +103,7 @@ export function PanelDeck({
   previewTabId,
   onPromote,
   onFocusPane,
+  focusedTabId,
 }: {
   items: DeckItem[]
   /** Where each ON-SCREEN pane sits, in fractions of the deck box. */
@@ -114,6 +115,9 @@ export function PanelDeck({
   onPromote?: (tabId: string) => void
   /** Clicking into a pane moves input focus to it. */
   onFocusPane?: (paneId: string) => void
+  /** Active tab in the workspace's focused pane; desktop session shortcuts are
+   *  routed only to this panel when several panes are visible. */
+  focusedTabId?: string | null
 }): JSX.Element {
   const promotionFor = usePreviewPromotion(previewTabId, onPromote)
   const boxes = new Map(panes.map((rect) => [rect.paneId, rect]))
@@ -147,7 +151,11 @@ export function PanelDeck({
             {...(visible ? promotionFor(item.id) : undefined)}
           >
             {item.kind === 'session' ? (
-              <AgentPanel sessionId={asSessionId(item.id)} active={visible} />
+              <AgentPanel
+                sessionId={asSessionId(item.id)}
+                active={visible}
+                focused={visible && item.id === focusedTabId}
+              />
             ) : item.file ? (
               <Suspense fallback={null}>
                 <FilePanel

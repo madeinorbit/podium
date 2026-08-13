@@ -439,6 +439,7 @@ export function Workspace(): JSX.Element {
             previewTabId={previewTabId}
             onPromote={promoteWorkspaceTab}
             onFocusPane={focusPane}
+            focusedTabId={activeTabId}
           />
           {geometry.panes.map((rect) => {
             const paneOf = layout.panes[rect.paneId]

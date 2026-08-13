@@ -14,6 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const setActive = vi.fn()
 const dispose = vi.fn()
 const requestControl = vi.fn()
+const terminalFocus = vi.fn()
+const desktopHooks = globalThis as {
+  __PODIUM_FOCUS_SESSION_PROMPT__?: () => void
+  __PODIUM_TOGGLE_SESSION_VIEW__?: () => void
+}
 // Loosely typed args (el, opts) so the captured opts.active is inspectable.
 const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
   connection: {
@@ -27,7 +32,7 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
     setRefLinks: vi.fn(),
     onScroll: () => () => {},
     atBottom: () => true,
-    focus: vi.fn(),
+    focus: terminalFocus,
     screenText: () => '',
     scrollToBottom: vi.fn(),
     requestPaste: vi.fn(),
@@ -156,9 +161,12 @@ beforeEach(() => {
   storePanelMode = { s1: 'native' }
   setActive.mockClear()
   dispose.mockClear()
+  terminalFocus.mockClear()
   mountSessionMock.mockClear()
   subscribeTranscript.mockClear()
   unsubscribeTranscript.mockClear()
+  delete desktopHooks.__PODIUM_FOCUS_SESSION_PROMPT__
+  delete desktopHooks.__PODIUM_TOGGLE_SESSION_VIEW__
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -178,6 +186,53 @@ async function flush(): Promise<void> {
 }
 
 describe('AgentPanel active wiring', () => {
+  it('focuses the native CLI prompt and toggles the focused panel to Chat', async () => {
+    await act(async () => {
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active focused />)
+    })
+    await flush()
+    terminalFocus.mockClear()
+    stableStoreFns.setPanelMode.mockClear()
+
+    act(() => desktopHooks.__PODIUM_FOCUS_SESSION_PROMPT__?.())
+    expect(terminalFocus).toHaveBeenCalledOnce()
+
+    act(() => desktopHooks.__PODIUM_TOGGLE_SESSION_VIEW__?.())
+    expect(stableStoreFns.setPanelMode).toHaveBeenCalledWith(asSessionId('s1'), 'chat')
+  })
+
+  it('focuses the transcript chat prompt', async () => {
+    storePanelMode = { s1: 'chat' }
+    await act(async () => {
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active focused />)
+    })
+    await flush()
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea:not(:disabled)')
+    expect(textarea).toBeTruthy()
+    textarea?.blur()
+
+    act(() => desktopHooks.__PODIUM_FOCUS_SESSION_PROMPT__?.())
+
+    expect(document.activeElement).toBe(textarea)
+  })
+
+  it('leaves desktop session commands to the focused split pane', async () => {
+    await act(async () => {
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active focused={false} />)
+    })
+    await flush()
+    terminalFocus.mockClear()
+    stableStoreFns.setPanelMode.mockClear()
+
+    act(() => {
+      desktopHooks.__PODIUM_FOCUS_SESSION_PROMPT__?.()
+      desktopHooks.__PODIUM_TOGGLE_SESSION_VIEW__?.()
+    })
+
+    expect(terminalFocus).not.toHaveBeenCalled()
+    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalled()
+  })
+
   it('makes a rejected hibernated resume retryable', async () => {
     storeSessions = [meta({ status: 'hibernated', controllerId: null })]
     stableStoreFns.resurrectSession.mockRejectedValueOnce(new Error('wake rejected'))

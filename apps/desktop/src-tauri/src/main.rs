@@ -730,7 +730,21 @@ fn main() {
                     MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")
                         .accelerator("Shift+CmdOrCtrl+B")
                         .build(app)?;
+                // Session-input commands use one mnemonic pair. Like Cmd+W/N above,
+                // these must be real menu accelerators: WKWebView never receives a
+                // chord claimed by the macOS application menu.
+                let focus_session_prompt =
+                    MenuItemBuilder::with_id("focus-session-prompt", "Focus Session Prompt")
+                        .accelerator("CmdOrCtrl+L")
+                        .build(app)?;
+                let toggle_session_view =
+                    MenuItemBuilder::with_id("toggle-session-view", "Toggle Chat / Native View")
+                        .accelerator("Shift+CmdOrCtrl+L")
+                        .build(app)?;
                 let view_menu = SubmenuBuilder::new(app, "View")
+                    .item(&focus_session_prompt)
+                    .item(&toggle_session_view)
+                    .separator()
                     .item(&toggle_left)
                     .item(&toggle_flight)
                     .item(&toggle_right)
@@ -869,6 +883,8 @@ fn main() {
             "add-project" => eval_menu_hook(app, "__PODIUM_ADD_PROJECT__"),
             "about-podium" => eval_menu_hook(app, "__PODIUM_ABOUT__"),
             "check-updates" => eval_menu_hook(app, "__PODIUM_CHECK_UPDATES__"),
+            "focus-session-prompt" => eval_menu_hook(app, "__PODIUM_FOCUS_SESSION_PROMPT__"),
+            "toggle-session-view" => eval_menu_hook(app, "__PODIUM_TOGGLE_SESSION_VIEW__"),
             "toggle-left-sidebar" => eval_menu_hook(app, "__PODIUM_TOGGLE_LEFT_SIDEBAR__"),
             "toggle-flight-deck" => eval_menu_hook(app, "__PODIUM_TOGGLE_FLIGHT_DECK__"),
             "toggle-right-sidebar" => eval_menu_hook(app, "__PODIUM_TOGGLE_RIGHT_SIDEBAR__"),

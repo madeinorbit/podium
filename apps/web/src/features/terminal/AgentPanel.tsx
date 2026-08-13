@@ -149,14 +149,24 @@ function SessionDraftRef({
   return null
 }
 
+type DesktopSessionGlobals = {
+  __PODIUM_FOCUS_SESSION_PROMPT__?: () => void
+  __PODIUM_TOGGLE_SESSION_VIEW__?: () => void
+}
+
 export function AgentPanel({
   sessionId,
   active = true,
+  focused = active,
 }: {
   sessionId: SessionId
   /** False when this panel is mounted but hidden (an inactive tab kept warm so
    *  switching back catches up instead of wiping). Gates focus, nothing else. */
   active?: boolean
+  /** True only for the active tab in the workspace's focused pane. A split
+   *  workspace can have several visible/active terminals, but desktop shortcut
+   *  commands must have exactly one recipient. */
+  focused?: boolean
 }): JSX.Element {
   const {
     hub,
@@ -340,6 +350,7 @@ export function AgentPanel({
   // by one frame so a freshly mounted dock still gets its enter transition.
   const dockOpenTarget = Boolean(nativeOffer)
   const [dockOpen, setDockOpen] = useState(false)
+  const panelRootRef = useRef<HTMLDivElement | null>(null)
   const termSurfaceRef = useRef<HTMLDivElement | null>(null)
   const dockInnerRef = useRef<HTMLDivElement | null>(null)
   const dockUnpinRef = useRef<(() => void) | null>(null)
@@ -525,6 +536,32 @@ export function AgentPanel({
     },
   })
 
+  // macOS menu accelerators are consumed before WKWebView sees a keydown. The
+  // focused panel therefore publishes the two hooks the native menu evaluates.
+  useEffect(() => {
+    if (!active || !focused) return
+    const globals = globalThis as DesktopSessionGlobals
+    const focusPrompt = (): void => {
+      if (effectiveMode === 'chat') {
+        panelRootRef.current?.querySelector<HTMLTextAreaElement>('textarea:not(:disabled)')?.focus()
+      } else if (gates.terminalActive) {
+        mountedRef.current?.view.focus()
+      }
+    }
+    const toggleView = (): void => {
+      if (!gates.modeSwitchOffered) return
+      pickModeWithTrace(effectiveMode === 'chat' ? 'native' : 'chat')
+    }
+    globals.__PODIUM_FOCUS_SESSION_PROMPT__ = focusPrompt
+    globals.__PODIUM_TOGGLE_SESSION_VIEW__ = toggleView
+    return () => {
+      if (globals.__PODIUM_FOCUS_SESSION_PROMPT__ === focusPrompt)
+        delete globals.__PODIUM_FOCUS_SESSION_PROMPT__
+      if (globals.__PODIUM_TOGGLE_SESSION_VIEW__ === toggleView)
+        delete globals.__PODIUM_TOGGLE_SESSION_VIEW__
+    }
+  }, [active, focused, gates.terminalActive, gates.modeSwitchOffered, effectiveMode, mountedRef])
+
   // Keep later appearance changes on the shared, eligibility-gated path. The
   // initial mount is handled directly above because the hook's first appearance
   // effect would otherwise fit the same theme twice.
@@ -644,7 +681,7 @@ export function AgentPanel({
   return (
     // `relative` anchors the handover veil below the header (the terminal surface
     // positions its own overlays against itself, so nothing else moves).
-    <div className="relative flex min-w-0 flex-1 flex-col">
+    <div ref={panelRootRef} className="relative flex min-w-0 flex-1 flex-col">
       <SessionDraftRef sessionId={sessionId} valueRef={draftRef} />
       {/* Session header [POD-121, remetered POD-725]: 36px, no surface of its own
           — the sheet's card tone runs straight through it and a soft hairline is
