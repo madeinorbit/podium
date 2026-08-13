@@ -32,6 +32,15 @@
  *    reports no schema change across the whole flip, which is why branding
  *    every column needed no migration.
  *
+ * A FOREIGN KEY declares its brand through {@link brandedRef}, never through
+ * drizzle's own `.references()` (POD-1958). drizzle rc.4 types that method's
+ * target as a bare `SQLiteColumn`, erasing the referenced column's brand, so
+ * every pairing typechecks — an `AutomationId` column could reference a
+ * `SessionId` primary key and `bun run typecheck` still exited 0. `brandedRef`
+ * puts the erased parameter back and requires the two brands to be EQUAL; see
+ * `branded-ref.ts` for why the check is two-directional and where the error
+ * lands. `branded-ref.test.ts` refuses a raw `.references(` in this file.
+ *
  * A column NOT branded here carries an `UNBRANDED` doc comment naming whose id
  * space it belongs to — provider-, harness- and transcript-native ids, matching
  * the carve-outs the zod schemas already record. That token is what
@@ -65,6 +74,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
+import { brandedRef } from './branded-ref'
 
 export const sessions = sqliteTable(
   'sessions',
@@ -171,10 +181,11 @@ export const sessionObservationCheckpoints = sqliteTable('session_observation_ch
 })
 
 export const sessionObservationRebinds = sqliteTable('session_observation_rebinds', {
-  sessionId: text('session_id')
-    .$type<SessionId>()
-    .primaryKey()
-    .references(() => sessionObservationCheckpoints.sessionId, { onDelete: 'cascade' }),
+  sessionId: brandedRef(
+    text('session_id').$type<SessionId>(),
+    () => sessionObservationCheckpoints.sessionId,
+    { onDelete: 'cascade' },
+  ).primaryKey(),
   provider: text().notNull(),
   /** UNBRANDED: PROVIDER-minted, as `provider_session_id` above. */
   fromProviderSessionId: text('from_provider_session_id'),
@@ -188,10 +199,11 @@ export const sessionObservationRebinds = sqliteTable('session_observation_rebind
 })
 
 export const sessionTerminalCandidates = sqliteTable('session_terminal_candidates', {
-  sessionId: text('session_id')
-    .$type<SessionId>()
-    .primaryKey()
-    .references(() => sessionObservationCheckpoints.sessionId, { onDelete: 'cascade' }),
+  sessionId: brandedRef(
+    text('session_id').$type<SessionId>(),
+    () => sessionObservationCheckpoints.sessionId,
+    { onDelete: 'cascade' },
+  ).primaryKey(),
   proofJson: text('proof_json', { mode: 'json' }).notNull(),
   confirmedAt: text('confirmed_at'),
   consumedAt: text('consumed_at'),
@@ -983,10 +995,9 @@ export const notificationFacts = sqliteTable(
 export const issueLabels = sqliteTable(
   'issue_labels',
   {
-    issueId: text('issue_id')
-      .$type<IssueId>()
-      .notNull()
-      .references(() => issues.id, { onDelete: 'cascade' }),
+    issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     label: text().notNull(),
   },
   (table) => [
@@ -998,12 +1009,12 @@ export const issueLabels = sqliteTable(
 export const issueDeps = sqliteTable(
   'issue_deps',
   {
-    fromId: text('from_id')
-      .notNull()
-      .references(() => issues.id, { onDelete: 'cascade' }),
-    toId: text('to_id')
-      .notNull()
-      .references(() => issues.id, { onDelete: 'cascade' }),
+    fromId: brandedRef(text('from_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'cascade',
+    }).notNull(),
+    toId: brandedRef(text('to_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     type: text().default('blocks').notNull(),
   },
   (table) => [
@@ -1017,10 +1028,9 @@ export const issueComments = sqliteTable(
   'issue_comments',
   {
     id: text().primaryKey(),
-    issueId: text('issue_id')
-      .$type<IssueId>()
-      .notNull()
-      .references(() => issues.id, { onDelete: 'cascade' }),
+    issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     author: text().notNull(),
     body: text().notNull(),
     createdAt: text('created_at').notNull(),
@@ -1034,10 +1044,9 @@ export const issueMessages = sqliteTable(
   'issue_messages',
   {
     id: text().primaryKey(),
-    issueId: text('issue_id')
-      .$type<IssueId>()
-      .notNull()
-      .references(() => issues.id, { onDelete: 'cascade' }),
+    issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     fromAuthor: text('from_author').notNull(),
     body: text().notNull(),
     createdAt: text('created_at').notNull(),
@@ -1085,9 +1094,11 @@ export const issues = sqliteTable(
     priority: integer().default(2).notNull(),
     type: text().default('task').notNull(),
     assignee: text(),
-    parentId: text('parent_id').references((): AnySQLiteColumn => issues.id, {
-      onDelete: 'set null',
-    }),
+    parentId: brandedRef(
+      text('parent_id').$type<IssueId>(),
+      (): AnySQLiteColumn<{ data: IssueId }> => issues.id,
+      { onDelete: 'set null' },
+    ),
     design: text(),
     acceptance: text(),
     notes: text(),
@@ -1097,12 +1108,16 @@ export const issues = sqliteTable(
     // When the closed-predicate last flipped true; null while open. The stable
     // completion-decay anchor (updatedAt churns on any touch). [spec:SP-6144]
     closedAt: text('closed_at'),
-    supersededBy: text('superseded_by').references((): AnySQLiteColumn => issues.id, {
-      onDelete: 'set null',
-    }),
-    duplicateOf: text('duplicate_of').references((): AnySQLiteColumn => issues.id, {
-      onDelete: 'set null',
-    }),
+    supersededBy: brandedRef(
+      text('superseded_by').$type<IssueId>(),
+      (): AnySQLiteColumn<{ data: IssueId }> => issues.id,
+      { onDelete: 'set null' },
+    ),
+    duplicateOf: brandedRef(
+      text('duplicate_of').$type<IssueId>(),
+      (): AnySQLiteColumn<{ data: IssueId }> => issues.id,
+      { onDelete: 'set null' },
+    ),
     /** Manual order (POD-168): fractional/lexo-rank string, ascending = top.
      *  One key space per sibling scope (project-group top level, a parent's
      *  children, PINNED); null = legacy row, sorts after keyed rows. */
@@ -1476,9 +1491,9 @@ export const workflowRevisions = sqliteTable(
   'workflow_revisions',
   {
     id: text().primaryKey(),
-    workflowId: text('workflow_id')
-      .notNull()
-      .references(() => workflows.id, { onDelete: 'cascade' }),
+    workflowId: brandedRef(text('workflow_id'), () => workflows.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     version: integer().notNull(),
     instructions: text().notNull(),
     stepsJson: text('steps_json', { mode: 'json' }).default([]).notNull(),
@@ -1500,9 +1515,9 @@ export const workflowBindings = sqliteTable(
   {
     targetKind: text('target_kind').notNull(),
     targetId: text('target_id').notNull(),
-    revisionId: text('revision_id')
-      .notNull()
-      .references(() => workflowRevisions.id, { onDelete: 'restrict' }),
+    revisionId: brandedRef(text('revision_id'), () => workflowRevisions.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     updatedByKind: text('updated_by_kind').notNull(),
     updatedById: text('updated_by_id'),
     updatedAt: text('updated_at').notNull(),
@@ -1547,13 +1562,15 @@ export const workflowRuns = sqliteTable(
     subjectKind: text('subject_kind').notNull(),
     subjectId: text('subject_id').notNull(),
     coordinatorSessionId: text('coordinator_session_id').$type<SessionId>().notNull(),
-    revisionId: text('revision_id')
-      .notNull()
-      .references(() => workflowRevisions.id, { onDelete: 'restrict' }),
+    revisionId: brandedRef(text('revision_id'), () => workflowRevisions.id, {
+      onDelete: 'restrict',
+    }).notNull(),
     status: text().notNull(),
-    supersedesRunId: text('supersedes_run_id').references((): AnySQLiteColumn => workflowRuns.id, {
-      onDelete: 'set null',
-    }),
+    supersedesRunId: brandedRef(
+      text('supersedes_run_id'),
+      (): AnySQLiteColumn<{ data: string }> => workflowRuns.id,
+      { onDelete: 'set null' },
+    ),
     startedAt: text('started_at').notNull(),
     completedAt: text('completed_at'),
     ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
@@ -1571,9 +1588,9 @@ export const workflowRuns = sqliteTable(
 export const workflowRunSteps = sqliteTable(
   'workflow_run_steps',
   {
-    runId: text('run_id')
-      .notNull()
-      .references(() => workflowRuns.id, { onDelete: 'cascade' }),
+    runId: brandedRef(text('run_id'), () => workflowRuns.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     stepId: text('step_id').notNull(),
     position: integer().notNull(),
     title: text().notNull(),
@@ -1675,10 +1692,9 @@ export const automationRuns = sqliteTable(
     id: text().$type<AutomationRunId>().primaryKey(),
     actor: text().default('system:automation-migration').notNull(),
     onBehalfOf: text('on_behalf_of').default('user:sole').notNull(),
-    automationId: text('automation_id')
-      .$type<AutomationId>()
-      .notNull()
-      .references(() => automations.id, { onDelete: 'cascade' }),
+    automationId: brandedRef(text('automation_id').$type<AutomationId>(), () => automations.id, {
+      onDelete: 'cascade',
+    }).notNull(),
     firedAt: text('fired_at').notNull(),
     sessionId: text('session_id').$type<SessionId>(),
     outcome: text().notNull(),
