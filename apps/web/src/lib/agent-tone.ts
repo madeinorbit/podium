@@ -40,6 +40,10 @@ const CHIP_TINT_FALLBACK = 'border-border-strong bg-chip text-foreground'
 const FLEET_TILE_TINT_FALLBACK = 'border-border-strong bg-chip text-foreground'
 /** A parked (hibernated) agent's tile — `KindIcon`'s `dimmed` pair, verbatim. */
 const FLEET_TILE_TINT_PARKED = 'border-hairline-bar bg-muted text-muted-foreground/70'
+/** Official Grok pair: black swirl on white in Paper, white swirl on zinc-950
+ *  in Dark Ink. The glyph is `currentColor`, so the `text-*` class is the mark. */
+const GROK_TILE_TINT =
+  'border-zinc-950/15 bg-white text-zinc-950 dark:border-white/15 dark:bg-zinc-950 dark:text-white'
 
 const GLYPH_TONE: Record<AgentKind, string> = {
   'claude-code': 'text-claude',
@@ -53,7 +57,7 @@ const GLYPH_TONE: Record<AgentKind, string> = {
 const CHIP_TINT: Record<AgentKind, string> = {
   'claude-code': 'border-claude bg-claude text-white',
   codex: CHIP_TINT_FALLBACK,
-  grok: 'border-white/15 bg-zinc-950 text-white',
+  grok: GROK_TILE_TINT,
   opencode: CHIP_TINT_FALLBACK,
   cursor: CHIP_TINT_FALLBACK,
   shell: CHIP_TINT_FALLBACK,
@@ -62,7 +66,7 @@ const CHIP_TINT: Record<AgentKind, string> = {
 const FLEET_TILE_TINT: Record<AgentKind, string> = {
   'claude-code': 'border-claude bg-claude text-white',
   codex: FLEET_TILE_TINT_FALLBACK,
-  grok: 'border-white/15 bg-zinc-950 text-white',
+  grok: GROK_TILE_TINT,
   opencode: FLEET_TILE_TINT_FALLBACK,
   cursor: FLEET_TILE_TINT_FALLBACK,
   shell: FLEET_TILE_TINT_FALLBACK,
@@ -93,8 +97,8 @@ export function agentGlyphTone(kind: WireHarnessKind): string {
 }
 
 /** 20px chip behind the glyph (work-list agent rows): Claude wears its clay,
- *  other harnesses a quiet navy — solid fills so a chip never ghosts through a
- *  neighbour. Total. */
+ *  Grok the official light/dark pair, other harnesses a quiet navy — solid
+ *  fills so a chip never ghosts through a neighbour. Total. */
 export function agentChipTint(kind: WireHarnessKind): string {
   return CHIP_TINT[kind as AgentKind] ?? CHIP_TINT_FALLBACK
 }
