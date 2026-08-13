@@ -1625,7 +1625,7 @@ describe('SessionRegistry', () => {
       geometry: { cols: 173, rows: 47 },
     })
     // Attaching the daemon fires a reattach for the reconnecting session.
-    const control: import('@podium/protocol').ControlMessage[] = []
+    const control: import('@podium/protocol/daemon').ControlMessage[] = []
     reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => control.push(m))
     expect(control).toContainEqual(
       expect.objectContaining({

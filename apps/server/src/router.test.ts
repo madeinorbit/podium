@@ -201,7 +201,7 @@ describe('appRouter', () => {
   })
 
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
-    const daemon: import('@podium/protocol').ControlMessage[] = []
+    const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const readTranscript = vi.spyOn(registry.modules.rpc, 'readTranscript')
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -296,7 +296,7 @@ describe('appRouter', () => {
 function repoCaller() {
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const daemon: import('@podium/protocol').ControlMessage[] = []
+  const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
   return {
     registry,
