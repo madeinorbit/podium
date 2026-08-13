@@ -1,6 +1,26 @@
 #!/usr/bin/env bun
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+/**
+ * THE SIZE RATCHET — and why it runs LAST, after the stamp.
+ *
+ * This script only READS `dist`; it writes nothing. That is what decides its
+ * place in the web build: it is a judgement on an artifact that is already
+ * finished, so it must not stand between the build and the stamp that names it.
+ *
+ * It used to. `write-web-build-stamp.ts` is deliberately the last step that
+ * writes, so the stamp means "this dist is complete" (POD-1986) — but with this
+ * check in front of it, a size complaint left a perfectly good build with no
+ * `podium-build.json` at all. Measured on the dev host: 236 asset files,
+ * sourcemaps archived, precompressed, and unnameable. The server then read the
+ * website as "not for this commit" forever, rebuilt it fruitlessly on every
+ * start-up, refused to pack a development bundle, and published a target with no
+ * headless artifact. Updates were wedged by a size warning (POD-2002).
+ *
+ * A breach still fails the build command, so landings and CI still stop. The
+ * difference is that what is already on disk can be named.
+ */
+
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 
@@ -121,17 +141,11 @@ const report = {
     gzip: settings.gzip,
     brotli: settings.brotli,
     sourceBytes: settings.sourceBytes,
-    ownershipMatrixSources: matchingSources(
-      [settings],
-      'packages/model/src/annotations/matrix.ts',
-    ),
+    ownershipMatrixSources: matchingSources([settings], 'packages/model/src/annotations/matrix.ts'),
     commandSources: matchingSources([settings], 'packages/commands/src/'),
   },
   allBrowserChunks: {
-    ownershipMatrixSources: matchingSources(
-      allChunks,
-      'packages/model/src/annotations/matrix.ts',
-    ),
+    ownershipMatrixSources: matchingSources(allChunks, 'packages/model/src/annotations/matrix.ts'),
   },
 }
 
@@ -164,8 +178,7 @@ if (checkBudget) {
     'packages/commands/src/settings/write-policy.ts',
   ])
   const unrelatedSettingsCommands = report.settings.commandSources.filter(
-    (source) =>
-      ![...allowedSettingsCommandSources].some((allowed) => source.endsWith(allowed)),
+    (source) => ![...allowedSettingsCommandSources].some((allowed) => source.endsWith(allowed)),
   )
   if (unrelatedSettingsCommands.length > 0)
     errors.push(`unrelated settings command sources: ${unrelatedSettingsCommands.join(', ')}`)
