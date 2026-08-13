@@ -49,12 +49,12 @@ function needsDevelopmentBundle(target: {
  * identity only when both halves agree on it — otherwise a phone left on last
  * week's export reads as current because the desktop half is fresh.
  *
- * Answering `undefined` while the phone lags is what lets ONE reader serve both
- * consumers: the staleness check below, and the tarball gate that polls the same
- * reader before packing a bundle for other machines. Comparing the phone against
- * the desktop rather than against the expected commit is deliberate and
- * equivalent — a desktop half that is itself behind already fails the caller's
- * `=== expected`.
+ * Answering `undefined` while the phone lags is what makes "is the website
+ * behind" one question with one answer. It is deliberately NOT what the dest
+ * tarball gate waits on: that gate protects the bytes it packs, and it packs
+ * `apps/web/dist` only. Comparing the phone against the desktop rather than
+ * against the expected commit is deliberate and equivalent — a desktop half that
+ * is itself behind already fails the caller's `=== expected`.
  *
  * An ABSENT phone dist is not behind: an installation that never exported one
  * has nothing to rebuild, and reading its silence as staleness would leave
@@ -253,8 +253,9 @@ export function startUpdate(
       : opts?.servedWebDigest !== undefined
         ? () => opts.servedWebDigest as string
         : undefined
-  const readServedWeb = websiteDigestReader(readDesktopWeb, opts?.servedMobileWeb)
-  const webBehind = expectedWeb !== undefined && readServedWeb?.() !== expectedWeb
+  // The WEBSITE is both dists, so that is what "behind" is measured against.
+  const readWebsite = websiteDigestReader(readDesktopWeb, opts?.servedMobileWeb)
+  const webBehind = expectedWeb !== undefined && readWebsite?.() !== expectedWeb
   if (!serverBehind && !webBehind && initialFleet.behind === 0 && initialFleet.converging === 0) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
@@ -285,7 +286,13 @@ export function startUpdate(
       targetVersion: target.version,
       expectedWeb,
       webBehind,
-      readServedWeb,
+      // The DESKTOP dist, deliberately, though `webBehind` above counts both.
+      // This wait exists so a tarball is not packed around yesterday's website,
+      // and the tarball carries `apps/web/dist` only — waiting on the phone
+      // export here would hold every remote machine's update for bytes none of
+      // them receive. A phone-only staleness therefore satisfies this wait at
+      // once and is finished by the page's own wait instead (POD-1980).
+      readServedWeb: readDesktopWeb,
       requestDestBundle: opts.requestDestBundle,
       serverBehind,
       requestCoordinatorRestart,

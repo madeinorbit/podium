@@ -94,8 +94,36 @@ Each was watched to fail with the phone clause disabled, then restored:
 - **The dialog was not driven in a browser.** Its phone row is asserted through the real
   component (`UpdateDialog.test.tsx`) and the real hook (`use-update-state.test.tsx`), but
   no screenshot of an actual stale-phone installation was taken.
-- **The rebuild itself was not run from the button.** `requestWebRebuild` restarts
-  `podium-web.service`, whose `ExecStart` already builds both dists; that path is unchanged
-  by this issue and restarting it on the live host is not something to do casually.
+- **The rebuild itself was not run from the button.** `requestWebRebuild` is the server's
+  own web-build step (POD-1985), whose step list already runs `@podium/web build` and
+  `@podium/mobile build:web`; that path is unchanged by this issue and driving it on the
+  live host is not something to do casually.
+- **The dest-tarball gate's own staleness check still reads only the desktop dist.**
+  `dev-web-build.ts`'s `ensure()` decides "is the dist at HEAD" from
+  `apps/web/dist/podium-build.json` alone. The gate that matters for a bundle leaving this
+  machine — `continueDevelopmentUpdate`'s wait — now covers both dists (see below), but
+  widening `ensure()` is a decision for whoever owns that build step.
+
+## Landing on a moved main
+
+Between review and landing, main gained POD-1985/POD-1986: the web build became a step the
+server itself awaits rather than a systemd unit it restarts, `servedWebDigest` became a
+lazily-read thunk, and that thunk is now polled by `continueDevelopmentUpdate` before a
+development tarball is packed for other machines — "do not ship yesterday's website under
+today's sha".
+
+"Is the website behind" is one question, so it gets one answer: `websiteDigestReader`
+composes the two dists into a single reader that names a commit only when both halves do.
+That is what `webBehind` measures.
+
+The tarball gate deliberately does NOT use it — a correction the POD-1982 session's landing
+note prompted. That wait exists to protect the bytes it packs, and the dest tarball carries
+`apps/web/dist` only. Waiting on the phone export there would hold every remote machine's
+update for bytes none of them receive. So it keeps reading the desktop dist, a phone-only
+staleness satisfies it immediately, and the phone half is finished by the page's own wait
+instead. Two consumers, two questions, which is why the reader is a named function rather
+than a widened variable.
+
+(That the dest tarball omits the phone export at all is pre-existing and not this issue's.)
 - **The phone shell still gets no stale-build banner.** `stampCheck` stays opt-in for the
   desktop dist. Deliberate: the desktop's staleness law must take no input from the phone.

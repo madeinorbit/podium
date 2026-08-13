@@ -1,7 +1,12 @@
 import { asMachineId } from '@podium/model'
+import type { MobileWebIdentity } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UpdatesService } from './service'
-import { restartCoordinatorAfterDevelopmentFleet, waitForServedWebDigest } from './trpc'
+import {
+  restartCoordinatorAfterDevelopmentFleet,
+  waitForServedWebDigest,
+  websiteDigestReader,
+} from './trpc'
 
 /**
  * The coordinator may only restart once the development fleet has actually
@@ -120,5 +125,55 @@ describe('waitForServedWebDigest', () => {
     await expect(waitForServedWebDigest('47a01e3', () => 'aaaaaaa', 5, 20)).rejects.toThrow(
       'The website did not finish rebuilding in time.',
     )
+  })
+})
+
+/**
+ * THE WEBSITE IS BOTH DISTS (POD-1980). "Is the website behind" is one question
+ * with one answer, so one reader composes the desktop shell and the phone export.
+ *
+ * The dest-tarball gate deliberately does NOT use it: that wait protects the
+ * bytes it packs, and it packs `apps/web/dist` only.
+ */
+describe('websiteDigestReader', () => {
+  const reader = (desktop: string | undefined, phone?: MobileWebIdentity) =>
+    websiteDigestReader(() => desktop, phone ? () => phone : undefined)
+
+  it('names the commit when both dists agree on it', () => {
+    expect(reader('47a01e3', { present: true, digest: '47a01e3' })?.()).toBe('47a01e3')
+  })
+
+  it('CAN SAY NO: names nothing while the phone export lags a fresh desktop dist', () => {
+    expect(reader('47a01e3', { present: true, digest: 'aaaaaaa' })?.()).toBeUndefined()
+  })
+
+  it('names nothing for a phone export that cannot name its own commit', () => {
+    expect(reader('47a01e3', { present: true })?.()).toBeUndefined()
+  })
+
+  it('is the desktop dist alone when there is no phone website to wait for', () => {
+    expect(reader('47a01e3', { present: false })?.()).toBe('47a01e3')
+    expect(reader('47a01e3')?.()).toBe('47a01e3')
+  })
+
+  it('stays undefined when the desktop dist itself cannot be named', () => {
+    expect(reader(undefined, { present: true, digest: '47a01e3' })?.()).toBeUndefined()
+  })
+
+  it('has nothing to read when the server serves no website at all', () => {
+    expect(websiteDigestReader(undefined, () => ({ present: true }))).toBeUndefined()
+  })
+
+  it('re-reads both halves on every call, so a finished export ends the wait', async () => {
+    let phone: MobileWebIdentity = { present: true, digest: 'aaaaaaa' }
+    const read = websiteDigestReader(
+      () => '47a01e3',
+      () => phone,
+    )
+    expect(read?.()).toBeUndefined()
+    phone = { present: true, digest: '47a01e3' }
+    await expect(
+      waitForServedWebDigest('47a01e3', read as () => string, 5, 50),
+    ).resolves.toBeUndefined()
   })
 })
