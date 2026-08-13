@@ -406,7 +406,7 @@ describe('FileLinkPathIndex (AgentPanel file-link delta contract)', () => {
     index.add(items)
     expect(index.knownPaths.size).toBe(5_000)
     expect(index.knownPaths.has('/external/generated-0')).toBe(true)
-    expect(index.knownPaths.has('/external/generated-4,999')).toBe(true)
+    expect(index.knownPaths.has('/external/generated-4999')).toBe(true)
   })
 })
 
