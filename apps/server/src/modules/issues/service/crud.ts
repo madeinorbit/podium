@@ -7,6 +7,7 @@ import {
   type GrantVerb,
   type IssueWire,
   isSortKey,
+  isIssueStage,
   isSystemOwnedIssueStage,
   normalizeClosedPatch,
   type SessionId,
@@ -430,7 +431,10 @@ export class IssueCrudModule {
     // purpose-built Shipping service owns both directions; every existing
     // update/claim/start path converges here and is therefore unable to enter or
     // leave the stage accidentally.
-    if (isSystemOwnedIssueStage(row.stage) || patch.stage === 'shipping') {
+    if (
+      (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) ||
+      patch.stage === 'shipping'
+    ) {
       throw new Error('shipping stage is system-owned and cannot be changed by an issue update')
     }
     const prevStage = row.stage
@@ -908,7 +912,7 @@ export class IssueCrudModule {
 
   applySuggestion(id: string): IssueWire {
     const row = this.store.rowOrThrow(id)
-    if (isSystemOwnedIssueStage(row.stage)) {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot apply an issue suggestion')
     }
     const stage = row.suggestedStage
@@ -923,7 +927,7 @@ export class IssueCrudModule {
   }
   dismissSuggestion(id: string): IssueWire {
     const row = this.store.rowOrThrow(id)
-    if (isSystemOwnedIssueStage(row.stage)) {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot dismiss an issue suggestion')
     }
     row.suggestedStage = null

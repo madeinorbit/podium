@@ -9,6 +9,7 @@ import {
   type IssueSearchFilter,
   type IssueStats,
   type IssueWire,
+  isIssueStage,
   isReadyIssueStage,
   isSystemOwnedIssueStage,
   type LintFinding,
@@ -219,7 +220,7 @@ export class IssueReportsModule {
       }
       omitted += omittedChildren
       const members =
-        row.deletedAt || isSystemOwnedIssueStage(row.stage)
+        row.deletedAt || (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage))
           ? []
           : sessionsForIssue(row.worktreePath, sessionList, row.id)
       // One named mapper owns this projection (inventory §6.5) — including the
@@ -251,7 +252,12 @@ export class IssueReportsModule {
         description: row.description.replace(/\s+/g, ' ').trim().slice(0, 300),
         closed,
         blocked,
-        ready: isReadyIssueStage(row.stage) && !closed && !this.store.isDeferred(row) && !blocked,
+        ready:
+          isIssueStage(row.stage) &&
+          isReadyIssueStage(row.stage) &&
+          !closed &&
+          !this.store.isDeferred(row) &&
+          !blocked,
         sessions,
         children,
         omittedChildren,
@@ -317,7 +323,12 @@ export class IssueReportsModule {
           priority: row.priority,
           closed,
           blocked,
-          ready: isReadyIssueStage(row.stage) && !closed && !this.store.isDeferred(row) && !blocked,
+          ready:
+            isIssueStage(row.stage) &&
+            isReadyIssueStage(row.stage) &&
+            !closed &&
+            !this.store.isDeferred(row) &&
+            !blocked,
           deps,
           dependents,
         }

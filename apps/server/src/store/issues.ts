@@ -263,8 +263,8 @@ export class IssuesRepository {
    * the expected-stage predicate is the admission/settlement CAS. */
   transitionShippingStage(
     id: IssueId,
-    expectedStage: Extract<IssueRow['stage'], 'review' | 'shipping'>,
-    nextStage: Extract<IssueRow['stage'], 'shipping' | 'review' | 'done'>,
+    expectedStage: Extract<IssueStage, 'review' | 'shipping'>,
+    nextStage: Extract<IssueStage, 'shipping' | 'review' | 'done'>,
     updatedAt: string,
   ): IssueRow {
     const legal =

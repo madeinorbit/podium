@@ -407,6 +407,9 @@ export class ShippingRepository {
       throw new Error(`terminal ship attempt ${id} is immutable`)
     }
     const completed = ShipAttempt.parse({ ...attempt, ...result })
+    if (completed.finishedAt === undefined || completed.outcome === undefined) {
+      throw new Error(`completed ship attempt ${id} is missing finishedAt/outcome`)
+    }
     const changed = this.db
       .prepare(
         `UPDATE ship_attempts SET finished_at = ?, outcome = ?, tested_integration_sha = ?,

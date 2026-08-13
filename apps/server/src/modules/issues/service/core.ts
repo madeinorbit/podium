@@ -14,6 +14,7 @@ import {
   isIssueBlocked,
   isIssueClosed,
   isIssueDeferred,
+  isIssueStage,
   isReadyIssueStage,
   isSystemOwnedIssueStage,
   issueOverlayOf,
@@ -109,7 +110,7 @@ export class IssueStore {
    * not wrong.
    */
   sessionsFor(row: Pick<IssueRow, 'id' | 'worktreePath' | 'stage'>): SessionMeta[] {
-    if (isSystemOwnedIssueStage(row.stage)) return []
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) return []
     const narrow = this.deps.listSessionsForIssue
     if (narrow) return narrow(row.worktreePath, row.id)
     return sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
@@ -368,7 +369,12 @@ export class IssueStore {
         )
       : this.computeBlocked(row)
     const deferred = this.isDeferred(row)
-    const ready = isReadyIssueStage(row.stage) && !this.isClosed(row) && !deferred && !blocked
+    const ready =
+      isIssueStage(row.stage) &&
+      isReadyIssueStage(row.stage) &&
+      !this.isClosed(row) &&
+      !deferred &&
+      !blocked
     let prefix = batch?.prefixesByRepoPath.get(row.repoPath)
     if (prefix === undefined) {
       prefix = this.deps.store.repos.prefixForPath(row.repoPath)

@@ -50,6 +50,11 @@ export const ALL_ISSUE_STAGES = [
 export const IssueStage = z.enum(ALL_ISSUE_STAGES)
 export type IssueStage = z.infer<typeof IssueStage>
 
+/** Narrow a stored or untyped stage value to the durable IssueStage union. */
+export function isIssueStage(value: unknown): value is IssueStage {
+  return typeof value === 'string' && (ALL_ISSUE_STAGES as readonly string[]).includes(value)
+}
+
 /** Lifecycle custody owned by a system service, never an ordinary issue edit. */
 export const isSystemOwnedIssueStage = (stage: IssueStage): boolean => stage === 'shipping'
 

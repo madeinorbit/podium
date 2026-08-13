@@ -4,6 +4,7 @@ import {
   DEFER_NEXT_MESSAGE,
   type IssueRehomeTarget,
   type IssueWire,
+  isIssueStage,
   isSystemOwnedIssueStage,
   type SessionId,
   type SessionMeta,
@@ -161,7 +162,7 @@ export class IssueGitWorkflowModule {
   rehome(id: string, to: IssueRehomeTarget): IssueWire | null {
     const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) return null
-    if (isSystemOwnedIssueStage(row.stage)) {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot rehome issue work')
     }
     if (!this.isSameRepoIdentity(row, to.repoPath)) return null
@@ -246,7 +247,7 @@ export class IssueGitWorkflowModule {
       }>
   > {
     const row = this.store.rowOrThrow(id)
-    if (isSystemOwnedIssueStage(row.stage)) {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot start issue work')
     }
     if (row.worktreePath) {
@@ -665,7 +666,7 @@ export class IssueGitWorkflowModule {
     requestedMachineId?: MachineId,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
     const row = this.store.rowOrThrow(id)
-    if (isSystemOwnedIssueStage(row.stage)) {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot create an issue worktree')
     }
     const machineId = requestedMachineId ?? row.machineId ?? undefined
@@ -976,7 +977,7 @@ export class IssueGitWorkflowModule {
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
   ): IssueWire | Promise<IssueWire> {
     const row = this.store.rowOrThrow(id)
-    if (isSystemOwnedIssueStage(row.stage)) {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot add a session')
     }
     if (!row.worktreePath) {
@@ -998,7 +999,7 @@ export class IssueGitWorkflowModule {
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
   ): IssueWire {
     const row = this.store.rowOrThrow(id)
-    if (isSystemOwnedIssueStage(row.stage)) {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot add a session')
     }
     if (!row.worktreePath) throw new Error('issue not started')
