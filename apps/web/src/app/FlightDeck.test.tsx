@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { SessionMeta } from '@podium/model'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   deckTaskUnread,
@@ -24,6 +24,7 @@ import { OperatorFocusProvider } from './operator-focus'
 const harness = vi.hoisted(() => ({
   issues: [] as unknown[],
   sessions: [] as unknown[],
+  selectedIssueId: 'root',
   openSessionTab: vi.fn(),
   setPanelMode: vi.fn(),
   setSelectedIssueId: vi.fn(),
@@ -32,11 +33,13 @@ const harness = vi.hoisted(() => ({
   listeners: new Set<() => void>(),
   setPlacement: vi.fn(async (_input: unknown) => undefined),
   startIssue: vi.fn(async (_input: unknown) => undefined),
+  addSession: vi.fn(async (_input: unknown) => undefined),
   trpc: {
     features: { state: { query: async () => null } },
     issues: {
       setPlacement: { mutate: (input: unknown) => harness.setPlacement(input) },
       start: { mutate: (input: unknown) => harness.startIssue(input) },
+      addSession: { mutate: (input: unknown) => harness.addSession(input) },
     },
   } as unknown,
 }))
@@ -61,7 +64,7 @@ vi.mock('./store', () => ({
     select({
       sessions: harness.sessions,
       repos: [],
-      selectedIssueId: 'root',
+      selectedIssueId: harness.selectedIssueId,
       paneA: null,
       paneB: null,
       split: false,
@@ -153,11 +156,13 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   harness.ui.clear()
   harness.listeners.clear()
+  harness.selectedIssueId = 'root'
   harness.openSessionTab.mockClear()
   harness.setPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
   harness.setIssueTucked.mockClear()
   harness.startIssue.mockClear()
+  harness.addSession.mockClear()
   harness.setPlacement.mockClear()
   harness.issues = [
     issue('root', { title: 'Mission' }),
@@ -185,6 +190,26 @@ afterEach(() => {
 
 const chevron = (title: string): HTMLElement =>
   screen.getByRole('button', { name: new RegExp(`^(Expand|Collapse) ${title}$`) })
+
+describe('flight deck mission agent action', () => {
+  it('adds the selected agent to the mission root, even while a sub-task is focused', async () => {
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 'root'
+        ? { ...(candidate as Issue), worktreePath: '/repo', defaultAgent: 'claude-code' }
+        : candidate,
+    )
+    harness.selectedIssueId = 't1'
+    deck()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
+
+    await waitFor(() =>
+      expect(harness.addSession).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
+    )
+    expect(harness.startIssue).not.toHaveBeenCalled()
+  })
+})
 
 describe('flight deck fold state (POD-710 §4.2)', () => {
   it('migrates the v1 collapsed array to explicit closes and round-trips v2', () => {

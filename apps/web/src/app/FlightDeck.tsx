@@ -56,16 +56,25 @@ import {
   Ellipsis,
   Hourglass,
   Search,
+  UserPlus,
   X,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { UnreadDot } from '@/components/UnreadMark'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
+import { type IssueAgentKind, issueAgentOptions } from '@/lib/issue-agents'
 import { BrailleSpinner, PhaseTimer, useArrivals } from '@/lib/motion'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
@@ -82,6 +91,53 @@ const MODES: Array<{ id: FlightDeckMode; label: string }> = [
   { id: 'active', label: 'Active' },
   { id: 'needs-you', label: 'Needs you' },
 ]
+
+function MissionAgentMenu({
+  defaultAgent,
+  onAdd,
+}: {
+  defaultAgent: string
+  onAdd: (agentKind?: IssueAgentKind) => Promise<unknown>
+}): JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const options = issueAgentOptions(defaultAgent)
+  const add = (agentKind: string): void => {
+    setBusy(true)
+    void onAdd((agentKind || undefined) as IssueAgentKind | undefined)
+      .catch((error: unknown) =>
+        toast.error(error instanceof Error ? error.message : 'Could not add agent'),
+      )
+      .finally(() => setBusy(false))
+  }
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-6 flex-none gap-1.5 px-2.5"
+            disabled={busy}
+            aria-label="Add agent to mission"
+          >
+            <UserPlus size={13} aria-hidden="true" />
+            {busy ? 'Adding…' : 'Add agent'}
+            <ChevronDown size={12} aria-hidden="true" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-48">
+        {options.map((option) => (
+          <DropdownMenuItem key={option.value || 'default'} onClick={() => add(option.value)}>
+            {option.icon}
+            Add {option.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 /**
  * The spine's geometry, in one place because the tree guides are drawn from it.
@@ -1770,6 +1826,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     markIssueRead,
     markSessionRead,
     setIssueTucked,
+    trpc,
     coarseNow,
   } = useStoreSelector(
     (store) => ({
@@ -1794,6 +1851,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       markIssueRead: store.markIssueRead,
       markSessionRead: store.markSessionRead,
       setIssueTucked: store.setIssueTucked,
+      trpc: store.trpc,
       // The shared coarse clock, not one interval per row: the "N ago" stamp on
       // a stopped session must not disagree with the ordering derived from the
       // same clock elsewhere in the shell (sidebar-common, POD-407).
@@ -1824,6 +1882,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const [searchOpen, setSearchOpen] = useState(false)
   const headerIntent = useClickIntent()
   const root = missionRootFor(issues, selectedIssueId)
+  const rootIssue = root ? issues.find((issue) => issue.id === root.id) : undefined
   const computedRows = useMemo(
     () => (root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
     [issues, sessions, root, mode, allWorktreePaths],
@@ -2175,6 +2234,13 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     if (!rootContinuation && !root.closedReason && root.stage !== 'done') return
     void setIssueTucked(root.id, true)
   }
+  const addMissionAgent = (agentKind?: IssueAgentKind): Promise<unknown> => {
+    if (!rootIssue) return Promise.resolve()
+    const input = agentKind ? { id: rootIssue.id, agentKind } : { id: rootIssue.id }
+    return rootIssue.worktreePath
+      ? trpc.issues.addSession.mutate(input)
+      : trpc.issues.start.mutate(input)
+  }
   const selectSession = (
     issueId: IssueId | null,
     session: SessionMeta,
@@ -2279,7 +2345,17 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     root.activityNotes?.trim() ||
                     'Mission work, agents, and dependencies in one live execution view.'}
               </p>
-              <MissionGauge progress={progress} live={liveCount} working={workingCount} />
+              <div className="flex items-end gap-2">
+                <div className="min-w-0 flex-1">
+                  <MissionGauge progress={progress} live={liveCount} working={workingCount} />
+                </div>
+                {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
+                  <MissionAgentMenu
+                    defaultAgent={rootIssue.defaultAgent}
+                    onAdd={addMissionAgent}
+                  />
+                )}
+              </div>
             </div>
             {/* THE DESCENT. The spine leaves the header on the mission's own
                 rail and is picked up, unbroken, by the view bar and then by the
