@@ -8,6 +8,7 @@ import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import { fileMtimeIso } from './boot-time.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
 import { GrokCausalObserver, type GrokObservationLease } from './grok-causal.js'
+import { locateGrokSessionPaths } from './grok-locate.js'
 import { withEventTime } from './reducer.js'
 import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
 
@@ -353,6 +354,9 @@ export async function findLatestGrokSessionPaths(opts: {
 export function observeGrokState(opts: {
   cwd: string
   resumeValue?: string
+  /** Recorded segment evidence: absolute path of summary/updates/chat_history.
+   *  Tried before cwd derivation (conversation registry §3.3). */
+  pathHint?: string
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
@@ -380,7 +384,7 @@ export function observeGrokState(opts: {
   let updateTail: GrokStateObserver | undefined
 
   const attach = (paths: GrokSessionPaths): void => {
-    if (attached?.sessionId === paths.sessionId) return
+    if (attached?.sessionDir === paths.sessionDir) return
     if (opts.onSessionCandidate && !opts.onSessionCandidate(paths.sessionId)) return
     updateTail?.stop()
     attached = paths
@@ -409,7 +413,21 @@ export function observeGrokState(opts: {
 
   let stopDiscovery: (() => void) | undefined
   if (opts.resumeValue) {
-    attach(grokSessionPaths({ cwd: opts.cwd, sessionId: opts.resumeValue, homeDir: opts.homeDir }))
+    const derived = grokSessionPaths({
+      cwd: opts.cwd,
+      sessionId: opts.resumeValue,
+      homeDir: opts.homeDir,
+    })
+    attach(derived)
+    void locateGrokSessionPaths({
+      cwd: opts.cwd,
+      sessionId: opts.resumeValue,
+      ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
+      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+    }).then((located) => {
+      if (stopped || !located || located.chatHistoryPath === derived.chatHistoryPath) return
+      attach(located)
+    })
   } else {
     stopDiscovery = scheduleStatPoll(() => void discover(), {
       statTick: opts.statTick,
@@ -436,14 +454,22 @@ export function observeGrokState(opts: {
 async function grokBootEvents(opts: {
   cwd: string
   resumeValue?: string
+  pathHint?: string
   homeDir?: string
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
-    const paths = grokSessionPaths({
-      cwd: opts.cwd,
-      sessionId: opts.resumeValue,
-      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
-    })
+    const paths =
+      (await locateGrokSessionPaths({
+        cwd: opts.cwd,
+        sessionId: opts.resumeValue,
+        ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
+        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      })) ??
+      grokSessionPaths({
+        cwd: opts.cwd,
+        sessionId: opts.resumeValue,
+        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      })
     let planState: GrokPlanState | undefined
     try {
       planState = await readGrokPlanState(paths.updatesPath)

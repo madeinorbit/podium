@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { grokRecordToItems, grokRuntime } from '@podium/transcript'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
+import { locateGrokChatHistory, locateGrokSessionPaths } from '../agent-state/grok-locate.js'
 import { withStateChannel } from '../agent-state/types.js'
 import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
@@ -13,7 +14,6 @@ import {
   isSet,
   supported,
   type TranscriptSourceInput,
-  transcriptFileExists,
   unsupported,
 } from '../manifest.js'
 
@@ -85,12 +85,15 @@ function grokIdentity(path: string) {
 }
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
-  const path = grokSessionPaths({
+  // Locate, don't derive: Grok buckets by the creation-time cwd, while
+  // session.cwd is the current worktree (docs/spec/conversation-registry.md §3.3).
+  const path = await locateGrokChatHistory({
     cwd: input.cwd,
     sessionId: input.resumeValue,
+    ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
     ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-  }).chatHistoryPath
-  return (await transcriptFileExists(path)) ? [path] : []
+  })
+  return path ? [path] : []
 }
 
 export const grokManifest: AgentManifest = {
@@ -273,6 +276,7 @@ export const grokManifest: AgentManifest = {
         cwd: input.cwd,
         ...(input.statTick ? { statTick: input.statTick } : {}),
         ...(resumeValue ? { resumeValue } : {}),
+        ...(input.pathHint ? { pathHint: input.pathHint } : {}),
         ...(input.homeDir ? { homeDir: input.homeDir } : {}),
         ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
         onLivePollComplete: (cursor) => host.onLiveObservationCycle?.(cursor),
@@ -317,13 +321,22 @@ export const grokManifest: AgentManifest = {
         },
         onSession: (grokSessionId) => {
           host.onResumeValue(grokSessionId)
-          host.tailFile(
-            grokSessionPaths({
-              cwd: input.cwd,
-              sessionId: grokSessionId,
-              ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-            }).chatHistoryPath,
-          )
+          const derived = grokSessionPaths({
+            cwd: input.cwd,
+            sessionId: grokSessionId,
+            ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+          })
+          host.tailFile(derived.chatHistoryPath)
+          void locateGrokSessionPaths({
+            cwd: input.cwd,
+            sessionId: grokSessionId,
+            ...(input.pathHint ? { pathHint: input.pathHint } : {}),
+            ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+          }).then((located) => {
+            if (located && located.chatHistoryPath !== derived.chatHistoryPath) {
+              host.tailFile(located.chatHistoryPath)
+            }
+          })
         },
         ...(causal
           ? { causal }

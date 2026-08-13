@@ -70,6 +70,26 @@ describe('resolveFileChain', () => {
     expect(chain).toEqual([{ path: transcriptPath, fileId: fileIdFor(transcriptPath) }])
   })
 
+  it('resolves a grok chain when the file lives in a different cwd bucket', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'home-'))
+    const sessionId = 'sess-other-bucket'
+    const { grokSessionPaths } = await import('./agent-state/grok.js')
+    const chatHistoryPath = grokSessionPaths({
+      cwd: '/repo',
+      sessionId,
+      homeDir: home,
+    }).chatHistoryPath
+    await mkdir(dirname(chatHistoryPath), { recursive: true })
+    await writeFile(chatHistoryPath, '{}\n')
+    const chain = await resolveFileChain({
+      agentKind: 'grok',
+      cwd: '/repo/.worktrees/issue-912',
+      resumeValue: sessionId,
+      homeDir: home,
+    })
+    expect(chain).toEqual([{ path: chatHistoryPath, fileId: fileIdFor(chatHistoryPath) }])
+  })
+
   it('resolves a one-entry chain for grok from cwd + sessionId', async () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))
     const cwd = '/work/repo'

@@ -216,6 +216,31 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     ])
   })
 
+  it('bootEvents classifies from another cwd bucket (git-root vs worktree)', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-boot-moved-'))
+    const storedCwd = '/repo'
+    const sessionCwd = '/repo/.worktrees/issue-912'
+    const paths = grokSessionPaths({ homeDir: home, cwd: storedCwd, sessionId: 'g-moved' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(
+      paths.chatHistoryPath,
+      JSON.stringify({ type: 'assistant', content: 'Want me to run the tests?' }),
+    )
+    const { mtime } = await stat(paths.chatHistoryPath)
+
+    await expect(
+      grokStateProvider.bootEvents?.({ cwd: sessionCwd, resumeValue: 'g-moved', homeDir: home }),
+    ).resolves.toEqual([
+      {
+        kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
+        verdict: { kind: 'question', summary: 'Want me to run the tests?' },
+        at: mtime.toISOString(),
+      },
+    ])
+  })
+
   it('bootEvents restores an explicit open plan only at a clean idle boundary', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-plan-boot-'))
     const cwd = '/repo/grok'
@@ -790,6 +815,38 @@ describe('observeGrokState', () => {
 
       await waitFor(() => seenSessions.includes('g-new') && events.length >= 2)
       expect(events).toEqual([{ kind: 'prompt_submitted' }, { kind: 'turn_completed' }])
+    } finally {
+      observer.stop()
+    }
+  })
+
+  it('reattaches a resume whose files live in a different cwd bucket', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-observe-moved-'))
+    const storedCwd = '/repo'
+    const sessionCwd = '/repo/.worktrees/issue-912'
+    const sessionId = 'g-parked'
+    const paths = grokSessionPaths({ homeDir: home, cwd: storedCwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd: storedCwd } }))
+    await writeFile(paths.updatesPath, '')
+
+    let bootstrapped = false
+    const seen: string[] = []
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd: sessionCwd,
+      resumeValue: sessionId,
+      pathHint: paths.summaryPath,
+      pollMs: 10,
+      onSession: (id) => seen.push(id),
+      onBootstrap: () => {
+        bootstrapped = true
+      },
+    })
+    try {
+      await waitFor(() => bootstrapped)
+      expect(seen).toContain(sessionId)
+      expect(observer.path).toBe(paths.updatesPath)
     } finally {
       observer.stop()
     }
