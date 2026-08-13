@@ -1,9 +1,8 @@
+import type { MachineId } from '@podium/model'
 import type { JSX } from 'react'
 import { IssueExplorer, IssueExplorerCrumbs } from '@/features/issues/explorer/IssueExplorer'
 
-type Props =
-  | { kind: 'crumbs' }
-  | { kind: 'explorer'; cwd: string; machineId?: string }
+type Props = { kind: 'crumbs' } | { kind: 'explorer'; cwd: string; machineId?: MachineId }
 
 export default function RightDockIssuePanel(props: Props): JSX.Element {
   if (props.kind === 'crumbs') return <IssueExplorerCrumbs />

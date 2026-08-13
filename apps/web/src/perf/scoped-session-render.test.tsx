@@ -14,7 +14,14 @@ import {
   useIssueViewModel,
   useIssueViewModels,
 } from '@podium/client-core/react'
-import { asSessionId, type IssueProjection, type SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  type IssueId,
+  type IssueProjection,
+  type SessionMeta,
+} from '@podium/model'
 import type { EntityRecord, ReplicaEvent } from '@podium/sync/replica'
 import { Profiler, act, type JSX } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -258,7 +265,7 @@ function SharedIssueProjectionProbe({
   return null
 }
 
-function AddressedIssueProbe({ issueId, replica }: { issueId: string; replica: Replica }): null {
+function AddressedIssueProbe({ issueId, replica }: { issueId: IssueId; replica: Replica }): null {
   addressedIssues.set(issueId, useIssueViewModel(replica, issueId))
   return null
 }
@@ -328,7 +335,7 @@ describe('scoped session render subscriptions', () => {
     act(() => {
       root.render(
         <StoreProvider
-          principal={asClientPrincipal('operator')}
+          principal={asClientPrincipal(asUserId('operator'))}
           createReplicaFn={() => replica}
           config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
           onFatalError={() => {}}
@@ -429,7 +436,7 @@ describe('scoped session render subscriptions', () => {
     act(() => {
       root.render(
         <StoreProvider
-          principal={asClientPrincipal('operator')}
+          principal={asClientPrincipal(asUserId('operator'))}
           createReplicaFn={() => replica}
           config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
           onFatalError={() => {}}
@@ -438,10 +445,10 @@ describe('scoped session render subscriptions', () => {
             <SharedIssueProjectionProbe key={reader} reader={reader} replica={replica} />
           ))}
           <Profiler id="issue:i0" onRender={() => recordCommit('issue:i0')}>
-            <AddressedIssueProbe issueId="i0" replica={replica} />
+            <AddressedIssueProbe issueId={asIssueId('i0')} replica={replica} />
           </Profiler>
           <Profiler id="issue:i529" onRender={() => recordCommit('issue:i529')}>
-            <AddressedIssueProbe issueId="i529" replica={replica} />
+            <AddressedIssueProbe issueId={asIssueId('i529')} replica={replica} />
           </Profiler>
         </StoreProvider>,
       )
