@@ -1,4 +1,5 @@
 import { asMachineId, FIRST_ADMIN_USER_ID, type IssueWire } from '@podium/model'
+import type { ShippingJobResult } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -20,7 +21,9 @@ function harness(
   },
   options: {
     authorize?: () => void
-    reauthorize?: () => void
+    reauthorize?: ConstructorParameters<
+      typeof ShippingService
+    >[0]['authorization']['reauthorize']
     beforeCompletionCommit?: () => void
     resolveIntegrationReceipt?: ConstructorParameters<
       typeof ShippingService
@@ -141,6 +144,30 @@ describe('ShippingService enqueue transaction', () => {
       created: false,
       order: { id: receipt.order.id },
     })
+    expect(receipt.order.id).toMatch(/^ship_[0-9a-f-]{36}$/)
+    expect(
+      store.events.listEventsSince(0, { kinds: ['issue.shipping_enqueued'] }),
+    ).toHaveLength(1)
+    service.dispose()
+  })
+
+  it('rejects a replay when any frozen admission fact differs', async () => {
+    const { issues, service } = harness()
+    const issue = issues.create({ repoPath: '/repo', title: 'frozen replay', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    await service.enqueue({
+      issueId: issue.id,
+      ...approval,
+      approved: { ...approval.approved, evidenceManifestRef: 'evidence:first' },
+    })
+
+    await expect(
+      service.enqueue({
+        issueId: issue.id,
+        ...approval,
+        approved: { ...approval.approved, evidenceManifestRef: 'evidence:changed' },
+      }),
+    ).rejects.toMatchObject({ code: 'source-stale' })
     service.dispose()
   })
 
@@ -281,8 +308,8 @@ describe('ShippingService enqueue transaction', () => {
 
   it('authorizes admission and hold resolution and reauthorizes before landing', async () => {
     const authorize = vi.fn()
-    const reauthorize = vi.fn(() => {
-      throw new Error('grant revoked')
+    const reauthorize = vi.fn((input: { effect: string }) => {
+      if (input.effect === 'compatibility-land') throw new Error('grant revoked')
     })
     const { issues, service, store } = harness(
       async (input, machineId) => ({
@@ -310,7 +337,7 @@ describe('ShippingService enqueue transaction', () => {
     await service.runOrder(order.id)
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: 'enqueue' }))
     expect(reauthorize).toHaveBeenCalledWith(
-      expect.objectContaining({ effect: 'compatibility-land' }),
+      expect.objectContaining({ effect: 'compatibility-land', machineId: 'machine-1' }),
     )
     expect(store.shipping.getOrder(order.id)?.state).toBe('held')
     expect(store.shipping.getOrder(order.id)?.holdCode).toBe('policy-refused')
@@ -408,6 +435,162 @@ describe('ShippingService enqueue transaction', () => {
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: 'cancel' }))
     expect(store.shipping.getOrder(order.id)?.state).toBe('cancelled')
     expect(store.shipping.latestAttemptForOrder(order.id)?.outcome).toBe('cancelled')
+    expect(store.issues.getIssue(issue.id)?.stage).toBe('review')
+    service.dispose()
+  })
+
+  it('supersedes an unfinished attempt with one durable generation on restart', async () => {
+    const generations: number[] = []
+    const { store, issues, service, deps } = harness(async (input, machineId) => {
+      generations.push(input.generation)
+      return {
+        jobId: input.jobId,
+        orderId: input.orderId,
+        attemptId: input.attemptId,
+        machineId,
+        generation: input.generation,
+        operation: input.operation,
+        state: 'running',
+        classification: 'observed',
+        summary: 'still running',
+        logs: [],
+        artifactRefs: [],
+        heartbeatedAt: '2026-08-13T10:00:00.000Z',
+      }
+    })
+    const issue = issues.create({ repoPath: '/repo', title: 'supersede', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    await service.runOrder(order.id)
+    const first = store.shipping.latestAttemptForOrder(order.id)
+    expect(first).toMatchObject({ leaseGeneration: 1, outcome: undefined })
+    service.dispose()
+
+    const restarted = new ShippingService(deps)
+    await restarted.reconcile()
+    expect(generations).toEqual([1, 2])
+    expect(store.shipping.getAttempt(first!.id)).toMatchObject({ outcome: 'failed' })
+    expect(store.shipping.latestAttemptForOrder(order.id)).toMatchObject({ leaseGeneration: 2 })
+    restarted.dispose()
+  })
+
+  it('rejects a stale attempt claimant and requires exact terminal timestamps', async () => {
+    const { store, issues, service } = harness(async (input, machineId) => ({
+      jobId: input.jobId,
+      orderId: input.orderId,
+      attemptId: input.attemptId,
+      machineId,
+      generation: input.generation,
+      operation: input.operation,
+      state: 'running',
+      classification: 'observed',
+      summary: 'still running',
+      logs: [],
+      artifactRefs: [],
+      heartbeatedAt: '2026-08-13T10:00:00.000Z',
+    }))
+    const issue = issues.create({ repoPath: '/repo', title: 'claim cas', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    await service.runOrder(order.id)
+    const first = store.shipping.latestAttemptForOrder(order.id)!
+    const claimed = store.shipping.claimAttempt({
+      orderId: order.id,
+      expectedState: 'preflight',
+      expectedAttemptId: first.id,
+      expectedGeneration: first.leaseGeneration,
+      machineId: first.machineId,
+      startedAt: '2026-08-13T10:00:01.000Z',
+    })
+    expect(claimed.attempt.leaseGeneration).toBe(2)
+    expect(() =>
+      store.shipping.claimAttempt({
+        orderId: order.id,
+        expectedState: 'preflight',
+        expectedAttemptId: first.id,
+        expectedGeneration: first.leaseGeneration,
+        machineId: first.machineId,
+        startedAt: '2026-08-13T10:00:01.000Z',
+      }),
+    ).toThrow(/superseded/)
+    store.shipping.finishAttempt(claimed.attempt.id, 2, {
+      finishedAt: '2026-08-13T10:00:02.000Z',
+      outcome: 'failed',
+    })
+    expect(() =>
+      store.shipping.finishAttempt(claimed.attempt.id, 2, {
+        finishedAt: '2026-08-13T10:00:03.000Z',
+        outcome: 'failed',
+      }),
+    ).toThrow(/immutable/)
+    service.dispose()
+  })
+
+  it('persists cancellation intent before awaiting and refuses the late effect result', async () => {
+    let resolveStart!: (result: ShippingJobResult) => void
+    let sawStart!: () => void
+    const started = new Promise<void>((resolve) => {
+      sawStart = resolve
+    })
+    const { store, issues, service } = harness(async (input, machineId) => {
+      const base = {
+        jobId: input.jobId,
+        orderId: input.orderId,
+        attemptId: input.attemptId,
+        machineId,
+        generation: input.generation,
+        operation: input.operation,
+        logs: [],
+        artifactRefs: [],
+        heartbeatedAt: '2026-08-13T10:00:00.000Z',
+      }
+      if (input.action === 'cancel') {
+        return {
+          ...base,
+          state: 'cancelled',
+          classification: 'cancelled',
+          summary: 'cancelled durably',
+          finishedAt: '2026-08-13T10:00:00.000Z',
+        }
+      }
+      sawStart()
+      return new Promise((resolve) => {
+        resolveStart = resolve
+      })
+    })
+    const issue = issues.create({ repoPath: '/repo', title: 'late result', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const execution = service.runOrder(order.id)
+    await started
+    const cancellation = service.cancel({
+      orderId: order.id,
+      principal: approval.principal,
+      requestedBy: approval.requestedBy,
+      overrideScope: false,
+    })
+    await cancellation
+    const attempt = store.shipping.latestAttemptForOrder(order.id)!
+    expect(
+      store.shipping.latestStepForEffect(attempt.id, `cancel:${attempt.leaseGeneration}`),
+    ).toMatchObject({ state: 'succeeded', outcome: 'cancelled' })
+    resolveStart({
+      jobId: `${attempt.id}:preflight`,
+      orderId: order.id,
+      attemptId: attempt.id,
+      machineId: attempt.machineId,
+      generation: attempt.leaseGeneration,
+      operation: 'preflight',
+      state: 'succeeded',
+      classification: 'observed',
+      summary: 'late success',
+      logs: [],
+      artifactRefs: [],
+      heartbeatedAt: '2026-08-13T10:00:00.000Z',
+      finishedAt: '2026-08-13T10:00:00.000Z',
+    })
+    await execution
+    expect(store.shipping.getOrder(order.id)?.state).toBe('cancelled')
     expect(store.issues.getIssue(issue.id)?.stage).toBe('review')
     service.dispose()
   })

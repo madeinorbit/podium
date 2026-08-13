@@ -1,7 +1,15 @@
-import { execFileSync } from 'node:child_process'
-import { asMachineId, FIRST_ADMIN_USER_ID, type IssueWire } from '@podium/model'
+import { execFileSync, spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { createInterface } from 'node:readline'
+import {
+  asMachineId,
+  asShipAttemptId,
+  FIRST_ADMIN_USER_ID,
+  type IssueWire,
+} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
+import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'
 import { IssueService } from '../../../../server/src/modules/issues/service'
 import {
   CompatibilityShippingPolicyResolver,
@@ -41,25 +49,23 @@ const issues = new IssueService({
 })
 issues.boot()
 
-const daemonWorker = new URL('./execution-worker.ts', import.meta.url).pathname
+const daemonWorker = new URL('./daemon-rpc-worker.ts', import.meta.url).pathname
 const git = (...argv: string[]): string =>
   execFileSync('git', ['-C', repoPath, ...argv], { encoding: 'utf8' }).trim()
-const shippingJob: ConstructorParameters<typeof ShippingService>[0]['daemon']['shippingJob'] =
-  async (input) => {
-    const request = { type: 'shippingJobRequest', requestId: 'process-rpc', ...input }
-    const output = execFileSync(
-      'bun',
-      [
-        '--conditions=@podium/source',
-        daemonWorker,
-        daemonJournal,
-        machineId,
-        Buffer.from(JSON.stringify(request)).toString('base64url'),
-      ],
-      { encoding: 'utf8' },
-    )
-    return JSON.parse(output)
-  }
+const daemon = spawn(
+  'bun',
+  ['--conditions=@podium/source', daemonWorker, daemonJournal, machineId],
+  { stdio: ['pipe', 'pipe', 'inherit'] },
+)
+const rpc = new DaemonRpcService({
+  toMachine: (_target, message) => daemon.stdin.write(`${JSON.stringify(message)}\n`),
+  defaultMachine: () => machineId,
+} as never)
+const replies = createInterface({ input: daemon.stdout, crlfDelay: Number.POSITIVE_INFINITY })
+replies.on('line', (line) => {
+  const message = JSON.parse(line)
+  if (message.type === 'shippingJobResult') rpc.settleDaemonReply(machineId, message)
+})
 
 const issuePort = {
   get(id: string): IssueWire {
@@ -74,7 +80,7 @@ const service = new ShippingService({
   repository: store.shipping,
   issues: issuePort,
   ledger,
-  daemon: { shippingJob },
+  daemon: rpc,
   authorization: {
     attribution: () => ({
       actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
@@ -147,13 +153,35 @@ if (phase === 'crash') {
 await service.reconcile()
 const order = store.shipping.listOrders()[0]
 if (!order) throw new Error('recovery database has no order')
+const issue = issuePort.get(order.issueId)
+const staleGeneration = await rpc.shippingJob(
+  {
+    action: 'status',
+    jobId: `attempt:${order.id}:1:verify`,
+    orderId: order.id,
+    attemptId: asShipAttemptId(`attempt:${order.id}:1`),
+    generation: 1,
+    operation: 'verify',
+    repoPath,
+    sourceBranch: issue.branch!,
+    targetBranch: order.targetBranch,
+    approvedBaseSha: order.approvedBaseSha,
+    approvedHeadSha: order.approvedHeadSha,
+    expectedTargetSha: order.approvedBaseSha,
+    destination: order.destination,
+  },
+  machineId,
+)
 process.stdout.write(
   `${JSON.stringify({
     orderState: order.state,
     issueStage: store.issues.getIssue(order.issueId)?.stage,
     attempt: store.shipping.latestAttemptForOrder(order.id),
     receipt: store.shipping.receiptForOrder(order.id),
+    staleGeneration,
   })}\n`,
 )
 service.dispose()
 store.close()
+daemon.stdin.end()
+await once(daemon, 'close')

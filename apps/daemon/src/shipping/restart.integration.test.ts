@@ -116,8 +116,9 @@ describe('shipping daemon restart recovery', () => {
       expect(recovered).toMatchObject({
         orderState: 'shipped',
         issueStage: 'done',
-        attempt: { outcome: 'succeeded', validationResult: 'passed' },
+        attempt: { leaseGeneration: 2, outcome: 'succeeded', validationResult: 'passed' },
         receipt: { validationResult: 'passed' },
+        staleGeneration: { generation: 1, state: 'held', classification: 'stale-generation' },
       })
     },
   )
