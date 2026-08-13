@@ -35,7 +35,7 @@ export function ActivationShell({
       >
         <div
           className={cn(
-            'mx-auto flex min-h-[840px] w-full max-w-[1180px] flex-col bg-[#22262d] px-6 py-10 font-sans shadow-[0_24px_60px_-30px_rgba(0,0,0,.7)] sm:px-12 sm:py-14 lg:px-[72px] lg:pt-16 lg:pb-12',
+            'mx-auto mb-3 flex min-h-[840px] w-full max-w-[1180px] flex-col bg-[#22262d] px-6 py-10 font-sans shadow-[0_24px_60px_-30px_rgba(0,0,0,.7)] sm:px-12 sm:py-14 lg:px-[72px] lg:pt-16 lg:pb-12',
             frameClassName,
           )}
         >

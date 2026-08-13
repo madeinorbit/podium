@@ -96,7 +96,9 @@ export function useConfirmedVpsActivation(trpc: Trpc): ConfirmedVpsActivation {
           value,
           baselineRaw: replicatedRawRef.current,
         })
-        setReadyTransport(trpc)
+        // A production tRPC client is a callable proxy. Passing it directly to a React
+        // setter makes React execute it as an updater instead of storing the transport.
+        setReadyTransport(() => trpc)
       },
       () => {
         if (cancelled || generation !== commandGeneration.current) return
@@ -143,7 +145,7 @@ export function useConfirmedVpsActivation(trpc: Trpc): ConfirmedVpsActivation {
           const confirmed = await persistVpsActivation(trpc, next)
           setOverride({ value: confirmed })
           setAuthoritative(null)
-          setReadyTransport(trpc)
+          setReadyTransport(() => trpc)
           return confirmed
         } catch (cause) {
           const message = cause instanceof Error ? cause.message : String(cause)

@@ -23,13 +23,15 @@ function deferred<T>(): {
 }
 
 function trpcWithLayoutGet(query: () => Promise<Record<string, unknown>>): Trpc {
-  return {
+  // createTRPCClient returns a callable proxy in production. Keep this double callable so
+  // React state setters cannot accidentally treat the transport itself as an updater.
+  return Object.assign(() => undefined, {
     layout: {
       get: { query },
       set: { mutate: vi.fn() },
       clear: { mutate: vi.fn() },
     },
-  } as unknown as Trpc
+  }) as unknown as Trpc
 }
 
 describe('confirmed VPS activation hydration', () => {
