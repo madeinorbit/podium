@@ -537,6 +537,52 @@ describe('scanGrokUsage', () => {
     const home = trackTmp('podium-usage-grok-empty-')
     expect(await scanGrokUsage({ sinceMs: 0, homeDir: home })).toEqual([])
   })
+
+  it('does not harvest a signals.json buried in terminal logs', async () => {
+    const home = trackTmp('podium-usage-grok-logs-')
+    writeGrokSession(home, 'keep', {
+      contextTokensUsed: 10,
+      assistantMessageCount: 1,
+      primaryModelId: 'grok-4.6',
+    })
+    const decoy = join(home, '.grok', 'sessions', '%2Fsrc', 'keep', 'terminal')
+    mkdirSync(decoy, { recursive: true })
+    writeFileSync(
+      join(decoy, 'signals.json'),
+      JSON.stringify({
+        contextTokensUsed: 99_999,
+        assistantMessageCount: 50,
+        primaryModelId: 'grok-4.6',
+      }),
+    )
+
+    const buckets = await scanGrokUsage({ sinceMs: 0, homeDir: home })
+    expect(buckets).toHaveLength(1)
+    expect(buckets[0]).toMatchObject({ inputTokens: 10, messages: 1 })
+  })
+
+  it('includes a subagent session snapshot', async () => {
+    const home = trackTmp('podium-usage-grok-sub-')
+    writeGrokSession(home, 'parent', {
+      contextTokensUsed: 20,
+      assistantMessageCount: 1,
+      primaryModelId: 'grok-4.6',
+    })
+    const child = join(home, '.grok', 'sessions', '%2Fsrc', 'parent', 'subagents', 'child')
+    mkdirSync(child, { recursive: true })
+    writeFileSync(
+      join(child, 'signals.json'),
+      JSON.stringify({
+        contextTokensUsed: 30,
+        assistantMessageCount: 2,
+        primaryModelId: 'grok-4.6',
+      }),
+    )
+
+    const buckets = await scanGrokUsage({ sinceMs: 0, homeDir: home })
+    expect(buckets).toHaveLength(1)
+    expect(buckets[0]).toMatchObject({ model: 'grok-4.6', inputTokens: 50, messages: 3 })
+  })
 })
 
 describe('scanHostUsage', () => {

@@ -320,7 +320,9 @@ export async function scanCodexUsage(opts: {
  * long compacted thread and cannot split cache/output, but Grok still appears
  * as xAI instead of vanishing.
  *
- * Sessions live under `~/.grok/sessions/<percent-encoded-cwd>/<id>/`. A
+ * Sessions live under `~/.grok/sessions/<percent-encoded-cwd>/<id>/`, with
+ * optional children at `<id>/subagents/<child>/`. The walk follows that shape
+ * only — it does not recurse into `terminal/` or other session scratch. A
  * non-default `GROK_HOME` is followed only when the caller did not pass
  * `homeDir` (tests pin a fake home; production may isolate accounts).
  */
@@ -361,7 +363,7 @@ export async function scanGrokUsage(opts: {
 }): Promise<UsageBucketWire[]> {
   const sessionsDir = grokSessionsDir(opts.homeDir)
   const files: string[] = []
-  await collectNamedFiles(sessionsDir, 'signals.json', files)
+  await collectGrokSignalFiles(sessionsDir, 'roots', files)
   const records: UsageRecord[] = []
   for (const path of files) {
     try {
@@ -444,18 +446,37 @@ function parseJson(text: string): unknown {
   }
 }
 
-/** Depth-first walk for a fixed filename; a directory that can't be read is absent. */
-async function collectNamedFiles(dir: string, name: string, out: string[]): Promise<void> {
+/**
+ * Grok layout is `sessions/<cwd>/<id>/signals.json`, plus the same file under
+ * `<id>/subagents/<child>/`. Anything else in a session dir — `terminal/` logs,
+ * recap dumps — is skipped so a large ~/.grok does not turn the harvest into a
+ * full-tree walk.
+ */
+type GrokWalk = 'roots' | 'cwd' | 'session'
+
+async function collectGrokSignalFiles(
+  dir: string,
+  kind: GrokWalk,
+  out: string[],
+): Promise<void> {
   let entries: Dirent[]
   try {
     entries = await readdir(dir, { withFileTypes: true })
   } catch {
     return
   }
+  if (kind === 'session') {
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name === 'signals.json') out.push(join(dir, entry.name))
+      else if (entry.isDirectory() && entry.name === 'subagents') {
+        await collectGrokSignalFiles(join(dir, entry.name), 'cwd', out)
+      }
+    }
+    return
+  }
+  const next: GrokWalk = kind === 'roots' ? 'cwd' : 'session'
   for (const entry of entries) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) await collectNamedFiles(path, name, out)
-    else if (entry.name === name) out.push(path)
+    if (entry.isDirectory()) await collectGrokSignalFiles(join(dir, entry.name), next, out)
   }
 }
 
