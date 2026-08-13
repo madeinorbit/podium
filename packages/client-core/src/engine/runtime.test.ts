@@ -529,6 +529,36 @@ describe('stale workspace tabs (POD-710)', () => {
     engine.dispose()
   })
 
+  it('drops a rehomed session from the origin workspace immediately', async () => {
+    const { engine } = makeEngine({ url: '/workspace', workspacePruneGraceMs: 5_000 })
+    engine.start()
+    await settle(40)
+    const oldId = asIssueId('iss_old')
+    const newId = asIssueId('iss_new')
+    engine.replica.applySnapshot('sessions', [
+      { ...session('s1', '/tmp/known-repo'), issueId: oldId },
+    ])
+    await settle(30)
+    engine.getSnapshot().setSelectedIssueId(oldId)
+    engine.getSnapshot().openSessionTab(asSessionId('s1'), { permanent: true })
+    await settle(20)
+    const oldKey = engine.getSnapshot().workspaceKey()
+    expect(oldKey).toBe(`issue:${oldId}`)
+    expect(openTabIds(engine)).toContain('s1')
+
+    engine.replica.applyChanges(
+      'sessions',
+      [{ ...session('s1', '/tmp/known-repo'), issueId: newId }],
+      [],
+    )
+    await settle(30)
+    const st = engine.getSnapshot()
+    expect(st.workspaces[oldKey] ? allTabIds(st.workspaces[oldKey]!) : []).not.toContain('s1')
+    expect(st.selectedIssueId).toBe(newId)
+    expect(openTabIds(engine)).toContain('s1')
+    engine.dispose()
+  })
+
   it('keeps a tab whose session arrives inside the grace window', async () => {
     const { engine, rw } = makeEngine({
       url: '/workspace?wt=%2Ftmp%2Fknown-repo',

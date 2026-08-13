@@ -13,7 +13,8 @@ import {
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import type { CommandPrincipal } from '../../../command-principal'
+import { createLogger } from '@podium/logger'
+import { type CommandPrincipal, systemPrincipal } from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { assertModelSelectionValid } from '../../../model-validation'
@@ -28,6 +29,8 @@ import { IssueEpicIntegrationModule } from './integration'
 import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
 import { IssueWorktreeGcModule } from './worktree-gc'
+
+const log = createLogger('server:issues')
 
 /** Issues whose merge axis is a live question [POD-384]: a private worktree on a
  *  branch, still in the worklist. A shared checkout has no merge axis; an issue
@@ -429,6 +432,26 @@ export class IssueGitWorkflowModule {
       branch: row.branch,
       worktreePath: row.worktreePath,
     })
+    const existing = this.store
+      .sessionsFor(row)
+      .filter((session) => !session.archived && session.status !== 'exited')
+    if (existing.length > 0) {
+      for (const session of existing) {
+        if (session.cwd !== path) this.store.d.setSessionCwd?.(session.sessionId, path)
+      }
+      const originId = wire.deps?.find((dep) => dep.type === 'discovered-from')?.id
+      if (originId) {
+        void this.releaseWorktreeIfIdle(originId, systemPrincipal('start')).catch(
+          (err: unknown) => {
+            log.warn('could not release vacated origin worktree', { err, originId, issueId: row.id })
+          },
+        )
+      }
+      return {
+        ...wire,
+        machine: existing[0]?.machineName ?? existing[0]?.machineId ?? 'local',
+      }
+    }
     // The human summary leads; the technical brief follows verbatim. [spec:SP-6144]
     const initialPrompt = [row.description.trim(), row.brief ?? ''].filter(Boolean).join('\n\n')
     const spawned = this.store.d.spawnSession({

@@ -187,6 +187,14 @@ export class SessionMetaOps {
     return this.ports.sessions.get(sessionId)?.issueId ?? null
   }
 
+  /** Restamp the session's cwd after a hopscotch start minted a new checkout. */
+  setSessionCwd(sessionId: SessionId, cwd: string): void {
+    if (!cwd) return
+    this.mutateSessionMeta(sessionId, (session) => {
+      session.cwd = cwd
+    })
+  }
+
 
   setWorkState({
     sessionId,

@@ -355,6 +355,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         : {}),
     })
     this.reactions.seedCwds(this.baseSessions)
+    this.reactions.seedIssueIds(this.baseSessions)
     // Fold queued outbox entries over the seed (#263): after an offline reload
     // the durable queue still paints its optimism in the VERY FIRST snapshot.
     const seededSessionFold = this.optimism.foldSeed(
@@ -733,7 +734,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // ONE persistence reaction; routing and serialization live in ui-state.ts.
     if (!this.applyingHydratedUi) this.routerUi.flush(workspaceUiSnapshot(this.state), changed)
     // Session-follows-view policy: diffs consecutive session snapshots.
-    if (changed.has('sessions')) this.reactions.worktreeFollow()
+    if (changed.has('sessions')) {
+      this.reactions.worktreeFollow()
+      this.reactions.sessionIssueFollow()
+    }
     // Worktree fallback selection.
     if (any('sessions', 'repos', 'reposLoaded', 'selectedWorktree'))
       this.reactions.worktreeFallback()

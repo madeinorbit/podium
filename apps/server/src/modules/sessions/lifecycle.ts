@@ -451,6 +451,9 @@ export class SessionLifecycle {
   getSessionIssueId(...args: any[]): any {
     return (this.sessionMetaOps as any).getSessionIssueId(...args)
   }
+  setSessionCwd(...args: any[]): void {
+    ;(this.sessionMetaOps as any).setSessionCwd(...args)
+  }
   setWorkState(...args: any[]): void {
     ;(this.sessionMetaOps as any).setWorkState(...args)
   }

@@ -330,6 +330,77 @@ describe('attachSession', () => {
     ).toThrow(/no origin/)
   })
 
+  it('takes a pending origin worktree onto the spin-off', async () => {
+    const repoOp = vi.fn(async (op: string) => {
+      if (op === 'status') return { ok: true, output: '## issue/1-origin\n M file.ts\n' }
+      if (op === 'isMergedInto') return { ok: false, output: '' }
+      return { ok: true, output: '' }
+    })
+    const { svc, issueBySession, deps } = harness([sess(asSessionId('s1'), '/r/.worktrees/o')])
+    deps.repoOp = repoOp
+    const origin = svc.create({ repoPath: '/r', title: 'Origin work', startNow: false })
+    svc.update(origin.id, { worktreePath: '/r/.worktrees/o', branch: 'issue/1-origin' })
+    issueBySession.set(asSessionId('s1'), origin.id)
+    const spun = svc.attachSession({
+      sessionId: asSessionId('s1'),
+      newSpinoff: { title: 'Next hop', origin: 'agent' },
+      confirmRehome: true,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(svc.get(spun.id)?.worktreePath).toBe('/r/.worktrees/o')
+    expect(svc.get(spun.id)?.branch).toBe('issue/1-origin')
+    expect(svc.get(origin.id)?.worktreePath).toBeNull()
+    expect(svc.get(origin.id)?.branch).toBeNull()
+  })
+
+  it('leaves a merged clean origin worktree for start to mint from main', async () => {
+    const repoOp = vi.fn(async (op: string) => {
+      if (op === 'status') return { ok: true, output: '## issue/1-origin\n' }
+      if (op === 'isMergedInto') return { ok: true, output: '' }
+      return { ok: true, output: '' }
+    })
+    const { svc, issueBySession, deps } = harness([sess(asSessionId('s1'), '/r/.worktrees/o')])
+    deps.repoOp = repoOp
+    const origin = svc.create({ repoPath: '/r', title: 'Origin work', startNow: false })
+    svc.update(origin.id, { worktreePath: '/r/.worktrees/o', branch: 'issue/1-origin' })
+    issueBySession.set(asSessionId('s1'), origin.id)
+    const spun = svc.attachSession({
+      sessionId: asSessionId('s1'),
+      newSpinoff: { title: 'Next hop', origin: 'agent' },
+      confirmRehome: true,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(svc.get(spun.id)?.worktreePath).toBeNull()
+    expect(svc.get(origin.id)?.worktreePath).toBe('/r/.worktrees/o')
+  })
+
+  it('does not take the worktree when the origin still has another session', async () => {
+    const repoOp = vi.fn(async (op: string) => {
+      if (op === 'status') return { ok: true, output: '## issue/1-origin\n M file.ts\n' }
+      return { ok: true, output: '' }
+    })
+    const { svc, issueBySession, deps } = harness([
+      sess(asSessionId('s1'), '/r/.worktrees/o'),
+      sess(asSessionId('s2'), '/r/.worktrees/o'),
+    ])
+    deps.repoOp = repoOp
+    const origin = svc.create({ repoPath: '/r', title: 'Origin work', startNow: false })
+    svc.update(origin.id, { worktreePath: '/r/.worktrees/o', branch: 'issue/1-origin' })
+    issueBySession.set(asSessionId('s1'), origin.id)
+    issueBySession.set(asSessionId('s2'), origin.id)
+    const spun = svc.attachSession({
+      sessionId: asSessionId('s1'),
+      newSpinoff: { title: 'Side quest', origin: 'agent' },
+      confirmRehome: true,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(svc.get(spun.id)?.worktreePath).toBeNull()
+    expect(svc.get(origin.id)?.worktreePath).toBe('/r/.worktrees/o')
+  })
+
   it('throws without --id/--subissue and on unknown target', () => {
     const { svc } = harness([sess(asSessionId('s1'))])
     expect(() => svc.attachSession({ sessionId: asSessionId('s1') })).toThrow(/attach needs/)

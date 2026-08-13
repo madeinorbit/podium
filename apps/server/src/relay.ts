@@ -1071,6 +1071,7 @@ export class SessionRegistry {
         sessionsSvc.workspace.findRepoOnMachine(repoPath, machineId),
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
+      setSessionCwd: (sessionId, cwd) => sessionsSvc.setSessionCwd(sessionId, cwd),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
       // Closing an issue retires standing session offers (POD-290) so finished
       // work cannot keep demanding a decision after the close flip.

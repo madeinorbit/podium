@@ -160,7 +160,22 @@ export class IssueAttentionModule {
             'with `--confirm-rehome`.',
         )
       }
-      if (prev) this.assertReplacementCoordination(prev, opts.sessionId)
+      if (prev) {
+        // Last session leaving is hopscotch: the origin becomes a signpost and
+        // maybeTakeOriginWorktree will take a pending checkout. 878's
+        // replacement-coordinator rule applies only when someone stays.
+        const others = this.store
+          .sessionsFor(prev)
+          .filter(
+            (session) =>
+              session.sessionId !== opts.sessionId &&
+              !session.archived &&
+              (session.status === 'live' ||
+                session.status === 'starting' ||
+                session.status === 'reconnecting'),
+          )
+        if (others.length > 0) this.assertReplacementCoordination(prev, opts.sessionId)
+      }
       const title = newIssue.title.trim()
       if (!title) throw new Error(`${opts.newSubissue ? 'subissue' : 'spinoff'} title is empty`)
       const anchorId = prevId ?? (opts.targetId ? this.store.resolveRef(opts.targetId) : null)
@@ -229,6 +244,11 @@ export class IssueAttentionModule {
     // Clean up the abandoned draft vessel it came from, if now completely empty.
     if (prevId) this.deleteIfEmptyDraft(prevId)
     this.store.broadcastList()
+    if (prevId && (opts.newSpinoff || opts.newSubissue)) {
+      void this.maybeTakeOriginWorktree(prevId, target.id).catch((err: unknown) => {
+        log.warn('hopscotch worktree take-over failed', { err, from: prevId, to: target.id })
+      })
+    }
     return this.store.toWire(this.store.rowOrThrow(target.id))
   }
 
@@ -290,6 +310,62 @@ export class IssueAttentionModule {
             .some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from'),
       )
       .sort((a, b) => a.seq - b.seq)[0]
+  }
+
+  /**
+   * After a hopscotch rehome, the origin is empty. If its checkout still has
+   * pending work, take the worktree onto the new issue so the session never
+   * leaves uncommitted or unmerged work behind. A clean, already-merged
+   * checkout stays on the origin for start() to mint from the parent and
+   * release later.
+   */
+  private async maybeTakeOriginWorktree(originId: string, targetId: string): Promise<void> {
+    const origin = this.store.rows.get(originId)
+    const target = this.store.rows.get(targetId)
+    if (!origin || !target || !origin.worktreePath || target.worktreePath) return
+    const remaining = this.store.sessionsFor(origin).filter(
+      (session) => !session.archived && session.status !== 'exited',
+    )
+    if (remaining.length > 0) return
+    const pending = await this.originWorktreeIsPending(origin)
+    if (!pending) return
+    target.worktreePath = origin.worktreePath
+    target.branch = origin.branch
+    target.parentBranch = origin.parentBranch
+    if (origin.machineId) target.machineId = origin.machineId
+    origin.worktreePath = null
+    origin.branch = null
+    this.store.persistRow(origin)
+    this.store.persistRow(target)
+    this.store.broadcastList()
+    if (origin.repoPath) this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
+  }
+
+  private async originWorktreeIsPending(origin: IssueRow): Promise<boolean> {
+    const cached = this.store.gitStates.get(origin.id)
+    if (cached) {
+      if (cached.dirtyFiles > 0) return true
+      if ((cached.ahead ?? 0) > 0) return true
+      if (cached.merged === true) return false
+    }
+    if (!origin.worktreePath) return false
+    const status = await this.store.d.repoOp(
+      'status',
+      origin.worktreePath,
+      undefined,
+      origin.machineId ?? undefined,
+    )
+    if (!status.ok) return true
+    const dirty = status.output.split('\n').some((line) => line.trim() !== '' && !line.startsWith('## '))
+    if (dirty) return true
+    if (!origin.branch) return true
+    const merged = await this.store.d.repoOp(
+      'isMergedInto',
+      origin.repoPath,
+      { branch: origin.branch, parentBranch: origin.parentBranch },
+      origin.machineId ?? undefined,
+    )
+    return !merged.ok
   }
 
   /** Delete `id` iff it is a draft with no LIVING attached sessions, no worktree

@@ -246,6 +246,8 @@ export interface IssueDeps {
   getSessionIssueId?(sessionId: SessionId): IssueId | null
   /** Move a session's explicit issue attachment (persist + sessions broadcast). */
   setSessionIssueId?(sessionId: SessionId, issueId: IssueId | null): void
+  /** Restamp a session cwd (hopscotch start onto a freshly minted worktree). */
+  setSessionCwd?(sessionId: SessionId, cwd: string): void
   /** Archive/unarchive a session (persist + sessions broadcast). Injected by the
    *  relay; optional so existing test deps literals stay valid. Used to cascade an
    *  issue archive onto its member sessions (issue #133) so archiving an issue never

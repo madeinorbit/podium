@@ -19,16 +19,27 @@
 import type { IssueWire, SessionId, IssueId } from '@podium/model'
 import { markSwitch } from '../perf/switch-trace'
 import type { SocketHub } from '../socket-transport'
-import { planWorktreeMoves, pruneWorkspace, reposToViews, type TabId } from '../viewmodels'
+import {
+  allTabIds,
+  emptyWorkspace,
+  openTab,
+  planWorktreeMoves,
+  pruneWorkspace,
+  reposToViews,
+  type TabId,
+} from '../viewmodels'
 import {
   type EngineState,
   focusedPaneSession,
   foregroundIssue,
   issueActivityAt,
   knownTabIds,
+  knownTabIdsForWorkspace,
   referencedTabIds,
   tabIsVisible,
   visibleTabIds,
+  workspaceKeyForState,
+  workspaceWritePatch,
   workspacesPatch,
 } from './state'
 import type { StoreNotices } from './types'
@@ -70,6 +81,7 @@ export interface ReactionPorts {
 export class Reactions {
   private readonly ports: ReactionPorts
   private prevCwds: Record<string, string> = {}
+  private prevIssueIds: Record<string, string> = {}
   private markReadKey: string | null = null
   private markReadTimer: ReturnType<typeof setTimeout> | null = null
   /** When the focused session's eager mark-read last actually fired (POD-272) —
@@ -94,6 +106,13 @@ export class Reactions {
    *  sight", not moves (matches the old effect's first observed snapshot). */
   seedCwds(sessions: { sessionId: SessionId; cwd: string }[]): void {
     this.prevCwds = Object.fromEntries(sessions.map((s) => [s.sessionId, s.cwd]))
+  }
+
+  /** First replica snapshot is "already here", not a rehome. */
+  seedIssueIds(sessions: { sessionId: SessionId; issueId?: string }[]): void {
+    this.prevIssueIds = Object.fromEntries(
+      sessions.map((session) => [session.sessionId, session.issueId ?? '']),
+    )
   }
 
   dispose(): void {
@@ -135,41 +154,82 @@ export class Reactions {
   pruneWorkspaces(): void {
     const st = this.ports.state()
     const referenced = referencedTabIds(st)
-    const known = knownTabIds(st)
+    const globallyKnown = knownTabIds(st)
     for (const id of [...this.unknownSince.keys()]) {
-      if (!referenced.has(id) || known.has(id)) this.unknownSince.delete(id)
+      if (!referenced.has(id) || globallyKnown.has(id)) this.unknownSince.delete(id)
     }
     if (this.pruneTimer !== null) {
       clearTimeout(this.pruneTimer)
       this.pruneTimer = null
     }
     const now = Date.now()
-    const drop = new Set<TabId>()
+    const gone = new Set<TabId>()
     let soonest = Number.POSITIVE_INFINITY
     for (const id of referenced) {
-      if (known.has(id)) continue
+      if (globallyKnown.has(id)) continue
       const since = this.unknownSince.get(id) ?? now
       this.unknownSince.set(id, since)
       const left = this.pruneGraceMs - (now - since)
-      if (left <= 0) drop.add(id)
+      if (left <= 0) gone.add(id)
       else soonest = Math.min(soonest, left)
     }
-    // No delta ever has to arrive for the window to close, so the pass re-arms
-    // itself: a stale deep link on an otherwise idle client still resolves.
     if (Number.isFinite(soonest)) {
       this.pruneTimer = setTimeout(() => {
         this.pruneTimer = null
         this.pruneWorkspaces()
       }, soonest)
     }
-    if (drop.size === 0) return
-    for (const id of drop) this.unknownSince.delete(id)
-    // KEEP is stated positively and narrowly — the ids we decided are gone, and
-    // nothing else. `pruneWorkspace` drops whatever is not in the set it is
-    // given, so handing it "everything currently known" would make a transient
-    // empty session list delete the operator's tabs.
-    const keep = new Set([...referenced].filter((id) => !drop.has(id)))
-    this.ports.publish(workspacesPatch(st, (ws) => pruneWorkspace(ws, keep)))
+    this.ports.publish(
+      workspacesPatch(st, (ws) => {
+        const memberKnown = knownTabIdsForWorkspace(st, ws.key)
+        const keep = new Set<TabId>()
+        for (const id of allTabIds(ws)) {
+          if (gone.has(id)) continue
+          if (memberKnown.has(id)) {
+            keep.add(id)
+            continue
+          }
+          // Exists in the replica but not in this workspace — a rehome. Drop now.
+          if (globallyKnown.has(id)) continue
+          keep.add(id)
+        }
+        return pruneWorkspace(ws, keep)
+      }),
+    )
+  }
+
+  /**
+   * When the session the operator is looking at is rehomed onto another issue,
+   * follow the selection so the tab lives on the new workspace instead of
+   * lingering as a ghost on the origin strip.
+   */
+  sessionIssueFollow(): void {
+    const st = this.ports.state()
+    const prev = this.prevIssueIds
+    this.prevIssueIds = Object.fromEntries(
+      st.sessions.map((session) => [session.sessionId, session.issueId ?? '']),
+    )
+    if (Object.keys(prev).length === 0) return
+    const focused = focusedPaneSession(st)
+    if (!focused) return
+    const session = st.sessions.find((candidate) => candidate.sessionId === focused)
+    const after = session?.issueId
+    const before = prev[focused]
+    if (!after || before === undefined || before === after || before === '') return
+    if (st.selectedIssueId !== before && st.selectedIssueId !== null) {
+      // Looking at a different task — do not yank the operator to the new home.
+      // The origin workspace still drops the tab in pruneWorkspaces.
+      return
+    }
+    const nextState = { ...st, selectedIssueId: after }
+    const key = workspaceKeyForState(nextState)
+    const nextLayout = openTab(st.workspaces[key] ?? emptyWorkspace(key), focused, {
+      permanent: true,
+    })
+    this.ports.publish({
+      selectedIssueId: after,
+      ...workspaceWritePatch(st, key, nextLayout),
+    })
   }
 
   /** When a session the user is LOOKING AT (in a visible pane) moves out of the

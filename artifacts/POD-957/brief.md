@@ -20,7 +20,8 @@ POD-945-A → 959 → 962 → 963:
 - Mission gauge reads `1 running · 0 agents`. The empty issue is the running unit.
 - No “Left this mission” line. Departures drop finished children, and 963 is
   two hops away, so 959 points at nobody.
-- Tab strip can keep the moved session as a leftover view (birth ref POD-945-A).
+- Tab strip used to keep the moved session as a leftover view (birth ref
+  POD-945-A). Origin workspaces now drop a rehomed session immediately.
 
 Continuation already exists for superseded / duplicate. Spinoff hopscotch never
 writes those fields, so the signpost never appears.
@@ -55,12 +56,11 @@ Staffed + outgoing spin-off = real task with a departure.
 
 ## Worktrees
 
-Today `attach --spinoff` only moves `session.issueId`. It does not take the
-checkout. `start` on the new issue then `worktree add`s from `parentBranch`
-(usually main). The session follows into the clean tree. The origin checkout
-stays behind with whatever was uncommitted or unmerged.
-
-That is the worst mix: the agent leaves, the work does not.
+`attach --spinoff` now takes a pending origin checkout (dirty or unmerged)
+onto the new issue when the origin is left empty. A clean merged checkout
+stays put; `start` on the new issue mints from the parent, restamps the
+existing session instead of spawning a second agent, and tries to release
+the vacated origin tree.
 
 Confirmed: **be smart about the checkout.**
 

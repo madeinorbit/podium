@@ -46,6 +46,7 @@ import {
   emptyWorkspace,
   type FileTab,
   leafPaneIds,
+  missionIssueIds,
   missionRootFor,
   type PinState,
   type RecentFileEntry,
@@ -408,6 +409,53 @@ export function knownTabIds(st: EngineState): Set<string> {
   for (const id of st.pendingSpawnIds) ids.add(id)
   for (const tab of st.fileTabs) ids.add(tab.id)
   return ids
+}
+
+/**
+ * Which tabs THIS workspace may keep. A session that still exists but now
+ * belongs to another issue is not "unknown" (that is the grace-period path);
+ * it is foreign, and the origin strip must drop it immediately.
+ */
+export function knownTabIdsForWorkspace(st: EngineState, key: WorkspaceKey): Set<string> {
+  const ids = new Set<string>()
+  for (const id of st.pendingSpawnIds) ids.add(id)
+  for (const tab of st.fileTabs) ids.add(tab.id)
+  for (const session of st.sessions) {
+    if (sessionBelongsToWorkspace(st, key, session)) ids.add(session.sessionId)
+  }
+  return ids
+}
+
+export function sessionBelongsToWorkspace(
+  st: Pick<EngineState, 'issues' | 'sessions'>,
+  key: WorkspaceKey,
+  session: SessionMeta,
+): boolean {
+  if (key === 'none') return true
+  if (key.startsWith('wt:')) {
+    const path = key.slice(3)
+    return session.cwd === path || session.cwd.startsWith(`${path}/`)
+  }
+  if (key.startsWith('issue:')) {
+    const issueId = key.slice(6)
+    if (session.issueId !== undefined) return session.issueId === issueId
+    const issue = st.issues.find((candidate) => candidate.id === issueId)
+    const wt = issue?.worktreePath
+    return Boolean(wt && (session.cwd === wt || session.cwd.startsWith(`${wt}/`)))
+  }
+  if (key.startsWith('mission:')) {
+    const rootId = key.slice(8)
+    const ids = missionIssueIds(st.issues, rootId, st.sessions)
+    if (session.issueId !== undefined) return ids.has(session.issueId)
+    for (const issue of st.issues) {
+      if (!ids.has(issue.id) || !issue.worktreePath) continue
+      if (session.cwd === issue.worktreePath || session.cwd.startsWith(`${issue.worktreePath}/`)) {
+        return true
+      }
+    }
+    return false
+  }
+  return true
 }
 
 /** Every tab id any workspace on this device has open. */
