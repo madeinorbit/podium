@@ -36,6 +36,79 @@ export type UnifiedWorkRow =
   | UnifiedIssueRow
   | { kind: 'worktree'; worktree: WorktreeNavView; activityAt: number }
 
+function sameRefs<T>(a: readonly T[] | undefined, b: readonly T[] | undefined): boolean {
+  if (a === b) return true
+  if (a === undefined || b === undefined || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false
+  return true
+}
+
+function rowKey(row: UnifiedWorkRow): string {
+  return row.kind === 'issue' ? `issue:${row.issue.id}` : `worktree:${row.worktree.path}`
+}
+
+function sameWorktree(a: UnifiedWorkRow, b: UnifiedWorkRow): boolean {
+  if (a.kind !== 'worktree' || b.kind !== 'worktree') return false
+  const aWorktree = a.worktree as unknown as Record<string, unknown>
+  const bWorktree = b.worktree as unknown as Record<string, unknown>
+  const keys = new Set([...Object.keys(aWorktree), ...Object.keys(bWorktree)])
+  for (const key of keys) {
+    if (key === 'sessions' || key === 'issues') continue
+    if (aWorktree[key] !== bWorktree[key]) return false
+  }
+  return (
+    sameRefs(a.worktree.sessions, b.worktree.sessions) &&
+    sameRefs(a.worktree.issues, b.worktree.issues) &&
+    a.activityAt === b.activityAt
+  )
+}
+
+function reuseRow(previous: UnifiedWorkRow | undefined, next: UnifiedWorkRow): UnifiedWorkRow {
+  if (!previous || rowKey(previous) !== rowKey(next)) return next
+  if (next.kind === 'worktree') return sameWorktree(previous, next) ? previous : next
+  if (previous.kind !== 'issue') return next
+  const previousChildren = previous.startedByChildren
+  const nextChildren = next.startedByChildren
+  const children = nextChildren?.map((child) => {
+    const oldChild = previousChildren?.find((candidate) => rowKey(candidate) === rowKey(child))
+    return reuseRow(oldChild, child) as UnifiedIssueRow
+  })
+  const sameIssue =
+    previous.issue === next.issue &&
+    previous.activityAt === next.activityAt &&
+    sameRefs(previous.sessions, next.sessions) &&
+    sameRefs(previous.aggregateSessions, next.aggregateSessions) &&
+    sameRefs(previousChildren, children)
+  if (sameIssue) return previous
+  return children && !sameRefs(previousChildren, children)
+    ? { ...next, startedByChildren: children }
+    : next
+}
+
+/**
+ * Reuse unchanged sidebar rows by their stable entity key.
+ *
+ * The published worklist must re-derive after a scoped/session update, but a
+ * fresh wrapper around every issue makes the sidebar's motion layer treat the
+ * whole list as changed. Reusing only when all visible entity references and
+ * roll-ups match preserves correctness while keeping unaffected rows cold.
+ */
+export function reuseUnifiedWorkRows(
+  previous: readonly UnifiedWorkRow[],
+  next: UnifiedWorkRow[],
+): UnifiedWorkRow[] {
+  if (previous.length === 0 || next.length === 0) return next
+  const byKey = new Map(previous.map((row) => [rowKey(row), row]))
+  let unchanged = previous.length === next.length
+  const reused = next.map((row, index) => {
+    const stable = reuseRow(byKey.get(rowKey(row)), row)
+    if (stable !== row) return stable
+    if (previous[index] !== row) unchanged = false
+    return row
+  })
+  return unchanged ? (previous as UnifiedWorkRow[]) : reused
+}
+
 /** The sessions a row speaks for. An issue row prefers its bubbled aggregate
  *  (own + descendants) so status and attention read the WHOLE branch. */
 export function rowSessions(row: UnifiedWorkRow): SessionMeta[] {

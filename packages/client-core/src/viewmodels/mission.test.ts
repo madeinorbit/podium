@@ -34,6 +34,7 @@ import {
   portfolioActionableCount,
   presenceNote,
   relationNote,
+  reuseFlightDeckRows,
   sessionNeedsHuman,
   waitingNote,
 } from './mission'
@@ -427,6 +428,39 @@ describe('missionSessions', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildFlightDeckRows', () => {
+  it('reuses unchanged keyed rows when unrelated session activity changes', () => {
+    const { issues, sessions } = mission()
+    const previous = buildFlightDeckRows(issues, sessions, 'root')
+    const next = buildFlightDeckRows(
+      issues,
+      [...sessions, sess('outside', { issueId: 'outside' })],
+      'root',
+    )
+    const reused = reuseFlightDeckRows(previous, next)
+    expect(reused).toEqual(next)
+    expect(reused).not.toBe(next)
+    expect(reused.map((row, index) => row === previous[index])).toEqual(
+      previous.map(() => true),
+    )
+  })
+
+  it('keeps a changed row fresh and preserves a reordered result', () => {
+    const { issues, sessions } = mission()
+    const previous = buildFlightDeckRows(issues, sessions, 'root')
+    const changed = buildFlightDeckRows(
+      issues.map((candidate) =>
+        candidate.id === 'c1' ? { ...candidate, title: 'changed' } : candidate,
+      ),
+      sessions,
+      'root',
+    )
+    const reordered = [...changed].reverse()
+    const reused = reuseFlightDeckRows(previous, reordered)
+    expect(reused.map((row) => row.issue.id)).toEqual(reordered.map((row) => row.issue.id))
+    expect(reused.find((row) => row.issue.id === 'c1')).toBe(changed.find((row) => row.issue.id === 'c1'))
+    expect(reused.find((row) => row.issue.id === 'root')).toBe(previous.find((row) => row.issue.id === 'root'))
+  })
+
   it('projects three levels parent-first with depth, keeping a sessionless task', () => {
     const { issues, sessions } = mission()
     // g2 has no session at all and still earns a row: the deck is issue-first.

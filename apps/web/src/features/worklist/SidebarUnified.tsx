@@ -2,14 +2,16 @@ import {
   groupUnifiedWorkRows,
   isDraftAgentVessel,
   planReorderKeys,
+  reuseUnifiedWorkRows,
   rowAwaitsTuck,
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
+  type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, isIssueDeferred, type IssueId } from '@podium/model/browser'
 import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, PointerEvent as ReactPointerEvent } from 'react'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import { cn } from '@/lib/utils'
@@ -155,6 +157,8 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   const [quickArchiveExitIds, setQuickArchiveExitIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   )
+  const stableRowsRef = useRef<UnifiedWorkRow[]>([])
+  const stablePlacementsRef = useRef(new Map<string, WorkPlacement>())
   useEffect(() => {
     setSelectedClosedPlacement((placement) =>
       placement && placement.issueId !== selectedIssueId ? null : placement,
@@ -227,59 +231,97 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   // takes the row out of `closedRows` on the press, so this effect fired BEFORE
   // the exit animation and would now clear the quick-exit marker just as the
   // marker was needed. Pruning moved below, to where the exits actually finish.
-  const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(
-    () => [
-      ...pinned.map((row) => ({
-        key: row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`,
-        placement: 'active',
-        value: {
-          lane: 'pinned' as const,
-          groupKey: 'pinned',
-          groupLabel: 'Pinned',
+  const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(() => {
+    const raw: Array<RowTransitionTarget<WorkPlacement>> = []
+    const add = (key: string, placement: string, value: WorkPlacement): void => {
+      raw.push({ key, placement, value })
+    }
+    for (const row of pinned) {
+      add(row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`, 'active', {
+        lane: 'pinned',
+        groupKey: 'pinned',
+        groupLabel: 'Pinned',
+        row,
+      })
+    }
+    for (const group of targetGroups) {
+      for (const row of group.rows) {
+        add(row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`, 'active', {
+          lane: 'open',
+          groupKey: group.key,
+          groupLabel: group.label,
           row,
-        },
-      })),
-      ...targetGroups.flatMap((group) => [
-        ...group.rows.map((row) => ({
-          key: row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`,
-          placement: 'active',
-          value: {
-            lane: 'open' as const,
-            groupKey: group.key,
-            groupLabel: group.label,
-            row,
-          },
-        })),
-        ...group.snoozedRows.map((row) => ({
-          key: `issue:${row.issue.id}`,
-          placement: `snoozed:${group.key}`,
-          value: {
-            lane: 'snoozed' as const,
-            groupKey: group.key,
-            groupLabel: group.label,
-            row,
-          },
-        })),
-        // NO ARCHIVE FILTER (POD-781): an archived row is already absent from
-        // `group.closedRows` — the outbox overlay paints `archived: true` and
-        // the worklist derivation drops it. Filtering here as well would be a
-        // second hiding rule racing the first, and the one that lost would
-        // decide whether the exit animation ever ran.
-        ...group.closedRows.map((row) => ({
-          key: `issue:${row.issue.id}`,
-          placement: `closed:${group.key}`,
-          value: {
-            lane: 'closed' as const,
-            groupKey: group.key,
-            groupLabel: group.label,
-            row,
-          },
-        })),
-      ]),
-    ],
-    [pinned, targetGroups],
-  )
+        })
+      }
+      for (const row of group.snoozedRows) {
+        add(`issue:${row.issue.id}`, `snoozed:${group.key}`, {
+          lane: 'snoozed',
+          groupKey: group.key,
+          groupLabel: group.label,
+          row,
+        })
+      }
+      // NO ARCHIVE FILTER (POD-781): an archived row is already absent from
+      // `group.closedRows` — the outbox overlay paints `archived: true` and
+      // the worklist derivation drops it. Filtering here as well would be a
+      // second hiding rule racing the first, and the one that lost would
+      // decide whether the exit animation ever ran.
+      for (const row of group.closedRows) {
+        add(`issue:${row.issue.id}`, `closed:${group.key}`, {
+          lane: 'closed',
+          groupKey: group.key,
+          groupLabel: group.label,
+          row,
+        })
+      }
+    }
+
+    const stableRows = reuseUnifiedWorkRows(
+      stableRowsRef.current,
+      raw.map((target) => target.value.row),
+    )
+    stableRowsRef.current = stableRows
+    const stableByKey = new Map(
+      stableRows.map((row) => [row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`, row]),
+    )
+    const activeSlots = new Set<string>()
+    const stableTargets = raw.map((target) => {
+      const slot = `${target.key}\u0000${target.placement}`
+      activeSlots.add(slot)
+      const row = stableByKey.get(target.key) ?? target.value.row
+      const nextValue = { ...target.value, row }
+      const previous = stablePlacementsRef.current.get(slot)
+      const value =
+        previous &&
+        previous.lane === nextValue.lane &&
+        previous.groupKey === nextValue.groupKey &&
+        previous.groupLabel === nextValue.groupLabel &&
+        previous.row === nextValue.row
+          ? previous
+          : nextValue
+      stablePlacementsRef.current.set(slot, value)
+      return { ...target, value }
+    })
+    for (const slot of stablePlacementsRef.current.keys()) {
+      if (!activeSlots.has(slot)) stablePlacementsRef.current.delete(slot)
+    }
+    return stableTargets
+  }, [pinned, targetGroups])
   const { items: transitionRows, settle, discardExit } = useRowTransitions(transitionTargets)
+  // Motion's layout feature otherwise measures every mounted row whenever the
+  // sidebar receives an unrelated store update. Feed it a structural revision
+  // derived only from row slots; content/clock updates keep the same revision,
+  // while insertion, removal, lane changes, and reordering opt the measurement
+  // back in for the affected frame.
+  const layoutSignature = transitionTargets.map((target) => `${target.key}:${target.placement}`).join('|')
+  const layoutRevisionRef = useRef({ signature: '', revision: 0 })
+  if (layoutRevisionRef.current.signature !== layoutSignature) {
+    layoutRevisionRef.current = {
+      signature: layoutSignature,
+      revision: layoutRevisionRef.current.revision + 1,
+    }
+  }
+  const layoutRevision = layoutRevisionRef.current.revision
 
   // Prune the quick-exit markers once their rows are gone from the transition
   // list — the exit has played and the styling has nothing left to style. Kept
@@ -433,6 +475,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       <motion.div
         key={`${item.key}:${item.placement}`}
         layout="position"
+        layoutDependency={layoutRevision}
         transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
         {...(row.kind === 'issue' && draggable ? { 'data-drag-key': row.issue.id } : {})}
         className={cn(
@@ -544,6 +587,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         {renderedPinned.length > 0 && (
           <motion.div
             layout="position"
+            layoutDependency={layoutRevision}
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
             className="mb-2.5 flex min-w-0 flex-col"
             data-testid="pinned-section"
@@ -556,6 +600,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         {renderedGroups.map((group, index) => (
           <motion.div
             layout="position"
+            layoutDependency={layoutRevision}
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
             key={group.key}
             className="mb-2.5 flex min-w-0 flex-col last:mb-0"
@@ -571,6 +616,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             {group.snoozedRows.length > 0 && (
               <motion.div
                 layout="position"
+                layoutDependency={layoutRevision}
                 transition={
                   shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
                 }
@@ -589,6 +635,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             {group.closedRows.length > 0 && (
               <motion.div
                 layout="position"
+                layoutDependency={layoutRevision}
                 transition={
                   shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
                 }

@@ -10,7 +10,7 @@
  * A key that leaves the list and later returns (issue reopened, unsnoozed)
  * arrives again — departure prunes it from the seen set.
  */
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 export function useArrivals(keys: readonly string[]): {
   /** Keys whose rows should currently wear the arrival animation. */
@@ -41,13 +41,13 @@ export function useArrivals(keys: readonly string[]): {
       return next
     })
   }, [keys])
-  const settle = (key: string): void => {
+  const settle = useCallback((key: string): void => {
     setArrivals((prev) => {
       if (!prev.has(key)) return prev
       const next = new Set(prev)
       next.delete(key)
       return next
     })
-  }
+  }, [])
   return { arrivals, settle }
 }

@@ -28,6 +28,7 @@ import {
   type PresenceNote,
   presenceNote,
   reposToViews,
+  reuseFlightDeckRows,
   type SessionRole,
   sessionNeedsHuman,
   sessionRole,
@@ -59,7 +60,7 @@ import {
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { UnreadDot } from '@/components/UnreadMark'
 import { Button } from '@/components/ui/button'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
@@ -184,12 +185,10 @@ interface Rail {
 
 const HAIRLINE_RAIL: Rail = { className: 'bg-hairline-soft', width: 1 }
 
+const MISSION_RAIL: Rail = { className: 'deck-rail-mission', width: 2 }
+const TASK_RAIL: Rail = { className: 'deck-rail-task', width: 2 }
 const railFor = (tone: RailTone): Rail =>
-  tone === 'mission'
-    ? { className: 'deck-rail-mission', width: 2 }
-    : tone === 'task'
-      ? { className: 'deck-rail-task', width: 2 }
-      : HAIRLINE_RAIL
+  tone === 'mission' ? MISSION_RAIL : tone === 'task' ? TASK_RAIL : HAIRLINE_RAIL
 
 /**
  * THE TITLE'S FLOOR — 150px, and it is a TARGET, not a `min-width`.
@@ -472,7 +471,8 @@ const CREW_SHOWN = 4
  * is hidden by default — and everything each icon stands for rides on its
  * tooltip, which is also where an icon dropped by a narrow column survives.
  */
-function CrewCensus({ crew, now }: { crew: readonly SessionMeta[]; now: number }): JSX.Element {
+function CrewCensus({ crew }: { crew: readonly SessionMeta[] }): JSX.Element {
+  const now = useStoreSelector((store) => store.coarseNow)
   const shown = crew.slice(0, CREW_SHOWN)
   const extra = crew.length - shown.length
   return (
@@ -812,7 +812,6 @@ function SessionRow({
   label = null,
   active,
   last,
-  now,
   rail = HAIRLINE_RAIL,
   flat = false,
   onOpen,
@@ -824,7 +823,6 @@ function SessionRow({
   label?: string | null
   active: boolean
   last: boolean
-  now: number
   /** The branch line this row hangs on — coloured when its task has a lead. */
   rail?: Rail
   /** Outside the tree (the archived reveal) — no rail, no elbow, no indent. */
@@ -847,6 +845,7 @@ function SessionRow({
   const needs = !retired && sessionNeedsHuman(session)
   const phase = motionPhase(session)
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
+  const now = useStoreSelector((store) => store.coarseNow)
   const stamp = relativeTime(session.lastActiveAt, now)
   const total = session.agentState?.workingMsTotal
   const name = sessionDisplayName(session)
@@ -1090,7 +1089,6 @@ interface HungContext {
   /** Session ids that appeared since the deck settled — see `useArrivals`. */
   arrivals: ReadonlySet<string>
   settle: (key: string) => void
-  now: number
   /** The block's left inset; its hung rails sit `AGENT_RAIL` inside that. */
   inset: number
   /** The branch line this block draws — coloured when the task has a lead. */
@@ -1127,7 +1125,6 @@ function HungRows(ctx: HungContext): JSX.Element | null {
             label={roleLabel(role, ctx.nameOf)}
             active={ctx.activeSessionId === session.sessionId}
             last={isLast()}
-            now={ctx.now}
             rail={ctx.rail}
             onOpen={(permanent) => ctx.onSelectSession(session, permanent)}
             onOpenNative={() => ctx.onSelectNative(session)}
@@ -1156,7 +1153,7 @@ function HungRows(ctx: HungContext): JSX.Element | null {
   )
 }
 
-function TaskRow({
+const TaskRow = memo(function TaskRow({
   row,
   byId,
   carries,
@@ -1172,7 +1169,6 @@ function TaskRow({
   rails,
   agentRail,
   childFollows,
-  now,
   onToggle,
   onSelectIssue,
   onSelectSession,
@@ -1200,7 +1196,7 @@ function TaskRow({
   arrivals: ReadonlySet<string>
   settle: (key: string) => void
   collapsed: boolean
-  now: number
+  folds: FoldMap
   onToggle: () => void
   /** Single click previews the task's lead session (and toggles the fold);
    *  double click / Enter opens it permanently. */
@@ -1376,7 +1372,7 @@ function TaskRow({
           {seat && <SeatChip note={seat} />}
           {folded && <CollapsedPayload summary={row.collapsedSummary} />}
           {folded && row.collapsedSummary.crew.length > 0 && (
-            <CrewCensus crew={row.collapsedSummary.crew} now={now} />
+            <CrewCensus crew={row.collapsedSummary.crew} />
           )}
           <StateLabel value={state} label={liveWord} />
         </button>
@@ -1420,7 +1416,6 @@ function TaskRow({
             activeSessionId={activeSessionId}
             arrivals={arrivals}
             settle={settle}
-            now={now}
             inset={bandLeft}
             rail={agentRail}
             tail={childFollows}
@@ -1431,7 +1426,23 @@ function TaskRow({
       </div>
     </div>
   )
-}
+}, (previous, next) =>
+  previous.row === next.row &&
+  previous.byId === next.byId &&
+  previous.carries === next.carries &&
+  previous.rails === next.rails &&
+  previous.agentRail === next.agentRail &&
+  previous.childFollows === next.childFollows &&
+  previous.mode === next.mode &&
+  previous.rootId === next.rootId &&
+  previous.inMission === next.inMission &&
+  previous.nameOf === next.nameOf &&
+  previous.selected === next.selected &&
+  previous.activeSessionId === next.activeSessionId &&
+  previous.arrivals === next.arrivals &&
+  previous.settle === next.settle &&
+  previous.collapsed === next.collapsed &&
+  previous.folds === next.folds)
 
 /**
  * A PROPOSAL IS THE COLUMN'S ONLY OTHER FILL (POD-758).
@@ -1811,10 +1822,16 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const [searchOpen, setSearchOpen] = useState(false)
   const headerIntent = useClickIntent()
   const root = missionRootFor(issues, selectedIssueId)
-  const rows = useMemo(
+  const computedRows = useMemo(
     () => (root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
     [issues, sessions, root, mode, allWorktreePaths],
   )
+  const stableRowsRef = useRef<FlightDeckRow[]>([])
+  const rows = useMemo(() => {
+    const stable = reuseFlightDeckRows(stableRowsRef.current, computedRows)
+    stableRowsRef.current = stable
+    return stable
+  }, [computedRows])
   const byId = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues])
   /**
    * The session the operator is ACTUALLY in.
@@ -2418,7 +2435,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   activeSessionId={activeSessionId}
                   arrivals={arrivals}
                   settle={settle}
-                  now={coarseNow}
                   inset={ROOT_BLOCK_INSET}
                   rail={railFor(leadTone(root.id))}
                   tail={visibleRows.length > 0}
@@ -2460,7 +2476,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 arrivals={arrivals}
                 settle={settle}
                 collapsed={isFolded(row, folds)}
-                now={coarseNow}
+                folds={folds}
                 onToggle={() => toggleFold(row)}
                 // A single click on a task BOTH folds it and previews its lead
                 // session; the double click promotes and leaves the fold where
@@ -2558,7 +2574,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                         active={activeSessionId === session.sessionId}
                         last
                         flat
-                        now={coarseNow}
                         onOpen={(permanent) =>
                           selectSession(session.issueId ?? null, session, { permanent })
                         }

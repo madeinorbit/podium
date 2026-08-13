@@ -82,6 +82,67 @@ export interface FlightDeckRow {
   collapsedSummary: CollapsedSummary
 }
 
+function sameRefs<T>(a: readonly T[] | undefined, b: readonly T[] | undefined): boolean {
+  if (a === b) return true
+  if (a === undefined || b === undefined || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false
+  return true
+}
+
+function sameCollapsedSummary(a: CollapsedSummary, b: CollapsedSummary): boolean {
+  return (
+    a.tasks === b.tasks &&
+    a.done === b.done &&
+    a.run === b.run &&
+    a.needsYou === b.needsYou &&
+    sameRefs(a.kinds, b.kinds) &&
+    sameRefs(a.crew, b.crew)
+  )
+}
+
+function sameFlightDeckRow(a: FlightDeckRow, b: FlightDeckRow): boolean {
+  return (
+    a.issue === b.issue &&
+    a.depth === b.depth &&
+    a.activityAt === b.activityAt &&
+    sameRefs(a.sessions, b.sessions) &&
+    sameRefs(a.descendantIds, b.descendantIds) &&
+    a.actionableCount === b.actionableCount &&
+    a.liveAgentCount === b.liveAgentCount &&
+    a.workingAgentCount === b.workingAgentCount &&
+    a.attentionCount === b.attentionCount &&
+    sameCollapsedSummary(a.collapsedSummary, b.collapsedSummary)
+  )
+}
+
+/**
+ * Reuse unchanged Flight Deck row objects by issue id.
+ *
+ * `buildFlightDeckRows` must derive from the current snapshot, but a session
+ * update outside a row's subtree should not invalidate that row's React key or
+ * make its motion wrapper measure again. The comparison is intentionally
+ * shallow over stable entity references and scalar roll-ups; a changed issue,
+ * session, descendant list, or summary still gets the fresh row.
+ */
+export function reuseFlightDeckRows(
+  previous: readonly FlightDeckRow[],
+  next: FlightDeckRow[],
+): FlightDeckRow[] {
+  if (previous.length === 0 || next.length === 0) return next
+  const byIssue = new Map(previous.map((row) => [row.issue.id, row]))
+  let unchanged = previous.length === next.length
+  const reused = next.map((row, index) => {
+    const prior = byIssue.get(row.issue.id)
+    if (!prior || !sameFlightDeckRow(prior, row)) {
+      unchanged = false
+      return row
+    }
+    if (prior !== previous[index]) unchanged = false
+    return prior
+  })
+  return unchanged ? (previous as FlightDeckRow[]) : reused
+}
+
 export interface MissionProgress {
   total: number
   done: number
