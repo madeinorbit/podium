@@ -123,7 +123,7 @@ export function PanelDeck({
         const rect = item.paneId === null ? undefined : boxes.get(item.paneId)
         const visible = rect !== undefined
         // Evicted (cold) session tabs render nothing — clicking the tab makes it
-        // active → warm → it remounts. The `!visible` guard is load-bearing: the
+        // active → resident → it remounts. The `!visible` guard is load-bearing: the
         // warm set updates in an effect (one render behind), so a just-activated
         // pane may not be in the warm set yet — always mount the visible pane
         // regardless, or it blanks for a frame. File tabs are cheap and always
@@ -135,6 +135,7 @@ export function PanelDeck({
             key={item.id}
             className={cn('absolute min-w-0', visible ? 'flex' : 'hidden')}
             data-session={item.id}
+            data-panel-resident={item.kind === 'session' ? '' : undefined}
             data-pane={visible ? paneId : undefined}
             style={rect ? panelBoxStyle(rect) : undefined}
             // Pointer-down, not click: focus must move BEFORE the terminal or the

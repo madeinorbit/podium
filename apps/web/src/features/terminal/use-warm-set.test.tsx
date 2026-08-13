@@ -15,8 +15,8 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  // Force MOBILE capacity (N=3): max-width:768px matches. This is the hook's only
-  // non-redundant behavior over warm-set.test.ts — the responsive matchMedia→N wiring.
+  // Force the narrow-device residency budget: max-width:768px matches. This is
+  // the hook's only non-redundant behavior over warm-set.test.ts.
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({ matches: true })),
@@ -37,7 +37,7 @@ function warmAttr(): string {
 }
 
 describe('useWarmSet', () => {
-  it('caps the warm set at the mobile capacity (N=3) by recency', () => {
+  it('admits the active panel plus one recent panel on mobile (budget=2)', () => {
     const all = Array.from({ length: 10 }, (_, i) => asSessionId(`s${i + 1}`))
     // Activate s1..s10 one at a time across rerenders.
     for (let i = 1; i <= 10; i++) {
@@ -46,31 +46,34 @@ describe('useWarmSet', () => {
       })
     }
     const warm = new Set(warmAttr().split(',').filter(Boolean))
-    // s10 (active) + the 2 next-most-recent: s9,s8 = 3 ids at mobile capacity.
-    expect(warm.size).toBe(3)
-    expect([...warm].sort()).toEqual(['s10', 's8', 's9'])
-    expect(warm.has('s7')).toBe(false)
+    expect(warm.size).toBe(2)
+    expect([...warm].sort()).toEqual(['s10', 's9'])
+    expect(warm.has('s8')).toBe(false)
   })
 
-  it('(c) at desktop capacity (N=8) the 9th distinct session evicts the LRU-oldest', () => {
-    // Force DESKTOP capacity (max-width:768px does NOT match) — the warm cap is 8.
+  it('plateaus at the measured desktop budget after 1/3/8/20 distinct visits', () => {
+    // Force DESKTOP capacity (max-width:768px does NOT match).
     vi.stubGlobal(
       'matchMedia',
       vi.fn(() => ({ matches: false })),
     )
-    // The universe is GLOBAL (every live session id, as Workspace now feeds it) so
-    // recency spans issue switches — the point of POD-782. Activating a 9th distinct
-    // session must evict the least-recently-viewed one, holding the mounted count at 8.
-    const all = Array.from({ length: 9 }, (_, i) => asSessionId(`s${i + 1}`))
-    for (let i = 1; i <= 9; i++) {
+    const all = Array.from({ length: 20 }, (_, i) => asSessionId(`s${i + 1}`))
+    const sizes = new Map<number, number>()
+    for (let i = 1; i <= 20; i++) {
       act(() => {
         root.render(<P all={all} active={[asSessionId(`s${i}`)]} />)
       })
+      if ([1, 3, 8, 20].includes(i)) {
+        sizes.set(i, new Set(warmAttr().split(',').filter(Boolean)).size)
+      }
     }
     const warm = new Set(warmAttr().split(',').filter(Boolean))
-    expect(warm.size).toBe(8)
-    // s9 (active) + s8..s2 by recency; s1 (oldest) is evicted.
-    expect(warm.has('s1')).toBe(false)
-    expect([...warm].sort()).toEqual(['s2', 's3', 's4', 's5', 's6', 's7', 's8', 's9'])
+    expect([...sizes]).toEqual([
+      [1, 1],
+      [3, 3],
+      [8, 3],
+      [20, 3],
+    ])
+    expect([...warm].sort()).toEqual(['s18', 's19', 's20'])
   })
 })

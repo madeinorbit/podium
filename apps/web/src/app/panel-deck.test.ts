@@ -80,26 +80,26 @@ describe('composeDeck', () => {
     expect(deck.some((d) => d.foreign)).toBe(false)
   })
 
-  it('(c) respects the cap: a warm set capped upstream renders only those foreign panels', () => {
-    // useWarmSet caps the warm set at N (8 desktop); composeDeck faithfully
-    // renders whatever survived the cap. Here s0 was evicted (not in warm), so it
-    // never appears in the deck even though it is still a live session.
-    const warm = new Set(['s8', 's7', 's6', 's5', 's4', 's3', 's2', 's1']) // 8, cap
+  it('(c) respects the budget: only admitted foreign panels remain in the deck', () => {
+    // The measured desktop budget admits three heavy panels. composeDeck renders
+    // exactly that upstream decision: s0 is live but evicted, so it stays cached
+    // outside the mounted deck until selected through the cold remount route.
+    const warm = new Set(['s3', 's2', 's1'])
     const known = new Set([...warm, 's0'])
     const deck = composeDeck({
-      tabs: [sessionTab('s8')],
+      tabs: [sessionTab('s3')],
       warm,
       knownSessionIds: known,
-      panes: [{ id: 'p1', activeTabId: 's8' }],
+      panes: [{ id: 'p1', activeTabId: 's3' }],
     })
     expect(deck.some((d) => d.id === 's0')).toBe(false)
-    // The other 7 warm sessions ride along as foreign panels.
+    // The two background residents ride along as foreign panels.
     expect(
       deck
         .filter((d) => d.foreign)
         .map((d) => d.id)
         .sort(),
-    ).toEqual(['s1', 's2', 's3', 's4', 's5', 's6', 's7'])
+    ).toEqual(['s1', 's2'])
   })
 
   it('(d) drops a foreign panel whose session was killed/archived (left knownSessionIds)', () => {

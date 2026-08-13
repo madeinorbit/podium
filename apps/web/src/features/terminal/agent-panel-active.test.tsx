@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -69,11 +69,11 @@ vi.mock('@/lib/voice', () => ({
 let storeSessions: SessionMeta[] = []
 let storePanelMode: Record<string, 'chat' | 'native'> = {}
 
-const fakeHub = {
-  subscribeTranscript: (_s: string, _since: string | undefined, _cb: unknown): (() => void) => {
-    return () => {}
-  },
-}
+const unsubscribeTranscript = vi.fn()
+const subscribeTranscript = vi.fn(
+  (_s: string, _since: string | undefined, _cb: unknown): (() => void) => unsubscribeTranscript,
+)
+const fakeHub = { subscribeTranscript }
 
 const fakeTrpc = {
   settings: {
@@ -118,6 +118,7 @@ vi.mock('@/app/store', () => {
     useSession: (id: string | undefined) =>
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
+    useSessionExitKind: () => undefined,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
@@ -156,6 +157,8 @@ beforeEach(() => {
   setActive.mockClear()
   dispose.mockClear()
   mountSessionMock.mockClear()
+  subscribeTranscript.mockClear()
+  unsubscribeTranscript.mockClear()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -304,6 +307,7 @@ describe('AgentPanel active wiring', () => {
     })
     await flush()
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(subscribeTranscript).toHaveBeenCalledTimes(1)
 
     // native -> chat: the terminal stays mounted (hidden), just inactive.
     setActive.mockClear()
@@ -326,6 +330,28 @@ describe('AgentPanel active wiring', () => {
     // The whole cycle reused ONE terminal: no second mount, no dispose.
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
     expect(dispose).not.toHaveBeenCalled()
+    expect(subscribeTranscript).toHaveBeenCalledTimes(1)
+    expect(unsubscribeTranscript).not.toHaveBeenCalled()
+  })
+
+  it('balances terminal and transcript resources through a StrictMode probe cycle', async () => {
+    await act(async () => {
+      root.render(
+        <StrictMode>
+          <AgentPanel sessionId={asSessionId('s1')} active />
+        </StrictMode>,
+      )
+    })
+    await flush()
+    // StrictMode probes mount cleanup once, then leaves exactly one live owner.
+    expect(mountSessionMock.mock.calls.length - dispose.mock.calls.length).toBe(1)
+    expect(subscribeTranscript.mock.calls.length - unsubscribeTranscript.mock.calls.length).toBe(1)
+
+    act(() => root.unmount())
+    expect(dispose).toHaveBeenCalledTimes(mountSessionMock.mock.calls.length)
+    expect(unsubscribeTranscript).toHaveBeenCalledTimes(subscribeTranscript.mock.calls.length)
+    // Keep the shared afterEach cleanup valid after the explicit lifecycle assertion.
+    root = createRoot(container)
   })
 
   // POD-1535. The Phase-6 exit gate's finding was not that presence was wrong

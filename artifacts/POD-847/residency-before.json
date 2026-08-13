@@ -1,0 +1,164 @@
+{
+  "phase": "before",
+  "measuredAt": "2026-08-13T06:30:58.368Z",
+  "browser": "chromium-desktop",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "samples": [
+    {
+      "visits": 1,
+      "mountedPanels": 1,
+      "panelDomNodes": 101,
+      "documentDomNodes": 620,
+      "xterms": 1,
+      "renderers": {
+        "webgl": 1,
+        "dom": 0,
+        "unknown": 0
+      },
+      "hubTerminalAttaches": 1,
+      "hubTranscriptSubscriptions": 1,
+      "heapBytes": 18350344,
+      "afterGc": {
+        "mountedPanels": 1,
+        "panelDomNodes": 97,
+        "documentDomNodes": 616,
+        "xterms": 1,
+        "renderers": {
+          "webgl": 1,
+          "dom": 0,
+          "unknown": 0
+        },
+        "hubTerminalAttaches": 1,
+        "hubTranscriptSubscriptions": 1,
+        "heapBytes": 15764696
+      }
+    },
+    {
+      "visits": 3,
+      "mountedPanels": 3,
+      "panelDomNodes": 291,
+      "documentDomNodes": 922,
+      "xterms": 3,
+      "renderers": {
+        "webgl": 3,
+        "dom": 0,
+        "unknown": 0
+      },
+      "hubTerminalAttaches": 3,
+      "hubTranscriptSubscriptions": 3,
+      "heapBytes": 22287472,
+      "afterGc": {
+        "mountedPanels": 3,
+        "panelDomNodes": 291,
+        "documentDomNodes": 922,
+        "xterms": 3,
+        "renderers": {
+          "webgl": 3,
+          "dom": 0,
+          "unknown": 0
+        },
+        "hubTerminalAttaches": 3,
+        "hubTranscriptSubscriptions": 3,
+        "heapBytes": 19350764
+      }
+    },
+    {
+      "visits": 8,
+      "mountedPanels": 8,
+      "panelDomNodes": 776,
+      "documentDomNodes": 1682,
+      "xterms": 8,
+      "renderers": {
+        "webgl": 8,
+        "dom": 0,
+        "unknown": 0
+      },
+      "hubTerminalAttaches": 8,
+      "hubTranscriptSubscriptions": 8,
+      "heapBytes": 27313632,
+      "afterGc": {
+        "mountedPanels": 8,
+        "panelDomNodes": 776,
+        "documentDomNodes": 1682,
+        "xterms": 8,
+        "renderers": {
+          "webgl": 8,
+          "dom": 0,
+          "unknown": 0
+        },
+        "hubTerminalAttaches": 8,
+        "hubTranscriptSubscriptions": 8,
+        "heapBytes": 22265988
+      }
+    },
+    {
+      "visits": 20,
+      "mountedPanels": 8,
+      "panelDomNodes": 776,
+      "documentDomNodes": 2167,
+      "xterms": 8,
+      "renderers": {
+        "webgl": 8,
+        "dom": 0,
+        "unknown": 0
+      },
+      "hubTerminalAttaches": 8,
+      "hubTranscriptSubscriptions": 8,
+      "heapBytes": 38041476,
+      "afterGc": {
+        "mountedPanels": 8,
+        "panelDomNodes": 776,
+        "documentDomNodes": 2167,
+        "xterms": 8,
+        "renderers": {
+          "webgl": 8,
+          "dom": 0,
+          "unknown": 0
+        },
+        "hubTerminalAttaches": 8,
+        "hubTranscriptSubscriptions": 8,
+        "heapBytes": 24006800
+      }
+    }
+  ],
+  "warmSwitch": {
+    "requested": 30,
+    "completed": 29,
+    "p50Ms": 49.09999990463257,
+    "p95Ms": 116,
+    "samplesMs": [
+      71.60000038146973,
+      50.299999713897705,
+      63.299999713897705,
+      44.59999990463257,
+      49.09999990463257,
+      48.19999980926514,
+      46.700000286102295,
+      42.5,
+      35.30000019073486,
+      49.30000019073486,
+      259.30000019073486,
+      50.5,
+      31,
+      45.30000019073486,
+      44.80000019073486,
+      59.799999713897705,
+      66.59999990463257,
+      47.700000286102295,
+      57.89999961853027,
+      115.30000019073486,
+      57.90000009536743,
+      44.10000038146973,
+      51.80000019073486,
+      36.799999713897705,
+      58.700000286102295,
+      44.19999980926514,
+      38.19999980926514,
+      116,
+      40.19999980926514
+    ]
+  }
+}

@@ -17,15 +17,17 @@ export function updateRecency(
 
 /**
  * The set of tab ids to keep mounted: every active id, plus the most-recent
- * others until the set reaches `max(capacity, activeIds.length)`.
+ * others until the set reaches `max(heavyPanelBudget, activeIds.length)`.
+ * Active panes are admission-exempt: a split layout never blanks merely because
+ * it has more visible terminals than the background-residency budget.
  */
 export function computeWarmSet(
   recency: SessionId[],
   activeIds: SessionId[],
-  capacity: number,
+  heavyPanelBudget: number,
 ): Set<SessionId> {
   const warm = new Set(activeIds)
-  const target = Math.max(capacity, warm.size)
+  const target = Math.max(heavyPanelBudget, warm.size)
   for (const id of recency) {
     if (warm.size >= target) break
     warm.add(id)

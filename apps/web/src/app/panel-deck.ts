@@ -14,8 +14,8 @@ import type { FileTab } from './store'
 // own sessions, so the primary navigation gesture is the ISSUE switch. To make
 // that switch instant, the deck of mounted AgentPanels spans issue/worktree
 // switches — it is the union of the CURRENT workspace's tabs and the
-// most-recently-viewed sessions from PREVIOUSLY-viewed issues (kept warm up to
-// the LRU cap). The tab STRIP still shows only the current workspace's tabs;
+// most-recently-viewed sessions from PREVIOUSLY-viewed issues (kept warm within
+// the measured heavy-panel residency budget). The tab STRIP still shows only the current workspace's tabs;
 // foreign warm panels render hidden + inert in the deck and never as tabs.
 
 /** A tab in the current workspace's strip — an agent/shell session or an open file. */
@@ -59,7 +59,7 @@ export interface DeckItem {
  */
 export function composeDeck(opts: {
   tabs: DeckTab[]
-  /** Session ids to keep mounted — the warm LRU, spanning issue switches. */
+  /** Session ids to keep mounted — the budgeted warm LRU, spanning issue switches. */
   warm: Set<string>
   /** Currently-live (non-archived, non-dock) session ids — the eviction gate for
    *  foreign panels. */

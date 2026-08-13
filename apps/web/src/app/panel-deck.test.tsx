@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { SessionId, SessionMeta } from '@podium/model'
-import { act, type JSX, useEffect } from 'react'
+import { act, type JSX, StrictMode, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { composeDeck, type DeckTab } from './panel-deck'
@@ -145,5 +145,48 @@ describe('PanelDeck across issue switches', () => {
     })
     expect(panelEl('s1')).not.toBeNull()
     expect(panelEl('s2')).toBeNull()
+  })
+
+  it('evicts through unmount and uses the existing cold remount route on reselect', () => {
+    const tabs = [sessionTab('s1'), sessionTab('s2')]
+    renderDeck({ tabs, warm: new Set(['s1']), known: new Set(['s1', 's2']), paneA: 's1' })
+    renderDeck({ tabs, warm: new Set(['s2']), known: new Set(['s1', 's2']), paneA: 's2' })
+    expect(events).toEqual(['mount:s1', 'unmount:s1', 'mount:s2'])
+
+    renderDeck({ tabs, warm: new Set(['s1']), known: new Set(['s1', 's2']), paneA: 's1' })
+    expect(events.filter((event) => event === 'mount:s1')).toHaveLength(2)
+    expect(panelEl('s1')?.getAttribute('data-active')).toBe('true')
+  })
+
+  it('balances heavy-panel cleanup under StrictMode eviction', () => {
+    const tabs = [sessionTab('s1')]
+    const items = composeDeck({
+      tabs,
+      warm: new Set(['s1']),
+      knownSessionIds: new Set(['s1']),
+      panes: [{ id: 'p1', activeTabId: 's1' }],
+    })
+    act(() => {
+      root.render(
+        <StrictMode>
+          <PanelDeck items={items} panes={[FULL_BOX]} onCloseFile={() => {}} />
+        </StrictMode>,
+      )
+    })
+    const cold = composeDeck({
+      tabs,
+      warm: new Set(),
+      knownSessionIds: new Set(['s1']),
+      panes: [{ id: 'p1', activeTabId: null }],
+    })
+    act(() => {
+      root.render(
+        <StrictMode>
+          <PanelDeck items={cold} panes={[]} onCloseFile={() => {}} />
+        </StrictMode>,
+      )
+    })
+    expect(events.filter((event) => event === 'mount:s1')).toHaveLength(2)
+    expect(events.filter((event) => event === 'unmount:s1')).toHaveLength(2)
   })
 })
