@@ -459,26 +459,26 @@ describe('MirrorService', () => {
     const { store, fs, mirror } = setup({
       onBytes: () => replaceDuringWrite(),
     })
-    const path = seed(store, 'm1', 'reused-during-sweep')
+    const path = seed(store, M1, 'reused-during-sweep')
     const predecessor = Buffer.from('predecessor transcript with enough history\n')
     const replacement = Buffer.from('next\n')
     fs.set(path, predecessor)
     replaceDuringWrite = () => {
       replaceDuringWrite = () => {}
       fs.replace(path, replacement)
-      store.setReportedBytes('m1', 'reused-during-sweep', replacement.length)
-      mirror.enqueueDirty('m1')
+      store.setReportedBytes(M1, 'reused-during-sweep', replacement.length)
+      mirror.enqueueDirty(M1)
     }
 
-    mirror.enqueueDirty('m1')
-    await settle(mirror, 'm1')
+    mirror.enqueueDirty(M1)
+    await settle(mirror, M1)
 
     expect(fs.log.map((read) => read.offset)).toEqual([0, predecessor.length, 0])
     expect(
-      readFileSync(mirror.archivedLakePath('m1', 'reused-during-sweep', 1)).equals(predecessor),
+      readFileSync(mirror.archivedLakePath(M1, 'reused-during-sweep', 1)).equals(predecessor),
     ).toBe(true)
-    expect(readFileSync(mirror.lakePath('m1', 'reused-during-sweep')).equals(replacement)).toBe(true)
-    expect(store.mirrorCursor('m1', 'reused-during-sweep')).toBe(replacement.length)
+    expect(readFileSync(mirror.lakePath(M1, 'reused-during-sweep')).equals(replacement)).toBe(true)
+    expect(store.mirrorCursor(M1, 'reused-during-sweep')).toBe(replacement.length)
   })
 
   it('a deleted source (denied) marks the segment converged — no eternal retries', async () => {
