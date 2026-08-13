@@ -76,7 +76,7 @@ describe('LockService', () => {
       granted: true,
     })
     expect(() => svc.release(stale, { repoPath: REPO, name: 'merge:main' })).toThrow(
-      /not held by this session/,
+      /not by you/,
     )
     expect(svc.status({ repoPath: REPO, name: 'merge:main' })[0]?.holder.sessionId).toBe(
       successor.sessionId,
@@ -98,7 +98,7 @@ describe('LockService', () => {
     )
     expect(() => svc.renew(restarted, { repoPath: REPO, name: 'merge:main' })).toThrow(/not by you/)
     expect(() => svc.release(restarted, { repoPath: REPO, name: 'merge:main' })).toThrow(
-      /not held by this session/,
+      /not by you/,
     )
 
     advance(1_001)
@@ -107,7 +107,7 @@ describe('LockService', () => {
     })
     expect(() => svc.renew(first, { repoPath: REPO, name: 'merge:main' })).toThrow(/not by you/)
     expect(() => svc.release(first, { repoPath: REPO, name: 'merge:main' })).toThrow(
-      /not held by this session/,
+      /not by you/,
     )
     expect(svc.status({ repoPath: REPO, name: 'merge:main' })[0]?.holder.sessionId).toBe(
       restarted.sessionId,

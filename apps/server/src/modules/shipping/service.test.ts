@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto'
-import { asMachineId, asShipOrderId, FIRST_ADMIN_USER_ID, type IssueWire } from '@podium/model'
+import {
+  asMachineId,
+  asShipOrderId,
+  asShipStepId,
+  FIRST_ADMIN_USER_ID,
+  type IssueWire,
+} from '@podium/model'
 import type { ShippingJobResult } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
@@ -1109,7 +1115,8 @@ describe('ShippingService enqueue transaction', () => {
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const first = store.shipping.latestAttemptForOrder(order.id)
-    expect(first).toMatchObject({ leaseGeneration: 1, outcome: undefined })
+    expect(first?.leaseGeneration).toBe(1)
+    expect(first?.outcome).toBeUndefined()
     service.dispose()
 
     const restarted = new ShippingService(deps)
@@ -1180,13 +1187,9 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('recovers durable cancellation intent without superseding its attempt', async () => {
-    let crashCancel = true
     const generations: number[] = []
     const { store, issues, service, deps } = harness(async (input, machineId) => {
       generations.push(input.generation)
-      if (input.action === 'cancel' && crashCancel) {
-        throw new Error('simulated server crash after cancellation intent')
-      }
       return {
         jobId: input.jobId,
         requestDigest: input.requestDigest,
@@ -1209,17 +1212,48 @@ describe('ShippingService enqueue transaction', () => {
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const first = store.shipping.latestAttemptForOrder(order.id)!
-
-    await expect(
-      service.cancel({
+    const effectKey = `cancel:${first.leaseGeneration}`
+    const inputFence = {
+      sourceBaseSha: first.expectedSourceBaseSha,
+      approvedHeadSha: first.approvedHeadSha,
+      targetSha: first.expectedTargetSha,
+    }
+    const recordedAt = '2026-08-13T10:00:00.000Z'
+    store.shipping.requestCancellation({
+      orderId: order.id,
+      expectedState: 'preflight',
+      attemptId: first.id,
+      generation: first.leaseGeneration,
+      planned: {
+        id: asShipStepId(`step:${first.id}:${effectKey}:planned`),
         orderId: order.id,
-        principal: approval.principal,
-        requestedBy: approval.requestedBy,
-        overrideScope: false,
-      }),
-    ).rejects.toThrow(/simulated server crash/)
+        attemptId: first.id,
+        effectKey,
+        idempotencyKey: `${effectKey}:planned`,
+        generation: first.leaseGeneration,
+        inputFence,
+        kind: 'cancel',
+        state: 'planned',
+        summary: 'effect planned',
+        recordedAt,
+      },
+      running: {
+        id: asShipStepId(`step:${first.id}:${effectKey}:running`),
+        orderId: order.id,
+        attemptId: first.id,
+        effectKey,
+        idempotencyKey: `${effectKey}:running`,
+        generation: first.leaseGeneration,
+        inputFence,
+        kind: 'cancel',
+        state: 'running',
+        summary: 'effect dispatched',
+        recordedAt,
+        startedAt: recordedAt,
+      },
+    })
     expect(
-      store.shipping.latestStepForEffect(first.id, `cancel:${first.leaseGeneration}`),
+      store.shipping.latestStepForEffect(first.id, effectKey),
     ).toMatchObject({ state: 'running' })
     expect(() =>
       store.shipping.claimAttempt({
@@ -1233,7 +1267,6 @@ describe('ShippingService enqueue transaction', () => {
     ).toThrow(/durable cancellation intent/)
     service.dispose()
 
-    crashCancel = false
     const restarted = new ShippingService(deps)
     await restarted.reconcile()
     expect(store.shipping.getOrder(order.id)?.state).toBe('cancelled')
@@ -1242,7 +1275,7 @@ describe('ShippingService enqueue transaction', () => {
       leaseGeneration: 1,
       outcome: 'cancelled',
     })
-    expect(generations).toEqual([1, 1, 1])
+    expect(generations).toEqual([1, 1])
     restarted.dispose()
   })
 

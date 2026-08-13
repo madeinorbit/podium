@@ -1041,10 +1041,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   }
 
   latestStepForEffect(attemptId: string, effectKey: string): ShipStepValue | null {
+    // A fixed test clock and fast production transitions can share one timestamp.
+    // Lifecycle rank, not the textual step id, identifies the durable successor.
     const row = this.db
       .prepare(
         `${stepSelect} WHERE attempt_id = ? AND effect_key = ?
-         ORDER BY recorded_at DESC, id DESC LIMIT 1`,
+         ORDER BY CASE state
+           WHEN 'planned' THEN 0
+           WHEN 'running' THEN 1
+           ELSE 2
+         END DESC, recorded_at DESC, id DESC LIMIT 1`,
       )
       .get(attemptId, effectKey) as SqlRow | undefined
     return row ? mapStep(row) : null
