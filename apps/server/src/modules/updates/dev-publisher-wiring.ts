@@ -83,6 +83,27 @@ export function selectDevelopmentArtifactOrigin(input: {
   return input.localOrigin
 }
 
+/**
+ * What the shared update service may advertise.
+ *
+ * A dest identity (web digest, git checkout, no tarball URL) is the destination
+ * Update Podium needs on this host. It must enter the service even when there is
+ * no publicUrl — otherwise /version shows dest+HEAD and converge throws
+ * "No update target is configured."
+ *
+ * A dest tarball URL is different: without an external origin it is loopback, and
+ * a later remote grant must not be handed 127.0.0.1. Strip that URL and keep the
+ * dest identity so this host can still rebuild and pack.
+ */
+export function targetForSharedReadModel(
+  target: UpdateTarget,
+  artifactOrigin: string | undefined,
+): UpdateTarget {
+  if (artifactOrigin || target.artifacts.headless === undefined) return target
+  const { headless: _headless, ...artifacts } = target.artifacts
+  return { ...target, artifacts }
+}
+
 export function wireDevBundlePublisher(deps: {
   /** Absent (an installed server) disables the whole thing. */
   readonly sourceRoot: string | undefined
@@ -188,10 +209,10 @@ export function wireDevBundlePublisher(deps: {
    * button to rebuild yesterday's website.
    */
   const publishReadiness = (): void => {
-    if (!publisher || !artifactOrigin) return
+    if (!publisher) return
     const identity = publisher.target()
     if (identity) {
-      deps.setTarget(identity)
+      deps.setTarget(targetForSharedReadModel(identity, artifactOrigin))
       publishedReason = undefined
       return
     }
@@ -216,10 +237,8 @@ export function wireDevBundlePublisher(deps: {
   const publishTarget = (): UpdateTarget | undefined => {
     try {
       const target = publisher?.target()
-      // A loopback target is useful to the same host through /version, but must never enter the
-      // shared update service where a later remote grant could receive it.
-      if (target && artifactOrigin) {
-        deps.setTarget(target)
+      if (target) {
+        deps.setTarget(targetForSharedReadModel(target, artifactOrigin))
         publishedReason = undefined
       } else {
         publishReadiness()

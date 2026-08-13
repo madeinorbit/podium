@@ -9,6 +9,7 @@ import type { BuiltDevBundle } from './dev-bundle'
 import {
   developmentArtifactUrl,
   selectDevelopmentArtifactOrigin,
+  targetForSharedReadModel,
   wireDevBundlePublisher,
 } from './dev-publisher-wiring'
 
@@ -98,6 +99,43 @@ describe('development artifact route', () => {
         hasRemoteManagedMachines: true,
       }),
     ).toThrow(/requires PODIUM_DEV_ARTIFACT_BASE_URL/)
+  })
+
+  it('puts dest identity into the shared read model without a public origin', () => {
+    const identity = {
+      version: 'dev+f3f48c2',
+      critical: false,
+      artifacts: {
+        web: { digest: 'f3f48c2' },
+        headlessAlternatives: [{ delivery: 'git' as const, repo: '/repo', sha: 'f3f48c2' }],
+      },
+    }
+    expect(targetForSharedReadModel(identity, undefined)).toEqual(identity)
+    expect(targetForSharedReadModel(identity, 'https://podium.example.test')).toEqual(identity)
+  })
+
+  it('strips a dest tarball URL when there is no public origin', () => {
+    const packed = {
+      version: 'dev+f3f48c2',
+      critical: false,
+      artifacts: {
+        web: { digest: 'f3f48c2' },
+        headless: {
+          delivery: 'feed' as const,
+          platforms: {
+            'linux-x86_64': {
+              url: 'http://127.0.0.1:18787/updates/dev-bundle/dev%2Bf3f48c2?token=x',
+              digest: 'sha256-fixture',
+              signature: 'sig',
+            },
+          },
+        },
+        headlessAlternatives: [{ delivery: 'git' as const, repo: '/repo', sha: 'f3f48c2' }],
+      },
+    }
+    expect(targetForSharedReadModel(packed, undefined).artifacts.headless).toBeUndefined()
+    expect(targetForSharedReadModel(packed, undefined).artifacts.web).toEqual({ digest: 'f3f48c2' })
+    expect(targetForSharedReadModel(packed, 'https://podium.example.test')).toEqual(packed)
   })
 
   it('streams the exact signed bytes to an authenticated machine', async () => {
