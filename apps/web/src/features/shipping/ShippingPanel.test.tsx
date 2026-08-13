@@ -30,7 +30,7 @@ const order = (over: Partial<ShipOrderProjection> = {}): ShipOrderProjection => 
 
 const commands = (over: Partial<ShippingPanelCommands> = {}): ShippingPanelCommands => ({
   resolveHold: vi.fn(async () => ({})),
-  cancelOrder: vi.fn(async () => ({ state: 'cancelled' })),
+  cancelOrder: vi.fn(async () => ({ state: 'cancelled' as const })),
   getReceipt: vi.fn(async () => null),
   ...over,
 })
