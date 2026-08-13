@@ -368,6 +368,9 @@ function UsageProviders({
               )
             })}
       </div>
+      {!cold && summary.providers.some((provider) => provider.provider === 'xai') && (
+        <p className="usage-grok-note">Grok uses last session size, not each reply.</p>
+      )}
     </section>
   )
 }

@@ -5909,6 +5909,12 @@ a.ref-link--session::before {
   gap: 4px 14px;
   align-items: center;
 }
+.usage-grok-note {
+  margin: 2px 0 0;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
 .usage-provider-name {
   color: var(--foreground);
   font-size: 13px;

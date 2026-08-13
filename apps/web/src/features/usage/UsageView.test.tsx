@@ -168,6 +168,15 @@ describe('UsageView loading', () => {
     expect(
       screen.getByText('Claude Code, Codex, and Grok sessions on this machine'),
     ).toBeTruthy()
+    expect(screen.getByText('Grok uses last session size, not each reply.')).toBeTruthy()
+  })
+
+  it('hides the Grok size note when the window has no xAI usage', async () => {
+    summary.mockResolvedValue({ buckets: [bucket()] })
+    render(<UsageView onClose={() => {}} />)
+    await act(async () => {})
+
+    expect(screen.queryByText('Grok uses last session size, not each reply.')).toBeNull()
   })
 
   it('drops the harness placeholder rather than ranking it as a model', async () => {
