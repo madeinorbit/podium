@@ -219,6 +219,32 @@ function main(): void {
         'and PODIUM_APP_VERSION is unset. Root package.json is the single source of truth.',
     )
 
+  // THE WEB PRECONDITION, CHECKED BEFORE ANYTHING EXPENSIVE.
+  //
+  // The bundle packs `apps/web/dist`, and a dev+<sha> tarball may only pack the
+  // website built from that same commit — packing yesterday's under today's sha
+  // is the lie the source-identity gate exists to prevent. That check used to
+  // sit after the abduco prebuild AND after `bun build --compile`, so every
+  // refusal paid for a full compile and threw it away: 28 of 112 attempts in the
+  // week to 2026-08-13, each ~50 s, re-asked every 60 s by /version (POD-1985).
+  // Nothing below this point can change the answer, so it belongs up here.
+  const webDist = `${root}apps/web/dist`
+  if (!existsSync(`${webDist}/index.html`)) {
+    throw new Error(
+      'build-bun: apps/web/dist not built — run `bun run --filter @podium/web build` first',
+    )
+  }
+  let webStamp: { sourceSha?: string } | null = null
+  try {
+    const raw = JSON.parse(readFileSync(`${webDist}/podium-build.json`, 'utf8')) as {
+      sourceSha?: unknown
+    }
+    webStamp = typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}
+  } catch {
+    webStamp = null
+  }
+  assertDevWebDistMatchesVersion(version, webStamp)
+
   if (!abducoSupported()) {
     // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
     // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
@@ -284,22 +310,7 @@ function main(): void {
 
   // --- headless bundle: binaries + web + launcher ---------------------------------
   const headless = `${out}/headless`
-  const webDist = `${root}apps/web/dist`
-  if (!existsSync(`${webDist}/index.html`)) {
-    throw new Error(
-      'build-bun: apps/web/dist not built — run `bun run --filter @podium/web build` first',
-    )
-  }
-  let webStamp: { sourceSha?: string } | null = null
-  try {
-    const raw = JSON.parse(readFileSync(`${webDist}/podium-build.json`, 'utf8')) as {
-      sourceSha?: unknown
-    }
-    webStamp = typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}
-  } catch {
-    webStamp = null
-  }
-  assertDevWebDistMatchesVersion(version, webStamp)
+  // (`webDist` and its stamp were checked before the prebuild — see above.)
   // Re-stamp with this bundle's product version so About / web logs / Update
   // agree with the VERSION file and the compiled /version. A dest publish
   // already wrote dev+<sha>; a channel package overwrites dev+<sha> with
