@@ -114,7 +114,8 @@ describe('POD-331 published worklist slice — the clock is an INPUT, not an amb
 })
 
 // ---------------------------------------------------------------------------
-// POD-843 — unread is derived from projection + session, not IssueWire.
+// POD-843/POD-929 — unread is derived from projection content + the issue-row
+// cursor + session activity, never from an IssueWire.unread paint.
 //
 // After unread left the wire, worklistSlice still built rows from store.issues.
 // Surfaces that read `issue.unread` then treated every row as read. This pins
@@ -130,7 +131,6 @@ const AFTER_READ = '2026-07-06T12:00:00.000Z'
 function projection(over: {
   id: string
   title: string
-  readAt?: string | null
   updatedAt: string
 }): IssueProjection {
   return {
@@ -147,11 +147,10 @@ function projection(over: {
     intentOrigin: 'human',
     audience: 'human',
     isDraftVessel: false,
-    readAt: over.readAt,
   } as unknown as IssueProjection
 }
 
-function legacyIssue(id: string, title: string): IssueWire {
+function legacyIssue(id: string, title: string, readAt: string | null = READ_AT): IssueWire {
   return {
     id,
     repoPath: '/repo',
@@ -183,7 +182,7 @@ function legacyIssue(id: string, title: string): IssueWire {
     ready: true,
     blocked: false,
     deferred: false,
-    readAt: READ_AT,
+    readAt,
     // The bug: surfaces trusted this field. The slice must ignore it.
     unread: false,
   } as unknown as IssueWire
@@ -206,13 +205,14 @@ function worklistFromProjection(args: {
   })
   const replica = createReplica({ storage: memoryStorage() })
   replica.applySnapshot('issueProjections', [row])
+  replica.applySnapshot('issues', [legacyIssue(args.id, args.title, args.readAt ?? null)])
   replica.applySnapshot('sessions', [member])
   replica.applySnapshot('repos', [{ id: 'repo', path: '/repo', prefix: 'POD' } as never])
   return worklistSlice.derive({
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [{ path: '/repo' }] }],
     sessions: [member],
     pins: { panels: [], worktrees: [], repos: [] },
-    issues: [legacyIssue(args.id, args.title)],
+    issues: [legacyIssue(args.id, args.title, args.readAt ?? null)],
     issueProjections: [row],
     replica,
     coarseNow: NOON,
@@ -226,7 +226,7 @@ function issueUnreadOf(slice: ReturnType<typeof worklistSlice.derive>, id: strin
   return row && row.kind === 'issue' ? row.issue.unread : undefined
 }
 
-describe('POD-843 published worklist derives unread from projection + session', () => {
+describe('published worklist derives unread from one issue-row cursor', () => {
   it('a never-read issue is unread even when the legacy wire says otherwise', () => {
     const slice = worklistFromProjection({
       id: 'iss_new',
@@ -271,17 +271,12 @@ describe('POD-843 published worklist derives unread from projection + session', 
     expect(issueUnreadOf(slice, 'iss_seen')).toBe(false)
   })
 
-  // Persist writes the covering stamp on the legacy wire. The projection never
-  // carries readAt (per-user state). After the mark-read overlay retires, the
-  // sidebar must keep using that persist cursor — otherwise the unread mark
-  // comes back the moment the server confirms (POD-923).
-  it('a persist echo on the legacy wire stays read when the projection omits readAt', () => {
+  it('the persisted issue-row cursor keeps the projection-derived model read', () => {
     const row = projection({
       id: 'iss_echo',
       title: 'Persist echo',
       updatedAt: BEFORE_READ,
     })
-    delete (row as { readAt?: string | null }).readAt
     expect(Object.hasOwn(row, 'readAt')).toBe(false)
 
     const member = session('s-echo', {
@@ -293,6 +288,7 @@ describe('POD-843 published worklist derives unread from projection + session', 
     })
     const replica = createReplica({ storage: memoryStorage() })
     replica.applySnapshot('issueProjections', [row])
+    replica.applySnapshot('issues', [legacyIssue('iss_echo', 'Persist echo')])
     replica.applySnapshot('sessions', [member])
     replica.applySnapshot('repos', [{ id: 'repo', path: '/repo', prefix: 'POD' } as never])
     const slice = worklistSlice.derive({

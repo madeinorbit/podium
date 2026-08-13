@@ -339,14 +339,8 @@ export class Reactions {
     const st = this.ports.state()
     const issue: IssueWire | undefined = foregroundIssue(st)
     if (issue?.id !== issueId || !tabIsVisible()) return
-    // The projection is the cursor the worklist derives against. The legacy
-    // wire overlay used to never retire (it covered on the deleted `unread`
-    // field), so this reaction kept seeing the optimistic stamp and would not
-    // re-stamp after session activity landed.
-    const projection = st.issueProjections.find((row) => row.id === issueId)
-    const cursor = projection?.readAt ?? issue.readAt
     const activityAt = Date.parse(issueActivityAt(issue, st.sessions, st.issues))
-    const readAt = cursor ? Date.parse(cursor) : Number.NaN
+    const readAt = issue.readAt ? Date.parse(issue.readAt) : Number.NaN
     const unread = !Number.isFinite(readAt) || (Number.isFinite(activityAt) && activityAt > readAt)
     if (!unread) return
     this.issueMarkReadFiredAt = Date.now()

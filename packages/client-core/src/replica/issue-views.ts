@@ -56,8 +56,13 @@
  * O(world) rebuild back, just on the client.
  */
 
-import { asIssueId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
-import type { IssueProjectionRow } from './contract'
+import {
+  asIssueId,
+  type IssueId,
+  type IssueProjection,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import type { Replica } from './replica'
 
 /**
@@ -346,9 +351,12 @@ export function buildIssueBoard(
  * model's `issue/dep.ts` and `repo/fields.ts`), so `deps ?? []` read "no
  * dependencies" and every blocked issue derived `blocked: false`.
  *
- * The three-collection JOIN is the fix, and it is where D7.3 actually happens:
+ * The collection JOIN is the fix, and it is where D7.3 actually happens:
  *
  *  - `issueProjections` — the issue's own durable row. The source now.
+ *  - `issues` — the retained principal-scoped row whose `readAt` persistence
+ *    and optimistic overlays both write. The projection carries no per-user
+ *    cursor; unread derivation reads this one home.
  *  - `issueDeps` — the edges, indexed by `fromId`. Issue X's `deps` are the
  *    edges leaving X, each `{ id: toId, type }` — exactly what `deriveIssueViews`
  *    reads. An edge add/remove touches ONE row here and re-derives `blocked` on
@@ -357,20 +365,21 @@ export function buildIssueBoard(
  *    `issue.repoId → repo.prefix`. A prefix change moves one repo row and every
  *    `POD-13` in the repo follows; no issue was rewritten.
  *
- * The join is O(issues + deps + repos), not O(issues × anything): the two
- * indexes below are built once. `deriveIssueViews` and `IssueViewInput` did not
+ * The join is O(projections + issues + deps + repos), not O(issues × anything):
+ * the three indexes below are built once. `deriveIssueViews` and `IssueViewInput` did not
  * change — only their SOURCE did — which is the whole reason the cutover is this
  * one function.
  *
- * Empty collections (the cap not yet flipped) yield empty views, not wrong ones:
- * no issues in, no views out. Nothing renders from these views today; POD-797
- * flips the cap and deletes the legacy `issues` collection this no longer reads.
+ * An empty projection collection (the cap not yet flipped) yields empty views,
+ * not wrong ones: no durable issue content in, no views out. The retained issue
+ * collection remains the cursor source until its broader wire cutover.
  */
 export function readViewInputs(replica: Replica): {
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
 } {
   const projections = replica.rows('issueProjections')
+  const readAtByIssueId = new Map(replica.rows('issues').map((issue) => [issue.id, issue.readAt]))
   const prefixByRepoId = new Map<string, string | null>()
   for (const repo of replica.rows('repos')) prefixByRepoId.set(repo.id, repo.prefix ?? null)
   const depsByFrom = new Map<string, { id: string; type: string }[]>()
@@ -381,23 +390,26 @@ export function readViewInputs(replica: Replica): {
     else depsByFrom.set(dep.fromId, [edge])
   }
   return {
-    issues: projections.map((p) => projectionToViewInput(p, prefixByRepoId, depsByFrom)),
+    issues: projections.map((p) =>
+      projectionToViewInput(p, readAtByIssueId.get(p.id) ?? null, prefixByRepoId, depsByFrom),
+    ),
     sessions: replica.rows('sessions') as unknown as SessionViewInput[],
   }
 }
 
 /**
- * One `IssueProjection` + the two joins → one `IssueViewInput`.
+ * One `IssueProjection` + the three joins → one `IssueViewInput`.
  *
  * Written as an explicit object rather than a spread-and-override so the return
  * is CHECKED against `IssueViewInput` field by field — this is what replaces the
  * deleted tripwire. If a field the views read leaves `IssueProjection`, this
  * stops compiling HERE, at the join, rather than deriving a wrong answer in a UI.
- * `prefix` and `deps` are supplied by the joins, never read off the projection —
- * the projection has neither, by construction.
+ * `readAt`, `prefix`, and `deps` are supplied by the joins, never read off the
+ * projection — it has none of them by construction.
  */
 function projectionToViewInput(
-  p: IssueProjectionRow,
+  p: IssueProjection,
+  readAt: string | null,
   prefixByRepoId: Map<string, string | null>,
   depsByFrom: Map<string, { id: string; type: string }[]>,
 ): IssueViewInput {
@@ -408,7 +420,7 @@ function projectionToViewInput(
     prefix: p.repoId ? (prefixByRepoId.get(p.repoId) ?? null) : null,
     stage: p.stage,
     deferUntil: p.deferUntil ?? null,
-    readAt: p.readAt ?? null,
+    readAt,
     updatedAt: p.updatedAt,
     deletedAt: p.deletedAt ?? null,
     deps: depsByFrom.get(p.id) ?? [],

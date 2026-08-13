@@ -18,17 +18,19 @@ import { describe, expect, it } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
 import { useIssueView, useIssueViews } from './use-issue-views'
 
-// POD-822: the views read the normalized `issueProjections` collection joined
-// against `repos` for the prefix — not the legacy embedded `prefix` field. So
-// the issue row carries `repoId` and the prefix comes from a repo row.
+// Durable content comes from `issueProjections`; the per-user read cursor comes
+// from the retained `issues` row, and repo prefix from `repos`.
 const issueRow = (over: Record<string, unknown> = {}) =>
-  ({ id: 'i1', seq: 13, repoId: 'repo_a', stage: 'in_progress', readAt: null, ...over }) as never
+  ({ id: 'i1', seq: 13, repoId: 'repo_a', stage: 'in_progress', ...over }) as never
+const issueCursorRow = (over: Record<string, unknown> = {}) =>
+  ({ id: 'i1', readAt: null, ...over }) as never
 const sessionRow = (over: Record<string, unknown> = {}) =>
   ({ sessionId: 's1', issueId: 'i1', phase: 'idle', ...over }) as never
 
 function makeReplica() {
   const replica = createReplica({ storage: memoryStorage() })
   replica.applySnapshot('issueProjections', [issueRow()])
+  replica.applySnapshot('issues', [issueCursorRow()])
   replica.applySnapshot('repos', [{ id: 'repo_a', prefix: 'POD' } as never])
   replica.applySnapshot('sessions', [sessionRow({ lastActiveAt: '2026-07-17T09:00:00.000Z' })])
   return replica
@@ -39,7 +41,7 @@ describe('useIssueView — a SESSION change must reach an ISSUE view', () => {
     // THE test. Subscribing only to `issues` passes every other assertion in
     // this file and fails this one.
     const replica = makeReplica()
-    replica.applySnapshot('issueProjections', [issueRow({ readAt: '2026-07-17T10:00:00.000Z' })])
+    replica.applySnapshot('issues', [issueCursorRow({ readAt: '2026-07-17T10:00:00.000Z' })])
 
     function Probe() {
       const { rollups } = useIssueView(replica, asIssueId('i1'))
@@ -89,6 +91,25 @@ describe('useIssueView — a SESSION change must reach an ISSUE view', () => {
       replica.applyChanges('issueProjections', [issueRow({ seq: 99 })], [])
     })
     expect(screen.getByTestId('ref').textContent).toBe('POD-99')
+  })
+
+  it('re-renders unread when the persisted issue cursor changes', () => {
+    const replica = makeReplica()
+    function Probe() {
+      const { rollups } = useIssueView(replica, asIssueId('i1'))
+      return <span data-testid="cursor-unread">{String(rollups.unread)}</span>
+    }
+    render(<Probe />)
+    expect(screen.getByTestId('cursor-unread').textContent).toBe('true')
+
+    act(() => {
+      replica.applyChanges(
+        'issues',
+        [issueCursorRow({ readAt: '2026-07-17T10:00:00.000Z' })],
+        [],
+      )
+    })
+    expect(screen.getByTestId('cursor-unread').textContent).toBe('false')
   })
 })
 

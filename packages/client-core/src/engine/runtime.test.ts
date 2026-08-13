@@ -824,28 +824,30 @@ describe('unified optimistic overlay (#263)', () => {
     second.engine.dispose()
   })
 
-  it('markIssueRead paints unread=false instantly and reconciles with the server echo without flicker', async () => {
+  it('markIssueRead paints the issue-row cursor instantly and reconciles without flicker', async () => {
     const api = makeApi()
     const { engine } = makeEngine({ api })
     engine.start()
     await settle(40)
-    const issue = { id: 'iss_1', readAt: null } as unknown as IssueProjection
-    engine.replica.applyChanges('issueProjections', [issue], [])
+    const projection = { id: 'iss_1' } as unknown as IssueProjection
+    const issue = { id: 'iss_1', readAt: null } as IssueWire
+    engine.replica.applyChanges('issueProjections', [projection], [])
+    engine.replica.applyChanges('issues', [issue], [])
     await settle()
-    expect(engine.getSnapshot().issueProjections[0]?.readAt).toBeNull()
+    expect(engine.getSnapshot().issues[0]?.readAt).toBeNull()
     void engine.getSnapshot().markIssueRead('iss_1')
-    expect(engine.getSnapshot().issueProjections[0]?.readAt).not.toBeNull() // instant
+    expect(engine.getSnapshot().issues[0]?.readAt).not.toBeNull() // instant
     await settle() // mutation resolves → awaiting truth, still painted
-    expect(engine.getSnapshot().issueProjections[0]?.readAt).not.toBeNull()
+    expect(engine.getSnapshot().issues[0]?.readAt).not.toBeNull()
     // Echo: the server's own readAt clock differs from the client stamp; any
-    // non-null projection readAt covers the optimistic mark-read overlay.
+    // non-null readAt on the persisted issue row covers the optimistic overlay.
     engine.replica.applyChanges(
-      'issueProjections',
+      'issues',
       [{ ...issue, readAt: '2026-07-09T00:00:00.000Z' } as typeof issue],
       [],
     )
     await settle()
-    expect(engine.getSnapshot().issueProjections[0]?.readAt).toBe('2026-07-09T00:00:00.000Z')
+    expect(engine.getSnapshot().issues[0]?.readAt).toBe('2026-07-09T00:00:00.000Z')
     expect(engine.getSnapshot().issueProjections).toHaveLength(1)
     engine.dispose()
   })

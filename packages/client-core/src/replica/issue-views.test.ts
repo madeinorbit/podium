@@ -353,12 +353,19 @@ describe('reading straight off the replica', () => {
       { id: 'i1', seq: 13, repoId: 'repo_a', stage: 'in_progress' } as never,
       { id: 'i2', seq: 14, repoId: 'repo_a', stage: 'done', parentId: 'i1' } as never,
     ])
+    replica.applySnapshot('issues', [
+      { id: 'i1', readAt: '2026-07-17T10:00:00.000Z' } as never,
+      { id: 'i2', readAt: null } as never,
+    ])
     replica.applySnapshot('repos', [{ id: 'repo_a', prefix: 'POD' } as never])
     replica.applySnapshot('sessions', [
       { sessionId: asSessionId('s1'), issueId: asIssueId('i1') } as never,
     ])
 
     const { issues, sessions } = readViewInputs(replica)
+    expect(issues.find((issue) => issue.id === 'i1')?.readAt).toBe(
+      '2026-07-17T10:00:00.000Z',
+    )
     const views = deriveIssueViews(issues, sessions)
     expect(views.get('i1')).toMatchObject({
       displayRef: 'POD-13',
@@ -380,7 +387,7 @@ describe('the POD-822 cutover: the projection + join supplies deps and prefix', 
   // either regresses, the join broke.
   //
   // A partial `IssueProjection` is cast rather than fully built: the view path
-  // reads only id/seq/parentId/repoId/stage/deferUntil/readAt off it, and the
+  // reads only id/seq/parentId/repoId/stage/deferUntil off it, and the
   // collection does not validate — the join is what is under test, not the
   // projection's full shape (that is `issue.mapping.test.ts`'s job).
   const projection = (o: {

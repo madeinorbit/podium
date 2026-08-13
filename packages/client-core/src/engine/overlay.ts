@@ -55,7 +55,6 @@ import { createLogger } from '@podium/logger'
 import type { IssueWire, SessionMeta, WorkState } from '@podium/model'
 import { IssueProjection, isIssueDeferred, UNSNOOZE_BACKDATE_MS } from '@podium/model'
 import type { OutboxEntry } from '../outbox'
-import type { IssueProjectionRow } from '../replica/contract'
 import type { OutboxKinds } from './wiring'
 
 const log = createLogger('client-core:overlay')
@@ -78,7 +77,7 @@ export type PendingOverlay =
       patch: OverlayPatch
       /** True when `row` (current server truth) already reflects this
        *  mutation — applying the patch would be observationally a no-op. */
-      coveredBy: (row: SessionMeta | IssueWire | IssueProjectionRow) => boolean
+      coveredBy: (row: SessionMeta | IssueWire | IssueProjection) => boolean
     }
   | {
       op: 'insert'
@@ -157,7 +156,7 @@ function patchOverlay(
   id: string,
   key: string,
   patch: OverlayPatch,
-  coveredBy: (row: SessionMeta | IssueWire | IssueProjectionRow) => boolean,
+  coveredBy: (row: SessionMeta | IssueWire | IssueProjection) => boolean,
 ): PendingOverlay {
   return { op: 'patch', key, entity, id, patch, coveredBy }
 }
@@ -254,22 +253,25 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
     }
     case 'issueMarkRead': {
       const i = entry.input as OutboxKinds['issueMarkRead']
+      // `readAt` has the same client home as `tuckedAt`: the retained issue row
+      // that persistence writes. The projection is durable issue content and
+      // deliberately carries no per-user cursor.
       return patchOverlay(
-        'issueProjections',
+        'issues',
         i.id,
         entry.mutationId,
         { readAt: new Date(entry.queuedAt).toISOString() },
-        (r) => (r as IssueProjectionRow).readAt != null,
+        (r) => (r as IssueWire).readAt != null,
       )
     }
     case 'issueMarkUnread': {
       const i = entry.input as OutboxKinds['issueMarkUnread']
       return patchOverlay(
-        'issueProjections',
+        'issues',
         i.id,
         entry.mutationId,
         { readAt: null },
-        (r) => (r as IssueProjectionRow).readAt == null,
+        (r) => (r as IssueWire).readAt == null,
       )
     }
     case 'issueSetTucked': {
@@ -293,8 +295,8 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // a plain field on `IssueWire` — checked against `packages/model`'s
       // `entities/issue.ts`, key for key — so the patch folds over the row as it
       // stands, with no per-field translation table to fall out of date. The
-      // fields that live on `IssueProjectionRow` instead (`readAt`) are not in
-      // this patch at all; they have their own kinds above.
+      // per-user fields such as `readAt` are ordinary issue-row overlays with
+      // their own command kinds above.
       //
       // COVERED = every key the caller set now reads back equal. Not "the row
       // changed": a competing writer moving some OTHER field must not retire
@@ -573,30 +575,8 @@ export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> 
 }
 
 /**
- * The normalized issue projection owns readAt, but the transitional legacy
- * issue collection remains in the engine snapshot until the old wire is
- * deleted. Mirror only read/unread optimism onto that compatibility row;
- * normalized consumers continue to use the projection overlay above.
- */
-export function legacyIssueReadOverlay(overlay: PendingOverlay): PendingOverlay | null {
-  if (overlay.op !== 'patch' || overlay.entity !== 'issueProjections') return null
-  if (!Object.hasOwn(overlay.patch, 'readAt')) return null
-  const readAt = overlay.patch.readAt as string | null
-  const unread = readAt === null
-  return patchOverlay('issues', overlay.id, overlay.key, { readAt, unread }, (row) => {
-    // Unread left IssueWire (POD-797). Covering on `issue.unread === false`
-    // never became true against a replica row, so the remake-on-view reaction
-    // kept seeing the optimistic stamp and would not re-stamp after activity
-    // landed — the sidebar bounce (POD-912). Covering is the cursor itself.
-    const issue = row as IssueWire
-    return unread ? issue.readAt == null : issue.readAt != null
-  })
-}
-
-/**
  * THE CURATION MIRROR (POD-781 group 2) — why the issue BOARD paints on the
- * press and not only the sidebar, and the symmetric twin of
- * `legacyIssueReadOverlay` above.
+ * press and not only the sidebar.
  *
  * THE PROBLEM IT SOLVES, measured rather than assumed. The two surfaces read
  * two different rows. The sidebar's worklist slice derives from the LEGACY issue
@@ -617,8 +597,7 @@ export function legacyIssueReadOverlay(overlay: PendingOverlay): PendingOverlay 
  * kind's bookkeeping (awaiting-truth, retirement, baselines) to express one fact
  * twice. Mirroring at the fold keeps ONE overlay of record, retired by its own
  * `coveredBy` against the wire row, and derives the projection's copy from it —
- * exactly the arrangement `legacyIssueReadOverlay` already uses for `readAt` in
- * the other direction.
+ * without creating a second overlay of record.
  *
  * WHAT IS NOT MIRRORED, and why the key set is DERIVED. The mirrorable keys are
  * `IssueProjection`'s own, read off the schema, so a field added to the durable
@@ -627,10 +606,10 @@ export function legacyIssueReadOverlay(overlay: PendingOverlay): PendingOverlay 
  * the projection (`{ value }`) and plain strings in the patch, so copying one
  * across would put a string where a document lives and the board would render
  * nothing. They are the two `projectionOnLegacySpelling` already re-spells, and a
- * patch of only those mirrors nothing at all rather than half-landing. `pinned`
- * and `tuckedAt` are not excluded — they simply are not projection fields (they
- * are per-user state), so the filter drops them and the board keeps reading them
- * off the overlaid wire, where they already paint.
+ * patch of only those mirrors nothing at all rather than half-landing. `readAt`,
+ * `pinned`, and `tuckedAt` are not excluded — they simply are not projection
+ * fields (they are per-user state), so the filter drops them and the board keeps
+ * reading them off the overlaid wire, where they already paint.
  */
 const PROJECTION_MIRROR_KEYS: ReadonlySet<string> = new Set(
   Object.keys(IssueProjection.shape).filter((key) => key !== 'description' && key !== 'notes'),
@@ -759,7 +738,7 @@ export function pruneAwaiting<T extends object>(
       void removedIds
       return false
     }
-    if (a.overlay.coveredBy(row as unknown as SessionMeta | IssueWire | IssueProjectionRow))
+    if (a.overlay.coveredBy(row as unknown as SessionMeta | IssueWire | IssueProjection))
       return false
     if (now - a.resolvedAt > AWAITING_TRUTH_TTL_MS) {
       // Covering truth never arrived — bound the mask instead of wedging (see

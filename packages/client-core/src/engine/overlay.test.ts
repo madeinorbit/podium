@@ -23,7 +23,6 @@ import {
   EMPTY_ID_SET,
   foldOverlays,
   insertOverlay,
-  legacyIssueReadOverlay,
   overlayForOutboxEntry,
   type PendingOverlay,
   PRESENCE_REDUCER_KINDS,
@@ -98,28 +97,17 @@ describe('overlayForOutboxEntry projection', () => {
 
     const issueRead = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' }, 1751500800000))
     if (issueRead?.op !== 'patch') throw new Error('expected patch')
-    expect(issueRead.entity).toBe('issueProjections')
+    expect(issueRead.entity).toBe('issues')
     expect(issueRead.patch).toEqual({ readAt: new Date(1751500800000).toISOString() })
-    expect(issueRead.coveredBy({ readAt: '2099-01-01T00:00:00.000Z' } as never)).toBe(true)
-    const legacyRead = legacyIssueReadOverlay(issueRead)
-    if (legacyRead?.op !== 'patch') throw new Error('expected legacy compatibility patch')
-    expect(legacyRead.patch).toEqual({
-      readAt: new Date(1751500800000).toISOString(),
-      unread: false,
-    })
-    // Unread left the wire — covering must not require a field the replica
-    // row no longer carries (POD-912 bounce).
-    expect(legacyRead.coveredBy({ readAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
-    expect(legacyRead.coveredBy({ readAt: null } as IssueWire)).toBe(false)
+    // Persistence stamps its own clock on this SAME row, so presence covers.
+    expect(issueRead.coveredBy({ readAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
+    expect(issueRead.coveredBy({ readAt: null } as IssueWire)).toBe(false)
 
     const unread = overlayForOutboxEntry(entry('issueMarkUnread', { id: 'i1' }))
     if (unread?.op !== 'patch') throw new Error('expected patch')
-    expect(unread.entity).toBe('issueProjections')
+    expect(unread.entity).toBe('issues')
     expect(unread.patch).toEqual({ readAt: null })
-    expect(unread.coveredBy({ readAt: null } as never)).toBe(true)
-    const legacyUnread = legacyIssueReadOverlay(unread)
-    if (legacyUnread?.op !== 'patch') throw new Error('expected legacy compatibility patch')
-    expect(legacyUnread.patch).toEqual({ readAt: null, unread: true })
+    expect(unread.coveredBy({ readAt: null } as IssueWire)).toBe(true)
   })
 
   // Tuck-away rides the SAME optimistic mechanism as the rest (POD-333), which is
@@ -407,12 +395,10 @@ describe('overlayForOutboxEntry projection', () => {
     expect(mirror.patch).toEqual({ priority: 1 })
   })
 
-  it('never mirrors in the other direction — a projection overlay is not re-mirrored back', () => {
-    // `legacyIssueReadOverlay` owns projection→wire. If this returned something
-    // the two would feed each other on every fold.
+  it('does not mirror per-user readAt onto the durable projection', () => {
     const read = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' }))
     if (read?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(read.entity).toBe('issueProjections')
+    expect(read.entity).toBe('issues')
     expect(projectionCurationOverlay(read)).toBeNull()
   })
 

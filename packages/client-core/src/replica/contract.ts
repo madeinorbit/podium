@@ -87,26 +87,6 @@ export type StorageEventApi = {
   removeEventListener: (type: 'storage', listener: (event: StorageEvent) => void) => void
 }
 
-/**
- * The issue projection AS A REPLICA ROW — the projection plus the per-user read
- * state, which is NOT part of the projection on this branch.
- *
- * `IssueProjection` here is a pure function of the issue's own durable row
- * (model's `aggregates/issue.ts`: "per-user state is absent by construction"), so
- * unlike main's it carries no `readAt`. The client-side machinery main added
- * still needs to name that field: `issueMarkRead`/`issueMarkUnread` write an
- * optimistic overlay onto an `issueProjections` row and judge covering truth by
- * reading it back, and the replica-side views take it as an input.
- *
- * Naming it HERE rather than putting it back on the model keeps the divergence
- * in one place and states the truth about the wire: the row MAY carry per-user
- * read state, and today this branch's authority does not emit it — the normalized
- * feed's per-user slice is its own entity and its own piece of work. Optional,
- * therefore, rather than `| null`: absent means "this feed does not carry it",
- * which is a different fact from "read never happened".
- */
-export type IssueProjectionRow = IssueProjection & { readAt?: string | null }
-
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
   sessions: SessionMeta
@@ -118,7 +98,7 @@ export interface ReplicaRows {
    *  nothing derived. The replica-side issue VIEWS read this, joined against the
    *  two kinds below (see `readViewInputs`). Empty unless the authority's flag is
    *  on and this client offered the cap. */
-  issueProjections: IssueProjectionRow
+  issueProjections: IssueProjection
   /** Issue dependency EDGES [POD-822] — `issue_deps` as first-class rows. The
    *  views join these by `fromId` to derive `blocked`/`ready`/`dependents`; the
    *  projection cannot carry them (an edge belongs to two issues). */
@@ -163,7 +143,7 @@ export interface ReplicaHydrateResult {
   /** The three POD-796/POD-822 kinds, persisted like every other collection so a
    *  warm reload paints the views from local data and re-seeds the hub's
    *  in-memory lists (see `seedMetadata`). Empty until the cap flips. */
-  issueProjections: IssueProjectionRow[]
+  issueProjections: IssueProjection[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]

@@ -18,6 +18,7 @@ import type {
   HostMetricsWire,
   IssueEventWire,
   IssueId,
+  IssueProjection,
   IssueWire,
   MachineId,
   MachineWire,
@@ -33,7 +34,6 @@ import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
 import type { ReadPositionPort } from '../read-position'
-import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
@@ -129,8 +129,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   sessions: SessionMeta[]
   /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
   issues: IssueWire[]
-  /** Normalized issue rows with pending readAt overlays folded over server truth. */
-  issueProjections: IssueProjectionRow[]
+  /** Normalized durable issue rows. Per-user readAt lives on `issues`. */
+  issueProjections: IssueProjection[]
   /** The cross-project issue-event window, replicated (POD-1772). A bounded,
    *  server-curated tail — the superagent feed reads THESE rows rather than
    *  re-asking `issues.events` on a timer. */

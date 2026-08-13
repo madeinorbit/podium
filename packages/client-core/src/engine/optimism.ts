@@ -30,12 +30,18 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { AgentKind, IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type {
+  AgentKind,
+  IssueId,
+  IssueProjection,
+  IssueWire,
+  SessionId,
+  SessionMeta,
+} from '@podium/model'
 import { asIssueId, asMutationId, asSessionId, dedupeSessionsByResume } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { OutboxEntry } from '../outbox'
-import type { IssueProjectionRow } from '../replica/contract'
 import { assertSpawnPlacement, createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import {
   optimisticDraftIssue,
@@ -47,7 +53,6 @@ import {
   type AwaitingTruth,
   foldOverlays,
   insertOverlay,
-  legacyIssueReadOverlay,
   type OverlayEntity,
   overlayForOutboxEntry,
   type PendingOverlay,
@@ -71,7 +76,7 @@ export const SPAWN_CONFIRM_GRACE_MS = 2000
 export interface OptimismBase {
   sessions: SessionMeta[]
   issues: IssueWire[]
-  issueProjections: IssueProjectionRow[]
+  issueProjections: IssueProjection[]
 }
 
 export interface OptimismPorts<TApi extends PodiumClientApi> {
@@ -200,12 +205,8 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const out: PendingOverlay[] = []
     const include = (overlay: PendingOverlay): void => {
       if (overlay.entity === entity) out.push(overlay)
-      if (entity === 'issues') {
-        const compatibility = legacyIssueReadOverlay(overlay)
-        if (compatibility) out.push(compatibility)
-      }
-      // The mirror in the other direction (POD-781): the curation writes overlay
-      // the legacy wire, and the BOARD reads the normalized projection over it.
+      // The curation mirror (POD-781): curation writes overlay the retained issue
+      // row, and the BOARD reads the normalized projection over it.
       // Without this the sidebar moved on the press and the board did not.
       if (entity === 'issueProjections') {
         const curation = projectionCurationOverlay(overlay)
@@ -305,37 +306,24 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   }
 
   recomputeIssueProjections(): void {
-    const { issues, issueProjections: base } = this.ports.base()
-    const keyOf = (i: IssueProjectionRow): string => i.id
-    // During the additive cutover a legacy row can arrive before its normalized
-    // projection. Keep a resolved read overlay alive against that row instead
-    // of treating the temporarily absent projection as deletion.
-    const normalizedIds = new Set(base.map(keyOf))
-    const retirementBase: IssueProjectionRow[] = [
-      ...base,
-      ...issues.filter((issue) => !normalizedIds.has(issue.id)).map(projectionOfIssue),
-    ]
-    this.retireCovered('issueProjections', retirementBase, keyOf)
+    const base = this.ports.base().issueProjections
+    const keyOf = (i: IssueProjection): string => i.id
+    this.retireCovered('issueProjections', base, keyOf)
     const { rows } = foldOverlays(base, this.overlaysFor('issueProjections'), keyOf)
     this.ports.publish({ issueProjections: rows })
   }
 
   recomputeFor(entity: OverlayEntity | undefined): void {
     if (entity === 'sessions') this.recomputeSessions()
-    // BOTH ways round since POD-781: the two issue lists mirror each other's
-    // overlays (read markers projection→wire, curation writes wire→projection),
-    // so recomputing one alone publishes half a change and the surface reading
-    // the other list keeps painting the value the operator just replaced.
+    // Curation writes on the issue row mirror into the projection for normalized
+    // issue surfaces, so an issue recompute also refreshes that derived mirror.
     else if (entity === 'issues') {
       this.batched(() => {
         this.recomputeIssues()
         this.recomputeIssueProjections()
       })
     } else if (entity === 'issueProjections') {
-      this.batched(() => {
-        this.recomputeIssueProjections()
-        this.recomputeIssues()
-      })
+      this.recomputeIssueProjections()
     }
   }
 
@@ -353,11 +341,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         ? sessions.find((s) => s.sessionId === overlay.id)
         : overlay.entity === 'issues'
           ? issues.find((i) => i.id === overlay.id)
-          : (issueProjections.find((i) => i.id === overlay.id) ??
-            issues
-              .filter((i) => i.id === overlay.id)
-              .map(projectionOfIssue)
-              .at(0))
+        : issueProjections.find((i) => i.id === overlay.id)
     // Hold the overlay until covering truth lands. Nothing to hold when the
     // row is gone, already reflects the mutation (the broadcast echo raced
     // ahead of the response), or moved past the ENQUEUE-time baseline without
@@ -534,13 +518,4 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
  *  Codex thread surfaced twice on resume). */
 export function dedupeSessions(rows: SessionMeta[]): SessionMeta[] {
   return rows.length === 0 ? rows : dedupeSessionsByResume(rows)
-}
-
-/** The legacy issue row seen as a projection — the additive-cutover shim. */
-function projectionOfIssue(issue: IssueWire): IssueProjectionRow {
-  return {
-    id: issue.id,
-    readAt:
-      (issue as IssueWire & { unread?: boolean }).unread === true ? null : (issue.readAt ?? null),
-  } as IssueProjectionRow
 }

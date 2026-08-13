@@ -25,6 +25,7 @@ import type {
   HostMetricsWire,
   IssueId,
   IssueEventWire,
+  IssueProjection,
   IssueWire,
   MachineWire,
   SessionId,
@@ -37,7 +38,6 @@ import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
-import type { IssueProjectionRow } from '../replica/contract'
 import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
 import {
   allTabIds,
@@ -67,7 +67,7 @@ export interface EngineState {
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   sessions: SessionMeta[]
   issues: IssueWire[]
-  issueProjections: IssueProjectionRow[]
+  issueProjections: IssueProjection[]
   /** The curated cross-project issue-event window (POD-1772) — replicated rows,
    *  not a timer's answer. Newest last, as the feed renders them. */
   issueEvents: IssueEventWire[]
@@ -490,7 +490,7 @@ export interface EngineStateSeed {
   readonly route: { settingsTab: string | null; issueId?: IssueId | null }
   readonly sessions: SessionMeta[]
   readonly issues: IssueWire[]
-  readonly issueProjections: IssueProjectionRow[]
+  readonly issueProjections: IssueProjection[]
   readonly issueEvents: IssueEventWire[]
   readonly shipOrders: ShipOrderProjection[]
   readonly conversations: ConversationSummaryWire[]
