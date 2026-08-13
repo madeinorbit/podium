@@ -31,6 +31,10 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     removeItem: async () => {},
   },
 }))
+// These isolated provider tests exercise the documented no-profile compatibility
+// path. Stop at that seam instead of importing Expo Router's externalized CJS
+// graph, whose direct React Native require bypasses Vite's web alias.
+vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 
 import { MobileClientProvider } from './MobileClientProvider'
 

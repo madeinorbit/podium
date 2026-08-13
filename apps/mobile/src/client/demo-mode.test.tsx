@@ -29,6 +29,10 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     removeItem: async () => {},
   },
 }))
+// DemoProvider deliberately bypasses server selection. Model that production
+// branch at its optional-profile seam without loading Expo Router's externalized
+// CJS graph, whose direct React Native require bypasses Vite's web alias.
+vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 
 import { DEMO_ISSUES, DEMO_SESSIONS, demoEnabled } from './demoData'
 import { useConnected, useIssues, useSessions } from './hooks'

@@ -59,6 +59,10 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     removeItem: async () => {},
   },
 }))
+// The replica assembler is below the server-selection UI. Keep this focused
+// suite on that boundary rather than importing Expo Router's externalized CJS
+// graph, whose direct React Native require cannot use Vite's web alias.
+vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 
 import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvider'
 
