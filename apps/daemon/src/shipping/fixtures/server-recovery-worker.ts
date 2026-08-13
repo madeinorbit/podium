@@ -6,7 +6,9 @@ import {
   asShipAttemptId,
   FIRST_ADMIN_USER_ID,
   type IssueWire,
+  type MachineId,
 } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
 import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'
@@ -58,7 +60,8 @@ const daemon = spawn(
   { stdio: ['pipe', 'pipe', 'inherit'] },
 )
 const rpc = new DaemonRpcService({
-  toMachine: (_target, message) => daemon.stdin.write(`${JSON.stringify(message)}\n`),
+  toMachine: (_target: MachineId, message: ControlMessage) =>
+    daemon.stdin.write(`${JSON.stringify(message)}\n`),
   defaultMachine: () => machineId,
 } as never)
 const replies = createInterface({ input: daemon.stdout, crlfDelay: Number.POSITIVE_INFINITY })
@@ -89,17 +92,7 @@ const service = new ShippingService({
     authorize: () => {},
     reauthorize: () => {},
   },
-  evidence: {
-    resolveIntegrationReceipt: () => null,
-    persistAccepted: ({ order, evidenceManifestRef }) => {
-      store.events.appendEvent({
-        ts: new Date().toISOString(),
-        kind: 'shipping.evidence_accepted',
-        subject: order.id,
-        payload: { evidenceManifestRef: evidenceManifestRef ?? null },
-      })
-    },
-  },
+  evidence: store.shipping,
   policy: new CompatibilityShippingPolicyResolver(() => 'main'),
   machineFor: () => machineId,
   resolveBranchTip: async (issue) => git('rev-parse', `refs/heads/${issue.branch}`),
@@ -122,6 +115,11 @@ if (phase === 'crash') {
   git('branch', started.branch, 'main')
   issues.update(created.id, { stage: 'review' })
   const head = git('rev-parse', started.branch)
+  store.shipping.recordRootIntegrationReceipt({
+    rootIssueId: created.id,
+    approvedHeadSha: head,
+    descendants: [],
+  })
   const { order } = await service.enqueue({
     issueId: created.id,
     principal: {

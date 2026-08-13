@@ -21,16 +21,14 @@ function harness(
   },
   options: {
     authorize?: () => void
-    reauthorize?: ConstructorParameters<
-      typeof ShippingService
-    >[0]['authorization']['reauthorize']
+    reauthorize?: ConstructorParameters<typeof ShippingService>[0]['authorization']['reauthorize']
     beforeCompletionCommit?: () => void
-    resolveIntegrationReceipt?: ConstructorParameters<
+    rootIntegrationReceipt?: ConstructorParameters<
       typeof ShippingService
-    >[0]['evidence']['resolveIntegrationReceipt']
-    persistAccepted?: ConstructorParameters<
-      typeof ShippingService
-    >[0]['evidence']['persistAccepted']
+    >[0]['evidence']['rootIntegrationReceipt']
+    useStoredReceipts?: boolean
+    resolveBranchTip?: ConstructorParameters<typeof ShippingService>[0]['resolveBranchTip']
+    resolveRefTip?: ConstructorParameters<typeof ShippingService>[0]['resolveRefTip']
   } = {},
 ) {
   const store = new SessionStore(':memory:')
@@ -85,13 +83,23 @@ function harness(
       reauthorize: options.reauthorize ?? (() => {}),
     },
     evidence: {
-      resolveIntegrationReceipt: options.resolveIntegrationReceipt ?? (() => null),
-      persistAccepted: options.persistAccepted ?? (() => {}),
+      rootIntegrationReceipt:
+        options.rootIntegrationReceipt ??
+        (options.useStoredReceipts
+          ? store.shipping.rootIntegrationReceipt.bind(store.shipping)
+          : (rootIssueId, approvedHeadSha) => ({
+              rootIssueId,
+              approvedHeadSha,
+              descendants: issuePort.children(rootIssueId, true).map((child) => ({
+                issueId: child.id,
+                approvedHeadSha: 'head-sha',
+              })),
+            })),
     },
     policy: new CompatibilityShippingPolicyResolver(() => 'main'),
     machineFor: () => asMachineId('machine-1'),
-    resolveBranchTip: async () => 'head-sha',
-    resolveRefTip: async () => 'base-sha',
+    resolveBranchTip: options.resolveBranchTip ?? (async () => 'head-sha'),
+    resolveRefTip: options.resolveRefTip ?? (async () => 'base-sha'),
     now: () => '2026-08-13T10:00:00.000Z',
     ...(options.beforeCompletionCommit
       ? { beforeCompletionCommit: options.beforeCompletionCommit }
@@ -128,6 +136,11 @@ describe('ShippingService enqueue transaction', () => {
     expect(receipt.created).toBe(true)
     expect(store.issues.getIssue(issue.id)?.stage).toBe('shipping')
     expect(store.shipping.getOrder(receipt.order.id)).toEqual(receipt.order)
+    expect(receipt.order.currentIntegrationReceipt).toEqual({
+      rootIssueId: issue.id,
+      approvedHeadSha: 'head-sha',
+      descendants: [],
+    })
     const changes = ledger.changesSince(cursor) ?? []
     expect(changes.some((change) => change.entity === 'issue' && change.id === issue.id)).toBe(true)
     expect(
@@ -145,9 +158,7 @@ describe('ShippingService enqueue transaction', () => {
       order: { id: receipt.order.id },
     })
     expect(receipt.order.id).toMatch(/^ship_[0-9a-f-]{36}$/)
-    expect(
-      store.events.listEventsSince(0, { kinds: ['issue.shipping_enqueued'] }),
-    ).toHaveLength(1)
+    expect(store.events.listEventsSince(0, { kinds: ['issue.shipping_enqueued'] })).toHaveLength(1)
     service.dispose()
   })
 
@@ -168,6 +179,38 @@ describe('ShippingService enqueue transaction', () => {
         approved: { ...approval.approved, evidenceManifestRef: 'evidence:changed' },
       }),
     ).rejects.toMatchObject({ code: 'source-stale' })
+    service.dispose()
+  })
+
+  it('refuses active-order replay when the live root head moved', async () => {
+    let liveHead = 'head-sha'
+    const { issues, service } = harness(undefined, {
+      resolveBranchTip: async () => liveHead,
+    })
+    const issue = issues.create({ repoPath: '/repo', title: 'live replay fence', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    await service.enqueue({ issueId: issue.id, ...approval })
+
+    liveHead = 'advanced-head-sha'
+    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
+      code: 'source-stale',
+    })
+    service.dispose()
+  })
+
+  it('refuses admission when repository refs move before custody commits', async () => {
+    let sourceReads = 0
+    const { store, issues, service } = harness(undefined, {
+      resolveBranchTip: async () => (++sourceReads === 1 ? 'head-sha' : 'advanced-head-sha'),
+    })
+    const issue = issues.create({ repoPath: '/repo', title: 'admission ref race', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+
+    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
+      code: 'source-stale',
+    })
+    expect(store.shipping.activeOrderForIssue(issue.id)).toBeNull()
+    expect(store.issues.getIssue(issue.id)?.stage).toBe('review')
     service.dispose()
   })
 
@@ -204,17 +247,8 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
   })
 
-  it('requires a current integration receipt for descendants and persists the accepted evidence', async () => {
-    const persistAccepted = vi.fn()
-    let integratedDescendants: { issueId: IssueWire['id']; approvedHeadSha: string }[] = []
-    const { issues, service } = harness(undefined, {
-      persistAccepted,
-      resolveIntegrationReceipt: (ref) => ({
-        ref,
-        rootHeadSha: 'head-sha',
-        descendantManifest: integratedDescendants,
-      }),
-    })
+  it('freezes the exact typed integration receipt for the live root and descendant tips', async () => {
+    const { store, issues, service } = harness(undefined, { useStoredReceipts: true })
     const root = issues.create({ repoPath: '/repo', title: 'root', startNow: false })
     const child = issues.create({
       repoPath: '/repo',
@@ -222,12 +256,16 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
       parentId: root.id,
     })
-    integratedDescendants = [{ issueId: child.id, approvedHeadSha: 'head-sha' }]
     issues.update(child.id, { stage: 'done' })
     issues.update(root.id, { stage: 'review' })
 
     await expect(service.enqueue({ issueId: root.id, ...approval })).rejects.toMatchObject({
       code: 'evidence',
+    })
+    const immutableReceipt = store.shipping.recordRootIntegrationReceipt({
+      rootIssueId: root.id,
+      approvedHeadSha: 'head-sha',
+      descendants: [{ issueId: child.id, approvedHeadSha: 'head-sha' }],
     })
     const accepted = await service.enqueue({
       issueId: root.id,
@@ -237,13 +275,52 @@ describe('ShippingService enqueue transaction', () => {
     expect(accepted.descendantManifest).toEqual([
       { issueId: child.id, approvedHeadSha: 'head-sha' },
     ])
-    expect(persistAccepted).toHaveBeenCalledWith(
-      expect.objectContaining({
-        order: expect.objectContaining({ id: accepted.order.id }),
-        evidenceManifestRef: 'evidence:root',
-        integrationReceiptRef: 'evidence:root',
-      }),
+    expect(accepted.order.currentIntegrationReceipt).toEqual(immutableReceipt)
+    expect(store.shipping.getOrder(accepted.order.id)?.currentIntegrationReceipt).toEqual(
+      immutableReceipt,
     )
+    service.dispose()
+  })
+
+  it('refuses stale or manifest-mismatched immutable integration proof', async () => {
+    const { store, issues, service } = harness(undefined, { useStoredReceipts: true })
+    const root = issues.create({ repoPath: '/repo', title: 'root refusal', startNow: false })
+    const child = issues.create({
+      repoPath: '/repo',
+      title: 'child refusal',
+      startNow: false,
+      parentId: root.id,
+    })
+    issues.update(child.id, { stage: 'done' })
+    issues.update(root.id, { stage: 'review' })
+    store.shipping.recordRootIntegrationReceipt({
+      rootIssueId: root.id,
+      approvedHeadSha: 'head-sha',
+      descendants: [{ issueId: child.id, approvedHeadSha: 'stale-child-sha' }],
+    })
+
+    await expect(
+      service.enqueue({
+        issueId: root.id,
+        ...approval,
+        approved: { ...approval.approved, evidenceManifestRef: 'evidence:root' },
+      }),
+    ).rejects.toMatchObject({ code: 'evidence' })
+    expect(store.shipping.activeOrderForIssue(root.id)).toBeNull()
+    expect(store.issues.getIssue(root.id)?.stage).toBe('review')
+    service.dispose()
+  })
+
+  it('refuses an empty root manifest when immutable integration proof is missing', async () => {
+    const { store, issues, service } = harness(undefined, { rootIntegrationReceipt: () => null })
+    const issue = issues.create({ repoPath: '/repo', title: 'missing root proof', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+
+    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
+      code: 'evidence',
+    })
+    expect(store.shipping.activeOrderForIssue(issue.id)).toBeNull()
+    expect(store.issues.getIssue(issue.id)?.stage).toBe('review')
     service.dispose()
   })
 
@@ -523,6 +600,164 @@ describe('ShippingService enqueue transaction', () => {
         outcome: 'failed',
       }),
     ).toThrow(/immutable/)
+    expect(() =>
+      store.shipping.finishAttempt(claimed.attempt.id, 1, {
+        finishedAt: '2026-08-13T10:00:02.000Z',
+        outcome: 'failed',
+      }),
+    ).toThrow(/generation fence/)
+    service.dispose()
+  })
+
+  it('recovers durable cancellation intent without superseding its attempt', async () => {
+    let crashCancel = true
+    const generations: number[] = []
+    const { store, issues, service, deps } = harness(async (input, machineId) => {
+      generations.push(input.generation)
+      if (input.action === 'cancel' && crashCancel) {
+        throw new Error('simulated server crash after cancellation intent')
+      }
+      return {
+        jobId: input.jobId,
+        orderId: input.orderId,
+        attemptId: input.attemptId,
+        machineId,
+        generation: input.generation,
+        operation: input.operation,
+        state: input.action === 'cancel' ? ('cancelled' as const) : ('running' as const),
+        classification: input.action === 'cancel' ? ('cancelled' as const) : ('observed' as const),
+        summary: input.action === 'cancel' ? 'cancelled durably' : 'still running',
+        logs: [],
+        artifactRefs: [],
+        heartbeatedAt: '2026-08-13T10:00:00.000Z',
+        ...(input.action === 'cancel' ? { finishedAt: '2026-08-13T10:00:00.000Z' } : {}),
+      }
+    })
+    const issue = issues.create({ repoPath: '/repo', title: 'cancel recovery', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    await service.runOrder(order.id)
+    const first = store.shipping.latestAttemptForOrder(order.id)!
+
+    await expect(
+      service.cancel({
+        orderId: order.id,
+        principal: approval.principal,
+        requestedBy: approval.requestedBy,
+        overrideScope: false,
+      }),
+    ).rejects.toThrow(/simulated server crash/)
+    expect(
+      store.shipping.latestStepForEffect(first.id, `cancel:${first.leaseGeneration}`),
+    ).toMatchObject({ state: 'running' })
+    expect(() =>
+      store.shipping.claimAttempt({
+        orderId: order.id,
+        expectedState: 'preflight',
+        expectedAttemptId: first.id,
+        expectedGeneration: first.leaseGeneration,
+        machineId: first.machineId,
+        startedAt: '2026-08-13T10:00:01.000Z',
+      }),
+    ).toThrow(/durable cancellation intent/)
+    service.dispose()
+
+    crashCancel = false
+    const restarted = new ShippingService(deps)
+    await restarted.reconcile()
+    expect(store.shipping.getOrder(order.id)?.state).toBe('cancelled')
+    expect(store.shipping.latestAttemptForOrder(order.id)).toMatchObject({
+      id: first.id,
+      leaseGeneration: 1,
+      outcome: 'cancelled',
+    })
+    expect(generations).toEqual([1, 1, 1])
+    restarted.dispose()
+  })
+
+  it('terminalizes cancellation intent atomically when live authorization is refused', async () => {
+    const { store, issues, service } = harness(
+      async (input, machineId) => ({
+        jobId: input.jobId,
+        orderId: input.orderId,
+        attemptId: input.attemptId,
+        machineId,
+        generation: input.generation,
+        operation: input.operation,
+        state: 'running',
+        classification: 'observed',
+        summary: 'still running',
+        logs: [],
+        artifactRefs: [],
+        heartbeatedAt: '2026-08-13T10:00:00.000Z',
+      }),
+      {
+        reauthorize: ({ effect }) => {
+          if (effect === 'cancel') throw new Error('delegation revoked')
+        },
+      },
+    )
+    const issue = issues.create({ repoPath: '/repo', title: 'cancel refusal', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    await service.runOrder(order.id)
+    const attempt = store.shipping.latestAttemptForOrder(order.id)!
+
+    const held = await service.cancel({
+      orderId: order.id,
+      principal: approval.principal,
+      requestedBy: approval.requestedBy,
+      overrideScope: false,
+    })
+    expect(held).toMatchObject({ state: 'held', holdCode: 'policy-refused' })
+    expect(store.shipping.getAttempt(attempt.id)).toMatchObject({ outcome: 'failed' })
+    expect(
+      store.shipping.latestStepForEffect(attempt.id, `cancel:${attempt.leaseGeneration}`),
+    ).toMatchObject({
+      state: 'failed',
+      outcome: 'authorization-refused',
+      summary: 'delegation revoked',
+    })
+    expect(store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(false)
+    service.dispose()
+  })
+
+  it('terminalizes cancellation intent atomically when daemon cancellation rejects', async () => {
+    const { store, issues, service } = harness(async (input, machineId) => {
+      if (input.action === 'cancel') throw new Error('daemon disconnected')
+      return {
+        jobId: input.jobId,
+        orderId: input.orderId,
+        attemptId: input.attemptId,
+        machineId,
+        generation: input.generation,
+        operation: input.operation,
+        state: 'running',
+        classification: 'observed',
+        summary: 'still running',
+        logs: [],
+        artifactRefs: [],
+        heartbeatedAt: '2026-08-13T10:00:00.000Z',
+      }
+    })
+    const issue = issues.create({ repoPath: '/repo', title: 'cancel rpc refusal', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    await service.runOrder(order.id)
+    const attempt = store.shipping.latestAttemptForOrder(order.id)!
+
+    const held = await service.cancel({
+      orderId: order.id,
+      principal: approval.principal,
+      requestedBy: approval.requestedBy,
+      overrideScope: false,
+    })
+    expect(held).toMatchObject({ state: 'held', holdCode: 'machine-unavailable' })
+    expect(store.shipping.getAttempt(attempt.id)).toMatchObject({ outcome: 'failed' })
+    expect(
+      store.shipping.latestStepForEffect(attempt.id, `cancel:${attempt.leaseGeneration}`),
+    ).toMatchObject({ state: 'failed', outcome: 'cancel-error', summary: 'daemon disconnected' })
+    expect(store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(false)
     service.dispose()
   })
 
@@ -591,6 +826,9 @@ describe('ShippingService enqueue transaction', () => {
     })
     await execution
     expect(store.shipping.getOrder(order.id)?.state).toBe('cancelled')
+    expect(
+      store.shipping.latestStepForEffect(attempt.id, `preflight:${attempt.leaseGeneration}`),
+    ).toMatchObject({ state: 'cancelled' })
     expect(store.issues.getIssue(issue.id)?.stage).toBe('review')
     service.dispose()
   })

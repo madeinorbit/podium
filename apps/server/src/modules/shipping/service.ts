@@ -9,6 +9,7 @@ import {
   type DescendantTip,
   type IssueId,
   type IssueWire,
+  integrationReceiptMatchesOrder,
   type MachineId,
   type ShipAttempt,
   type ShipHold,
@@ -22,7 +23,11 @@ import {
 import type { ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
-import { sameFrozenShipOrder, type ShippingRepository } from '../../store/shipping'
+import {
+  type RootIntegrationReceiptStore,
+  sameFrozenShipOrder,
+  type ShippingRepository,
+} from '../../store/shipping'
 import type { ShippingIssueMutation } from '../issues/service/crud'
 import type { ShippingPolicyResolver } from './policy'
 import { shipOrderProjectionRow } from './projection'
@@ -132,20 +137,7 @@ export interface ShippingAuthorizationPort {
   }): void
 }
 
-export interface ShippingIntegrationReceipt {
-  ref: string
-  rootHeadSha: string
-  descendantManifest: DescendantTip[]
-}
-
-export interface ShippingEvidencePort {
-  resolveIntegrationReceipt(ref: string, issue: IssueWire): ShippingIntegrationReceipt | null
-  persistAccepted(input: {
-    order: ShipOrder
-    evidenceManifestRef?: string
-    integrationReceiptRef?: string
-  }): void
-}
+export type ShippingEvidencePort = Pick<RootIntegrationReceiptStore, 'rootIntegrationReceipt'>
 
 export interface ShippingServiceDeps {
   repository: ShippingRepository
@@ -218,59 +210,6 @@ export class ShippingService {
     if (!input.approved.evidenceManifestRef && !policy.evidenceOptional) {
       throw new ShippingAdmissionError('evidence', 'accepted review evidence is required by policy')
     }
-    if (existing) {
-      let replayManifest: DescendantTip[] = []
-      let replayReceipt: ShipOrder['currentIntegrationReceipt']
-      if (existing.descendantManifest.length > 0) {
-        const evidenceRef = input.approved.evidenceManifestRef
-        const integrated = evidenceRef
-          ? this.deps.evidence.resolveIntegrationReceipt(evidenceRef, issue)
-          : null
-        if (integrated) {
-          replayManifest = integrated.descendantManifest
-          replayReceipt = {
-            rootIssueId: issue.id,
-            approvedHeadSha: integrated.rootHeadSha,
-            descendants: integrated.descendantManifest,
-          }
-        }
-      }
-      const candidate: ShipOrder = {
-        id: asShipOrderId(`ship_${randomUUID()}`),
-        issueId: issue.id,
-        descendantManifest: replayManifest,
-        repoId,
-        targetBranch: policy.targetBranch,
-        destination: policy.destination,
-        approvedBaseSha: input.approved.sourceBaseSha,
-        approvedHeadSha: input.approved.sourceHeadSha,
-        deliveryDependsOn: policy.deliveryDependsOn,
-        ...(input.approved.evidenceManifestRef
-          ? { evidenceManifestRef: input.approved.evidenceManifestRef }
-          : {}),
-        ...(replayReceipt ? { currentIntegrationReceipt: replayReceipt } : {}),
-        ...(policy.providerRef ? { providerRef: policy.providerRef } : {}),
-        requestedBy,
-        requestedAt: existing.requestedAt,
-        policyId: policy.id,
-        closeMode: policy.closeMode,
-        state: existing.state,
-        stateChangedAt: existing.stateChangedAt,
-        ...(existing.holdCode ? { holdCode: existing.holdCode } : {}),
-      }
-      if (sameFrozenShipOrder(existing, candidate)) {
-        return {
-          order: existing,
-          projection: this.requiredProjection(existing.id),
-          descendantManifest: existing.descendantManifest,
-          created: false,
-        }
-      }
-      throw new ShippingAdmissionError(
-        'source-stale',
-        `issue ${issue.id} already has a different active shipping order`,
-      )
-    }
     const [currentSourceHead, currentTargetHead] = await Promise.all([
       this.deps.resolveBranchTip(issue),
       this.deps.resolveRefTip(issue, policy.targetBranch),
@@ -306,35 +245,84 @@ export class ShippingService {
         approvedHeadSha: await this.deps.resolveBranchTip(child),
       })
     }
-    let integrationReceiptRef: string | undefined
-    let currentIntegrationReceipt: ShipOrder['currentIntegrationReceipt']
-    if (descendantManifest.length > 0) {
-      if (!input.approved.evidenceManifestRef) {
-        throw new ShippingAdmissionError(
-          'evidence',
-          'shipping a delivery root with descendants requires an integration receipt',
-        )
-      }
-      const integrationReceipt = this.deps.evidence.resolveIntegrationReceipt(
-        input.approved.evidenceManifestRef,
-        issue,
-      )
+    if (existing) {
+      let replayManifest: DescendantTip[] = []
+      let replayReceipt: ShipOrder['currentIntegrationReceipt']
+      const receipt = this.deps.evidence.rootIntegrationReceipt(issue.id, currentSourceHead)
       if (
-        !integrationReceipt ||
-        integrationReceipt.rootHeadSha !== currentSourceHead ||
-        JSON.stringify(integrationReceipt.descendantManifest) !== JSON.stringify(descendantManifest)
+        !receipt ||
+        !integrationReceiptMatchesOrder(receipt, {
+          issueId: issue.id,
+          approvedHeadSha: currentSourceHead,
+          descendantManifest,
+        })
       ) {
         throw new ShippingAdmissionError(
           'evidence',
-          'integration receipt does not describe the current root and descendant tips',
+          'the active shipping order no longer has its exact immutable integration receipt',
         )
       }
-      integrationReceiptRef = integrationReceipt.ref
-      currentIntegrationReceipt = {
-        rootIssueId: issue.id,
-        approvedHeadSha: integrationReceipt.rootHeadSha,
-        descendants: integrationReceipt.descendantManifest,
+      replayManifest = descendantManifest
+      replayReceipt = receipt
+      const candidate: ShipOrder = {
+        id: asShipOrderId(`ship_${randomUUID()}`),
+        issueId: issue.id,
+        descendantManifest: replayManifest,
+        repoId,
+        targetBranch: policy.targetBranch,
+        destination: policy.destination,
+        approvedBaseSha: input.approved.sourceBaseSha,
+        approvedHeadSha: input.approved.sourceHeadSha,
+        deliveryDependsOn: policy.deliveryDependsOn,
+        ...(input.approved.evidenceManifestRef
+          ? { evidenceManifestRef: input.approved.evidenceManifestRef }
+          : {}),
+        ...(replayReceipt ? { currentIntegrationReceipt: replayReceipt } : {}),
+        ...(policy.providerRef ? { providerRef: policy.providerRef } : {}),
+        requestedBy,
+        requestedAt: existing.requestedAt,
+        policyId: policy.id,
+        closeMode: policy.closeMode,
+        state: existing.state,
+        stateChangedAt: existing.stateChangedAt,
+        ...(existing.holdCode ? { holdCode: existing.holdCode } : {}),
       }
+      if (sameFrozenShipOrder(existing, candidate)) {
+        await this.assertLiveAdmissionSnapshot(
+          issue,
+          policy.targetBranch,
+          currentSourceHead,
+          currentTargetHead,
+          descendantManifest,
+        )
+        return {
+          order: existing,
+          projection: this.requiredProjection(existing.id),
+          descendantManifest: existing.descendantManifest,
+          created: false,
+        }
+      }
+      throw new ShippingAdmissionError(
+        'source-stale',
+        `issue ${issue.id} already has a different active shipping order`,
+      )
+    }
+    const currentIntegrationReceipt = this.deps.evidence.rootIntegrationReceipt(
+      issue.id,
+      currentSourceHead,
+    )
+    if (
+      !currentIntegrationReceipt ||
+      !integrationReceiptMatchesOrder(currentIntegrationReceipt, {
+        issueId: issue.id,
+        approvedHeadSha: currentSourceHead,
+        descendantManifest,
+      })
+    ) {
+      throw new ShippingAdmissionError(
+        'evidence',
+        'integration receipt does not describe the current root and descendant tips',
+      )
     }
     const at = this.now()
     const order: ShipOrder = {
@@ -350,7 +338,7 @@ export class ShippingService {
       ...(input.approved.evidenceManifestRef
         ? { evidenceManifestRef: input.approved.evidenceManifestRef }
         : {}),
-      ...(currentIntegrationReceipt ? { currentIntegrationReceipt } : {}),
+      currentIntegrationReceipt,
       ...(policy.providerRef ? { providerRef: policy.providerRef } : {}),
       requestedBy,
       requestedAt: at,
@@ -359,6 +347,13 @@ export class ShippingService {
       state: 'queued',
       stateChangedAt: at,
     }
+    await this.assertLiveAdmissionSnapshot(
+      issue,
+      policy.targetBranch,
+      currentSourceHead,
+      currentTargetHead,
+      descendantManifest,
+    )
     let admission: { order: ShipOrder; created: boolean }
     try {
       admission = this.deps.issues.shippingCommit(
@@ -378,7 +373,7 @@ export class ShippingService {
                     orderId: order.id,
                     destination: order.destination,
                     evidenceManifestRef: input.approved.evidenceManifestRef ?? null,
-                    integrationReceiptRef: integrationReceiptRef ?? null,
+                    integrationReceiptHeadSha: currentIntegrationReceipt?.approvedHeadSha ?? null,
                     requestedBy: order.requestedBy,
                     overrideScope: input.overrideScope,
                     previewLeaseIds: input.approved.previewLeaseIds,
@@ -391,14 +386,25 @@ export class ShippingService {
           if (this.deps.policy.resolve(live).id !== policy.id) {
             throw new ShippingAdmissionError('policy', 'repository shipping policy changed')
           }
-          const result = this.deps.repository.createOrReturnActiveOrder(order)
-          if (result.created) {
-            this.deps.evidence.persistAccepted({
-              order: result.order,
-              evidenceManifestRef: input.approved.evidenceManifestRef,
-              integrationReceiptRef,
-            })
+          const receipt = this.deps.evidence.rootIntegrationReceipt(issue.id, currentSourceHead)
+          if (
+            !receipt ||
+            !integrationReceiptMatchesOrder(receipt, {
+              issueId: issue.id,
+              approvedHeadSha: currentSourceHead,
+              descendantManifest,
+            }) ||
+            JSON.stringify(receipt) !== JSON.stringify(currentIntegrationReceipt)
+          ) {
+            throw new ShippingAdmissionError(
+              'evidence',
+              'integration receipt changed before shipping custody committed',
+            )
           }
+          const result = this.deps.repository.createOrReturnActiveOrder({
+            ...order,
+            currentIntegrationReceipt: receipt,
+          })
           return result
         },
       ).result
@@ -469,6 +475,14 @@ export class ShippingService {
       let order = this.requiredOrder(orderId)
       if (order.state === 'held' || order.state === 'shipped' || order.state === 'cancelled') return
       let attempt = this.latestAttempt(order)
+      if (
+        attempt &&
+        !attempt.finishedAt &&
+        this.deps.repository.hasCancellationIntent(attempt.id, attempt.leaseGeneration)
+      ) {
+        await this.settleCancellation(order, attempt, this.deps.issues.get(order.issueId))
+        return
+      }
       const lease = attempt ? this.leases.get(order.id) : undefined
       if (
         !attempt ||
@@ -485,9 +499,9 @@ export class ShippingService {
       const policy = this.deps.policy.resolve(issue)
 
       if (order.state === 'preflight') {
-        const result = await this.runEffect(order, attempt, issue, 'preflight')
+        const result = await this.runEffect(order, attempt, issue, 'preflight', 'composing')
         if (result?.state !== 'succeeded') return
-        order = this.transition(order, 'composing')
+        order = this.requiredOrder(order.id)
       }
       if (order.state === 'composing') order = this.transition(order, 'validating')
       if (order.state === 'repairing') order = this.transition(order, 'validating')
@@ -507,9 +521,15 @@ export class ShippingService {
           )
           return
         }
-        const result = await this.runEffect(order, attempt, issue, 'compatibility-land')
+        const result = await this.runEffect(
+          order,
+          attempt,
+          issue,
+          'compatibility-land',
+          'verifying',
+        )
         if (result?.state !== 'succeeded') return
-        order = this.transition(order, 'verifying')
+        order = this.requiredOrder(order.id)
       }
       if (order.state === 'verifying') {
         const result = await this.runEffect(order, attempt, issue, 'verify')
@@ -522,6 +542,8 @@ export class ShippingService {
             'destination-mismatch',
             'Destination proof is incomplete',
             result.summary,
+            result.artifactRefs,
+            this.effectCommit(order, attempt, 'verify', result),
           )
           return
         }
@@ -542,28 +564,33 @@ export class ShippingService {
         const shipped = { ...order, state: 'shipped' as const, stateChangedAt: finishedAt }
         const specs = this.projectionSpecs(this.replaceOrder(shipped), undefined, receipt)
         this.deps.beforeCompletionCommit?.(receipt)
-        this.deps.issues.shippingCommit(
-          order.issueId,
-          {
-            expectedStage: 'shipping',
-            nextStage: 'done',
-            needsHuman: false,
-            shipOrderChanges: specs,
-            event: { kind: 'issue.shipped', payload: { orderId: order.id, receiptId: receipt.id } },
-          },
-          () => {
-            this.deps.repository.finishAttempt(attempt.id, attempt.leaseGeneration, {
-              finishedAt,
-              outcome: 'succeeded',
-              testedIntegrationSha: receipt.testedIntegrationSha,
-              landedRefSha: receipt.landedRefSha,
-              destinationSha: receipt.destinationSha,
-              validationProfileId: receipt.validationProfileId,
-              validationResult: 'passed',
-            })
-            return this.deps.repository.completeVerifiedOrder(receipt)
-          },
-        )
+        try {
+          this.deps.issues.shippingCommit(
+            order.issueId,
+            {
+              expectedStage: 'shipping',
+              nextStage: 'done',
+              needsHuman: false,
+              shipOrderChanges: specs,
+              event: {
+                kind: 'issue.shipped',
+                payload: { orderId: order.id, receiptId: receipt.id },
+              },
+            },
+            () =>
+              this.deps.repository.commitEffectResult({
+                orderId: order.id,
+                expectedState: 'verifying',
+                attemptId: attempt.id,
+                generation: attempt.leaseGeneration,
+                ...this.effectCommit(order, attempt, 'verify', result),
+                outcome: { kind: 'verified', receipt, attemptFinishedAt: finishedAt },
+              }),
+          )
+        } catch (error) {
+          if (this.isEffectCustodyRefusal(error)) return
+          throw error
+        }
         this.audit('shipping.order_shipped', order.issueId, {
           orderId: order.id,
           receiptId: receipt.id,
@@ -602,7 +629,6 @@ export class ShippingService {
     }
     const latestAttempt = this.latestAttempt(order)
     const attempt = latestAttempt?.finishedAt ? null : latestAttempt
-    const terminalSteps: ShipStep[] = []
     if (attempt) {
       const intentKey = `cancel:${attempt.leaseGeneration}`
       const intentStartedAt = this.now()
@@ -614,90 +640,7 @@ export class ShippingService {
         planned: this.step(order, attempt, intentKey, 'cancel', 'planned', intentStartedAt),
         running: this.step(order, attempt, intentKey, 'cancel', 'running', intentStartedAt),
       })
-      const operation = this.operationFor(order.state)
-      if (operation) {
-        try {
-          this.deps.authorization.reauthorize({
-            order,
-            issue,
-            machineId: attempt.machineId,
-            effect: 'cancel',
-          })
-        } catch (error) {
-          await this.hold(
-            order,
-            attempt,
-            'policy-refused',
-            'Shipping cancellation authorization changed',
-            error instanceof Error ? error.message : String(error),
-          )
-          return this.requiredOrder(order.id)
-        }
-        const result = await this.deps.daemon.shippingJob(
-          this.jobInput(order, attempt, issue, operation, 'cancel'),
-          attempt.machineId,
-        )
-        this.assertJobResultFence(order, attempt, operation, result)
-        if (
-          !this.deps.repository.hasAttemptCustody({
-            orderId: order.id,
-            expectedState: order.state,
-            attemptId: attempt.id,
-            generation: attempt.leaseGeneration,
-          }) ||
-          !this.deps.repository.hasCancellationIntent(attempt.id, attempt.leaseGeneration)
-        ) {
-          return this.requiredOrder(order.id)
-        }
-        if (result.state !== 'cancelled' && result.state !== 'succeeded') {
-          await this.hold(
-            order,
-            attempt,
-            'machine-unavailable',
-            'Shipping cancellation could not be settled',
-            result.summary,
-            result.artifactRefs,
-          )
-          return this.requiredOrder(order.id)
-        }
-        const effectKey = `${operation}:${attempt.leaseGeneration}`
-        const latest = this.deps.repository.latestStepForEffect(attempt.id, effectKey)
-        if (latest && !terminalStep(latest)) {
-          const finishedAt = result.finishedAt ?? this.now()
-          terminalSteps.push({
-            ...this.step(
-              order,
-              attempt,
-              effectKey,
-              operation,
-              'cancelled',
-              latest.startedAt ?? finishedAt,
-            ),
-            outcome: result.classification,
-            summary: result.summary,
-            finishedAt,
-            ...(result.artifactRefs[0] ? { artifactRef: result.artifactRefs[0] } : {}),
-          })
-        }
-      }
-      const intent = this.deps.repository.latestStepForEffect(attempt.id, intentKey)
-      if (!intent || intent.state !== 'running') {
-        throw new Error(`ship order ${order.id} lost durable cancellation intent`)
-      }
-      const intentFinishedAt = this.now()
-      terminalSteps.push({
-        ...this.step(
-          order,
-          attempt,
-          intentKey,
-          'cancel',
-          'succeeded',
-          intent.startedAt ?? intentStartedAt,
-        ),
-        outcome: 'cancelled',
-        summary: 'shipping cancellation settled before custody release',
-        finishedAt: intentFinishedAt,
-      })
+      return this.settleCancellation(order, attempt, issue)
     }
     const at = this.now()
     const cancelled = { ...order, state: 'cancelled' as const, stateChangedAt: at }
@@ -718,15 +661,142 @@ export class ShippingService {
             'queued' | 'preflight' | 'composing' | 'validating' | 'repairing'
           >,
           at,
-          attempt
-            ? {
-                attemptId: attempt.id,
-                generation: attempt.leaseGeneration,
-                terminalSteps,
-              }
-            : undefined,
         )
       },
+    ).result
+    this.leases.delete(order.id)
+    return result
+  }
+
+  private async settleCancellation(
+    order: ShipOrder,
+    attempt: ShipAttempt,
+    issue: IssueWire,
+  ): Promise<ShipOrder> {
+    const intentKey = `cancel:${attempt.leaseGeneration}`
+    const intent = this.deps.repository.latestStepForEffect(attempt.id, intentKey)
+    if (!intent || (intent.state !== 'planned' && intent.state !== 'running')) {
+      throw new Error(`ship order ${order.id} has no unsettled durable cancellation intent`)
+    }
+    const terminalSteps: ShipStep[] = []
+    const operation = this.operationFor(order.state)
+    if (operation) {
+      try {
+        this.deps.authorization.reauthorize({
+          order,
+          issue,
+          machineId: attempt.machineId,
+          effect: 'cancel',
+        })
+      } catch (error) {
+        const summary = error instanceof Error ? error.message : String(error)
+        await this.hold(
+          order,
+          attempt,
+          'policy-refused',
+          'Shipping cancellation authorization changed',
+          summary,
+          [],
+          undefined,
+          this.cancellationFailure(order, attempt, intentKey, 'authorization-refused', summary),
+        )
+        return this.requiredOrder(order.id)
+      }
+      let result: ShippingJobResult
+      try {
+        result = await this.deps.daemon.shippingJob(
+          this.jobInput(order, attempt, issue, operation, 'cancel'),
+          attempt.machineId,
+        )
+        this.assertJobResultFence(order, attempt, operation, result)
+      } catch (error) {
+        const summary = error instanceof Error ? error.message : String(error)
+        await this.hold(
+          order,
+          attempt,
+          'machine-unavailable',
+          'Shipping cancellation could not be dispatched',
+          summary,
+          [],
+          undefined,
+          this.cancellationFailure(order, attempt, intentKey, 'cancel-error', summary),
+        )
+        return this.requiredOrder(order.id)
+      }
+      if (result.state !== 'cancelled' && result.state !== 'succeeded') {
+        await this.hold(
+          order,
+          attempt,
+          'machine-unavailable',
+          'Shipping cancellation could not be settled',
+          result.summary,
+          result.artifactRefs,
+          undefined,
+          this.cancellationFailure(
+            order,
+            attempt,
+            intentKey,
+            result.classification,
+            result.summary,
+          ),
+        )
+        return this.requiredOrder(order.id)
+      }
+      const effectKey = `${operation}:${attempt.leaseGeneration}`
+      const latest = this.deps.repository.latestStepForEffect(attempt.id, effectKey)
+      if (latest && !terminalStep(latest)) {
+        const finishedAt = result.finishedAt ?? this.now()
+        terminalSteps.push({
+          ...this.step(
+            order,
+            attempt,
+            effectKey,
+            operation,
+            'cancelled',
+            latest.startedAt ?? finishedAt,
+          ),
+          outcome: result.classification,
+          summary: result.summary,
+          finishedAt,
+          ...(result.artifactRefs[0] ? { artifactRef: result.artifactRefs[0] } : {}),
+        })
+      }
+    }
+    const liveIntent = this.deps.repository.latestStepForEffect(attempt.id, intentKey)
+    if (!liveIntent || (liveIntent.state !== 'planned' && liveIntent.state !== 'running')) {
+      throw new Error(`ship order ${order.id} lost durable cancellation intent`)
+    }
+    const at = this.now()
+    terminalSteps.push({
+      ...this.step(order, attempt, intentKey, 'cancel', 'succeeded', liveIntent.startedAt ?? at),
+      outcome: 'cancelled',
+      summary: 'shipping cancellation settled before custody release',
+      finishedAt: at,
+    })
+    const cancelled = { ...order, state: 'cancelled' as const, stateChangedAt: at }
+    const result = this.deps.issues.shippingCommit(
+      order.issueId,
+      {
+        expectedStage: 'shipping',
+        nextStage: 'review',
+        needsHuman: false,
+        shipOrderChanges: this.projectionSpecs(this.replaceOrder(cancelled)),
+        event: { kind: 'issue.shipping_cancelled', payload: { orderId: order.id } },
+      },
+      () =>
+        this.deps.repository.cancelAttemptAndOrder(
+          order.id,
+          order.state as Extract<
+            ShipOrderState,
+            'queued' | 'preflight' | 'composing' | 'validating' | 'repairing'
+          >,
+          at,
+          {
+            attemptId: attempt.id,
+            generation: attempt.leaseGeneration,
+            terminalSteps,
+          },
+        ),
     ).result
     this.leases.delete(order.id)
     return result
@@ -830,10 +900,7 @@ export class ShippingService {
       write: () =>
         this.deps.repository.claimAttempt({
           orderId: order.id,
-          expectedState: order.state as Exclude<
-            ShipOrderState,
-            'held' | 'shipped' | 'cancelled'
-          >,
+          expectedState: order.state as Exclude<ShipOrderState, 'held' | 'shipped' | 'cancelled'>,
           expectedAttemptId: previous?.id ?? null,
           expectedGeneration: previous?.leaseGeneration ?? 0,
           machineId: this.deps.machineFor(issue),
@@ -876,6 +943,7 @@ export class ShippingService {
     attempt: ShipAttempt,
     issue: IssueWire,
     operation: 'preflight' | 'compatibility-land' | 'verify',
+    nextState?: Exclude<ShipOrderState, 'held' | 'shipped'>,
   ): Promise<ShippingJobResult | null> {
     const effectKey = `${operation}:${attempt.leaseGeneration}`
     let latest = this.deps.repository.latestStepForEffect(attempt.id, effectKey)
@@ -907,20 +975,24 @@ export class ShippingService {
         effect: operation,
       })
     } catch (error) {
-      if (!terminalStep(this.deps.repository.latestStepForEffect(attempt.id, effectKey))) {
-        this.deps.repository.appendStep({
-          ...this.step(order, attempt, effectKey, operation, 'failed', startedAt),
-          outcome: 'authorization-refused',
-          summary: error instanceof Error ? error.message : String(error),
-          finishedAt: this.now(),
-        })
-      }
+      const summary = error instanceof Error ? error.message : String(error)
       await this.hold(
         order,
         attempt,
         'policy-refused',
         'Shipping authorization changed',
-        error instanceof Error ? error.message : String(error),
+        summary,
+        [],
+        {
+          effectKey,
+          operation,
+          terminalStep: {
+            ...this.step(order, attempt, effectKey, operation, 'failed', startedAt),
+            outcome: 'authorization-refused',
+            summary,
+            finishedAt: this.now(),
+          },
+        },
       )
       return null
     }
@@ -929,37 +1001,32 @@ export class ShippingService {
       attempt.machineId,
     )
     this.assertJobResultFence(order, attempt, operation, result)
-    if (
-      !this.deps.repository.hasAttemptCustody({
-        orderId: order.id,
-        expectedState: order.state,
-        attemptId: attempt.id,
-        generation: attempt.leaseGeneration,
-      }) ||
-      this.deps.repository.hasCancellationIntent(attempt.id, attempt.leaseGeneration)
-    ) {
-      return null
-    }
     this.heartbeat(order.id, attempt.id, attempt.leaseGeneration)
     if (result.state === 'running') return null
-    if (!terminalStep(this.deps.repository.latestStepForEffect(attempt.id, effectKey))) {
-      this.deps.repository.appendStep({
-        ...this.step(
-          order,
-          attempt,
-          effectKey,
-          operation,
-          result.state === 'succeeded'
-            ? 'succeeded'
-            : result.state === 'cancelled'
-              ? 'cancelled'
-              : 'failed',
-          startedAt,
-        ),
-        outcome: result.classification,
-        summary: result.summary,
-        finishedAt: result.finishedAt ?? this.now(),
-        artifactRef: result.artifactRefs[0],
+    const effect = this.effectCommit(order, attempt, operation, result, startedAt)
+    if (result.state === 'succeeded' && nextState) {
+      const changedAt = result.finishedAt ?? this.now()
+      try {
+        this.deps.ledger.commit({
+          write: () =>
+            this.deps.repository.commitEffectResult({
+              orderId: order.id,
+              expectedState: order.state,
+              attemptId: attempt.id,
+              generation: attempt.leaseGeneration,
+              ...effect,
+              outcome: { kind: 'transition', nextState, stateChangedAt: changedAt },
+            }),
+          changes: () => this.projectionSpecs(),
+        })
+      } catch (error) {
+        if (this.isEffectCustodyRefusal(error)) return null
+        throw error
+      }
+      this.audit('shipping.order_state_changed', order.issueId, {
+        orderId: order.id,
+        from: order.state,
+        to: nextState,
       })
     }
     if (result.state === 'held') {
@@ -970,6 +1037,7 @@ export class ShippingService {
         this.holdHeadline(result),
         result.summary,
         result.artifactRefs,
+        effect,
       )
     } else if (result.state === 'cancelled') {
       // The daemon may durably record cancellation before the server commits
@@ -982,6 +1050,7 @@ export class ShippingService {
         'Shipping execution was cancelled',
         'The daemon journal recorded cancellation before server custody settled; choose retry or return to the issue.',
         result.artifactRefs,
+        effect,
       )
     }
     return result
@@ -994,13 +1063,13 @@ export class ShippingService {
     headline: string,
     detail: string,
     evidenceRefs: string[] = [],
+    effect?: {
+      effectKey: string
+      operation: ShipStep['kind']
+      terminalStep: ShipStep
+    },
+    cancellationFailure?: { intentKey: string; terminalStep: ShipStep },
   ): Promise<void> {
-    if (!attempt.finishedAt) {
-      this.deps.repository.finishAttempt(attempt.id, attempt.leaseGeneration, {
-        finishedAt: this.now(),
-        outcome: 'failed',
-      })
-    }
     const generation =
       Math.max(
         0,
@@ -1044,7 +1113,34 @@ export class ShippingService {
           },
         },
       },
-      () => this.deps.repository.raiseHold(hold),
+      () =>
+        effect
+          ? this.deps.repository.commitEffectResult({
+              orderId: order.id,
+              expectedState: order.state,
+              attemptId: attempt.id,
+              generation: attempt.leaseGeneration,
+              ...effect,
+              outcome: { kind: 'hold', hold, attemptFinishedAt: raisedAt },
+            })
+          : cancellationFailure
+            ? this.deps.repository.commitCancellationHold({
+                orderId: order.id,
+                expectedState: order.state,
+                attemptId: attempt.id,
+                generation: attempt.leaseGeneration,
+                ...cancellationFailure,
+                hold,
+                attemptFinishedAt: raisedAt,
+              })
+            : this.deps.repository.commitCustodyHold({
+                orderId: order.id,
+                expectedState: order.state,
+                attemptId: attempt.id,
+                generation: attempt.leaseGeneration,
+                hold,
+                attemptFinishedAt: raisedAt,
+              }),
     )
     this.leases.delete(order.id)
   }
@@ -1081,6 +1177,121 @@ export class ShippingService {
       recordedAt: at,
       ...(state === 'planned' ? {} : { startedAt }),
     }
+  }
+
+  private effectCommit(
+    order: ShipOrder,
+    attempt: ShipAttempt,
+    operation: 'preflight' | 'compatibility-land' | 'verify',
+    result: ShippingJobResult,
+    startedAt = this.deps.repository.latestStepForEffect(
+      attempt.id,
+      `${operation}:${attempt.leaseGeneration}`,
+    )?.startedAt ?? this.now(),
+  ): { effectKey: string; operation: ShipStep['kind']; terminalStep: ShipStep } {
+    const effectKey = `${operation}:${attempt.leaseGeneration}`
+    return {
+      effectKey,
+      operation,
+      terminalStep: {
+        ...this.step(
+          order,
+          attempt,
+          effectKey,
+          operation,
+          result.state === 'succeeded'
+            ? 'succeeded'
+            : result.state === 'cancelled'
+              ? 'cancelled'
+              : 'failed',
+          startedAt,
+        ),
+        outcome: result.classification,
+        summary: result.summary,
+        finishedAt: result.finishedAt ?? this.now(),
+        ...(result.artifactRefs[0] ? { artifactRef: result.artifactRefs[0] } : {}),
+      },
+    }
+  }
+
+  private cancellationFailure(
+    order: ShipOrder,
+    attempt: ShipAttempt,
+    intentKey: string,
+    outcome: string,
+    summary: string,
+  ): { intentKey: string; terminalStep: ShipStep } {
+    const intent = this.deps.repository.latestStepForEffect(attempt.id, intentKey)
+    const finishedAt = this.now()
+    return {
+      intentKey,
+      terminalStep: {
+        ...this.step(
+          order,
+          attempt,
+          intentKey,
+          'cancel',
+          'failed',
+          intent?.startedAt ?? finishedAt,
+        ),
+        outcome,
+        summary,
+        finishedAt,
+      },
+    }
+  }
+
+  private async assertLiveAdmissionSnapshot(
+    issue: IssueWire,
+    targetBranch: string,
+    expectedSourceHead: string,
+    expectedTargetHead: string,
+    expectedDescendants: readonly DescendantTip[],
+  ): Promise<void> {
+    const descendants = this.deps.issues.children(issue.id, true)
+    if (descendants.some((child) => child.stage !== 'done' || !child.branch)) {
+      throw new ShippingAdmissionError(
+        'descendant-incomplete',
+        'descendant shipping eligibility changed before custody could commit',
+      )
+    }
+    const [sourceHead, targetHead, ...descendantHeads] = await Promise.all([
+      this.deps.resolveBranchTip(issue),
+      this.deps.resolveRefTip(issue, targetBranch),
+      ...descendants.map((child) => this.deps.resolveBranchTip(child)),
+    ])
+    const liveDescendants = descendants.map((child, index) => ({
+      issueId: child.id,
+      approvedHeadSha: descendantHeads[index] as string,
+    }))
+    if (
+      sourceHead !== expectedSourceHead ||
+      targetHead !== expectedTargetHead ||
+      !integrationReceiptMatchesOrder(
+        {
+          rootIssueId: issue.id,
+          approvedHeadSha: expectedSourceHead,
+          descendants: expectedDescendants as DescendantTip[],
+        },
+        {
+          issueId: issue.id,
+          approvedHeadSha: sourceHead,
+          descendantManifest: liveDescendants,
+        },
+      )
+    ) {
+      throw new ShippingAdmissionError(
+        'source-stale',
+        'repository refs changed before shipping custody could commit',
+      )
+    }
+  }
+
+  private isEffectCustodyRefusal(error: unknown): boolean {
+    return (
+      error instanceof Error &&
+      /effect custody fence failed|durable cancellation intent/.test(error.message)
+    )
   }
 
   private jobInput(

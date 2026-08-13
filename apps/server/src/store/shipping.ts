@@ -447,7 +447,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`illegal ship order transition ${expectedState} → ${nextState}`)
     }
     const attempt = this.latestAttemptForOrder(id)
-    if (nextState !== 'cancelled' && attempt && this.hasCancellationIntent(attempt.id, attempt.leaseGeneration)) {
+    if (
+      nextState !== 'cancelled' &&
+      attempt &&
+      this.hasCancellationIntent(attempt.id, attempt.leaseGeneration)
+    ) {
       throw new Error(`ship order ${id} has durable cancellation intent`)
     }
     const result = this.db
@@ -525,8 +529,8 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   }
 
   /** Claim one active order through its durable order/attempt winner. Recovery
-   * supersedes an unfinished prior attempt and always mints generation + 1;
-   * another server that read the same winner loses the compare-and-swap. */
+   * supersedes an unfinished prior attempt and mints generation + 1 unless the
+   * old winner has durable cancellation intent, which must settle in place. */
   claimAttempt(input: {
     orderId: string
     expectedState: Exclude<ShipOrderState, 'held' | 'shipped' | 'cancelled'>
@@ -549,6 +553,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         (latest?.leaseGeneration ?? 0) !== input.expectedGeneration
       ) {
         throw new Error(`ship order ${order.id} attempt claim was superseded`)
+      }
+      if (latest && this.hasCancellationIntent(latest.id, latest.leaseGeneration)) {
+        throw new Error(`ship order ${order.id} has durable cancellation intent`)
       }
       if (latest && !latest.finishedAt) {
         this.finishAttempt(latest.id, latest.leaseGeneration, {
@@ -592,6 +599,201 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     )
   }
 
+  /** Commit the result of one awaited daemon effect while its durable custody
+   * facts are still current. The journal append and the state change it
+   * authorizes share one transaction, so cancellation or a newer generation
+   * cannot win between a read fence and a write. */
+  commitEffectResult(input: {
+    orderId: string
+    expectedState: ShipOrderState
+    attemptId: string
+    generation: number
+    effectKey: string
+    operation: ShipStepValue['kind']
+    terminalStep: ShipStepValue
+    outcome:
+      | {
+          kind: 'transition'
+          nextState: Exclude<ShipOrderState, 'held' | 'shipped'>
+          stateChangedAt: string
+        }
+      | { kind: 'hold'; hold: ShipHoldValue; attemptFinishedAt: string }
+      | {
+          kind: 'verified'
+          receipt: DeliveryReceiptValue
+          attemptFinishedAt: string
+        }
+  }): ShipOrderValue {
+    return transaction(this.db, () => {
+      const order = this.getOrder(input.orderId)
+      const latestAttempt = this.latestAttemptForOrder(input.orderId)
+      if (
+        !order ||
+        order.state !== input.expectedState ||
+        !latestAttempt ||
+        latestAttempt.id !== input.attemptId ||
+        latestAttempt.leaseGeneration !== input.generation ||
+        latestAttempt.finishedAt !== undefined
+      ) {
+        throw new Error(`ship order ${input.orderId} effect custody fence failed`)
+      }
+      if (this.hasCancellationIntent(input.attemptId, input.generation)) {
+        throw new Error(`ship order ${input.orderId} has durable cancellation intent`)
+      }
+      if (
+        input.terminalStep.orderId !== input.orderId ||
+        input.terminalStep.attemptId !== input.attemptId ||
+        input.terminalStep.generation !== input.generation ||
+        input.terminalStep.effectKey !== input.effectKey ||
+        input.terminalStep.kind !== input.operation ||
+        !isTerminalShipStepState(input.terminalStep.state)
+      ) {
+        throw new Error(`ship order ${input.orderId} terminal effect step fence failed`)
+      }
+      const latestStep = this.latestStepForEffect(input.attemptId, input.effectKey)
+      if (
+        !latestStep ||
+        latestStep.effectKey !== input.effectKey ||
+        latestStep.kind !== input.operation ||
+        latestStep.generation !== input.generation
+      ) {
+        throw new Error(`ship order ${input.orderId} effect step fence failed`)
+      }
+      if (latestStep.state === 'running') {
+        this.appendStep(input.terminalStep)
+      } else if (
+        !isTerminalShipStepState(latestStep.state) ||
+        latestStep.state !== input.terminalStep.state ||
+        latestStep.outcome !== input.terminalStep.outcome ||
+        latestStep.summary !== input.terminalStep.summary ||
+        latestStep.finishedAt !== input.terminalStep.finishedAt ||
+        latestStep.artifactRef !== input.terminalStep.artifactRef
+      ) {
+        throw new Error(`ship order ${input.orderId} effect result is not an exact replay`)
+      }
+
+      if (input.outcome.kind === 'transition') {
+        return this.transitionOrder(
+          input.orderId,
+          input.expectedState,
+          input.outcome.nextState,
+          input.outcome.stateChangedAt,
+        )
+      }
+      if (input.outcome.kind === 'hold') {
+        this.finishAttempt(input.attemptId, input.generation, {
+          finishedAt: input.outcome.attemptFinishedAt,
+          outcome: 'failed',
+        })
+        this.raiseHold(input.outcome.hold)
+        return this.getOrder(input.orderId) as ShipOrderValue
+      }
+      const receipt = input.outcome.receipt
+      this.finishAttempt(input.attemptId, input.generation, {
+        finishedAt: input.outcome.attemptFinishedAt,
+        outcome: 'succeeded',
+        testedIntegrationSha: receipt.testedIntegrationSha,
+        landedRefSha: receipt.landedRefSha,
+        destinationSha: receipt.destinationSha,
+        validationProfileId: receipt.validationProfileId,
+        validationResult: 'passed',
+      })
+      this.completeVerifiedOrder(receipt)
+      return this.getOrder(input.orderId) as ShipOrderValue
+    })
+  }
+
+  /** Atomically close a cancellation intent that cannot be completed and move
+   * the order into a human hold. This prevents any crash boundary from leaving
+   * a finished attempt paired with a supersedable running cancel journal. */
+  commitCancellationHold(input: {
+    orderId: string
+    expectedState: ShipOrderState
+    attemptId: string
+    generation: number
+    intentKey: string
+    terminalStep: ShipStepValue
+    hold: ShipHoldValue
+    attemptFinishedAt: string
+  }): ShipOrderValue {
+    return transaction(this.db, () => {
+      const order = this.getOrder(input.orderId)
+      const latestAttempt = this.latestAttemptForOrder(input.orderId)
+      const intent = this.latestStepForEffect(input.attemptId, input.intentKey)
+      if (
+        !order ||
+        order.state !== input.expectedState ||
+        !latestAttempt ||
+        latestAttempt.id !== input.attemptId ||
+        latestAttempt.leaseGeneration !== input.generation ||
+        latestAttempt.finishedAt !== undefined ||
+        !intent ||
+        intent.effectKey !== input.intentKey ||
+        intent.kind !== 'cancel' ||
+        intent.generation !== input.generation ||
+        (intent.state !== 'planned' && intent.state !== 'running')
+      ) {
+        throw new Error(`ship order ${input.orderId} cancellation hold custody fence failed`)
+      }
+      if (
+        input.terminalStep.orderId !== input.orderId ||
+        input.terminalStep.attemptId !== input.attemptId ||
+        input.terminalStep.effectKey !== input.intentKey ||
+        input.terminalStep.generation !== input.generation ||
+        input.terminalStep.kind !== 'cancel' ||
+        !isTerminalShipStepState(input.terminalStep.state)
+      ) {
+        throw new Error(`ship order ${input.orderId} cancellation hold step fence failed`)
+      }
+      if (intent.state === 'planned') {
+        throw new Error(`ship order ${input.orderId} cancellation intent was not dispatched`)
+      }
+      this.appendStep(input.terminalStep)
+      this.finishAttempt(input.attemptId, input.generation, {
+        finishedAt: input.attemptFinishedAt,
+        outcome: 'failed',
+      })
+      this.raiseHold(input.hold)
+      return this.getOrder(input.orderId) as ShipOrderValue
+    })
+  }
+
+  /** Raise a pre-effect hold under the same order/attempt custody fence used
+   * for daemon results. No journal result exists yet, but generation and
+   * cancellation intent must still be checked atomically with the transition. */
+  commitCustodyHold(input: {
+    orderId: string
+    expectedState: ShipOrderState
+    attemptId: string
+    generation: number
+    hold: ShipHoldValue
+    attemptFinishedAt: string
+  }): ShipOrderValue {
+    return transaction(this.db, () => {
+      const order = this.getOrder(input.orderId)
+      const latestAttempt = this.latestAttemptForOrder(input.orderId)
+      if (
+        !order ||
+        order.state !== input.expectedState ||
+        !latestAttempt ||
+        latestAttempt.id !== input.attemptId ||
+        latestAttempt.leaseGeneration !== input.generation ||
+        latestAttempt.finishedAt !== undefined
+      ) {
+        throw new Error(`ship order ${input.orderId} hold custody fence failed`)
+      }
+      if (this.hasCancellationIntent(input.attemptId, input.generation)) {
+        throw new Error(`ship order ${input.orderId} has durable cancellation intent`)
+      }
+      this.finishAttempt(input.attemptId, input.generation, {
+        finishedAt: input.attemptFinishedAt,
+        outcome: 'failed',
+      })
+      this.raiseHold(input.hold)
+      return this.getOrder(input.orderId) as ShipOrderValue
+    })
+  }
+
   finishAttempt(
     id: string,
     leaseGeneration: number,
@@ -607,6 +809,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   ): ShipAttemptValue {
     const attempt = this.getAttempt(id)
     if (!attempt) throw new Error(`unknown ship attempt ${id}`)
+    if (attempt.leaseGeneration !== leaseGeneration) {
+      throw new Error(`ship attempt ${id} generation fence failed: expected ${leaseGeneration}`)
+    }
     if (attempt.finishedAt) {
       const identical =
         attempt.finishedAt === result.finishedAt &&

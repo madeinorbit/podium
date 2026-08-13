@@ -1747,6 +1747,7 @@ export class SessionRegistry {
           if (!userId) throw new Error('shipping order has no human authorization owner')
           const role = this.store.users.roleOf(userId)
           if (!role) throw new Error(`shipping requester ${userId} is no longer active`)
+          const humanPrincipal = userCommandPrincipal(userId, role)
           let principal: CommandPrincipal
           if (attribution.actor.kind === 'agent') {
             const sessionId = asSessionId(attribution.actor.id)
@@ -1768,6 +1769,15 @@ export class SessionRegistry {
             'write',
             issue.id,
           )
+          if (principal.kind === 'agent') {
+            checkIssueAccess(
+              { capability: humanPrincipal.capability },
+              issueAccess,
+              `shipping.${effect}.owner`,
+              'write',
+              issue.id,
+            )
+          }
           const machineAccess = checkMachineUse(
             principal,
             machineId,
@@ -1782,13 +1792,7 @@ export class SessionRegistry {
           }
         },
       },
-      evidence: {
-        // Replaced by the typed durable receipt repository when the blocking
-        // foundation amendment lands. Refusing is safer than treating an event
-        // payload as the evidence record.
-        resolveIntegrationReceipt: () => null,
-        persistAccepted: () => {},
-      },
+      evidence: this.store.shipping,
       policy: new CompatibilityShippingPolicyResolver(
         () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
       ),
