@@ -631,7 +631,22 @@ fn ensure_executable_into(src: &Path, cache_dir: &Path) -> std::io::Result<PathB
 ///
 /// Cache location: `$PODIUM_STATE_DIR/bin/podium-sidecar` if set,
 /// otherwise `~/.podium/bin/podium-sidecar`.
+///
+/// macOS is exempt: the sidecar runs from inside the .app, never a copy. Copying it out is what
+/// produced `"podium-sidecar" is damaged and can't be opened` on the first notarized build, for
+/// two independent reasons, either fatal on its own:
+///
+///   1. The notarization ticket is stapled to `Podium.app`, not to each nested binary. A lone copy
+///      in ~/.podium/bin has no ticket, so Gatekeeper cannot validate it offline.
+///   2. `fs::copy` on macOS copies extended attributes, carrying `com.apple.quarantine` from the
+///      downloaded bundle onto the copy — which is what makes Gatekeeper assess it at all.
+///
+/// Neither problem the copy solves exists here: a .app is not a read-only AppImage mount, and the
+/// bundled binary is already executable, signed, and covered by the app's stapled ticket.
 pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
+    if cfg!(target_os = "macos") {
+        return Ok(path.to_path_buf());
+    }
     let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         format!("{home}/.podium")
@@ -1156,6 +1171,24 @@ mod tests {
     fn wait_for_port_times_out_on_a_closed_port() {
         // A port nothing is listening on returns false quickly.
         assert!(!wait_for_port(1, 2, 10));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn ensure_executable_never_copies_the_signed_sidecar_out_of_the_bundle() {
+        use std::fs;
+        // Copying the sidecar to ~/.podium/bin strands it outside the app's stapled notarization
+        // ticket and drags com.apple.quarantine along, which Gatekeeper reports to the user as
+        // `"podium-sidecar" is damaged and can't be opened`. Run it where it was notarized.
+        let dir = std::env::temp_dir().join("podium-ensure-exec-macos");
+        fs::create_dir_all(&dir).expect("temp dir");
+        let src = dir.join("podium");
+        fs::write(&src, b"#!/bin/sh\nexit 0\n").expect("write src");
+
+        let resolved = ensure_executable(&src).expect("ensure_executable failed");
+
+        assert_eq!(resolved, src, "macOS must run the sidecar in place");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
