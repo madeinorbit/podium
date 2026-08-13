@@ -540,6 +540,12 @@ export function listLiveAbducoLabels(
       continue
     }
     for (const name of names) {
+      // abduco binds `.abduco-<pid>` and renames it into place, and the temp is
+      // left behind whenever that does not complete — 6944 of them on the box
+      // this was written on. They are not sessions, and their mode is abduco's
+      // business, not a contract: exclude them by name rather than trusting the
+      // permission bits below to keep classifying them as dead.
+      if (name.startsWith('.')) continue
       // Relative names are stored `<label>@<hostname>`; the label is the part
       // before the FIRST '@' (podium labels never contain one).
       const label = name.split('@')[0]

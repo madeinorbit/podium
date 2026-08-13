@@ -86,6 +86,10 @@ describe('listLiveAbducoLabels', () => {
       // It owns the NAME but there is no agent behind it, so a row parked over
       // this one is telling the truth and must not be revived.
       ['podium-terminated@host', 0o610],
+      // abduco's own bind temp, left behind when the rename never happened.
+      // Thousands accumulate; none of them is a session. Deliberately given
+      // LIVE-looking bits here so the exclusion cannot pass on the mode test.
+      ['.abduco-4242', 0o600],
     ] as const) {
       const socket = join(dir, name)
       writeFileSync(socket, '')
