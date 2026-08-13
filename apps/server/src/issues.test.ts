@@ -9,6 +9,7 @@ import {
   asThreadId,
   asUserId,
   FIRST_ADMIN_USER_ID,
+  type DescendantTip,
   type IssueId,
   type UserId,
   type SessionMeta,
@@ -3958,6 +3959,105 @@ describe('IssueService.integrate (issue #70)', () => {
     ])
   })
 
+  it('flattens nested tips only from an exact immutable child integration receipt', async () => {
+    const h = harness()
+    const { epic, children } = epicWith(h, [{}])
+    const child = children[0]!
+    const grandchild = h.svc.create({
+      repoPath: '/r',
+      title: 'Nested',
+      parentId: child.id,
+      startNow: false,
+    })
+    const grandchildBranch = `issue/${grandchild.seq}-nested`
+    h.svc.update(grandchild.id, { branch: grandchildBranch })
+    h.svc.close(grandchild.id)
+    const rootSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const childSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    const grandchildSha = 'dddddddddddddddddddddddddddddddddddddddd'
+    h.store.shipping.recordRootIntegrationReceipt({
+      rootIssueId: child.id,
+      approvedHeadSha: childSha,
+      descendants: [{ issueId: grandchild.id, approvedHeadSha: grandchildSha }],
+    })
+    scriptOps(h.deps, (op, args) => {
+      if (op === 'status') return GONE
+      if (op !== 'revParseVerify') return undefined
+      if (args?.ref === INT_BR) return { ok: true, output: rootSha }
+      if (args?.ref === child.branch) return { ok: true, output: childSha }
+      if (args?.ref === grandchildBranch) return { ok: true, output: grandchildSha }
+      return undefined
+    })
+
+    const result = await h.svc.integrate(epic.id, AS_OPERATOR)
+
+    expect(result.ok).toBe(true)
+    const expected: DescendantTip[] = [
+      { issueId: child.id, approvedHeadSha: childSha },
+      { issueId: grandchild.id, approvedHeadSha: grandchildSha },
+    ].sort((left, right) => left.issueId.localeCompare(right.issueId))
+    expect(h.store.shipping.rootIntegrationReceipt(epic.id, rootSha)).toEqual({
+      rootIssueId: epic.id,
+      approvedHeadSha: rootSha,
+      descendants: expected,
+    })
+  })
+
+  it.each([
+    'missing',
+    'stale',
+  ] as const)('refuses nested integration when the child receipt is %s', async (proof) => {
+    const h = harness()
+    const { epic, children } = epicWith(h, [{}])
+    const child = children[0]!
+    const grandchild = h.svc.create({
+      repoPath: '/r',
+      title: 'Nested',
+      parentId: child.id,
+      startNow: false,
+    })
+    const grandchildBranch = `issue/${grandchild.seq}-nested`
+    h.svc.update(grandchild.id, { branch: grandchildBranch })
+    h.svc.close(grandchild.id)
+    const rootSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const childSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    const currentGrandchildSha = 'dddddddddddddddddddddddddddddddddddddddd'
+    if (proof === 'stale') {
+      h.store.shipping.recordRootIntegrationReceipt({
+        rootIssueId: child.id,
+        approvedHeadSha: childSha,
+        descendants: [
+          {
+            issueId: grandchild.id,
+            approvedHeadSha: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+          },
+        ],
+      })
+    }
+    scriptOps(h.deps, (op, args) => {
+      if (op === 'status') return GONE
+      if (op !== 'revParseVerify') return undefined
+      if (args?.ref === INT_BR) return { ok: true, output: rootSha }
+      if (args?.ref === child.branch) return { ok: true, output: childSha }
+      if (args?.ref === grandchildBranch) return { ok: true, output: currentGrandchildSha }
+      return undefined
+    })
+
+    const result = await h.svc.integrate(epic.id, AS_OPERATOR)
+
+    expect(result.ok).toBe(false)
+    expect(result.output).toMatch(
+      /no current integration receipt for its exact nested descendant tips/,
+    )
+    expect(h.store.shipping.rootIntegrationReceipt(epic.id, rootSha)).toBeNull()
+    expect(
+      h.store.issues
+        .listIssueComments(epic.id)
+        .filter((comment) => comment.author === 'system:integrate'),
+    ).toEqual([])
+    expect(h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })).toEqual([])
+  })
+
   it('does not publish success side effects when receipt persistence fails', async () => {
     const h = harness()
     const { epic } = epicWith(h, [{}])
@@ -4076,11 +4176,30 @@ describe('IssueService.integrate (issue #70)', () => {
     const { epic, children } = epicWith(h, [{}])
     const child = children[0]!
     const temp = `integrate-tmp/${child.seq}`
+    const rootSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const originalChildSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    const tempResultSha = 'cccccccccccccccccccccccccccccccccccccccc'
     let ffTried = false
+    let mergedTempResult: string | undefined
+    let tempDeleted = false
     const calls = scriptOps(h.deps, (op, args) => {
       if (op === 'mergeFfOnly' && args?.branch === child.branch && !ffTried) {
         ffTried = true
         return { ok: false, output: 'fatal: Not possible to fast-forward, aborting.' }
+      }
+      if (op === 'mergeFfOnly' && args?.branch === temp) {
+        mergedTempResult = tempResultSha
+        return { ok: true, output: tempResultSha }
+      }
+      if (op === 'branchDeleteForce' && args?.branch === temp) {
+        tempDeleted = true
+        return { ok: true, output: '' }
+      }
+      if (op === 'revParseVerify' && args?.ref === INT_BR) {
+        return { ok: true, output: rootSha }
+      }
+      if (op === 'revParseVerify' && args?.ref === child.branch) {
+        return { ok: true, output: originalChildSha }
       }
       return undefined
     })
@@ -4095,6 +4214,14 @@ describe('IssueService.integrate (issue #70)', () => {
       { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: temp } },
       { op: 'branchDeleteForce', cwd: INT_WT, args: { branch: temp } },
     ])
+    expect(mergedTempResult).toBe(tempResultSha)
+    expect(tempDeleted).toBe(true)
+    expect(new Set([rootSha, originalChildSha, tempResultSha]).size).toBe(3)
+    expect(h.store.shipping.rootIntegrationReceipt(epic.id, rootSha)).toEqual({
+      rootIssueId: epic.id,
+      approvedHeadSha: rootSha,
+      descendants: [{ issueId: child.id, approvedHeadSha: originalChildSha }],
+    })
     const ev = h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect((ev[0]!.payload as { integrated: number[] }).integrated).toEqual([child.seq])
   })

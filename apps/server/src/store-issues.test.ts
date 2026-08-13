@@ -8,6 +8,7 @@ import {
   asShipHoldId,
   asShipOrderId,
   asShipStepId,
+  integrationReceiptMatchesOrder,
   type DeliveryReceipt,
   type ShipOrder,
 } from '@podium/model'
@@ -17,6 +18,7 @@ import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
+import type { RootIntegrationReceiptStore } from './store/shipping'
 import { shipOrderProjectionRows } from './modules/shipping/projection'
 import { runDrizzleMigrations } from './migrations'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
@@ -676,6 +678,38 @@ describe('shipping durable store', () => {
       restarted.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha),
     ).toEqual(canonical)
     restarted.close()
+  })
+
+  it('exposes exact current proof through the typed admission retrieval port', () => {
+    const s = new SessionStore(':memory:')
+    const rootIssueId = asIssueId('iss_1')
+    const childA = { issueId: asIssueId('iss_child_a'), approvedHeadSha: 'sha-a' }
+    const childB = { issueId: asIssueId('iss_child_b'), approvedHeadSha: 'sha-b' }
+    s.issues.upsertIssue(base())
+    s.shipping.recordRootIntegrationReceipt({
+      rootIssueId,
+      approvedHeadSha: 'integrated-root-head',
+      descendants: [childA, childB],
+    })
+
+    const admissionProofs: RootIntegrationReceiptStore = s.shipping
+    const current = admissionProofs.rootIntegrationReceipt(rootIssueId, 'integrated-root-head')
+    expect(current).not.toBeNull()
+    if (!current) throw new Error('expected typed integration proof')
+    expect(
+      integrationReceiptMatchesOrder(current, {
+        issueId: rootIssueId,
+        approvedHeadSha: 'integrated-root-head',
+        descendantManifest: [childB, childA],
+      }),
+    ).toBe(true)
+    expect(
+      integrationReceiptMatchesOrder(current, {
+        issueId: rootIssueId,
+        approvedHeadSha: 'integrated-root-head',
+        descendantManifest: [childA],
+      }),
+    ).toBe(false)
   })
 
   it('persists evidenceManifestRef and a typed current integration receipt', () => {

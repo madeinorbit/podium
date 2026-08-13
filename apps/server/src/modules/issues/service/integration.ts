@@ -1,4 +1,9 @@
-import type { DescendantTip, IssueId, IssueWire } from '@podium/model'
+import {
+  integrationReceiptMatchesOrder,
+  type DescendantTip,
+  type IssueId,
+  type IssueWire,
+} from '@podium/model'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { IssueRow } from '../../../store'
 import type { RootIntegrationReceiptStore } from '../../../store/shipping'
@@ -200,19 +205,55 @@ export class IssueEpicIntegrationModule {
           `integrate: cannot resolve rebuilt root head: ${this.gitSummary(rootHead.output)}`,
         )
       }
-      const descendants = this.integratedDescendants(ordered)
       const descendantTips: DescendantTip[] = []
-      for (const descendant of descendants) {
+      for (const child of ordered) {
         const tip = await this.store.d.repoOp('revParseVerify', worktree, {
-          ref: descendant.branch,
+          ref: child.branch,
         })
         if (!tip.ok) {
           return refuse(
-            `integrate: cannot resolve descendant #${descendant.seq} head: ${this.gitSummary(tip.output)}`,
+            `integrate: cannot resolve descendant #${child.seq} head: ${this.gitSummary(tip.output)}`,
           )
         }
         const approvedHeadSha = tip.output.trim()
-        descendantTips.push({ issueId: descendant.id, approvedHeadSha })
+        descendantTips.push({ issueId: child.id, approvedHeadSha })
+
+        const nested = this.descendantsOf(child.id)
+        if (nested.length === 0) continue
+        const nestedTips: DescendantTip[] = []
+        for (const descendant of nested) {
+          if (!this.store.isClosed(descendant) || !descendant.branch) {
+            return refuse(
+              `integrate: cannot mint receipt: nested descendant #${descendant.seq} is not a closed branch-backed integration input`,
+            )
+          }
+          const nestedTip = await this.store.d.repoOp('revParseVerify', worktree, {
+            ref: descendant.branch,
+          })
+          if (!nestedTip.ok) {
+            return refuse(
+              `integrate: cannot resolve nested descendant #${descendant.seq} head: ${this.gitSummary(nestedTip.output)}`,
+            )
+          }
+          nestedTips.push({ issueId: descendant.id, approvedHeadSha: nestedTip.output.trim() })
+        }
+        const childReceipt = this.integrationReceipts.rootIntegrationReceipt(
+          child.id,
+          approvedHeadSha,
+        )
+        if (
+          !childReceipt ||
+          !integrationReceiptMatchesOrder(childReceipt, {
+            issueId: child.id,
+            approvedHeadSha,
+            descendantManifest: nestedTips,
+          })
+        ) {
+          return refuse(
+            `integrate: cannot mint receipt: child #${child.seq} has no current integration receipt for its exact nested descendant tips`,
+          )
+        }
+        descendantTips.push(...childReceipt.descendants)
       }
       try {
         this.integrationReceipts.recordRootIntegrationReceipt({
@@ -245,33 +286,21 @@ export class IssueEpicIntegrationModule {
     return { ok: blockedAt == null, output: summary, issue: this.store.toWire(row) }
   }
 
-  /** Exact closed, branch-backed descendant closure reached through the direct
-   * children this rebuild integrated. An open/branchless descendant is not an
-   * integration input yet; when it becomes one, the next rebuild mints a new
-   * root-head receipt and the previous manifest cannot match admission. */
-  private integratedDescendants(
-    roots: Array<IssueRow & { branch: string }>,
-  ): Array<IssueRow & { branch: string }> {
-    const descendants: Array<IssueRow & { branch: string }> = []
+  /** Current non-deleted descendant closure. Tips from this traversal are never
+   * attested directly: they only validate a matching immutable child receipt,
+   * whose proven descendants are then flattened into the new root receipt. */
+  private descendantsOf(rootIssueId: IssueId): IssueRow[] {
+    const descendants: IssueRow[] = []
     const visit = (parentId: IssueId): void => {
       const children = [...this.store.rows.values()]
-        .filter(
-          (candidate): candidate is IssueRow & { branch: string } =>
-            candidate.parentId === parentId &&
-            !candidate.deletedAt &&
-            this.store.isClosed(candidate) &&
-            !!candidate.branch,
-        )
+        .filter((candidate) => candidate.parentId === parentId && !candidate.deletedAt)
         .sort((left, right) => left.seq - right.seq)
       for (const child of children) {
         descendants.push(child)
         visit(child.id)
       }
     }
-    for (const root of roots) {
-      descendants.push(root)
-      visit(root.id)
-    }
+    visit(rootIssueId)
     return descendants
   }
 
