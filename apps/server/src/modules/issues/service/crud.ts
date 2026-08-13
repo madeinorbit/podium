@@ -5,18 +5,18 @@ import {
   asSessionId,
   asUserId,
   type GrantVerb,
+  type IssueId,
   type IssueWire,
   isSortKey,
   isIssueStage,
   isSystemOwnedIssueStage,
   normalizeClosedPatch,
+  type RepoId,
   type SessionId,
   type SessionMeta,
   sortKeyBetween,
   type UserId,
   type ArtifactId,
-  type IssueId,
-  type RepoId,
 } from '@podium/model'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -101,6 +101,17 @@ export interface IssueLifecyclePlan {
   publish(): void
 }
 
+/** Internal custody mutation used only by the shipping control plane. The
+ * normalized repository write and its compact shipOrder row ride the same
+ * outer Ledger transaction as any issue stage/attention change. */
+export interface ShippingIssueMutation {
+  expectedStage: 'review' | 'shipping'
+  nextStage?: 'shipping' | 'review' | 'done'
+  needsHuman?: boolean
+  shipOrderChanges: readonly EntityChangeSpec[]
+  event?: { kind: string; payload: Record<string, unknown> }
+}
+
 /**
  * CRUD and stage-machine capability:
  * create/update and every close/reopen path, dependency + hierarchy edits,
@@ -129,6 +140,58 @@ export class IssueCrudModule {
     private readonly attention: () => IssueCrudAttentionPort,
     private readonly gitWorkflow: () => IssueCrudGitWorkflowPort,
   ) {}
+
+  shippingCommit<T>(
+    id: IssueId,
+    mutation: ShippingIssueMutation,
+    write: () => T,
+  ): { issue: IssueWire; result: T } {
+    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    if (row.stage !== mutation.expectedStage) {
+      throw new Error(
+        `issue ${row.id} shipping stage fence failed: expected ${mutation.expectedStage}`,
+      )
+    }
+    if (mutation.nextStage) {
+      const legal =
+        (mutation.expectedStage === 'review' && mutation.nextStage === 'shipping') ||
+        (mutation.expectedStage === 'shipping' &&
+          (mutation.nextStage === 'review' || mutation.nextStage === 'done'))
+      if (!legal) {
+        throw new Error(
+          `illegal shipping issue-stage transition ${mutation.expectedStage} → ${mutation.nextStage}`,
+        )
+      }
+      row.stage = mutation.nextStage
+    }
+    const needsHumanBefore = row.needsHuman
+    if (mutation.needsHuman !== undefined) {
+      row.needsHuman = mutation.needsHuman
+      // A ship hold is typed on ShipOrderProjection, never a fake session question.
+      row.humanQuestion = null
+      row.humanQuestionOptions = null
+      row.humanQuestionAskedBy = null
+      row.humanQuestionAskedAt = null
+    }
+    let result: T | undefined
+    const issue = this.store.persistWith(
+      row,
+      () => {
+        result = write()
+      },
+      { extraChanges: mutation.shipOrderChanges },
+    )
+    if (mutation.event) this.store.emitEvent(mutation.event.kind, row.id, mutation.event.payload)
+    if (!needsHumanBefore && mutation.needsHuman === true) {
+      this.store.emitEvent('issue.needs_human', row.id, { seq: row.seq, kind: 'ship-hold' })
+    } else if (needsHumanBefore && mutation.needsHuman === false) {
+      this.store.emitEvent('issue.needs_human_cleared', row.id, {
+        seq: row.seq,
+        kind: 'ship-hold',
+      })
+    }
+    return { issue, result: result as T }
+  }
 
   /** Agent-posted "where things stand" — writes activityNotes directly (the same
    *  field the assistant digest maintains; an explicit agent post is fresher truth

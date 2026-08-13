@@ -1,5 +1,4 @@
 import { isAbsolute, join } from 'node:path'
-import { asMachineId } from '@podium/model'
 import type {
   AgentKind,
   AgentQuotaWire,
@@ -17,6 +16,7 @@ import type {
   TranscriptItem,
   UsageBucketWire,
 } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import type {
   BrowseDirsResultMessage,
   ControlMessage,
@@ -41,6 +41,8 @@ import type {
   ServerTransferManifest,
   ServerTransferManifestEntry,
   ServerTransferResultMessage,
+  ShippingJobRequestMessage,
+  ShippingJobResult,
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
@@ -57,8 +59,8 @@ import {
 import type { LakeReadSession, MemoryService } from '../memory/service'
 import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
-import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
+import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
@@ -170,6 +172,7 @@ const WORKSPACE_CLEAN = daemonRequestKind<Payload<WorkspaceCleanResultMessage>>(
 const CREDENTIAL_EXPORT = daemonRequestKind<Payload<CredentialExportResultMessage>>('ce')
 const CREDENTIAL_INSTALL = daemonRequestKind<Payload<CredentialInstallResultMessage>>('ci')
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
+const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
@@ -266,6 +269,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(CREDENTIAL_EXPORT, msg.requestId, machineId, payloadOf(msg)),
   serverTransferResult: (broker, machineId, msg) =>
     void broker.settle(SERVER_TRANSFER, msg.requestId, machineId, payloadOf(msg)),
+  shippingJobResult: (broker, machineId, msg) =>
+    void broker.settle(SHIPPING_JOB, msg.requestId, machineId, payloadOf(msg)),
   credentialInstallResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
 }
@@ -460,6 +465,34 @@ export class DaemonRpcService {
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
       asMachineId(machineId ?? this.deps.resolveMachine(undefined, cwd)),
+    )
+  }
+
+  /** Purpose-built shipping effect RPC. Its input is a fixed operation schema;
+   * callers cannot smuggle argv or shell text through this boundary. */
+  shippingJob(
+    input: Omit<ShippingJobRequestMessage, 'type' | 'requestId'>,
+    machineId: MachineId,
+  ): Promise<ShippingJobResult> {
+    return this.request(
+      SHIPPING_JOB,
+      40_000,
+      () => ({
+        jobId: input.jobId,
+        orderId: input.orderId,
+        attemptId: input.attemptId,
+        machineId,
+        generation: input.generation,
+        operation: input.operation,
+        state: 'running',
+        classification: 'observed',
+        summary: 'shipping daemon did not answer before the RPC deadline',
+        logs: [],
+        artifactRefs: [],
+        heartbeatedAt: new Date().toISOString(),
+      }),
+      (requestId) => ({ type: 'shippingJobRequest', requestId, ...input }),
+      machineId,
     )
   }
 

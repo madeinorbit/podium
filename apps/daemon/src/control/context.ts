@@ -12,6 +12,7 @@ import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
+import type { ShippingExecutionPlane } from '../shipping/executor'
 import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
 
@@ -102,6 +103,8 @@ export interface DaemonContext {
 
   /** Process-wide admission/drain fence for daemon-owned portable-state mutations. */
   portableStateFence: PortableStateFence
+  /** Restart-safe, purpose-built shipping jobs; never a generic process runner. */
+  shipping: ShippingExecutionPlane
 
   /** Starts the promoted server and returns only after the expected state is serving. */
   restartAfterTransfer?: (

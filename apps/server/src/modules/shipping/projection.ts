@@ -81,3 +81,22 @@ export function shipOrderProjectionRows(
     return { id: order.id, value }
   })
 }
+
+/** One compact row with an optional scheduler-derived lane rank. The rank is
+ * accepted only at this projection edge and never written back to ShipOrder. */
+export function shipOrderProjectionRow(
+  order: ShipOrder,
+  hold?: ShipHold,
+  receipt?: DeliveryReceipt,
+  queueRank?: number,
+): { id: string; value: ShipOrderProjectionValue } | null {
+  const row = shipOrderProjectionRows([order], hold ? [hold] : [], receipt ? [receipt] : [])[0]
+  if (!row) return null
+  return {
+    id: row.id,
+    value: ShipOrderProjection.parse({
+      ...row.value,
+      ...(queueRank === undefined ? {} : { queueRank }),
+    }),
+  }
+}

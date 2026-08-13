@@ -231,6 +231,7 @@ export const CONTROL_PLANE_CLASS = {
   serverTransferAbortRequest: 'control.command',
   serverTransferStatusRequest: 'control.command',
   serverTransferAcknowledgeRequest: 'control.command',
+  shippingJobRequest: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**
@@ -308,6 +309,7 @@ export const DAEMON_PLANE_CLASS = {
   sessionOpenUrl: 'stream.live',
   sessionOpenUrlResult: 'stream.live',
   serverTransferResult: 'control.command',
+  shippingJobResult: 'control.command',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

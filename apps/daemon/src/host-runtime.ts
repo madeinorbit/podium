@@ -3,10 +3,16 @@ import { mkdir, stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
-import { FIRST_ADMIN_USER_ID, type SessionId, type MachineId } from '@podium/model'
+import { createLogger } from '@podium/logger'
+import { FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage, PeerBuild } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
-import { killAbducoSession, killTmuxServer, listLiveAbducoLabels, reapStaleAbducoBindTemps } from '@podium/pty'
+import {
+  killAbducoSession,
+  killTmuxServer,
+  listLiveAbducoLabels,
+  reapStaleAbducoBindTemps,
+} from '@podium/pty'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -48,18 +54,18 @@ import { reportLongTick, startLoopAttribution } from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
 import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
-import { PortableStateFence, type PortableStateControl } from './portable-state-fence'
+import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
+import { ShippingExecutionPlane } from './shipping/executor'
 import { restartAsServer, retireTargetDaemonAfterAcknowledgement } from './transfer-lifecycle'
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:host')
 
@@ -100,6 +106,7 @@ export async function createDaemonHostRuntime(args: {
   const identity = loadIdentity({ dir: identityStateDir })
   const machineId = opts.machineId ?? identity.machineId
   const portableStateFence = new PortableStateFence()
+  const shipping = new ShippingExecutionPlane(join(instance.runtimeDir, 'shipping'), machineId)
   opts.localLink?.attachPortableState?.(portableStateFence)
   await mkdir(instance.runtimeDir, { recursive: true })
   const bindingStore = await BindingStore.open({
@@ -124,8 +131,7 @@ export async function createDaemonHostRuntime(args: {
     {
       writePty: (sessionId, bytes) =>
         bridges.get(sessionId)?.write(Buffer.from(bytes, 'utf8').toString('base64')),
-      onDemote: (sessionId) =>
-        log.warn('draft-sync self-demoted to read-only', { sessionId }),
+      onDemote: (sessionId) => log.warn('draft-sync self-demoted to read-only', { sessionId }),
     },
   )
 
@@ -307,7 +313,10 @@ export async function createDaemonHostRuntime(args: {
     const result = spawnSync(command, args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: Math.max(1, Math.min(timeoutMs ?? GIT_CONVERGENCE_BUDGET_MS, GIT_CONVERGENCE_BUDGET_MS)),
+      timeout: Math.max(
+        1,
+        Math.min(timeoutMs ?? GIT_CONVERGENCE_BUDGET_MS, GIT_CONVERGENCE_BUDGET_MS),
+      ),
       killSignal: 'SIGKILL',
     })
     return {
@@ -369,26 +378,26 @@ export async function createDaemonHostRuntime(args: {
   // One runner per daemon: overlapping grants are serialized here rather than
   // racing to swap the same binary.
   const grantRunner = createGrantRunner({
-      currentVersion: () => build.appVersion ?? 'dev',
-      caps: deliveryCaps(build.installKind),
-      fetchArtifact: (asset, delivery, signal) =>
-        fetchArtifact(asset, delivery, {
-          fetch: globalThis.fetch,
-          pubkey: PODIUM_UPDATE_PUBKEY,
-          pinnedPubkey: identity.updatePubkey,
-          // One budget per convergence, established at the moment delivery
-          // starts rather than once for the life of the daemon.
-          git: { run: withGitBudget(runGit) },
-          ...(signal ? { signal } : {}),
-        }),
-      swap: (bytes) => {
-        if (!installDir) throw new Error('binary delivery requires an installed daemon')
-        swapHeadlessBundle(bytes, installDir)
-      },
-      writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
-      restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
-      report: (status) => send(status),
-      now: Date.now,
+    currentVersion: () => build.appVersion ?? 'dev',
+    caps: deliveryCaps(build.installKind),
+    fetchArtifact: (asset, delivery, signal) =>
+      fetchArtifact(asset, delivery, {
+        fetch: globalThis.fetch,
+        pubkey: PODIUM_UPDATE_PUBKEY,
+        pinnedPubkey: identity.updatePubkey,
+        // One budget per convergence, established at the moment delivery
+        // starts rather than once for the life of the daemon.
+        git: { run: withGitBudget(runGit) },
+        ...(signal ? { signal } : {}),
+      }),
+    swap: (bytes) => {
+      if (!installDir) throw new Error('binary delivery requires an installed daemon')
+      swapHeadlessBundle(bytes, installDir)
+    },
+    writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
+    restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
+    report: (status) => send(status),
+    now: Date.now,
   })
   const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) =>
     grantRunner.apply(grant)
@@ -425,6 +434,7 @@ export async function createDaemonHostRuntime(args: {
     quotaFetcher: makeQuotaFetcher({ ...(homeDir ? { homeDir } : {}) }),
     usageMemo: {},
     portableStateFence,
+    shipping,
     restartAfterTransfer:
       opts.restartAfterTransfer ??
       (async (expected) => {

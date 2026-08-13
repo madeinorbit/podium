@@ -46,6 +46,7 @@ import {
   AgentStateMessage,
 } from './runtime-state'
 import { ServerTransferResultMessage } from './server-transfer'
+import { ShippingJobResultMessage } from './shipping'
 import {
   AgentColorMessage,
   AgentContextMessage,
@@ -205,5 +206,6 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   SessionOpenUrlMessage,
   SessionOpenUrlResultMessage,
   ServerTransferResultMessage,
+  ShippingJobResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

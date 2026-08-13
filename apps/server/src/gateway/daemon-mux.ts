@@ -207,6 +207,7 @@ const DISPATCH: Dispatcher = {
   credentialInstallResult: toRpc,
 
   serverTransferResult: toRpc,
+  shippingJobResult: toRpc,
   // ---- headless ----
   headlessTurnEvent: (ports, _p, msg) => ports.headless.onTurnEvent(msg),
   headlessTurnResult: (ports, _p, msg) => ports.headless.onTurnResult(msg),

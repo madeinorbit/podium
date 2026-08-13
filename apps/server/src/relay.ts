@@ -108,6 +108,7 @@ import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
+import { CompatibilityShippingPolicyResolver, ShippingService } from './modules/shipping'
 import { shipOrderProjectionRows } from './modules/shipping/projection'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
@@ -195,6 +196,8 @@ export interface RegistryModules {
   headless: HeadlessService
   notify: NotifyService
   issues: IssueService
+  /** Durable Shipping control plane; command registration is owned by POD-889. */
+  shipping: ShippingService
   issuePublisher: IssuePublisher
   issueCommands: IssueCommandDispatcher
   specs: SpecsService
@@ -275,6 +278,8 @@ export class SessionRegistry {
   readonly clientGateway: ClientMux
   /** The issue tracker, aliased for ergonomics (≡ modules.issues). */
   readonly issues: IssueService
+  /** Restart-safe order control plane (≡ modules.shipping). */
+  readonly shipping: ShippingService
   /** In-process issue command surface (≡ modules.issueCommands) — the registry
    *  dispatcher serving the daemon relay + MCP with router-equal authz. */
   readonly issueCommands: IssueCommandDispatcher
@@ -1693,6 +1698,68 @@ export class SessionRegistry {
       })
     })
     this.issueCommands = issueCommands
+    const shipping = new ShippingService({
+      repository: this.store.shipping,
+      issues: {
+        get: (id) => {
+          const issue = issues.get(id)
+          if (!issue) throw new Error(`unknown issue ${id}`)
+          return issue
+        },
+        children: (id, recursive) => issues.children(id, recursive),
+        shippingCommit: (id, mutation, write) => issues.shippingCommit(id, mutation, write),
+      },
+      ledger,
+      daemon: rpc,
+      policy: new CompatibilityShippingPolicyResolver(
+        () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
+      ),
+      machineFor: (issue) =>
+        issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath),
+      resolveBranchTip: async (issue) => {
+        if (!issue.branch) throw new Error(`issue ${issue.id} has no branch`)
+        const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
+        const result = await rpc.repoOp(
+          'revParseVerify',
+          issue.repoPath,
+          { ref: `refs/heads/${issue.branch}` },
+          machineId,
+        )
+        if (!result.ok || !result.output.trim()) {
+          throw new Error(
+            `could not freeze ${issue.displayRef ?? issue.id} branch tip: ${result.output}`,
+          )
+        }
+        return result.output.trim().split(/\s+/)[0]!
+      },
+      resolveRefTip: async (issue, ref) => {
+        const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
+        const result = await rpc.repoOp(
+          'revParseVerify',
+          issue.repoPath,
+          { ref: `refs/heads/${ref}` },
+          machineId,
+        )
+        if (!result.ok || !result.output.trim()) {
+          throw new Error(`could not freeze target ${ref}: ${result.output}`)
+        }
+        return result.output.trim().split(/\s+/)[0]!
+      },
+      now: () => new Date(this.now()).toISOString(),
+      audit: (kind, issueId, payload) => {
+        try {
+          this.store.events.appendEvent({
+            ts: new Date(this.now()).toISOString(),
+            kind,
+            subject: issueId,
+            repoPath: this.store.issues.getIssue(issueId)?.repoPath ?? null,
+            payload,
+          })
+        } catch {}
+      },
+    })
+    this.shipping = shipping
+    this.bus.on('machine.connected', () => void shipping.reconcile())
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
     const layout = new LayoutService({ layout: this.store.layout, ledger })
@@ -1717,6 +1784,7 @@ export class SessionRegistry {
       reactions,
       notify,
       issues,
+      shipping,
       issueSessionLifecycle,
       issuePublisher: publisher,
       issueCommands,
@@ -1781,6 +1849,9 @@ export class SessionRegistry {
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping), the leaked-draft reap, and the issue ledger boot reconcile.
     issues.boot(systemPrincipal('boot-reconcile'))
+    void shipping
+      .reconcile()
+      .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))
     // One durable queued-row pass repairs events missed while the server was down
     // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
     try {
@@ -1946,6 +2017,7 @@ export class SessionRegistry {
     this.issueAutoArchive.dispose()
     this.issueGitWatch.dispose()
     this.automationScheduler.dispose()
+    this.shipping.dispose()
     // Also drains any coalesced session broadcast + pending delta batch (the
     // durable change log is already complete — commits happen at persist time).
     this.modules.sessions.dispose()
