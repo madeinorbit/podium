@@ -139,12 +139,18 @@ until the next edge tag.
 
 The workflow builds that immutable tag and refuses a tag that disagrees with `package.json`.
 
-## Release notes and required updates
+## Release notes
 
-`release_notes` is a **dispatch-only** input, so a tag-driven release ships no updater notes. When
-a release needs them — in particular the `CRITICAL:` prefix that triggers the non-dismissible
-required-update prompt — dispatch **desktop release** by hand for that release instead of tagging,
-selecting the channel and, for stable, the `release_tag`.
+`release_notes` is a **dispatch-only** input, so a tag-driven release ships no updater notes. To
+send notes, dispatch **desktop release** from the Actions UI instead of tagging: pick the channel,
+give the `release_tag` for stable, and fill `release_notes`. The text lands in `latest.json` as
+`notes` and is what the update prompt shows.
+
+**There is currently no way to force a required update.** The shell reads a boolean `critical`
+field from the manifest and deliberately ignores prose, so that reflowing a changelog cannot change
+whether an update is forced (`updater.rs`, `the_prose_marker_no_longer_forces_anything`) — and
+`scripts/desktop-release.ts` never writes that field. A `CRITICAL:` prefix in the notes is ordinary
+text. Forcing an update needs a `--critical` flag on the release script and an input to carry it.
 
 ## Existing-install bridge
 
