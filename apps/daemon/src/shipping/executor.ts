@@ -762,26 +762,28 @@ export class ShippingExecutionPlane {
   }
 
   private proof(request: Request, operation: Request['operation']): Result | null {
+    const { type: _type, requestId: _requestId, action: _action, requestDigest: _digest, ...facts } =
+      request
+    const expectedJobId = `${request.attemptId}:${operation}`
+    const expectedDigest = createHash('sha256')
+      .update(
+        shippingJobRequestFingerprint({
+          ...facts,
+          jobId: expectedJobId,
+          operation,
+        }),
+      )
+      .digest('hex')
     const entry = this.journal
       .list()
       .filter(
         (candidate) =>
-          candidate.request.jobId === `${request.attemptId}:${operation}` &&
+          candidate.request.jobId === expectedJobId &&
           candidate.request.orderId === request.orderId &&
           candidate.request.attemptId === request.attemptId &&
           candidate.request.generation === request.generation &&
           candidate.request.operation === operation &&
-          candidate.request.repoPath === request.repoPath &&
-          candidate.request.sourceBranch === request.sourceBranch &&
-          candidate.request.targetBranch === request.targetBranch &&
-          candidate.request.approvedBaseSha === request.approvedBaseSha &&
-          candidate.request.approvedHeadSha === request.approvedHeadSha &&
-          candidate.request.expectedTargetSha === request.expectedTargetSha &&
-          candidate.request.destination === request.destination &&
-          JSON.stringify(candidate.request.validationProfile) ===
-            JSON.stringify(request.validationProfile) &&
-          JSON.stringify(candidate.request.providerRef ?? null) ===
-            JSON.stringify(request.providerRef ?? null),
+          candidate.request.requestDigest === expectedDigest,
       )
       .at(-1)
     if (!entry) return null

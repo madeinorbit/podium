@@ -26,10 +26,25 @@ const signed = (
   }
 }
 
+const resetFixture = (...paths: string[]): void => {
+  for (const path of paths) rmSync(path, { recursive: true, force: true })
+}
+
+const expectSucceeded = (
+  result: ReturnType<ShippingExecutionPlane['handle']>,
+  boundary: string,
+): void => {
+  expect(
+    result,
+    `${boundary}: ${result.classification}: ${result.summary}`,
+  ).toMatchObject({ state: 'succeeded' })
+}
+
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('shipping daemon restart recovery', () => {
   it('proves or holds without mutating refs and resumes from its journal', () => {
+    resetFixture(repo, journal)
     execFileSync('git', ['init', '--initial-branch=main', repo])
     git('config', 'user.email', 'shipping@test.invalid')
     git('config', 'user.name', 'Shipping Test')
@@ -108,7 +123,7 @@ describe('shipping daemon restart recovery', () => {
       }
       plane = new ShippingExecutionPlane(journal, asMachineId('machine-1'))
       const result = plane.handle(request)
-      expect(result.state).toBe('succeeded')
+      expectSucceeded(result, `local ${operation} recovery`)
       if (operation !== 'preflight') {
         expect(result).toMatchObject({ testedIntegrationSha: head })
       }
@@ -167,6 +182,7 @@ describe('shipping daemon restart recovery', () => {
     const remoteRepo = join(root, 'remote-repo')
     const bare = join(root, 'destination.git')
     const runtime = join(root, 'remote-runtime')
+    resetFixture(remoteRepo, bare, runtime)
     execFileSync('git', ['init', '--bare', bare])
     execFileSync('git', ['init', '--initial-branch=main', remoteRepo])
     const remoteGit = (...argv: string[]): string =>
@@ -248,6 +264,16 @@ describe('shipping daemon restart recovery', () => {
       requestId: 'remote-publish-after-crash',
       jobId: 'remote-attempt:publish',
       operation: 'publish',
+      // Journal parsing may materialize schema fields in a different property
+      // order. The canonical request fingerprint, not object insertion order,
+      // is the immutable proof identity.
+      validationProfile: {
+        resourceLocks: [],
+        timeoutMs: 30_000,
+        cwd: 'integration-root',
+        argv: ['git', 'diff', '--quiet'],
+        id: 'remote-proof',
+      },
     })
     remoteGit('push', 'origin', `${head}:refs/heads/main`)
     plane.journal.begin(publishRequest, {
@@ -265,8 +291,8 @@ describe('shipping daemon restart recovery', () => {
       artifactRefs: [],
       heartbeatedAt: '2026-08-13T10:00:00.000Z',
     })
-    expect(plane.handle(publishRequest)).toMatchObject({ state: 'succeeded' })
-    expect(
+    expectSucceeded(plane.handle(publishRequest), 'remote publish replay')
+    expectSucceeded(
       plane.handle(
         signed({
           ...common,
@@ -275,7 +301,8 @@ describe('shipping daemon restart recovery', () => {
           operation: 'verify',
         }),
       ),
-    ).toMatchObject({ state: 'succeeded' })
+      'remote destination verification',
+    )
     expect(
       execFileSync('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/main'], {
         encoding: 'utf8',
