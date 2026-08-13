@@ -12,6 +12,21 @@ afterEach(() => {
 })
 
 describe('shipping daemon journal', () => {
+  it('durably creates the shipping root before the first journal directory', () => {
+    const parent = mkdtempSync(join(tmpdir(), 'podium-shipping-root-'))
+    dirs.push(parent)
+    const points: string[] = []
+    const plane = new ShippingExecutionPlane(
+      join(parent, 'shipping'),
+      asMachineId('machine-1'),
+      undefined,
+      undefined,
+      (point) => points.push(point),
+    )
+    expect(points).toEqual(['after-shipping-root-parent-fsync', 'after-parent-directory-fsync'])
+    expect(plane.journal.list()).toEqual([])
+  })
+
   it('reopens terminal jobs and bounds diagnostic payloads', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-shipping-journal-'))
     dirs.push(dir)

@@ -270,6 +270,7 @@ export const canonicalShippingDestination = (destination: string, targetBranch: 
 export class ShippingService {
   private readonly now: () => string
   private readonly leases = new Map<string, Lease>()
+  private readonly activeResourceLeases = new Set<ResourceLease>()
   private readonly inFlight = new Set<string>()
   private timer: ReturnType<typeof setInterval> | undefined
 
@@ -1110,6 +1111,11 @@ export class ShippingService {
   dispose(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = undefined
+    for (const lease of this.activeResourceLeases) {
+      lease.lost = true
+      if (lease.timer) clearInterval(lease.timer)
+    }
+    this.activeResourceLeases.clear()
   }
 
   private assertAdmission(issue: IssueWire): void {
@@ -1260,7 +1266,16 @@ export class ShippingService {
       if (this.isEffectCustodyRefusal(error)) return null
       throw error
     }
-    if (!this.resourceLeaseLive(resourceLease)) return null
+    if (!this.renewResourceLease(resourceLease)) {
+      this.audit('shipping.resource_lease_lost', order.issueId, {
+        orderId: order.id,
+        attemptId: attempt.id,
+        generation: attempt.leaseGeneration,
+        operation,
+        boundary: 'before-dispatch',
+      })
+      return null
+    }
     const result = await this.deps.daemon.shippingJob(
       this.jobInput(order, attempt, issue, operation, 'start'),
       attempt.machineId,
@@ -1272,6 +1287,7 @@ export class ShippingService {
         attemptId: attempt.id,
         generation: attempt.leaseGeneration,
         operation,
+        boundary: 'after-effect',
       })
       return null
     }
@@ -1652,6 +1668,7 @@ export class ShippingService {
       if (lease.lost && lease.timer) clearInterval(lease.timer)
     }, renewEveryMs)
     lease.timer.unref?.()
+    this.activeResourceLeases.add(lease)
     return lease
   }
 
@@ -1663,6 +1680,7 @@ export class ShippingService {
     lease: ResourceLease,
   ): void {
     if (lease.timer) clearInterval(lease.timer)
+    this.activeResourceLeases.delete(lease)
     if (names.length === 0 || !this.deps.resourceAdmission) return
     // A failed renew means this incarnation no longer owns a release right.
     // Its lease may already have expired and advanced to a successor.

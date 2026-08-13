@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { MachineId } from '@podium/model'
 import type {
@@ -9,7 +17,7 @@ import type {
   ShippingJobResult,
 } from '@podium/protocol'
 import { shippingJobRequestFingerprint } from '@podium/protocol'
-import { ShippingJobJournal } from './journal'
+import { ShippingJobJournal, type ShippingJournalCrashPoint } from './journal'
 
 type Request = ShippingJobRequestMessage
 type Result = ShippingJobResult
@@ -30,6 +38,10 @@ interface Worktree {
   head: string
   branch?: string
 }
+
+export type ShippingExecutionCrashPoint =
+  | 'after-shipping-root-parent-fsync'
+  | ShippingJournalCrashPoint
 
 export interface ShippingProviderContext {
   request: Request
@@ -231,9 +243,20 @@ export class ShippingExecutionPlane {
       new LocalRefProvider(),
       new GitRemoteProvider(),
     ],
+    crashPoint?: (point: ShippingExecutionCrashPoint) => void,
   ) {
+    const existed = existsSync(dir)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
-    this.journal = new ShippingJobJournal(join(dir, 'jobs'))
+    if (!existed) {
+      const parent = openSync(dirname(dir), 'r')
+      try {
+        fsyncSync(parent)
+      } finally {
+        closeSync(parent)
+      }
+      crashPoint?.('after-shipping-root-parent-fsync')
+    }
+    this.journal = new ShippingJobJournal(join(dir, 'jobs'), (point) => crashPoint?.(point))
     this.checkoutsDir = join(dir, 'landing-checkouts')
     this.integrationDir = join(dir, 'integration-checkouts')
     this.logsDir = join(dir, 'logs')
