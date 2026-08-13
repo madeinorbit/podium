@@ -142,9 +142,14 @@ describe('attachSession', () => {
   // Cross-issue reattach is blocked [spec:SP-8744]: moving off a real issue
   // strands it session-less and it falls out of the sidebar.
   it('blocks unconfirmed re-home off a real issue; confirmed --subissue works', () => {
-    const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
+    const { svc, issueBySession } = harness([
+      sess(asSessionId('s1'), '/r/.worktrees/real'),
+      sess(asSessionId('s2'), '/r/.worktrees/real'),
+    ])
     const real = svc.create({ repoPath: '/r', title: 'R', startNow: false })
+    svc.update(real.id, { worktreePath: '/r/.worktrees/real' })
     issueBySession.set(asSessionId('s1'), real.id)
+    issueBySession.set(asSessionId('s2'), real.id)
     const other = svc.create({ repoPath: '/r', title: 'O', startNow: false })
 
     expect(() => svc.attachSession({ sessionId: asSessionId('s1'), targetId: other.id })).toThrow(
@@ -166,6 +171,7 @@ describe('attachSession', () => {
     expect(issueBySession.get(asSessionId('s1'))).toBe(real.id)
     expect(svc.list('/r').filter((issue) => issue.parentId === real.id)).toHaveLength(0)
 
+    svc.setCoordinator(real.id, asSessionId('s2'))
     const child = svc.attachSession({
       sessionId: asSessionId('s1'),
       newSubissue: { title: 'Side quest', origin: 'agent' },
@@ -186,9 +192,15 @@ describe('attachSession', () => {
   })
 
   it('newSubissue creates a child of the current issue and moves there', () => {
-    const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
+    const { svc, issueBySession } = harness([
+      sess(asSessionId('s1'), '/r/.worktrees/epic'),
+      sess(asSessionId('s2'), '/r/.worktrees/epic'),
+    ])
     const parent = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    svc.update(parent.id, { worktreePath: '/r/.worktrees/epic' })
     issueBySession.set(asSessionId('s1'), parent.id)
+    issueBySession.set(asSessionId('s2'), parent.id)
+    svc.setCoordinator(parent.id, asSessionId('s2'))
     const w = svc.attachSession({
       sessionId: asSessionId('s1'),
       newSubissue: { title: 'Side quest', origin: 'human' },
@@ -218,9 +230,15 @@ describe('attachSession', () => {
   })
 
   it('newSpinoff creates a TOP-LEVEL issue with a discovered-from edge and moves there (POD-85)', () => {
-    const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
+    const { svc, issueBySession } = harness([
+      sess(asSessionId('s1'), '/r/.worktrees/origin'),
+      sess(asSessionId('s2'), '/r/.worktrees/origin'),
+    ])
     const origin = svc.create({ repoPath: '/r', title: 'Origin work', startNow: false })
+    svc.update(origin.id, { worktreePath: '/r/.worktrees/origin' })
     issueBySession.set(asSessionId('s1'), origin.id)
+    issueBySession.set(asSessionId('s2'), origin.id)
+    svc.setCoordinator(origin.id, asSessionId('s2'))
     const w = svc.attachSession({
       sessionId: asSessionId('s1'),
       newSpinoff: { title: 'Adjacent discovery', origin: 'agent' },
@@ -235,6 +253,59 @@ describe('attachSession', () => {
     expect(w.stage).not.toBe('proposed')
     // The origin's tally of decomposition children is untouched.
     expect(svc.get(origin.id)?.childCount ?? 0).toBe(0)
+  })
+
+  it('requires an explicit active replacement coordinator in the unfinished source worktree', () => {
+    const { svc, issueBySession } = harness([
+      sess(asSessionId('s1'), '/r/.worktrees/parent'),
+      // Explicitly attached but working from a child checkout: not an integration coordinator.
+      sess(asSessionId('s2'), '/r/.worktrees/child'),
+      sess(asSessionId('s3'), '/r/.worktrees/parent'),
+    ])
+    const parent = svc.create({ repoPath: '/r', title: 'Integration parent', startNow: false })
+    svc.update(parent.id, { worktreePath: '/r/.worktrees/parent' })
+    for (const id of ['s1', 's2', 's3']) issueBySession.set(asSessionId(id), parent.id)
+
+    const move = () =>
+      svc.attachSession({
+        sessionId: asSessionId('s1'),
+        newSubissue: { title: 'Follow-on child', origin: 'agent' },
+        confirmRehome: true,
+      })
+    expect(move).toThrow(/would lose its active coordination/)
+    expect(move).toThrow(/coordinator 1 --set <sessionId>/)
+
+    svc.setCoordinator(parent.id, asSessionId('s2'))
+    expect(move).toThrow(/would lose its active coordination/)
+
+    svc.setCoordinator(parent.id, asSessionId('s3'))
+    expect(move().parentId).toBe(parent.id)
+  })
+
+  it('reuses accepted discovered work instead of minting a duplicate successor', () => {
+    const { svc, issueBySession } = harness([
+      sess(asSessionId('s1'), '/r/.worktrees/origin'),
+      sess(asSessionId('s2'), '/r/.worktrees/origin'),
+    ])
+    const origin = svc.create({ repoPath: '/r', title: 'Origin', startNow: false })
+    svc.update(origin.id, { worktreePath: '/r/.worktrees/origin' })
+    issueBySession.set(asSessionId('s1'), origin.id)
+    issueBySession.set(asSessionId('s2'), origin.id)
+    svc.setCoordinator(origin.id, asSessionId('s2'))
+    const accepted = svc.create({
+      repoPath: '/r',
+      title: 'Accepted successor',
+      startNow: false,
+    })
+    svc.addDep(accepted.id, origin.id, 'discovered-from')
+
+    const attached = svc.attachSession({
+      sessionId: asSessionId('s1'),
+      newSpinoff: { title: '  accepted   successor ', origin: 'agent' },
+      confirmRehome: true,
+    })
+    expect(attached.id).toBe(accepted.id)
+    expect(svc.list('/r').filter((issue) => issue.title === 'Accepted successor')).toHaveLength(1)
   })
 
   it('newSpinoff demands the same rehome confirmation and rejects --subissue combos', () => {

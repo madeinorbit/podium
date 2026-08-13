@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, IssueStage, IssueWire } from '@podium/model'
+import { ISSUE_STAGES, IssuePanelArtifact, IssueStage, IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { RepoOp, ServerMessage } from './messages'
 
@@ -98,6 +98,24 @@ describe('issue protocol types', () => {
     })
     expect(withProv.coordinatorSessionId).toBe('sess_coord')
     expect(withProv.startedBySession).toBe('sess_creator')
+  })
+
+  it('carries additive artifact ownership and Git tracking evidence', () => {
+    const legacy = IssuePanelArtifact.parse({ path: 'shots/a.png', addedAt: 't' })
+    expect(legacy.tracking).toBeUndefined()
+    expect(
+      IssuePanelArtifact.parse({
+        path: 'shots/a.png',
+        addedAt: 't',
+        sourcePaths: ['shots/a.png'],
+        tracking: 'untracked',
+        untrackedPaths: ['shots/a.png'],
+      }),
+    ).toMatchObject({
+      sourcePaths: ['shots/a.png'],
+      tracking: 'untracked',
+      untrackedPaths: ['shots/a.png'],
+    })
   })
 
   it('accepts the additive node⇄hub fields (viaHub/upstreamStale/pendingSync)', () => {

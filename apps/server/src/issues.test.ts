@@ -4525,6 +4525,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       artifactId: asArtifactId(`art${++n}`),
       entry: o.sourcePath.split('/').pop() as string,
       files: [{ path: o.sourcePath.split('/').pop() as string, size: 3 }],
+      sourcePaths: [o.sourcePath],
     }))
     const remove = vi.fn(async () => {})
     // Stands in for the on-disk snapshot dir: keyed by the same
@@ -4533,9 +4534,15 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const read = vi.fn(async (_issueId: IssueId, artifactId: string, relPath: string) => {
       return stored.get(`${artifactId}/${relPath}`) ?? null
     })
+    const repoOp = vi.fn(async (op: string) =>
+      op === 'lsFiles'
+        ? { ok: true, output: 'shots/a.png\0a.png\0b.png\0' }
+        : { ok: true, output: '' },
+    )
+    h.deps.repoOp = repoOp as typeof h.deps.repoOp
     h.deps.artifacts = { snapshot, read, remove, removeIssue: vi.fn(async () => {}) }
     const svc = new IssueService(h.deps)
-    return { ...h, svc, snapshot, remove, read, stored }
+    return { ...h, svc, snapshot, remove, read, stored, repoOp }
   }
 
   it('add snapshots from the issue worktree and stores artifactId/entry/files', async () => {
@@ -4590,11 +4597,52 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     expect(svc.get(w.id)?.panel?.artifacts ?? []).toEqual([])
   })
 
-  it('falls back to the invoking session cwd when the issue has no worktree', async () => {
+  it('refuses evidence when the owning issue has no worktree', async () => {
     const { svc, snapshot } = artifactHarness()
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    await svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: asSessionId('/wt') })
-    expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({ root: '/wt' }))
+    await expect(
+      svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: asSessionId('/wt') }),
+    ).rejects.toThrow(/no owning worktree/)
+    expect(snapshot).not.toHaveBeenCalled()
+  })
+
+  it('refuses absolute and traversal paths outside the owning issue worktree', async () => {
+    const { svc, snapshot } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    await expect(svc.panelArtifactAdd(w.id, { path: '/wt/elsewhere/a.png' })).rejects.toThrow(
+      /outside the owning issue worktree/,
+    )
+    await expect(svc.panelArtifactAdd(w.id, { path: '../a.png' })).rejects.toThrow(
+      /outside the owning issue worktree/,
+    )
+    expect(snapshot).not.toHaveBeenCalled()
+  })
+
+  it('surfaces untracked evidence and blocks review until a tracked re-add', async () => {
+    const { svc, repoOp } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    repoOp.mockResolvedValueOnce({ ok: true, output: '' })
+    const untracked = await svc.panelArtifactAdd(w.id, { path: 'evidence/review.md' })
+    expect(untracked.panel?.artifacts[0]).toMatchObject({
+      path: 'evidence/review.md',
+      tracking: 'untracked',
+      untrackedPaths: ['evidence/review.md'],
+    })
+    expect(() => svc.update(w.id, { stage: 'review' })).toThrow(/untracked evidence/)
+
+    repoOp.mockResolvedValueOnce({ ok: true, output: 'evidence/review.md\0' })
+    await svc.panelArtifactAdd(w.id, { path: 'evidence/review.md' })
+    expect(svc.update(w.id, { stage: 'review' }).stage).toBe('review')
+  })
+
+  it('blocks legacy outside-worktree artifacts before review', () => {
+    const { svc } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    svc.panelApply(w.id, { op: 'artifact-add', path: '/tmp/review.png' })
+    expect(() => svc.update(w.id, { stage: 'review' })).toThrow(/outside the owning issue worktree/)
   })
 
   it('remove deletes the panel entry AND its store directory', async () => {

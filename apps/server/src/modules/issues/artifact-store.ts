@@ -66,6 +66,8 @@ export interface ArtifactSnapshot {
   artifactId: ArtifactId
   entry: string
   files: ArtifactManifestFile[]
+  /** Worktree-relative source paths used to determine Git tracking state. */
+  sourcePaths: string[]
 }
 
 export interface ArtifactSnapshotInput {
@@ -139,14 +141,21 @@ export class IssueArtifactStore {
     const abs = (p: string) => (isAbsolute(p) ? p : join(o.root, p))
     try {
       // Resolve the pull plan: [absolute source path, relpath inside the bundle].
-      let plan: Array<{ src: string; rel: string }>
+      let plan: Array<{ src: string; rel: string; sourcePath: string }>
       const listed = await this.rpc.listDir({ ...machine, root: o.root, path: abs(o.sourcePath) })
       if (listed.ok) {
-        plan = await this.walkDir(o.root, o.machineId, listed.path)
+        plan = (await this.walkDir(o.root, o.machineId, listed.path)).map((file) => ({
+          ...file,
+          sourcePath: join(o.sourcePath, file.rel),
+        }))
         if (plan.length === 0) throw new Error(`directory ${o.sourcePath} has no files`)
       } else {
         const paths = [o.sourcePath, ...(o.extraPaths ?? [])]
-        plan = paths.map((p) => ({ src: abs(p), rel: p.split('/').pop() as string }))
+        plan = paths.map((p) => ({
+          src: abs(p),
+          rel: p.split('/').pop() as string,
+          sourcePath: p,
+        }))
       }
       if (plan.length > ARTIFACT_FILE_COUNT_CAP) {
         throw new Error(`artifact bundle has ${plan.length} files (cap ${ARTIFACT_FILE_COUNT_CAP})`)
@@ -163,7 +172,12 @@ export class IssueArtifactStore {
         }
         files.push({ path: rel, size })
       }
-      return { artifactId, entry: pickEntry(files.map((f) => f.path)), files }
+      return {
+        artifactId,
+        entry: pickEntry(files.map((f) => f.path)),
+        files,
+        sourcePaths: plan.map((file) => file.sourcePath),
+      }
     } catch (err) {
       await rm(dir, { recursive: true, force: true }).catch(() => {})
       throw err

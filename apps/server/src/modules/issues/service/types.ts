@@ -99,6 +99,9 @@ export type IssuePanelOp =
       artifactId?: ArtifactId
       entry?: string
       files?: { path: string; size: number }[]
+      sourcePaths?: string[]
+      tracking?: 'tracked' | 'untracked' | 'unknown'
+      untrackedPaths?: string[]
     }
   | { op: 'artifact-remove'; index: number }
   | { op: 'deferred-add'; text: string }
@@ -275,7 +278,12 @@ export interface IssueDeps {
       machineId?: MachineId
       sourcePath: string
       extraPaths?: string[]
-    }): Promise<{ artifactId: ArtifactId; entry: string; files: { path: string; size: number }[] }>
+    }): Promise<{
+      artifactId: ArtifactId
+      entry: string
+      files: { path: string; size: number }[]
+      sourcePaths?: string[]
+    }>
     /** Read one snapshotted file back out (POD-1999) — server-local, so it
      *  answers with the owning machine offline. Null = no such stored file. */
     read(

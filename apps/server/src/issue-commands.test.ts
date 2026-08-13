@@ -1027,7 +1027,7 @@ describe('panel commands (todo / artifact / deferred)', () => {
         seq: 1,
         panel: {
           todos: [],
-          artifacts: [{ path: 's.png', title: 'shot', addedAt: 't' }],
+          artifacts: [{ path: 's.png', title: 'shot', addedAt: 't', tracking: 'tracked' }],
           deferred: [],
         },
       },
@@ -1051,5 +1051,28 @@ describe('panel commands (todo / artifact / deferred)', () => {
       kind: 'mutate',
       input: { id: '1', op: 'deferred-add', text: 'later' },
     })
+  })
+
+  it('artifact output makes untracked evidence visible', async () => {
+    const art = mockClient({
+      get: {
+        seq: 1,
+        panel: {
+          todos: [],
+          artifacts: [
+            {
+              path: 'shots/review.png',
+              addedAt: 't',
+              tracking: 'untracked',
+              untrackedPaths: ['shots/review.png'],
+            },
+          ],
+          deferred: [],
+        },
+      },
+    })
+    expect((await cmd('artifact').run(art.client, { id: '1' })).text).toContain(
+      '⚠ untracked: shots/review.png',
+    )
   })
 })

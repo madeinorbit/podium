@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import {
   asIssueId,
   asRepoId,
@@ -256,6 +257,9 @@ export class IssueCrudModule {
           ...(op.artifactId ? { artifactId: op.artifactId } : {}),
           ...(op.entry ? { entry: op.entry } : {}),
           ...(op.files ? { files: op.files } : {}),
+          ...(op.sourcePaths ? { sourcePaths: op.sourcePaths } : {}),
+          ...(op.tracking ? { tracking: op.tracking } : {}),
+          ...(op.untrackedPaths?.length ? { untrackedPaths: op.untrackedPaths } : {}),
         }
         const existing = panel.artifacts.findIndex((a) => a.path === op.path)
         if (existing >= 0) panel.artifacts[existing] = next
@@ -296,34 +300,77 @@ export class IssueCrudModule {
   ): Promise<IssueWire> {
     const row = this.store.rowOrThrow(this.store.resolveRef(id))
     const store = this.store.deps.artifacts
+    // Evidence belongs to the ISSUE worktree, never whichever checkout happened
+    // to invoke the command. The old session-cwd fallback let a parent review
+    // silently point into a child's checkout (or a scratch directory).
+    const root = row.worktreePath
+    if (!root) {
+      throw new Error(
+        `issue ${row.seq} has no owning worktree; start or restore its worktree before adding review artifacts`,
+      )
+    }
+    const normalizeSource = (sourcePath: string): string => {
+      const target = resolve(root, sourcePath)
+      const rel = relative(resolve(root), target)
+      if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
+        throw new Error(
+          `artifact path '${sourcePath}' is outside the owning issue worktree ${root}`,
+        )
+      }
+      return rel.split(sep).join('/')
+    }
+    const sourcePath = normalizeSource(input.path)
+    const extraPaths = input.extraPaths?.map(normalizeSource)
     // Re-add keeps the existing title unless a new one is given.
-    const existing = this.store.parsePanel(row).artifacts.find((a) => a.path === input.path)
+    const existing = this.store.parsePanel(row).artifacts.find((a) => a.path === sourcePath)
     const effectiveTitle = input.title ?? existing?.title
     const title = effectiveTitle ? { title: effectiveTitle } : {}
-    if (!store) return this.panelApply(row.id, { op: 'artifact-add', path: input.path, ...title })
-    // Owning machine + root: the issue worktree, falling back to the invoking
-    // session's machine/cwd — the same resolution the live render route uses.
+    if (!store) {
+      return this.panelApply(row.id, {
+        op: 'artifact-add',
+        path: sourcePath,
+        ...title,
+        sourcePaths: [sourcePath, ...(extraPaths ?? [])],
+        tracking: 'unknown',
+      })
+    }
+    // Owning machine is the issue's machine; the invoking session is only a
+    // fallback for old rows that predate a machine pin.
     const session = opts?.actorSessionId
       ? findSessionById(this.store.deps, opts.actorSessionId)
       : undefined
-    const root = row.worktreePath ?? session?.cwd
-    if (!root) throw new Error('no worktree or session to read the artifact from')
     const machineId = row.machineId ?? session?.machineId ?? undefined
     const snap = await store.snapshot({
       issueId: row.id,
       root,
       ...(machineId ? { machineId } : {}),
-      sourcePath: input.path,
-      ...(input.extraPaths?.length ? { extraPaths: input.extraPaths } : {}),
+      sourcePath,
+      ...(extraPaths?.length ? { extraPaths } : {}),
     })
+    const sourcePaths = [...new Set(snap.sourcePaths ?? [sourcePath, ...(extraPaths ?? [])])]
+    const tracked = await this.store.deps
+      .repoOp('lsFiles', root, undefined, machineId)
+      .catch(() => ({ ok: false, output: '' }))
+    const trackedPaths = new Set(tracked.ok ? tracked.output.split('\0').filter(Boolean) : [])
+    const untrackedPaths = tracked.ok
+      ? sourcePaths.filter((path) => !trackedPaths.has(path))
+      : []
+    const tracking: 'tracked' | 'untracked' | 'unknown' = !tracked.ok
+      ? 'unknown'
+      : untrackedPaths.length
+        ? 'untracked'
+        : 'tracked'
     const oldId = existing?.artifactId
     const wire = this.panelApply(row.id, {
       op: 'artifact-add',
-      path: input.path,
+      path: sourcePath,
       ...title,
       artifactId: snap.artifactId,
       entry: snap.entry,
       files: snap.files,
+      sourcePaths,
+      tracking,
+      ...(untrackedPaths.length ? { untrackedPaths } : {}),
     })
     if (oldId) void store.remove(row.id, oldId).catch(() => {})
     return wire
@@ -649,6 +696,9 @@ export class IssueCrudModule {
     }
     const prevStage = row.stage
     const wasClosed = this.store.isClosed(row)
+    if (patch.stage === 'review' && row.stage !== 'review') {
+      this.assertReviewArtifactOwnership(row)
+    }
     // COLOUR IS A TOP-LEVEL PROPERTY [spec:SP-b4d1]. A sub-issue runs under its
     // parent's colour by inheritance (see `setParentForUpdate`), so setting one
     // on it is refused rather than silently dropped: the CLI and any older client
@@ -802,6 +852,37 @@ export class IssueCrudModule {
       }
     }
     return wire
+  }
+
+  /** Review is the first point at which evidence is presented as durable truth.
+   *  Refuse the transition while any artifact is outside the owning worktree or
+   *  was not proven present in Git. Re-adding after `git add`/commit refreshes
+   *  the snapshot and its tracking observation. */
+  private assertReviewArtifactOwnership(row: IssueRow): void {
+    const artifacts = this.store.parsePanel(row).artifacts
+    if (artifacts.length === 0) return
+    if (!row.worktreePath) {
+      throw new Error(
+        `review blocked: issue ${row.seq} has artifacts but no owning worktree; restore the issue worktree and re-add the evidence`,
+      )
+    }
+    const root = resolve(row.worktreePath)
+    for (const artifact of artifacts) {
+      const rel = relative(root, resolve(root, artifact.path))
+      if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
+        throw new Error(
+          `review blocked: artifact '${artifact.path}' is outside the owning issue worktree ${row.worktreePath}; re-add it from that worktree`,
+        )
+      }
+      if (artifact.tracking !== 'tracked') {
+        const detail = artifact.untrackedPaths?.length
+          ? `untracked evidence: ${artifact.untrackedPaths.join(', ')}`
+          : 'Git tracking was not verified'
+        throw new Error(
+          `review blocked: ${detail}. Track the evidence in the issue branch, then re-add the artifact before review`,
+        )
+      }
+    }
   }
 
   /** Mark this issue read (issue #124): stamp a covering read_at, persist + broadcast,

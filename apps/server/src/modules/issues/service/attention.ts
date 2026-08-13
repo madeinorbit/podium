@@ -8,7 +8,7 @@ import {
   type SystemCommandPrincipal,
   systemPrincipal,
 } from '../../../command-principal'
-import { sessionsForIssue } from '../../../issue-util'
+import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
@@ -160,6 +160,7 @@ export class IssueAttentionModule {
             'with `--confirm-rehome`.',
         )
       }
+      if (prev) this.assertReplacementCoordination(prev, opts.sessionId)
       const title = newIssue.title.trim()
       if (!title) throw new Error(`${opts.newSubissue ? 'subissue' : 'spinoff'} title is empty`)
       const anchorId = prevId ?? (opts.targetId ? this.store.resolveRef(opts.targetId) : null)
@@ -169,29 +170,37 @@ export class IssueAttentionModule {
         )
       }
       const anchor = this.store.rowOrThrow(anchorId)
-      const wire = this.crud().create({
-        repoPath: anchor.repoPath,
-        title,
-        startNow: false,
-        // Subissue = decomposition, nests under the anchor. Spinoff = a sibling
-        // at top level; its provenance is the discovered-from edge below.
-        ...(opts.newSubissue ? { parentId: anchorId } : {}),
-        // Derived by the registry from the caller (#348) — never client-supplied.
-        origin: newIssue.origin,
-        // A session re-homes here and works out of it — it is a real, trackable
-        // piece of work, so it is human-audience (visible on the board) even when
-        // an agent created it (#198). The "agent cuts a human-facing issue" case.
-        audience: 'human',
-        ...(opts.principal
-          ? {
-              ownerUserId: onBehalfOfUser(opts.principal) ?? undefined,
-              createdByActor: attributionOf(opts.principal).actor,
-              createdByOnBehalfOf: attributionOf(opts.principal).onBehalfOf,
-            }
-          : {}),
-      })
-      if (opts.newSpinoff) this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
-      target = this.store.rowOrThrow(wire.id)
+      // Once an operator has accepted an earlier discovery, repeating the
+      // original `attach --spinoff "…"` intent must join that work rather than
+      // mint a same-title successor beside it. The provenance edge + exact
+      // normalized title make the reuse scoped to this origin; proposals stay
+      // inert until accepted and closed/archived work is never resurrected.
+      target = opts.newSpinoff ? this.acceptedSpinoff(anchor, title) : undefined
+      if (!target) {
+        const wire = this.crud().create({
+          repoPath: anchor.repoPath,
+          title,
+          startNow: false,
+          // Subissue = decomposition, nests under the anchor. Spinoff = a sibling
+          // at top level; its provenance is the discovered-from edge below.
+          ...(opts.newSubissue ? { parentId: anchorId } : {}),
+          // Derived by the registry from the caller (#348) — never client-supplied.
+          origin: newIssue.origin,
+          // A session re-homes here and works out of it — it is a real, trackable
+          // piece of work, so it is human-audience (visible on the board) even when
+          // an agent created it (#198). The "agent cuts a human-facing issue" case.
+          audience: 'human',
+          ...(opts.principal
+            ? {
+                ownerUserId: onBehalfOfUser(opts.principal) ?? undefined,
+                createdByActor: attributionOf(opts.principal).actor,
+                createdByOnBehalfOf: attributionOf(opts.principal).onBehalfOf,
+              }
+            : {}),
+        })
+        if (opts.newSpinoff) this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
+        target = this.store.rowOrThrow(wire.id)
+      }
     } else {
       if (!opts.targetId) throw new Error('attach needs --id <issue> or --subissue "<title>"')
       target = this.store.rowOrThrow(this.store.resolveRef(opts.targetId))
@@ -221,6 +230,66 @@ export class IssueAttentionModule {
     if (prevId) this.deleteIfEmptyDraft(prevId)
     this.store.broadcastList()
     return this.store.toWire(this.store.rowOrThrow(target.id))
+  }
+
+  /**
+   * An unfinished issue with a dedicated integration worktree may not lose the
+   * session that coordinates it until another active member explicitly owns
+   * that coordinator seat from inside the same worktree. Issue membership alone
+   * is insufficient: a child agent can legitimately be attached to the parent
+   * while running in its own checkout, but that does not keep the parent's
+   * integration checkout operated or testable.
+   */
+  private assertReplacementCoordination(row: IssueRow, movingSessionId: SessionId): void {
+    if (row.draft || row.archived || this.store.isClosed(row)) return
+    const coordinatorId = row.coordinatorSessionId
+    const replacement =
+      coordinatorId && coordinatorId !== movingSessionId
+        ? this.store
+            .sessionsFor(row)
+            .find(
+              (session) =>
+                session.sessionId === coordinatorId &&
+                !session.archived &&
+                (session.status === 'live' ||
+                  session.status === 'starting' ||
+                  session.status === 'reconnecting') &&
+                row.worktreePath != null &&
+                isMemberCwd(row.worktreePath, session.cwd),
+            )
+        : undefined
+    if (replacement) return
+
+    const ref = this.reports().niceRef(row)
+    const worktree = row.worktreePath
+      ? `its integration worktree (${row.worktreePath})`
+      : 'a dedicated issue worktree'
+    throw new Error(
+      `attach blocked: ${ref} is unfinished and would lose its active coordination. ` +
+        `Start or add a replacement session in ${worktree}, set it explicitly with ` +
+        `\`podium issue coordinator ${row.seq} --set <sessionId>\`, then re-run the attach.`,
+    )
+  }
+
+  private acceptedSpinoff(anchor: IssueRow, title: string): IssueRow | undefined {
+    const normalized = (value: string): string => value.trim().replace(/\s+/g, ' ').toLowerCase()
+    const wanted = normalized(title)
+    return [...this.store.rows.values()]
+      .filter(
+        (row) =>
+          row.id !== anchor.id &&
+          row.repoId === anchor.repoId &&
+          row.parentId == null &&
+          !row.deletedAt &&
+          !row.archived &&
+          row.stage !== 'proposed' &&
+          !this.store.isClosed(row) &&
+          normalized(row.title) === wanted &&
+          this.store.deps.store.issues
+            .listIssueDeps(row.id)
+            .some((dep) => dep.toId === anchor.id && dep.type === 'discovered-from'),
+      )
+      .sort((a, b) => a.seq - b.seq)[0]
   }
 
   /** Delete `id` iff it is a draft with no LIVING attached sessions, no worktree

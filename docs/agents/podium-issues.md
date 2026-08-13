@@ -86,9 +86,10 @@ podium issue artifact <id> --add <path> --title "Commit chip — iteration 2"
 
 The artifact renders in the issue's sidebar and survives across sessions. Two rules:
 
-- **Durable paths only.** Save the file inside the issue's worktree or the repo (e.g. an
-  `e2e/` or `.design/` directory) before adding it — session scratchpads and `/tmp` paths do
-  not render for the user.
+- **Owned, tracked paths only.** Save the file inside the owning issue's worktree (e.g. an
+  `e2e/` or `.design/` directory) and track it on that issue branch before adding it. Paths
+  outside that worktree are refused; untracked evidence is shown by the CLI and blocks the
+  move to review until it is tracked and re-added.
 - **Post each significant iteration** with a title that names it. The artifact list doubles as
   the review trail for visual work; publishing somewhere else (chat upload, external artifact
   link) does not replace attaching it here.

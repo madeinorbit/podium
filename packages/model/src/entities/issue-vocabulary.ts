@@ -157,7 +157,7 @@ export type IssueComment = z.infer<typeof IssueComment>
 export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean() })
 export type IssuePanelTodo = z.infer<typeof IssuePanelTodo>
 export const IssuePanelArtifact = z.object({
-  /** Path to the artifact file — absolute, or relative to the issue worktree. */
+  /** Path to the artifact file, normalized relative to the owning issue worktree. */
   path: z.string(),
   title: z.string().optional(),
   addedAt: z.string(),
@@ -170,6 +170,12 @@ export const IssuePanelArtifact = z.object({
   entry: z.string().optional(),
   /** Bundle manifest — relpaths + sizes of every snapshotted file. */
   files: z.array(z.object({ path: z.string(), size: z.number() })).optional(),
+  /** Worktree-relative source files captured by the snapshot. */
+  sourcePaths: z.array(z.string()).optional(),
+  /** Git-index state observed when the snapshot was added. Legacy artifacts omit it. */
+  tracking: z.enum(['tracked', 'untracked', 'unknown']).optional(),
+  /** Exact worktree-relative evidence paths absent from the Git index. */
+  untrackedPaths: z.array(z.string()).optional(),
 })
 export type IssuePanelArtifact = z.infer<typeof IssuePanelArtifact>
 export const IssuePanelDeferred = z.object({ text: z.string(), addedAt: z.string() })
