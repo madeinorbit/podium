@@ -165,7 +165,11 @@ export function mapFilesIn(distDir: string): { bundle: string; path: string }[] 
 }
 
 /** The entry chunk `index.html` loads, e.g. `index-wTnyuHr3.js`. Undefined when
- *  there is no index.html to read — labelling is a convenience, never a gate. */
+ *  there is no index.html to read — labelling is a convenience, never a gate.
+ *
+ *  Same build, same hash as the `v: bundle+wTnyuHr3` every log record from that
+ *  bundle carries (POD-1965, `@podium/protocol`'s bundleVersionFromHtml): a log
+ *  line names the build whose maps are archived here. */
 export function entryBundle(distDir: string): string | undefined {
   const html = join(distDir, 'index.html')
   if (!existsSync(html)) return undefined

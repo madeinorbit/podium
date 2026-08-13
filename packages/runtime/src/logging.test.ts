@@ -53,7 +53,8 @@ describe('configureProcessLogging', () => {
 
     it('takes the mode from the environment when the caller does not pass one', () => {
       expect(
-        configureProcessLogging({ role: 'server', dir, env: env({ NOTIFY_SOCKET: '/run/x' }) }).mode,
+        configureProcessLogging({ role: 'server', dir, env: env({ NOTIFY_SOCKET: '/run/x' }) })
+          .mode,
       ).toBe('systemd')
       expect(
         configureProcessLogging({ role: 'server', dir, env: env({ PODIUM_RUN_MODE: 'detached' }) })
@@ -105,7 +106,7 @@ describe('configureProcessLogging', () => {
       })
     })
 
-    it('takes the version from PODIUM_APP_VERSION, else reports dev', () => {
+    it('takes the version from PODIUM_APP_VERSION when a build declares one', () => {
       configureProcessLogging({
         role: 'server',
         mode: 'detached',
@@ -113,8 +114,30 @@ describe('configureProcessLogging', () => {
         env: env({ PODIUM_APP_VERSION: '0.9.9' }),
       })
       expect(getProcessContext().v).toBe('0.9.9')
-      configureProcessLogging({ role: 'server', mode: 'detached', dir, env: env() })
-      expect(getProcessContext().v).toBe('dev')
+    })
+
+    /**
+     * POD-1965, and the assertion this file used to make the wrong way round: it
+     * asserted `v === 'dev'` for a source run, which is exactly the value that
+     * cannot tell one build from another. The live instance logged 2081 records
+     * saying `dev` while the question being asked of them was "which of these
+     * two builds is this?".
+     *
+     * Armedness verified by making `resolveLogVersion` return `'dev'` again and
+     * watching this go red.
+     */
+    it.each([
+      'server',
+      'daemon',
+      'janitor',
+      'cli',
+    ])('stamps %s with a version that distinguishes builds, not the constant dev', (role) => {
+      configureProcessLogging({ role, mode: 'detached', dir, env: env() })
+      const { v } = getProcessContext()
+      expect(v).not.toBe('dev')
+      expect(v).toMatch(/^dev\+[0-9a-f]{7}(-dirty)?$/)
+      createLogger(`${role}:boot`).warn('booted')
+      expect(readRecords(logFilePath(role, dir))[0]).toMatchObject({ role, v })
     })
   })
 

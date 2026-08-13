@@ -179,6 +179,14 @@ export interface BuildStamp {
   wireVersion?: number
   /** ISO timestamp, for the human reading the warning. */
   builtAt?: string
+  /**
+   * WHICH BUILD, as `bundle+<entry chunk hash>` — the value every log record
+   * from this bundle carries in `v` (POD-1965). Written by
+   * `scripts/write-web-build-stamp.ts` and derived by
+   * {@link bundleVersionFromHtml}, so the page and the stamp cannot name the
+   * same build differently.
+   */
+  appVersion?: string
 }
 
 let cached: string | undefined

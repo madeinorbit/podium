@@ -38,6 +38,7 @@ import {
 import { createFileSink, createStdoutSink } from '@podium/logger/node'
 import { type EnvSource, resolveInstanceId, resolveRunRecordMode } from './config'
 import { logDir } from './run-registry'
+import { developmentLogVersion } from './source-version'
 
 /** How the process is supervised — the sink selector. */
 export type LoggingMode = 'systemd' | 'detached' | 'foreground'
@@ -47,7 +48,9 @@ export interface ProcessLoggingOptions {
   role: string
   /** Defaults to `resolveRunRecordMode(env)`. */
   mode?: LoggingMode
-  /** App version for the `v` field. Defaults to `PODIUM_APP_VERSION`, else `dev`. */
+  /** App version for the `v` field. Defaults to `PODIUM_APP_VERSION` for a
+   *  released binary, else the running source's own identity — see
+   *  {@link resolveLogVersion}. */
   version?: string
   /** Directory for the file sink. Defaults to `logDir()`. */
   dir?: string
@@ -90,6 +93,28 @@ export function logFilePath(role: string, dir: string = logDir()): string {
  */
 let current: ProcessLogging | undefined
 
+/** Captured once per process: two `git` invocations, and a checkout moving
+ *  underneath a running process is an update rather than a new identity for
+ *  this one (the same reasoning as `captureServerBuildVersion`). */
+let capturedSourceVersion: string | undefined
+
+/**
+ * THE `v` EVERY LONG-LIVED PODIUM PROCESS STAMPS ITS RECORDS WITH.
+ *
+ * `PODIUM_APP_VERSION` first, in both forms: a compiled binary has the literal
+ * `process.env.PODIUM_APP_VERSION` inlined by `--define` (scripts/build-bun.ts),
+ * while a supervised process may be handed it in the real environment, and the
+ * injected `env` seam is neither of those. Then the running source's identity —
+ * NOT the constant `dev` this used to fall back to, which was present enough to
+ * pass any check and constant enough to answer no question (POD-1965).
+ */
+export function resolveLogVersion(env: EnvSource = process.env): string {
+  const declared = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION
+  if (declared) return declared
+  capturedSourceVersion ??= developmentLogVersion()
+  return capturedSourceVersion
+}
+
 /**
  * Register the one sink this process should have and bind its process context.
  * Returns a handle so shutdown can drain it; the caller owns that lifetime.
@@ -101,7 +126,7 @@ let current: ProcessLogging | undefined
 export function configureProcessLogging(options: ProcessLoggingOptions): ProcessLogging {
   const env = options.env ?? process.env
   const mode = options.mode ?? resolveRunRecordMode(env)
-  const version = options.version ?? env.PODIUM_APP_VERSION ?? 'dev'
+  const version = options.version ?? resolveLogVersion(env)
 
   // Fire-and-forget: the previous handle is unregistered synchronously inside
   // close(), and the async tail is only an fd release with nothing to await.

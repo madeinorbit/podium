@@ -34,10 +34,16 @@
  * certify the wrong artefact, and a wrong certificate is worse than none.
  */
 
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BUILD_STAMP_FILE, WIRE_VERSION, wireSchemaDigest } from '../packages/protocol/src/index'
+import {
+  BUILD_STAMP_FILE,
+  type BuildStamp,
+  bundleVersionFromHtml,
+  WIRE_VERSION,
+  wireSchemaDigest,
+} from '../packages/protocol/src/index'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -52,6 +58,35 @@ function resolvedModelPath(): string {
   }
 }
 
+/**
+ * The stamp a built `index.html` earns. Pure, and exported, so the contract the
+ * page depends on can be asserted without a build (and without spawning this
+ * script, which a worktree with no `node_modules` cannot do — the POD-746 guard
+ * below fires first).
+ *
+ * THROWS when the html carries no hashed module entry, and that is the important
+ * half. A built dist always has one, so its absence means the assumption this
+ * derivation rests on has moved — a vite config change, a different bundler —
+ * and the right answer is to fail the build. Writing a stamp without
+ * `appVersion` is precisely the silent absence POD-1965 is about: every record
+ * would ship unversioned again and nothing would say so.
+ */
+export function webBuildStamp(indexHtml: string, now: Date = new Date()): Required<BuildStamp> {
+  const appVersion = bundleVersionFromHtml(indexHtml)
+  if (!appVersion) {
+    throw new Error(
+      'no hashed module entry script in index.html, so this build has no identity to stamp ' +
+        'its log records with (POD-1965). Check that vite still emits a content-hashed entry chunk.',
+    )
+  }
+  return {
+    wireSchemaDigest: wireSchemaDigest(),
+    wireVersion: WIRE_VERSION,
+    builtAt: now.toISOString(),
+    appVersion,
+  }
+}
+
 function main(): void {
   const arg = process.argv[2]
   if (!arg) {
@@ -59,7 +94,8 @@ function main(): void {
     process.exit(2)
   }
   const distDir = isAbsolute(arg) ? arg : resolve(process.cwd(), arg)
-  if (!existsSync(join(distDir, 'index.html'))) {
+  const indexPath = join(distDir, 'index.html')
+  if (!existsSync(indexPath)) {
     console.error(`[podium] build stamp: ${distDir} has no index.html — did vite build run?`)
     process.exit(1)
   }
@@ -75,13 +111,22 @@ function main(): void {
     process.exit(1)
   }
 
-  const stamp = {
-    wireSchemaDigest: wireSchemaDigest(),
-    wireVersion: WIRE_VERSION,
-    builtAt: new Date().toISOString(),
+  // WHICH BUILD, for every log record this bundle writes (POD-1965). Derived
+  // from the emitted index.html by the same function the page itself calls, so
+  // the stamp and the running page cannot name the build differently — they did
+  // for as long as this file wrote keys the reader never looked for.
+  let stamp: Required<BuildStamp>
+  try {
+    stamp = webBuildStamp(readFileSync(indexPath, 'utf8'))
+  } catch (err) {
+    console.error(`[podium] build stamp: ${indexPath}: ${(err as Error).message}`)
+    process.exit(1)
   }
   writeFileSync(join(distDir, BUILD_STAMP_FILE), `${JSON.stringify(stamp, null, 2)}\n`)
-  console.log(`[podium] build stamp: wire schema ${stamp.wireSchemaDigest} → ${distDir}`)
+  console.log(
+    `[podium] build stamp: wire schema ${stamp.wireSchemaDigest}, ` +
+      `build ${stamp.appVersion} → ${distDir}`,
+  )
 }
 
-main()
+if (import.meta.main) main()

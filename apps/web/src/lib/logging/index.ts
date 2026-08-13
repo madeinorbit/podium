@@ -1,23 +1,21 @@
-import { createLogger, setProcessContext } from '@podium/logger'
-import { serverConfig } from '@/app/trpc'
+import { createLogger } from '@podium/logger'
 import { installWebLogging } from './install'
 import { pageLogTransport } from './transport'
 
+export { DEV_SERVER_VERSION, pageBuildVersion } from './build-version'
 export { installGlobalHandlers } from './global-handlers'
 export { installWebLogging, type LogTransport, type WebLoggingOptions } from './install'
 export { pageLogTransport, trpcLogTransport } from './transport'
-
-/** The build stamp `apps/web`'s build writes beside the bundle. */
-const BUILD_STAMP_FILE = 'podium-build.json'
 
 /**
  * Start client logging for the real page. Called from `main.tsx` BEFORE React
  * mounts, so a throw during the first render is caught by the global handlers
  * rather than lost to the console of a user who is not looking at it.
  *
- * The version is filled in asynchronously. Blocking boot on a build-stamp fetch
- * to tag records with `v` would trade the crashes worth having — the ones during
- * boot — for a nicer field on the ones that come later.
+ * The build identity is resolved synchronously inside `installWebLogging`, from
+ * the page's own entry script tag, so the very first record already says which
+ * build wrote it (POD-1965). This used to be a fetch of `/podium-build.json`
+ * whose result arrived — when it arrived at all — after boot was over.
  */
 export function startWebLogging(): () => void {
   const dispose = installWebLogging({ transport: pageLogTransport() })
@@ -29,19 +27,5 @@ export function startWebLogging(): () => void {
     path: window.location.pathname,
     ...(document.referrer ? { referrer: document.referrer } : {}),
   })
-  void resolveBuildVersion()
   return dispose
-}
-
-async function resolveBuildVersion(): Promise<void> {
-  try {
-    const { httpOrigin } = serverConfig(window.location)
-    const response = await fetch(`${httpOrigin}/${BUILD_STAMP_FILE}`)
-    if (!response.ok) return
-    const raw: unknown = await response.json()
-    const version = (raw as { appVersion?: unknown } | null)?.appVersion
-    if (typeof version === 'string') setProcessContext({ v: version })
-  } catch {
-    // An untagged record is worth more than a logging path that throws at boot.
-  }
 }

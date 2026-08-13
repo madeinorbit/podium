@@ -63,8 +63,17 @@ export interface ClientLoggingOptions {
   transport: LogTransport
   /** `web` | `desktop` | `mobile`. The client's own self-description. */
   role: string
-  /** App version. Late-resolving is fine — see below. */
-  version?: string
+  /**
+   * WHICH BUILD wrote this record. REQUIRED, and that is the point (POD-1965).
+   *
+   * It was optional, and both web callers omitted it, and every web record
+   * shipped with no `v` for months — a defect made of an absent field, which is
+   * the kind nothing notices. A client that cannot say which build it is cannot
+   * be asked whether it contains a fix, so the composition root has to answer
+   * even if the answer is "a dev server". `setProcessContext({ v })` may still
+   * refine it later.
+   */
+  version: string
   /** The machine this client runs on, when it knows — `LogOrigin.machineId`
    *  carries the brand, so the caller resolves it rather than the sink. */
   machineId?: MachineId
@@ -111,7 +120,7 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
   const { role, machineId } = options
   setProcessContext({
     role,
-    ...(options.version ? { v: options.version } : {}),
+    v: options.version,
     ...(options.platform ? { platform: options.platform } : {}),
     ...(machineId ? { machineId } : {}),
   })

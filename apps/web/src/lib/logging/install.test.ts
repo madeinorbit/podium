@@ -84,6 +84,39 @@ describe('installWebLogging', () => {
     expect(forwarded[0]?.records[0]?.msg).toBe('frame decoded')
   })
 
+  /**
+   * POD-1965. Every web record shipped with no `v` for months, and no test saw
+   * it, because the failure was an ABSENT field — nothing asserted presence.
+   * These two do, from both ends of the record: the origin an operator filters
+   * on, and the crash payload that is the only thread back to a bundle.
+   *
+   * Armedness was verified by deleting the `version:` line from install.ts and
+   * watching both go red; keep them that way. The value is deliberately matched
+   * loosely — what must not regress is that SOMETHING build-distinguishing is
+   * there, not which flavour of identity this build happens to have.
+   */
+  it('stamps which build wrote the record, without being told the version', async () => {
+    const { transport, forwarded } = recorder()
+    dispose = installWebLogging({ transport, role: 'web', console: false })
+
+    createLogger('web:store').warn('replica degraded')
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(forwarded[0]?.origin.v).toEqual(expect.any(String))
+    expect(forwarded[0]?.origin.v).not.toBe('')
+  })
+
+  it('stamps the crash report too — the one record that must name its bundle', async () => {
+    const { transport, crashes } = recorder()
+    dispose = installWebLogging({ transport, role: 'web', console: false })
+
+    window.dispatchEvent(new ErrorEvent('error', { error: new Error('boom') }))
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(crashes[0]?.origin.v).toEqual(expect.any(String))
+    expect(crashes[0]?.origin.v).not.toBe('')
+  })
+
   it('stops capturing after dispose', async () => {
     const { transport, forwarded, crashes } = recorder()
     const stop = installWebLogging({ transport, role: 'web', console: false })

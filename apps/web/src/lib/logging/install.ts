@@ -5,6 +5,7 @@ import {
 } from '@podium/client-core/logging'
 import { asMachineId, type MachineId } from '@podium/model'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { pageBuildVersion } from './build-version'
 import { installGlobalHandlers } from './global-handlers'
 
 /**
@@ -21,13 +22,21 @@ import { installGlobalHandlers } from './global-handlers'
  * rather than compiled in — one build serves as `web` in a browser and
  * `desktop` behind the shell, and a crash report that lied about which would
  * send an operator looking in the wrong log file.
+ *
+ * `version` is detected here for the same reason and answers the same kind of
+ * question: which BUILD, not just which runtime (POD-1965). It is resolved
+ * synchronously, before the first record, because the records worth having are
+ * the ones from boot — see ./build-version.
  */
 
 export type { LogTransport }
 
-export interface WebLoggingOptions extends Omit<ClientLoggingOptions, 'role' | 'platform'> {
+export interface WebLoggingOptions
+  extends Omit<ClientLoggingOptions, 'role' | 'platform' | 'version'> {
   /** Detected when absent. */
   role?: string
+  /** Read off the page's own entry script when absent — see ./build-version. */
+  version?: string
 }
 
 function detectRole(): string {
@@ -51,6 +60,7 @@ export function installWebLogging(options: WebLoggingOptions): () => void {
   const logging = installClientLogging({
     ...options,
     role: options.role ?? detectRole(),
+    version: options.version ?? pageBuildVersion(),
     // The desktop bridge hands its machine id over as a plain string, so the
     // brand is asserted at that edge — the shell reads it from the same state
     // file the daemon registers with.

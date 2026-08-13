@@ -78,6 +78,32 @@ the error serializer (name / message / stack / cause) on the way in.
 `role` and `v` come from the process context set once at boot, not from call
 sites.
 
+### `v` — which build wrote this line
+
+`v` exists to answer one question: does the thing that logged this contain a
+given fix? It is set at boot by each role's composition root and is never
+absent.
+
+| role | `v` | set by |
+|------|-----|--------|
+| released binary (any role) | the release version, e.g. `0.9.9` | `PODIUM_APP_VERSION`, baked in by `scripts/build-bun.ts` |
+| server / daemon / janitor / cli from source | `dev+<short sha>`, plus `-dirty` when the tree differs from that commit | `resolveLogVersion` in `packages/runtime/src/logging.ts` |
+| web / desktop (the same bundle) | `bundle+<entry chunk hash>`, e.g. `bundle+DHMkD0wf` | `pageBuildVersion` in `apps/web/src/lib/logging/build-version.ts`, read off the page's own entry script |
+| web / desktop on the vite dev server | `dev-server` (there is no build to name) | same |
+| mobile | the build-time inline, else `dev` | `appVersion()` in `apps/mobile/src/lib/logging.ts` |
+
+The web value is the same hash a crash stack prints (`index-DHMkD0wf.js`), the
+same one `apps/web/.sourcemaps` files its archived maps under, and the same one
+`podium-build.json` records as `appVersion` — one identity, four places, derived
+by one function (`bundleVersionFromHtml` / `bundleVersionFromEntrySrc` in
+`@podium/protocol`).
+
+None of this is optional, deliberately (POD-1965). `ClientLoggingOptions.version`
+is a REQUIRED field because it used to be optional, both web callers omitted it,
+and every web record shipped with no `v` at all for months — a defect made
+entirely of an absent field, which is the kind no test notices unless one asserts
+presence. Those assertions exist now; if you add a role, add one for it too.
+
 ## Raising verbosity
 
 | Where | How |

@@ -1,6 +1,7 @@
 /**
  * @podium/protocol — wire types + codecs for agent/terminal sessions.
  */
+export * from './bundle-version'
 export * from './delegation'
 // Branded entity ids and the two legacy composite-key helpers live in
 // @podium/model (POD-361) — the L0 root, where a brand is reachable from every
