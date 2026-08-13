@@ -2,6 +2,8 @@ import type { IssuePanelArtifact } from '@podium/model'
 import { X } from 'lucide-react-native'
 import { createElement, useEffect, useState } from 'react'
 import { Image, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useServerProfile } from '../client/ServerProfileGate'
+import { authenticatedImageSource, fetchAuthenticatedAsset } from '../client/authenticated-assets'
 import {
   type IssueArtifactPreview,
   issueArtifactLabel,
@@ -67,11 +69,19 @@ function ArtifactBody({
   url: string | null
   label: string
 }) {
+  const { bearer } = useServerProfile()
   if (!url) {
     return <Text style={styles.note}>This file is not reachable from this phone.</Text>
   }
   if (preview === 'image') {
-    return <Image source={{ uri: url }} style={styles.media} resizeMode="contain" accessibilityLabel={label} />
+    return (
+      <Image
+        source={authenticatedImageSource(url, bearer)}
+        style={styles.media}
+        resizeMode="contain"
+        accessibilityLabel={label}
+      />
+    )
   }
   if (preview === 'video') {
     if (Platform.OS === 'web') {
@@ -98,14 +108,22 @@ function ArtifactBody({
         },
       })
     }
-    return <FetchedText url={url} asMarkdown={false} />
+    return <FetchedText url={url} asMarkdown={false} bearer={bearer} />
   }
-  if (preview === 'markdown') return <FetchedText url={url} asMarkdown />
-  if (preview === 'text') return <FetchedText url={url} asMarkdown={false} />
-  return <FetchedText url={url} asMarkdown={false} />
+  if (preview === 'markdown') return <FetchedText url={url} asMarkdown bearer={bearer} />
+  if (preview === 'text') return <FetchedText url={url} asMarkdown={false} bearer={bearer} />
+  return <FetchedText url={url} asMarkdown={false} bearer={bearer} />
 }
 
-function FetchedText({ url, asMarkdown }: { url: string; asMarkdown: boolean }) {
+function FetchedText({
+  url,
+  asMarkdown,
+  bearer,
+}: {
+  url: string
+  asMarkdown: boolean
+  bearer: string | null
+}) {
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -113,7 +131,7 @@ function FetchedText({ url, asMarkdown }: { url: string; asMarkdown: boolean }) 
     let alive = true
     setText(null)
     setError(null)
-    void fetch(url, { credentials: 'include' })
+    void fetchAuthenticatedAsset(url, bearer)
       .then(async (res) => {
         if (!res.ok) throw new Error(`Could not load (${res.status})`)
         const buf = await res.arrayBuffer()
@@ -127,7 +145,7 @@ function FetchedText({ url, asMarkdown }: { url: string; asMarkdown: boolean }) 
     return () => {
       alive = false
     }
-  }, [url])
+  }, [bearer, url])
 
   if (error) return <Text style={styles.note}>{error}</Text>
   if (text === null) return <Text style={styles.note}>Loading…</Text>

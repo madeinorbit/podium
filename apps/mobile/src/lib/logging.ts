@@ -219,6 +219,10 @@ export interface FetchTransportOptions {
   /** Resolves the paired server's HTTP origin; may return undefined before one
    *  is known, in which case a send fails and the sink retries later. */
   httpOrigin(): string | undefined
+  /** Native paired-session credential. Web leaves this absent and uses cookies. */
+  bearer?: () => string | null
+  /** Web uses its HttpOnly cookie; native must never consult an ambient cookie jar. */
+  credentials?: RequestCredentials
   fetchImpl?: typeof fetch
 }
 
@@ -238,10 +242,14 @@ export function createFetchLogTransport(options: FetchTransportOptions): LogTran
       throw new Error('no server origin yet')
     }
     const doFetch = options.fetchImpl ?? fetch
+    const bearer = options.bearer?.()
     const response = await doFetch(`${origin}/trpc/${procedure}`, {
       method: 'POST',
-      credentials: 'include',
-      headers: { 'content-type': 'application/json' },
+      credentials: options.credentials ?? 'include',
+      headers: {
+        'content-type': 'application/json',
+        ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+      },
       body: JSON.stringify(input),
     })
     if (!response.ok) throw new Error(`${procedure} failed: ${response.status}`)
@@ -357,9 +365,14 @@ export function installMobileLogging(options: MobileLoggingOptions): MobileLoggi
 export function startMobileLogging(
   httpOrigin: () => string | undefined,
   platform?: string,
+  bearer?: () => string | null,
 ): MobileLogging {
   return installMobileLogging({
-    transport: createFetchLogTransport({ httpOrigin }),
+    transport: createFetchLogTransport({
+      httpOrigin,
+      credentials: platform === 'web' ? 'include' : 'omit',
+      ...(bearer ? { bearer } : {}),
+    }),
     ...(platform === undefined ? {} : { platform }),
   })
 }

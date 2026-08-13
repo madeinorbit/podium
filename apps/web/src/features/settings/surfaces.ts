@@ -78,10 +78,13 @@ export const TAB_PATHS = {
   notifications: ['notifications.web', 'notifications.ntfyTopic', 'notifications.telegramChatId'],
   // Self-persisting surfaces: they write config.json, localStorage or their own
   // tables rather than the settings blob, so they classify no leaf. They sit
-  // under preferences because that is whose behaviour they change.
+  // under preferences because that is whose account/device behaviour they
+  // change; Connected devices is per-user even though the server URL it shows
+  // is instance configuration.
   appearance: [],
   accounts: [],
   privacy: [],
+  devices: [],
 
   // — Instance ——————————————————————————————————————————————————————
   // Worktree GC sits here rather than on a tab of its own: it is the same
@@ -126,6 +129,7 @@ export const TAB_SURFACE = {
   appearance: 'your-preferences',
   accounts: 'your-preferences',
   privacy: 'your-preferences',
+  devices: 'your-preferences',
 
   hibernation: 'instance',
   workflow: 'instance',

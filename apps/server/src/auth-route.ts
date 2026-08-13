@@ -352,6 +352,12 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         password?: unknown
       }
       if (body?.delivery === 'native') {
+        // Browsers attach Origin to POST requests and must stay on the HttpOnly
+        // cookie path. Native fetch does not attach it, so a web caller cannot
+        // opt into the response-body bearer intended for SecureStore.
+        if (c.req.header('origin') !== undefined) {
+          return c.json({ error: 'native login delivery is unavailable to browsers' }, 400)
+        }
         if (!isHttps(c, opts.trustedProxyHops)) {
           return c.json({ error: 'secure HTTPS is required for native login' }, 400)
         }

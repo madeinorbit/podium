@@ -1,8 +1,10 @@
 import { isImagePath } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
 import { FileText, X } from 'lucide-react-native'
-import { useState } from 'react'
-import { Image, Linking, Modal, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { authenticatedImageSource, fetchAuthenticatedAsset } from '../client/authenticated-assets'
+import { useServerProfile } from '../client/ServerProfileGate'
 import {
   pathBasename,
   sessionAssetUrl,
@@ -12,14 +14,14 @@ import { color, font, leading, monoLabel, radius, sans, space } from '../theme/t
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
-function FileChip({ label, url, onPress }: { label: string; url?: string; onPress?: () => void }) {
-  const interactive = url !== undefined || onPress !== undefined
+function FileChip({ label, onPress }: { label: string; onPress?: () => void }) {
+  const interactive = onPress !== undefined
   return (
     <PressableScale
       accessibilityRole={interactive ? 'button' : undefined}
       accessibilityLabel={interactive ? `Open ${label}` : undefined}
       disabled={!interactive}
-      onPress={onPress ?? (url ? () => void Linking.openURL(url) : undefined)}
+      onPress={onPress}
       style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
     >
       <Icon as={FileText} size={13} color={color.textDim} />
@@ -31,12 +33,34 @@ function FileChip({ label, url, onPress }: { label: string; url?: string; onPres
 }
 
 function SharedPath({ path, context }: { path: string; context?: TranscriptAssetContext }) {
+  const { bearer } = useServerProfile()
   const [failed, setFailed] = useState(false)
   const [preview, setPreview] = useState(false)
   const name = pathBasename(path)
   const url = context ? sessionAssetUrl(context, path) : undefined
 
-  if (!url || !isImagePath(path) || failed) return <FileChip label={name} url={url} />
+  if (!url) return <FileChip label={name} />
+
+  const open = () => {
+    if (Platform.OS === 'web') void Linking.openURL(url)
+    else setPreview(true)
+  }
+
+  if (!isImagePath(path) || failed) {
+    return (
+      <>
+        <FileChip label={name} onPress={open} />
+        {preview ? (
+          <SharedFileViewer
+            name={name}
+            url={url}
+            bearer={bearer}
+            onClose={() => setPreview(false)}
+          />
+        ) : null}
+      </>
+    )
+  }
 
   return (
     <>
@@ -47,7 +71,7 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
         style={({ pressed }) => [styles.thumbButton, pressed && styles.chipPressed]}
       >
         <Image
-          source={{ uri: url }}
+          source={authenticatedImageSource(url, bearer)}
           accessibilityLabel={name}
           resizeMode="cover"
           style={styles.thumb}
@@ -71,7 +95,7 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
             <Icon as={X} size={22} color={color.text} />
           </PressableScale>
           <Image
-            source={{ uri: url }}
+            source={authenticatedImageSource(url, bearer)}
             accessibilityLabel={name}
             resizeMode="contain"
             style={styles.lightboxImage}
@@ -83,6 +107,65 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
         </View>
       </Modal>
     </>
+  )
+}
+
+const FILE_TEXT_CAP = 512 * 1024
+
+function SharedFileViewer({
+  name,
+  url,
+  bearer,
+  onClose,
+}: {
+  name: string
+  url: string
+  bearer: string | null
+  onClose(): void
+}) {
+  const [body, setBody] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void fetchAuthenticatedAsset(url, bearer)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Could not load (${response.status})`)
+        const data = await response.arrayBuffer()
+        const slice = data.byteLength > FILE_TEXT_CAP ? data.slice(0, FILE_TEXT_CAP) : data
+        if (alive) setBody(new TextDecoder().decode(slice))
+      })
+      .catch((cause: unknown) => {
+        if (alive) setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    return () => {
+      alive = false
+    }
+  }, [bearer, url])
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.fileViewer}>
+        <View style={styles.fileViewerBar}>
+          <Text style={styles.fileViewerTitle} numberOfLines={1}>
+            {name}
+          </Text>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="Close file"
+            onPress={onClose}
+            style={styles.lightboxClose}
+          >
+            <Icon as={X} size={22} color={color.text} />
+          </PressableScale>
+        </View>
+        <ScrollView contentContainerStyle={styles.fileViewerBody}>
+          <Text style={styles.fileViewerText} selectable>
+            {error ?? body ?? 'Loading…'}
+          </Text>
+        </ScrollView>
+      </View>
+    </Modal>
   )
 }
 
@@ -170,4 +253,18 @@ const styles = StyleSheet.create({
     backgroundColor: color.surfaceHigh,
   },
   lightboxImage: { width: '100%', height: '82%' },
+  fileViewer: { flex: 1, backgroundColor: color.bg },
+  fileViewerBar: {
+    minHeight: 96,
+    paddingTop: 48,
+    paddingHorizontal: space.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.border,
+  },
+  fileViewerTitle: { flex: 1, color: color.text, ...sans(700), fontSize: font.body },
+  fileViewerBody: { padding: space.lg },
+  fileViewerText: { color: color.text, fontSize: font.small, lineHeight: leading(font.small) },
 })

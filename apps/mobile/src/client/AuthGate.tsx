@@ -1,20 +1,20 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { LoginScreen } from '../screens/LoginScreen'
 import { type AuthStatus, fetchAuthStatus } from './auth'
 import { AuthStatusContext } from './auth-context'
 import { demoEnabled } from './demoData'
 import { LaunchReadyView } from './launch'
-import { readServerConfig } from './trpc'
+import { useServerProfile } from './ServerProfileGate'
 
 type GateState = 'checking' | 'open' | 'login' | 'unreachable'
 
 /**
  * Mounts the app only once the server is reachable and (when a password is set)
- * the session cookie is valid — so the socket + tRPC clients never start in a
- * 401 loop. Auth-disabled servers pass straight through.
+ * the browser cookie or native bearer is valid — so the socket + tRPC clients
+ * never start in a 401 loop. Auth-disabled servers pass straight through.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
-  const config = useMemo(readServerConfig, [])
+  const { config, bearer, updateCredential } = useServerProfile()
   const demo = demoEnabled()
   const [state, setState] = useState<GateState>(() => (demo ? 'open' : 'checking'))
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
@@ -22,7 +22,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (demo) return
     let alive = true
-    fetchAuthStatus(config.httpOrigin)
+    fetchAuthStatus(config.httpOrigin, bearer)
       .then((status) => {
         if (!alive) return
         setAuthStatus(status)
@@ -37,7 +37,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [config.httpOrigin, demo])
+  }, [bearer, config.httpOrigin, demo])
 
   // The persistent LaunchBoundary above this gate owns the visible splash.
   // Returning null keeps it mounted instead of starting the reveal over here.
@@ -47,11 +47,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <LaunchReadyView>
         <LoginScreen
           httpOrigin={config.httpOrigin}
-          onAuthed={() => {
-            // The login response does not carry the user id. Let the provider
-            // perform one fresh status read for the newly authenticated account.
-            setAuthStatus(null)
-            setState('open')
+          onAuthed={async (token) => {
+            await updateCredential(token)
+            // Updating the credential increments the profile runtime key. The
+            // fresh AuthGate then re-reads status and names the authenticated
+            // principal before any client/replica construction.
           }}
         />
       </LaunchReadyView>

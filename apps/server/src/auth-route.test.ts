@@ -171,6 +171,28 @@ describe('auth-route', () => {
     expect(store.auth.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
   })
 
+  test('browser-origin login cannot opt into response-body bearer delivery', async () => {
+    await setPassword('hunter2')
+    const response = await makeApp({ trustedProxyHops: 1 }).request('/auth/login', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'https://podium.example',
+        'x-forwarded-proto': 'https',
+      },
+      body: JSON.stringify({
+        delivery: 'native',
+        password: 'hunter2',
+        deviceId: 'browser-script',
+        deviceName: 'Browser script',
+        platform: 'unknown',
+      }),
+    })
+    expect(response.status).toBe(400)
+    expect(response.headers.get('set-cookie')).toBeNull()
+    expect(store.auth.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
+  })
+
   test('the session cookie marks the client authed; logout clears it', async () => {
     await setPassword('hunter2')
     let revokedHash: string | undefined
@@ -581,7 +603,11 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
   test('the minted row carries the break-glass label so it is revocable on its own', async () => {
     await setPassword('hunter2', mintStore)
     const minted = mintBreakGlassSession({ stateDir: mintDir })
-    mintStore.auth.createClientSession(hashToken('a-browser-login'), FIRST_ADMIN_USER_ID, FAR_FUTURE)
+    mintStore.auth.createClientSession(
+      hashToken('a-browser-login'),
+      FIRST_ADMIN_USER_ID,
+      FAR_FUTURE,
+    )
 
     expect(mintStore.auth.deleteClientSessionsByLabel(BREAK_GLASS_LABEL)).toBe(1)
 
@@ -654,7 +680,10 @@ describe('session expiry at the gate', () => {
     await setPassword('hunter2')
     const cookie = expiredRow()
     const app = new Hono()
-    app.use('/trpc/*', clientAuthGuard({ store: store.auth, users: store.users, now: () => AT - 2_000 }))
+    app.use(
+      '/trpc/*',
+      clientAuthGuard({ store: store.auth, users: store.users, now: () => AT - 2_000 }),
+    )
     app.get('/trpc/ping', (c) => c.text('pong'))
     expect((await app.request('/trpc/ping', { headers: { cookie } })).status).toBe(200)
   })

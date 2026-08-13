@@ -33,7 +33,11 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { REPLICA_KEY_PREFIX, type StorageApi } from '@podium/client-core/replica'
+import {
+  principalKeyPrefix,
+  REPLICA_KEY_PREFIX,
+  type StorageApi,
+} from '@podium/client-core/replica'
 import { asMutationId } from '@podium/model'
 import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 import {
@@ -137,6 +141,27 @@ function durableOutbox(file: string): { mutationId: string; record: Record<strin
   }
 }
 
+function durableEntityCount(file: string, principal: string): number {
+  if (!fileExists(file)) return 0
+  const db = openSqlite(file)
+  try {
+    const tables = new Set(
+      (
+        db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as {
+          name: string
+        }[]
+      ).map((row) => row.name),
+    )
+    if (!tables.has('entities')) return 0
+    const row = db
+      .prepare('SELECT COUNT(*) AS count FROM entities WHERE principal = ?')
+      .get(principal) as { count: number }
+    return row.count
+  } finally {
+    db.close()
+  }
+}
+
 function fileExists(file: string): boolean {
   try {
     readFileSync(file)
@@ -224,6 +249,11 @@ async function open(args: {
   principal?: string
   /** Defaults to a silent authority so cold-start cases cannot be rescued by a feed. */
   fetchChangesSince?: () => Promise<FeedChangesSinceReplyLenient>
+  pendingPrincipalCleanups?: readonly {
+    principal: string
+    complete(): Promise<void>
+  }[]
+  flushStorage?: () => Promise<void>
 }) {
   const degradations: string[] = []
   const opened = await openMobileReplica({
@@ -241,6 +271,10 @@ async function open(args: {
     storage: args.storage,
     ...(args.principal !== undefined ? { principal: args.principal } : {}),
     ...(args.storage.keys !== undefined ? { enumerateKeys: args.storage.keys } : {}),
+    ...(args.pendingPrincipalCleanups !== undefined
+      ? { pendingPrincipalCleanups: args.pendingPrincipalCleanups }
+      : {}),
+    ...(args.flushStorage !== undefined ? { flushStorage: args.flushStorage } : {}),
     evidence: args.evidence ?? SINGLE_ACCOUNT,
     fetchChangesSince: args.fetchChangesSince ?? SILENT_AUTHORITY,
     onDegraded: (message) => degradations.push(message),
@@ -277,6 +311,81 @@ function seedIssue(
 // ---------------------------------------------------------------------------
 
 describe('the mobile replica composition root', () => {
+  it('erases a tombstoned profile replica before completing its durable cleanup intent', async () => {
+    const file = freshDatabaseFile()
+    const device = legacyDevice({})
+    const stalePrincipal = 'server:old-profile:user:user%3Aadmin'
+    const stalePrefix = principalKeyPrefix(REPLICA_KEY_PREFIX, stalePrincipal)
+    const seeded = await open({ file, storage: device, principal: stalePrincipal })
+    seedIssue(seeded.store, stalePrincipal, { id: 'i-stale', title: 'private old-server work' })
+    device.setItem(`${stalePrefix}.draft.v1`, 'private old-server draft')
+    await seeded.store.settled()
+    seeded.store.close()
+
+    let flushed = false
+    let completed = false
+    const current = await open({
+      file,
+      storage: device,
+      principal: 'server:new-profile:user:user%3Aadmin',
+      flushStorage: async () => {
+        flushed = true
+      },
+      pendingPrincipalCleanups: [
+        {
+          principal: stalePrincipal,
+          complete: async () => {
+            expect(flushed).toBe(true)
+            expect(
+              device.keys().some((key) => key === stalePrefix || key.startsWith(`${stalePrefix}.`)),
+            ).toBe(false)
+            expect(durableEntityCount(file, stalePrincipal)).toBe(0)
+            completed = true
+          },
+        },
+      ],
+    })
+
+    expect(completed).toBe(true)
+    current.store.close()
+  })
+
+  it('leaves cleanup incomplete after a storage failure so the same tombstone can retry', async () => {
+    const file = freshDatabaseFile()
+    const device = legacyDevice({})
+    const stalePrincipal = 'server:old-profile:user:user%3Aadmin'
+    let completed = 0
+    const cleanup = {
+      principal: stalePrincipal,
+      complete: async () => {
+        completed += 1
+      },
+    }
+
+    await expect(
+      open({
+        file,
+        storage: device,
+        principal: 'server:new-profile:user:user%3Aadmin',
+        pendingPrincipalCleanups: [cleanup],
+        flushStorage: async () => {
+          throw new Error('write-behind flush failed')
+        },
+      }),
+    ).rejects.toThrow('write-behind flush failed')
+    expect(completed).toBe(0)
+
+    const retried = await open({
+      file,
+      storage: device,
+      principal: 'server:new-profile:user:user%3Aadmin',
+      pendingPrincipalCleanups: [cleanup],
+      flushStorage: async () => {},
+    })
+    expect(completed).toBe(1)
+    retried.store.close()
+  })
+
   it('adopts an attributable device: the queued writes are drainable AND durable in SQLite', async () => {
     const file = freshDatabaseFile()
     const device = seededDevice()
@@ -331,16 +440,14 @@ describe('the mobile replica composition root', () => {
     const device = legacyDevice({})
     const { replica } = await open({ file, storage: device })
 
-    replica
-      .outboxStorage()
-      .save([
-        {
-          mutationId: asMutationId('m-new'),
-          kind: 'snoozeClear',
-          input: { sessionId: 's9' },
-          queuedAt: 5,
-        },
-      ])
+    replica.outboxStorage().save([
+      {
+        mutationId: asMutationId('m-new'),
+        kind: 'snoozeClear',
+        input: { sessionId: 's9' },
+        queuedAt: 5,
+      },
+    ])
 
     // Read through a separate connection with NOTHING awaited in between: the
     // adapter's commit is synchronous, and that is the property the whole

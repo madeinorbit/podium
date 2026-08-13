@@ -18,7 +18,14 @@
     },
     "ios": {
       "bundleIdentifier": "dev.podium.mobile",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan a one-time code to connect this phone to your Podium server.",
+        "NSLocalNetworkUsageDescription": "Connect to a Podium server you run on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
       "package": "dev.podium.mobile",
@@ -28,7 +35,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["CAMERA"]
     },
     "androidStatusBar": {
       "backgroundColor": "#16171a",
@@ -45,6 +53,16 @@
       "favicon": "./assets/favicon.png",
       "name": "Podium"
     },
-    "plugins": ["expo-router"]
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan a one-time code to connect this phone to your Podium server.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-secure-store"
+    ]
   }
 }

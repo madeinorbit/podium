@@ -224,6 +224,23 @@ describe('createFetchLogTransport', () => {
     await expect(transport.crash(crash)).rejects.toThrow('503')
   })
 
+  it('attaches the current native bearer without putting it in the URL', async () => {
+    const fetchImpl = vi.fn(
+      async (_url: string, _init?: RequestInit) => ({ ok: true, status: 200 }) as Response,
+    )
+    const transport = createFetchLogTransport({
+      httpOrigin: () => 'https://podium.example',
+      bearer: () => 'mobile-secret',
+      credentials: 'omit',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    await transport.forward({ origin: { role: 'mobile' }, records: [] })
+    const [url, init] = fetchImpl.mock.calls[0] ?? []
+    expect(url).toBe('https://podium.example/trpc/logs.forward')
+    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer mobile-secret')
+    expect(init?.credentials).toBe('omit')
+  })
+
   it('rejects rather than posting nowhere when no server is paired yet', async () => {
     const fetchImpl = vi.fn()
     const transport = createFetchLogTransport({

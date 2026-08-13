@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
-import { login } from '../client/auth'
+import { login, logout } from '../client/auth'
+import { useServerProfile } from '../client/ServerProfileGate'
 import { AsciiWordmark } from '../components/AsciiWordmark'
 import { PressableScale } from '../components/PressableScale'
 import { font, mono, monoLabel } from '../theme/theme'
@@ -46,13 +47,15 @@ export function LoginScreen({
   onAuthed,
 }: {
   httpOrigin: string
-  onAuthed: () => void
+  onAuthed: (bearer: string | null) => void | Promise<void>
 }) {
+  const { profile } = useServerProfile()
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [ok, setOk] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [spinFrame, setSpinFrame] = useState(0)
+  const submitInFlight = useRef(false)
 
   useEffect(() => {
     if (!busy) return
@@ -61,18 +64,41 @@ export function LoginScreen({
   }, [busy])
 
   const submit = async () => {
-    if (!password || busy || ok) return
+    if (!password || submitInFlight.current || ok) return
+    submitInFlight.current = true
     setBusy(true)
     setError(null)
-    const failure = await login(httpOrigin, password).catch(
-      () => "✗ couldn't reach the server — try again",
-    )
-    setBusy(false)
-    if (failure) {
-      setError(failure.startsWith('✗') ? failure : `✗ ${failure}`)
-    } else {
-      setOk(true)
-      onAuthed()
+    try {
+      const result = await login(httpOrigin, password, {
+        id: profile.id,
+        name: profile.name,
+      }).catch(() => ({
+        ok: false as const,
+        error: "couldn't reach the server — try again",
+      }))
+      if (!result.ok) {
+        setError(result.error.startsWith('✗') ? result.error : `✗ ${result.error}`)
+        return
+      }
+      try {
+        await onAuthed(result.bearer)
+        setOk(true)
+      } catch (cause) {
+        const revoked = result.bearer
+          ? await logout(httpOrigin, result.bearer)
+              .then(() => true)
+              .catch(() => false)
+          : true
+        const detail = cause instanceof Error ? cause.message : String(cause)
+        setError(
+          revoked
+            ? `✗ Could not save this session: ${detail}`
+            : `✗ Session storage and remote revocation failed. Revoke this phone from Settings → Connected devices: ${detail}`,
+        )
+      }
+    } finally {
+      setBusy(false)
+      submitInFlight.current = false
     }
   }
 

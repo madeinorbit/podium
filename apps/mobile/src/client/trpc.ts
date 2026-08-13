@@ -15,8 +15,8 @@ import type {
   TranscriptItem,
   ThreadId,
 } from '@podium/model'
-import { WIRE_VERSION } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import { Platform } from 'react-native'
 
 interface QueryProcedure<I, O> {
   query(input: I): Promise<O>
@@ -149,31 +149,64 @@ export type MobileTrpc = PodiumClientApi & MobileTrpcExtras
 
 declare const process: { env?: Record<string, string | undefined> } | undefined
 
-function envServer(): string | undefined {
+let activeRuntimeConfig: ServerConfig | undefined
+let activeRuntimeBearer: string | null = null
+
+export function envServer(): string | undefined {
   if (typeof process === 'undefined') return undefined
   return process.env?.EXPO_PUBLIC_PODIUM_SERVER
 }
 
 export function readServerConfig(): ServerConfig {
+  if (activeRuntimeConfig) return activeRuntimeConfig
   const injected = (globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ ?? envServer()
   if (typeof window === 'undefined') {
     const parsed = injected ? parseServerOrigin(injected) : null
     if (parsed) return { ...parsed, override: true }
-    return {
-      wsClientUrl: 'ws://127.0.0.1:18787/client?v=' + WIRE_VERSION,
-      httpOrigin: 'http://127.0.0.1:18787',
-      override: false,
-    }
+    throw new Error('native server profile has not been selected')
   }
-  return resolveServerConfig(window.location, injected)
+  // Web sessions are page-origin cookie sessions. Only the page's explicit
+  // ?server override may redirect them; native build-time injection is ignored.
+  return resolveServerConfig(window.location)
 }
 
-export function makeMobileTrpc(httpOrigin: string): MobileTrpc {
+export function setActiveServerRuntime(
+  config: ServerConfig | undefined,
+  bearer: string | null,
+): void {
+  activeRuntimeConfig = config
+  activeRuntimeBearer = bearer
+}
+
+export function activeServerHttpOrigin(): string | undefined {
+  try {
+    return readServerConfig().httpOrigin
+  } catch {
+    return undefined
+  }
+}
+
+export function activeServerBearer(): string | null {
+  return activeRuntimeBearer
+}
+
+export function bearerHeaders(bearer: string | null, headers?: HeadersInit): Headers {
+  const result = new Headers(headers)
+  if (bearer) result.set('Authorization', `Bearer ${bearer}`)
+  return result
+}
+
+export function makeMobileTrpc(httpOrigin: string, bearer: string | null = null): MobileTrpc {
   return createTRPCClient<any>({
     links: [
       httpBatchLink({
         url: httpOrigin + '/trpc',
-        fetch: (url, opts) => fetch(url, { ...opts, credentials: 'include' }),
+        fetch: (url, opts) =>
+          fetch(url, {
+            ...opts,
+            credentials: Platform.OS === 'web' ? 'include' : 'omit',
+            headers: bearerHeaders(bearer, opts?.headers),
+          }),
       }),
     ],
   }) as unknown as MobileTrpc

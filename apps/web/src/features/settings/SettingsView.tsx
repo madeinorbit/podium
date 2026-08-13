@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { MachinesPanel } from './MachinesPanel'
+import { ConnectedDevicesSection } from './sections/connected-devices'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
 import { AccountsSection } from './sections/accounts'
 import { AppearanceSection } from './sections/appearance'
@@ -40,6 +41,7 @@ export type SettingsTab =
   | 'notifications'
   | 'workflow'
   | 'network'
+  | 'devices'
   | 'repos'
   | 'machines'
   | 'security'
@@ -64,6 +66,7 @@ const TAB_LABEL: Record<SettingsTab, string> = {
   repos: 'Repos',
   machines: 'Machines',
   network: 'Network',
+  devices: 'Connected devices',
   security: 'Security',
   updates: 'Updates',
   secrets: 'Secrets',
@@ -188,6 +191,7 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   ),
   workflow: ({ settings, patch }) => <WorkflowSection settings={settings} patch={patch} />,
   network: () => <NetworkSection />,
+  devices: ({ trpc }) => <ConnectedDevicesSection trpc={trpc} />,
   repos: () => <ReposSection />,
   machines: () => <MachinesPanel />,
   security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,

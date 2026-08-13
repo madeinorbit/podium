@@ -69,7 +69,7 @@ import {
 } from '@podium/sync/replica'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform } from 'react-native'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { fetchAuthStatus } from './auth'
@@ -86,6 +86,13 @@ import {
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
 import { type MobileShell, MobileShellProvider } from './shell'
+import { useOptionalServerProfile } from './ServerProfileGate'
+import {
+  completePendingProfileCleanup,
+  loadPendingProfileCleanups,
+  profilePrincipal,
+  type PendingProfileCleanup,
+} from './server-profiles'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
 // ---------------------------------------------------------------------------
@@ -176,6 +183,16 @@ export interface MobileReplicaDeps {
   /** Await write-behind durability, especially before sign-out reloads. */
   readonly flushStorage?: () => Promise<void>
   readonly principal?: string
+  /** Authenticated server user. Storage principal may additionally include a server profile. */
+  readonly clientPrincipal?: string
+  /**
+   * Local-only profile removals queued while their server credential was unsafe
+   * to use. Completion must remain pending until both storage engines erase.
+   */
+  readonly pendingPrincipalCleanups?: readonly {
+    principal: string
+    complete(): Promise<void>
+  }[]
   /** WHO THIS DEVICE'S EXISTING QUEUE BELONGS TO — the attribution gate's input.
    *  Injected, never derived here: a gate that supplied its own evidence would be
    *  a gate that always agreed with itself, and a test must be able to present an
@@ -201,6 +218,7 @@ export interface MobileReplica {
   readonly outcome: LegacyMigrationOutcome
   readonly store: MobileEntityStore
   readonly principal: string
+  readonly clientPrincipal: string
   /**
    * Call once the engine's hub exists. A re-bootstrap is a reconnect, so
    * `PushedBootstrapSource` needs `hub.requestFreshWorld()`, and the hub is
@@ -209,6 +227,19 @@ export interface MobileReplica {
   attachHub(hub: SocketHub): void
   /** Fail-closed sign-out: erase AsyncStorage and SQLite for this principal. */
   erase(): Promise<void>
+}
+
+async function eraseLocalPrincipal(args: {
+  namespace: { erase(): void }
+  store: MobileEntityStore
+  principal: string
+  flushStorage?: () => Promise<void>
+}): Promise<void> {
+  args.namespace.erase()
+  await Promise.all([
+    args.store.erasePrincipal(args.principal),
+    args.flushStorage?.() ?? Promise.resolve(),
+  ])
 }
 
 /**
@@ -228,8 +259,42 @@ export interface MobileReplica {
  */
 export async function openMobileReplica(deps: MobileReplicaDeps): Promise<MobileReplica> {
   const principal = deps.principal ?? MOBILE_REPLICA_PRINCIPAL
+  const clientPrincipal = deps.clientPrincipal ?? principal
   const now = deps.now ?? Date.now
   const store = await deps.openStore()
+  try {
+    for (const cleanup of deps.pendingPrincipalCleanups ?? []) {
+      // preparePrincipalNamespace owns the exact AsyncStorage root calculation.
+      // Its cleanup policy disables retention eviction because this pass must
+      // erase only the tombstoned principal, never another saved profile.
+      const staleNamespace = preparePrincipalNamespace({
+        storage: deps.storage,
+        enumerateKeys: deps.enumerateKeys ?? (() => []),
+        basePrefix: REPLICA_KEY_PREFIX,
+        principal: cleanup.principal,
+        now: deps.now,
+        policy: {
+          signOut: 'erase',
+          maxRetainedPrincipals: Number.MAX_SAFE_INTEGER,
+          maxInactiveMs: Number.MAX_SAFE_INTEGER,
+        },
+      })
+      // Use the same principal eraser as signed-out active replicas. Only the
+      // tombstone source differs; the namespace and SQLite boundaries do not.
+      await eraseLocalPrincipal({
+        namespace: staleNamespace,
+        store,
+        principal: cleanup.principal,
+        flushStorage: deps.flushStorage,
+      })
+      // Last operation: a crash or failure above keeps the durable intent for
+      // an idempotent retry on the next successful provider boot.
+      await cleanup.complete()
+    }
+  } catch (cause) {
+    store.close()
+    throw cause
+  }
   const namespace = preparePrincipalNamespace({
     storage: deps.storage,
     enumerateKeys: deps.enumerateKeys ?? (() => []),
@@ -245,8 +310,8 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   }
   const view = store.viewFor(principal)
   const attribution: OutboxAttribution = {
-    actor: actorUser(asUserId(principal)),
-    onBehalfOf: asUserId(principal),
+    actor: actorUser(asUserId(clientPrincipal)),
+    onBehalfOf: asUserId(clientPrincipal),
   }
 
   // Default evidence is the per-principal namespace ledger assembled above.
@@ -347,6 +412,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     outcome,
     store,
     principal,
+    clientPrincipal,
     attachHub: (attached) => {
       hub = attached
       if (freshWorldPending) {
@@ -356,11 +422,12 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     },
     erase: async () => {
       side.dispose()
-      namespace.erase()
-      await Promise.all([
-        store.erasePrincipal(principal),
-        deps.flushStorage?.() ?? Promise.resolve(),
-      ])
+      await eraseLocalPrincipal({
+        namespace,
+        store,
+        principal,
+        flushStorage: deps.flushStorage,
+      })
     },
   }
 }
@@ -483,8 +550,15 @@ function MobileHubAttach({ attachHub }: { attachHub: (hub: SocketHub) => void })
 }
 
 function LiveProvider({ children }: { children: ReactNode }) {
-  const config = useMemo(readServerConfig, [])
-  const trpc = useMemo(() => makeMobileTrpc(config.httpOrigin), [config.httpOrigin])
+  const serverProfile = useOptionalServerProfile()
+  const legacyConfig = useMemo(readServerConfig, [])
+  const config = serverProfile?.config ?? legacyConfig
+  const profileId = serverProfile?.profile.id ?? 'legacy'
+  const bearer = serverProfile?.bearer ?? null
+  const recordUser = serverProfile?.recordUser
+  const recordUserRef = useRef(recordUser)
+  recordUserRef.current = recordUser
+  const trpc = useMemo(() => makeMobileTrpc(config.httpOrigin, bearer), [bearer, config.httpOrigin])
   const inheritedAuthStatus = useAuthStatus()
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -543,9 +617,10 @@ function LiveProvider({ children }: { children: ReactNode }) {
     }, BOOT_STALL_MS)
     void (async () => {
       try {
-        const [bridge, status] = await Promise.all([
+        const [bridge, status, pendingCleanups] = await Promise.all([
           createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES),
-          inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin),
+          inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer),
+          Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
         if (status.userId === null) throw new Error('authenticated account is unavailable')
         // The live server's v2 catch-up. Typed through the hand-written MobileTrpc
@@ -595,10 +670,20 @@ function LiveProvider({ children }: { children: ReactNode }) {
           storage: bridge.storage,
           enumerateKeys: bridge.keys,
           flushStorage: bridge.flush,
-          principal: status.userId,
+          // Browser origins already partition IndexedDB/AsyncStorage. Native
+          // shares one database across unrelated servers and therefore adds
+          // the immutable local profile id to the server-issued user id.
+          principal:
+            Platform.OS === 'web' ? status.userId : profilePrincipal(profileId, status.userId),
+          clientPrincipal: status.userId,
+          pendingPrincipalCleanups: pendingCleanups.map((cleanup: PendingProfileCleanup) => ({
+            principal: cleanup.principal,
+            complete: () => completePendingProfileCleanup(cleanup),
+          })),
           fetchChangesSince: async (cursor) => syncV2.feedChangesSince.query({ cursor }),
           onDegraded: setNotice,
         })
+        await recordUserRef.current?.(status.userId)
         if (!alive) {
           opened.store.close()
           return
@@ -645,7 +730,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         window.removeEventListener('pageshow', onPageShow)
       }
     }
-  }, [config.httpOrigin, trpc, inheritedAuthStatus, bootAttempt, retryBoot])
+  }, [bearer, config.httpOrigin, profileId, trpc, inheritedAuthStatus, bootAttempt, retryBoot])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
   // `info` stays a no-op: the engine's only info is a transient "a session moved
   // to X" toast, and `notice` below is a STICKY banner for the storage facts the
@@ -690,11 +775,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // it. The factory REFUSES any other principal rather than handing back
       // the store it happens to hold: on a shared device that would give one
       // account another's slice and cursor (POD-404).
-      principal={asClientPrincipal(asUserId(openedReplica.principal))}
+      principal={asClientPrincipal(asUserId(openedReplica.clientPrincipal))}
       createReplicaFn={(principal) => {
-        if (principal.userId !== openedReplica.principal) {
+        if (principal.userId !== openedReplica.clientPrincipal) {
           throw new Error(
-            `mobile replica belongs to a different principal (opened for ${openedReplica.principal})`,
+            `mobile replica belongs to a different principal (opened for ${openedReplica.clientPrincipal})`,
           )
         }
         return openedReplica.replica

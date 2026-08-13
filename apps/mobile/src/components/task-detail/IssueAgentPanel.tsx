@@ -5,10 +5,9 @@ import { Check, FileText, Play } from 'lucide-react-native'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../../client/hooks'
-import {
-  issueArtifactHref,
-  issueArtifactLabel,
-} from '../../lib/issue-artifacts'
+import { useServerProfile } from '../../client/ServerProfileGate'
+import { authenticatedImageSource } from '../../client/authenticated-assets'
+import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
@@ -172,6 +171,7 @@ function TodoRow({
  * this phone cannot reach — stays inert rather than offering a tap that fails.
  */
 function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: string | null }) {
+  const { bearer } = useServerProfile()
   const [broken, setBroken] = useState(false)
   const [open, setOpen] = useState(false)
   const kind = artifactKind(artifact.entry ?? artifact.path)
@@ -189,7 +189,7 @@ function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: str
           style={({ pressed }) => [styles.figure, pressed && styles.rowPressed]}
         >
           <Image
-            source={{ uri: url }}
+            source={authenticatedImageSource(url, bearer)}
             style={styles.preview}
             resizeMode="cover"
             accessibilityLabel={label}
@@ -217,7 +217,9 @@ function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: str
           <Text style={styles.stamp}>{relativeTime(artifact.addedAt, Date.now())}</Text>
         </PressableScale>
       )}
-      {open ? <ArtifactViewer artifact={artifact} url={url} onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <ArtifactViewer artifact={artifact} url={url} onClose={() => setOpen(false)} />
+      ) : null}
     </>
   )
 }
