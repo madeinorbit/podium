@@ -295,6 +295,19 @@ describe('resolvePlan — launch matrix', () => {
     })
     expect(plan({ mode: 'server' }, ['server'])).toMatchObject({ runRecordMode: 'foreground' })
   })
+  it('the desktop sidecar is labeled foreground but logs to the FILE, not its dead stdout', () => {
+    // The shell inherits the child's stdio and a Finder-launched .app's stdout is
+    // nowhere, so the console sink wrote every record into a void: an all-in-one
+    // desktop install had no all-in-one.ndjson at all.
+    expect(plan({ mode: 'all-in-one' }, [], { PODIUM_DESKTOP_SUPERVISED: '1' })).toMatchObject({
+      runRecordMode: 'foreground',
+      logSinkMode: 'detached',
+    })
+    expect(plan({ mode: 'all-in-one' })).toMatchObject({
+      runRecordMode: 'foreground',
+      logSinkMode: 'foreground',
+    })
+  })
   it('port precedence: PODIUM_PORT env > config.port > 18787', () => {
     expect(plan({ mode: 'all-in-one', port: 2000 }, [], { PODIUM_PORT: '3000' })).toMatchObject({
       port: 3000,

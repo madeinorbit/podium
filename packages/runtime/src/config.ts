@@ -32,6 +32,7 @@
  * | PODIUM_HOME                   | — → dirname(execPath)   | `resolveInstallDir()` (headless launcher exports it)   |
  * | PODIUM_RUN_MODE               | — (env-only)            | `resolveRunRecordMode()` ('detached' set by cli-spawn) |
  * | NOTIFY_SOCKET (systemd's)     | — (env-only)            | `resolveRunRecordMode()`, sd-notify                    |
+ * | PODIUM_DESKTOP_SUPERVISED     | — (env-only flag)       | `resolveLoggingMode()` (desktop sidecar → file sink)   |
  * | PODIUM_AGENT_RELAY            | — (env-only)            | `resolveAgentRelay()` (daemon-injected per AGENT)      |
  * | PODIUM_SESSION_RELAY          | — (env-only)            | `resolveSessionRelay()` (per SESSION, shells included) |
  * | PODIUM_NO_RELAY               | — (env-only flag)       | both resolvers (shed inherited relay; escape hatch)    |
@@ -693,4 +694,26 @@ export function resolveRunRecordMode(
     : env.PODIUM_RUN_MODE === 'detached'
       ? 'detached'
       : 'foreground'
+}
+
+/**
+ * WHICH SINK this process's records go to, as opposed to how it is supervised.
+ *
+ * The two questions usually have one answer, and `resolveRunRecordMode` is it.
+ * The desktop sidecar is the exception: the shell spawns `podium --takeover` as
+ * a plain child and inherits stdio it never captures, so "foreground" is the
+ * truth about its supervision and a lie about its console — a Finder-launched
+ * .app's stdout goes nowhere, and the pretty sink wrote every record into it.
+ * `PODIUM_DESKTOP_SUPERVISED` (set in apps/desktop/src-tauri/src/main.rs) is how
+ * that process says so, and it takes the rotating file instead.
+ *
+ * NOTIFY_SOCKET still wins: a sidecar under systemd is journald's, and writing
+ * a file as well is the double-writing @podium/runtime/logging exists to avoid.
+ */
+export function resolveLoggingMode(
+  env: EnvSource = process.env,
+): 'systemd' | 'detached' | 'foreground' {
+  const supervised = resolveRunRecordMode(env)
+  if (supervised === 'foreground' && env.PODIUM_DESKTOP_SUPERVISED === '1') return 'detached'
+  return supervised
 }

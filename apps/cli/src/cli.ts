@@ -29,6 +29,7 @@ import {
   resolveAgentRelay,
   resolveFeatureOverrides,
   resolveInstanceId,
+  resolveLoggingMode,
   resolvePort,
   resolveRunRecordMode,
   resolveUpdateChannel,
@@ -183,6 +184,10 @@ export type LaunchPlan =
       claimRole: 'server' | 'daemon' | 'all-in-one' | undefined
       /** How the run-registry record is labeled (systemd unit / detached spawn / plain). */
       runRecordMode: 'systemd' | 'detached' | 'foreground'
+      /** Which sink this process's records go to. Usually the same answer as
+       *  `runRecordMode`; the desktop sidecar is the case where it is not,
+       *  because its inherited stdout is discarded — see `resolveLoggingMode`. */
+      logSinkMode: 'systemd' | 'detached' | 'foreground'
       /** Present iff roles.daemon. */
       daemonAuth: DaemonAuthKind | undefined
       /** Mode + connection inputs (feeds daemonOptionsForPlan at execute time). */
@@ -624,6 +629,7 @@ export function resolvePlan(
           ? ('all-in-one' as const)
           : undefined
   const runRecordMode = resolveRunRecordMode(env)
+  const logSinkMode = resolveLoggingMode(env)
   const daemonAuth = !runDaemon
     ? undefined
     : modePlan.mode === 'daemon'
@@ -637,6 +643,7 @@ export function resolvePlan(
     roles: { server: runServer, daemon: runDaemon },
     claimRole,
     runRecordMode,
+    logSinkMode,
     daemonAuth,
     modePlan,
     showSetupHint: forceSetup || modePlan.showSetupHint,
@@ -910,7 +917,7 @@ async function runInProcess(
   // run and the console the CLI already chose is the right answer.
   const { configureProcessLogging } = await import('@podium/runtime/logging')
   const componentLogging = plan.claimRole
-    ? configureProcessLogging({ role: plan.claimRole, mode: plan.runRecordMode })
+    ? configureProcessLogging({ role: plan.claimRole, mode: plan.logSinkMode })
     : undefined
 
   // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a
