@@ -58,6 +58,7 @@ function mapOrder(row: SqlRow): ShipOrderValue {
     String(row.requestedByActorId),
   )
   const providerRef = jsonObject(row.providerRef)
+  const currentIntegrationReceipt = jsonObject(row.currentIntegrationReceipt)
   return ShipOrder.parse({
     id: row.id,
     issueId: row.issueId,
@@ -68,6 +69,10 @@ function mapOrder(row: SqlRow): ShipOrderValue {
     approvedHeadSha: row.approvedHeadSha,
     descendantManifest: jsonArray(row.descendantManifest),
     deliveryDependsOn: jsonArray(row.deliveryDependsOn),
+    ...(optionalString(row.evidenceManifestRef)
+      ? { evidenceManifestRef: row.evidenceManifestRef }
+      : {}),
+    ...(currentIntegrationReceipt ? { currentIntegrationReceipt } : {}),
     ...(providerRef ? { providerRef } : {}),
     requestedBy: { actor, onBehalfOf: row.requestedByOnBehalfOf ?? null },
     requestedAt: row.requestedAt,
@@ -159,7 +164,10 @@ function mapReceipt(row: SqlRow): DeliveryReceiptValue {
 const orderSelect = `SELECT id, issue_id AS issueId, repo_id AS repoId,
   target_branch AS targetBranch, destination, approved_base_sha AS approvedBaseSha,
   approved_head_sha AS approvedHeadSha, descendant_manifest AS descendantManifest,
-  delivery_depends_on AS deliveryDependsOn, provider_ref AS providerRef,
+  delivery_depends_on AS deliveryDependsOn,
+  evidence_manifest_ref AS evidenceManifestRef,
+  current_integration_receipt AS currentIntegrationReceipt,
+  provider_ref AS providerRef,
   requested_by_actor_kind AS requestedByActorKind,
   requested_by_actor_id AS requestedByActorId,
   requested_by_on_behalf_of AS requestedByOnBehalfOf, requested_at AS requestedAt,
@@ -260,10 +268,11 @@ export class ShippingRepository {
         .prepare(
           `INSERT INTO ship_orders
             (id, issue_id, repo_id, target_branch, destination, approved_base_sha,
-             approved_head_sha, descendant_manifest, delivery_depends_on, provider_ref,
+             approved_head_sha, descendant_manifest, delivery_depends_on,
+             evidence_manifest_ref, current_integration_receipt, provider_ref,
              requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
              requested_at, policy_id, close_mode, state, state_changed_at, hold_code)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           order.id,
@@ -275,6 +284,10 @@ export class ShippingRepository {
           order.approvedHeadSha,
           JSON.stringify(order.descendantManifest),
           JSON.stringify(order.deliveryDependsOn),
+          order.evidenceManifestRef ?? null,
+          order.currentIntegrationReceipt
+            ? JSON.stringify(order.currentIntegrationReceipt)
+            : null,
           order.providerRef ? JSON.stringify(order.providerRef) : null,
           actor.kind,
           actor.id,

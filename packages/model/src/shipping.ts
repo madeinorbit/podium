@@ -50,6 +50,40 @@ export const DescendantTip = z.object({
 })
 export type DescendantTip = z.infer<typeof DescendantTip>
 
+const descendantTipKey = (tip: DescendantTip): string => `${tip.issueId}\0${tip.approvedHeadSha}`
+
+export const descendantTipsMatch = (
+  left: readonly DescendantTip[],
+  right: readonly DescendantTip[],
+): boolean => {
+  if (left.length !== right.length) return false
+  const a = left.map(descendantTipKey).sort()
+  const b = right.map(descendantTipKey).sort()
+  return a.every((key, index) => key === b[index])
+}
+
+/** Admission proof that an approved root tip currently contains exactly these
+ * descendant integrations. Distinct from DeliveryReceipt, which is post-land
+ * destination proof. */
+export const RootIntegrationReceipt = z.object({
+  rootIssueId: IssueIdField,
+  approvedHeadSha: z.string().min(1),
+  descendants: z.array(DescendantTip),
+})
+export type RootIntegrationReceipt = z.infer<typeof RootIntegrationReceipt>
+
+export const integrationReceiptMatchesOrder = (
+  receipt: RootIntegrationReceipt,
+  input: {
+    issueId: string
+    approvedHeadSha: string
+    descendantManifest: readonly DescendantTip[]
+  },
+): boolean =>
+  receipt.rootIssueId === input.issueId &&
+  receipt.approvedHeadSha === input.approvedHeadSha &&
+  descendantTipsMatch(receipt.descendants, input.descendantManifest)
+
 export const ProviderPullRequestRef = z.object({
   provider: z.string().min(1),
   id: z.string().min(1),
@@ -76,6 +110,8 @@ export const ShipOrder = z
     approvedBaseSha: z.string().min(1),
     approvedHeadSha: z.string().min(1),
     deliveryDependsOn: z.array(ShipOrderIdField),
+    evidenceManifestRef: z.string().min(1).optional(),
+    currentIntegrationReceipt: RootIntegrationReceipt.optional(),
     providerRef: ProviderPullRequestRef.optional(),
     requestedBy: Attribution,
     requestedAt: z.string(),
@@ -91,6 +127,23 @@ export const ShipOrder = z
         code: 'custom',
         path: ['holdCode'],
         message: 'holdCode is required exactly while the order is held',
+      })
+    }
+    if (order.descendantManifest.length > 0 && order.currentIntegrationReceipt === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['currentIntegrationReceipt'],
+        message: 'currentIntegrationReceipt is required when descendantManifest is non-empty',
+      })
+    }
+    if (
+      order.currentIntegrationReceipt !== undefined &&
+      !integrationReceiptMatchesOrder(order.currentIntegrationReceipt, order)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['currentIntegrationReceipt'],
+        message: 'currentIntegrationReceipt must bind approvedHeadSha to the descendant manifest',
       })
     }
   })

@@ -1219,6 +1219,8 @@ export const shipOrders = sqliteTable(
     approvedHeadSha: text('approved_head_sha').notNull(),
     descendantManifest: text('descendant_manifest', { mode: 'json' }).default([]).notNull(),
     deliveryDependsOn: text('delivery_depends_on', { mode: 'json' }).default([]).notNull(),
+    evidenceManifestRef: text('evidence_manifest_ref'),
+    currentIntegrationReceipt: text('current_integration_receipt', { mode: 'json' }),
     providerRef: text('provider_ref', { mode: 'json' }),
     requestedByActorKind: text('requested_by_actor_kind').notNull(),
     requestedByActorId: text('requested_by_actor_id').notNull(),

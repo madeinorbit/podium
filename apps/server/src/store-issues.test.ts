@@ -633,6 +633,56 @@ describe('shipping durable store', () => {
     s.issues.transitionShippingStage(issue.id, 'shipping', 'review', 't3')
     expect(s.issues.getIssue(issue.id)?.stage).toBe('review')
   })
+
+  it('persists evidenceManifestRef and a typed current integration receipt', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-shipping-evidence-')), 'shipping.db')
+    const childA = { issueId: asIssueId('iss_child_a'), approvedHeadSha: 'sha-a' }
+    const childB = { issueId: asIssueId('iss_child_b'), approvedHeadSha: 'sha-b' }
+    const evidenced = shipOrder({
+      evidenceManifestRef: 'evidence://manifest/1',
+      descendantManifest: [childA, childB],
+      currentIntegrationReceipt: {
+        rootIssueId: asIssueId('iss_1'),
+        approvedHeadSha: 'approved-head',
+        descendants: [childB, childA],
+      },
+    })
+    const s = new SessionStore(file)
+    s.issues.upsertIssue(base())
+    expect(s.shipping.createOrder(evidenced)).toEqual(evidenced)
+    expect(s.shipping.createOrder(evidenced)).toEqual(evidenced)
+    expect(() =>
+      s.shipping.createOrder({
+        ...evidenced,
+        currentIntegrationReceipt: {
+          ...evidenced.currentIntegrationReceipt!,
+          approvedHeadSha: 'stale-head',
+        },
+      }),
+    ).toThrow()
+    expect(() =>
+      s.shipping.createOrder(
+        shipOrder({
+          id: asShipOrderId('order-missing-receipt'),
+          descendantManifest: [childA],
+        }),
+      ),
+    ).toThrow()
+    expect(() =>
+      rawDb(s)
+        .prepare('UPDATE ship_orders SET evidence_manifest_ref = ? WHERE id = ?')
+        .run('evidence://other', evidenced.id),
+    ).toThrow(/approval is immutable/)
+    expect(() =>
+      rawDb(s)
+        .prepare('UPDATE ship_orders SET current_integration_receipt = ? WHERE id = ?')
+        .run('{}', evidenced.id),
+    ).toThrow(/approval is immutable/)
+    s.close()
+    const restarted = new SessionStore(file)
+    expect(restarted.shipping.getOrder(evidenced.id)).toEqual(evidenced)
+    restarted.close()
+  })
 })
 
 /** White-box seam: reach the store's own SQLite connection to inject corrupt rows. */
