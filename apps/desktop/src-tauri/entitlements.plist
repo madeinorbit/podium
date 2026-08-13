@@ -1,16 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Hardened-runtime entitlements for the Podium.app shell itself.
-
-  Notarization REQUIRES the hardened runtime, and the hardened runtime blocks writable-executable
-  memory unless an entitlement opts back in. Keep this file minimal: every entitlement here is a
-  hole in the runtime's defenses, so the sidecar's broader needs live in entitlements.sidecar.plist
-  and apply only to that binary.
-
-  allow-jit: WebKit's JavaScript engine. WKWebView runs JS in its own system process, but the
-  shell also evaluates JS through the webview API, and Apple's own WebKit guidance pairs the
-  entitlement with the embedding app.
--->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>

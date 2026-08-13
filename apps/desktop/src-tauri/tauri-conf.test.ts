@@ -32,6 +32,13 @@ describe('tauri desktop config', () => {
       const path = join(__dirname, plist)
       expect(existsSync(path), plist).toBe(true)
       expect(readFileSync(path, 'utf8')).toContain('com.apple.security.cs.allow-jit')
+      // codesign parses entitlements with AMFIUnserializeXML, a restricted reader that rejects
+      // XML comments outright ("syntax error near line N") even though they are valid XML. The
+      // natural instinct — explaining these entitlements inline — breaks every macOS build, so
+      // the rationale lives in docs/desktop-releases.md instead.
+      expect(readFileSync(path, 'utf8'), `${plist} must not contain XML comments`).not.toContain(
+        '<!--',
+      )
     }
     // The sidecar is the one that allocates writable-executable memory; the shell must not.
     expect(readFileSync(join(__dirname, 'entitlements.sidecar.plist'), 'utf8')).toContain(

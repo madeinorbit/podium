@@ -87,6 +87,21 @@ Two pieces of the macOS build are easy to get wrong when changing it:
   binary embedding JavaScriptCore; under the hardened runtime without those entitlements it dies at
   startup. The app shell deliberately gets the narrower `entitlements.plist`.
 
+### What the entitlements are for
+
+The plists themselves carry no comments, and must not: `codesign` parses entitlements with
+`AMFIUnserializeXML`, a restricted reader that rejects XML comments outright with `syntax error
+near line N` and fails the build. So the explanation lives here.
+
+| Entitlement | Where | Why |
+| --- | --- | --- |
+| `com.apple.security.cs.allow-jit` | both | WebKit's JS engine in the shell; JavaScriptCore in the Bun sidecar. Hardened runtime forbids writable-executable memory without it. |
+| `com.apple.security.cs.allow-unsigned-executable-memory` | sidecar only | Bun's compiled binary needs it to start. It is a real weakening of the runtime, so the shell does not get it. |
+
+`com.apple.security.cs.disable-library-validation` is deliberately absent. It is the next knob if
+the sidecar ever fails to start with a code-signing error after loading a native module, but it
+lets any unsigned dylib load into the process, so do not add it speculatively.
+
 The Developer ID certificate expires five years after issue. Expiry breaks *new* signing only;
 already-notarized releases keep working. Renew before it lapses — the certificate cap is 5 per team.
 
