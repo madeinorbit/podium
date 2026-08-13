@@ -18,6 +18,8 @@ export interface Place {
 
 export type UpdateView =
   | { state: 'none' }
+  | { state: 'checking' }
+  | { state: 'current'; version: string }
   | {
       state: 'available' | 'required'
       version: string

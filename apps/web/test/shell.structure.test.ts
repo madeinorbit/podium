@@ -49,6 +49,7 @@ describe('web shell structure', () => {
       'features/worklist/spawn-row.tsx',
       'features/worklist/work-folds.tsx',
       'features/worklist/use-unified-work.ts',
+      'app/DesktopMenuHost.tsx',
     ]
       .map(read)
       .join('\n')
@@ -76,9 +77,9 @@ describe('web shell structure', () => {
   })
 
   it('repo add flow uses the scan flow (#227)', () => {
-    // AppToolsRow owns the scan flow; desktop composes it into the sidebar.
-    // AppToolsRow lives in `spawn-row.tsx` since POD-407.
+    // File > Add Project and the sidebar + button both open the same host.
     expect(readWorklist()).toContain('RepoScanFlow')
+    expect(readWorklist()).toContain('openAddProject')
   })
 
   it('initial store load does not block on a conversation scan', () => {

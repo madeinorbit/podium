@@ -16,10 +16,10 @@ import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, FolderPlus, Search } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { openAddProject } from '@/app/desktop-menu'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
-import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { agentBrandText } from '@/lib/agent-tone'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
@@ -355,7 +355,6 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
  *  the shortcut without spending a control on it. */
 export function AppToolsRow({ className }: { className?: string }): JSX.Element {
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
-  const [repoScanOpen, setRepoScanOpen] = useState(false)
   const commandPaletteEnabled = useFeature('command-palette')
   const btn = (active = false) =>
     cn(
@@ -368,9 +367,9 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
         data-pressable
         type="button"
         className={btn()}
-        title="Add repo"
-        aria-label="Add repo"
-        onClick={() => setRepoScanOpen(true)}
+        title="Add project"
+        aria-label="Add project"
+        onClick={openAddProject}
       >
         <FolderPlus size={15} aria-hidden="true" />
       </button>
@@ -395,12 +394,6 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
         >
           ⌘K
         </span>
-      )}
-      {repoScanOpen && (
-        <RepoScanFlow
-          onClose={() => setRepoScanOpen(false)}
-          onDone={() => setRepoScanOpen(false)}
-        />
       )}
     </div>
   )

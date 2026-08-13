@@ -22,7 +22,7 @@ interface UpdateDialogProps {
 type ActionName = 'reload' | 'installApp' | 'startUpdate' | 'repairCompatibility'
 
 function viewKey(view: UpdateView): string {
-  if (view.state === 'none') return 'none'
+  if (view.state === 'none' || view.state === 'checking') return view.state
   if (view.state === 'failed') {
     return `failed:${view.message}:${view.guidance}:${view.diagnostic ?? ''}`
   }
@@ -173,6 +173,34 @@ export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): J
                 </Button>
               )}
             </div>
+          </div>
+        </>
+      ) : view.state === 'checking' ? (
+        <>
+          <div className="gap-1 px-4 pt-4 pb-3">
+            <h2 className="text-[14px] font-semibold">Checking for updates…</h2>
+            <p className="text-[11px] leading-[1.5] text-muted-foreground">
+              Asking this app and the rest of the fleet.
+            </p>
+          </div>
+          <div className="flex items-center justify-end border-t border-border bg-muted/30 px-4 py-3">
+            <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
+              Hide
+            </Button>
+          </div>
+        </>
+      ) : view.state === 'current' ? (
+        <>
+          <div className="gap-1 px-4 pt-4 pb-3">
+            <h2 className="text-[14px] font-semibold">Podium is up to date</h2>
+            <p className="text-[11px] leading-[1.5] text-muted-foreground">
+              Version {view.version} is the latest.
+            </p>
+          </div>
+          <div className="flex items-center justify-end border-t border-border bg-muted/30 px-4 py-3">
+            <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
+              OK
+            </Button>
           </div>
         </>
       ) : view.state === 'in-progress' ? (

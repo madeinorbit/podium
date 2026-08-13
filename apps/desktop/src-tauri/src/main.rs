@@ -248,6 +248,15 @@ const DESKTOP_PLATFORM: &str = "windows";
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 const DESKTOP_PLATFORM: &str = "linux";
 
+/// Eval a web-app menu hook if the page has registered it. Missing handlers are
+/// a no-op: setup/onboarding has nothing to spawn, and an empty workspace must
+/// not close the window.
+fn eval_menu_hook(app: &tauri::AppHandle, hook: &str) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.eval(&format!("window.{hook} && window.{hook}();"));
+    }
+}
+
 fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     // [spec:SP-3701] The hosting toggle is exposed only in client mode — the one state where
     // this device is not already running a daemon. The command itself re-checks the mode.
@@ -662,14 +671,18 @@ fn main() {
             // macOS app menu: replaces Tauri's implicit default, whose File > Close
             // Window owns Cmd+W — the accelerator never reaches the webview, so a JS
             // keydown handler alone cannot repurpose it. Here Cmd+W is a custom
-            // "Close Tab" item routed to the web app (see on_menu_event below) and
-            // the window-level close moves to the conventional Shift+Cmd+W. The Edit
-            // submenu must be rebuilt too: WKWebView clipboard chords (Cmd+C/V/X/A)
-            // only work as menu accelerators.
+            // "Close Tab" item routed to the web app (see on_menu_event below). The
+            // main window is not closable from this menu: Cmd+Q (Quit) is the only
+            // keyboard exit. The Edit submenu must be rebuilt too: WKWebView
+            // clipboard chords (Cmd+C/V/X/A) only work as menu accelerators.
             #[cfg(target_os = "macos")]
             {
+                let about = MenuItemBuilder::with_id("about-podium", "About Podium").build(app)?;
+                let check_updates =
+                    MenuItemBuilder::with_id("check-updates", "Check for Updates…").build(app)?;
                 let podium_menu = SubmenuBuilder::new(app, "Podium")
-                    .about(None)
+                    .item(&about)
+                    .item(&check_updates)
                     .separator()
                     .services()
                     .separator()
@@ -687,17 +700,15 @@ fn main() {
                 let new_agent = MenuItemBuilder::with_id("new-agent", "New Agent")
                     .accelerator("CmdOrCtrl+N")
                     .build(app)?;
+                let add_project = MenuItemBuilder::with_id("add-project", "Add Project…").build(app)?;
                 let close_tab = MenuItemBuilder::with_id("close-tab", "Close Tab")
                     .accelerator("CmdOrCtrl+W")
                     .build(app)?;
-                let close_window = MenuItemBuilder::with_id("close-window", "Close Window")
-                    .accelerator("Shift+CmdOrCtrl+W")
-                    .build(app)?;
                 let file_menu = SubmenuBuilder::new(app, "File")
                     .item(&new_agent)
+                    .item(&add_project)
                     .separator()
                     .item(&close_tab)
-                    .item(&close_window)
                     .build()?;
                 let edit_menu = SubmenuBuilder::new(app, "Edit")
                     .undo()
@@ -708,6 +719,22 @@ fn main() {
                     .paste()
                     .select_all()
                     .build()?;
+                let toggle_left = MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")
+                    .accelerator("CmdOrCtrl+B")
+                    .build(app)?;
+                let toggle_flight =
+                    MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")
+                        .accelerator("Alt+CmdOrCtrl+F")
+                        .build(app)?;
+                let toggle_right =
+                    MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")
+                        .accelerator("Alt+CmdOrCtrl+B")
+                        .build(app)?;
+                let view_menu = SubmenuBuilder::new(app, "View")
+                    .item(&toggle_left)
+                    .item(&toggle_flight)
+                    .item(&toggle_right)
+                    .build()?;
                 let window_menu = SubmenuBuilder::new(app, "Window")
                     .minimize()
                     .maximize()
@@ -715,7 +742,7 @@ fn main() {
                     .fullscreen()
                     .build()?;
                 let menu = MenuBuilder::new(app)
-                    .items(&[&podium_menu, &file_menu, &edit_menu, &window_menu])
+                    .items(&[&podium_menu, &file_menu, &edit_menu, &view_menu, &window_menu])
                     .build()?;
                 app.set_menu(menu)?;
             }
@@ -838,30 +865,17 @@ fn main() {
             // in the same default repo as the "New <Agent> in <Repo>" button and
             // navigates to the fresh session. Nothing to do if the sidebar is not
             // up (setup/onboarding) — there is no default to spawn yet.
-            "new-agent" => {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.eval("window.__PODIUM_NEW_AGENT__ && window.__PODIUM_NEW_AGENT__();");
-                }
-            }
+            "new-agent" => eval_menu_hook(app, "__PODIUM_NEW_AGENT__"),
+            "add-project" => eval_menu_hook(app, "__PODIUM_ADD_PROJECT__"),
+            "about-podium" => eval_menu_hook(app, "__PODIUM_ABOUT__"),
+            "check-updates" => eval_menu_hook(app, "__PODIUM_CHECK_UPDATES__"),
+            "toggle-left-sidebar" => eval_menu_hook(app, "__PODIUM_TOGGLE_LEFT_SIDEBAR__"),
+            "toggle-flight-deck" => eval_menu_hook(app, "__PODIUM_TOGGLE_FLIGHT_DECK__"),
+            "toggle-right-sidebar" => eval_menu_hook(app, "__PODIUM_TOGGLE_RIGHT_SIDEBAR__"),
             // Cmd+W (macOS app menu). The web app registers __PODIUM_CLOSE_TAB__
-            // while a tab strip is on screen; it returns true when it handled the
-            // command (including consuming it for a locked session tab).
-            // With no handler (or nothing to close) fall back to the window-level
-            // close — hidden via the CloseRequested handler, same as before.
-            "close-tab" => {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.eval(
-                        "if (!window.__PODIUM_CLOSE_TAB__ || window.__PODIUM_CLOSE_TAB__() !== true) \
-                         { window.__PODIUM_DESKTOP__ && window.__PODIUM_DESKTOP__.close(); }",
-                    );
-                }
-            }
-            // Shift+Cmd+W: window close → CloseRequested → hidden (tray/dock reopen).
-            "close-window" => {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.close();
-                }
-            }
+            // and closes a tab on the selected issue while any remain. An empty
+            // workspace is a no-op — the main window is not closable from here.
+            "close-tab" => eval_menu_hook(app, "__PODIUM_CLOSE_TAB__"),
             _ => {}
         })
         .on_window_event(|window, event| {

@@ -111,6 +111,7 @@ vi.mock('./store', () => ({
 }))
 
 const { Workspace } = await import('./Workspace')
+const { DesktopCloseTab } = await import('./use-desktop-close-tab')
 
 beforeEach(() => {
   featureEnabled['tab-splitting'] = false
@@ -216,13 +217,48 @@ describe('Workspace tab closing', () => {
   })
 
   // The Tauri shell suppresses its window-level close only while this returns
-  // true (apps/desktop/src-tauri/src/main.rs).
+  // true (apps/desktop/src-tauri/src/main.rs). The hook lives above Workspace so
+  // Cmd+W still closes tabs when the issues board is showing.
   it('closes the active tab on Cmd+W and consumes the keystroke', () => {
-    render(<Workspace />)
+    render(
+      <>
+        <DesktopCloseTab />
+        <Workspace />
+      </>,
+    )
 
     const closeTab = (globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }).__PODIUM_CLOSE_TAB__
     expect(closeTab?.()).toBe(true)
     expect(actions.closeWorkspaceTab).toHaveBeenCalledWith('s2')
+  })
+
+  it('closes a remaining tab when the active one is already gone', () => {
+    state.workspaces = {
+      'mission:task-1': {
+        ...makeLayout(),
+        panes: { p1: { id: 'p1', tabs: ['s1'], activeTabId: null as string | null } },
+      },
+    }
+    render(<DesktopCloseTab />)
+
+    const closeTab = (globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }).__PODIUM_CLOSE_TAB__
+    expect(closeTab?.()).toBe(true)
+    expect(actions.closeWorkspaceTab).toHaveBeenCalledWith('s1')
+  })
+
+  it('does not close the window when the selected issue has no tabs', () => {
+    state.workspaces = {
+      'mission:task-1': {
+        ...makeLayout(),
+        panes: { p1: { id: 'p1', tabs: [], activeTabId: null as string | null } },
+      },
+    }
+    render(<DesktopCloseTab />)
+
+    const closeTab = (globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }).__PODIUM_CLOSE_TAB__
+    expect(closeTab?.()).toBe(false)
+    expect(actions.closeWorkspaceTab).not.toHaveBeenCalled()
+    expect(actions.closeFileTab).not.toHaveBeenCalled()
   })
 
   it('offers a view-scoped tab menu with no session lifecycle actions', () => {

@@ -42,6 +42,7 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { openAddProject } from '@/app/desktop-menu'
 import { IssueReference } from '@/components/IssueReference'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
@@ -49,7 +50,6 @@ import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
-import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph, BrailleSpinner } from '@/lib/motion'
@@ -138,23 +138,16 @@ export function CommandPalette(): JSX.Element {
   // These flows outlive the palette (which closes on execute), so they live
   // here as siblings rather than inside the palette dialog.
   const [newIssueOpen, setNewIssueOpen] = useState(false)
-  const [repoScanOpen, setRepoScanOpen] = useState(false)
   return (
     <>
       {paletteOpen && (
         <PaletteDialog
           onClose={() => setPaletteOpen(false)}
           onNewIssue={() => setNewIssueOpen(true)}
-          onAddRepo={() => setRepoScanOpen(true)}
+          onAddRepo={openAddProject}
         />
       )}
       {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
-      {repoScanOpen && (
-        <RepoScanFlow
-          onClose={() => setRepoScanOpen(false)}
-          onDone={() => setRepoScanOpen(false)}
-        />
-      )}
     </>
   )
 }

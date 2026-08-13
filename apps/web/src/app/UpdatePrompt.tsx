@@ -54,10 +54,30 @@ export function UpdatePrompt({ httpOrigin }: UpdatePromptProps): JSX.Element {
   }, [updateServiceWorker])
 
   const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin
-  const { view, actions } = useUpdateState({
+  const { view, actions, checkNow, dismissManualCheck } = useUpdateState({
     httpOrigin: resolvedOrigin,
     needRefresh,
     reload,
   })
-  return <UpdateDialog view={view} actions={actions} onDismiss={() => setNeedRefresh(false)} />
+
+  useEffect(() => {
+    const g = globalThis as { __PODIUM_CHECK_UPDATES__?: () => void }
+    g.__PODIUM_CHECK_UPDATES__ = () => {
+      void checkNow()
+    }
+    return () => {
+      if (g.__PODIUM_CHECK_UPDATES__) delete g.__PODIUM_CHECK_UPDATES__
+    }
+  }, [checkNow])
+
+  return (
+    <UpdateDialog
+      view={view}
+      actions={actions}
+      onDismiss={() => {
+        setNeedRefresh(false)
+        dismissManualCheck()
+      }}
+    />
+  )
 }

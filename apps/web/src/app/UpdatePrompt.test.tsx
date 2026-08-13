@@ -36,6 +36,8 @@ describe('UpdatePrompt', () => {
       actions: {},
       server: {},
       fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
+      checkNow: vi.fn(async () => {}),
+      dismissManualCheck: vi.fn(),
     })
 
     render(<UpdatePrompt httpOrigin="http://podium.test" />)
@@ -50,5 +52,27 @@ describe('UpdatePrompt', () => {
 
     screen.getByRole('button', { name: /later/i }).click()
     expect(mocks.setNeedRefresh).toHaveBeenCalledWith(false)
+  })
+
+  it('registers the macOS Check for Updates menu hook', async () => {
+    const checkNow = vi.fn(async () => {})
+    mocks.useRegisterSW.mockReturnValue({
+      needRefresh: [false, mocks.setNeedRefresh],
+      updateServiceWorker: mocks.updateServiceWorker,
+    })
+    mocks.useUpdateState.mockReturnValue({
+      view: { state: 'none' },
+      actions: {},
+      server: {},
+      fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
+      checkNow,
+      dismissManualCheck: vi.fn(),
+    })
+
+    render(<UpdatePrompt httpOrigin="http://podium.test" />)
+    const hook = (globalThis as { __PODIUM_CHECK_UPDATES__?: () => void }).__PODIUM_CHECK_UPDATES__
+    expect(hook).toBeTypeOf('function')
+    hook?.()
+    expect(checkNow).toHaveBeenCalledOnce()
   })
 })

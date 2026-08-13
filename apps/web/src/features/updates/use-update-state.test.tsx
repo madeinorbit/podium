@@ -23,15 +23,17 @@ function Probe({
   onResult,
   withReload = false,
   liveFleet = false,
+  fleet,
 }: {
   onResult: (result: UpdateStateResult) => void
   withReload?: boolean
   liveFleet?: boolean
+  fleet?: UpdateFleetState
 }) {
   const result = useUpdateState({
     httpOrigin: 'http://podium.test',
     needRefresh: false,
-    ...(liveFleet ? {} : { fleet: { total: 1, behind: 1, converging: 0, failed: 0 } }),
+    ...(fleet ? { fleet } : liveFleet ? {} : { fleet: { total: 1, behind: 1, converging: 0, failed: 0 } }),
     reload: withReload ? reloadAction : undefined,
   })
   useEffect(() => {
@@ -69,7 +71,9 @@ afterEach(() => {
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
 })
 
-function setupTransport(version = { appVersion: '0.4.1', target }): void {
+function setupTransport(
+  version: { appVersion: string; target?: typeof target } = { appVersion: '0.4.1', target },
+): void {
   mocks.makeTrpc.mockReturnValue({
     setup: { channel: { query: vi.fn(async () => 'stable') } },
     updates: {
@@ -389,6 +393,49 @@ describe('useUpdateState update action', () => {
     render(<Probe onResult={() => {}} />)
     await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
     expect(screen.queryByText('install action')).toBeNull()
+  })
+
+  it('a manual check reports current when nothing is behind', async () => {
+    setupTransport({ appVersion: '0.4.2' })
+    const results: UpdateStateResult[] = []
+
+    render(
+      <Probe
+        onResult={(result) => results.push(result)}
+        fleet={{ total: 0, behind: 0, converging: 0, failed: 0 }}
+      />,
+    )
+    await waitFor(() => expect(results.at(-1)?.checkNow).toBeTypeOf('function'))
+    await results.at(-1)?.checkNow()
+    await waitFor(() => expect(results.at(-1)?.view).toEqual({ state: 'current', version: '0.4.1' }))
+  })
+
+  it('a manual check surfaces a failed desktop lookup', async () => {
+    setupTransport({ appVersion: '0.4.2' })
+    vi.stubGlobal('__PODIUM_DESKTOP__', {
+      platform: 'macos',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      checkUpdate: vi.fn(async () => {
+        throw new Error('update check failed: network down')
+      }),
+    })
+    const results: UpdateStateResult[] = []
+
+    render(
+      <Probe
+        onResult={(result) => results.push(result)}
+        fleet={{ total: 0, behind: 0, converging: 0, failed: 0 }}
+      />,
+    )
+    await waitFor(() => expect(results.at(-1)?.checkNow).toBeTypeOf('function'))
+    await results.at(-1)?.checkNow()
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('failed'))
+    expect(results.at(-1)?.view).toMatchObject({
+      state: 'failed',
+      diagnostic: 'update check failed: network down',
+    })
   })
 
   it('claims update ownership and exposes the install action when the shell provides it', async () => {

@@ -30,7 +30,35 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('MenuItemBuilder::with_id("new-agent", "New Agent")')
     expect(mainSource).toContain('.accelerator("CmdOrCtrl+N")')
     // The web app's half of the contract: apps/web/src/features/worklist/spawn-row.tsx.
-    expect(mainSource).toContain('window.__PODIUM_NEW_AGENT__')
+    expect(mainSource).toContain('__PODIUM_NEW_AGENT__')
+  })
+
+  it('owns About, updates, Add Project, and View sidebar toggles', () => {
+    expect(mainSource).toContain('MenuItemBuilder::with_id("about-podium", "About Podium")')
+    expect(mainSource).toContain('MenuItemBuilder::with_id("check-updates", "Check for Updates…")')
+    expect(mainSource).toContain('MenuItemBuilder::with_id("add-project", "Add Project…")')
+    expect(mainSource).toContain(
+      'MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")',
+    )
+    expect(mainSource).toContain(
+      'MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")',
+    )
+    expect(mainSource).toContain(
+      'MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")',
+    )
+    expect(mainSource).toContain('__PODIUM_ABOUT__')
+    expect(mainSource).toContain('__PODIUM_CHECK_UPDATES__')
+    expect(mainSource).toContain('__PODIUM_ADD_PROJECT__')
+    expect(mainSource).toContain('__PODIUM_TOGGLE_LEFT_SIDEBAR__')
+    expect(mainSource).toContain('__PODIUM_TOGGLE_FLIGHT_DECK__')
+    expect(mainSource).toContain('__PODIUM_TOGGLE_RIGHT_SIDEBAR__')
+  })
+
+  it('never closes the main window from Cmd+W', () => {
+    expect(mainSource).toContain('MenuItemBuilder::with_id("close-tab", "Close Tab")')
+    expect(mainSource).toContain('.accelerator("CmdOrCtrl+W")')
+    expect(mainSource).not.toContain('MenuItemBuilder::with_id("close-window"')
+    expect(mainSource).not.toContain('__PODIUM_DESKTOP__.close()')
   })
   it('uses native traffic lights on macOS and custom chrome elsewhere', () => {
     expect(mainSource).toContain('.title_bar_style(tauri::TitleBarStyle::Overlay)')

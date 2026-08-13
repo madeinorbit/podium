@@ -76,7 +76,6 @@ import {
   stripDropId,
 } from './panel-deck'
 import { type FileTab, useReplicaIssues, useStoreSelector } from './store'
-import { closeActiveWorkspaceTab } from './workspace-close'
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both
 // are first-class VIEWS (POD-710): the strip renders the current workspace's
@@ -316,20 +315,6 @@ export function Workspace(): JSX.Element {
     if (fileById.has(tabId)) closeFileTab(tabId)
     else closeWorkspaceTab(tabId)
   }
-
-  // Cmd+W in the desktop shell [POD-93]: the native menu owns the accelerator (the
-  // webview never sees the keypress), so the shell's "Close Tab" item evals this
-  // hook instead. Returning false is reserved for no tab / an unmounted Workspace.
-  // Re-registered every render so it always sees the current pane; no deps array
-  // on purpose.
-  useEffect(() => {
-    const g = globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }
-    g.__PODIUM_CLOSE_TAB__ = () =>
-      closeActiveWorkspaceTab(activeTabId && byId.has(activeTabId) ? activeTabId : null, closeTab)
-    return () => {
-      delete g.__PODIUM_CLOSE_TAB__
-    }
-  })
 
   if (!worktree && !issue) {
     // The selected path is no longer a live worktree, but it may still own

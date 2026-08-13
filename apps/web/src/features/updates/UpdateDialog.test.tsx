@@ -20,6 +20,17 @@ describe('UpdateDialog', () => {
     expect(container.innerHTML).toBe('')
   })
 
+  it('shows a checking state for a manual check', () => {
+    render(<UpdateDialog view={{ state: 'checking' }} actions={{}} />)
+    expect(screen.getByText('Checking for updates…')).toBeTruthy()
+  })
+
+  it('shows an up-to-date result after a manual check', () => {
+    render(<UpdateDialog view={{ state: 'current', version: '0.4.2' }} actions={{}} />)
+    expect(screen.getByText('Podium is up to date')).toBeTruthy()
+    expect(screen.getByText('Version 0.4.2 is the latest.')).toBeTruthy()
+  })
+
   it('leads with the version, as one Podium', () => {
     render(<UpdateDialog view={available} actions={{}} />)
     expect(screen.getByText(/Podium 0\.4\.2 is available/i)).toBeTruthy()

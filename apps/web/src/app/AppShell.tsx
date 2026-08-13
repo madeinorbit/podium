@@ -28,6 +28,7 @@ import { AsciiLoader } from './AsciiLoader'
 import { AutoContinueDialog } from './AutoContinueDialog'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPalette } from './CommandPalette'
+import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FlightDeck } from './FlightDeck'
@@ -345,6 +346,17 @@ function AppBody(): JSX.Element {
     setRightPanelStored(panel)
     setSuperOpen(panel === 'superagent')
   }
+  const lastRightPanel = useRef<RightPanelTab>('issue')
+  if (visibleRightPanel) lastRightPanel.current = visibleRightPanel
+  const toggleLeftSidebar = (): void => setSidebarCollapsed(!sidebarCollapsed)
+  const toggleFlightDeck = (): void => {
+    if (flightDeckCollapsed) expandFlightDeck()
+    else collapseFlightDeck()
+  }
+  const toggleRightSidebar = (): void => {
+    if (visibleRightPanel) setRightPanel(null)
+    else setRightPanel(lastRightPanel.current)
+  }
 
   // Existing concierge/palette surfaces still drive `superOpen`. Its visual
   // destination is now the right dock instead of a separate center column, so
@@ -407,9 +419,29 @@ function AppBody(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [commandPaletteEnabled, paletteOpen, setPaletteOpen])
 
-  if (!reposLoaded) return <LoadingScreen />
+  const menuHost = (
+    <DesktopMenuHost
+      toggleLeftSidebar={toggleLeftSidebar}
+      toggleFlightDeck={toggleFlightDeck}
+      toggleRightSidebar={toggleRightSidebar}
+    />
+  )
+
+  if (!reposLoaded) {
+    return (
+      <>
+        {menuHost}
+        <LoadingScreen />
+      </>
+    )
+  }
   if (repos.length === 0 && sessions.length === 0 && !dismissed) {
-    return <OnboardingWizard onDismiss={() => setDismissed(true)} />
+    return (
+      <>
+        {menuHost}
+        <OnboardingWizard onDismiss={() => setDismissed(true)} />
+      </>
+    )
   }
 
   const selectedIssue = selectedIssueId
@@ -433,6 +465,7 @@ function AppBody(): JSX.Element {
           nothing — reopen and the same task, trail, tab and query are there.
           It also keeps tracking the shell's target while closed. */}
       <IssueExplorerProvider>
+        {menuHost}
         <DockShellLifecycle />
         <div
           className="desktop-shell issue-scope"

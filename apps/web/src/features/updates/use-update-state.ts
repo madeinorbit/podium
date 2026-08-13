@@ -145,11 +145,26 @@ function updateErrorDetail(error: unknown): string {
   return 'The server could not start this update.'
 }
 
+async function readDesktopUpdate(
+  queryChannel: () => Promise<unknown>,
+): Promise<DesktopUpdateInfo | undefined> {
+  const check = nativeDesktopBridge()?.checkUpdate
+  if (!check) return undefined
+  const selected = await queryChannel()
+    .then((c) => (typeof c === 'string' ? c : (c as { channel?: string }).channel))
+    .catch(() => 'stable' as const)
+  const channel = selected === 'dev' || selected === 'edge' ? 'edge' : 'stable'
+  const next = await check(channel)
+  return next ? { version: next.version, critical: next.critical, notes: next.notes } : undefined
+}
+
 export interface UpdateStateResult {
   view: UpdateView
   actions: UpdateActions
   server: ServerVersion
   fleet: UpdateFleetState
+  checkNow: () => Promise<void>
+  dismissManualCheck: () => void
 }
 
 /** Gather the four facts that make the update story: this build, the server
@@ -160,26 +175,23 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [fleetState, setFleetState] = useState<UpdateFleetState>(options.fleet ?? EMPTY_FLEET)
   const [updateAction, setUpdateAction] = useState<UpdateActionState>({ state: 'idle' })
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
+  type ManualCheck =
+    | { state: 'idle' }
+    | { state: 'checking' }
+    | { state: 'current' }
+    | { state: 'failed'; detail: string }
+  const [manualCheck, setManualCheck] = useState<ManualCheck>({ state: 'idle' })
   const trpc = useMemo(() => makeTrpc(options.httpOrigin), [options.httpOrigin])
+  const queryChannel = (): Promise<unknown> => trpc.setup.channel.query()
+
   useEffect(() => {
-    const bridge = nativeDesktopBridge()
-    const claim = bridge?.claimUpdateOwnership
+    const claim = nativeDesktopBridge()?.claimUpdateOwnership
     if (claim) void claim().catch(() => {})
 
-    const check = bridge?.checkUpdate
-    if (!check) return
-
     let cancelled = false
-    // setup.channel now answers with the EFFECTIVE fleet default plus whether the
-    // environment forced it (POD-1882); the desktop check only wants the channel.
-    const channel = trpc.setup.channel
-      .query()
-      .then((c) => c.channel)
-      .catch(() => 'stable' as const)
-    void channel
-      .then((selected) => check(selected === 'dev' ? 'edge' : selected))
+    void readDesktopUpdate(queryChannel)
       .then((next) => {
-        if (!cancelled) setDesktopUpdate(next ?? undefined)
+        if (!cancelled) setDesktopUpdate(next)
       })
       .catch(() => {})
 
@@ -420,6 +432,28 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     startUpdate,
   ])
 
+  const checkNow = async (): Promise<void> => {
+    setManualCheck({ state: 'checking' })
+    try {
+      const next = await readDesktopUpdate(queryChannel)
+      setDesktopUpdate(next)
+      refreshFleet()
+      const [serverRaw, localRaw] = await Promise.all([
+        readJson(`${options.httpOrigin}/version`),
+        readJson(`${options.httpOrigin}/${BUILD_STAMP_FILE}`),
+      ])
+      setServer(parseServerVersion(serverRaw))
+      setLocalBuild(localBuildFrom(localRaw))
+      setManualCheck({ state: 'current' })
+    } catch (error) {
+      setManualCheck({ state: 'failed', detail: updateErrorDetail(error) })
+    }
+  }
+
+  const dismissManualCheck = (): void => {
+    setManualCheck({ state: 'idle' })
+  }
+
   const view: UpdateView =
     updateAction.state === 'in-progress'
       ? {
@@ -430,7 +464,13 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         }
       : updateAction.state === 'failed'
         ? describeUpdateFailure(updateAction.detail, updateAction.machineName)
-        : baseView
+        : manualCheck.state === 'checking'
+          ? { state: 'checking' }
+          : manualCheck.state === 'failed'
+            ? describeUpdateFailure(manualCheck.detail)
+            : manualCheck.state === 'current' && baseView.state === 'none'
+              ? { state: 'current', version: localVersion }
+              : baseView
 
-  return { view, actions, server, fleet }
+  return { view, actions, server, fleet, checkNow, dismissManualCheck }
 }
