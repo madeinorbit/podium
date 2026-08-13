@@ -905,14 +905,26 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
   /** Seam for tests; defaults to `git ls-files --others --ignored` in `root`. */
   readIgnoredSourceInputs?: (root: string) => string
   /**
-   * Make `apps/web/dist` the website for this commit before anything expensive
-   * happens. The compile REFUSES a `dev+<sha>` tarball whose web half was built
-   * from another commit, and producing that dist used to belong to a separate
-   * systemd unit nothing sequenced against — so the refusal was a race, not a
-   * defect, and `/version` re-asked every 60 s. Resolving it here makes the
-   * precondition the build's own first step (see `dev-web-build.ts`).
+   * Settle `apps/web/dist` before anything expensive happens — and REFUSE
+   * rather than rebuild it when this request is not explicit.
+   *
+   * That asymmetry is the whole point, and it was learned the hard way. The
+   * compile needs the dist stamped at this commit, so the obvious move is
+   * "build it whenever it is stale". But this server SERVES that dist to
+   * browsers, and `/version` asks for a build on every read — so building on
+   * that path rebuilt the website every time main moved, while the server
+   * itself stayed on the commit it booted with. The page then ran AHEAD of the
+   * server, their wire schema digests disagreed, and every open tab got the
+   * out-of-sync banner. Observed live: one server on dev+e10795a rebuilt the
+   * website six times for five commits it was not running.
+   *
+   * So the dist may only move when the server can move with it: its own
+   * start-up (it is at HEAD then) and an operator-driven update (which restarts
+   * it straight after). On the polling path a stale dist is simply a reason not
+   * to pack a tarball — a refused artifact costs nothing, a broken page costs
+   * every open tab.
    */
-  ensureWebBuild?: (headSha: string) => Promise<void>
+  prepareWebDist?: (headSha: string, explicit: boolean) => Promise<void>
 }
 
 /**
@@ -1003,12 +1015,14 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         // left behind — and residue that only accumulates when something went
         // wrong is exactly the kind that grows unnoticed for months.
         //
-        // The website comes first, and unconditionally: the server SERVES
-        // apps/web/dist, so a stale dist is wrong for the browser whether or not
-        // a tarball gets packed, and packing one is refused outright while it is
-        // stale. `ensureWebBuild` costs a single small file read when the dist is
-        // already at HEAD, which is the common case on the `/version` path.
-        const prepared = deps.ensureWebBuild?.(headSha) ?? Promise.resolve()
+        // The website is settled first, because the compile cannot pack a
+        // dev+<sha> tarball around another commit's dist. `explicit` travels
+        // with the request: it decides whether a stale dist is REBUILT (this
+        // server is about to be at that commit) or merely REFUSED (it is not,
+        // and moving the page ahead of it would break every open tab). Costs a
+        // single small file read when the dist is already current, which is the
+        // common case on the `/version` path.
+        const prepared = deps.prepareWebDist?.(headSha, explicit) ?? Promise.resolve()
         const requested = prepared
           .then(() =>
             current === null

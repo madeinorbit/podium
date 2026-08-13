@@ -29,7 +29,7 @@ import {
   developmentHeadSha,
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
-import { createDevWebBuilder, type DevWebBuildState } from './dev-web-build'
+import { createDevWebBuilder, type DevWebBuildState, decideWebDist } from './dev-web-build'
 
 const log = createLogger('server:updates')
 
@@ -129,17 +129,41 @@ export function wireDevBundlePublisher(deps: {
         headSha: () => developmentHeadSha(sourceRoot),
         signingKey: deps.signingKey,
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
-        // A web-build failure must arrive as a REFUSAL with its own words, not
-        // as a nameless compile error: the operator's next move (look at the
-        // vite output) is different from the one a failed compile calls for.
-        ensureWebBuild: (headSha) =>
-          (webBuilder?.ensure(headSha) ?? Promise.resolve()).catch((error: unknown) => {
+        prepareWebDist: (headSha, explicit) => {
+          if (!webBuilder) return Promise.resolve()
+          const decision = decideWebDist({
+            current: webBuilder.isCurrent(headSha),
+            explicit,
+          })
+          if (decision === 'ready') return Promise.resolve()
+          // `refuse` is the `/version` poll. The browser is served
+          // `apps/web/dist` by THIS process, which is still running the commit
+          // it booted with, so rebuilding the dist here would put the page
+          // ahead of the server and desynchronise every open tab. No tarball
+          // for this commit until something restarts the server onto it —
+          // which is also what rebuilds the website.
+          if (decision === 'refuse') {
+            return Promise.reject(
+              new DevBundleUnavailableError(
+                `development bundle unavailable: apps/web/dist is not the website for ${headSha}, and ` +
+                  'rebuilding it outside a restart would leave open browser tabs ahead of this server. ' +
+                  'It is rebuilt when the server starts on this commit, or from Update Podium.',
+                `The website has not been built for HEAD (${headSha}) yet. It is rebuilt when this ` +
+                  'server restarts onto that commit, or when you update Podium.',
+              ),
+            )
+          }
+          // A web-build failure must arrive as a REFUSAL with its own words, not
+          // as a nameless compile error: the operator's next move (look at the
+          // vite output) is different from the one a failed compile calls for.
+          return webBuilder.ensure(headSha).catch((error: unknown) => {
             throw new DevBundleUnavailableError(
               `development bundle unavailable: the web bundles could not be rebuilt for dev+${headSha}: ` +
                 (error instanceof Error ? error.message : String(error)),
               `The website could not be rebuilt for HEAD (${headSha}), so dev+${headSha} cannot be packed.`,
             )
-          }),
+          })
+        },
         artifactUrl: (version) =>
           developmentArtifactUrl(
             selectDevelopmentArtifactOrigin({

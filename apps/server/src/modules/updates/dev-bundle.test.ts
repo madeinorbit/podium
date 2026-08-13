@@ -942,7 +942,7 @@ describe('buildDevBundle', () => {
     expect(publisher.target()?.artifacts.headless).toBeUndefined()
   })
 
-  it('builds the website before the compile that requires it', async () => {
+  it('settles the website before the compile that requires it', async () => {
     // The compile refuses a dev+<sha> tarball whose web half was built from
     // another commit. While producing that dist belonged to a separate systemd
     // unit, the refusal was a race — 28 of 112 attempts in the week to
@@ -956,7 +956,7 @@ describe('buildDevBundle', () => {
       headSha: () => 'aaaaaaa',
       fs: stubFs(),
       lock: lockFixture([]),
-      ensureWebBuild: async (headSha) => {
+      prepareWebDist: async (headSha) => {
         order.push('web:' + headSha)
       },
       spawnBuild: async ({ version }) => {
@@ -969,7 +969,14 @@ describe('buildDevBundle', () => {
     expect(order).toEqual(['web:aaaaaaa', 'bundle'])
   })
 
-  it('does not compile when the website could not be built', async () => {
+  it('tells the website step whether this request may move the served dist', async () => {
+    // THE REGRESSION THIS PINS. `/version` asks for a build on every read, and
+    // the server serves apps/web/dist to browsers while still running the
+    // commit it booted with. A first cut rebuilt the website on that path, so
+    // the page marched ahead of the server and every open tab got the
+    // out-of-sync banner. `explicit` is what lets the web step refuse instead.
+    const { bytes, signature } = signedFixture()
+    const seen: boolean[] = []
     let builds = 0
     const publisher = createDevBundlePublisher({
       isSourceRun: true,
@@ -978,7 +985,39 @@ describe('buildDevBundle', () => {
       headSha: () => 'aaaaaaa',
       fs: stubFs(),
       lock: lockFixture([]),
-      ensureWebBuild: () => Promise.reject(new Error('vite blew up')),
+      debounceMs: 0,
+      // The wiring's real policy for a stale dist: refuse on a poll, rebuild
+      // on a request that is the server arriving at this commit.
+      prepareWebDist: async (_headSha, explicit) => {
+        seen.push(explicit)
+        if (!explicit) throw new Error('the website has not been built for this commit')
+      },
+      spawnBuild: async ({ version }) => {
+        builds++
+        return { path: '/stage/' + version, bytes, signature }
+      },
+    })
+
+    await expect(publisher.requestBuild(false)).rejects.toThrow('has not been built')
+    expect(seen).toEqual([false])
+    // A refused poll costs nothing and leaves the served website alone.
+    expect(builds).toBe(0)
+
+    await publisher.requestBuild(true)
+    expect(seen).toEqual([false, true])
+    expect(builds).toBe(1)
+  })
+
+  it('does not compile when the website could not be settled', async () => {
+    let builds = 0
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      readSourceStatus: () => '',
+      readIgnoredSourceInputs: () => '',
+      headSha: () => 'aaaaaaa',
+      fs: stubFs(),
+      lock: lockFixture([]),
+      prepareWebDist: () => Promise.reject(new Error('vite blew up')),
       spawnBuild: async () => {
         builds++
       },

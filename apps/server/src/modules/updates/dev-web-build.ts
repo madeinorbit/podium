@@ -15,16 +15,34 @@
  * refused on the web-dist stamp, and because `/version` re-asks every 60 s a
  * stale dist spun that loop — 29 attempts in one hour on 2026-08-13 alone.
  *
- * Here the web build is a STEP the publisher awaits, so "the dist is at HEAD" is
- * established by the same code path that then depends on it, rather than hoped
- * for. Both steps run in the batch tier (see `build-scope.ts`), which the unit
- * never did — it sat at the systemd default of CPUWeight=100 and outranked every
- * agent session 2:1.
+ * Here the web build is a STEP the publisher awaits — on the requests where it
+ * may run at all, see below — so "the dist is at HEAD" is established by the
+ * same code path that then depends on it, rather than hoped for. Both steps run
+ * in the batch tier (see `build-scope.ts`), which the unit never did — it sat at
+ * the systemd default of CPUWeight=100 and outranked every agent session 2:1.
+ *
+ * WHEN IT MAY RUN, which is narrower than "whenever the website is stale".
+ *
+ * The server SERVES this dist to browsers, so writing it changes what every open
+ * tab will load next — while the server itself keeps running the commit it
+ * booted with. The first version of this sequenced the web build on the
+ * `/version` path, which asks for a build on every read: the website was then
+ * rebuilt each time main moved and the page ran AHEAD of the server, wire schema
+ * digests disagreed, and the out-of-sync banner appeared on a host where nothing
+ * automatically restarts the server (one server on dev+e10795a was measured
+ * rebuilding the website six times for five commits it was not running).
+ *
+ * So the website only moves when the SERVER can move with it: its own start-up,
+ * and an operator-driven update that restarts it. On the polling path a stale
+ * website merely blocks the tarball — see `prepareWebDist` in `dev-bundle.ts`. A
+ * refused artifact costs nothing and heals at the next restart; a page ahead of
+ * its server costs every open tab.
  *
  * WHAT COVERS WHAT THE UNIT COVERED:
  * - Boot (`WantedBy=default.target`): the server calls `requestBuild(true)` when
- *   it starts listening, and that path now ensures the dist first. A reboot
- *   therefore still ends with a current website, without a unit to install.
+ *   it starts listening — explicit, and the moment it IS the commit it is
+ *   building for. A reboot therefore still ends with a current website, without
+ *   a unit to install.
  * - Redeploy (the redeploy unit restarted the web unit): a redeploy restarts the
  *   server, which is the same boot path.
  * - The Update panel's "rebuild the website" (`createSourceWebRebuildRequest`):
@@ -97,6 +115,23 @@ export function readDevPhoneDist(root: string): ServedWebIdentity {
   return servedWebIdentity(join(root, 'apps', 'mobile', 'dist'))
 }
 
+/**
+ * WHETHER A BUILD REQUEST MAY WRITE THE SERVED WEBSITE.
+ *
+ * A table rather than a judgement at the call site, because the wrong answer is
+ * invisible on this machine and catastrophic in the browser: `rebuild` on a
+ * polling request is what put the page ahead of the server (see the note at the
+ * top of this file). `refuse` is not a failure of the website — it is a refusal
+ * to pack a TARBALL for a commit this server is not running, and it heals the
+ * moment something restarts it.
+ */
+export type DevWebDistDecision = 'ready' | 'rebuild' | 'refuse'
+
+export function decideWebDist(input: { current: boolean; explicit: boolean }): DevWebDistDecision {
+  if (input.current) return 'ready'
+  return input.explicit ? 'rebuild' : 'refuse'
+}
+
 export function readDevWebStamp(root: string): DevWebBuildStamp | null {
   try {
     const raw = JSON.parse(
@@ -117,10 +152,22 @@ export type DevWebBuildState =
 
 export interface DevWebBuilder {
   /**
+   * Is the served website already this commit's — BOTH halves? Two small file
+   * reads, so it is safe to ask on every `/version`. The caller decides what a
+   * NO means (see `decideWebDist`); it must be this same question the build
+   * itself asks, or a refusal and a rebuild would disagree about what "current"
+   * is.
+   */
+  isCurrent(headSha: string): boolean
+  /**
    * Resolves once the website — `apps/web/dist` AND the phone export beside it
    * — is stamped at `headSha`, building it if it is not. Concurrent callers
    * share one build; a current website costs two small file reads and no
-   * process at all, which is what makes it safe on the `/version` path.
+   * process at all.
+   *
+   * ONLY FOR A REQUEST THAT MOVES THE SERVER TOO (its start-up, or an operator
+   * update that restarts it). The browser loads what this writes, so calling it
+   * on a poll marches the page ahead of the server it is talking to.
    */
   ensure(headSha: string): Promise<void>
   /** The Update panel's explicit "rebuild the website". */
@@ -218,6 +265,7 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
   }
 
   return {
+    isCurrent: websiteAtHead,
     ensure,
     requestRebuild: () => {
       let headSha: string
