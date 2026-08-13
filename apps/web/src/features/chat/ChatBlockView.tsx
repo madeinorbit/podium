@@ -98,23 +98,39 @@ const COPY_ACK_MS = 1400
  * Quote hands the composer a blockquote so a reply can point at the line it is
  * answering.
  *
- * The group is ABSOLUTELY positioned and only fades in, so a row never changes
- * height or reflows when the pointer crosses it — a feed that twitches under
- * the cursor is worse than one with no actions at all. It stays in the tab
- * order and reveals itself on focus, so the keyboard route is the same route.
+ * THE FOOT (POD-993). The actions used to be a floating chip over the top-right
+ * corner of the message, and the time lived in an eyebrow above it — so a row's
+ * metadata was in two places, one of them covering the first line of the words
+ * it belonged to. They are one line now, in flow, directly UNDER the message and
+ * hanging from the message's own edge: right under the human's card, left under
+ * everything the machine says. Reading order gets what it wants (the words
+ * first, their provenance after), and the two facts a reader wants about a
+ * message — when, and take-a-copy — are in the same place for every voice.
+ *
+ * It is always present and always the same height, so nothing reflows when the
+ * pointer crosses a row. What changes is INK: dimmed at rest so the column stays
+ * quiet under a long transcript, full on hover or keyboard focus of that row.
+ * Rest is not invisible — the clock is information, and information the reader
+ * has to hunt for with a mouse is information they do not have.
  */
 function MessageActions({
   text,
   onQuote,
   ts,
+  side,
+  children,
 }: {
   text: string
   onQuote?: ((markdown: string) => void) | undefined
-  /** Present only on rows that carry NO label of their own — intermediate agent
-   *  narration — which would otherwise be the one voice in the feed with no time
-   *  attached to it. It rides the hover chip rather than taking a permanent line,
-   *  because a clock over every paragraph of a single turn is noise, not data. */
+  /** The row's own instant. Every voice now carries one here — see the foot's
+   *  note below for why the clock left the label rows. */
   ts?: string | undefined
+  /** Which edge the foot hangs from: the human's turn reads right, everything
+   *  the machine says reads left, both directly under their own words. */
+  side: 'left' | 'right'
+  /** Row-specific controls that belong with the metadata rather than with the
+   *  message — the queued turn's Retract is the only one today. */
+  children?: ReactNode
 }): JSX.Element | null {
   const [copied, setCopied] = useState(false)
   const ack = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -130,21 +146,25 @@ function MessageActions({
   const quote = useCallback(() => {
     onQuote?.(`${text.trim().replace(/^/gm, '> ')}\n\n`)
   }, [text, onQuote])
-  if (!text.trim()) return null
+  const empty = !text.trim()
+  if (empty && !children && !ts) return null
   return (
-    <div className="msg-actions" data-testid="message-actions">
+    <div className="msg-foot" data-side={side} data-testid="message-actions">
       {ts && <BlockClock ts={ts} />}
-      <button
-        data-pressable
-        type="button"
-        className="msg-action"
-        onClick={copy}
-        title="Copy message"
-        aria-label={copied ? 'Message copied' : 'Copy message'}
-      >
-        {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
-      </button>
-      {onQuote && (
+      {children}
+      {!empty && (
+        <button
+          data-pressable
+          type="button"
+          className="msg-action"
+          onClick={copy}
+          title="Copy message"
+          aria-label={copied ? 'Message copied' : 'Copy message'}
+        >
+          {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+        </button>
+      )}
+      {!empty && onQuote && (
         <button
           data-pressable
           type="button"
@@ -358,7 +378,6 @@ function PromptBubble({
   clamped,
   open,
   onToggle,
-  meta,
   children,
 }: {
   bodyRef: RefObject<HTMLDivElement | null>
@@ -366,13 +385,10 @@ function PromptBubble({
   clamped: boolean
   open: boolean
   onToggle: () => void
-  /** The row's own micro line: who, when, and any attribution mark. */
-  meta: ReactNode
   children: ReactNode
 }): JSX.Element {
   return (
-    <>
-      <div className="transcript-you-bubble" data-pin-open={open ? 'true' : undefined}>
+    <div className="transcript-you-bubble" data-pin-open={open ? 'true' : undefined}>
         <div className="transcript-you-body" ref={bodyRef}>
           {children}
         </div>
@@ -385,12 +401,10 @@ function PromptBubble({
             aria-expanded={open}
             onClick={onToggle}
           >
-            {open ? 'Collapse brief' : 'Show full brief'}
-          </button>
-        )}
-      </div>
-      <div className="transcript-you-label">{meta}</div>
-    </>
+          {open ? 'Collapse brief' : 'Show full brief'}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -821,30 +835,23 @@ export const ChatBlockView = memo(function ChatBlockView({
             isAnswer && 'transcript-answer',
           )}
         >
-          {/* Copy / quote, on every row that carries a message a reader might
-              want to take with them. Machine activity is excluded — a work line
-              is a summary of rows that each have their own affordances. */}
-          <MessageActions
-            text={displayText}
-            onQuote={onQuote}
-            // Only where no label row already carries one — see the prop's note.
-            ts={isUser || isAnswer || item.role === 'system' ? undefined : item.ts}
-          />
           {item.role === 'system' && (
             <div className="transcript-header">
               <span className="transcript-role transcript-role--system">System</span>
-              {attribution && <AttributionMark attribution={attribution} />}
-              <BlockClock ts={item.ts} />
             </div>
           )}
+          {/* THE ONE SURVIVING IDENTIFIER (POD-993). Every other voice label is
+              gone — the human's side says who they are, and narration needs no
+              name — but the ANSWER is a different kind of row: it is where the
+              turn lands, and a reader scanning back through a long session is
+              looking for exactly this. It keeps its eyebrow; its time went to
+              the foot with everyone else's. */}
           {isAnswer && (
             <div className="transcript-answer-label">
               {compact ? 'Super agent' : 'Answer'}
-              {attribution && <AttributionMark attribution={attribution} />}
               {compact && ctxSeq !== null && (
                 <span className="chat-ctx">· POD-{ctxSeq} context</span>
               )}
-              <BlockClock ts={item.ts} />
             </div>
           )}
           {/* THE OPERATOR'S TURN IS A CHAT ENTRY (POD-993). It reads right, in
@@ -863,22 +870,23 @@ export const ChatBlockView = memo(function ChatBlockView({
               onToggle={() => {
                 setPinOpen((v) => !v)
               }}
-              meta={
-                <>
-                  {stickyOperator ? 'Your brief · active turn' : 'You'}
-                  {/* The sticky pin (POD-1368) only changes WHAT the meta line
-                      says, so the attribution mark (doc §3.1.3 A3) rides along
-                      in both states. */}
-                  {attribution && <AttributionMark attribution={attribution} />}
-                  <BlockClock ts={item.ts} />
-                </>
-              }
             >
               {turnBody}
             </PromptBubble>
           ) : (
             turnBody
           )}
+          {/* The foot: when, copy, quote — under the words, on the speaker's own
+              side. Machine activity is excluded; a work line is a summary of
+              rows that each have their own affordances. */}
+          <MessageActions
+            text={displayText}
+            onQuote={onQuote}
+            ts={item.ts}
+            side={isUser ? 'right' : 'left'}
+          >
+            {attribution && <AttributionMark attribution={attribution} />}
+          </MessageActions>
         </div>
       </div>
     </>

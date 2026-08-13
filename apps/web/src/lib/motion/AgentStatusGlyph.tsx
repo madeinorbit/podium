@@ -17,6 +17,7 @@ import type { SessionMeta } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 import { BrailleSpinner } from './BrailleSpinner'
+import { BreathingMark } from './BreathingMark'
 
 export function AgentStatusGlyph({
   session,
@@ -34,9 +35,13 @@ export function AgentStatusGlyph({
 }): JSX.Element | null {
   const phase = motionPhase(session)
   if (phase === 'working') {
-    return (
-      <BrailleSpinner size={variant === 'row' ? 10 : 9} className={cn('flex-none', className)} />
-    )
+    // THE TAB BREATHES (POD-993). The chat's own tail and the tab that leads to
+    // it are one signal seen from two places, so they move the same way: a tab
+    // whose session is working carries the breath, not a second, differently
+    // shaped spinner. List and menu rows keep the braille glyph — they are dense
+    // mono lines, and the breath is a mark for a place the eye rests on.
+    if (variant === 'tab') return <BreathingMark size={10} className={cn('flex-none', className)} />
+    return <BrailleSpinner size={10} className={cn('flex-none', className)} />
   }
   if (phase !== 'waiting') return null
   if (variant === 'row') {

@@ -30,7 +30,7 @@ import { type ChatSurface, useChatSurface } from './use-chat-surface'
  *  - `use-chat-send.ts` — sending, optimistic bubbles and their reconciliation;
  *  - `use-headless-turn.ts` — headless superagent-thread routing;
  *  - `use-attachments.ts` — image paste / drop / attach and upload;
- *  - `ChatRail` (with `Minimap` + `VerbosityControl`) /
+ *  - `ChatRail` (with `Minimap` + the todo chip) /
  *    `TranscriptSearchBar` / `TranscriptFeed` / `ChatComposer` (with
  *    `VoiceButton` + `AttachmentStrip`) / `ImageLightbox` — the pieces.
  *
@@ -351,9 +351,7 @@ export function ChatView({
             scrollerRef={chat.scrollerRef}
             matches={chat.search.matches}
             activeMatch={chat.search.activeMatch}
-            verbosity={chat.verbosity}
-            onVerbosityChange={chat.setVerbosity}
-            verbosityOverridden={chat.verbosity === 'summary' && chat.query !== ''}
+            todos={todos}
             findOpen={find.open}
             onFind={() => setFind((f) => ({ open: true, seq: f.seq + 1 }))}
             lastAnswerText={chat.lastAnswerText}

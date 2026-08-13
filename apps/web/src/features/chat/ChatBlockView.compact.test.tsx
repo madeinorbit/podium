@@ -60,11 +60,14 @@ const answer = (text: string): TranscriptItem =>
   }) as TranscriptItem
 
 describe('compact chat blocks (POD-164)', () => {
-  it('labels the answer SUPER AGENT with a mono clock', () => {
+  it('labels the answer SUPER AGENT, with its clock in the foot', () => {
     mount(answer('All merged.'))
     const label = host.querySelector('.transcript-answer-label')
     expect(label?.textContent).toContain('Super agent')
-    expect(label?.querySelector('.chat-clk')).not.toBeNull()
+    // POD-993: the eyebrow names the voice; when it happened moved to the foot
+    // under the words, where every voice now carries it in one place.
+    expect(label?.querySelector('.chat-clk')).toBeNull()
+    expect(host.querySelector('.msg-foot .chat-clk')).not.toBeNull()
   })
 
   it('renders the issue-context suffix only when a ctxSeq is given', () => {
@@ -83,21 +86,23 @@ describe('compact chat blocks (POD-164)', () => {
     expect(host.querySelector('.chat-md')?.textContent).not.toContain('→ next:')
   })
 
-  it('keeps full-size rendering untouched apart from the clock, which is now on both widths', () => {
+  it('keeps full-size rendering untouched apart from the clock, which is now in the foot', () => {
     mount(answer('Done.\n→ next: nothing'), { compact: false })
     const label = host.querySelector('.transcript-answer-label')
     expect(label?.textContent).toContain('Answer')
-    // POD-701: the clock used to be a compact-only affordance, which left the
-    // full-width chat — the one people read — with no times in it at all.
-    expect(label?.querySelector('.chat-clk')).not.toBeNull()
+    // POD-701 put a clock on both widths; POD-993 moved it under the message.
+    const foot = host.querySelector('.msg-foot')
+    expect(foot?.getAttribute('data-side')).toBe('left')
+    expect(foot?.querySelector('.chat-clk')).not.toBeNull()
     // The `→ next:` split stays compact-only.
     expect(host.querySelector('.chat-next')).toBeNull()
   })
 
-  it('user blocks keep the You label and gain the clock', () => {
+  it('gives a user block no label at all — the side says who spoke — and a right-hand foot', () => {
     mount({ id: 'u1', role: 'user', text: 'hi', ts: '2026-07-22T14:31:00Z' } as TranscriptItem)
-    const label = host.querySelector('.transcript-you-label')
-    expect(label?.textContent).toContain('You')
+    expect(host.querySelector('.transcript-you-label')).toBeNull()
+    const label = host.querySelector('.msg-foot')
+    expect(label?.getAttribute('data-side')).toBe('right')
     expect(label?.querySelector('.chat-clk')).not.toBeNull()
   })
 })

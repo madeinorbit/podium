@@ -43,9 +43,10 @@ const done = session({
 })
 
 describe('AgentStatusGlyph — tab variant', () => {
-  it('working renders the braille spinner (the only ongoing motion)', () => {
+  it('working breathes — the same mark the chat it opens ends on (POD-993)', () => {
     const { container } = render(<AgentStatusGlyph session={working} variant="tab" />)
-    expect(container.querySelector('span.spb')).toBeTruthy()
+    expect(container.querySelector('span.breath')).toBeTruthy()
+    expect(container.querySelector('span.spb')).toBeNull()
   })
 
   it('waiting renders a still amber dot, no spinner', () => {

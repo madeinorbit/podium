@@ -176,7 +176,8 @@ describe('envelope block', () => {
     expect(env?.textContent).toContain('PODIUM_INTERNAL_ONLY')
     expect(prompt?.className).toContain('sticky')
     expect(prompt?.querySelector('[data-sticky-prompt-backdrop]')).not.toBeNull()
-    expect(prompt?.textContent).toContain('Your brief · active turn')
+    // POD-993: no voice label — the card's side is the attribution.
+    expect(prompt?.querySelector('.transcript-you-bubble')).not.toBeNull()
     expect(prompt?.textContent).toContain('please tighten the sticky prompt')
     expect(prompt?.textContent).not.toContain('PODIUM_INTERNAL_ONLY')
   })

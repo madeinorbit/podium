@@ -3,7 +3,7 @@ import type { SessionMeta } from '@podium/model/browser'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, Clock, CloudOff, MessageSquareText, Paperclip, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useReplicaIssues } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
 import { OfferBar } from './OfferBar'
 import type { UseAttachmentsResult } from './use-attachments'
+import { chordLabel, useComposerChord } from './use-composer-chord'
 import { VoiceButton } from './VoiceButton'
 
 /**
@@ -174,6 +175,15 @@ export function ChatComposer({
   onBackendEffortChange?: (effort: string) => void
 }): JSX.Element {
   const lastInterruptEscapeAt = useRef<number | null>(null)
+  // THE FOCUS CHORD (POD-993). ⌘/ puts the caret here from anywhere in the pane,
+  // and the box says so in its corner while it is unfocused and empty — the one
+  // thing about a prompt box a reader cannot discover by looking at it.
+  const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
+  const [focused, setFocused] = useState(false)
+  const focusField = useCallback(() => {
+    taRef.current?.focus()
+  }, [taRef])
+  useComposerChord(rootEl, focusField)
 
   // A session switch reuses this composer on mobile. Never let the first Esc
   // from one session arm the second Esc in another.
@@ -361,6 +371,7 @@ export function ChatComposer({
               'font-mono',
             ),
       )}
+      ref={setRootEl}
       {...attachments.dropHandlers}
     >
       {compact && <PromptAutoGrow taRef={taRef} value={draft} />}
@@ -451,6 +462,18 @@ export function ChatComposer({
         )}
       >
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
+        {/* Shown only while the box is unfocused AND empty, so it can never land
+            on the operator's own words — a placeholder line never reaches it. */}
+        {!compact && (
+          <span
+            className="composer-chord"
+            data-show={!focused && draft === '' && enabled ? 'true' : undefined}
+            data-testid="composer-chord"
+            aria-hidden="true"
+          >
+            {chordLabel()}
+          </span>
+        )}
         {attachments.dragOver && (
           <div
             className={cn(
@@ -556,27 +579,23 @@ export function ChatComposer({
                 }
               }}
               onPaste={attachments.onPaste}
+              onFocus={() => {
+                setFocused(true)
+              }}
+              onBlur={() => {
+                setFocused(false)
+              }}
             />
             {/* Compact only: the dock's box has no room for a second row. */}
             {compact && actionCluster}
           </div>
           <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
-          {/* THE BOTTOM ROW (POD-993). The field takes the whole width; the
-              cluster sits under it with the send hint on the left, so the row
-              carries information rather than being a blank line with buttons
-              parked in it. The hint states the keyboard route the box's primary
-              action already has — the one thing a first-time reader of this box
-              does not know and cannot discover by looking. */}
-          {!compact && (
-            <div className="composer-row">
-              <span className="composer-hint">
-                <kbd>↵</kbd> send
-                <span className="composer-hint-seam" aria-hidden="true" />
-                <kbd>⇧↵</kbd> newline
-              </span>
-              {actionCluster}
-            </div>
-          )}
+          {/* THE BOTTOM ROW (POD-993). The field takes the whole width and the
+              cluster sits under it, right-aligned. It briefly carried a
+              send/newline caption; that is gone — the chord chip in the corner
+              is the one hint this box needs, and it appears only when it can
+              still be acted on. */}
+          {!compact && <div className="composer-row">{actionCluster}</div>}
         </div>
       </div>
       {backend && onBackendModelChange && onBackendEffortChange && (

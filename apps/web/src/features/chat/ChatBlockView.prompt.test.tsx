@@ -106,15 +106,17 @@ describe('the operator prompt', () => {
     expect(isPinned()).toBe(false)
     expect(toggle()).toBeNull()
     expect(host.textContent).toContain('line 0 of a very long brief')
-    // …and it still labels the turn exactly once.
-    expect(host.querySelectorAll('.transcript-you-label')).toHaveLength(1)
+    // …and it carries exactly one foot, on the human's side.
+    const feet = host.querySelectorAll('.msg-foot')
+    expect(feet).toHaveLength(1)
+    expect(feet[0]?.getAttribute('data-side')).toBe('right')
   })
 
-  it('labels a sticky turn exactly once', () => {
+  it('names no voice — the side is the attribution (POD-993)', () => {
     mount(LONG, true)
-    const labels = host.querySelectorAll('.transcript-you-label')
-    expect(labels).toHaveLength(1)
-    expect(labels[0]?.textContent).toContain('Your brief')
+    expect(host.querySelector('.transcript-you-label')).toBeNull()
+    expect(host.textContent).not.toContain('Your brief')
+    expect(host.querySelector('.transcript-you-bubble')).not.toBeNull()
   })
 
   it('takes the pin however long the brief is', () => {

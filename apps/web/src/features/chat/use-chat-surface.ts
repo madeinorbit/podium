@@ -30,7 +30,6 @@ import { isAgentComputing, type SessionId, type SessionMeta } from '@podium/mode
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
-import { useChatVerbosityPreference } from '@/lib/chat-verbosity'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { PendingItem, QueuedChatMessage } from './chat'
@@ -108,12 +107,9 @@ export interface ChatSurface {
   /** The session's ACTOR + ON-BEHALF-OF pairs, one per role (doc §3.1.3 A3). */
   attribution: TranscriptAttributionTable
 
-  // -- verbosity (POD-376) ----------------------------------------------------
-  /** The STORED preference, which the control renders. The EFFECTIVE verbosity
-   *  can differ: a search query overrides `summary` so a hit is never hidden. */
-  verbosity: ChatVerbosity
-  setVerbosity: (v: ChatVerbosity) => void
-  /** True while runs should render already unfolded. */
+  /** True while runs should render already unfolded. Always false since
+   *  POD-993 retired the detail switcher; kept as a prop so the feed's own
+   *  contract does not change shape if a per-run "expand all" returns. */
   expandRuns: boolean
 
   // -- search ----------------------------------------------------------------
@@ -240,14 +236,15 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // go, so sticky questions are suppressed there regardless of the preference.
   const stickyEnabled = stickyPrompts.enabled && !compact
 
-  // Transcript verbosity (POD-376). SEARCH OVERRIDES SUMMARY: a query the reader
-  // typed is a request to find something, and hiding the rows it could be in
-  // would answer "no matches" for work that is right there. This mirrors what
-  // search already does to the fold (auto-expands a run) and to the prompt clamp
-  // (yields so the hit is visible) — one rule, three places.
-  const chatVerbosity = useChatVerbosityPreference()
-  const verbosity: ChatVerbosity =
-    query && chatVerbosity.verbosity === 'summary' ? 'normal' : chatVerbosity.verbosity
+  // TRANSCRIPT DETAIL IS NOT A SETTING ANY MORE (POD-993). It was three levels
+  // behind a rail popover — summary / normal / verbose — and normal was both the
+  // default and the one anybody used; the other two were a control the reader
+  // met once and then carried forever, with a search-override rule attached to
+  // keep `summary` from hiding its own hits. The feed renders `normal`, always,
+  // and a run that a reader wants opened is opened by clicking it. The plumbing
+  // below still takes the value because the compute worker is written in terms
+  // of it — one constant, one place.
+  const verbosity: ChatVerbosity = 'normal'
 
   const {
     blocks,
@@ -631,13 +628,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     stickyEnabled,
     attribution,
 
-    /** The stored preference and its setter — NOT the effective `verbosity`
-     *  above, which search may have overridden. The control must show what the
-     *  reader chose, or toggling search would look like it changed the setting. */
-    verbosity: chatVerbosity.verbosity,
-    setVerbosity: chatVerbosity.setVerbosity,
-    /** True while a run should render already-unfolded. */
-    expandRuns: verbosity === 'verbose',
+    /** Runs render folded; a reader who wants one open clicks it. */
+    expandRuns: false,
 
     query,
     setQuery,

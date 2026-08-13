@@ -9,7 +9,7 @@ import type {
 } from '@podium/client-core/viewmodels'
 import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
-import { ArrowUp, Image as ImageIcon, X } from 'lucide-react'
+import { ArrowUp, Clock, Image as ImageIcon, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { type IssueReferenceLookup, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
@@ -456,10 +456,13 @@ export function TranscriptFeed({
                 )}
               </div>
             </div>
-            <div className="transcript-you-label">
-              You
+            {/* THE DELIVERY STATE IS THE CARD'S OWN CAPTION (POD-993) — no
+                voice label, because the side already said who spoke. Sending is
+                the quiet case and says so once; only a FAILED turn raises its
+                voice, because only a failed turn is asking for something. */}
+            <div className="msg-foot" data-side="right">
               {p.state === 'sending' && <span className="transcript-delivery">sending…</span>}
-              {p.state === 'queued' && <span className="transcript-delivery">pending</span>}
+              {p.state === 'queued' && <span className="transcript-delivery">queued</span>}
               {p.state === 'failed' && (
                 <span className="transcript-delivery transcript-delivery--error">
                   not delivered
@@ -469,32 +472,42 @@ export function TranscriptFeed({
           </div>
         </div>
       ))}
+      {/* THE QUEUED TURN (POD-993) — a message the operator has written and
+          committed to, waiting behind the turn in flight. It is the one row in
+          the feed that is not yet part of the conversation, so it does not wear
+          the settled card: same geometry and same side, but a DASHED rim over no
+          fill — the shape of a thing whose place is reserved rather than taken —
+          and dimmed until the pointer arrives. Its foot carries what it is
+          waiting for and the way out: Retract sits with the other message
+          actions, in one idiom, and only takes destructive ink under the
+          pointer, because changing your mind is not an error. */}
       {restoredQueued.map((message) => (
         <div
           key={message.id}
-          className="transcript-row transcript-turn-open"
+          className="transcript-row transcript-turn-open transcript-arrive"
           data-testid="queued-chat-message"
         >
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
           <div className="transcript-body transcript-you">
-            <div className="transcript-you-bubble">
+            <div className="transcript-you-bubble transcript-you-bubble--queued">
               <div className="transcript-you-body">
                 <div className="chat-md whitespace-pre-wrap">{message.text}</div>
               </div>
             </div>
-            <div className="transcript-you-label">
-              You
-              <span className="transcript-delivery">pending</span>
+            <div className="msg-foot" data-side="right">
+              <span className="transcript-delivery">
+                <Clock size={10} aria-hidden="true" />
+                queued · sends after this turn
+              </span>
               <button
-                type="button"
                 data-pressable
-                className="transcript-retract"
-                aria-label="Retract pending message"
-                title="Retract pending message"
+                type="button"
+                className="msg-action msg-action--retract"
+                aria-label="Retract queued message"
+                title="Retract queued message"
                 onClick={() => void onRetractQueued(message.id)}
               >
-                <X size={11} aria-hidden="true" />
-                Retract
+                <X size={12} aria-hidden="true" />
               </button>
             </div>
           </div>

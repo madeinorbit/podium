@@ -430,8 +430,8 @@ describe('ChatView composer', () => {
 
     const queued = container.querySelector('[data-testid="queued-chat-message"]')
     expect(queued?.textContent).toContain('please do this next')
-    expect(queued?.textContent).toContain('pending')
-    expect(queued?.textContent).toContain('Retract')
+    expect(queued?.textContent).toContain('queued')
+    expect(queued?.querySelector('.msg-action--retract')).not.toBeNull()
     const queueNotice = container.querySelector('[data-notice="queue"]')
     expect(queueNotice?.textContent).toContain('Queued · 1')
     expect(queueNotice?.textContent).toContain('sends after this turn')
@@ -454,7 +454,7 @@ describe('ChatView composer', () => {
     await flush()
 
     const retract = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Retract pending message"]',
+      '[aria-label="Retract queued message"]',
     )
     expect(retract).not.toBeNull()
     await act(async () => {
