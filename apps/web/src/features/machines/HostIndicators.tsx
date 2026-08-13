@@ -1,4 +1,4 @@
-import type { MachineId } from '@podium/model'
+import type { MachineId } from '@podium/model/browser'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   hostAgentsView,

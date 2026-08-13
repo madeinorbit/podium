@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
-import { NetworkStep } from '@/features/setup/SetupView'
+import { NetworkStep } from '@/features/setup/network-step'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'

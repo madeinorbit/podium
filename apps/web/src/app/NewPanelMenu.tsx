@@ -1,9 +1,15 @@
-import { asMachineId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
 import { reposToViews } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueId, MachineId, MachineWire, SessionId } from '@podium/model/browser'
+import {
+  asMachineId,
+  type AgentKind,
+  type IssueId,
+  type MachineId,
+  type MachineWire,
+  type SessionId,
+} from '@podium/model/browser'
 import {
   agentCapabilityRejection,
   agentLoginCondition,

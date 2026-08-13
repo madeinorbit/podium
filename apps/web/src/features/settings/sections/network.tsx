@@ -2,7 +2,7 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { NetworkStep } from '@/features/setup/SetupView'
+import { NetworkStep } from '@/features/setup/network-step'
 import { Row, Section } from './shared'
 
 /**

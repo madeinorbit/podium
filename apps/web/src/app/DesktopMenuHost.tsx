@@ -1,6 +1,5 @@
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
-import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { AboutPodium } from './AboutPodium'
 import {
@@ -12,6 +11,10 @@ import {
   sidebarToggleFromEvent,
 } from './desktop-menu'
 import { DesktopCloseTab } from './use-desktop-close-tab'
+
+const RepoScanFlow = lazy(() =>
+  import('@/features/setup/RepoScanFlow').then((module) => ({ default: module.RepoScanFlow })),
+)
 
 export function DesktopMenuHost({
   toggleLeftSidebar,
@@ -69,10 +72,12 @@ export function DesktopMenuHost({
       <DesktopCloseTab />
       <AboutPodium open={aboutOpen} onClose={() => setAboutOpen(false)} />
       {addProjectOpen && (
-        <RepoScanFlow
-          onClose={() => setAddProjectOpen(false)}
-          onDone={() => setAddProjectOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <RepoScanFlow
+            onClose={() => setAddProjectOpen(false)}
+            onDone={() => setAddProjectOpen(false)}
+          />
+        </Suspense>
       )}
     </>
   )

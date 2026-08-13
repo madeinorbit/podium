@@ -3,15 +3,13 @@ import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
 import type { HostMetricsWire, ServerSecretKey } from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { MachinesPanel } from './MachinesPanel'
-import { ConnectedDevicesSection } from './sections/connected-devices'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
 import { AccountsSection } from './sections/accounts'
 import { AppearanceSection } from './sections/appearance'
@@ -30,6 +28,15 @@ import { UpdatesSection } from './sections/updates'
 import { WorkflowSection } from './sections/workflow'
 import { WorkLlmSection } from './sections/workllm'
 import { SETTINGS_SURFACES, type SettingsSurface, SURFACE_COPY, tabsOnSurface } from './surfaces'
+
+const MachinesPanel = lazy(() =>
+  import('./MachinesPanel').then((module) => ({ default: module.MachinesPanel })),
+)
+const ConnectedDevicesSection = lazy(() =>
+  import('./sections/connected-devices').then((module) => ({
+    default: module.ConnectedDevicesSection,
+  })),
+)
 
 export type SettingsTab =
   | 'appearance'
@@ -714,28 +721,30 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                   explain — the secrets promise — now lives on that section's
                   own hint, on the one tab where it is true. */}
               {settings ? (
-                SECTION_VIEWS[tab]({
-                  settings,
-                  accounts,
-                  patch,
-                  trpc,
-                  telegramSetup,
-                  telegramSetupNow,
-                  hostMetrics,
-                  startTelegramSetup: () => void startTelegramSetup(),
-                  resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
-                  resetToDefaults: () => setSettings(DEFAULT_SETTINGS),
-                  secrets,
-                  canManageSecrets: permitted['settings.setSecret'] === true,
-                  secretBusy,
-                  secretError,
-                  setSecret: (key, value) => {
-                    void writeSecret(() => trpc.settings.setSecret.mutate({ key, value }))
-                  },
-                  clearSecret: (key) => {
-                    void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
-                  },
-                })
+                <Suspense fallback={<div className="min-h-24" aria-hidden="true" />}>
+                  {SECTION_VIEWS[tab]({
+                    settings,
+                    accounts,
+                    patch,
+                    trpc,
+                    telegramSetup,
+                    telegramSetupNow,
+                    hostMetrics,
+                    startTelegramSetup: () => void startTelegramSetup(),
+                    resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
+                    resetToDefaults: () => setSettings(DEFAULT_SETTINGS),
+                    secrets,
+                    canManageSecrets: permitted['settings.setSecret'] === true,
+                    secretBusy,
+                    secretError,
+                    setSecret: (key, value) => {
+                      void writeSecret(() => trpc.settings.setSecret.mutate({ key, value }))
+                    },
+                    clearSecret: (key) => {
+                      void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
+                    },
+                  })}
+                </Suspense>
               ) : (
                 // The skeleton is the row grammar at rest: same 14px padding,
                 // same control column, so nothing shifts when the blob lands.

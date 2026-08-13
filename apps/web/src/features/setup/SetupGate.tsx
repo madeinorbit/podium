@@ -1,8 +1,9 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
 import { serverConfig } from '@/app/trpc'
 import { SetupUnreachable } from './SetupUnreachable'
-import { SetupView } from './SetupView'
 import { checkServerVersion } from './version-guard'
+
+const SetupView = lazy(() => import('./SetupView').then((module) => ({ default: module.SetupView })))
 
 type Phase = 'loading' | 'setup' | 'ready' | 'unreachable'
 
@@ -108,6 +109,12 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   if (phase === 'unreachable') {
     return <SetupUnreachable httpOrigin={httpOrigin} onRetry={() => setAttempt((n) => n + 1)} />
   }
-  if (phase === 'setup') return <SetupView httpOrigin={httpOrigin} onSaved={onSetupSaved} />
+  if (phase === 'setup') {
+    return (
+      <Suspense fallback={null}>
+        <SetupView httpOrigin={httpOrigin} onSaved={onSetupSaved} />
+      </Suspense>
+    )
+  }
   return <>{children}</>
 }

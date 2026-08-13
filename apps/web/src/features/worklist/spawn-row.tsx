@@ -1,4 +1,3 @@
-import { asMachineId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   lastUsedMaps,
@@ -12,7 +11,7 @@ import {
   usableMachines,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, MachineId } from '@podium/model/browser'
+import { asMachineId, type AgentKind, type MachineId } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, FolderPlus, Search } from 'lucide-react'
 import type { JSX } from 'react'

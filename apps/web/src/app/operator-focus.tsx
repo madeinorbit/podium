@@ -1,4 +1,4 @@
-import { asIssueId, type IssueId } from '@podium/model'
+import { asIssueId, type IssueId } from '@podium/model/browser'
 import {
   createContext,
   type ReactElement,

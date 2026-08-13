@@ -9,7 +9,6 @@ import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
-import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
@@ -22,9 +21,7 @@ import { useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
-import { ApprovalDialog } from './ApprovalDialog'
 import { AsciiLoader } from './AsciiLoader'
-import { AutoContinueDialog } from './AutoContinueDialog'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
@@ -69,6 +66,17 @@ const UsageView = lazy(() =>
 // state changes no subscriptions or retained component state.
 const FlightDeck = lazy(() =>
   import('./FlightDeck').then((module) => ({ default: module.FlightDeck })),
+)
+const OnboardingWizard = lazy(() =>
+  import('@/features/setup/OnboardingWizard').then((module) => ({
+    default: module.OnboardingWizard,
+  })),
+)
+const ApprovalDialog = lazy(() =>
+  import('./ApprovalDialog').then((module) => ({ default: module.ApprovalDialog })),
+)
+const AutoContinueDialog = lazy(() =>
+  import('./AutoContinueDialog').then((module) => ({ default: module.AutoContinueDialog })),
 )
 
 function LoadingScreen(): JSX.Element {
@@ -473,7 +481,9 @@ function AppBody(): JSX.Element {
     return (
       <>
         {menuHost}
-        <OnboardingWizard onDismiss={() => setDismissed(true)} />
+        <Suspense fallback={<LoadingScreen />}>
+          <OnboardingWizard onDismiss={() => setDismissed(true)} />
+        </Suspense>
       </>
     )
   }
@@ -627,8 +637,10 @@ function AppBody(): JSX.Element {
             <UsageView onClose={closeOverlay} />
           </Suspense>
         )}
-        <AutoContinueDialog />
-        <ApprovalDialog />
+        <Suspense fallback={null}>
+          <AutoContinueDialog />
+          <ApprovalDialog />
+        </Suspense>
         {commandPaletteEnabled && <CommandPaletteBoundary />}
         {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
           floating miniview. Both render nothing until there's something to show. */}
