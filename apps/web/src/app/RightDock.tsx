@@ -19,6 +19,7 @@ import {
 import type { JSX } from 'react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import type { ShippingPanelCommands } from '@/features/shipping/ShippingPanel'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useOperatorFocus } from './operator-focus'
@@ -91,7 +92,7 @@ export function RightDock({
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const { paneA, fileTabs, sessions, repos, shipOrders, coarseNow, setSelectedIssueId } =
+  const { paneA, fileTabs, sessions, repos, shipOrders, coarseNow, setSelectedIssueId, trpc } =
     useStoreSelector(
       (s) => ({
         paneA: s.paneA,
@@ -101,6 +102,7 @@ export function RightDock({
         shipOrders: s.shipOrders,
         coarseNow: s.coarseNow,
         setSelectedIssueId: s.setSelectedIssueId,
+        trpc: s.trpc,
       }),
       shallowEqual,
     )
@@ -109,6 +111,14 @@ export function RightDock({
   const active = useMemo(
     () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
     [paneA, fileTabs, sessions],
+  )
+  const shippingCommands = useMemo<ShippingPanelCommands>(
+    () => ({
+      resolveHold: (input) => trpc.issues.resolveShipHold.mutate(input),
+      cancelOrder: (input) => trpc.issues.cancelShip.mutate(input),
+      getReceipt: (input) => trpc.issues.deliveryReceipt.query(input),
+    }),
+    [trpc],
   )
   const panel = RIGHT_PANELS.find((p) => p.id === tab) ?? {
     id: tab,
@@ -265,6 +275,7 @@ export function RightDock({
               issues={issues}
               repoId={mergeQueueScope?.repoId ?? null}
               now={coarseNow}
+              commands={shippingCommands}
             />
           )}
         </Suspense>

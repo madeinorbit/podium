@@ -48,6 +48,13 @@ const state = {
   shipOrders: [],
   coarseNow: Date.parse('2026-08-13T12:00:00.000Z'),
   setSelectedIssueId: vi.fn(),
+  trpc: {
+    issues: {
+      resolveShipHold: { mutate: vi.fn() },
+      cancelShip: { mutate: vi.fn() },
+      deliveryReceipt: { query: vi.fn() },
+    },
+  },
 }
 
 const repoLocks = vi.hoisted(() => ({

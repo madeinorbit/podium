@@ -2,9 +2,9 @@
 
 import type { ShipOrderProjection } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { ShippingPanel } from './ShippingPanel'
+import { ShippingPanel, type ShippingPanelCommands } from './ShippingPanel'
 
 const issue = makeIssue({
   id: 'ship-issue',
@@ -28,6 +28,13 @@ const order = (over: Partial<ShipOrderProjection> = {}): ShipOrderProjection => 
   ...over,
 })
 
+const commands = (over: Partial<ShippingPanelCommands> = {}): ShippingPanelCommands => ({
+  resolveHold: vi.fn(async () => ({})),
+  cancelOrder: vi.fn(async () => ({})),
+  getReceipt: vi.fn(async () => null),
+  ...over,
+})
+
 afterEach(cleanup)
 
 describe('ShippingPanel', () => {
@@ -38,6 +45,7 @@ describe('ShippingPanel', () => {
         issues={[issue]}
         repoId="repo-a"
         now={Date.parse('2026-08-13T12:00:00.000Z')}
+        commands={commands()}
       />,
     )
 
@@ -80,6 +88,7 @@ describe('ShippingPanel', () => {
         issues={[issue]}
         repoId="repo-a"
         now={Date.parse('2026-08-13T12:00:00.000Z')}
+        commands={commands()}
       />,
     )
 
@@ -105,7 +114,8 @@ describe('ShippingPanel', () => {
     expect(screen.getByText(/Next/).parentElement?.querySelector('time')?.dateTime).toBe('PT10M')
   })
 
-  it('does not present compact hold actions as inert or misleading controls', () => {
+  it('submits typed hold actions with the projection generation fence', async () => {
+    const resolveHold = vi.fn(async () => ({}))
     render(
       <ShippingPanel
         orders={[
@@ -125,18 +135,104 @@ describe('ShippingPanel', () => {
         issues={[issue]}
         repoId="repo-a"
         now={Date.parse('2026-08-13T12:00:00.000Z')}
+        commands={commands({ resolveHold })}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Shipping sidebar panel/ }))
     expect(screen.getByText('DECISION REQUIRED')).toBeTruthy()
-    expect(screen.queryByText('Retry shipping')).toBeNull()
-    expect(screen.queryByText('Open repair')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Return to issue' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Let Podium retry' }))
+    expect(resolveHold).toHaveBeenCalledWith({
+      orderId: 'order-a',
+      action: 'retry',
+      expectedGeneration: 2,
+    })
+    expect(
+      await screen.findByText('Decision received. Shipping is updating this order.'),
+    ).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'Open repair' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Return to issue' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('shows receipt availability and identity without claiming to load its proof body', () => {
+  it('reports a refused hold decision once and leaves the typed actions available', async () => {
+    const resolveHold = vi.fn(async () => {
+      throw new Error('Shipping hold generation changed')
+    })
+    render(
+      <ShippingPanel
+        orders={[
+          order({
+            state: 'held',
+            humanState: 'needs_you',
+            activity: 'held',
+            hold: {
+              id: 'hold-a' as never,
+              generation: 3,
+              reasonCode: 'landing-conflict',
+              headline: 'Podium cannot choose the intended behavior',
+              actions: ['retry', 'return-to-issue'],
+            },
+          }),
+        ]}
+        issues={[issue]}
+        repoId="repo-a"
+        now={Date.parse('2026-08-13T12:00:00.000Z')}
+        commands={commands({ resolveHold })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Shipping sidebar panel/ }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Return to issue' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('Shipping hold generation changed')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(
+      (screen.getByRole('button', { name: 'Let Podium retry' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+  })
+
+  it('cancels a live order through the order-scoped command', async () => {
+    const cancelOrder = vi.fn(async () => ({}))
+    render(
+      <ShippingPanel
+        orders={[order()]}
+        issues={[issue]}
+        repoId="repo-a"
+        now={Date.parse('2026-08-13T12:00:00.000Z')}
+        commands={commands({ cancelOrder })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Shipping sidebar panel/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel shipping' }))
+
+    expect(cancelOrder).toHaveBeenCalledWith({ orderId: 'order-a' })
+    expect(
+      await screen.findByText('Cancellation accepted. Shipping is returning the issue to review.'),
+    ).toBeTruthy()
+  })
+
+  it('loads and renders the completed order’s typed delivery receipt', async () => {
+    const getReceipt = vi.fn(async () => ({
+      id: 'receipt-a' as never,
+      orderId: 'order-a' as never,
+      approvedBaseSha: 'base-123456789',
+      approvedHeadSha: 'head-123456789',
+      testedIntegrationSha: 'tested-123456789',
+      landedRefSha: 'landed-123456789',
+      destinationSha: 'destination-123456789',
+      validationProfileId: 'repository-profile',
+      validationResult: 'passed' as const,
+      destination: 'origin/main',
+      completedAt: '2026-08-13T12:00:00.000Z',
+    }))
     render(
       <ShippingPanel
         orders={[
@@ -150,14 +246,22 @@ describe('ShippingPanel', () => {
         issues={[issue]}
         repoId="repo-a"
         now={Date.parse('2026-08-13T12:00:00.000Z')}
+        commands={commands({ getReceipt })}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Shipping sidebar panel/ }))
-    expect(screen.getByText('RECEIPT AVAILABLE')).toBeTruthy()
+    expect(await screen.findByText('base-123456789')).toBeTruthy()
+    expect(screen.getByText('DELIVERY RECEIPT')).toBeTruthy()
+    expect(getReceipt).toHaveBeenCalledWith({ orderId: 'order-a' })
     expect(screen.getByText('receipt-a')).toBeTruthy()
     expect(screen.getByText('order-a')).toBeTruthy()
-    expect(screen.queryByText('Verified')).toBeNull()
-    expect(screen.queryByText('DELIVERY RECEIPT')).toBeNull()
+    expect(screen.getByText('head-123456789')).toBeTruthy()
+    expect(screen.getByText('tested-123456789')).toBeTruthy()
+    expect(screen.getByText('landed-123456789')).toBeTruthy()
+    expect(screen.getByText('destination-123456789')).toBeTruthy()
+    expect(screen.getByText('repository-profile · passed')).toBeTruthy()
+    expect(screen.queryByText(/details are not loaded/i)).toBeNull()
+    expect(screen.getByRole('button', { name: 'All shipping' })).toBe(document.activeElement)
   })
 })

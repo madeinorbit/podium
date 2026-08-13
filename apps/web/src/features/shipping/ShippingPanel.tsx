@@ -5,18 +5,35 @@ import {
   type ShippingPanelRow,
   type ShippingWaitingLane,
 } from '@podium/client-core/viewmodels'
-import type { ShipOrderProjection } from '@podium/model'
+import type {
+  DeliveryReceipt,
+  ShipHoldAction,
+  ShipOrderId,
+  ShipOrderProjection,
+} from '@podium/model'
 import { ChevronLeft, Circle, CircleCheck, TriangleAlert } from 'lucide-react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { formatAppError } from '@/app/AppErrorPage'
 import type { IssueViewModel } from '@/app/store'
 import { issueIdTitle, issueRefLabel } from '@/lib/issue-labels'
+
+export interface ShippingPanelCommands {
+  resolveHold(input: {
+    orderId: ShipOrderId
+    action: ShipHoldAction
+    expectedGeneration: number
+  }): Promise<unknown>
+  cancelOrder(input: { orderId: ShipOrderId }): Promise<unknown>
+  getReceipt(input: { orderId: ShipOrderId }): Promise<DeliveryReceipt | null>
+}
 
 interface ShippingPanelProps {
   orders: readonly ShipOrderProjection[]
   issues: readonly IssueViewModel[]
   repoId: string | null
   now: number
+  commands: ShippingPanelCommands
 }
 
 function Section({
@@ -181,18 +198,253 @@ function ProofRow({ label, children }: { label: string; children: ReactNode }): 
   )
 }
 
+const HOLD_ACTION_LABELS: Record<'retry' | 'return-to-issue' | 'open-repair', string> = {
+  retry: 'Let Podium retry',
+  'return-to-issue': 'Return to issue',
+  'open-repair': 'Open repair',
+}
+
+function holdActionLabel(action: ShipHoldAction): string {
+  if (action in HOLD_ACTION_LABELS) {
+    return HOLD_ACTION_LABELS[action as keyof typeof HOLD_ACTION_LABELS]
+  }
+  return action
+    .replace(/^policy:/, '')
+    .replace(/[._-]+/g, ' ')
+    .replace(/^./, (letter) => letter.toUpperCase())
+}
+
+function ReceiptValue({ children }: { children: string }): JSX.Element {
+  return <code title={children}>{children}</code>
+}
+
+type ReceiptState =
+  | { kind: 'loading' }
+  | { kind: 'loaded'; receipt: DeliveryReceipt | null }
+  | { kind: 'error'; message: string }
+
+function DeliveryReceiptDetail({
+  orderId,
+  commands,
+}: {
+  orderId: ShipOrderId
+  commands: ShippingPanelCommands
+}): JSX.Element {
+  const [reload, setReload] = useState(0)
+  const [state, setState] = useState<ReceiptState>({ kind: 'loading' })
+
+  useEffect(() => {
+    let current = true
+    setState({ kind: 'loading' })
+    void commands.getReceipt({ orderId }).then(
+      (receipt) => {
+        if (current) setState({ kind: 'loaded', receipt })
+      },
+      (error) => {
+        if (current) {
+          setState({ kind: 'error', message: formatAppError(error, 'Could not load receipt') })
+        }
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [commands, orderId, reload])
+
+  if (state.kind === 'loading') {
+    return (
+      <section
+        className="border-t border-hairline-soft px-3.5 py-3"
+        aria-labelledby="delivery-receipt-title"
+      >
+        <h4
+          id="delivery-receipt-title"
+          className="font-mono shell-type-micro font-medium tracking-[0.12em] text-label"
+        >
+          DELIVERY RECEIPT
+        </h4>
+        <p className="mt-2 text-[10.5px] text-muted-foreground" role="status">
+          Loading verified delivery proof…
+        </p>
+      </section>
+    )
+  }
+
+  if (state.kind === 'error') {
+    return (
+      <section
+        className="border-t border-hairline-soft px-3.5 py-3"
+        aria-labelledby="delivery-receipt-title"
+      >
+        <h4
+          id="delivery-receipt-title"
+          className="font-mono shell-type-micro font-medium tracking-[0.12em] text-label"
+        >
+          DELIVERY RECEIPT
+        </h4>
+        <p className="mt-2 text-[10.5px] leading-4 text-destructive" role="alert">
+          {state.message}
+        </p>
+        <button
+          data-pressable
+          type="button"
+          className="mt-2 rounded-md border border-border px-2.5 py-1.5 text-[10.5px] font-medium text-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+          onClick={() => setReload((value) => value + 1)}
+        >
+          Try again
+        </button>
+      </section>
+    )
+  }
+
+  if (!state.receipt) {
+    return (
+      <section
+        className="border-t border-hairline-soft px-3.5 py-3"
+        aria-labelledby="delivery-receipt-title"
+      >
+        <h4
+          id="delivery-receipt-title"
+          className="font-mono shell-type-micro font-medium tracking-[0.12em] text-label"
+        >
+          DELIVERY RECEIPT
+        </h4>
+        <p className="mt-2 text-[10.5px] leading-4 text-muted-foreground">
+          Verified delivery proof is not available for this order yet.
+        </p>
+      </section>
+    )
+  }
+
+  const receipt = state.receipt
+  const completedAt = new Date(receipt.completedAt)
+  return (
+    <section className="border-t border-hairline-soft" aria-labelledby="delivery-receipt-title">
+      <h4
+        id="delivery-receipt-title"
+        className="px-3.5 py-2 font-mono shell-type-micro font-medium tracking-[0.12em] text-label"
+      >
+        DELIVERY RECEIPT
+      </h4>
+      <ProofRow label="Receipt">
+        <ReceiptValue>{receipt.id}</ReceiptValue>
+      </ProofRow>
+      <ProofRow label="Order">
+        <ReceiptValue>{receipt.orderId}</ReceiptValue>
+      </ProofRow>
+      <ProofRow label="Approved base">
+        <ReceiptValue>{receipt.approvedBaseSha}</ReceiptValue>
+      </ProofRow>
+      <ProofRow label="Approved head">
+        <ReceiptValue>{receipt.approvedHeadSha}</ReceiptValue>
+      </ProofRow>
+      <ProofRow label="Tested">
+        <ReceiptValue>{receipt.testedIntegrationSha}</ReceiptValue>
+      </ProofRow>
+      <ProofRow label="Landed ref">
+        <ReceiptValue>{receipt.landedRefSha}</ReceiptValue>
+      </ProofRow>
+      <ProofRow label="Destination SHA">
+        <ReceiptValue>{receipt.destinationSha}</ReceiptValue>
+      </ProofRow>
+      <ProofRow label="Destination">
+        <ReceiptValue>{receipt.destination}</ReceiptValue>
+      </ProofRow>
+      <ProofRow label="Checks">
+        <ReceiptValue>{`${receipt.validationProfileId} · ${receipt.validationResult}`}</ReceiptValue>
+      </ProofRow>
+      <ProofRow label="Completed">
+        <time dateTime={receipt.completedAt} title={receipt.completedAt}>
+          {Number.isFinite(completedAt.getTime())
+            ? completedAt.toLocaleString()
+            : receipt.completedAt}
+        </time>
+      </ProofRow>
+      <p className="px-3.5 py-3 text-[10.5px] leading-[1.5] text-muted-foreground/75">
+        This immutable receipt belongs to this shipment and records the verified destination.
+      </p>
+    </section>
+  )
+}
+
+type CommandFeedback =
+  | { kind: 'idle' }
+  | { kind: 'pending'; action: string }
+  | { kind: 'success'; message: string }
+  | { kind: 'error'; message: string }
+
 function ShipmentDetail({
   row,
   now,
+  commands,
   backRef,
   onBack,
 }: {
   row: ShippingPanelRow
   now: number
+  commands: ShippingPanelCommands
   backRef: RefObject<HTMLButtonElement | null>
   onBack: () => void
 }): JSX.Element {
   const { order, issue } = row
+  const [feedback, setFeedback] = useState<CommandFeedback>({ kind: 'idle' })
+  const requestFence = useRef(0)
+  const holdGeneration = order.hold?.generation
+
+  useEffect(() => {
+    requestFence.current += 1
+    setFeedback({ kind: 'idle' })
+    return () => {
+      requestFence.current += 1
+    }
+  }, [holdGeneration, order.id])
+
+  const runHoldAction = async (action: ShipHoldAction): Promise<void> => {
+    const generation = order.hold?.generation
+    if (!generation || feedback.kind === 'pending' || feedback.kind === 'success') return
+    const fence = requestFence.current
+    setFeedback({ kind: 'pending', action })
+    try {
+      await commands.resolveHold({
+        orderId: order.id,
+        action,
+        expectedGeneration: generation,
+      })
+      if (fence !== requestFence.current) return
+      setFeedback({
+        kind: 'success',
+        message: 'Decision received. Shipping is updating this order.',
+      })
+    } catch (error) {
+      if (fence !== requestFence.current) return
+      setFeedback({
+        kind: 'error',
+        message: formatAppError(error, 'Could not resolve this shipping hold'),
+      })
+    }
+  }
+
+  const cancelOrder = async (): Promise<void> => {
+    if (feedback.kind === 'pending' || feedback.kind === 'success') return
+    const fence = requestFence.current
+    setFeedback({ kind: 'pending', action: 'cancel' })
+    try {
+      await commands.cancelOrder({ orderId: order.id })
+      if (fence !== requestFence.current) return
+      setFeedback({
+        kind: 'success',
+        message: 'Cancellation accepted. Shipping is returning the issue to review.',
+      })
+    } catch (error) {
+      if (fence !== requestFence.current) return
+      setFeedback({
+        kind: 'error',
+        message: formatAppError(error, 'Shipping could not be cancelled safely'),
+      })
+    }
+  }
+
+  const commandLocked = feedback.kind === 'pending' || feedback.kind === 'success'
   const stateLabel =
     order.humanState === 'needs_you'
       ? 'NEEDS YOU'
@@ -263,28 +515,42 @@ function ShipmentDetail({
             DECISION REQUIRED
           </h4>
           <p className="mt-2 text-[11px] leading-[1.5] text-muted-foreground">
-            Podium stopped before making this choice. This panel does not offer a resolution until
-            the secure hold action is available.
+            Podium stopped before making this choice. Select one of the safe actions supplied with
+            this hold.
           </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {order.hold.actions.map((action) => (
+              <button
+                key={action}
+                data-pressable
+                type="button"
+                className={`rounded-md border px-2.5 py-1.5 text-[10.5px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-wait disabled:opacity-55 ${
+                  action === 'return-to-issue'
+                    ? 'border-destructive/35 text-destructive hover:bg-destructive/10'
+                    : 'border-border text-foreground hover:bg-secondary'
+                }`}
+                disabled={commandLocked}
+                onClick={() => void runHoldAction(action)}
+              >
+                {feedback.kind === 'pending' && feedback.action === action
+                  ? 'Sending…'
+                  : holdActionLabel(action)}
+              </button>
+            ))}
+          </div>
+          {feedback.kind === 'error' && (
+            <p className="mt-2 text-[10.5px] leading-4 text-destructive" role="alert">
+              {feedback.message}
+            </p>
+          )}
+          {feedback.kind === 'success' && (
+            <p className="mt-2 text-[10.5px] leading-4 text-success" role="status">
+              {feedback.message}
+            </p>
+          )}
         </section>
       ) : order.humanState === 'shipped' ? (
-        <section
-          className="border-t border-hairline-soft"
-          aria-labelledby="receipt-available-title"
-        >
-          <h4
-            id="receipt-available-title"
-            className="px-3.5 py-2 font-mono shell-type-micro font-medium tracking-[0.12em] text-label"
-          >
-            RECEIPT AVAILABLE
-          </h4>
-          <ProofRow label="Receipt ID">{order.receiptId ?? 'Unavailable'}</ProofRow>
-          <ProofRow label="Order ID">{order.id}</ProofRow>
-          <p className="px-3.5 py-3 text-[10.5px] leading-[1.5] text-muted-foreground/75">
-            The compact shipping feed confirms a receipt exists for this order. Verified proof
-            details are not loaded in this panel yet.
-          </p>
-        </section>
+        <DeliveryReceiptDetail orderId={order.id} commands={commands} />
       ) : (
         <>
           <section className="border-t border-hairline-soft" aria-labelledby="shipping-proof-title">
@@ -312,6 +578,34 @@ function ShipmentDetail({
             </dl>
           </details>
         </>
+      )}
+      {(order.humanState === 'waiting' || order.humanState === 'in_progress') && (
+        <section
+          className="border-t border-hairline-soft px-3.5 py-3"
+          aria-label="Shipping controls"
+        >
+          <button
+            data-pressable
+            type="button"
+            className="rounded-md border border-destructive/35 px-2.5 py-1.5 text-[10.5px] font-medium text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-wait disabled:opacity-55"
+            disabled={commandLocked}
+            onClick={() => void cancelOrder()}
+          >
+            {feedback.kind === 'pending' && feedback.action === 'cancel'
+              ? 'Cancelling…'
+              : 'Cancel shipping'}
+          </button>
+          {feedback.kind === 'error' && (
+            <p className="mt-2 text-[10.5px] leading-4 text-destructive" role="alert">
+              {feedback.message}
+            </p>
+          )}
+          {feedback.kind === 'success' && (
+            <p className="mt-2 text-[10.5px] leading-4 text-success" role="status">
+              {feedback.message}
+            </p>
+          )}
+        </section>
       )}
     </div>
   )
@@ -348,7 +642,13 @@ function WaitingLane({
   )
 }
 
-export function ShippingPanel({ orders, issues, repoId, now }: ShippingPanelProps): JSX.Element {
+export function ShippingPanel({
+  orders,
+  issues,
+  repoId,
+  now,
+  commands,
+}: ShippingPanelProps): JSX.Element {
   const model = useMemo(() => shippingPanelModel(orders, issues, repoId), [issues, orders, repoId])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [returnFocusId, setReturnFocusId] = useState<string | null>(null)
@@ -389,6 +689,7 @@ export function ShippingPanel({ orders, issues, repoId, now }: ShippingPanelProp
       <ShipmentDetail
         row={selected}
         now={now}
+        commands={commands}
         backRef={backRef}
         onBack={() => {
           setReturnFocusId(selected.order.id)
