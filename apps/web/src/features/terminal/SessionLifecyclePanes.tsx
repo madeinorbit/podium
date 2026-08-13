@@ -193,8 +193,8 @@ export function ExitedBanner(props: ExitedProps & { waking?: boolean }): JSX.Ele
  */
 function WakingBar({ mark, queuedCount = 0 }: { mark: JSX.Element; queuedCount?: number }) {
   return (
-    <div className="pane-state-bar" data-tone="parked" role="status">
-      <span className="pane-state-bar-mark animate-pulse" aria-hidden="true">
+    <div className="pane-state-bar pane-state-bar-waking" data-tone="parked" role="status">
+      <span className="pane-state-bar-mark" aria-hidden="true">
         {mark}
       </span>
       <span className="pane-state-bar-copy">

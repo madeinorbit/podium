@@ -52,6 +52,8 @@ describe('the hibernated bar', () => {
     expect(container.textContent).toContain('your message sends')
     expect(container.textContent).not.toContain('read-only')
     expect(container.querySelector('[data-testid="lifecycle-resume"]')).toBeNull()
+    expect(container.querySelector('.pane-state-bar-waking')).not.toBeNull()
+    expect(container.querySelector('.pane-state-bar-mark.animate-pulse')).toBeNull()
   })
 
   it('counts the queue when more than one message is waiting', () => {
@@ -69,5 +71,6 @@ describe('the exited bar', () => {
     })
     expect(container.textContent).toContain('Waking the agent')
     expect(container.querySelector('[data-testid="lifecycle-resume"]')).toBeNull()
+    expect(container.querySelector('.pane-state-bar-waking')).not.toBeNull()
   })
 })

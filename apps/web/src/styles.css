@@ -4425,6 +4425,63 @@ html[data-density="balanced"] .header-quota-pools {
 .pane-state-bar-word {
   color: var(--text-strong, var(--foreground));
 }
+/* Waking is the one lifecycle state that resolves by itself, so it carries a
+   quiet loop instead of a static mark. A low-dose `--live` wash crosses the
+   existing chrome while the glyph tilts toward the same semantic moving color;
+   the bar's footprint, surface, copy and emphasis stay unchanged. */
+.pane-state-bar-waking {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.pane-state-bar-waking::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0 auto 0 -24%;
+  width: 22%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--live, var(--info)) 7%, transparent),
+    transparent
+  );
+  content: "";
+  filter: blur(2px);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pane-state-bar-waking::before {
+    animation: pane-state-wake-wash 4.2s cubic-bezier(0.46, 0, 0.54, 1) infinite;
+  }
+  .pane-state-bar-waking .pane-state-bar-mark {
+    animation: pane-state-wake-mark 4.2s ease-in-out infinite;
+  }
+}
+@keyframes pane-state-wake-wash {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  15%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(565%);
+  }
+}
+@keyframes pane-state-wake-mark {
+  0%,
+  100% {
+    color: var(--text-faint, var(--muted-foreground));
+    transform: rotate(-5deg);
+  }
+  50% {
+    color: var(--live, var(--info));
+    transform: rotate(5deg);
+  }
+}
 .pane-state-bar[data-tone="fault"] .pane-state-bar-mark,
 .pane-state-bar[data-tone="fault"] .pane-state-bar-word {
   color: var(--warning, var(--destructive));
