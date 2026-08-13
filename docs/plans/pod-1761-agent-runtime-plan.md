@@ -44,12 +44,20 @@ Grok headless feasibility investigation.
 
 ## Integration workflow (every agent on this epic)
 
-- Branch from `issue/1761-agent-runtime` (your subissue's worktree is created off it by
-  `podium issue start`). Never touch `main`.
-- Land by merging **ff-only into `issue/1761-agent-runtime`**: prefer
-  `podium issue action <your-id> merge`; manual path = `podium merge-lock acquire --wait`,
-  rebase onto the integration branch, ff-only merge, `podium merge-lock release` immediately.
-- Commits on the integration branch carry a `Podium-Issue: POD-<your id>` trailer.
+- **Step 0, before any other work:** your worktree was created off `main`, which does NOT
+  contain this plan or the spec. Run `git merge --ff-only issue/1761-agent-runtime` in your
+  worktree first (later, if the integration branch has moved, `git rebase
+  issue/1761-agent-runtime` instead). Only then read the docs and start.
+- Never touch `main`. Never use `podium issue action <id> merge|pr` on this epic — it targets
+  `main`. Landing is manual, into the integration branch only:
+  1. `podium lock acquire integration:1761 --wait --ttl 10m` (the epic's merge mutex —
+     the reserved `merge:` namespace is not usable here, this named lock is our convention);
+  2. `git rebase issue/1761-agent-runtime` on your branch;
+  3. run your gates (typecheck + touched tests);
+  4. `git -C /home/mgw/src/podium/.worktrees/issue-1761-agent-runtime merge --ff-only
+     issue/<your-id>-<slug>` (never `cd` into that worktree — `git -C` only);
+  5. `podium lock release integration:1761` immediately.
+- Commits carry a `Podium-Issue: POD-<your id>` trailer.
 - Gates before merging: `bun scripts/typecheck.ts` and the test suites your change touches
   (`bun scripts/test.ts --filter …`). Do not re-run the world.
 - **There is no human in your loop.** Never use AskUserQuestion, never post an offer expecting
