@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Grok light / dark mark</title>
+    <style>
+      body {
+        margin: 0;
+        font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+        background: #0c0d11;
+        color: #c8c6c0;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        min-height: 100vh;
+      }
+      section {
+        padding: 48px 40px;
+      }
+      .paper {
+        background: #f2f1ed;
+        color: #3c3a36;
+      }
+      .ink {
+        background: #16171a;
+        color: #c8c6c0;
+      }
+      h1 {
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-weight: 600;
+        margin: 0 0 20px;
+        opacity: 0.6;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .tile {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        display: grid;
+        place-items: center;
+        flex: none;
+      }
+      .paper .tile {
+        background: #fff;
+        color: #09090b;
+        border: 1px solid rgba(9, 9, 11, 0.15);
+      }
+      .ink .tile {
+        background: #09090b;
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      svg {
+        width: 12px;
+        height: 12px;
+        fill: currentColor;
+      }
+      .name {
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="paper">
+        <h1>Paper</h1>
+        <div class="row">
+          <span class="tile" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill-rule="evenodd">
+              <path
+                d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"
+              />
+            </svg>
+          </span>
+          <span class="name">Unread indicators</span>
+        </div>
+      </section>
+      <section class="ink">
+        <h1>Dark Ink</h1>
+        <div class="row">
+          <span class="tile" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill-rule="evenodd">
+              <path
+                d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"
+              />
+            </svg>
+          </span>
+          <span class="name">Unread indicators</span>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
