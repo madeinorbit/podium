@@ -1079,5 +1079,11 @@
      app content without per-component z-index juggling. */
   #root {
     isolation: isolate;
+    /* Keep clear of the wire-skew banner (WireSkewBanner.tsx), which is
+       position:fixed by design — it must not depend on the shell laying out,
+       because the failure it reports is the shell rendering nothing. Padding
+       here rather than in one screen's own layout so EVERY root-level screen
+       moves down: login, setup, and the shell. 0px while there is no banner. */
+    padding-top: var(--wire-skew-banner-h, 0px);
   }
 }

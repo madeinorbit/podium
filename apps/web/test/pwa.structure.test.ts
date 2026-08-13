@@ -54,9 +54,11 @@ describe('PWA shell height + safe-area inset', () => {
     // The desktop shell must use dvh so it fills the dynamic viewport in
     // standalone PWA mode. A plain 100% height chains off html/body/#root and
     // can leave dead space below the composer on iOS home-indicator screens.
-    expect(css).toMatch(/\.desktop-shell\s*\{[^}]*height:\s*100dvh/)
+    // `calc()` around it is allowed — the shell subtracts the height the
+    // wire-skew banner reserves — but the viewport unit itself must stay dvh.
+    expect(css).toMatch(/\.desktop-shell\s*\{[^}]*height:\s*(?:calc\([^;]*)?100dvh/)
     // Must NOT fall back to the 100% chain for desktop-shell height.
-    expect(css).not.toMatch(/\.desktop-shell\s*\{[^}]*height:\s*100%/)
+    expect(css).not.toMatch(/\.desktop-shell\s*\{[^}]*height:\s*(?:calc\([^;]*)?100%/)
   })
 
   it('safe-area-inset-bottom is NOT applied to the shell root (composer owns it once)', () => {

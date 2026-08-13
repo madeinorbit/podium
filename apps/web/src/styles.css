@@ -131,8 +131,13 @@ body {
   /* Use dvh so the desktop shell fills the dynamic viewport height in standalone
      PWA mode. 100% of the html/body/#root chain can leave dead space at the
      bottom in installed-PWA standalone on iOS/Android because the layout viewport
-     doesn't shrink to exclude the home-indicator area the way dvh does. */
-  height: 100dvh;
+     doesn't shrink to exclude the home-indicator area the way dvh does.
+
+     Minus the wire-skew banner: #root pads the shell down by that much, so a
+     full 100dvh here would push the same amount off the bottom and give an app
+     shell the page-level scrollbar the overflow rule above exists to prevent.
+     0px while there is no banner. */
+  height: calc(100dvh - var(--wire-skew-banner-h, 0px));
 }
 /* THE COMMAND BAR (POD-365, remeasured POD-725) — 48px, four zones over
    independently folding columns: mode tabs │ mode-contextual slot │ instrument │
@@ -2389,7 +2394,8 @@ html[data-density="balanced"] .header-quota-pools {
 /* Cold-start splash (AppShell LoadingScreen): the wordmark as ASCII art
    (AsciiLoader) over the themed background. */
 .app-loading {
-  height: var(--viewport-h, 100dvh);
+  /* Same subtraction as .desktop-shell: #root has already padded this down. */
+  height: calc(var(--viewport-h, 100dvh) - var(--wire-skew-banner-h, 0px));
   display: flex;
   flex-direction: column;
   align-items: center;

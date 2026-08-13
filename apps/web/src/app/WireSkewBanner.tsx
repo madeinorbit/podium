@@ -1,6 +1,27 @@
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { currentSkew, type SkewNotice, subscribeSkew } from './skew-notice'
+
+/**
+ * The height the app must keep clear, published for CSS to consume.
+ *
+ * The banner stays `position: fixed` — see the note below, it must not depend on
+ * the shell laying out — so nothing reserves its space automatically and it
+ * covered the command bar, the densest strip in the window. `#root` pads by this
+ * and the viewport-height roots subtract it (`index.css`, `styles.css`), which
+ * moves every root-level screen down rather than just the one that happens to be
+ * mounted.
+ *
+ * MEASURED, not a constant: the message and its Reload button wrap to a second
+ * line on a narrow window, and a hardcoded height would then clear too little
+ * (still covering the bar) or too much (a stripe of dead space).
+ */
+export const SKEW_BANNER_HEIGHT_VAR = '--wire-skew-banner-h'
+
+/** Exported for the test: what the app is told to keep clear, in `px`. */
+export function skewBannerHeightValue(height: number): string {
+  return `${Math.ceil(height)}px`
+}
 
 /**
  * THE VISIBLE SIGNAL (POD-1610).
@@ -34,10 +55,43 @@ import { currentSkew, type SkewNotice, subscribeSkew } from './skew-notice'
 export function WireSkewBanner(): JSX.Element | null {
   const [notice, setNotice] = useState<SkewNotice | null>(() => currentSkew())
   useEffect(() => subscribeSkew(setNotice), [])
+
+  /**
+   * Publish the height while mounted; take it back when the banner goes.
+   *
+   * A callback ref rather than an effect on `notice`, because the element only
+   * exists on the render that shows it — and the space has to be reserved by the
+   * time the browser paints, or the app visibly jumps.
+   */
+  const measure = useCallback((element: HTMLDivElement | null) => {
+    const root = document.documentElement
+    if (!element) {
+      root.style.removeProperty(SKEW_BANNER_HEIGHT_VAR)
+      return
+    }
+    const publish = () => {
+      root.style.setProperty(
+        SKEW_BANNER_HEIGHT_VAR,
+        skewBannerHeightValue(element.getBoundingClientRect().height),
+      )
+    }
+    publish()
+    // The banner wraps as the window narrows, so its height is not fixed for the
+    // life of the notice.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(publish)
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+      root.style.removeProperty(SKEW_BANNER_HEIGHT_VAR)
+    }
+  }, [])
+
   if (!notice) return null
 
   return (
     <div
+      ref={measure}
       role="alert"
       data-testid="wire-skew-banner"
       style={{
