@@ -17,6 +17,7 @@ import { IssueService } from '../../../../server/src/modules/issues/service'
 import {
   CompatibilityShippingPolicyResolver,
   ShippingService,
+  type ShippingEvidencePort,
 } from '../../../../server/src/modules/shipping'
 import { SessionStore } from '../../../../server/src/store'
 
@@ -94,6 +95,12 @@ const recoveryPolicy = {
     },
   }),
 }
+const evidence: ShippingEvidencePort = {
+  rootIntegrationReceipt: (rootIssueId, approvedHeadSha) =>
+    store.shipping.rootIntegrationReceipt(rootIssueId, approvedHeadSha),
+  // The compatibility recovery fixture has no accepted-review repository.
+  acceptedReviewEvidence: () => null,
+}
 const service = new ShippingService({
   repository: store.shipping,
   issues: issuePort,
@@ -107,13 +114,7 @@ const service = new ShippingService({
     authorize: () => {},
     reauthorize: () => {},
   },
-  evidence: {
-    rootIntegrationReceipt: (rootIssueId, approvedHeadSha) =>
-      store.shipping.rootIntegrationReceipt(rootIssueId, approvedHeadSha),
-    // Recovery uses the same compatibility policy as the live server. That
-    // policy permits shipping without an accepted-review repository.
-    acceptedReviewEvidence: () => null,
-  },
+  evidence,
   policy: recoveryPolicy,
   machineFor: () => machineId,
   resolveBranchTip: async (issue) => git('rev-parse', `refs/heads/${issue.branch}`),

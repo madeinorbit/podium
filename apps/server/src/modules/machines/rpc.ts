@@ -479,6 +479,7 @@ export class DaemonRpcService {
       40_000,
       () => ({
         jobId: input.jobId,
+        requestDigest: input.requestDigest,
         orderId: input.orderId,
         attemptId: input.attemptId,
         machineId,
