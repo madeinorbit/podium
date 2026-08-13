@@ -87,7 +87,7 @@ export function PairingScanner({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#050507' },
   scrim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     gap: space.lg,

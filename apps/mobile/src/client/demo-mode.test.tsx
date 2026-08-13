@@ -16,7 +16,20 @@ import { useSlice } from '@podium/client-core/react'
 import { worklistSlice } from '@podium/client-core/viewmodels'
 import { cleanup, render, screen } from '@testing-library/react'
 import { act } from 'react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// The demo never opens persisted storage. Mock the native CommonJS package so
+// importing the shared composition root does not make Node parse RN's Flow
+// entrypoint before the provider can select DemoProvider.
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getAllKeys: async () => [],
+    getItem: async () => null,
+    setItem: async () => {},
+    removeItem: async () => {},
+  },
+}))
+
 import { DEMO_ISSUES, DEMO_SESSIONS, demoEnabled } from './demoData'
 import { useConnected, useIssues, useSessions } from './hooks'
 import { MobileClientProvider } from './MobileClientProvider'

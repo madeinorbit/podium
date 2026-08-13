@@ -8,9 +8,10 @@
  * READ PATH (POD-1241): KernelReplica + FeedAuthorityClient over the v2 feed,
  * with entity rows in SqliteSyncStore. WRITE PATH (POD-1220): the durable
  * outbox binding already on SQLite. AsyncStorage holds only side-cache
- * (ui-state, transcript windows) and the pre-migration legacy bridge — never
- * per-user state, which is replicated rows read through the same slices and
- * commands as the web (doc §3.3, POD-1076).
+ * (ui-state, transcript windows), the pre-migration legacy bridge, and small
+ * pre-replica app metadata (server profiles, cleanup intents, credential id
+ * registry) — never authoritative per-user state, which is replicated rows
+ * read through the same slices and commands as the web (doc §3.3, POD-1076).
  *
  * WHAT THIS FILE STOPPED BEING. It used to also publish `MobileClientValue`: a
  * 55-field object rebuilt in one `useMemo` with a 27-entry dependency array,
@@ -85,6 +86,7 @@ import {
 // expo-router's SplashScreen, and the composition root has no business pulling
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
+import { installMobileMetadataStorage } from './mobile-metadata-storage'
 import { type MobileShell, MobileShellProvider } from './shell'
 import { useOptionalServerProfile } from './ServerProfileGate'
 import {
@@ -94,6 +96,12 @@ import {
   type PendingProfileCleanup,
 } from './server-profiles'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
+
+// App-installation metadata must be available before a principal-scoped replica
+// can open. This composition root owns the native dependency and injects it into
+// the profile/credential repositories; those record owners never import the
+// platform singleton themselves.
+installMobileMetadataStorage(AsyncStorage)
 
 // ---------------------------------------------------------------------------
 // THE MOBILE REPLICA COMPOSITION ROOT (POD-1220 durable + POD-1241 wire v2)

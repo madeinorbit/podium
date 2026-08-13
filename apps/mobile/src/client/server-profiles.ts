@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { mobileMetadataStorage } from './mobile-metadata-storage'
 
 export const SERVER_PROFILES_KEY = 'podium.mobile.server-profiles.v1'
 export const PENDING_PROFILE_CLEANUPS_KEY = 'podium.mobile.pending-profile-cleanups.v1'
@@ -108,7 +108,7 @@ function isProfile(value: unknown): value is ServerProfile {
 
 export async function loadServerProfiles(): Promise<ServerProfileState> {
   const [raw, pendingCleanups] = await Promise.all([
-    AsyncStorage.getItem(SERVER_PROFILES_KEY),
+    mobileMetadataStorage().getItem(SERVER_PROFILES_KEY),
     loadPendingProfileCleanups(),
   ])
   if (!raw) return EMPTY_STATE
@@ -136,7 +136,7 @@ export async function loadServerProfiles(): Promise<ServerProfileState> {
 }
 
 export async function saveServerProfiles(state: ServerProfileState): Promise<void> {
-  await AsyncStorage.setItem(SERVER_PROFILES_KEY, JSON.stringify(state))
+  await mobileMetadataStorage().setItem(SERVER_PROFILES_KEY, JSON.stringify(state))
 }
 
 function isPendingProfileCleanup(value: unknown): value is PendingProfileCleanup {
@@ -155,7 +155,7 @@ function isPendingProfileCleanup(value: unknown): value is PendingProfileCleanup
 }
 
 export async function loadPendingProfileCleanups(): Promise<PendingProfileCleanup[]> {
-  const raw = await AsyncStorage.getItem(PENDING_PROFILE_CLEANUPS_KEY)
+  const raw = await mobileMetadataStorage().getItem(PENDING_PROFILE_CLEANUPS_KEY)
   if (!raw) return []
   let parsed: unknown
   try {
@@ -183,7 +183,7 @@ export async function enqueuePendingProfileCleanup(
   if (!isPendingProfileCleanup(cleanup)) throw new Error('invalid pending profile cleanup')
   const current = await loadPendingProfileCleanups()
   const next = [...current.filter((row) => row.principal !== cleanup.principal), cleanup]
-  await AsyncStorage.setItem(PENDING_PROFILE_CLEANUPS_KEY, JSON.stringify(next))
+  await mobileMetadataStorage().setItem(PENDING_PROFILE_CLEANUPS_KEY, JSON.stringify(next))
   return cleanup
 }
 
@@ -195,7 +195,7 @@ export async function enqueuePendingProfileCleanup(
 export async function completePendingProfileCleanup(cleanup: PendingProfileCleanup): Promise<void> {
   const current = await loadPendingProfileCleanups()
   await saveServerProfiles(await loadServerProfiles())
-  await AsyncStorage.setItem(
+  await mobileMetadataStorage().setItem(
     PENDING_PROFILE_CLEANUPS_KEY,
     JSON.stringify(current.filter((row) => row.principal !== cleanup.principal)),
   )

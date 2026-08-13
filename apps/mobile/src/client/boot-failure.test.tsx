@@ -19,6 +19,19 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// AsyncStorage's native CommonJS entry bypasses Vite's source alias and loads
+// Flow-typed React Native in Node. Boot only needs the documented async key/value
+// boundary, so exercise that boundary directly with an empty backing store.
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getAllKeys: async () => [],
+    getItem: async () => null,
+    setItem: async () => {},
+    removeItem: async () => {},
+  },
+}))
+
 import { MobileClientProvider } from './MobileClientProvider'
 
 class SilentSocket {

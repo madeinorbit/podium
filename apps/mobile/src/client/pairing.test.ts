@@ -35,6 +35,13 @@ const pairEnvelope: MobilePairingEnvelope = {
 const link = (origin: string, envelope: MobilePairingEnvelope = pairEnvelope) =>
   `${origin}/mobile#pair=${encodePairingEnvelope(envelope)}`
 
+/** Encode an attacker-controlled envelope without the trusted producer schema. */
+const uncheckedLink = (origin: string, envelope: Record<string, unknown>) =>
+  `${origin}/mobile#pair=${btoa(JSON.stringify(envelope))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/, '')}`
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -66,7 +73,10 @@ describe('mobile pairing links', () => {
   it('rejects protected HTTP, pathful manual URLs, userinfo and expired grants', () => {
     expect(() =>
       parsePairingLink(
-        link('http://podium.example', { ...pairEnvelope, serverUrl: 'http://podium.example' }),
+        uncheckedLink('http://podium.example', {
+          ...pairEnvelope,
+          serverUrl: 'http://podium.example',
+        }),
       ),
     ).toThrow(PairingLinkError)
     expect(() => normalizeManualServer('https://user:pass@podium.example')).toThrow('origin only')

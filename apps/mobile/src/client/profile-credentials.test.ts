@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const stores = vi.hoisted(() => ({
@@ -41,8 +42,10 @@ import {
   purgeOrphanedProfileCredentials,
   setProfileCredential,
 } from './profile-credentials.native'
+import { installMobileMetadataStorage } from './mobile-metadata-storage'
 
 beforeEach(() => {
+  installMobileMetadataStorage(AsyncStorage)
   stores.async.clear()
   stores.secure.clear()
   stores.asyncSetFailures.length = 0

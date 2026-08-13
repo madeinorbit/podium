@@ -336,7 +336,9 @@ export async function claimMobilePairing(
   deviceName: string,
   platform: string,
 ): Promise<PairingClaim> {
-  const secretBytes = Crypto.getRandomBytes(32)
+  // Copy Expo's ArrayBufferLike-typed result onto a definite ArrayBuffer. Web
+  // Crypto's BufferSource contract deliberately excludes SharedArrayBuffer.
+  const secretBytes: Uint8Array<ArrayBuffer> = new Uint8Array(Crypto.getRandomBytes(32))
   const claimSecret = bytesToBase64Url(secretBytes)
   // The server decodes claimSecret and hashes these original 32 bytes. Hashing
   // the base64url text instead produces a different digest and makes every

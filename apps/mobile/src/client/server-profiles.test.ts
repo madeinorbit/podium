@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { stored } = vi.hoisted(() => ({ stored: new Map<string, string>() }))
@@ -19,9 +20,14 @@ import {
   profilePrincipal,
   reusableProfileAtOrigin,
   saveServerProfiles,
+  SERVER_PROFILES_KEY,
 } from './server-profiles'
+import { installMobileMetadataStorage } from './mobile-metadata-storage'
 
-beforeEach(() => stored.clear())
+beforeEach(() => {
+  stored.clear()
+  installMobileMetadataStorage(AsyncStorage)
+})
 
 describe('native server profiles', () => {
   it('classifies every transport policy before credentials can be sent', () => {

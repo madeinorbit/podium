@@ -45,7 +45,21 @@ import {
   type LegacyIdentityEvidence,
 } from '@podium/sync/adapters/legacy-replica'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// AsyncStorage's native CommonJS entry requires React Native directly, outside
+// Vite's source aliasing, and therefore asks Node to parse React Native's Flow.
+// This suite injects storage into openMobileReplica and never uses the package;
+// keep the composition-root import on the same inert storage boundary.
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getAllKeys: async () => [],
+    getItem: async () => null,
+    setItem: async () => {},
+    removeItem: async () => {},
+  },
+}))
+
 import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvider'
 
 /**

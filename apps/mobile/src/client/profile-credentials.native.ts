@@ -1,5 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
+import { mobileMetadataStorage } from './mobile-metadata-storage'
 
 const CREDENTIAL_PROFILE_IDS_KEY = 'podium.mobile.credential-profile-ids.v1'
 
@@ -13,7 +13,7 @@ function key(profileId: string): string {
 }
 
 async function registeredIds(): Promise<string[]> {
-  const raw = await AsyncStorage.getItem(CREDENTIAL_PROFILE_IDS_KEY)
+  const raw = await mobileMetadataStorage().getItem(CREDENTIAL_PROFILE_IDS_KEY)
   if (!raw) return []
   try {
     const value = JSON.parse(raw)
@@ -26,7 +26,10 @@ async function registeredIds(): Promise<string[]> {
 }
 
 async function saveRegisteredIds(ids: string[]): Promise<void> {
-  await AsyncStorage.setItem(CREDENTIAL_PROFILE_IDS_KEY, JSON.stringify([...new Set(ids)]))
+  await mobileMetadataStorage().setItem(
+    CREDENTIAL_PROFILE_IDS_KEY,
+    JSON.stringify([...new Set(ids)]),
+  )
 }
 
 export function getProfileCredential(profileId: string): Promise<string | null> {

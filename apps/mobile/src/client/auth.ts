@@ -1,4 +1,4 @@
-import type { UserId } from '@podium/model'
+import { UserId } from '@podium/model'
 import { NativeClientLoginResponse } from '@podium/protocol'
 import { Platform } from 'react-native'
 import { bearerHeaders } from './trpc'
@@ -60,7 +60,8 @@ export async function fetchAuthStatus(
   return {
     needsAuth: body.needsAuth,
     authed: body.authed,
-    userId: typeof body.userId === 'string' && body.userId.length > 0 ? body.userId : null,
+    userId:
+      typeof body.userId === 'string' && body.userId.length > 0 ? UserId.parse(body.userId) : null,
   }
 }
 
