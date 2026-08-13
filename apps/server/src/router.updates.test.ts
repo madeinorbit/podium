@@ -14,7 +14,17 @@ const target = (version = '0.4.2'): UpdateTarget =>
 const priorAppVersion = process.env.PODIUM_APP_VERSION
 const priorChannel = process.env.PODIUM_UPDATE_CHANNEL
 
-function harness(requestCoordinatorRestart?: () => void) {
+function harness(
+  requestCoordinatorRestart?: (() => void) | {
+    requestCoordinatorRestart?: () => void
+    requestWebRebuild?: () => void
+    servedWebDigest?: string
+  },
+) {
+  const opts =
+    typeof requestCoordinatorRestart === 'function'
+      ? { requestCoordinatorRestart }
+      : (requestCoordinatorRestart ?? {})
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'updates-test' })
   const hostMachineId = registry.sessionStore.hostMachineId
   registry.gateway.attachDaemon(hostMachineId, () => {})
@@ -27,7 +37,13 @@ function harness(requestCoordinatorRestart?: () => void) {
     superagent,
     capability: OPERATOR,
     principal: userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
-    ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
+    ...(opts.requestCoordinatorRestart
+      ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }
+      : {}),
+    ...(opts.requestWebRebuild ? { requestWebRebuild: opts.requestWebRebuild } : {}),
+    ...(opts.servedWebDigest !== undefined
+      ? { servedWebDigest: () => opts.servedWebDigest }
+      : {}),
   })
   return { registry, caller }
 }
@@ -162,6 +178,58 @@ describe('updates tRPC', () => {
       code: 'PRECONDITION_FAILED',
       message: 'Podium is already at this version everywhere.',
     })
+    registry.dispose()
+  })
+
+  it('does not refuse when the server SHA matches but the served web stamp does not', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+    const requestWebRebuild = vi.fn()
+    const { registry, caller } = harness({
+      requestWebRebuild,
+      servedWebDigest: 'aaaaaaa',
+    })
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    })
+
+    const result = await caller.updates.converge()
+    expect(result).toMatchObject({ state: 'in-progress', version: 'dev+47a01e3' })
+    expect(requestWebRebuild).toHaveBeenCalledOnce()
+    registry.dispose()
+  })
+
+  it('still refuses when server, web stamp, and fleet all match', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
+    const requestWebRebuild = vi.fn()
+    const { registry, caller } = harness({
+      requestWebRebuild,
+      servedWebDigest: '47a01e3',
+    })
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    })
+
+    await expect(caller.updates.converge()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Podium is already at this version everywhere.',
+    })
+    expect(requestWebRebuild).not.toHaveBeenCalled()
     registry.dispose()
   })
 

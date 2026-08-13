@@ -187,6 +187,35 @@ export interface BuildStamp {
    * same build differently.
    */
   appVersion?: string
+  /**
+   * `git rev-parse --short=7 HEAD` at vite build. Install identity for a
+   * source host — not compatibility, and not the log `v`. Absent on stamps
+   * written before this field existed; absent is not a protocol mismatch.
+   */
+  sourceSha?: string
+}
+
+/** Parse a stamp read off disk. Every field optional: older builds omit new ones. */
+export function parseBuildStamp(raw: unknown): BuildStamp {
+  if (!raw || typeof raw !== 'object') return {}
+  const value = raw as Record<string, unknown>
+  const stamp: BuildStamp = {}
+  if (typeof value.wireSchemaDigest === 'string') stamp.wireSchemaDigest = value.wireSchemaDigest
+  if (typeof value.wireVersion === 'number' && Number.isFinite(value.wireVersion)) {
+    stamp.wireVersion = value.wireVersion
+  }
+  if (typeof value.builtAt === 'string') stamp.builtAt = value.builtAt
+  if (typeof value.sourceSha === 'string') stamp.sourceSha = value.sourceSha
+  if (typeof value.appVersion === 'string') stamp.appVersion = value.appVersion
+  return stamp
+}
+
+/** The currency `artifacts.web.digest` uses on a source target: the short SHA. */
+export function webSourceDigest(stamp: BuildStamp): string | undefined {
+  if (typeof stamp.sourceSha === 'string' && /^[0-9a-f]{7,40}$/i.test(stamp.sourceSha)) {
+    return stamp.sourceSha.toLowerCase().slice(0, 7)
+  }
+  return undefined
 }
 
 let cached: string | undefined

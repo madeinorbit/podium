@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { updateArtifactPath } from './build-bun'
+import { assertDevWebDistMatchesVersion, updateArtifactPath } from './build-bun'
+
+describe('assertDevWebDistMatchesVersion', () => {
+  it('lets a release version pack without a source SHA', () => {
+    expect(() => assertDevWebDistMatchesVersion('0.4.2', null)).not.toThrow()
+  })
+
+  it('refuses a development tarball whose web stamp is a different commit', () => {
+    expect(() => assertDevWebDistMatchesVersion('dev+47a01e3', { sourceSha: 'aaaaaaa' })).toThrow(
+      /not built from dev\+47a01e3/,
+    )
+  })
+
+  it('refuses a development tarball with no web stamp SHA', () => {
+    expect(() => assertDevWebDistMatchesVersion('dev+47a01e3', null)).toThrow(/sourceSha=missing/)
+  })
+
+  it('accepts a development tarball whose web stamp is that commit', () => {
+    expect(() =>
+      assertDevWebDistMatchesVersion('dev+47a01e3', { sourceSha: '47a01e3' }),
+    ).not.toThrow()
+  })
+})
 
 describe('updateArtifactPath', () => {
   it('defaults to the versioned name a release reads', () => {

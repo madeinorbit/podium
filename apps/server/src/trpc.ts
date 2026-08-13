@@ -70,6 +70,10 @@ export interface Context {
   /** Source-host only: schedule the verified redeploy unit after an operator
    * authorizes a target newer than this server's boot identity. */
   requestCoordinatorRestart?: () => void
+  /** Source-host only: rebuild apps/web/dist via podium-web when the server is current. */
+  requestWebRebuild?: () => void
+  /** Install identity currently served from apps/web/dist, if any. */
+  servedWebDigest?: () => string | undefined
 }
 
 /** The typed module seam router procs reach services through (ctx.modules when

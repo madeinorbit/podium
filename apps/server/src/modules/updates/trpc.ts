@@ -146,6 +146,10 @@ export function startUpdate(
   updates: UpdatesService,
   currentVersion = serverBuildVersion(),
   requestCoordinatorRestart?: () => void,
+  opts?: {
+    servedWebDigest?: string
+    requestWebRebuild?: () => void
+  },
 ): {
   state: 'in-progress'
   version: string
@@ -163,10 +167,19 @@ export function startUpdate(
   }
   const initialFleet = fleetSnapshot(updates)
   const serverBehind = currentVersion !== target.version
-  if (!serverBehind && initialFleet.behind === 0 && initialFleet.converging === 0) {
+  const expectedWeb = target.artifacts.web?.digest
+  const webBehind = expectedWeb !== undefined && opts?.servedWebDigest !== expectedWeb
+  if (!serverBehind && !webBehind && initialFleet.behind === 0 && initialFleet.converging === 0) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
       message: 'Podium is already at this version everywhere.',
+    })
+  }
+  const rebuildWeb = opts?.requestWebRebuild ?? requestCoordinatorRestart
+  if (webBehind && !serverBehind && !rebuildWeb) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'This Podium installation cannot rebuild its web app automatically.',
     })
   }
 
@@ -182,6 +195,8 @@ export function startUpdate(
       affectedMachineIds,
       requestCoordinatorRestart,
     )
+  } else if (webBehind && rebuildWeb) {
+    rebuildWeb()
   }
   return {
     state: 'in-progress',
@@ -189,7 +204,9 @@ export function startUpdate(
     done: 0,
     total: Math.max(
       1,
-      (serverBehind ? 1 : 0) + Math.max(initialFleet.behind, initialFleet.converging),
+      (serverBehind ? 1 : 0) +
+        (webBehind ? 1 : 0) +
+        Math.max(initialFleet.behind, initialFleet.converging),
     ),
     fleet,
     grantedMachineIds,
@@ -214,6 +231,10 @@ export function updateProcedures() {
         familyState(ctx).modules.updates,
         serverBuildVersion(),
         ctx.requestCoordinatorRestart,
+        {
+          ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest() } : {}),
+          ...(ctx.requestWebRebuild ? { requestWebRebuild: ctx.requestWebRebuild } : {}),
+        },
       ),
     ),
   }

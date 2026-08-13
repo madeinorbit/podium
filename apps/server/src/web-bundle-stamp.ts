@@ -36,7 +36,13 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { BUILD_STAMP_FILE, type BuildStamp, wireSchemaDigest } from '@podium/protocol'
+import {
+  BUILD_STAMP_FILE,
+  type BuildStamp,
+  parseBuildStamp,
+  webSourceDigest,
+  wireSchemaDigest,
+} from '@podium/protocol'
 
 export type BundleGrade =
   /** No dist at all — a source run or an API-only server. Not a problem. */
@@ -90,6 +96,24 @@ const cache = new Map<string, CacheEntry>()
  * make the banner outlive its own cause. That is how a warning teaches people to
  * ignore warnings.
  */
+/** Read the served stamp. Null when the file is missing or not JSON. */
+export function readWebBuildStamp(webDir: string): BuildStamp | null {
+  if (!webDir) return null
+  const stampPath = join(webDir, BUILD_STAMP_FILE)
+  if (!existsSync(stampPath)) return null
+  try {
+    return parseBuildStamp(JSON.parse(readFileSync(stampPath, 'utf8')))
+  } catch {
+    return null
+  }
+}
+
+/** Install identity advertised as `artifacts.web.digest` on a source target. */
+export function servedWebSourceDigest(webDir: string): string | undefined {
+  const stamp = readWebBuildStamp(webDir)
+  return stamp ? webSourceDigest(stamp) : undefined
+}
+
 export function gradeWebBundle(webDir: string): BundleStatus {
   const serverDigest = wireSchemaDigest()
   if (!webDir || !existsSync(join(webDir, 'index.html'))) return { grade: 'absent', serverDigest }
@@ -106,7 +130,7 @@ export function gradeWebBundle(webDir: string): BundleStatus {
   let status: BundleStatus = { grade: 'unstamped', serverDigest }
   if (key !== 'missing') {
     try {
-      const stamp = JSON.parse(readFileSync(stampPath, 'utf8')) as BuildStamp
+      const stamp = parseBuildStamp(JSON.parse(readFileSync(stampPath, 'utf8')))
       const bundleDigest = typeof stamp.wireSchemaDigest === 'string' ? stamp.wireSchemaDigest : ''
       const builtAt = typeof stamp.builtAt === 'string' ? stamp.builtAt : undefined
       status = bundleDigest

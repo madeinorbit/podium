@@ -75,6 +75,26 @@ export function bundleNames(platform: NodeJS.Platform = process.platform): {
  * never overwrites a tarball a download may still be streaming. Blank is not a name — an
  * empty or whitespace-only value falls back rather than writing to a path called "".
  */
+/**
+ * A dest+<sha> tarball claims every served byte was produced from that commit.
+ * Packing yesterday's `apps/web/dist` under today's SHA is that lie for the
+ * web half — refuse rather than ship it.
+ */
+export function assertDevWebDistMatchesVersion(
+  version: string,
+  stamp: { sourceSha?: string } | null,
+): void {
+  if (!version.startsWith('dev+')) return
+  const expected = version.slice('dev+'.length)
+  if (!stamp?.sourceSha || stamp.sourceSha !== expected) {
+    throw new Error(
+      `build-bun: apps/web/dist was not built from ${version} ` +
+        `(stamp sourceSha=${stamp?.sourceSha ?? 'missing'}). ` +
+        'Rebuild the web app, then retry.',
+    )
+  }
+}
+
 export function updateArtifactPath(
   out: string,
   version: string,
@@ -230,6 +250,16 @@ function main(): void {
       'build-bun: apps/web/dist not built — run `bun run --filter @podium/web build` first',
     )
   }
+  let webStamp: { sourceSha?: string } | null = null
+  try {
+    const raw = JSON.parse(readFileSync(`${webDist}/podium-build.json`, 'utf8')) as {
+      sourceSha?: unknown
+    }
+    webStamp = typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}
+  } catch {
+    webStamp = null
+  }
+  assertDevWebDistMatchesVersion(version, webStamp)
   mkdirSync(headless, { recursive: true })
   // Release units are generated from the same renderer used by runtime setup and the dev host.
   writeSystemdFiles(`${headless}/systemd`, { profile: 'packaged', instanceId: 'default' })

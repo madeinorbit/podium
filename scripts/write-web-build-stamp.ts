@@ -1,12 +1,16 @@
 /**
- * STAMP A BUILT WEB DIST WITH THE SCHEMA IT CONTAINS (POD-1610).
+ * STAMP A BUILT WEB DIST WITH THE SCHEMA IT CONTAINS (POD-1610) AND THE SOURCE
+ * IT WAS BUILT FROM.
  *
- * Writes `podium-build.json` beside index.html, carrying `wireSchemaDigest()` —
- * the structural fingerprint of the protocol schemas the bundle was built from.
- * The server computes the same value from its own copy and compares it on every
- * page it serves (apps/server/src/web-bundle-stamp.ts). Unequal, or absent, means
- * the dist and the server did not come from the same source — which is what a
- * stale bundle IS, and what nothing in this repository could previously say.
+ * Writes `podium-build.json` beside index.html, carrying:
+ * - `wireSchemaDigest()` — protocol compatibility
+ * - `appVersion` — `bundle+<entry chunk hash>` for log records (POD-1965)
+ * - `sourceSha` — `git rev-parse --short=7 HEAD`, install identity for Update
+ *
+ * The Update panel compares `sourceSha` to the published `artifacts.web.digest`.
+ * `wireSchemaDigest` is not that identity — UI-only commits keep the same
+ * protocol digest. `appVersion` is not that identity either — it names the
+ * emitted bundle for logs, not the checkout.
  *
  * ---------------------------------------------------------------------------
  * WHY A SCRIPT AND NOT A VITE PLUGIN
@@ -44,8 +48,16 @@ import {
   WIRE_VERSION,
   wireSchemaDigest,
 } from '../packages/protocol/src/index'
+import { developmentSourceSha } from '../packages/runtime/src/source-version'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+
+export type WrittenBuildStamp = BuildStamp & {
+  wireSchemaDigest: string
+  wireVersion: number
+  builtAt: string
+  appVersion: string
+}
 
 /** Where `@podium/model` actually came from for THIS process. The protocol
  *  schemas import it as a value (the feed's entity payload arms), so a stamp
@@ -56,6 +68,14 @@ function resolvedModelPath(): string {
   } catch {
     return ''
   }
+}
+
+/** Checkout SHA at build time. Omitted when git cannot name HEAD. */
+export function resolveWebSourceSha(
+  root: string,
+  readHead?: (root: string) => string,
+): string | undefined {
+  return readHead ? developmentSourceSha(root, readHead) : developmentSourceSha(root)
 }
 
 /**
@@ -70,8 +90,15 @@ function resolvedModelPath(): string {
  * and the right answer is to fail the build. Writing a stamp without
  * `appVersion` is precisely the silent absence POD-1965 is about: every record
  * would ship unversioned again and nothing would say so.
+ *
+ * `sourceSha` is optional and separate: install identity for Update, not the
+ * log `v`. Omit it when git cannot name HEAD.
  */
-export function webBuildStamp(indexHtml: string, now: Date = new Date()): Required<BuildStamp> {
+export function webBuildStamp(
+  indexHtml: string,
+  now: Date = new Date(),
+  sourceSha?: string,
+): WrittenBuildStamp {
   const appVersion = bundleVersionFromHtml(indexHtml)
   if (!appVersion) {
     throw new Error(
@@ -84,6 +111,7 @@ export function webBuildStamp(indexHtml: string, now: Date = new Date()): Requir
     wireVersion: WIRE_VERSION,
     builtAt: now.toISOString(),
     appVersion,
+    ...(sourceSha ? { sourceSha } : {}),
   }
 }
 
@@ -115,9 +143,13 @@ function main(): void {
   // from the emitted index.html by the same function the page itself calls, so
   // the stamp and the running page cannot name the build differently — they did
   // for as long as this file wrote keys the reader never looked for.
-  let stamp: Required<BuildStamp>
+  let stamp: WrittenBuildStamp
   try {
-    stamp = webBuildStamp(readFileSync(indexPath, 'utf8'))
+    stamp = webBuildStamp(
+      readFileSync(indexPath, 'utf8'),
+      new Date(),
+      resolveWebSourceSha(repoRoot),
+    )
   } catch (err) {
     console.error(`[podium] build stamp: ${indexPath}: ${(err as Error).message}`)
     process.exit(1)
@@ -125,7 +157,8 @@ function main(): void {
   writeFileSync(join(distDir, BUILD_STAMP_FILE), `${JSON.stringify(stamp, null, 2)}\n`)
   console.log(
     `[podium] build stamp: wire schema ${stamp.wireSchemaDigest}, ` +
-      `build ${stamp.appVersion} → ${distDir}`,
+      `build ${stamp.appVersion}` +
+      `${stamp.sourceSha ? `, source ${stamp.sourceSha}` : ''} → ${distDir}`,
   )
 }
 

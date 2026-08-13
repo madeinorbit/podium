@@ -69,7 +69,10 @@ import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
-import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
+import {
+  createSourceRedeployRequest,
+  createSourceWebRebuildRequest,
+} from './modules/updates/source-redeploy'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -83,7 +86,7 @@ import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } fr
 import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
-import { describeBundle, gradeWebBundle } from './web-bundle-stamp'
+import { describeBundle, gradeWebBundle, servedWebSourceDigest } from './web-bundle-stamp'
 
 const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
@@ -418,6 +421,9 @@ export async function startServer(
   const requestCoordinatorRestart = developmentSourceRoot
     ? createSourceRedeployRequest({ instanceId })
     : undefined
+  const requestWebRebuild = developmentSourceRoot
+    ? createSourceWebRebuildRequest({ instanceId })
+    : undefined
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
@@ -574,6 +580,16 @@ export async function startServer(
           // role is off — see the hubProc guard in router.ts.
           role,
           ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
+          ...(requestWebRebuild ? { requestWebRebuild } : {}),
+          servedWebDigest: () => {
+            const dir = process.env.PODIUM_WEB_DIR
+            if (dir) return servedWebSourceDigest(dir)
+            try {
+              return servedWebSourceDigest(fileURLToPath(new URL('../../web/dist', import.meta.url)))
+            } catch {
+              return undefined
+            }
+          },
         }
       },
     }),

@@ -1,17 +1,29 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-export function developmentSourceVersion(
+function defaultReadHead(cwd: string): string {
+  return String(execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd }))
+}
+
+/** Seven-character HEAD, or undefined when git is unavailable or not a SHA. */
+export function developmentSourceSha(
   root: string,
-  readHead: (root: string) => string = (cwd) =>
-    String(execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd })),
-): string {
+  readHead: (root: string) => string = defaultReadHead,
+): string | undefined {
   try {
     const sha = readHead(root).trim().toLowerCase()
-    return /^[0-9a-f]{7,40}$/.test(sha) ? `dev+${sha.slice(0, 7)}` : 'dev'
+    return /^[0-9a-f]{7,40}$/.test(sha) ? sha.slice(0, 7) : undefined
   } catch {
-    return 'dev'
+    return undefined
   }
+}
+
+export function developmentSourceVersion(
+  root: string,
+  readHead: (root: string) => string = defaultReadHead,
+): string {
+  const sha = developmentSourceSha(root, readHead)
+  return sha ? `dev+${sha}` : 'dev'
 }
 
 /** This package's own checkout, for a source run. Meaningless inside a compiled

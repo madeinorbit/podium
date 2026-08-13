@@ -607,6 +607,7 @@ describe('buildDevBundle', () => {
     expect(target.artifacts.headlessAlternatives).toEqual([
       { delivery: 'git', repo: '/repo/podium', sha: '1234567' },
     ])
+    expect(target.artifacts.web).toEqual({ digest: '1234567' })
   })
 
   it('never holds the bundle, and says how big the one on disk is', async () => {

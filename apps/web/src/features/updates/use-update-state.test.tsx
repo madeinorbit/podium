@@ -1,3 +1,4 @@
+import { wireSchemaDigest } from '@podium/protocol'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -118,6 +119,65 @@ describe('useUpdateState update action', () => {
       done: 0,
       total: 2,
     })
+  })
+
+  it('offers Update and reloads when the server is current but the web stamp SHA is old', async () => {
+    let rebuilt = false
+    mocks.mutate.mockImplementation(async () => {
+      rebuilt = true
+      return {
+        state: 'in-progress',
+        version: 'dev+abc1234',
+        done: 0,
+        total: 1,
+        fleet: { total: 0, behind: 0, converging: 0, failed: 0, machines: [] },
+      }
+    })
+    mocks.makeTrpc.mockReturnValue({
+      setup: { channel: { query: vi.fn(async () => ({ channel: 'dev' })) } },
+      updates: {
+        fleet: {
+          query: vi.fn(async () => ({
+            total: 0,
+            behind: 0,
+            converging: 0,
+            failed: 0,
+            machines: [],
+          })),
+        },
+        converge: { mutate: mocks.mutate },
+        repairCompatibility: { mutate: mocks.repair },
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith('/version')
+            ? {
+                appVersion: 'dev+abc1234',
+                wireSchemaDigest: wireSchemaDigest(),
+                target: {
+                  version: 'dev+abc1234',
+                  critical: false,
+                  artifacts: { web: { digest: 'abc1234' } },
+                },
+              }
+            : {
+                appVersion: rebuilt ? 'dev+abc1234' : 'dev+old1234',
+                sourceSha: rebuilt ? 'abc1234' : 'old1234',
+                wireSchemaDigest: wireSchemaDigest(),
+              },
+      })),
+    )
+
+    render(<Probe onResult={() => {}} withReload liveFleet />)
+    const update = await screen.findByRole('button', { name: /update Podium/i })
+    expect(screen.queryByRole('button', { name: /repair and reload/i })).toBeNull()
+    update.click()
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledOnce())
+    await waitFor(() => expect(reloadAction).toHaveBeenCalledOnce())
   })
 
   it('repairs and reloads when the source server is current but its web build is incompatible', async () => {

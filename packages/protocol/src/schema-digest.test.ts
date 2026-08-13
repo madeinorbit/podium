@@ -9,7 +9,13 @@
 
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { schemaSignature, wireSchemaDigest, wireSchemaSignature } from './schema-digest'
+import {
+  parseBuildStamp,
+  schemaSignature,
+  webSourceDigest,
+  wireSchemaDigest,
+  wireSchemaSignature,
+} from './schema-digest'
 
 const sig = (schema: z.ZodTypeAny) => schemaSignature(schema)
 
@@ -89,6 +95,20 @@ describe('it SAYS NO to the changes that broke POD-1610', () => {
         ),
       })
     expect(sig(frame(['session', 'issue']))).not.toBe(sig(frame(['session', 'issue', 'repo'])))
+  })
+})
+
+describe('parseBuildStamp', () => {
+  it('keeps every field optional so an older stamp still parses', () => {
+    expect(parseBuildStamp({})).toEqual({})
+    expect(parseBuildStamp({ builtAt: '2026-08-12T21:00:57Z' })).toEqual({
+      builtAt: '2026-08-12T21:00:57Z',
+    })
+  })
+
+  it('reads the source SHA without treating its absence as a digest', () => {
+    expect(webSourceDigest(parseBuildStamp({ wireSchemaDigest: 'abc' }))).toBeUndefined()
+    expect(webSourceDigest(parseBuildStamp({ sourceSha: '47a01e3' }))).toBe('47a01e3')
   })
 })
 

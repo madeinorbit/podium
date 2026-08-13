@@ -365,6 +365,29 @@ describe('describeUpdate', () => {
       artifacts: { headless: { delivery: 'bundle', platforms: {} } },
     }
 
+    it('still labels a desktop-only dialog from the release feed when the target only stamps a source SHA', () => {
+      const v = describeUpdate({
+        ...base,
+        localVersion: '1.2.0',
+        server: {
+          appVersion: 'dev+4f36e8e',
+          target: {
+            version: 'dev+4f36e8e',
+            critical: false,
+            artifacts: { web: { digest: '4f36e8e' } },
+          },
+        },
+        surface: 'desktop-all-in-one' as const,
+        fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
+        touched: { app: true, server: false, machines: false },
+        desktopUpdate: { version: '1.3.0', critical: false },
+      } as never)
+
+      const view = v as { version: string; places: { kind: string }[] }
+      expect(view.places.map((place) => place.kind)).toEqual(['this-app'])
+      expect(view.version).toBe('1.3.0')
+    })
+
     it('labels an app-only dialog with the release feed version, not the target label', () => {
       const v = describeUpdate({
         ...base,

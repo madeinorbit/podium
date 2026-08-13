@@ -190,9 +190,16 @@ function placesFor(input: UpdateInput): Place[] {
  * release feed rather than the server's target. Verified against the live dev
  * coordinator, whose target publishes `headless` artifacts only.
  */
+/** A short git SHA is the source-host web identity, not a packaged web artifact. */
+function isSourceWebDigest(digest: string): boolean {
+  return /^[0-9a-f]{7,40}$/i.test(digest)
+}
+
 function appOnlyFromReleaseFeed(input: UpdateInput): boolean {
   if (input.desktopUpdate === undefined) return false
-  if (input.server.target?.artifacts.web ?? input.server.target?.artifacts.desktop) return false
+  if (input.server.target?.artifacts.desktop) return false
+  const webDigest = input.server.target?.artifacts.web?.digest
+  if (webDigest !== undefined && !isSourceWebDigest(webDigest)) return false
   const places = placesFor(input)
   return places.length > 0 && places.every((place) => place.kind === 'this-app')
 }

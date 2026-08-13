@@ -1,11 +1,13 @@
 // scripts/write-web-build-stamp.test.ts
 //
 // POD-1965 — the web half of "which build produced this log line?".
+// POD-1968 — the source SHA that tells Update whether this dist is HEAD.
 //
-// The defect this guards was not a wrong value: the stamp wrote keys nobody read
-// (`wireSchemaDigest`, `wireVersion`, `builtAt`) while the page read `appVersion`,
-// and so every web record shipped with no `v` at all. No unit test of either side
-// could see that, because each side was internally consistent.
+// The defect POD-1965 guards was not a wrong value: the stamp wrote keys nobody
+// read (`wireSchemaDigest`, `wireVersion`, `builtAt`) while the page read
+// `appVersion`, and so every web record shipped with no `v` at all. No unit
+// test of either side could see that, because each side was internally
+// consistent.
 //
 // What is asserted here is therefore the CONTRACT, from both ends: the key the
 // page reads is present, and its value is what the page derives for itself from
@@ -14,11 +16,13 @@
 // The absent case is the load-bearing half. Silent absence is exactly how this
 // shipped, so an index.html with no hashed entry must fail the build rather than
 // write a stamp without `appVersion`.
+//
+// `sourceSha` is a separate currency. It must not overwrite `appVersion`.
 
 import type { BuildStamp } from '@podium/protocol'
 import { bundleVersionFromEntrySrc, bundleVersionFromHtml } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { webBuildStamp } from './write-web-build-stamp'
+import { resolveWebSourceSha, webBuildStamp } from './write-web-build-stamp'
 
 const BUILT_INDEX =
   '<!doctype html><html><head>' +
@@ -58,5 +62,31 @@ describe('webBuildStamp', () => {
         '<!doctype html><html><head><script type="module" src="/src/main.tsx"></script></head></html>',
       ),
     ).toThrow(/no hashed module entry/)
+  })
+
+  it('carries the source SHA without replacing the bundle identity', () => {
+    const stamp = webBuildStamp(BUILT_INDEX, new Date('2026-08-13T00:00:00.000Z'), '47a01e3')
+    expect(stamp.sourceSha).toBe('47a01e3')
+    expect(stamp.appVersion).toBe('bundle+DHMkD0wf')
+  })
+
+  it('omits sourceSha when git cannot name HEAD', () => {
+    const stamp = webBuildStamp(BUILT_INDEX)
+    expect(stamp.sourceSha).toBeUndefined()
+    expect(stamp.appVersion).toBe('bundle+DHMkD0wf')
+  })
+})
+
+describe('resolveWebSourceSha', () => {
+  it('uses the seven-character HEAD as sourceSha', () => {
+    expect(resolveWebSourceSha('/repo', () => '47A01E3deadbeef\n')).toBe('47a01e3')
+  })
+
+  it('omits sourceSha when git is unavailable', () => {
+    expect(
+      resolveWebSourceSha('/repo', () => {
+        throw new Error('not a repository')
+      }),
+    ).toBeUndefined()
   })
 })

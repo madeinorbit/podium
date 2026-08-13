@@ -818,10 +818,11 @@ export function developmentPlatformTarget(
 
 export function devTarget(
   built: BuiltDevBundle,
-  opts: { artifactUrl?: string; platform?: string; sourceRoot?: string } = {},
+  opts: { artifactUrl?: string; platform?: string; sourceRoot?: string; webDigest?: string } = {},
 ): UpdateTarget {
   const platform = opts.platform ?? developmentPlatformTarget()
   const url = opts.artifactUrl ?? DEV_ARTIFACT_ROUTE + '/' + encodeURIComponent(built.version)
+  const webDigest = opts.webDigest ?? built.version.replace(/^dev\+/, '')
   return {
     version: built.version,
     critical: false,
@@ -843,6 +844,7 @@ export function devTarget(
           sha: built.version.replace(/^dev\+/, ''),
         },
       ],
+      web: { digest: webDigest },
     },
   }
 }

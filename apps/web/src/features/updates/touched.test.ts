@@ -49,6 +49,34 @@ describe('computeTouched', () => {
     expect(t.app).toBe(false)
   })
 
+  it('touches the app when the source SHA digest differs even if the server is current', () => {
+    const t = computeTouched({
+      localDigests: { app: 'aaaaaaa' },
+      target: {
+        version: 'dev+47a01e3',
+        critical: false,
+        artifacts: { web: { digest: '47a01e3' } },
+      } as never,
+      fleetBehind: 0,
+      serverBehind: false,
+    })
+    expect(t.app).toBe(true)
+  })
+
+  it('does not touch the app when the source SHA digest matches a current server', () => {
+    const t = computeTouched({
+      localDigests: { app: '47a01e3' },
+      target: {
+        version: 'dev+47a01e3',
+        critical: false,
+        artifacts: { web: { digest: '47a01e3' } },
+      } as never,
+      fleetBehind: 0,
+      serverBehind: false,
+    })
+    expect(t.app).toBe(false)
+  })
+
   it('touches the browser app when a source dev redeploy rebuilds it with the server', () => {
     const t = computeTouched({
       localDigests: { app: 'web-old' },

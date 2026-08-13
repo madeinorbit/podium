@@ -1,5 +1,6 @@
 import {
   classifySkew,
+  parseBuildStamp,
   parseServerVersion,
   type ServerVersion,
   WIRE_VERSION,
@@ -57,6 +58,7 @@ export interface UseUpdateStateOptions {
 interface LocalBuild {
   appVersion: string
   appDigest?: string
+  wireSchemaDigest?: string
 }
 
 type UpdateActionState =
@@ -67,6 +69,7 @@ type UpdateActionState =
       done: number
       total: number
       includesServer: boolean
+      includesWeb?: boolean
     }
   | { state: 'failed'; detail: string; machineName?: string }
 
@@ -118,7 +121,7 @@ async function waitForCompatibleWebBuild(
     const build = localBuildFrom(buildRaw)
     if (
       serverVersion.wireSchemaDigest !== undefined &&
-      build.appDigest === serverVersion.wireSchemaDigest
+      build.wireSchemaDigest === serverVersion.wireSchemaDigest
     ) {
       return
     }
@@ -128,12 +131,31 @@ async function waitForCompatibleWebBuild(
 }
 
 function localBuildFrom(raw: unknown): LocalBuild {
-  if (!raw || typeof raw !== 'object') return { appVersion: 'dev' }
-  const value = raw as { appVersion?: unknown; wireSchemaDigest?: unknown }
+  const stamp = parseBuildStamp(raw)
+  // `appVersion` on the stamp is the log identity (`bundle+<hash>`). Update
+  // names the checkout: dev+<sourceSha> when the stamp has one.
+  const appVersion = stamp.sourceSha
+    ? `dev+${stamp.sourceSha}`
+    : (stamp.appVersion ?? 'dev')
   return {
-    appVersion: typeof value.appVersion === 'string' ? value.appVersion : 'dev',
-    ...(typeof value.wireSchemaDigest === 'string' ? { appDigest: value.wireSchemaDigest } : {}),
+    appVersion,
+    ...(stamp.sourceSha ? { appDigest: stamp.sourceSha } : {}),
+    ...(stamp.wireSchemaDigest ? { wireSchemaDigest: stamp.wireSchemaDigest } : {}),
   }
+}
+
+async function waitForWebIdentity(
+  httpOrigin: string,
+  expectedDigest: string,
+  attempts = 120,
+  delayMs = 1_000,
+): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const build = localBuildFrom(await readJson(`${httpOrigin}/${BUILD_STAMP_FILE}`))
+    if (build.appDigest === expectedDigest) return
+    await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
+  }
+  throw new Error('Podium rebuilt the server, but the matching app did not become ready.')
 }
 
 function updateErrorDetail(error: unknown): string {
@@ -279,7 +301,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           next.targetVersion !== null && nextServer.appVersion === next.targetVersion
         const serverRemaining = current.includesServer && !serverDone ? 1 : 0
         const remaining = serverRemaining + next.behind
-        if (next.converging === 0 && remaining === 0) return { state: 'idle' }
+        if (next.converging === 0 && remaining === 0 && !current.includesWeb) {
+          return { state: 'idle' }
+        }
         const done = Math.max(0, Math.min(current.total, current.total - remaining))
         return {
           state: 'in-progress',
@@ -287,6 +311,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           done,
           total: current.total,
           includesServer: current.includesServer,
+          ...(current.includesWeb ? { includesWeb: true } : {}),
         }
       })
     },
@@ -349,18 +374,30 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   }, [target?.version])
 
   const retryableUpdateFailure = updateAction.state === 'failed'
+  const webBehind = Boolean(
+    target?.artifacts.web?.digest && localBuild.appDigest !== target.artifacts.web.digest,
+  )
   const startUpdate = useMemo<UpdateActions['startUpdate']>(() => {
     if (
       !options.startUpdate &&
       !retryableUpdateFailure &&
-      (!target || (!serverBehind && fleet.behind === 0))
+      (!target || (!serverBehind && fleet.behind === 0 && !webBehind))
     )
       return undefined
     const version = target?.version ?? localVersion
     const includesServer = serverBehind
-    const total = Math.max(1, (includesServer ? 1 : 0) + fleet.behind)
+    const includesWeb = webBehind
+    const total = Math.max(1, (includesServer ? 1 : 0) + (includesWeb ? 1 : 0) + fleet.behind)
+    const expectedWeb = target?.artifacts.web?.digest
     return async () => {
-      setUpdateAction({ state: 'in-progress', version, done: 0, total, includesServer })
+      setUpdateAction({
+        state: 'in-progress',
+        version,
+        done: 0,
+        total,
+        includesServer,
+        ...(includesWeb ? { includesWeb: true } : {}),
+      })
       try {
         if (options.startUpdate) {
           await options.startUpdate()
@@ -374,7 +411,12 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           done: result.done,
           total: result.total,
           includesServer,
+          ...(includesWeb ? { includesWeb: true } : {}),
         })
+        if (includesWeb && expectedWeb) {
+          await waitForWebIdentity(options.httpOrigin, expectedWeb)
+          await options.reload?.()
+        }
       } catch (error) {
         setUpdateAction({ state: 'failed', detail: updateErrorDetail(error) })
       }
@@ -382,11 +424,14 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   }, [
     fleet.behind,
     localVersion,
+    options.httpOrigin,
+    options.reload,
     options.startUpdate,
     retryableUpdateFailure,
     serverBehind,
     target,
     trpc,
+    webBehind,
   ])
 
   const repairCompatibility = useMemo<UpdateActions['repairCompatibility']>(() => {

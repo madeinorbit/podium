@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   developmentLogVersion,
+  developmentSourceSha,
   developmentSourceVersion,
   repositorySourceRoot,
 } from './source-version'
 
 describe('developmentSourceVersion', () => {
   it('uses the seven-character git identity shared by development targets', () => {
+    expect(developmentSourceSha('/repo', () => 'ABCDEF012345\n')).toBe('abcdef0')
     expect(developmentSourceVersion('/repo', () => 'ABCDEF012345\n')).toBe('dev+abcdef0')
   })
 
@@ -19,6 +21,7 @@ describe('developmentSourceVersion', () => {
       },
     ],
   ])('falls back to dev for %s', (_name, readHead) => {
+    expect(developmentSourceSha('/repo', readHead)).toBeUndefined()
     expect(developmentSourceVersion('/repo', readHead)).toBe('dev')
   })
 })

@@ -11,7 +11,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BUILD_STAMP_FILE, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { describeBundle, gradeWebBundle, injectBundleWarning } from './web-bundle-stamp'
+import {
+  describeBundle,
+  gradeWebBundle,
+  injectBundleWarning,
+  readWebBuildStamp,
+  servedWebSourceDigest,
+} from './web-bundle-stamp'
 
 let dir: string
 
@@ -77,6 +83,26 @@ describe('grading a served dist', () => {
     const status = gradeWebBundle(dir)
     expect(status.grade).toBe('absent')
     expect(describeBundle(status)).toBeNull()
+  })
+
+  it('reads the source SHA without letting it change the compatibility grade', () => {
+    buildDist()
+    stamp({
+      wireSchemaDigest: wireSchemaDigest(),
+      sourceSha: '47a01e3',
+      appVersion: 'dev+47a01e3',
+    })
+    expect(gradeWebBundle(dir).grade).toBe('ok')
+    expect(servedWebSourceDigest(dir)).toBe('47a01e3')
+    expect(readWebBuildStamp(dir)?.appVersion).toBe('dev+47a01e3')
+
+    stamp({
+      wireSchemaDigest: wireSchemaDigest(),
+      sourceSha: 'aaaaaaa',
+      appVersion: 'dev+aaaaaaa',
+    })
+    expect(gradeWebBundle(dir).grade).toBe('ok')
+    expect(servedWebSourceDigest(dir)).toBe('aaaaaaa')
   })
 
   it('re-grades when the stamp changes under a running server', () => {
