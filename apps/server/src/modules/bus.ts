@@ -14,12 +14,8 @@ import type {
   MachineId,
   ThreadId,
 } from '@podium/model'
-import type {
-  AgentObservation,
-  DaemonMessage,
-  MetadataChange,
-  SessionOpenUrlMessage,
-} from '@podium/protocol'
+import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './sessions/inbox'
 import type { HarnessErrorKind } from './superagent/harness-error'
 

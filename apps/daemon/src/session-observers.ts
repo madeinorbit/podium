@@ -23,12 +23,8 @@ import {
   transcriptRuntimeReaderFor,
 } from '@podium/harness'
 import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
-import type {
-  AgentObservation,
-  ControlMessage,
-  DaemonMessage,
-  ObservationInputOrigin,
-} from '@podium/protocol'
+import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
 import {

@@ -2,13 +2,8 @@ import type { SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { get } from 'node:http'
 import type { BrowserOpenClassification } from '@podium/harness'
-import type {
-  BrowserOpenCallbackTarget,
-  BrowserOpenIntent,
-  DaemonMessage,
-  SessionOpenUrlCallbackMessage,
-  SessionOpenUrlDismissMessage,
-} from '@podium/protocol'
+import type { BrowserOpenCallbackTarget, BrowserOpenIntent, SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 
 export const BROWSER_OPEN_TTL_MS = 10 * 60 * 1_000
 const CALLBACK_TIMEOUT_MS = 10_000

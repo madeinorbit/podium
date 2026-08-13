@@ -8,7 +8,8 @@
 
 import type { Attribution, IssueId, SessionId, TranscriptItem, UserId, WorkState } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type { ControlMessage, ObservationInputOrigin } from '@podium/protocol'
+import type { ObservationInputOrigin } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { MutationLedgerPort } from '@podium/sync'
 import { sessionsForIssue } from '../../issue-util'

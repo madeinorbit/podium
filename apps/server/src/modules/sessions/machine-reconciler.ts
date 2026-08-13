@@ -36,7 +36,8 @@
 
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
-import type { ControlMessage, MachinePrincipal } from '@podium/protocol'
+import type { MachinePrincipal } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { Session, SessionVolatileField } from './session'
 
 const log = createLogger('server:sessions')

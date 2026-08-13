@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   SERVER_TRANSFER_MAX_CHUNK_BYTES,
-  ControlMessage,
   canonicalServerTransferManifest,
-  DaemonMessage,
   ServerTransferChunkRequestMessage,
   ServerTransferErrorCode,
   ServerTransferResultMessage,
 } from './index'
+import { ControlMessage, DaemonMessage } from '../daemon'
 import { CONTROL_PLANE_CLASS, DAEMON_PLANE_CLASS } from './message-class'
 
 const transferId = '00000000-0000-4000-8000-000000000001'

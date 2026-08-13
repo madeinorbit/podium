@@ -11,7 +11,8 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import { asUserId, SOLE_USER_ID, type SessionId } from '@podium/model'
-import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
 

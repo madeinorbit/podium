@@ -1,14 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { hostname } from 'node:os'
 import type { MachineId } from '@podium/model'
-import {
-  createHandshakeDialer,
-  type DaemonMessage,
-  type LocalDaemonAttachment,
-  type PeerBuild,
-  type PeerCredential,
-  type PeerHelloRejected,
-} from '@podium/protocol'
+import { createHandshakeDialer, type LocalDaemonAttachment, type PeerBuild, type PeerCredential, type PeerHelloRejected } from '@podium/protocol'
+import { type DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { consumePairCode } from '@podium/runtime/setup'

@@ -1,7 +1,8 @@
 import { asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import { createServer, type Server } from 'node:http'
-import { AGENT_RELAY_BLOCKING_TIMEOUT_MS, type DaemonMessage } from '@podium/protocol'
+import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
+import { type DaemonMessage } from '@podium/protocol/daemon'
 
 /** Procs that legitimately BLOCK server-side longer than a normal RPC, so the hub
  *  must hold their request open past the 30s default or the CLI throws before the

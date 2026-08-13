@@ -1,6 +1,7 @@
 import { resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import type { ControlMessage, HeadlessTurnEvent } from '@podium/protocol'
+import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { acknowledgeDurableHeadlessTurn, runDurableHeadlessTurn } from '../durable-headless.js'
 import {
   HeadlessTurnError,

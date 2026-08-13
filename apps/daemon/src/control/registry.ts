@@ -1,4 +1,4 @@
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
 import type { ControlHandlers, DaemonContext } from './context'

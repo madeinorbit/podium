@@ -1,6 +1,7 @@
 /**
- * Wire message types, split by domain (issue #194). Re-exported here so
- * `@podium/protocol`'s public import path is unaffected by the split.
+ * Browser/common wire messages, split by domain (issue #194). The daemon-plane
+ * unions and shipping effects are exported only by `@podium/protocol/daemon`
+ * so their runtime schemas never enter the browser graph through this barrel.
  */
 
 export * from './approvals'
@@ -8,9 +9,7 @@ export * from './automations'
 export * from './browser-open'
 export * from './client'
 export * from './codec'
-export * from './control'
 export * from './credentials'
-export * from './daemon'
 export * from './daemon-handshake'
 export * from './discovery'
 export * from './dispatch'
@@ -29,7 +28,6 @@ export * from './runtime-state'
 export * from './search'
 export * from './server'
 export * from './server-transfer'
-export * from './shipping'
 export * from './sync'
 export * from './terminal'
 export * from './transcript'

@@ -51,7 +51,7 @@
 
 import type { MachineId } from '@podium/model'
 import { createLogger } from '@podium/logger'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 
 const log = createLogger('server:daemon-request')
 

@@ -17,7 +17,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 
 /**
  * This is the DAEMON binding-store version. It is deliberately unrelated to the

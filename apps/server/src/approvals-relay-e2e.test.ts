@@ -1,5 +1,5 @@
 import { FIRST_ADMIN_USER_ID, asSessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { nativeAccountId } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'

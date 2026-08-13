@@ -1,6 +1,6 @@
 import { type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
 import { asSessionId } from '@podium/model'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { createAgentRelayHub, startAgentRelayServer } from '../../daemon/src/agent-relay'

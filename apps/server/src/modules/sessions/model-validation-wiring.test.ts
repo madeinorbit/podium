@@ -6,7 +6,7 @@
  * `agent.model_forced` event so the override is observable.
  */
 
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { MODEL_CATALOG_VERSION } from '../../model-catalog'
 import { ModelValidationError } from '../../model-validation'

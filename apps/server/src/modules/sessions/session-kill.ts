@@ -20,7 +20,8 @@
 
 import { createLogger } from '@podium/logger'
 import type { SessionId, MachineId, IssueId } from '@podium/model'
-import type { ControlMessage, MetadataChange } from '@podium/protocol'
+import type { MetadataChange } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import type { ClientRegistry } from '../../gateway/client-registry'

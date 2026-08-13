@@ -5,7 +5,7 @@ import {
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')

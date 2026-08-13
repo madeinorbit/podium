@@ -1,12 +1,8 @@
 import { acceptAgentObservation } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
 import { type AgentRuntimeState, idleVerdictNeedsHuman, type SessionId, type MachineId, type IssueId } from '@podium/model'
-import type {
-  ControlMessage,
-  LiveServerMessage,
-  MachinePrincipal,
-  ObservationInputOrigin,
-} from '@podium/protocol'
+import type { LiveServerMessage, MachinePrincipal, ObservationInputOrigin } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'

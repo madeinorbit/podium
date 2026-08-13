@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asShipAttemptId, asShipOrderId } from '@podium/model'
-import { shippingJobRequestFingerprint, type ShippingJobRequestMessage } from '@podium/protocol'
+import { shippingJobRequestFingerprint, type ShippingJobRequestMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it } from 'vitest'
 import { ShippingExecutionPlane } from './executor'
 

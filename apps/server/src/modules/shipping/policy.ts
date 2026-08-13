@@ -1,5 +1,5 @@
 import type { IssueWire, ProviderPullRequestRef, ShipOrderId } from '@podium/model'
-import type { ShippingValidationProfile } from '@podium/protocol'
+import type { ShippingValidationProfile } from '@podium/protocol/daemon'
 
 export interface ResolvedShippingPolicy {
   id: string

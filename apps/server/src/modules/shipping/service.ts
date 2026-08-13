@@ -20,8 +20,8 @@ import {
   type ShipOrderState,
   type ShipStep,
 } from '@podium/model'
-import type { ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol'
-import { shippingJobRequestFingerprint } from '@podium/protocol'
+import type { ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
+import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import {

@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
-import type { ControlMessage, DaemonMessage, PeerBuild } from '@podium/protocol'
+import type { PeerBuild } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
 import {
   killAbducoSession,

@@ -1,6 +1,7 @@
 import type { agentLaunchCommand } from '@podium/harness'
 import type { MachineId, SessionId, UsageBucketWire } from '@podium/model'
-import type { ControlMessage, DaemonMessage, ServerTransferServingProof } from '@podium/protocol'
+import type { ServerTransferServingProof } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'

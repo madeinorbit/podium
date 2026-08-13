@@ -1,16 +1,14 @@
 import type { TranscriptItem } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { parseClientMessage, parseServerMessage, ServerMessage } from './messages'
 import {
   ControlMessage,
   DaemonMessage,
-  encode,
-  parseClientMessage,
+  encodeDaemonMessage as encode,
   parseControlMessage,
   parseDaemonMessage,
-  parseServerMessage,
-  ServerMessage,
-} from './messages'
+} from './daemon'
 
 const item: TranscriptItem = {
   id: 'i1',

@@ -13,12 +13,8 @@ import {
   type SessionMeta,
   SOLE_USER_ID,
 } from '@podium/model'
-import {
-  asDelegationRef,
-  type ControlMessage,
-  type MetadataChange,
-  type ServerMessage,
-} from '@podium/protocol'
+import { asDelegationRef, type MetadataChange, type ServerMessage } from '@podium/protocol'
+import { type ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 
 /** One host across the simulated restart: storeA writes rows under this id and storeB

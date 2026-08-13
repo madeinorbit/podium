@@ -33,23 +33,8 @@ import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { MachinePrincipal, Principal } from '@podium/protocol'
-import {
-  type AgentInstruction,
-  AUTO_ARCHIVE_READ_WINDOW_MS,
-  asDelegationRef,
-  type ControlMessage,
-  type DaemonMessage,
-  type LiveServerMessage,
-  MAX_AGENT_TITLE_LENGTH,
-  type MetadataChange,
-  type RoomRef,
-  type ServerMessage,
-  type SessionBindingAdoptLaunchInstruction,
-  type SessionBindingSpawnInstruction,
-  type SessionOpenUrlMessage,
-  type SubscriptionRegistry,
-  type SyncChangesSinceResult,
-} from '@podium/protocol'
+import { type AgentInstruction, AUTO_ARCHIVE_READ_WINDOW_MS, asDelegationRef, type LiveServerMessage, MAX_AGENT_TITLE_LENGTH, type MetadataChange, type RoomRef, type ServerMessage, type SessionBindingAdoptLaunchInstruction, type SessionBindingSpawnInstruction, type SessionOpenUrlMessage, type SubscriptionRegistry, type SyncChangesSinceResult } from '@podium/protocol'
+import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import {
   DEVICE_GRADE_PRINCIPAL,

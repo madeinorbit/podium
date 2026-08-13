@@ -1,5 +1,5 @@
 import type { SessionId, MachineId } from '@podium/model'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { Capability } from '../../issue-authz'
 
 /** Routers/procs a relayed agent may invoke. `issues.*` is capability-gated by the shared

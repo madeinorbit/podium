@@ -24,14 +24,12 @@
  * socket confers exactly what a remote pairing confers and nothing more.
  */
 
+import { type DaemonHandshakeReply, type MachinePrincipal, type PeerHelloReply } from '@podium/protocol'
 import {
   type ControlMessage,
-  type DaemonHandshakeReply,
-  encode,
-  type MachinePrincipal,
-  type PeerHelloReply,
+  encodeDaemonMessage,
   parseDaemonMessage,
-} from '@podium/protocol'
+} from '@podium/protocol/daemon'
 import type { PairingGrant } from '../modules/machines/service'
 import type { SessionRegistry } from '../relay'
 import { createDaemonAcceptor, receiveDaemonFrame, recordHelloBuild } from './peer-handshake'
@@ -83,7 +81,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   // of other encode() unions, so annotate the value as a DaemonHandshakeReply to
   // pin it to the handshake schema.
   const reply = (msg: DaemonHandshakeReply | PeerHelloReply): void => {
-    ws.send(encode(msg as DaemonHandshakeReply))
+    ws.send(encodeDaemonMessage(msg as DaemonHandshakeReply))
   }
   // The shared framing (ADR 5 D3) does the version negotiation, the role
   // resolution, the ORDER enforcement and the strategy selection; this socket

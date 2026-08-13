@@ -11,12 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
-import {
-  type ShippingJobRequestMessage as ShippingJobRequest,
-  ShippingJobRequestMessage,
-  ShippingJobResult,
-  type ShippingJobResult as ShippingJobResultValue,
-} from '@podium/protocol'
+import { type ShippingJobRequestMessage as ShippingJobRequest, ShippingJobRequestMessage, ShippingJobResult, type ShippingJobResult as ShippingJobResultValue } from '@podium/protocol/daemon'
 
 const MAX_LOG_LINES = 64
 const MAX_LOG_LINE_BYTES = 2_048

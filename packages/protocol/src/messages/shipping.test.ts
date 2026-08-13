@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ControlMessage, DaemonMessage } from './index'
-import { shippingJobRequestFingerprint } from './shipping'
+import { ControlMessage, DaemonMessage, shippingJobRequestFingerprint } from '../daemon'
 
 const requestFacts = {
   type: 'shippingJobRequest' as const,

@@ -6,7 +6,7 @@ import {
   type IssueWireInput,
   type SessionId,
 } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
 

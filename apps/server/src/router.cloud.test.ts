@@ -1,6 +1,6 @@
 import { asMachineId } from '@podium/model'
 import type { SessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { CloudAgentRequest, CloudRuntime, CloudRuntimeProvider } from './cloud-runtime'
 import { resolvePrincipal } from './command-principal'

@@ -8,7 +8,8 @@ import {
   asUserId,
   FIRST_ADMIN_USER_ID,
 } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import type { ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'

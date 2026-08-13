@@ -19,20 +19,22 @@ import {
   AgentQuotaResultMessage,
   ApprovalOp,
   ClientMessage,
-  type ControlMessage,
-  type DaemonMessage,
   describeApprovalOp,
-  encode,
   isKnownMetadataChange,
   parseClientMessage,
-  parseControlMessage,
   parseDaemonHandshake,
   parseDaemonHandshakeReply,
-  parseDaemonMessage,
   parseServerMessage,
   parseServerMessageLenient,
   ServerMessage,
 } from './messages'
+import {
+  type ControlMessage,
+  type DaemonMessage,
+  encodeDaemonMessage as encode,
+  parseControlMessage,
+  parseDaemonMessage,
+} from './daemon'
 
 describe('shared schemas', () => {
   it('round-trips a SessionMeta (spawn origin)', () => {

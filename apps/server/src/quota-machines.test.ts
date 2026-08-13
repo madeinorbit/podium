@@ -13,7 +13,7 @@ import { asUserId, asMachineId } from '@podium/model'
  *   4. memoryBreakdown(roots, machineId) routes to that machine.
  */
 import type { AgentQuotaWire } from '@podium/model'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'

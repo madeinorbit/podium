@@ -1,6 +1,6 @@
 import { createLogger } from '@podium/logger'
 import type { SessionId, UserId, MachineId } from '@podium/model'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { harnessRequiresExclusiveInteractiveResume } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { MemoryService } from '../memory/service'

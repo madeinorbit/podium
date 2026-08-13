@@ -1,4 +1,4 @@
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { type ConversationDeltaWire, createActiveRefresh } from './active-refresh'
 import { countWorker, timeTask } from './loop-attribution'
 import type { DiscoveryWorkerClient } from './worker-client'

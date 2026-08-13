@@ -17,11 +17,8 @@ import {
   withStateChannelEvent,
 } from '@podium/harness'
 import { asSessionId, type SessionId } from '@podium/model'
-import type {
-  AgentObservation,
-  DaemonMessage,
-  SessionObservationCheckpointV1,
-} from '@podium/protocol'
+import type { AgentObservation, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { StatTick } from '@podium/transcript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {

@@ -1,12 +1,7 @@
 import type { Attribution, SessionId, UserId, MachineId } from '@podium/model'
 import { actorSystem, actorUser } from '@podium/model'
-import type {
-  ClientMessage,
-  ControlMessage,
-  SessionOpenUrlMessage,
-  SessionOpenUrlResultMessage,
-  SubscriptionRegistry,
-} from '@podium/protocol'
+import type { ClientMessage, SessionOpenUrlMessage, SessionOpenUrlResultMessage, SubscriptionRegistry } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { asSubscriberId, roomRoutingKey } from '@podium/protocol'
 import type { ClientConn, ClientRegistry } from './client-registry'
 

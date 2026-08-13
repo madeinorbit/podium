@@ -37,13 +37,8 @@ import type {
   RepoId,
   IssueId,
 } from '@podium/model'
-import type {
-  ControlMessage,
-  HandoffBindingExportInstruction,
-  HandoffBindingImportInstruction,
-  HandoffBindingTransfer,
-  SessionBindingAdoptLaunchInstruction,
-} from '@podium/protocol'
+import type { HandoffBindingExportInstruction, HandoffBindingImportInstruction, HandoffBindingTransfer, SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { Capability } from '../../../issue-authz'
 import type { HandoffStageToken } from '../handoff-transfer'

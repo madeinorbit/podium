@@ -9,7 +9,8 @@ import {
   FIRST_ADMIN_USER_ID,
   type SessionId,
 } from '@podium/model'
-import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
+import type { MetadataChange, ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'

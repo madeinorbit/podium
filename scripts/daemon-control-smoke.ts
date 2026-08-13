@@ -8,8 +8,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import { startDaemon } from '../apps/daemon/src/daemon.js'
-import type { DaemonHandshakeReply, DaemonMessage } from '../packages/protocol/src/index.js'
-import { encode, parseDaemonMessage } from '../packages/protocol/src/index.js'
+import type { DaemonHandshakeReply } from '../packages/protocol/src/index.js'
+import {
+  type DaemonMessage,
+  encodeDaemonMessage as encode,
+  parseDaemonMessage,
+} from '../packages/protocol/src/daemon.js'
 
 const FIXTURE = fileURLToPath(
   new URL('../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),

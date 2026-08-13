@@ -5,12 +5,8 @@ import type {
   SessionId,
   TranscriptItem,
 } from '@podium/model'
-import type {
-  ControlMessage,
-  ObservationInputOrigin,
-  PresenceIdentity,
-  ServerMessage,
-} from '@podium/protocol'
+import type { ObservationInputOrigin, PresenceIdentity, ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../gateway/client-registry'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import { perfPrincipal } from '../perf/principal'

@@ -32,7 +32,7 @@
 import { AUTOMATION_CONTRACTS, AUTOMATION_QUERY_NAMES } from '@podium/commands'
 import { asMachineId } from '@podium/model'
 import type { SessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from './issue-authz'
 import { AUTOMATION_COMMANDS } from './modules/automations/registry'

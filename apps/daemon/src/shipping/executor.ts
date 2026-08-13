@@ -11,12 +11,8 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { MachineId } from '@podium/model'
-import type {
-  ShippingJobClassification,
-  ShippingJobRequestMessage,
-  ShippingJobResult,
-} from '@podium/protocol'
-import { shippingJobRequestFingerprint } from '@podium/protocol'
+import type { ShippingJobClassification, ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
+import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { ShippingJobJournal, type ShippingJournalCrashPoint } from './journal'
 
 type Request = ShippingJobRequestMessage

@@ -1,5 +1,5 @@
 import type { Inventory } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The handler builds inventory via @podium/harness, which shells out to real CLIs.

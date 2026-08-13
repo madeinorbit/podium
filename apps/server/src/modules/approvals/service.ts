@@ -1,13 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { asMachineId, asSessionId, type IssueId, type SessionId, type MachineId } from '@podium/model'
-import {
-  ApprovalOp,
-  type ApprovalWire,
-  type ControlMessage,
-  type DaemonMessage,
-  describeApprovalOp,
-  type LiveServerMessage,
-} from '@podium/protocol'
+import { ApprovalOp, type ApprovalWire, describeApprovalOp, type LiveServerMessage } from '@podium/protocol'
+import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
 import type { ApprovalRow, ApprovalsRepository } from '../../store/approvals'
 
 /**

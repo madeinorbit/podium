@@ -5,15 +5,8 @@
  */
 
 import { asMachineId, asSessionId } from '@podium/model'
-import {
-  AGENT_RELAY_FRAMES,
-  attributionOf,
-  DAEMON_PLANE_CLASS,
-  type DaemonMessage,
-  edgeOf,
-  HOST_EDGE_FRAMES,
-  type MachinePrincipal,
-} from '@podium/protocol'
+import { AGENT_RELAY_FRAMES, attributionOf, DAEMON_PLANE_CLASS, edgeOf, HOST_EDGE_FRAMES, type MachinePrincipal } from '@podium/protocol'
+import { type DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import {

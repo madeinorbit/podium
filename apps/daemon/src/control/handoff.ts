@@ -1,7 +1,7 @@
 import { sep } from 'node:path'
 import { asMachineId, type SessionId } from '@podium/model'
 import { harnessSupportsHandoff } from '@podium/harness'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import {
   appendImportChunk,

@@ -4,12 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRuntimeState } from '@podium/model'
 import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
-import type {
-  AgentObservation,
-  ControlMessage,
-  ObservationProvider,
-  ServerMessage,
-} from '@podium/protocol'
+import type { AgentObservation, ObservationProvider, ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'

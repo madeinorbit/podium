@@ -5,7 +5,8 @@ import { attachTestClient } from './test-support/client-transport'
 // resume value, and "open in terminal" takes a one-writer lock.
 
 import { asThreadId, FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import type { ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import { harnessResumeKind } from './harness-manifest'

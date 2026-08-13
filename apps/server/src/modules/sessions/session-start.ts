@@ -59,11 +59,8 @@ import {
   type SessionMeta,
   type UserId,
 } from '@podium/model'
-import type {
-  AgentInstruction,
-  ControlMessage,
-  SessionBindingSpawnInstruction,
-} from '@podium/protocol'
+import type { AgentInstruction, SessionBindingSpawnInstruction } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { assertModelSelectionValid } from '../../model-validation'

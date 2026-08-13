@@ -18,7 +18,8 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import type { ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentCommandPrincipal } from '../../command-principal'
 import { OPERATOR } from '../../test-support/capabilities'

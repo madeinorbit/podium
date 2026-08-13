@@ -44,12 +44,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type MachineId } from '@podium/model'
-import {
-  CAP_METADATA_DELTA,
-  type ControlMessage,
-  type ServerMessage,
-  WIRE_VERSION,
-} from '@podium/protocol'
+import { CAP_METADATA_DELTA, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { startServer } from '../server'

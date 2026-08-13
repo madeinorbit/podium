@@ -1,4 +1,4 @@
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ControlHandlers } from './context'
 
 export const shippingHandlers: Pick<ControlHandlers, 'shippingJobRequest'> = {

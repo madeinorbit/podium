@@ -1,5 +1,6 @@
 import type { SessionId, IssueId, MachineId } from '@podium/model'
-import type { DaemonMessage, LiveServerMessage } from '@podium/protocol'
+import type { LiveServerMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { harnessUsesPromptTitleFallback } from '../../harness-manifest'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import {

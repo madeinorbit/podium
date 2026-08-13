@@ -17,7 +17,7 @@
  */
 
 import { asMachineId, asSessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   disposeOracles,

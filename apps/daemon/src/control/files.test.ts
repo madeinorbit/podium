@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { PortableStateFence } from '../portable-state-fence'
 import type { DaemonContext } from './context'
 import { fileHandlers } from './files'

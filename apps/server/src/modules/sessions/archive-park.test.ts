@@ -5,7 +5,7 @@
  */
 
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 

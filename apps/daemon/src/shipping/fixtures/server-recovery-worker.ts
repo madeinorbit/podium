@@ -9,7 +9,7 @@ import {
   type IssueWire,
   type MachineId,
 } from '@podium/model'
-import { shippingJobRequestFingerprint, type ControlMessage } from '@podium/protocol'
+import { shippingJobRequestFingerprint, type ControlMessage } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
 import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'

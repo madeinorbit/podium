@@ -39,7 +39,8 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import { FIRST_ADMIN_USER_ID, type SessionId, type MachineId } from '@podium/model'
-import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ControlMessage } from '@podium/protocol/daemon'
 
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'

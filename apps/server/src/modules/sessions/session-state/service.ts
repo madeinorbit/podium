@@ -39,7 +39,8 @@ import {
   type WorkState,
   type MachineId,
 } from '@podium/model'
-import type { ControlMessage, DraftEditMessage, LiveServerMessage } from '@podium/protocol'
+import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from '../draft-doc'

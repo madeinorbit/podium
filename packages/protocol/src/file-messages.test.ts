@@ -1,8 +1,6 @@
 import { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
-  ControlMessage,
-  DaemonMessage,
   DirListRequestMessage,
   DirListResultMessage,
   FileReadRequestMessage,
@@ -10,6 +8,7 @@ import {
   FileWriteRequestMessage,
   FileWriteResultMessage,
 } from './messages'
+import { ControlMessage, DaemonMessage } from './daemon'
 
 describe('file RPC messages', () => {
   it('parses a fileReadRequest with the knownPath flag', () => {

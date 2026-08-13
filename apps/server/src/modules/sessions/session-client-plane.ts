@@ -6,13 +6,8 @@
 
 import { createLogger } from '@podium/logger'
 import type { SessionId, MachineId } from '@podium/model'
-import type {
-  ControlMessage,
-  LiveServerMessage,
-  MachinePrincipal,
-  RoomRef,
-  SessionOpenUrlMessage,
-} from '@podium/protocol'
+import type { LiveServerMessage, MachinePrincipal, RoomRef, SessionOpenUrlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { systemPrincipal } from '../../command-principal'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'

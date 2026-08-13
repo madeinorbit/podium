@@ -65,7 +65,7 @@
  * control limit retains the existing terminate-on-exceed behavior.
  */
 
-import type { encode as encodeFn } from '@podium/protocol'
+import type { encodeDaemonMessage as encodeFn } from '@podium/protocol/daemon'
 import { type SendSocket, safeSend, safeSendLossy } from './ws-send'
 
 /** Minimal slice of a `ws` socket the heartbeat sweep needs (kept tiny for tests). */

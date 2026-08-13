@@ -8,9 +8,6 @@ import {
 } from '@podium/model'
 import type { z } from 'zod'
 import { ClientMessage } from './client'
-import { ControlMessage } from './control'
-import { DaemonMessage } from './daemon'
-import type { DaemonHandshake, DaemonHandshakeReply } from './daemon-handshake'
 import {
   type FeedBootstrapMessage,
   FeedBootstrapMessageLenient,
@@ -28,16 +25,7 @@ import {
 // Codecs. parse* functions throw on malformed JSON (SyntaxError) or on a schema
 // mismatch (ZodError); callers handle both.
 // ---- codec ----
-// The handshake frames (pair/hello and their replies) ride the same wire but are
-// deliberately outside the Control/Daemon unions — they're exchanged before a
-// daemon is authenticated. encode() must still serialize them on both sides.
-type AnyMessage =
-  | ClientMessage
-  | ServerMessage
-  | DaemonMessage
-  | ControlMessage
-  | DaemonHandshake
-  | DaemonHandshakeReply
+type AnyMessage = ClientMessage | ServerMessage
 
 export function encode(msg: AnyMessage): string {
   return JSON.stringify(msg)
@@ -145,10 +133,4 @@ export function parseServerMessageLenient(raw: string): LenientServerMessage {
     }
   }
   return { message: ServerMessage.parse(json), dropped: 0 }
-}
-export function parseDaemonMessage(raw: string): DaemonMessage {
-  return DaemonMessage.parse(JSON.parse(raw))
-}
-export function parseControlMessage(raw: string): ControlMessage {
-  return ControlMessage.parse(JSON.parse(raw))
 }

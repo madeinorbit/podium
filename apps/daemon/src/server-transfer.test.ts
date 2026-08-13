@@ -12,12 +12,8 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type {
-  DaemonMessage,
-  ServerTransferManifest,
-  ServerTransferManifestEntry,
-  ServerTransferServingProof,
-} from '@podium/protocol'
+import type { ServerTransferManifest, ServerTransferManifestEntry, ServerTransferServingProof } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { canonicalServerTransferManifest } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { loadConfig, saveConfig } from '@podium/runtime/config'

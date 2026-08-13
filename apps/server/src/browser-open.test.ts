@@ -6,7 +6,8 @@ import {
   FIRST_ADMIN_USER_ID,
   type SessionId,
 } from '@podium/model'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import type { ServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'

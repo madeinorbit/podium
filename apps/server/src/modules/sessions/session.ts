@@ -19,7 +19,8 @@ import {
   type WorkState,
   WorkState as WorkStateSchema,
 } from '@podium/model'
-import type { ControlMessage, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type { SessionObservationCheckpointV1 } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { SessionRow } from '../../store'
 import { SessionTerminal, type SessionTerminalState } from './terminal'
 

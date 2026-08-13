@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline'
 import { asMachineId } from '@podium/model'
-import { ShippingJobRequestMessage } from '@podium/protocol'
+import { ShippingJobRequestMessage } from '@podium/protocol/daemon'
 import { ShippingExecutionPlane } from '../executor'
 
 const [journalDir, rawMachineId] = process.argv.slice(2)

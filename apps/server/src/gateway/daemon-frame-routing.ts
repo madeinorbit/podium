@@ -15,7 +15,8 @@
  * literal in this file.
  */
 
-import { DAEMON_PLANE_CLASS, type DaemonMessage, type PlaneClass } from '@podium/protocol'
+import { DAEMON_PLANE_CLASS, type PlaneClass } from '@podium/protocol'
+import { type DaemonMessage } from '@podium/protocol/daemon'
 
 /**
  * The feature ports the daemon edge routes to. Each is owned by a module; the

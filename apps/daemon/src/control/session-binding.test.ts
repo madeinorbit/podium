@@ -1,5 +1,5 @@
 import { asSessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { DaemonContext } from './context'
 import { MISSING_SESSION_BINDING_MESSAGE, sessionHandlers } from './session'

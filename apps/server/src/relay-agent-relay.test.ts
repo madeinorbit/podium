@@ -1,6 +1,6 @@
 import { asMachineId, asIssueId, asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { sessionTitleRule } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'

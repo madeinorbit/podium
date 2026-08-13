@@ -7,7 +7,7 @@ import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID, asMachineId } fr
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 
 const registries: SessionRegistry[] = []
 

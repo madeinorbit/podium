@@ -13,7 +13,7 @@
  */
 
 import { asMachineId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'

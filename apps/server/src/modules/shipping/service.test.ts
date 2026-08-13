@@ -6,7 +6,7 @@ import {
   FIRST_ADMIN_USER_ID,
   type IssueWire,
 } from '@podium/model'
-import type { ShippingJobResult } from '@podium/protocol'
+import type { ShippingJobResult } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'

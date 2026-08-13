@@ -1,5 +1,6 @@
 import { asIssueId, asSessionId, type SessionId } from '@podium/model'
-import type { ApprovalOp, ControlMessage, LiveServerMessage } from '@podium/protocol'
+import type { ApprovalOp, LiveServerMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { ApprovalsRepository } from '../../store/approvals'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'

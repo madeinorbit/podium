@@ -6,7 +6,7 @@ import { asUserId, asMachineId } from '@podium/model'
  *  1. list(machineId) filters by machine.
  *  2. scanReposAll() fans out to each online daemon and stamps each repo with its machineId.
  */
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'

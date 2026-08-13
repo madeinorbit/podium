@@ -21,7 +21,8 @@
  */
 
 import type { ConversationDiagnosticWire, ConversationSummaryWire, MachineId } from '@podium/model'
-import type { ControlMessage, DaemonMessage, MachinePrincipal } from '@podium/protocol'
+import type { MachinePrincipal } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { RpcDaemonFrame, SessionsDaemonFrame } from './daemon-frame-routing'
 
 /** A frame of a given type. */

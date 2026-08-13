@@ -17,36 +17,8 @@ import type {
   UsageBucketWire,
 } from '@podium/model'
 import { asMachineId } from '@podium/model'
-import type {
-  BrowseDirsResultMessage,
-  ControlMessage,
-  CredentialExportResultMessage,
-  CredentialInstallResultMessage,
-  DaemonMessage,
-  DirListResultMessage,
-  FileAssetResultMessage,
-  FileReadResultMessage,
-  FileWriteResultMessage,
-  HandoffBindingExportInstruction,
-  HandoffBindingFinalizeResultMessage,
-  HandoffBindingImportInstruction,
-  HandoffChunkReadResultMessage,
-  HandoffExportResultMessage,
-  HandoffImportChunkResultMessage,
-  HandoffImportResultMessage,
-  ModelChoiceWire,
-  PortableCredentialBundle,
-  PortableCredentialKind,
-  RepoOp,
-  ServerTransferManifest,
-  ServerTransferManifestEntry,
-  ServerTransferResultMessage,
-  ShippingJobRequestMessage,
-  ShippingJobResult,
-  WorkspaceCleanResultMessage,
-  WorkspaceExportResultMessage,
-  WorkspaceImportResultMessage,
-} from '@podium/protocol'
+import type { BrowseDirsResultMessage, CredentialExportResultMessage, CredentialInstallResultMessage, DirListResultMessage, FileAssetResultMessage, FileReadResultMessage, FileWriteResultMessage, HandoffBindingExportInstruction, HandoffBindingFinalizeResultMessage, HandoffBindingImportInstruction, HandoffChunkReadResultMessage, HandoffExportResultMessage, HandoffImportChunkResultMessage, HandoffImportResultMessage, ModelChoiceWire, PortableCredentialBundle, PortableCredentialKind, RepoOp, ServerTransferManifest, ServerTransferManifestEntry, ServerTransferResultMessage, WorkspaceCleanResultMessage, WorkspaceExportResultMessage, WorkspaceImportResultMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage, ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
 import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'

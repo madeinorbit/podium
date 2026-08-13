@@ -1,6 +1,6 @@
 import { createLogger } from '@podium/logger'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
-import { encode, parseControlMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { encodeDaemonMessage, parseControlMessage } from '@podium/protocol/daemon'
 import type { RawData, WebSocket } from 'ws'
 import type { DaemonContext } from './control/context'
 import { dispatchControlMessage } from './control/registry'
@@ -123,7 +123,7 @@ export function createFrameGuard(
     send(socket, msg) {
       if (socket?.readyState !== 1) return
       try {
-        socket.send(encode(msg))
+        socket.send(encodeDaemonMessage(msg))
       } catch (error) {
         warnDropped(error, 'outbound')
       }

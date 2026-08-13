@@ -11,7 +11,7 @@ import {
   asUserId,
   type SessionId,
 } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AgentCommandPrincipal } from '../../server/src/command-principal'
 import { machineUseDecision, ownershipFromMachines } from '../../server/src/machine-access'

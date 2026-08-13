@@ -13,6 +13,11 @@
       "@podium/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./daemon": {
+      "@podium/source": "./src/daemon.ts",
+      "types": "./dist/daemon.d.ts",
+      "import": "./dist/daemon.js"
     }
   },
   "files": [

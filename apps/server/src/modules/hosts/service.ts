@@ -1,6 +1,7 @@
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, HostMetricsWire, MachineId, SessionId } from '@podium/model'
-import type { DaemonMessage, LiveServerMessage, ServerMessage } from '@podium/protocol'
+import type { LiveServerMessage, ServerMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'

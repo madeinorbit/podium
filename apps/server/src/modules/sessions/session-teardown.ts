@@ -32,10 +32,8 @@
  */
 
 import type { SessionId, SessionMeta, MachineId, IssueId, UserId } from '@podium/model'
-import {
-  AUTO_ARCHIVE_READ_WINDOW_MS,
-  type ControlMessage,
-} from '@podium/protocol'
+import { AUTO_ARCHIVE_READ_WINDOW_MS } from '@podium/protocol'
+import { type ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
 import {
   type CommandPrincipal,

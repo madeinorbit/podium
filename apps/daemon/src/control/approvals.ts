@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { ApprovalOp, ControlMessage } from '@podium/protocol'
+import type { ApprovalOp } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const execFileAsync = promisify(execFile)

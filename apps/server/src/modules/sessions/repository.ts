@@ -18,7 +18,8 @@ import { AgentKind } from '@podium/model'
 export type SessionWirePrincipal = SessionStatePrincipal
 
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { ControlMessage, MetadataChange } from '@podium/protocol'
+import type { MetadataChange } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'

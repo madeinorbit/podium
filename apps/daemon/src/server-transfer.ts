@@ -15,20 +15,8 @@ import {
   statfs,
 } from 'node:fs/promises'
 import { basename, dirname, join, normalize, resolve } from 'node:path'
-import {
-  SERVER_TRANSFER_CAPACITY_MARGIN,
-  SERVER_TRANSFER_MAX_CHUNK_BYTES,
-  type ControlMessage,
-  canonicalServerTransferManifest,
-  type ServerTransferErrorCode,
-  type ServerTransferManifest,
-  type ServerTransferManifestEntry,
-  type ServerTransferOperation,
-  type ServerTransferProof,
-  type ServerTransferResultMessage,
-  ServerTransferServingProof,
-  wireSchemaDigest,
-} from '@podium/protocol'
+import { SERVER_TRANSFER_CAPACITY_MARGIN, SERVER_TRANSFER_MAX_CHUNK_BYTES, canonicalServerTransferManifest, type ServerTransferErrorCode, type ServerTransferManifest, type ServerTransferManifestEntry, type ServerTransferOperation, type ServerTransferProof, type ServerTransferResultMessage, ServerTransferServingProof, wireSchemaDigest } from '@podium/protocol'
+import { type ControlMessage } from '@podium/protocol/daemon'
 import { configPath, stateDir } from '@podium/runtime/config'
 import { applySetup, validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'

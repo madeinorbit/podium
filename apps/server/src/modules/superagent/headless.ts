@@ -9,14 +9,8 @@ import type {
   ThreadId,
 } from '@podium/model'
 import { asSessionId, type MachineId } from '@podium/model'
-import type {
-  ControlMessage,
-  DaemonMessage,
-  HeadlessActivityEvent,
-  HeadlessTurnEvent,
-  LiveServerMessage,
-  ServerMessage,
-} from '@podium/protocol'
+import type { HeadlessActivityEvent, HeadlessTurnEvent, LiveServerMessage, ServerMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { Session } from '../sessions/session'
 
 export interface HeadlessDeps {

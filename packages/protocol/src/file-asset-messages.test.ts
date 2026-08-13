@@ -1,6 +1,6 @@
 // packages/protocol/src/file-asset-messages.test.ts
 import { describe, expect, it } from 'vitest'
-import { ControlMessage, DaemonMessage } from './messages'
+import { ControlMessage, DaemonMessage } from './daemon'
 
 describe('file asset messages', () => {
   it('accepts a fileAssetRequest in ControlMessage', () => {

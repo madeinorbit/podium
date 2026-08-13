@@ -50,7 +50,8 @@
 
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
-import type { DaemonMessage, MachinePrincipal } from '@podium/protocol'
+import type { MachinePrincipal } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import {
   type DaemonPortId,

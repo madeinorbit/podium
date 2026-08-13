@@ -1,4 +1,4 @@
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, makeOracle, waitFor } from '../sessions/oracle-support'
 import { PortableStateFence } from './portable-fence'

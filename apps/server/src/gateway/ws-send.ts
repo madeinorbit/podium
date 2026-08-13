@@ -11,8 +11,10 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { encode as encodeFn } from '@podium/protocol'
-import { encode } from '@podium/protocol'
+import {
+  encodeDaemonMessage as encode,
+  type encodeDaemonMessage as encodeFn,
+} from '@podium/protocol/daemon'
 
 const log = createLogger('server:gateway')
 

@@ -6,16 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
 import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
-import {
-  type ControlMessage,
-  type LocalDaemonLink,
-  MIN_SUPPORTED_VERSION,
-  type MobileWebIdentity,
-  PeerHelloReply,
-  type UpdateTarget,
-  WIRE_VERSION,
-  wireSchemaDigest,
-} from '@podium/protocol'
+import { type LocalDaemonLink, MIN_SUPPORTED_VERSION, type MobileWebIdentity, PeerHelloReply, type UpdateTarget, WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { type ControlMessage } from '@podium/protocol/daemon'
 import { loadConfig, resolveDevArtifactOrigin, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {

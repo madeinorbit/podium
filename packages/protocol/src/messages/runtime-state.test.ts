@@ -1,6 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { parseControlMessage, parseDaemonMessage } from './codec.js'
+import { parseControlMessage, parseDaemonMessage } from '../daemon.js'
 import {
   ACCEPTED_TRANSITION_ID_WINDOW_SIZE,
   AgentObservationRebindAckMessage,

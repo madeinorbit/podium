@@ -16,15 +16,8 @@ import {
   type UpdateChannel,
   type UserId,
 } from '@podium/model'
-import type {
-  ControlMessage,
-  DaemonHandshake,
-  DaemonMessage,
-  LiveServerMessage,
-  MachineVerb,
-  PeerBuild,
-  ServerMessage,
-} from '@podium/protocol'
+import type { DaemonHandshake, LiveServerMessage, MachineVerb, PeerBuild, ServerMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import { type EnrollmentLedger, newLedgerTxnId } from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'

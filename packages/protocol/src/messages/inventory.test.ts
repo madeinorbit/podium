@@ -1,6 +1,6 @@
 import { asMachineId, Inventory } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { encode, parseControlMessage, parseDaemonMessage } from './codec'
+import { encodeDaemonMessage as encode, parseControlMessage, parseDaemonMessage } from '../daemon'
 
 describe('inventory messages (#222)', () => {
   const inventory: Inventory = {

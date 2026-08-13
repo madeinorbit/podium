@@ -16,7 +16,8 @@ import {
   type SessionId,
   SOLE_USER_ID,
 } from '@podium/model'
-import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */

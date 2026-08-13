@@ -7,13 +7,12 @@ import { fileURLToPath } from 'node:url'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import {
   type DaemonMessage,
-  type PeerHelloReply,
+  encodeDaemonMessage as protocolEncode,
   parseDaemonMessage,
-  encode as protocolEncode,
-  WIRE_VERSION,
-} from '@podium/protocol'
+} from '@podium/protocol/daemon'
 import {
   abducoHasSession,
   isAbducoAvailable,

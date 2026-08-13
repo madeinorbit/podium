@@ -1,5 +1,5 @@
 import { asAgentIdentityId, asMachineId, asSessionId, asUserId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { DaemonContext } from './context'
 import { handoffHandlers } from './handoff'
