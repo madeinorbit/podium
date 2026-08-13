@@ -109,7 +109,12 @@ export class IssueGitWorkflowModule {
     // Epic integration was a THIRD (POD-417): a batch over an epic's children's
     // branches, holding its own in-flight guard and touching none of the git
     // projection state below. Same treatment — a collaborator, not owned state.
-    this.integration = new IssueEpicIntegrationModule(store, commentsMail, attention)
+    this.integration = new IssueEpicIntegrationModule(
+      store,
+      commentsMail,
+      attention,
+      store.d.store.shipping,
+    )
     // Capability methods are also handed to lifecycle ports as callbacks. Keep
     // the module as the receiver so its per-instance timers and git-attribution
     // maps can never fall through to undefined or leak into module-global state.

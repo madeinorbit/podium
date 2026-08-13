@@ -1,6 +1,7 @@
-import type { IssueId, IssueWire } from '@podium/model'
+import type { DescendantTip, IssueId, IssueWire } from '@podium/model'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { IssueRow } from '../../../store'
+import type { RootIntegrationReceiptStore } from '../../../store/shipping'
 import type { IssueAttentionModule } from './attention'
 import type { IssueStore } from './core'
 import type { IssueCommentsMailModule } from './mail'
@@ -40,6 +41,7 @@ export class IssueEpicIntegrationModule {
     private readonly store: IssueStore,
     private readonly commentsMail: () => Pick<IssueCommentsMailModule, 'addComment'>,
     private readonly attention: () => Pick<IssueAttentionModule, 'setNeedsHuman'>,
+    private readonly integrationReceipts: RootIntegrationReceiptStore,
   ) {}
 
   /**
@@ -186,6 +188,44 @@ export class IssueEpicIntegrationModule {
       blockedAt == null
         ? `integrate: rebuilt '${intBranch}' from '${row.parentBranch}'; integrated ${landed}`
         : `integrate: rebuilt '${intBranch}' from '${row.parentBranch}'; integrated ${landed}; integration blocked at #${blockedAt}: ${blockedWhy}`
+    // A successful git rebuild becomes admissible proof only after the exact
+    // root and descendant commit tips are durably recorded. This deliberately
+    // precedes comments/events: their listeners must never announce a receipt
+    // that did not commit. Failed/partial rebuilds retain their existing audit
+    // summary but never mint proof.
+    if (blockedAt == null) {
+      const rootHead = await this.store.d.repoOp('revParseVerify', worktree, { ref: intBranch })
+      if (!rootHead.ok) {
+        return refuse(
+          `integrate: cannot resolve rebuilt root head: ${this.gitSummary(rootHead.output)}`,
+        )
+      }
+      const descendants = this.integratedDescendants(ordered)
+      const descendantTips: DescendantTip[] = []
+      for (const descendant of descendants) {
+        const tip = await this.store.d.repoOp('revParseVerify', worktree, {
+          ref: descendant.branch,
+        })
+        if (!tip.ok) {
+          return refuse(
+            `integrate: cannot resolve descendant #${descendant.seq} head: ${this.gitSummary(tip.output)}`,
+          )
+        }
+        const approvedHeadSha = tip.output.trim()
+        descendantTips.push({ issueId: descendant.id, approvedHeadSha })
+      }
+      try {
+        this.integrationReceipts.recordRootIntegrationReceipt({
+          rootIssueId: row.id,
+          approvedHeadSha: rootHead.output.trim(),
+          descendants: descendantTips,
+        })
+      } catch (error) {
+        return refuse(
+          `integrate: receipt persistence failed: ${this.gitSummary(error instanceof Error ? error.message : String(error))}`,
+        )
+      }
+    }
     // Comment dedup: rebuild runs are idempotent, so an unchanged outcome must not
     // spam a new comment — skip when the latest integrate comment is identical.
     const prior = this.store.d.store.issues
@@ -203,6 +243,36 @@ export class IssueEpicIntegrationModule {
       ...(blockedAt != null ? { blockedAt } : {}),
     })
     return { ok: blockedAt == null, output: summary, issue: this.store.toWire(row) }
+  }
+
+  /** Exact closed, branch-backed descendant closure reached through the direct
+   * children this rebuild integrated. An open/branchless descendant is not an
+   * integration input yet; when it becomes one, the next rebuild mints a new
+   * root-head receipt and the previous manifest cannot match admission. */
+  private integratedDescendants(
+    roots: Array<IssueRow & { branch: string }>,
+  ): Array<IssueRow & { branch: string }> {
+    const descendants: Array<IssueRow & { branch: string }> = []
+    const visit = (parentId: IssueId): void => {
+      const children = [...this.store.rows.values()]
+        .filter(
+          (candidate): candidate is IssueRow & { branch: string } =>
+            candidate.parentId === parentId &&
+            !candidate.deletedAt &&
+            this.store.isClosed(candidate) &&
+            !!candidate.branch,
+        )
+        .sort((left, right) => left.seq - right.seq)
+      for (const child of children) {
+        descendants.push(child)
+        visit(child.id)
+      }
+    }
+    for (const root of roots) {
+      descendants.push(root)
+      visit(root.id)
+    }
+    return descendants
   }
 
   /** Topological order over blocks-deps AMONG the given children (a dep on an issue

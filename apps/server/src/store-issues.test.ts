@@ -634,6 +634,50 @@ describe('shipping durable store', () => {
     expect(s.issues.getIssue(issue.id)?.stage).toBe('review')
   })
 
+  it('persists typed root integration receipts as immutable pre-admission proof', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-root-integration-')), 'shipping.db')
+    const childA = { issueId: asIssueId('iss_child_a'), approvedHeadSha: 'sha-a' }
+    const childB = { issueId: asIssueId('iss_child_b'), approvedHeadSha: 'sha-b' }
+    const receipt = {
+      rootIssueId: asIssueId('iss_1'),
+      approvedHeadSha: 'integrated-root-head',
+      descendants: [childB, childA],
+    }
+    const canonical = { ...receipt, descendants: [childA, childB] }
+    const s = new SessionStore(file)
+    s.issues.upsertIssue(base())
+
+    expect(s.shipping.recordRootIntegrationReceipt(receipt)).toEqual(canonical)
+    expect(s.shipping.recordRootIntegrationReceipt(canonical)).toEqual(canonical)
+    expect(s.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)).toEqual(
+      canonical,
+    )
+    expect(s.shipping.rootIntegrationReceipt(receipt.rootIssueId, 'other-head')).toBeNull()
+    expect(() =>
+      s.shipping.recordRootIntegrationReceipt({
+        ...receipt,
+        descendants: [childA],
+      }),
+    ).toThrow(/different descendants/)
+    expect(() =>
+      rawDb(s)
+        .prepare('UPDATE root_integration_receipts SET descendants = ? WHERE root_issue_id = ?')
+        .run('[]', receipt.rootIssueId),
+    ).toThrow(/root integration receipt is immutable/)
+    expect(() =>
+      rawDb(s)
+        .prepare('DELETE FROM root_integration_receipts WHERE root_issue_id = ?')
+        .run(receipt.rootIssueId),
+    ).toThrow(/root integration receipt is immutable/)
+
+    s.close()
+    const restarted = new SessionStore(file)
+    expect(
+      restarted.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha),
+    ).toEqual(canonical)
+    restarted.close()
+  })
+
   it('persists evidenceManifestRef and a typed current integration receipt', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-shipping-evidence-')), 'shipping.db')
     const childA = { issueId: asIssueId('iss_child_a'), approvedHeadSha: 'sha-a' }

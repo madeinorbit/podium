@@ -8,6 +8,8 @@ import {
   isTerminalShipStepState,
   isTerminalShipOrderState,
   legalHoldResolutionStates,
+  RootIntegrationReceipt,
+  type RootIntegrationReceipt as RootIntegrationReceiptValue,
   ShipAttempt,
   type ShipAttempt as ShipAttemptValue,
   ShipHold,
@@ -51,6 +53,30 @@ const jsonObject = (value: unknown): Record<string, unknown> | undefined => {
 
 const optionalString = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined
+
+const canonicalIntegrationReceipt = (
+  input: RootIntegrationReceiptValue,
+): RootIntegrationReceiptValue => {
+  const receipt = RootIntegrationReceipt.parse(input)
+  return {
+    ...receipt,
+    descendants: [...receipt.descendants].sort(
+      (left, right) =>
+        left.issueId.localeCompare(right.issueId) ||
+        left.approvedHeadSha.localeCompare(right.approvedHeadSha),
+    ),
+  }
+}
+
+function mapIntegrationReceipt(row: SqlRow): RootIntegrationReceiptValue {
+  return canonicalIntegrationReceipt(
+    RootIntegrationReceipt.parse({
+      rootIssueId: row.rootIssueId,
+      approvedHeadSha: row.approvedHeadSha,
+      descendants: jsonArray(row.descendants),
+    }),
+  )
+}
 
 function mapOrder(row: SqlRow): ShipOrderValue {
   const actor = actorFromColumns(
@@ -200,11 +226,68 @@ const receiptSelect = `SELECT id, order_id AS orderId,
   validation_result AS validationResult, destination, completed_at AS completedAt
   FROM delivery_receipts`
 
+/** Narrow typed producer/consumer port shared by issue integration and Shipping
+ * admission. Its lookup key is the approved root head itself—not an evidence
+ * manifest reference and not an event payload. */
+export interface RootIntegrationReceiptStore {
+  rootIntegrationReceipt(
+    rootIssueId: RootIntegrationReceiptValue['rootIssueId'],
+    approvedHeadSha: string,
+  ): RootIntegrationReceiptValue | null
+  recordRootIntegrationReceipt(input: RootIntegrationReceiptValue): RootIntegrationReceiptValue
+}
+
 /** Durable normalized shipping family. It owns persistence invariants only;
  * admission, scheduling, machine effects, and lifecycle orchestration live above
  * this repository. */
-export class ShippingRepository {
+export class ShippingRepository implements RootIntegrationReceiptStore {
   constructor(private readonly db: SqlDatabase) {}
+
+  /**
+   * Typed pre-admission proof for one exact delivery-root head. The key includes
+   * the immutable git commit, so callers never ask for an ambiguous "latest"
+   * receipt and Shipping can compare it directly with the live approved head.
+   */
+  rootIntegrationReceipt(
+    rootIssueId: RootIntegrationReceiptValue['rootIssueId'],
+    approvedHeadSha: string,
+  ): RootIntegrationReceiptValue | null {
+    const row = this.db
+      .prepare(
+        `SELECT root_issue_id AS rootIssueId, approved_head_sha AS approvedHeadSha,
+                descendants
+           FROM root_integration_receipts
+          WHERE root_issue_id = ? AND approved_head_sha = ?`,
+      )
+      .get(rootIssueId, approvedHeadSha) as SqlRow | undefined
+    return row ? mapIntegrationReceipt(row) : null
+  }
+
+  /**
+   * Append an integration receipt, idempotently. An exact replay returns the
+   * stored value; the same root/head with different descendant facts is an
+   * immutable-history collision and is refused rather than overwritten.
+   */
+  recordRootIntegrationReceipt(input: RootIntegrationReceiptValue): RootIntegrationReceiptValue {
+    const receipt = canonicalIntegrationReceipt(input)
+    const existing = this.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)
+    if (existing) {
+      if (JSON.stringify(existing) === JSON.stringify(receipt)) return existing
+      throw new Error(
+        `root integration receipt ${receipt.rootIssueId}@${receipt.approvedHeadSha} already exists with different descendants`,
+      )
+    }
+    this.db
+      .prepare(
+        `INSERT INTO root_integration_receipts
+          (root_issue_id, approved_head_sha, descendants)
+         VALUES (?, ?, ?)`,
+      )
+      .run(receipt.rootIssueId, receipt.approvedHeadSha, JSON.stringify(receipt.descendants))
+    const stored = this.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)
+    if (!stored) throw new Error('root integration receipt insert did not persist')
+    return stored
+  }
 
   getOrder(id: string): ShipOrderValue | null {
     const row = this.db.prepare(`${orderSelect} WHERE id = ?`).get(id) as SqlRow | undefined
@@ -285,9 +368,7 @@ export class ShippingRepository {
           JSON.stringify(order.descendantManifest),
           JSON.stringify(order.deliveryDependsOn),
           order.evidenceManifestRef ?? null,
-          order.currentIntegrationReceipt
-            ? JSON.stringify(order.currentIntegrationReceipt)
-            : null,
+          order.currentIntegrationReceipt ? JSON.stringify(order.currentIntegrationReceipt) : null,
           order.providerRef ? JSON.stringify(order.providerRef) : null,
           actor.kind,
           actor.id,

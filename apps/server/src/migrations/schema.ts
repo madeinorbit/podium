@@ -1204,6 +1204,29 @@ export const issues = sqliteTable(
   ],
 )
 
+/**
+ * Pre-admission proof minted by a successful delivery-root integration rebuild.
+ * Ship orders copy the matching typed receipt into their own frozen row; this
+ * append-only history is the durable producer-to-admission seam before an order
+ * exists.
+ */
+export const rootIntegrationReceipts = sqliteTable(
+  'root_integration_receipts',
+  {
+    rootIssueId: brandedRef(text('root_issue_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    approvedHeadSha: text('approved_head_sha').notNull(),
+    descendants: text('descendants', { mode: 'json' }).default([]).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.rootIssueId, table.approvedHeadSha],
+      name: 'root_integration_receipts_pk',
+    }),
+  ],
+)
+
 export const shipOrders = sqliteTable(
   'ship_orders',
   {

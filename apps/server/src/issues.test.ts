@@ -3829,7 +3829,17 @@ describe('IssueService.integrate (issue #70)', () => {
     const calls: Call[] = []
     deps.repoOp = vi.fn(async (op, cwd, args) => {
       calls.push({ op, cwd, ...(args ? { args } : {}) })
-      return impl(op, args) ?? { ok: true, output: '' }
+      return (
+        impl(op, args) ?? {
+          ok: true,
+          output:
+            op === 'revParseVerify'
+              ? args?.ref === INT_BR
+                ? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+                : 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+              : '',
+        }
+      )
     })
     return calls
   }
@@ -3881,7 +3891,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const calls = scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
-    expect(calls).toEqual([
+    expect(calls.slice(0, 4)).toEqual([
       { op: 'status', cwd: INT_WT },
       {
         op: 'worktreeAddReset',
@@ -3891,6 +3901,23 @@ describe('IssueService.integrate (issue #70)', () => {
       { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: children[0]!.branch! } },
       { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: children[1]!.branch! } },
     ])
+    expect(calls.slice(4)).toEqual([
+      { op: 'revParseVerify', cwd: INT_WT, args: { ref: INT_BR } },
+      { op: 'revParseVerify', cwd: INT_WT, args: { ref: children[0]!.branch! } },
+      { op: 'revParseVerify', cwd: INT_WT, args: { ref: children[1]!.branch! } },
+    ])
+    expect(
+      h.store.shipping.rootIntegrationReceipt(epic.id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    ).toEqual({
+      rootIssueId: epic.id,
+      approvedHeadSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      descendants: children
+        .map((child) => ({
+          issueId: child.id,
+          approvedHeadSha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        }))
+        .sort((left, right) => left.issueId.localeCompare(right.issueId)),
+    })
     // boundary: the ONLY op with the repo root as cwd is the worktree add itself
     expect(calls.filter((c) => c.cwd === '/r').map((c) => c.op)).toEqual(['worktreeAddReset'])
     const comments = h.store.issues.listIssueComments(epic.id)
@@ -3903,6 +3930,52 @@ describe('IssueService.integrate (issue #70)', () => {
     const ev = h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect(ev.length).toBe(1)
     expect(ev[0]!.payload).toEqual({ epicSeq: 1, integrated: [children[0]!.seq, children[1]!.seq] })
+  })
+
+  it('persists the typed receipt before integration comment/event side effects', async () => {
+    const h = harness()
+    const { epic } = epicWith(h, [{}])
+    scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
+    const visibleAtEvent: unknown[] = []
+    h.store.events.onAppend((_id, event) => {
+      if (event.kind !== 'issue.integration') return
+      visibleAtEvent.push(
+        h.store.shipping.rootIntegrationReceipt(
+          epic.id,
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        ),
+      )
+    })
+
+    const result = await h.svc.integrate(epic.id, AS_OPERATOR)
+
+    expect(result.ok).toBe(true)
+    expect(visibleAtEvent).toEqual([
+      expect.objectContaining({
+        rootIssueId: epic.id,
+        approvedHeadSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      }),
+    ])
+  })
+
+  it('does not publish success side effects when receipt persistence fails', async () => {
+    const h = harness()
+    const { epic } = epicWith(h, [{}])
+    scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
+    vi.spyOn(h.store.shipping, 'recordRootIntegrationReceipt').mockImplementationOnce(() => {
+      throw new Error('receipt store unavailable')
+    })
+
+    const result = await h.svc.integrate(epic.id, AS_OPERATOR)
+
+    expect(result).toMatchObject({ ok: false })
+    expect(result.output).toMatch(/receipt persistence failed: receipt store unavailable/)
+    expect(
+      h.store.issues
+        .listIssueComments(epic.id)
+        .filter((comment) => comment.author === 'system:integrate'),
+    ).toEqual([])
+    expect(h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })).toEqual([])
   })
 
   it('attributes integrate to the named human who asked, not to system:integrate (POD-1344)', async () => {
@@ -4013,7 +4086,8 @@ describe('IssueService.integrate (issue #70)', () => {
     })
     const r = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r.ok).toBe(true)
-    expect(calls.slice(3)).toEqual([
+    const receiptProbe = calls.findIndex((call) => call.op === 'revParseVerify')
+    expect(calls.slice(3, receiptProbe)).toEqual([
       { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: child.branch! } },
       { op: 'checkoutReset', cwd: INT_WT, args: { branch: temp, startPoint: child.branch! } },
       { op: 'rebase', cwd: INT_WT, args: { parentBranch: INT_BR } },
@@ -4065,12 +4139,26 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(comments[0]!.body).toContain(`blocked at #${bad!.seq}`)
     const ev = h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect(ev[0]!.payload).toEqual({ epicSeq: 1, integrated: [ok1!.seq], blockedAt: bad!.seq })
+    expect(
+      h.store.shipping.rootIntegrationReceipt(epic.id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    ).toBeNull()
   })
 
   it('re-run idempotence: unchanged outcome posts NO duplicate comment (events still record each run)', async () => {
     const h = harness()
     const { epic } = epicWith(h, [{}, {}])
-    scriptOps(h.deps, () => undefined)
+    let rootReads = 0
+    scriptOps(h.deps, (op, args) => {
+      if (op !== 'revParseVerify' || args?.ref !== INT_BR) return undefined
+      rootReads++
+      return {
+        ok: true,
+        output:
+          rootReads < 3
+            ? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            : 'cccccccccccccccccccccccccccccccccccccccc',
+      }
+    })
     const r1 = await h.svc.integrate(epic.id, AS_OPERATOR)
     const r2 = await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(r1.ok).toBe(true)
