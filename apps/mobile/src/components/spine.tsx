@@ -125,7 +125,7 @@ export function railFor(tone: RailTone, accent: string): Rail {
 export const KIND_TONE: Record<string, { fg: string; bg: string; ch: string }> = {
   'claude-code': { fg: '#ffffff', bg: color.claude, ch: 'C' },
   codex: { fg: color.text, bg: 'rgba(243,243,248,0.10)', ch: 'X' },
-  grok: { fg: '#ffffff', bg: '#09090b', ch: 'G' },
+  grok: { fg: '#09090b', bg: '#ffffff', ch: 'G' },
   opencode: { fg: color.working, bg: color.workingSoft, ch: 'O' },
   cursor: { fg: color.working, bg: color.workingSoft, ch: 'U' },
   shell: { fg: color.textFaint, bg: 'rgba(108,118,144,0.14)', ch: '$' },

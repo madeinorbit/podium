@@ -104,13 +104,13 @@ export function KindIcon({
   // Claude's brand clay for its glyph; other kinds stay text-toned like the mock.
   // Table lookups, not comparisons — see apps/web/src/lib/agent-tone.ts.
   // Chip/fleet tints carry their own text tone (Claude is white-on-clay; Grok
-  // is the official light/dark pair). A second glyph class would fight that.
-  // Standalone marks still take the rest-state tone.
+  // is the light mark). A second glyph class would fight that. Standalone
+  // marks still take the rest-state tone.
   const tone = dimmed ? 'text-muted-foreground/70' : chip || compact ? '' : agentGlyphTone(kind)
   if (chip || compact) {
     // Per-kind tinted tile (POD-293 / POD-912): Claude is opaque clay, Grok is
-    // the official light/dark mark, other harnesses a quiet navy — solid fills
-    // so the chip never ghosts through a neighbour.
+    // the light mark, other harnesses a quiet navy — solid fills so the chip
+    // never ghosts through a neighbour.
     const chipTint = dimmed ? 'border-hairline-bar bg-muted' : agentChipTint(kind)
     const box = compact ? 'size-4 rounded' : 'size-5 rounded-[6px]'
     return (

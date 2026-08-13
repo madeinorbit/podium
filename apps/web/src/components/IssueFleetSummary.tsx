@@ -64,8 +64,8 @@ export function IssueFleetSummary({
           const AgentIcon = agentIconFor(kind)
           // Per-kind tint (POD-293 / POD-912): solid fills so stacked tiles
           // don't ghost through each other. Claude is opaque clay, Grok is the
-          // official light/dark mark. Unread no longer rides a tile — kinds
-          // collapse and grow ×N, so a corner dot cannot mean per-session newness.
+          // light mark. Unread no longer rides a tile — kinds collapse and grow
+          // ×N, so a corner dot cannot mean per-session newness.
           const tileTint = agentFleetTileTint(kind, parked)
           return (
             <span
