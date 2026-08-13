@@ -68,8 +68,8 @@ export const unbrandedColumn = sqliteTable('type_test_unbranded_column', {
 
 /**
  * A branded foreign key pointing at an unbranded primary key — `automations.id`
- * as it stood before POD-1958. There was no brand on the far side to disagree
- * with, which is why the planted mutation had nothing to fail against.
+ * as it stood before POD-1938 branded it. There was no brand on the far side to
+ * disagree with, which is why the planted mutation had nothing to fail against.
  */
 export const unbrandedTarget = sqliteTable('type_test_unbranded_target', {
   automationId: brandedRef(

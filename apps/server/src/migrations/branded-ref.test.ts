@@ -10,20 +10,32 @@
  *     `@ts-expect-error` in the fixture, and silently strip every FK from the
  *     next `drizzle-kit generate`. Reading the built table's foreign keys is the
  *     only thing that can tell the difference.
- *  2. that `schema.ts` goes through the helper. The check binds a site only when
+ *  2. that the schema goes through the helper. The check binds a site only when
  *     that site calls it, and drizzle's own `.references()` is still a method on
  *     every column builder — one autocomplete away from putting the hole back
  *     with no diagnostic anywhere.
+ *
+ * Which files that second check reads is DERIVED from `drizzle.config.ts`, not
+ * restated here. There are two schema files today and the sync adapter's has no
+ * foreign key yet; naming `schema.ts` alone would leave the next one, and any
+ * third, silently unguarded.
  */
 
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
+import drizzleConfig from '../../../../drizzle.config'
 import { automationRuns, automations, issueDeps, issues, sessionObservationRebinds } from './schema'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT = resolve(HERE, '../../../..')
+
+/** Every schema file drizzle-kit reads, as absolute paths. */
+const SCHEMA_FILES = (
+  Array.isArray(drizzleConfig.schema) ? drizzleConfig.schema : [drizzleConfig.schema]
+).map((relative) => resolve(REPO_ROOT, relative as string))
 
 /** Source with block and line comments removed — the header prose names
  *  `.references(` several times and must not count as a use. */
@@ -65,11 +77,23 @@ describe('brandedRef', () => {
   })
 })
 
-describe('schema.ts', () => {
+describe('the drizzle schema files', () => {
+  it('is a non-empty list read from drizzle.config.ts', () => {
+    // A config shape change that emptied this would make the next assertion
+    // vacuous — an empty loop passes everything.
+    expect(SCHEMA_FILES.length).toBeGreaterThan(0)
+    expect(SCHEMA_FILES).toContain(join(HERE, 'schema.ts'))
+  })
+
   it('declares every foreign key through brandedRef, never drizzle .references()', () => {
-    const source = stripComments(readFileSync(join(HERE, 'schema.ts'), 'utf8'))
-    expect(source).not.toMatch(/\.references\s*\(/)
-    expect(source).toMatch(/\bbrandedRef\s*\(/)
+    for (const file of SCHEMA_FILES) {
+      expect(stripComments(readFileSync(file, 'utf8'))).not.toMatch(/\.references\s*\(/)
+    }
+    // …and the helper is genuinely in use, so the assertion above is not passing
+    // because every foreign key quietly went away.
+    expect(stripComments(readFileSync(join(HERE, 'schema.ts'), 'utf8'))).toMatch(
+      /\bbrandedRef\s*\(/,
+    )
   })
 
   it('keeps the negative fixture planted', () => {

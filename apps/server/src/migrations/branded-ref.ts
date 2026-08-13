@@ -49,10 +49,11 @@
  *   - no brand on the FK (`string` → `AutomationId`),
  *   - no brand on the referenced primary key (`AutomationId` → `string`).
  *
- * The last one is the reason the mutation survived at all: `automations.id` was
- * declared `text().primaryKey()` with no `$type`, so there was no brand on the
- * far side to disagree with. Adopting this helper forced those primary keys to
- * declare theirs.
+ * The last one is why the mutation survived even on its own terms: when it was
+ * planted, `automations.id` was still `text().primaryKey()` with no `$type`, so
+ * there was no brand on the far side for `SessionId` to disagree with. POD-1938
+ * branded the primary keys; this makes that branding load-bearing, and a primary
+ * key that loses its brand now breaks every foreign key pointed at it.
  *
  * A pair with no brand on EITHER side (`string`/`string`) is exact and passes —
  * `workflows`, `workflow_revisions` and `workflow_runs` have no brand in
