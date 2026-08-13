@@ -25,8 +25,14 @@ export function ActivationShell({
   children: ReactNode
 }): JSX.Element {
   return (
-    <main className="native-agents-pane relative" aria-labelledby="activation-title">
-      <div className="workspace-sheet min-h-0 overflow-y-auto bg-[#15171b]">
+    <main
+      className="native-agents-pane relative min-h-0 min-w-0 overflow-hidden"
+      aria-labelledby="activation-title"
+    >
+      <div
+        data-activation-scroll
+        className="workspace-sheet min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#15171b]"
+      >
         <div
           className={cn(
             'mx-auto flex min-h-[840px] w-full max-w-[1180px] flex-col bg-[#22262d] px-6 py-10 font-sans shadow-[0_24px_60px_-30px_rgba(0,0,0,.7)] sm:px-12 sm:py-14 lg:px-[72px] lg:pt-16 lg:pb-12',

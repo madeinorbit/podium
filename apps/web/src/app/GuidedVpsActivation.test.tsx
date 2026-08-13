@@ -89,6 +89,7 @@ describe('guided VPS return route', () => {
     const onRouteChange = vi.fn()
     const vps = controller('welcome', vi.fn())
     vps.state = null
+    vps.ready = false
     vps.persist = vi.fn().mockImplementation(async (next) => next)
 
     render(
@@ -103,12 +104,41 @@ describe('guided VPS return route', () => {
     expect(screen.getByRole('heading', { name: 'Set up an always-on VPS.' })).toBeTruthy()
     expect(screen.getByText('What you need')).toBeTruthy()
     expect(screen.queryByText(/checking your saved VPS setup/i)).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Show the VPS command' }))
+    const commandButton = screen.getByRole('button', { name: 'Show the VPS command' })
+    expect(commandButton).not.toHaveProperty('disabled', true)
+    fireEvent.click(commandButton)
 
     await waitFor(() =>
       expect(vps.persist).toHaveBeenCalledWith(vpsPairingState(vpsIntroState('welcome'), [], true)),
     )
     expect(onRouteChange).toHaveBeenCalledWith('vps-pairing')
+  })
+
+  it('keeps the activation-choice exit available while a fresh command is saving', () => {
+    const onRouteChange = vi.fn()
+    const vps = controller('welcome', vi.fn())
+    vps.state = null
+    vps.ready = false
+    vps.saving = true
+
+    render(
+      <GuidedVpsActivation
+        route="vps-pairing"
+        vps={vps}
+        onRouteChange={onRouteChange}
+        onExplore={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Preparing command…' })).toHaveProperty(
+      'disabled',
+      true,
+    )
+    const backButton = screen.getByRole('button', { name: 'Back to activation choices' })
+    expect(backButton).not.toHaveProperty('disabled', true)
+    fireEvent.click(backButton)
+
+    expect(onRouteChange).toHaveBeenCalledWith('welcome')
   })
 
   it('does not navigate away until the server confirms the checkpoint is cleared', async () => {

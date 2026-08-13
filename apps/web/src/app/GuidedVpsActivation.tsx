@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire } from '@podium/model'
-import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, LoaderCircle } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -54,12 +54,14 @@ function VpsOverview({
   onBack,
   onExplore,
   busy,
+  backDisabled = false,
   error,
 }: {
   onContinue: () => void
   onBack: () => void
   onExplore: () => void
   busy: boolean
+  backDisabled?: boolean
   error: string | null
 }): JSX.Element {
   return (
@@ -118,15 +120,25 @@ function VpsOverview({
         <button
           type="button"
           disabled={busy}
+          aria-busy={busy || undefined}
           onClick={onContinue}
           className="inline-flex h-9 items-center gap-2 rounded-[9px] bg-[#e3ba52] px-4 text-[13px] leading-none font-semibold text-[#1a1408] hover:bg-[#efc95f] disabled:opacity-50"
         >
-          Show the VPS command
-          <ArrowRight size={17} aria-hidden="true" />
+          {busy ? (
+            <>
+              <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+              Preparing command…
+            </>
+          ) : (
+            <>
+              Show the VPS command
+              <ArrowRight size={17} aria-hidden="true" />
+            </>
+          )}
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={backDisabled}
           onClick={onBack}
           className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
         >
@@ -217,7 +229,7 @@ export function GuidedVpsActivation({
         onContinue={() => runSafely(beginFreshSetup())}
         onBack={() => onRouteChange('welcome')}
         onExplore={onExplore}
-        busy={!vps.ready || vps.saving}
+        busy={vps.saving}
         error={vps.error}
       />
     )
@@ -242,6 +254,7 @@ export function GuidedVpsActivation({
         onBack={() => runSafely(clearVpsCheckpointAndReturn(vps, returnRoute, onRouteChange))}
         onExplore={onExplore}
         busy={vps.saving}
+        backDisabled={vps.saving}
         error={vps.error}
       />
     )

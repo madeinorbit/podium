@@ -2271,6 +2271,17 @@ html[data-density="balanced"] .header-quota-pools {
   box-shadow: var(--shadow-sheet);
 }
 
+/* Activation frames can be taller than the available stage on compact laptops
+   and phones. The sheet is the single scroll owner so every activation route
+   keeps its header, actions, and footer reachable without nested page scroll. */
+.workspace-sheet[data-activation-scroll] {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Activation is a focused first-run surface. On a phone, persistent desktop
    columns are not merely cramped — they steal the reading width from the one
    action the user came to take. Keep the shell bar, give activation the whole
