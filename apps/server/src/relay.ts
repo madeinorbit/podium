@@ -1745,6 +1745,8 @@ export class SessionRegistry {
           const attribution = order.requestedBy
           const userId = attribution.onBehalfOf
           if (!userId) throw new Error('shipping order has no human authorization owner')
+          const role = this.store.users.roleOf(userId)
+          if (!role) throw new Error(`shipping requester ${userId} is no longer active`)
           let principal: CommandPrincipal
           if (attribution.actor.kind === 'agent') {
             const sessionId = asSessionId(attribution.actor.id)
@@ -1753,10 +1755,8 @@ export class SessionRegistry {
               throw new Error('shipping requester delegation no longer matches its original actor')
             }
           } else if (attribution.actor.kind === 'user') {
-            const role = this.store.users.roleOf(userId)
-            if (!role || attribution.actor.id !== userId) {
-              throw new Error(`shipping requester ${userId} is no longer active`)
-            }
+            if (attribution.actor.id !== userId)
+              throw new Error('shipping requester attribution no longer matches its user')
             principal = userCommandPrincipal(userId, role)
           } else {
             throw new Error(`shipping requester actor ${attribution.actor.kind} cannot own effects`)
