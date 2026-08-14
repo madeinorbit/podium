@@ -201,7 +201,13 @@ export class ReceiptSender {
     // question and the migration hands it over. Ordering ("is there older work
     // ahead of this") is a fact about the server's own table, which the driver
     // cannot see and therefore cannot answer.
-    const orderingHold = via === 'now' && this.ports.queueNotEmpty(input.sessionId)
+    //
+    // It applies to `wake` as well as `now`, and that is not belt-and-braces:
+    // `liveWithEmptyQueue` reads the queue COUNT, which is already zero while
+    // the last row is being drained. A wake arriving in that window would pass
+    // the liveness check and overtake the row currently going out.
+    const orderingHold =
+      (via === 'now' || via === 'wake') && this.ports.queueNotEmpty(input.sessionId)
     if (
       via === 'queue' ||
       orderingHold ||
@@ -223,29 +229,35 @@ export class ReceiptSender {
       delivery,
       principal: input.principal ?? this.ports.systemPrincipal(),
     })
-    if (onReceipt) {
-      // A RECEIPT THAT NEVER ARRIVES MUST NOT BE SILENT. A driver that died
-      // mid-window rejects this promise, and a caller waiting to reconcile a row
-      // would otherwise wait forever — so the failure is reported AS a receipt,
-      // in the vocabulary the caller already handles.
-      settled.then(
-        (receipt) => {
-          onReceipt(receipt, via)
-        },
-        (err: unknown) => {
-          onReceipt(
-            {
-              outcome: 'refused',
-              refusal: {
-                reason: 'not_running',
-                detail: err instanceof Error ? err.message : String(err),
-              },
+    // THE REJECTION IS HANDLED WHETHER OR NOT ANYONE IS LISTENING, and the
+    // `onReceipt`-shaped version of this was a bug: a caller with no reconciler
+    // to run (the superagent's spawn tool, an automation) still produces a
+    // promise, and an unobserved rejection from a daemon that went away is an
+    // unhandled rejection — which is a process-level event, not a quiet one. So
+    // the handler is attached unconditionally and the reconciler is what is
+    // optional.
+    //
+    // A RECEIPT THAT NEVER ARRIVES MUST NOT BE SILENT EITHER. A driver that died
+    // mid-window rejects, and a caller waiting to reconcile a row would
+    // otherwise wait forever — so the failure is reported AS a receipt, in the
+    // vocabulary the caller already handles.
+    settled.then(
+      (receipt) => {
+        onReceipt?.(receipt, via)
+      },
+      (err: unknown) => {
+        onReceipt?.(
+          {
+            outcome: 'refused',
+            refusal: {
+              reason: 'not_running',
+              detail: err instanceof Error ? err.message : String(err),
             },
-            via,
-          )
-        },
-      )
-    }
+          },
+          via,
+        )
+      },
+    )
     // OPTIMISTIC, AND THE RECONCILIATION IS WHAT MAKES IT HONEST. The bytes are
     // on their way; the receipt says whether they landed. This is the same claim
     // `sendText` makes today, made by a path that will later correct itself.

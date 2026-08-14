@@ -209,6 +209,48 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(forwarded).toEqual([])
   })
 
+  it('reports a dead driver as a refusal instead of leaving the caller waiting', async () => {
+    // A driver that went away mid-window REJECTS. A reconciler waiting on that
+    // promise would otherwise wait forever with a row stuck mid-flight, so the
+    // failure is delivered in the vocabulary the caller already handles.
+    //
+    // The handler is attached whether or not a reconciler was passed, which is
+    // the half this test cannot observe directly and the reason it is worth
+    // saying: a caller with nothing to reconcile (the superagent spawn tool, an
+    // automation) still produces a promise, and an unobserved rejection is a
+    // process-level unhandled rejection rather than a quiet no-op.
+    const seen: string[] = []
+    const s = new ReceiptSender({
+      legacy: {
+        sendText: () => ({ ok: true }),
+        queueText: () => ({ ok: true, queued: true }),
+        interruptText: () => ({ ok: true }),
+        resumeAndSend: () => ({ ok: true }),
+      },
+      contract: { send: () => Promise.reject(new Error('daemon went away')) },
+      queue: { enqueue: () => ({ ok: true, position: 1 }) },
+      onContract: () => true,
+      liveWithEmptyQueue: () => true,
+      queueNotEmpty: () => false,
+      systemPrincipal: () => ({
+        kind: 'system',
+        attribution: { actor: { kind: 'system', job: 'guard' }, onBehalfOf: null },
+        principalRef: 'guard',
+        delegation: null,
+      }),
+      now: () => 0,
+    })
+
+    // No reconciler: must not throw, and must not leave a rejection unobserved.
+    expect(s.send('now', { sessionId: asSessionId('s1'), text: 'orphan' })).toEqual({ ok: true })
+
+    s.send('now', { sessionId: asSessionId('s1'), text: 'watched' }, (receipt) => {
+      seen.push(receipt.outcome === 'refused' ? `refused:${receipt.refusal.reason}` : receipt.outcome)
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(seen).toEqual(['refused:not_running'])
+  })
+
   it('touches neither path for a session with no driver behind it', () => {
     const { s, forwarded, enqueued } = sender(false)
     s.send('now', { sessionId: asSessionId('s1'), text: 'legacy' })
