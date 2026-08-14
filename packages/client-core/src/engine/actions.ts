@@ -412,13 +412,19 @@ export function createEngineActions<TApi extends PodiumClientApi>(
      * types next — the server digests it into that turn's preamble with the same
      * `buildBtwSeed` block the btw thread was seeded with. No thread to switch
      * to, and therefore no thread to be stranded on.
+     *
+     * `dockTab` IS PART OF THE ACT. Opening the dock is not the same as showing
+     * the superagent: the right dock also holds Files, Git and Issue, so an
+     * operator sitting on any of those got the dock they already had, with the
+     * attachment staged behind a pane that never mentions it — the same "nothing
+     * happened" this issue is about, one surface further in.
      */
     startBtw: async (sessionId) => {
-      rt.apply({ attachedSessionId: sessionId, superOpen: true })
+      rt.apply({ attachedSessionId: sessionId, superOpen: true, dockTab: 'superagent' })
     },
     clearAttachedSession: () => rt.apply({ attachedSessionId: null }),
     tldrSession: async (sessionId, answerText) => {
-      rt.apply({ superOpen: true })
+      rt.apply({ superOpen: true, dockTab: 'superagent' })
       const prompt = answerText.trim()
         ? `Give me a concise tl;dr (2–4 bullet points) of the agent's last answer below.\n\n---\n${answerText.trim().slice(0, 4000)}`
         : "Give me a concise tl;dr (2–4 bullet points) of the agent's last answer."

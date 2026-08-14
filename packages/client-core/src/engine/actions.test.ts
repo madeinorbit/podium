@@ -499,6 +499,10 @@ describe('ask superagent (BTW) attaches a session to the next turn (POD-1069)', 
     expect(h.state().superThreadId).toBe('global')
     expect(h.state().attachedSessionId).toBe('sess-btw')
     expect(h.state().superOpen).toBe(true)
+    // Opening the dock is not the same as SHOWING the superagent — it also
+    // holds Files, Git and Issue. Staging an attachment behind one of those is
+    // the same "nothing happened" one surface further in.
+    expect(h.state().dockTab).toBe('superagent')
   })
 
   it('mints no thread: the attachment is local until the turn that carries it', async () => {
