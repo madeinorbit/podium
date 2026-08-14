@@ -60,6 +60,10 @@ Grok headless feasibility investigation.
   4. `git -C /home/mgw/src/podium/.worktrees/issue-1761-agent-runtime merge --ff-only
      issue/<your-id>-<slug>` (never `cd` into that worktree — `git -C` only);
   5. `podium lock release integration:1761` immediately.
+  6. **If `podium lock acquire` is DENIED by your session's permission settings** (this has
+     happened): do NOT merge without the lease, and do NOT idle silently. Commit your branch,
+     run your gates, and mail 1761 immediately with the branch name, the sha, and the gate
+     numbers — the coordinator performs the ff-only landing under the lock on your behalf.
 - Commits carry a `Podium-Issue: POD-<your id>` trailer.
 - Gates before merging: `bun scripts/typecheck.ts` and the test suites your change touches
   (`bun scripts/test.ts --filter …`). Do not re-run the world. **Biome (`bun run lint`) is
