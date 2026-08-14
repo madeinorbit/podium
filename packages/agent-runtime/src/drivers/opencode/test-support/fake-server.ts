@@ -97,6 +97,10 @@ export interface FakeOpencodeServer {
    * status back, which is the only form of this check worth having.
    */
   probeWithoutSecret(): Promise<boolean>
+  /** Drop every live SSE subscriber WITHOUT stopping the server — what a
+   *  reconnect looks like from the driver's side, and the only way to reach the
+   *  consume loop's death-corroboration path from a test. */
+  dropStreams(): void
   alive: boolean
   close(): Promise<void>
 }
@@ -112,7 +116,11 @@ export async function startFakeOpencodeServer(options: {
   const permissions = new Map<string, FakePermissionRequest>()
   const questions = new Map<string, FakeQuestionRequest>()
   const prompts = new Map<string, number>()
-  const subscribers = new Set<{ directory: string; write: (chunk: string) => void }>()
+  const subscribers = new Set<{
+    directory: string
+    write: (chunk: string) => void
+    end: () => void
+  }>()
   let failNext = false
 
   const expected = `Basic ${Buffer.from(`${options.username}:${options.password}`).toString('base64')}`
@@ -171,6 +179,9 @@ export async function startFakeOpencodeServer(options: {
         directory,
         write: (chunk: string) => {
           res.write(chunk)
+        },
+        end: () => {
+          res.end()
         },
       }
       subscribers.add(subscriber)
@@ -377,6 +388,11 @@ export async function startFakeOpencodeServer(options: {
       emit('question.asked', { ...input, id: requestId })
       return requestId
     },
+    dropStreams() {
+      for (const subscriber of subscribers) subscriber.end()
+      subscribers.clear()
+    },
+
     async probeWithoutSecret() {
       const response = await fetch(`${baseUrl}/global/health`)
       return response.status === 401

@@ -17,24 +17,37 @@ import type { OpencodeRuntimeHost, OpencodeServerEndpoint } from '../runtime.js'
 import { type FakeOpencodeServer, startFakeOpencodeServer } from './fake-server.js'
 
 export interface OpencodeTestHostOptions {
+  /** Wrap the client the driver builds, so a test can make a specific call
+   *  misbehave — a health probe that fails once, for instance. */
+  wrapClient?(client: import('../client.js').OpencodeClient): import('../client.js').OpencodeClient
   /** Called when the driver asks for a client terminal. Return `false` to make
    *  the host answer "this machine hosts none", which is the refusal path. */
   onAttachClient?(input: { sessionId: SessionId; url: string; mode: 'takeover' | 'peek' }): void
   hostsClientTerminals?: boolean
 }
 
-export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): OpencodeRuntimeHost {
+/** The host, plus a handle on the fake servers it started — a test that wants to
+ *  drop an SSE stream needs to reach the server behind a session. */
+export type OpencodeTestHost = OpencodeRuntimeHost & {
+  serverFor(sessionId: SessionId): FakeOpencodeServer | undefined
+}
+
+export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): OpencodeTestHost {
   const servers: FakeOpencodeServer[] = []
+  const bySession = new Map<SessionId, FakeOpencodeServer>()
   const entries = new Map<SessionId, Parameters<OpencodeRuntimeHost['journal']['write']>[0]>()
   let seq = 0
 
   return {
+    serverFor: (sessionId) => bySession.get(sessionId),
+
     async launch(input) {
       const server = await startFakeOpencodeServer({
         username: input.username,
         password: input.secret,
       })
       servers.push(server)
+      bySession.set(input.sessionId, server)
       const endpoint: OpencodeServerEndpoint = {
         baseUrl: server.baseUrl,
         username: server.username,
@@ -75,6 +88,15 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
         entries.delete(sessionId)
       },
     },
+
+    ...(options.wrapClient
+      ? {
+          makeClient: (config) => {
+            const { createOpencodeClient } = require('../client.js') as typeof import('../client.js')
+            return options.wrapClient?.(createOpencodeClient(config)) ?? createOpencodeClient(config)
+          },
+        }
+      : {}),
 
     now: () => Date.UTC(2026, 7, 14) + seq * 1000,
     randomSecret: () => `test-secret-${++seq}`,

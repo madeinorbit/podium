@@ -110,6 +110,28 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
     })()
   }
 
+  /**
+   * TELL THE SERVER WHICH opencode SESSION THIS IS (POD-2114).
+   *
+   * Without this the transcript is structurally empty, and it took a test drive
+   * on a real instance to see it. `sessions.read` does NOT read the live delta
+   * buffer — it reads through the harness transcript source, which for opencode
+   * is keyed on the row's `resume.value`. The terminal path populates that from
+   * three places in the PTY/observer machinery; a server-family session goes
+   * through none of them, so the row's `resume` stayed null, the source had no
+   * session to open, and chat returned `items: []` while opencode's own store
+   * held the whole exchange.
+   *
+   * `confidence: 'exact'` is the truth rather than a default: the id came back
+   * from `POST /session` in this process. It is reported on LAUNCH and on ADOPT
+   * because a rebound session's row may predate the ref or have lost it.
+   */
+  function reportResumeRef(sessionId: SessionId, handle: AgentSessionHandle): void {
+    const resume = handle.binding.resume
+    if (!resume) return
+    deps.send({ type: 'sessionResumeRef', sessionId, resume, confidence: 'exact' })
+  }
+
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
     // THE CONTRACT STREAM GOES OUT AS ITSELF TOO. A consumer that speaks the
     // contract (W4's migrated callers) reads this; the legacy frames below are
@@ -206,6 +228,7 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
         return undefined
       }
       pump(sessionId)
+      reportResumeRef(sessionId, handle)
       return handle
     },
 
@@ -276,6 +299,7 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
       // …and the first state, so the badge is right before the first event
       // rather than after it.
       deps.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
+      reportResumeRef(input.sessionId, handle)
     },
   }
 }

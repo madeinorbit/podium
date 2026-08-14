@@ -198,3 +198,50 @@ describe('releasing the lease drains what was queued behind it', () => {
     }
   })
 })
+
+describe('a slow health probe is not a dead server (POD-2114)', () => {
+  it('does NOT declare the process exited when a probe merely fails once', async () => {
+    /**
+     * THE GHOST SESSION, PINNED. The consume loop used to ask `/global/health`
+     * ONCE after an SSE drop and believe the answer. On a loaded box a probe can
+     * exceed the client's timeout while the server is perfectly alive — POD-2086
+     * measured a session declared `exited` at 342s whose server was still
+     * answering 200 twenty minutes later, holding a provider credential, with
+     * every later send queued forever against a session that would never drain.
+     *
+     * The driver's own `errors.ts` says a transport failure is not a session
+     * failure. This is that sentence as a test: the SSE stream is really
+     * dropped, the first probe really fails, and the server was really there.
+     */
+    let probes = 0
+    const host = makeOpencodeTestHost({
+        wrapClient: (client) => ({
+          ...client,
+          health: async () => {
+            probes += 1
+            // The first probe answers the way a SLOW one does on a loaded box.
+            // Every later probe tells the truth: the server is there.
+            return probes > 1 ? client.health() : false
+          },
+        }),
+    })
+    const runtime = createOpencodeRuntime(host)
+    try {
+      const handle = await runtime.driver.create(spec())
+      const exits: string[] = []
+      void (async () => {
+        for await (const event of handle.events('bootstrap')) {
+          if (event.t === 'process' && event.ev.ev === 'exited') exits.push('exited')
+        }
+      })()
+
+      host.serverFor(handle.binding.sessionId)?.dropStreams()
+
+      await expect.poll(() => probes, { timeout: 6000 }).toBeGreaterThan(1)
+      // Corroboration happened and said "alive", so no exit was ever claimed.
+      expect(exits).toHaveLength(0)
+    } finally {
+      runtime.dispose()
+    }
+  })
+})

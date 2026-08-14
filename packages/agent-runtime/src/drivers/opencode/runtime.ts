@@ -720,18 +720,62 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
           // nothing is emitted here.
         }
         if (session.disposed || session.stream.signal.aborted) return
-        await sleep(250)
-        // Did the server actually die? Then say so on the PROCESS channel,
-        // which is where a dead process belongs, and stop reconnecting.
-        if (!(await session.client.health())) {
-          if (session.disposed) return
-          const at = iso()
-          const ev: ProcessEvent = { ev: 'exited', code: null, signal: null, classification: 'crashed' }
-          emit(session, { t: 'process', ev }, at)
-          return
-        }
+        await sleep(RECONNECT_DELAY_MS)
+        /**
+         * DID THE SERVER ACTUALLY DIE, OR WAS THE BOX BUSY? (POD-2114)
+         *
+         * This asked ONCE and believed the answer, and that is my own stated
+         * principle broken in my own file. `../../errors.ts`: transport failures
+         * are deliberately outside session semantics, because "the session may
+         * be alive and adoptable even while the path to it is down. Conflating
+         * the two is how ghost sessions happen."
+         *
+         * It produced exactly that ghost. On a loaded machine a probe can exceed
+         * the client's timeout while the server is perfectly healthy — POD-2086
+         * measured a session declared `exited` at 342s whose `opencode serve`
+         * was still answering `/global/health` with 200 twenty minutes later,
+         * scope active, holding a provider credential, with every subsequent
+         * send queued forever against a session that would never drain.
+         *
+         * So a death now has to be CORROBORATED: several probes, spaced, all
+         * failing. The cost of being slow to notice a real exit is a session
+         * that looks alive for a few more seconds. The cost of being wrong the
+         * other way is a leaked credentialed server and a queue that never
+         * drains — and only one of those is recoverable by waiting.
+         */
+        if (!(await serverIsGone(session))) continue
+        if (session.disposed) return
+        const at = iso()
+        const ev: ProcessEvent = { ev: 'exited', code: null, signal: null, classification: 'crashed' }
+        emit(session, { t: 'process', ev }, at)
+        return
       }
     })()
+  }
+
+  /**
+   * How long to wait before re-subscribing after the SSE socket drops, and how
+   * hard to corroborate a suspected death.
+   *
+   * THREE PROBES OVER ~6s rather than one: a single slow answer is a fact about
+   * the machine, three consecutive failures separated by seconds is a fact about
+   * the server. Neither number is tuned — they are "long enough that load alone
+   * does not produce three of them, short enough that a real crash surfaces
+   * inside a turn".
+   */
+  const RECONNECT_DELAY_MS = 250
+  const DEATH_PROBES = 3
+  const DEATH_PROBE_GAP_MS = 2000
+
+  /** `true` only when every probe failed. One success anywhere means the server
+   *  is there and the socket, not the process, was the problem. */
+  async function serverIsGone(session: DriverSession): Promise<boolean> {
+    for (let attempt = 0; attempt < DEATH_PROBES; attempt++) {
+      if (session.disposed) return false
+      if (await session.client.health()) return false
+      if (attempt < DEATH_PROBES - 1) await sleep(DEATH_PROBE_GAP_MS)
+    }
+    return !session.disposed
   }
 
   // -- sending --------------------------------------------------------------
