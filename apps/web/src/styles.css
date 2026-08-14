@@ -444,6 +444,22 @@ html[data-podium-platform="macos"] .desktop-topbar {
 html[data-podium-platform="macos"] .desktop-topbar-nav {
   margin-left: 6px;
 }
+/* The macOS shell places a semantic HeaderView NSVisualEffectView behind its
+   transparent WKWebView. Keep every ancestor over the command bar clear so
+   that native material reaches the pixels, then restore the normal opaque app
+   ground at the content row. Browsers and the other desktop shells keep the
+   opaque surfaces declared above. NSVisualEffectView owns appearance,
+   active/inactive state, and Reduce Transparency behavior. */
+html[data-podium-platform="macos"],
+html[data-podium-platform="macos"] body,
+html[data-podium-platform="macos"] #root,
+html[data-podium-platform="macos"] .desktop-shell,
+html[data-podium-platform="macos"] .desktop-topbar {
+  background: transparent;
+}
+html[data-podium-platform="macos"] .desktop-shell-row {
+  background: var(--background);
+}
 .native-window-controls {
   display: flex;
   align-self: stretch;

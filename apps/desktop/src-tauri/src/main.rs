@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+#[cfg(target_os = "macos")]
+use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::path::BaseDirectory;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
@@ -829,6 +831,16 @@ fn main() {
                     // [spec:SP-3834] Native desktop chrome replaces the separate OS title bar.
                     #[cfg(target_os = "macos")]
                     let window_builder = window_builder
+                        // HeaderView is the semantic NSVisualEffectView material for a
+                        // command bar. The web document makes only that 48px band
+                        // transparent; the content row remains an opaque app surface.
+                        .transparent(true)
+                        .effects(
+                            EffectsBuilder::new()
+                                .effect(Effect::HeaderView)
+                                .state(EffectState::FollowsWindowActiveState)
+                                .build(),
+                        )
                         .title_bar_style(tauri::TitleBarStyle::Overlay)
                         .hidden_title(true)
                         .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));

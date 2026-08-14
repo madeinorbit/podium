@@ -15,7 +15,10 @@ path = "src/lib.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+# WKWebView is opaque by default. Tauri's macOS private-API feature is the
+# supported desktop-shell path for making it transparent so the native
+# NSVisualEffectView material can show through the HTML title bar.
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"

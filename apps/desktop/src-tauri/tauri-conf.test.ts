@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 
 const conf = JSON.parse(readFileSync(join(__dirname, 'tauri.conf.json'), 'utf8'))
 const mainSource = readFileSync(join(__dirname, 'src/main.rs'), 'utf8')
+const cargoSource = readFileSync(join(__dirname, 'Cargo.toml'), 'utf8')
+const webStyles = readFileSync(join(__dirname, '../../web/src/styles.css'), 'utf8')
 
 describe('tauri desktop config', () => {
   it('keeps stable as the packaged fallback endpoint', () => {
@@ -92,5 +94,18 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('.hidden_title(true)')
     expect(mainSource).toContain('.traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0))')
     expect(mainSource).toContain('let window_builder = window_builder.decorations(false);')
+  })
+
+  it('reveals a native semantic material only through the macOS command bar', () => {
+    expect(cargoSource).toContain('"macos-private-api"')
+    expect(mainSource).toContain('.transparent(true)')
+    expect(mainSource).toContain('.effect(Effect::HeaderView)')
+    expect(mainSource).toContain('.state(EffectState::FollowsWindowActiveState)')
+    expect(webStyles).toContain(
+      'html[data-podium-platform="macos"] .desktop-topbar {\n  background: transparent;',
+    )
+    expect(webStyles).toContain(
+      'html[data-podium-platform="macos"] .desktop-shell-row {\n  background: var(--background);',
+    )
   })
 })
