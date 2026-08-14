@@ -159,20 +159,24 @@ function makeWorld(): { target: ConformanceTarget } {
 
     deliveryAttempts(sessionId) {
       /**
-       * COUNTED WHERE THE WORDS ARRIVE — AND A STEER IS ONE OF THOSE PLACES.
+       * TURN STARTS ONLY — AND THE STEERS ARE COUNTED SEPARATELY, ON PURPOSE.
        *
-       * The corpus defines this as deliveries of the caller's TEXT, not turns
-       * opened, and it uses the counter to prove a steer actually delivered
-       * something (POD-2085's "the substitution nothing else catches": a driver
-       * that reports `deliveredAs: 'steer'` and types nothing at all would
-       * otherwise pass by doing LESS than an impostor that queues). This driver
-       * is the first with a delivery that opens no turn, so it is the first
-       * where `turnStarts` alone would undercount — and the undercount would
-       * read as "the steer delivered nothing", which is exactly the accusation
-       * the property exists to make stick.
+       * Folding steers in here would make the corpus's current anti-substitution
+       * property pass, and that is exactly why it is not done. POD-2085 ruled
+       * that property's steer branch DEFECTIVE — wrong instrument in kind — and
+       * is redesigning it; POD-1761 confirmed the ruling and recorded a blocking
+       * dependency on this item's steer-branch conformance claim. Widening the
+       * counter to go green would be answering a broken measurement by changing
+       * what is measured, which is the failure mode the whole permitted-failures
+       * design exists to prevent.
+       *
+       * So this stays the honest reading of the instrument as written: one
+       * accepted `turn/start` is one turn opened. The separate `steers` counter
+       * on the fake is the observable the fixed witness is expected to ask for —
+       * a steer joins a turn rather than opening one, and the two facts are not
+       * interchangeable.
        */
-      const server = serverFor(sessionId)
-      return server.turnStarts + server.steers
+      return serverFor(sessionId).turnStarts
     },
 
     failNextVerification(sessionId) {
