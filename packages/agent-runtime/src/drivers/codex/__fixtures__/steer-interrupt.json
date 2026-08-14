@@ -1,0 +1,78 @@
+{
+  "_recordedFrom": "codex-cli 0.147.0",
+  "steerRequest": {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "method": "turn/steer",
+    "params": {
+      "threadId": "019fff94-7326-7032-b90b-3cc7e1805180",
+      "expectedTurnId": "019fff94-8653-77f2-b4ab-b36e0db39521",
+      "input": [
+        {
+          "type": "text",
+          "text": "Also mention the word BANANA in your reply.",
+          "text_elements": []
+        }
+      ]
+    }
+  },
+  "steerAcceptedResponse": {
+    "id": 6,
+    "result": {
+      "turnId": "019fff94-8653-77f2-b4ab-b36e0db39521"
+    }
+  },
+  "steerBeforeTurnStartedRequest": {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "turn/steer",
+    "params": {
+      "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+      "expectedTurnId": "019fff9f-8711-7b11-ab81-9a4a2fbeb216",
+      "input": [
+        {
+          "type": "text",
+          "text": "Also append the word BANANA on the last line.",
+          "text_elements": []
+        }
+      ]
+    }
+  },
+  "steerBeforeTurnStartedError": {
+    "error": {
+      "code": -32600,
+      "message": "no active turn to steer"
+    },
+    "id": 5
+  },
+  "interruptRequest": {
+    "jsonrpc": "2.0",
+    "id": 8,
+    "method": "turn/interrupt",
+    "params": {
+      "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+      "turnId": "019fff9f-e5f3-74b1-bcb8-ffe8aa476f59"
+    }
+  },
+  "interruptResponse": {
+    "id": 8,
+    "result": {}
+  },
+  "interruptedTurnCompleted": {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+      "turn": {
+        "id": "019fff9f-e5f3-74b1-bcb8-ffe8aa476f59",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "interrupted",
+        "error": null,
+        "startedAt": 1786700097,
+        "completedAt": 1786700105,
+        "durationMs": 8694
+      }
+    },
+    "emittedAtMs": 1786700105756
+  }
+}

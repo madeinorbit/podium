@@ -15,6 +15,7 @@ import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
 import type { OpencodeClientTerminals } from '../runtime/opencode-attach'
 import type { DaemonOpencodeRuntime } from '../runtime/opencode-driver'
+import type { DaemonCodexRuntime } from '../runtime/codex-driver'
 import type { TerminalRuntime } from '../runtime/terminal-driver'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
@@ -107,6 +108,17 @@ export interface DaemonContext {
    * `runtime/handlers.ts`'s one lookup rather than asking both in its own order.
    */
   opencodeRuntime?: DaemonOpencodeRuntime
+  /**
+   * THE SECOND SERVER-FAMILY REGISTRY (POD-1761 W6).
+   *
+   * A THIRD FIELD rather than a widened second one, for the same reason W5 gave
+   * for not widening the first: these registries are not interchangeable. Each
+   * holds sessions for exactly one driver, a session appears in exactly one of
+   * them by construction, and the shared question — "who owns this session" —
+   * is answered in the one lookup in `runtime/handlers.ts` rather than at each
+   * call site in its own order.
+   */
+  codexRuntime?: DaemonCodexRuntime
   /** The machine-wide `PODIUM_RUNTIME_CONTRACT` switch, read ONCE at bootstrap.
    *  OR-ed with each session's own `runtimeContract` field — see
    *  `runtime/flag.ts` for why both exist and why neither wins. */

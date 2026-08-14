@@ -100,20 +100,29 @@ function bearerEnvVar(serverName: string): string {
  * out of process listings. Podium's MCP route accepts either `x-podium-mcp-token`
  * or `Authorization: Bearer`, so the switch is transparent server-side.
  */
-function codexMcpArgs(
+/**
+ * EXPORTED FOR THE APP-SERVER DRIVER (POD-1761 W6), not widened for it.
+ *
+ * The `-c` mechanism below is the one verified against codex 0.144.5, and the
+ * app-server child mounts MCP servers exactly the same way an `exec` run does —
+ * so the driver's daemon host calls THIS rather than growing a second
+ * translation that would drift from it on the first field Codex renames. The
+ * `context` argument is what distinguishes their error text and nothing else.
+ */
+export function codexMcpArgs(
   mcpConfig: string | undefined,
-  context: 'harness' | 'headless',
+  context: 'harness' | 'headless' | 'app-server',
 ): { args: string[]; env: Record<string, string> } {
   if (!mcpConfig) return { args: [], env: {} }
   let servers: Record<string, { url?: string; headers?: Record<string, string> }>
   try {
     servers = (JSON.parse(mcpConfig) as { mcpServers?: typeof servers }).mcpServers ?? {}
   } catch {
-    if (context === 'harness') {
-      log.warn('malformed MCP config for codex — refusing a tool-less run', { context })
-      throw new Error('malformed MCP config for codex — refusing a tool-less harness run')
+    if (context === 'headless') {
+      throw new Error('malformed MCP config for codex — refusing a tool-less headless turn')
     }
-    throw new Error('malformed MCP config for codex — refusing a tool-less headless turn')
+    log.warn('malformed MCP config for codex — refusing a tool-less run', { context })
+    throw new Error(`malformed MCP config for codex — refusing a tool-less ${context} run`)
   }
   const args: string[] = []
   const env: Record<string, string> = {}
@@ -316,22 +325,56 @@ export const codexManifest: AgentManifest = {
       driverId: 'codex-app-server',
       kind: 'jsonrpc',
       spawn: ['codex', 'app-server'],
-      // A unix socket at mode 0600 authenticates by filesystem permission: no
-      // secret to leak and no port another local user can reach. Codex never
-      // speaks TCP for this (spec §6).
-      transport: 'unix-socket',
+      /**
+       * STDIO, NOT A UNIX SOCKET — CORRECTED BY W6 AGAINST THE LIVE BINARY.
+       *
+       * W1 declared `unix-socket` on the strength of `--listen unix://PATH`,
+       * which does exist on 0.147.0 and does create a socket at mode 0600. It is
+       * not the client surface: a JSON-RPC `initialize` written to it gets the
+       * connection CLOSED, and so does the same request sent through codex's own
+       * `app-server proxy --sock` bridge. Codex's own log calls it the
+       * "app-server control socket", and `app-server daemon` puts one at a
+       * fixed, machine-global path for `daemon version`/`stop` to speak.
+       *
+       * The client channel is the child's inherited stdio, which satisfies spec
+       * §6 more strongly than the socket would: there is no filesystem object,
+       * no port, and no name by which a process that did not fork the child
+       * could reach it. That is why `requiresPerSessionSecret` is false here for
+       * a reason rather than as an omission.
+       */
+      transport: 'stdio',
       requiresPerSessionSecret: false,
-      versionRange: unsupported(
-        'W6 pins the range against recorded fixtures; app-server has already renamed its approval methods once, and an unverified range would let a driver start against a protocol nobody checked',
-      ),
+      // PINNED AGAINST RECORDED FIXTURES, not guessed (W6). Every shape the
+      // driver reads was captured from a live 0.147.0 app-server and replays in
+      // `packages/agent-runtime/src/drivers/codex/__fixtures__`; the gate that
+      // enforces this range is `gateCodexVersion`, and widening it means
+      // re-recording those fixtures first — which the binary makes cheap, since
+      // `codex app-server generate-ts` emits the whole protocol.
+      versionRange: supported('>=0.147 <0.150'),
     }),
     embedded: unsupported('Codex ships a server, not a library to host in-process'),
     // The permanent fallback: a protocol break degrades Codex sessions to the
     // terminal driver instead of stranding them (spec §3, churn stance).
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
-    // BEHAVIOR-NEUTRAL IN W1: terminal, because the app-server driver does not
-    // exist yet. W6 puts 'codex-app-server' first — and, unusually, for EVERY
-    // auth mode, since ChatGPT subscription auth works headless here.
+    /**
+     * THE DEFAULT STAYS TERMINAL, AND THE APP-SERVER DRIVER IS OPT-IN (W6).
+     *
+     * W1's note here anticipated that W6 would put `codex-app-server` first for
+     * every auth mode. It does not, and the plan W6 implements is explicit about
+     * why: the terminal driver is Codex's PERMANENT fallback (spec §3's
+     * protocol-churn stance), and this item ships "the same explicit per-spawn
+     * opt-in as opencode". Promoting a driver in the ranking is a separate
+     * decision from shipping it, and it belongs to whoever has run it long
+     * enough to argue for it — not to the agent that wrote it.
+     *
+     * The ranking is therefore unchanged: a spawn expressing no preference gets
+     * exactly what it got before this driver existed. What makes the driver
+     * reachable is `ctx.preference`, which `selectRuntimeDriver` honours ahead
+     * of the ranking AND only when the machine reports the driver available — so
+     * an operator naming `codex-app-server` on a box whose codex is out of the
+     * pinned range falls through to terminal instead of getting a session that
+     * hangs on its first tool call.
+     */
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },
   headless: supported({

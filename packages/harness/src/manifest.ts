@@ -615,7 +615,18 @@ export interface ServerRuntimeSpec {
   /** argv that starts the server. The port/socket is chosen per session by the
    *  driver, so this is the STEM, not a complete command line. */
   spawn: readonly string[]
-  transport: 'unix-socket' | 'loopback-tcp'
+  /**
+   * `stdio` IS THE CHILD'S OWN PIPE PAIR, added by W6 after measuring codex.
+   *
+   * The plan expected a per-session unix socket there and codex does create one
+   * — but it is a daemon CONTROL socket that closes the connection on a JSON-RPC
+   * `initialize`, including through codex's own proxy bridge. An inherited pipe
+   * is the actual client channel, and for spec section 6's purposes it is the
+   * strongest of the three: no filesystem object, no port, nothing for another
+   * local process to reach by name. Hence `requiresPerSessionSecret: false` for
+   * a reason rather than as an omission.
+   */
+  transport: 'unix-socket' | 'loopback-tcp' | 'stdio'
   /**
    * MANDATORY for loopback TCP: an unauthenticated per-session HTTP server
    * holding a credentialed agent is reachable by every local process and user,

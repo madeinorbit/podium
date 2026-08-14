@@ -70,6 +70,8 @@ import {
   createDaemonOpencodeRuntime,
   type DaemonOpencodeRuntime,
 } from './runtime/opencode-driver'
+import { createCodexHost } from './runtime/codex-app-server'
+import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
 import { createOpencodeClientTerminals } from './runtime/opencode-attach'
 import { createOpencodeHost } from './runtime/opencode-server'
 import { daemonRuntimeHost } from './runtime/host'
@@ -125,6 +127,7 @@ export async function createDaemonHostRuntime(args: {
    */
   let terminalRuntime: TerminalRuntime | undefined
   let opencodeRuntime: DaemonOpencodeRuntime | undefined
+  let codexRuntime: DaemonCodexRuntime | undefined
   const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
   /**
    * Every outbound daemon frame, past the driver's observation tap.
@@ -612,6 +615,25 @@ export async function createDaemonHostRuntime(args: {
     }),
   })
   ctx.opencodeRuntime = opencodeRuntime
+  /**
+   * THE SECOND SERVER-FAMILY RUNTIME (POD-1761 W6), constructed on the same
+   * terms and for the same reason as the first: it allocates two maps, and no
+   * `codex app-server` child starts until a spawn explicitly asks for
+   * `codex-app-server`.
+   */
+  codexRuntime = createDaemonCodexRuntime({
+    send,
+    host: createCodexHost({
+      memoryBytes: ({ sessionId, label, pid }) =>
+        attributeMemory(
+          snapshotProcesses(),
+          [{ sessionId, label, ...(pid !== undefined ? { pid } : {}) }],
+          [],
+          { selfPid: process.pid },
+        ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+    }),
+  })
+  ctx.codexRuntime = codexRuntime
   const frameGuard = createFrameGuard(ctx)
 
   const metricsBackground = opts.metrics?.background ?? true
@@ -724,6 +746,7 @@ export async function createDaemonHostRuntime(args: {
     ctx.runningHeadlessTurns.clear()
     terminalRuntime?.dispose()
     opencodeRuntime?.dispose()
+    codexRuntime?.dispose()
     observers.disposeObservers()
     composerEngine.disposeAll()
     await Promise.all(durableReaps)

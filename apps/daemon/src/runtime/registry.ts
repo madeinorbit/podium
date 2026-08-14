@@ -101,9 +101,21 @@ export function availableDriverIds(probe: {
    * version string is how it was reached.
    */
   opencodeDrivable: boolean
+  /**
+   * The same question for codex (POD-1761 W6), memoized the same way behind
+   * `codexAppServerVersionDiagnostic()`.
+   *
+   * OPTIONAL, AND ABSENT MEANS "NOT AVAILABLE" rather than "assume yes". A
+   * caller that has not probed must not have its silence read as a pass: this
+   * driver's failure mode on an unpinned binary is a session that hangs on its
+   * first tool call with no error anywhere, so the default has to be the one
+   * that degrades to terminal.
+   */
+  codexDrivable?: boolean
 }): readonly DriverId[] {
   const ids: DriverId[] = ['claude-pty', 'generic-pty']
   if (probe.opencodeDrivable) ids.push('opencode-server')
+  if (probe.codexDrivable) ids.push('codex-app-server')
   return ids
 }
 
@@ -115,6 +127,7 @@ const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
   'claude-pty',
   'generic-pty',
   'opencode-server',
+  'codex-app-server',
 ])
 
 export type DriverResolution =

@@ -39,7 +39,11 @@ import type { ControlHandlers, DaemonContext } from '../control/context'
  * not a precedence.
  */
 function handleFor(ctx: DaemonContext, sessionId: SessionId): AgentSessionHandle | undefined {
-  return ctx.runtime?.handleFor(sessionId) ?? ctx.opencodeRuntime?.handleFor(sessionId)
+  return (
+    ctx.runtime?.handleFor(sessionId) ??
+    ctx.opencodeRuntime?.handleFor(sessionId) ??
+    ctx.codexRuntime?.handleFor(sessionId)
+  )
 }
 
 /**
@@ -53,7 +57,11 @@ function handleFor(ctx: DaemonContext, sessionId: SessionId): AgentSessionHandle
  * where the write would go nowhere and report success.
  */
 export function sessionIsBehindContract(ctx: DaemonContext, sessionId: SessionId): boolean {
-  return ctx.runtime?.has(sessionId) === true || ctx.opencodeRuntime?.has(sessionId) === true
+  return (
+    ctx.runtime?.has(sessionId) === true ||
+    ctx.opencodeRuntime?.has(sessionId) === true ||
+    ctx.codexRuntime?.has(sessionId) === true
+  )
 }
 
 export const runtimeHandlers: Pick<

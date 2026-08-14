@@ -73,6 +73,12 @@ export * from './drivers/terminal/index.js'
  *  part a package may not do: spawn a child under a systemd scope and write its
  *  binding journal — reached through `OpencodeRuntimeHost`. */
 export * from './drivers/opencode/index.js'
+/** The codex app-server driver, WHOLE (POD-1761 W6). Same split as the opencode
+ *  driver: everything here is JSON-RPC and bookkeeping, and the one thing a
+ *  package may not do — spawn `codex app-server` and write its binding journal —
+ *  lives in `apps/daemon/src/runtime/codex-app-server.ts`, reached through
+ *  `CodexRuntimeHost`. */
+export * from './drivers/codex/index.js'
 export * from './errors.js'
 export * from './events.js'
 export * from './families.js'

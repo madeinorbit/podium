@@ -31,6 +31,7 @@ import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { runtimeContractEnabledFor, runtimeDriverByEnv, runtimeDriverFor } from '../runtime/flag'
 import { sessionIsBehindContract } from '../runtime/handlers'
+import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { opencodeVersionProbe } from '../runtime/opencode-server'
 import {
   availableDriverIds,
@@ -703,7 +704,13 @@ async function launchServerDriverSession(
     // opencode is missing or out of the pinned range does not list the driver,
     // so an explicit preference for it falls through rather than producing a
     // session that cannot start.
-    available: availableDriverIds({ opencodeDrivable: probe.drivable }),
+    available: availableDriverIds({
+      opencodeDrivable: probe.drivable,
+      // The SAME three-answer verdict, asked the same way: an `unprobeable`
+      // codex does not list the driver here, which is what routes an explicit
+      // override through the refusal below rather than degrading it silently.
+      codexDrivable: codexAppServerVersionProbe().drivable,
+    }),
     platform: process.platform,
   })
   if (!resolution.ok) {
@@ -771,7 +778,15 @@ async function launchServerDriverSession(
     }
     return false
   }
-  const runtime = ctx.opencodeRuntime
+  /**
+   * WHICH REGISTRY, chosen by the DRIVER the resolution picked rather than by
+   * the harness name (POD-1761 W6). The two are not the same question: a
+   * harness can declare a server driver this build does not wire, and picking
+   * by harness would hand the session to whichever registry happened to be
+   * first.
+   */
+  const runtime =
+    resolution.driverId === 'codex-app-server' ? ctx.codexRuntime : ctx.opencodeRuntime
   if (!runtime) {
     ctx.send({
       type: 'spawnError',
@@ -787,6 +802,22 @@ async function launchServerDriverSession(
       ...(msg.model ? { model: msg.model } : {}),
       ...(msg.effort ? { effort: msg.effort } : {}),
       ...(msg.env ? { env: msg.env } : {}),
+      /**
+       * NO MCP CONFIG IS FORWARDED, AND THAT IS A DECLARED GAP RATHER THAN AN
+       * OVERSIGHT (POD-1761 W6).
+       *
+       * The codex driver and its host implement the mount end to end —
+       * `codexAppServerConfigArgs` builds the `-c mcp_servers.…` overrides
+       * through the manifest's own verified `codexMcpArgs`, and
+       * `SessionSpec.mcpServers` carries the declaration to it. What does not
+       * exist is a SOURCE: `mcpConfig` is a headless/harness-exec field, and the
+       * interactive `spawn` frame has never carried one, because interactive
+       * sessions mount MCP through the CLI's own config file. Inventing a field
+       * here would be a wire change beyond this item; passing an empty one would
+       * make the driver report a tool mount it did not make. So an app-server
+       * session mounts whatever `~/.codex/config.toml` already declares, and the
+       * spawn-frame field is POD-1761's to schedule.
+       */
     })
   } catch (err) {
     // A server that would not start is a SPAWN ERROR, reported on the frame the
