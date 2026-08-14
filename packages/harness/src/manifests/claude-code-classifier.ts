@@ -391,8 +391,12 @@ export function extractClaudeTranscriptFeatures(
   }
 }
 
+function finalTextTail(text: string): string {
+  return text.slice(-900)
+}
+
 function terminalQuestion(text: string): boolean {
-  return /\?\s*(?:$|\n\s*$)/.test(text.slice(-900))
+  return /\?\s*(?:$|\n\s*$)/.test(finalTextTail(text))
 }
 
 function completionLanguage(text: string): boolean {
@@ -409,13 +413,13 @@ function doneLike(text: string): boolean {
 
 function optionalFollowup(text: string): boolean {
   return /\b(want me to|would you like me to|shall i also|should i also|if you want|if you'd like|let me know if you want|happy to also|i can also|anything else)\b/i.test(
-    text.slice(-900),
+    finalTextTail(text),
   )
 }
 
 function requiredUserAction(text: string): boolean {
   return /\b(please run|please authenticate|complete the auth flow|hard-refresh|tell me when|once (?:that|this) is done,? tell me|choose|pick one|which option|which approach|how do you want|what do you want|decision needed|i need you to|you need to|your call|approve|confirm|do you want me to|should i|shall i|want me to (?:proceed|continue|start|run|delete|commit|merge|push|open|implement|apply))\b/i.test(
-    text,
+    finalTextTail(text),
   )
 }
 

@@ -1172,6 +1172,20 @@ describe('classifyIdleTranscript', () => {
     })
   })
 
+  it('required-action language buried before a completed ending is finished', () => {
+    const report = [
+      'The implementation is merged and the issue is closed; pushing remains your call.',
+      'Verification detail: the completed classifier behavior remains stable. '.repeat(20),
+      'All requested work is complete. No further action is needed.',
+    ].join('\n')
+    const records = parse([assistantLine([text(report)])])
+
+    expect(classifyClaudeTranscriptState(records, 'default')).toMatchObject({
+      status: 'resolved',
+      label: 'idle.finished',
+    })
+  })
+
   it('ambiguous terminal question is marked for semantic classification internally', () => {
     const records = parse([
       userLine('Plan the migration'),
