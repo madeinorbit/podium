@@ -51,21 +51,22 @@ That return path is the next piece of work, filed as its own issue
 frame for attach, viewer connect/disconnect, and routing input to the
 attachment — which this epic scoped out of the current issue.
 
-## One thing this landing makes reachable
+## One thing this landing made reachable — since fixed
 
 Attaching in take-over mode claims the session's control lease, and the opencode
-driver writes that lease *unconditionally* — it does not refuse when someone else
-already holds it, where the terminal-family driver does. That code was
-unreachable until now, because the attach it sits behind always refused; wiring
-the port up is what puts it in the path of a real request.
+driver used to write that lease *unconditionally*: it did not refuse when someone
+else already held it, where the terminal-family driver does. The code was
+unreachable while the attach in front of it always refused, so wiring the port up
+is what would have put it in the path of a real request.
 
-It matters more than bookkeeping: whose turns get delivered is decided by that
-lease, so a second attacher silently takes control from the first, and the first
-keeps sending and gets its messages queued with nothing telling it why. Confirmed
-as unintended by the driver's own issue and filed there as a fix before this is
-switched on for anyone; the fix is to route the take-over through the same
-lease-acquire that already refuses politely. Named here so it is not discovered
-later as a surprise.
+It mattered more than bookkeeping — whose turns get delivered is decided by that
+lease, so a second attacher would have silently taken control from the first, and
+the first would have kept sending into a queue with nothing telling it why.
+Reported as a measurement rather than a patch, confirmed unintended, and **fixed
+on the same branch** by the driver's own issue before this could reach anyone: a
+take-over now refuses with `lease_held` when someone else holds it, and it checks
+*before* starting a client rather than after, so a refusal cannot leave an
+orphaned terminal attached to a session it was refused access to.
 
 ## Warm-parking
 
