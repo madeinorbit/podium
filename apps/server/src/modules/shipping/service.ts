@@ -279,7 +279,7 @@ interface ResourceLease {
 const terminalStep = (step: ShipStep | null): boolean =>
   step?.state === 'succeeded' || step?.state === 'failed' || step?.state === 'cancelled'
 
-const REPAIR_MARKER = 'shipping-repair:v1:'
+const REPAIR_MARKER = 'shipping-repair:v2:'
 const TRAIN_PROOF_MARKER = 'shipping-train-proof:v1:'
 const CANCELLATION_MARKER = 'shipping-cancel:v1:'
 
@@ -300,9 +300,7 @@ const cancellationTarget = (summary: string): ShipOrderId | null => {
 
 interface DurableRepairMarker {
   decision: Exclude<ShippingRepairDecision, { kind: 'not-applicable' }>
-  failure: ShippingRepairContext['failure']
-  order: ShipOrder
-  attempt: ShipAttempt
+  context: ShippingRepairContext
   acknowledgement: {
     resultToken: string
     orderId: ShipOrder['id']
@@ -325,12 +323,27 @@ const parseRepairMarker = (summary: string): DurableRepairMarker | null => {
       (parsed.decision?.kind !== 'patched' && parsed.decision?.kind !== 'needs-decision') ||
       !parsed.decision.resultToken ||
       parsed.acknowledgement?.resultToken !== parsed.decision.resultToken ||
-      parsed.acknowledgement?.orderId !== parsed.order?.id ||
-      parsed.acknowledgement?.attemptId !== parsed.attempt?.id ||
-      parsed.acknowledgement?.generation !== parsed.attempt?.leaseGeneration ||
+      parsed.acknowledgement?.orderId !== parsed.context?.order?.id ||
+      parsed.acknowledgement?.attemptId !== parsed.context?.attempt?.id ||
+      parsed.acknowledgement?.generation !== parsed.context?.attempt?.leaseGeneration ||
       !/^[a-f0-9]{64}$/.test(parsed.acknowledgement?.contextDigest ?? '') ||
-      (parsed.failure?.operation !== 'prepare-merge-group' &&
-        parsed.failure?.operation !== 'validate')
+      parsed.context?.contextDigest !== parsed.acknowledgement?.contextDigest ||
+      parsed.context?.custody?.attemptId !== parsed.context?.attempt?.id ||
+      parsed.context?.custody?.generation !== parsed.context?.attempt?.leaseGeneration ||
+      parsed.context?.custody?.machineId !== parsed.context?.attempt?.machineId ||
+      parsed.context?.authority?.orderId !== parsed.context?.order?.id ||
+      parsed.context?.authority?.attemptId !== parsed.context?.attempt?.id ||
+      parsed.context?.authority?.generation !== parsed.context?.attempt?.leaseGeneration ||
+      shippingRepairContextDigest({
+        order: parsed.context.order,
+        attempt: parsed.context.attempt,
+        issue: parsed.context.issue,
+        failure: parsed.context.failure,
+        custody: parsed.context.custody,
+        authority: parsed.context.authority,
+      }) !== parsed.context.contextDigest ||
+      (parsed.context?.failure?.operation !== 'prepare-merge-group' &&
+        parsed.context?.failure?.operation !== 'validate')
     ) {
       return null
     }
@@ -1619,7 +1632,16 @@ export class ShippingService {
       if (!repair || !attempt || attempt.finishedAt || !marker) {
         throw new Error(`ship hold ${hold.id} has no live repair context`)
       }
-      const context = this.repairContext(order, attempt, issue, marker.failure)
+      const context = marker.context
+      if (
+        context.order.id !== order.id ||
+        context.attempt.id !== attempt.id ||
+        context.attempt.leaseGeneration !== attempt.leaseGeneration ||
+        context.custody.attemptId !== attempt.id ||
+        context.custody.generation !== attempt.leaseGeneration
+      ) {
+        throw new Error(`ship hold ${hold.id} repair context custody changed`)
+      }
       const decision = await repair.consider(context)
       if (decision.kind !== 'patched') {
         throw new Error(`ship hold ${hold.id} did not produce an immutable repair candidate`)
@@ -2010,11 +2032,12 @@ export class ShippingService {
             }
           }
         }
+        if (order.state !== 'queued' || invalidating.has(order.id) || !causallyDepends) {
+          continue
+        }
         if (
-          order.state !== 'queued' ||
-          invalidating.has(order.id) ||
-          !causallyDepends ||
-          order.approvedBaseSha === destinationSha
+          order.approvedBaseSha === destinationSha ||
+          (await this.deps.isAncestor(issue, destinationSha, order.approvedBaseSha))
         ) {
           continue
         }
@@ -2791,9 +2814,7 @@ export class ShippingService {
       ...effect.terminalStep,
       summary: repairMarker({
         decision,
-        failure,
-        order,
-        attempt,
+        context,
         acknowledgement: repairAcknowledgement,
       }),
     }

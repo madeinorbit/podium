@@ -508,6 +508,8 @@ export class ShipwrightService {
         'policy-refused',
         'Shipping has no personal model owner for this repair.',
         evidence,
+        [],
+        { allowOpenRepair: false, allowRetry: false },
       )
     }
     if (
@@ -729,7 +731,7 @@ export class ShipwrightService {
       'Bounded safe-fix attempts were exhausted without a deterministically applicable patch.',
       evidence,
       receipts,
-      receipts.length > 0,
+      { allowOpenRepair: receipts.length > 0 },
     )
   }
 
@@ -988,7 +990,7 @@ export class ShipwrightService {
     detail: string,
     evidence: ReadonlySet<ShipwrightEvidenceRefValue>,
     receipts: readonly ShipwrightResultReceipt[] = [],
-    allowOpenRepair = true,
+    options: { allowOpenRepair?: boolean; allowRetry?: boolean } = {},
   ): Extract<ShipwrightRepairRecommendation, { kind: 'needs-decision' }> {
     return {
       kind: 'needs-decision',
@@ -997,9 +999,11 @@ export class ShipwrightService {
       detail,
       evidenceRefs: [...evidence],
       actions:
-        reasonCode === 'policy-refused' || !allowOpenRepair
-          ? ['retry', 'return-to-issue']
-          : ['retry', 'return-to-issue', 'open-repair'],
+        options.allowRetry === false
+          ? ['return-to-issue']
+          : reasonCode === 'policy-refused' || options.allowOpenRepair === false
+            ? ['retry', 'return-to-issue']
+            : ['retry', 'return-to-issue', 'open-repair'],
       resultToken: encodeResultToken(input, receipts),
     }
   }

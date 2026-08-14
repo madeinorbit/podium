@@ -341,7 +341,7 @@ describe('durable shipwright model results', () => {
     expect(result).toMatchObject({
       kind: 'needs-decision',
       reasonCode: 'policy-refused',
-      actions: ['retry', 'return-to-issue'],
+      actions: ['return-to-issue'],
     })
     expect(h.turns).toHaveLength(0)
   })

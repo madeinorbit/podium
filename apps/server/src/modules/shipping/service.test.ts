@@ -4,6 +4,7 @@ import {
   asShipOrderId,
   asShipStepId,
   FIRST_ADMIN_USER_ID,
+  shipRepairRef,
   type IssueWire,
 } from '@podium/model'
 import type { ShippingJobResult } from '@podium/protocol/daemon'
@@ -21,7 +22,8 @@ import {
   shippingResourceHolderId,
   ShippingService,
 } from './service'
-import type { ShippingRepairPort } from './repair-contract'
+import type { ShippingRepairContext, ShippingRepairPort } from './repair-contract'
+import { ShippingEvidenceRegistry } from './shipwright'
 
 const stores: SessionStore[] = []
 afterEach(() => {
@@ -1796,6 +1798,143 @@ describe('ShippingService enqueue transaction', () => {
     restarted.dispose()
   })
 
+  it('reopens a released train repair from its persisted context after restart and daemon loss', async () => {
+    const daemonEvidenceRef = `artifact://shipping/${'e'.repeat(64)}`
+    let evidenceRegistry: ShippingEvidenceRegistry | undefined
+    let persistedEvidenceRef: ReturnType<ShippingEvidenceRegistry['materialize']> | undefined
+    let originalContext: ShippingRepairContext | undefined
+    let reopenedContext: ShippingRepairContext | undefined
+    const consider = vi.fn(async (input: ShippingRepairContext) => {
+      if (!originalContext) {
+        originalContext = JSON.parse(JSON.stringify(input)) as ShippingRepairContext
+        persistedEvidenceRef = evidenceRegistry!.materialize({
+          sourceRef: daemonEvidenceRef,
+          content: 'persisted train failure evidence',
+          order: input.order,
+          attempt: input.attempt,
+          custody: input.custody,
+          authority: input.authority,
+        })
+        return {
+          kind: 'needs-decision' as const,
+          resultToken: 'train-repair-decision',
+          reasonCode: 'landing-conflict' as const,
+          headline: 'Train repair needs approval',
+          detail: 'Approve the bounded train repair.',
+          evidenceRefs: [],
+          actions: ['return-to-issue' as const, 'open-repair' as const],
+        }
+      }
+      reopenedContext = input
+      return {
+        kind: 'patched' as const,
+        resultToken: 'train-repair-patch',
+        repairRef: shipRepairRef(
+          input.order.id,
+          input.attempt.id,
+          input.attempt.leaseGeneration,
+          input.contextDigest,
+        ),
+        candidateHeadSha: 'reopened-train-candidate',
+      }
+    })
+    const repair: ShippingRepairPort = { consider, acknowledge: vi.fn(async () => {}) }
+    const daemon: Parameters<typeof harness>[0] = async (input, machineId) => {
+      if (input.action === 'start' && input.operation === 'prepare-merge-group') {
+        return {
+          jobId: input.jobId,
+          requestDigest: input.requestDigest,
+          orderId: input.orderId,
+          attemptId: input.attemptId,
+          machineId,
+          generation: input.generation,
+          operation: input.operation,
+          state: 'held',
+          classification: 'merge-conflict',
+          summary: 'train composition conflicted',
+          logs: [],
+          artifactRefs: [daemonEvidenceRef],
+          heartbeatedAt: '2026-08-13T10:00:00.000Z',
+          finishedAt: '2026-08-13T10:00:00.000Z',
+        }
+      }
+      return provedShippingJob(input, machineId)
+    }
+    const { store, issues, service, deps } = harness(daemon, { repair })
+    evidenceRegistry = new ShippingEvidenceRegistry(store.shipping)
+    const issueA = issues.create({ repoPath: '/repo', title: 'repair train a', startNow: false })
+    const issueB = issues.create({ repoPath: '/repo', title: 'repair train b', startNow: false })
+    issues.update(issueA.id, { stage: 'review' })
+    issues.update(issueB.id, { stage: 'review' })
+    const admitted = [
+      { issue: issueA, receipt: await service.enqueue({ issueId: issueA.id, ...approval }) },
+      { issue: issueB, receipt: await service.enqueue({ issueId: issueB.id, ...approval }) },
+    ].sort(
+      (left, right) =>
+        left.receipt.order.requestedAt.localeCompare(right.receipt.order.requestedAt) ||
+        left.receipt.order.id.localeCompare(right.receipt.order.id),
+    )
+    const sibling = admitted[0]!
+    const leader = admitted[1]!
+    store.shipping.claimTrain({
+      leaderOrderId: leader.receipt.order.id,
+      startedAt: '2026-08-13T10:00:00.000Z',
+      members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
+    })
+
+    await service.runOrder(leader.receipt.order.id, [sibling.receipt.order])
+    const hold = store.shipping.openHoldForOrder(leader.receipt.order.id)!
+    expect(hold.actions).toContain('open-repair')
+    expect(store.shipping.activeTrainForOrder(leader.receipt.order.id)).toBeNull()
+    expect(originalContext?.authority.train).toBeDefined()
+    service.dispose()
+
+    issues.update(leader.issue.id, { branch: 'issue/drifted-after-train-release' })
+    const unavailableDaemon = vi.fn(async () => {
+      throw new Error('daemon journal and logs unavailable')
+    })
+    deps.daemon.shippingJob = unavailableDaemon
+    const restarted = new ShippingService(deps)
+    const resolved = await restarted.resolveHold({
+      orderId: leader.receipt.order.id,
+      action: 'open-repair',
+      expectedGeneration: hold.generation,
+      principal: approval.principal,
+      overrideScope: false,
+    })
+
+    expect(resolved.order.state).toBe('repairing')
+    expect(reopenedContext).toEqual(originalContext)
+    expect(unavailableDaemon).not.toHaveBeenCalled()
+    const restartedEvidence = new ShippingEvidenceRegistry(store.shipping)
+    expect(
+      restartedEvidence.resolve({
+        sourceRef: daemonEvidenceRef,
+        order: reopenedContext!.order,
+        attempt: reopenedContext!.attempt,
+        custody: reopenedContext!.custody,
+        authority: reopenedContext!.authority,
+      }),
+    ).toBe(persistedEvidenceRef)
+    expect(
+      restartedEvidence.read(
+        {
+          ...reopenedContext!,
+          failure: { ...reopenedContext!.failure, artifactRefs: [persistedEvidenceRef!] },
+        },
+        persistedEvidenceRef!,
+        1024,
+      ),
+    ).toBe('persisted train failure evidence')
+    expect(
+      store.shipping.repairCandidatesForAttempt(originalContext!.attempt.id).at(-1),
+    ).toMatchObject({
+      contextDigest: originalContext!.contextDigest,
+      candidateHeadSha: 'reopened-train-candidate',
+    })
+    restarted.dispose()
+  })
+
   it('replays shipped receipts on boot to invalidate a later stale descendant', async () => {
     const { store, issues, service, deps } = harness(provedShippingJob, {
       resolveBranchTip: async (issue) =>
@@ -1837,6 +1976,79 @@ describe('ShippingService enqueue transaction', () => {
       holdCode: 'approval-stale',
     })
     expect(store.issues.getIssue(upperIssue.id)?.needsHuman).toBe(true)
+    restarted.dispose()
+  })
+
+  it('keeps a queued D2-based descendant valid when boot replays historical D1', async () => {
+    const { store, issues, service, deps } = harness(provedShippingJob, {
+      resolveBranchTip: async (issue) =>
+        issue.title === 'historical D1'
+          ? 'landing-d1'
+          : issue.title === 'D2 blocker'
+            ? 'blocker-head'
+            : 'descendant-head',
+      resolveRefTip: async (issue) =>
+        issue.title === 'historical D1' ? 'base-before-d1' : 'destination-d2',
+      isAncestor: async (_issue, ancestor, descendant) =>
+        (ancestor === 'landing-d1' && descendant === 'descendant-head') ||
+        (ancestor === 'landing-d1' && descendant === 'destination-d2') ||
+        (ancestor === 'blocker-head' && descendant === 'descendant-head'),
+    })
+    const landedIssue = issues.create({
+      repoPath: '/repo',
+      title: 'historical D1',
+      startNow: false,
+    })
+    issues.update(landedIssue.id, { stage: 'review' })
+    const landed = await service.enqueue({
+      issueId: landedIssue.id,
+      ...approval,
+      approved: {
+        ...approval.approved,
+        sourceBaseSha: 'base-before-d1',
+        sourceHeadSha: 'landing-d1',
+      },
+    })
+    await service.runOrder(landed.order.id)
+    expect(store.shipping.getOrder(landed.order.id)?.state).toBe('shipped')
+
+    const blockerIssue = issues.create({ repoPath: '/repo', title: 'D2 blocker', startNow: false })
+    issues.update(blockerIssue.id, { stage: 'review' })
+    await service.enqueue({
+      issueId: blockerIssue.id,
+      ...approval,
+      approved: {
+        ...approval.approved,
+        sourceBaseSha: 'destination-d2',
+        sourceHeadSha: 'blocker-head',
+      },
+    })
+    const descendantIssue = issues.create({
+      repoPath: '/repo',
+      title: 'D2 descendant',
+      startNow: false,
+    })
+    issues.update(descendantIssue.id, { stage: 'review' })
+    const descendant = await service.enqueue({
+      issueId: descendantIssue.id,
+      ...approval,
+      approved: {
+        ...approval.approved,
+        sourceBaseSha: 'destination-d2',
+        sourceHeadSha: 'descendant-head',
+      },
+    })
+    service.dispose()
+
+    deps.daemon.shippingJob = async () => {
+      throw new Error('daemon unavailable during boot')
+    }
+    deps.machineCapabilities = () => []
+    const restarted = new ShippingService(deps)
+    await expect(restarted.reconcile()).rejects.toThrow(/daemon unavailable during boot/)
+    expect(store.shipping.getOrder(descendant.order.id)?.state).toBe('queued')
+    expect(store.shipping.openHoldForOrder(descendant.order.id)).toBeNull()
+    expect(store.issues.getIssue(descendantIssue.id)?.needsHuman).toBe(false)
     restarted.dispose()
   })
 
