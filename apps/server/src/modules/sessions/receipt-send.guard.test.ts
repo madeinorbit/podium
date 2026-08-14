@@ -83,7 +83,7 @@ describe('W4 guard: the legacy send verbs have a closed set of callers (C5)', ()
 })
 
 describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () => {
-  const sender = (onContract: boolean) => {
+  const sender = (onContract: boolean, queueNotEmpty = false) => {
     const forwarded: string[] = []
     const enqueued: string[] = []
     const s = new ReceiptSender({
@@ -107,6 +107,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       },
       onContract: () => onContract,
       liveWithEmptyQueue: () => false,
+      queueNotEmpty: () => queueNotEmpty,
       systemPrincipal: () => ({
         kind: 'system',
         attribution: { actor: { kind: 'system', job: 'guard' }, onBehalfOf: null },
@@ -153,6 +154,7 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
       },
       onContract: () => true,
       liveWithEmptyQueue: () => false,
+      queueNotEmpty: () => false,
       systemPrincipal: () => ({
         kind: 'system',
         attribution: { actor: { kind: 'system', job: 'guard' }, onBehalfOf: null },
@@ -187,6 +189,24 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
 
     expect(forwarded).toEqual(['when-ready', 'interrupt'])
     expect(enqueued).toEqual([])
+  })
+
+  it('holds a live send behind a non-empty durable queue rather than jumping it', () => {
+    // ORDER, WHICH THE DRIVER CANNOT PROTECT. Once a session has a driver there
+    // are two queues — the server's durable table and the driver's in-memory one
+    // — and nothing sequences between them. A `when-ready` sent past older rows
+    // still waiting to drain would be typed FIRST, silently reordering the
+    // conversation.
+    //
+    // This is the line between the guess the migration removes and the fact it
+    // must keep: "can the agent take bytes now" is the driver's question, and it
+    // now answers it. "Is there older work ahead of this" is a fact about the
+    // server's own table, which the driver has never seen.
+    const { s, forwarded, enqueued } = sender(true, true)
+    s.send('now', { sessionId: asSessionId('s1'), text: 'newer' })
+
+    expect(enqueued).toEqual(['newer'])
+    expect(forwarded).toEqual([])
   })
 
   it('touches neither path for a session with no driver behind it', () => {

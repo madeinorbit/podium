@@ -138,6 +138,16 @@ export interface ReceiptSenderPorts {
    * the session" into "dropped".
    */
   liveWithEmptyQueue(sessionId: SessionId): boolean
+  /**
+   * Is there older work in the SERVER's durable queue ahead of this send —
+   * anything queued, or a drain in flight.
+   *
+   * An ordering fact, not a readiness one, and the driver cannot supply it: the
+   * durable table is the server's and the driver has never seen it. See the
+   * `orderingHold` note in `send` for why the distinction decides whether a
+   * `now` may go straight to the driver.
+   */
+  queueNotEmpty(sessionId: SessionId): boolean
   /** The principal an unattributed turn is queued as. Supplied by the composition
    *  root so "who is system" is answered in one visible place. */
   systemPrincipal(): InboxPrincipalReference
@@ -175,7 +185,28 @@ export class ReceiptSender {
     // THE DURABLE MODES COMPLETE HERE, synchronously, through the same table the
     // gateway uses — so the caller's answer is as immediate and as true as it was
     // before, and the receipt it reconciles with is built from the same enqueue.
-    if (via === 'queue' || (via === 'wake' && !this.ports.liveWithEmptyQueue(input.sessionId))) {
+    //
+    // `now` JOINS THEM WHENEVER THE SERVER FIFO IS NOT EMPTY, and that guard is
+    // load-bearing rather than defensive. `sendText` queues instead of typing
+    // when anything is already queued or draining, and it does so to preserve
+    // ORDER: there are two queues once a driver exists — the server's durable
+    // table and the driver's in-memory one — and nothing sequences between them.
+    // A `when-ready` sent past a non-empty server queue would be typed BEFORE the
+    // older messages still waiting to drain, silently reordering a conversation.
+    //
+    // This is the same distinction `liveWithEmptyQueue` draws for `wake`, and it
+    // is worth being precise about, because "the server stops predicting
+    // readiness" is exactly the kind of principle that eats an invariant it was
+    // never aimed at: readiness ("can the agent take bytes now") is the driver's
+    // question and the migration hands it over. Ordering ("is there older work
+    // ahead of this") is a fact about the server's own table, which the driver
+    // cannot see and therefore cannot answer.
+    const orderingHold = via === 'now' && this.ports.queueNotEmpty(input.sessionId)
+    if (
+      via === 'queue' ||
+      orderingHold ||
+      (via === 'wake' && !this.ports.liveWithEmptyQueue(input.sessionId))
+    ) {
       return this.enqueue(via, input, onReceipt)
     }
 

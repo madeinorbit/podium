@@ -537,6 +537,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const s = bag.sessions.get(sessionId)
       return s?.status === 'live' && s.queuedMessageCount === 0
     },
+    // The SAME condition `SessionInbox.sendText` uses to queue instead of type,
+    // and for the same reason: order. Once a driver exists there are two queues
+    // and nothing sequences between them, so a live send past a non-empty
+    // durable queue would land ahead of older messages still waiting to drain.
+    queueNotEmpty: (sessionId: SessionId) => {
+      const s = bag.sessions.get(sessionId)
+      return (s?.queuedMessageCount ?? 0) > 0 || bag.inbox.isDraining(sessionId)
+    },
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
   })
