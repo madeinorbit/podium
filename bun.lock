@@ -242,6 +242,7 @@
         "@podium/harness": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/transcript": "workspace:*",
         "zod": "^3.24.1",
       },
       "devDependencies": {

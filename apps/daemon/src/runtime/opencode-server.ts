@@ -61,6 +61,7 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
+import type { OpencodeClientTerminals } from './opencode-attach'
 
 const log = createLogger('daemon:opencode-server')
 
@@ -352,13 +353,16 @@ function spawnSyncVersion(): { stdout: string; stderr: string; ok: boolean } {
 export interface OpencodeHostDeps {
   /** Whole-subtree RSS for a session, from the daemon's own attribution. */
   memoryBytes(input: { sessionId: SessionId; label: string; pid?: number }): number | undefined
-  /** Start `opencode attach <url>` under a durable host, for `attach()`.
-   *  `undefined` from the whole function = this machine cannot host one. */
-  attachClient?(input: {
-    sessionId: SessionId
-    url: string
-    mode: 'takeover' | 'peek'
-  }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
+  /**
+   * Where `opencode attach <url>` actually runs, for `attach()` (POD-2059).
+   *
+   * OPTIONAL, AND ITS ABSENCE IS AN ANSWER. A daemon built without one hosts no
+   * client terminals, `attachClient` below returns `undefined`, and the driver
+   * refuses with "this machine cannot host a client terminal" — a per-machine
+   * fact, not a capability lie: the endpoint VARIANT the opencode capability
+   * declares is still the one this family produces wherever it CAN produce one.
+   */
+  clientTerminals?: OpencodeClientTerminals
   journal?: OpencodeJournal
   now?(): number
 }
@@ -413,6 +417,11 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
   async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL'): Promise<void> {
     children.get(sessionId)?.kill(signal)
     children.delete(sessionId)
+    // AND THE CLIENT TERMINAL. Attachment lifecycle is strictly subordinate to
+    // the session (spec §5): a client left alive against a server that just died
+    // shows a frozen screen and holds its memory for the warm TTL, for a session
+    // nobody can reach any more.
+    await deps.clientTerminals?.close(sessionId)
     // AND THE SCOPE. Signalling the direct child leaves its cgroup — and any
     // grandchild the agent spawned — behind, which is exactly the state that
     // squats the deterministic unit name and pushes the NEXT spawn into the
@@ -451,6 +460,12 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         // would read it as a Podium bug.
         throw new Error(`${diagnostic.title}: ${diagnostic.body}`)
       }
+
+      // A client terminal from a PREVIOUS life of this session is pointed at a
+      // server that is about to be replaced by one on a different port. It cannot
+      // be re-used and would sit warm showing a dead connection, so it goes now
+      // rather than at its TTL.
+      await deps.clientTerminals?.close(input.sessionId)
 
       const port = await freeLoopbackPort()
       const baseUrl = `http://127.0.0.1:${port}`
@@ -556,6 +571,11 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       // port that has been recycled answers nothing on this credential, which is
       // exactly the discrimination we need.
       if (!(await probeHealth(entry.baseUrl, entry.secret))) return undefined
+      // The session survived this daemon, and so may its client terminal: the
+      // attachment is in its own scope precisely so a redeploy cannot reach it.
+      // Nobody is holding its idle clock any more, so put it back under the
+      // reaper — an unadopted one would stay resident until the machine rebooted.
+      deps.clientTerminals?.adopt(binding.sessionId)
       return endpointFor({
         sessionId: binding.sessionId,
         baseUrl: entry.baseUrl,
@@ -565,14 +585,51 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       })
     },
 
+    /**
+     * THE CLIENT TERMINAL: `opencode attach <url>` against THIS session's server
+     * (POD-2059). The process itself, its scope and its warm window are
+     * `opencode-attach.ts`'s; what belongs here is which server and which
+     * conversation it must open.
+     *
+     * THE URL COMES FROM THE DRIVER, THE REST FROM THE JOURNAL. The driver holds
+     * the live binding, so its `url` is the authoritative one; the journal is
+     * where the conversation id and the credential for it were persisted, and
+     * they are written together on every bind so they cannot disagree with it.
+     */
     async attachClient(input) {
-      return (
-        (await deps.attachClient?.({
+      const terminals = deps.clientTerminals
+      if (!terminals) return undefined
+      const entry = journal.read(input.sessionId)
+      /**
+       * NO CONVERSATION ID, NO ATTACH. `opencode attach` without `--session`
+       * opens a DIFFERENT conversation on the same server, which is a terminal
+       * the user did not ask for — and a screen showing someone else's chat is
+       * worse than a refusal. A bound session always has one; this is the
+       * pre-bind window, not a supported degradation.
+       */
+      if (!entry?.opencodeSessionId) return undefined
+      try {
+        return await terminals.attach({
           sessionId: input.sessionId,
-          url: input.url,
           mode: input.mode,
-        })) ?? undefined
-      )
+          target: {
+            url: input.url,
+            username: entry.username,
+            secret: entry.secret,
+            opencodeSessionId: entry.opencodeSessionId,
+            workdir: entry.workdir,
+          },
+        })
+      } catch (err) {
+        // A client that would not start is a machine that cannot host one right
+        // now, which is exactly what `undefined` says. The CAUSE only exists
+        // here, so it is logged here rather than lost in the refusal's wording.
+        log.warn('could not host a client terminal for the session', {
+          err,
+          sessionId: input.sessionId,
+        })
+        return undefined
+      }
     },
   }
 }

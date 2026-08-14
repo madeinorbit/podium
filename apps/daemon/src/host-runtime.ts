@@ -3,7 +3,7 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import { FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
@@ -70,6 +70,7 @@ import {
   createDaemonOpencodeRuntime,
   type DaemonOpencodeRuntime,
 } from './runtime/opencode-driver'
+import { createOpencodeClientTerminals } from './runtime/opencode-attach'
 import { createOpencodeHost } from './runtime/opencode-server'
 import { daemonRuntimeHost } from './runtime/host'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
@@ -571,6 +572,21 @@ export async function createDaemonHostRuntime(args: {
           [],
           { selfPid: process.pid },
         ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+      /**
+       * `attach()`'s client terminal (POD-2059), on the frames path this daemon
+       * already runs. The stream id is the key, exactly as the engine variant's
+       * endpoint uses the session id — one relay, two kinds of terminal.
+       *
+       * NOT GATED ON abduco BEING PRESENT, deliberately. Probing for it here
+       * would make every daemon boot pay for resolving (and on a cold machine,
+       * BUILDING) the vendored binary, for a client most sessions never open. A
+       * machine that cannot start one says so at the attach that asks for it —
+       * the spawn fails, the port answers `undefined`, and the driver refuses
+       * with the per-machine wording.
+       */
+      clientTerminals: createOpencodeClientTerminals({
+        frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),
+      }),
     }),
   })
   ctx.opencodeRuntime = opencodeRuntime
