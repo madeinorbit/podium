@@ -452,8 +452,10 @@ export class SessionRegistry {
           id: machine.id,
           name: machine.name,
           // Already the RESOLVED channel (pin, else fleet default) — see
-          // MachinesService.listMachines.
-          channel: machine.updateChannel ?? 'stable',
+          // MachinesService.listMachines. No fallback literal here: the service
+          // resolves an absent channel through the SAME helper (POD-2100), and a
+          // second literal is exactly how the two paths disagreed.
+          channel: machine.updateChannel,
           version: machine.appVersion ?? 'unreported',
           state: 'current',
           online: machine.online,
@@ -469,6 +471,10 @@ export class SessionRegistry {
       nextGrantId: () => randomUUID(),
       resolveTarget: resolveReleaseTarget,
       concurrency: 3,
+      // Read per call for the same reason `MachinesService` reads it per call:
+      // Settings → Updates writes the fleet default into config.json, and an
+      // unpinned machine must follow the CURRENT value (POD-1882).
+      fleetChannel: () => resolveUpdateChannel(),
     })
     updates = updatesService
     const requestBroker = new DaemonRequestBroker({

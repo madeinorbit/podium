@@ -1,5 +1,5 @@
 import type { MachineId, UpdateChannel } from '@podium/model'
-import { asMachineId } from '@podium/model'
+import { asMachineId, resolveMachineChannel } from '@podium/model'
 import type {
   ConvergenceState,
   UpdateGrantMessage,
@@ -24,7 +24,45 @@ export interface UpdatesDeps {
   /** Overridable only so tests can age a grant without waiting ten minutes. */
   grantDeadlineMs?: number
   resolveTarget?(channel: 'edge' | 'stable'): Promise<UpdateTarget>
+  /**
+   * The instance's fleet default channel, read PER CALL so a Settings write is
+   * followed without a restart (the same discipline `MachinesService` uses for
+   * it). Absent only in tests that state no fleet default; see
+   * `resolveMachineChannel`.
+   */
+  fleetChannel?(): UpdateChannel
+  /** Overridable only so tests can exercise the forced-check window. */
+  forcedCheckIntervalMs?: number
 }
+
+/** What one channel's last release-target lookup produced. */
+export type ChannelCheckOutcome = { status: 'ok' } | { status: 'unavailable'; reason: string }
+
+/**
+ * One channel's refresh bookkeeping — the answer to "when did this instance last
+ * ask, and what did it hear?".
+ *
+ * Without it a boot-time failure is indistinguishable from a target that was
+ * checked a minute ago and genuinely has nothing published, which is exactly the
+ * state Settings has to be able to describe ("checked 2 h ago"). Spec §9.2 makes
+ * the cadence part of the contract: shown, not implied.
+ */
+export interface ChannelCheckRecord {
+  channel: UpdateChannel
+  checkedAt: number
+  outcome: ChannelCheckOutcome
+}
+
+/** Rendering order for {@link UpdatesService.channelChecks}; not a priority. */
+const CHANNEL_ORDER: readonly UpdateChannel[] = ['dev', 'edge', 'stable']
+
+/**
+ * How often a human-driven check may actually reach the release feed. Two
+ * clients with the panel open, or one impatient person, must not turn a button
+ * into a request loop; inside the window the recorded outcome is returned
+ * unchanged, which is the honest answer ("this is what we know, as of then").
+ */
+const FORCED_CHECK_INTERVAL_MS = 30_000
 
 interface MachineConvergenceState {
   channel: UpdateChannel
@@ -87,6 +125,7 @@ export class UpdatesService {
   private readonly rollouts = new Map<UpdateChannel, ChannelRolloutState>()
   private readonly machineStates = new Map<string, MachineConvergenceState>()
   private readonly pendingGrants = new Map<string, PendingGrant>()
+  private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
 
   constructor(private readonly deps: UpdatesDeps) {}
 
@@ -181,25 +220,104 @@ export class UpdatesService {
   /** Refresh one selected authority without turning a failed lookup into a stale grant. */
   async refreshTarget(channel: UpdateChannel): Promise<void> {
     if (channel === 'dev') {
+      // Dev is publisher-pushed, so "refreshing" it is only ever a report on what
+      // the source server has already published.
+      const reason = 'Development target is not currently published by this source server.'
       if (!this.target('dev')) {
-        this.unavailableReasons.set(
-          'dev',
-          'Development target is not currently published by this source server.',
-        )
+        this.unavailableReasons.set('dev', reason)
+        this.recordCheck('dev', { status: 'unavailable', reason })
+        return
       }
+      this.recordCheck('dev', { status: 'ok' })
       return
     }
     if (!this.deps.resolveTarget) {
-      this.unavailableReasons.set(channel, `${channel} target resolver is not configured.`)
+      const reason = `${channel} target resolver is not configured.`
+      this.unavailableReasons.set(channel, reason)
+      this.recordCheck(channel, { status: 'unavailable', reason })
       return
     }
     try {
+      // setTarget clears any recorded unavailable reason, which is what stops a
+      // failed boot-time resolve from being pinned as the eternal truth for the
+      // life of the process.
       this.setTarget(channel, await this.deps.resolveTarget(channel))
+      this.recordCheck(channel, { status: 'ok' })
     } catch (error) {
-      if (!this.target(channel)) {
-        this.unavailableReasons.set(channel, error instanceof Error ? error.message : String(error))
-      }
+      const reason = error instanceof Error ? error.message : String(error)
+      // The reason shown to clients describes the ABSENCE of a target, so a
+      // failed lookup that leaves a previously-good target standing must not
+      // manufacture one. The CHECK still failed, and says so — those are two
+      // different questions and this is where they stopped being one.
+      if (!this.target(channel)) this.unavailableReasons.set(channel, reason)
+      this.recordCheck(channel, { status: 'unavailable', reason })
     }
+  }
+
+  /**
+   * Refresh every channel this instance actually uses, at human request, at most
+   * once per channel per {@link FORCED_CHECK_INTERVAL_MS}.
+   *
+   * Inside the window the recorded outcome comes back unchanged rather than an
+   * error or a silent no-op: the caller asked "what is the state of things", and
+   * a thirty-second-old answer is a true answer to that question.
+   */
+  async checkNow(): Promise<ChannelCheckRecord[]> {
+    const window = this.deps.forcedCheckIntervalMs ?? FORCED_CHECK_INTERVAL_MS
+    const results: ChannelCheckRecord[] = []
+    for (const channel of this.channelsInUse()) {
+      const cached = this.checks.get(channel)
+      if (cached && this.deps.now() - cached.checkedAt < window) {
+        results.push(cached)
+        continue
+      }
+      await this.refreshTarget(channel)
+      const record = this.checks.get(channel)
+      if (record) results.push(record)
+    }
+    return results
+  }
+
+  /**
+   * The channels this instance is answerable for: the fleet default, plus every
+   * channel some machine is actually pinned to. Refreshing anything else would
+   * be work nobody asked for, and omitting a pinned channel would leave the one
+   * machine that cares about it on a boot-time target.
+   */
+  channelsInUse(): UpdateChannel[] {
+    const inUse = new Set<UpdateChannel>([this.fleetDefaultChannel()])
+    for (const machine of this.deps.machines()) inUse.add(this.channelOf(machine))
+    return CHANNEL_ORDER.filter((channel) => inUse.has(channel))
+  }
+
+  /** Per-channel refresh bookkeeping, for the fleet read model. */
+  channelChecks(): ChannelCheckRecord[] {
+    return CHANNEL_ORDER.map((channel) => this.checks.get(channel)).filter(
+      (record): record is ChannelCheckRecord => record !== undefined,
+    )
+  }
+
+  /**
+   * Is a convergence wave in flight on this channel?
+   *
+   * The scheduled refresh asks before it re-resolves: replacing a target under a
+   * machine that is mid-download would strand its grant against a descriptor the
+   * coordinator no longer publishes (`setTarget` clears the pending records for
+   * the channel on a version change). A skipped tick costs at most one day of
+   * staleness; a yanked target costs the update.
+   */
+  operationActive(channel: UpdateChannel): boolean {
+    for (const pending of this.pendingGrants.values()) {
+      if (pending.channel === channel) return true
+    }
+    for (const state of this.machineStates.values()) {
+      if (state.channel === channel && IN_FLIGHT_STATES.has(state.state)) return true
+    }
+    return false
+  }
+
+  private recordCheck(channel: UpdateChannel, outcome: ChannelCheckOutcome): void {
+    this.checks.set(channel, { channel, checkedAt: this.deps.now(), outcome })
   }
 
   onStatus(machineId: MachineId, message: UpdateStatusMessage): void {
@@ -503,15 +621,34 @@ export class UpdatesService {
     return issued
   }
 
+  /**
+   * Undefined means NOT REGISTERED — never "registered but unpinned" (POD-2100).
+   *
+   * Reading the projection's `channel` field raw conflated the two, so a real
+   * machine with no pin was reported to its own operator as "no longer
+   * registered". A registered machine always has a channel; that is what the
+   * fleet default IS.
+   */
   private channelForMachine(machineId: MachineId): UpdateChannel | undefined {
-    return (
-      this.deps.channelFor?.(machineId) ??
-      this.deps.machines().find((candidate) => candidate.id === machineId)?.channel
-    )
+    const selected = this.deps.channelFor?.(machineId)
+    if (selected) return selected
+    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
+    return machine ? this.channelOf(machine) : undefined
   }
 
-  private channelOf(machine: WaveMachine): UpdateChannel {
-    return machine.channel ?? 'dev'
+  /**
+   * PUBLIC because it must be the only answer (POD-2100). The fleet read model
+   * used to decide "is this a development machine?" with its own `?? 'dev'`, so
+   * a machine with no pin could be counted into the dev wave here and resolved
+   * to `stable` by the handler that grants it.
+   */
+  channelOf(machine: WaveMachine): UpdateChannel {
+    return resolveMachineChannel(machine.channel, this.deps.fleetChannel?.())
+  }
+
+  /** The channel an unpinned machine follows. */
+  fleetDefaultChannel(): UpdateChannel {
+    return resolveMachineChannel(undefined, this.deps.fleetChannel?.())
   }
 
   private rollout(channel: UpdateChannel): ChannelRolloutState {

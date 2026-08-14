@@ -4,7 +4,8 @@ import { TRPCError } from '@trpc/server'
 import { serverBuildVersion } from '../../build-version'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
-import type { UpdatesService } from './service'
+import type { ChannelCheckRecord, UpdatesService } from './service'
+import type { WaveMachine } from './wave'
 
 const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
 const FAILED: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
@@ -21,8 +22,14 @@ const COORDINATOR_WAIT_ABANDONED_DETAIL =
 const WEB_IDENTITY_POLL_MS = 500
 const WEB_IDENTITY_WAIT_MS = 5 * 60_000
 
-function isDevelopmentMachine(machine: { channel?: string }): boolean {
-  return (machine.channel ?? 'dev') === 'dev'
+/**
+ * ASKED, NOT ASSUMED (POD-2100). This used to default an unpinned machine to
+ * `dev` on its own, so a machine the grant path resolved to the fleet default
+ * could still be counted into the dev-authority wave the dialog reports on.
+ * `channelOf` is now the single resolution site for everyone.
+ */
+function isDevelopmentMachine(updates: UpdatesService, machine: WaveMachine): boolean {
+  return updates.channelOf(machine) === 'dev'
 }
 
 /** dest+HEAD with no dest tarball cannot be delivered to dest bundle/feed machines. */
@@ -122,6 +129,13 @@ export interface UpdateFleetSnapshot {
    * per machine so an edge/stable row can show its own convergence.
    */
   allMachines: UpdateFleetMachine[]
+  /**
+   * When each channel in use was last checked and what came back (POD-2100).
+   * ADDITIVE and tolerant of absence per the frozen-contract law (spec P8): an
+   * old bundle rendering a new server ignores it, and a channel that has never
+   * been checked has no entry rather than a fabricated one.
+   */
+  channelChecks: ChannelCheckRecord[]
 }
 
 function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
@@ -133,7 +147,7 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
   const allMachines = updates
     .fleet()
     .map((machine) => ({ ...machine, id: asMachineId(machine.id) }))
-  const machines = allMachines.filter((machine) => isDevelopmentMachine(machine))
+  const machines = allMachines.filter((machine) => isDevelopmentMachine(updates, machine))
   const target = updates.target()
   const grantable = target !== undefined && canGrantDevelopmentFleet(target)
   const behind = targetVersion
@@ -148,6 +162,7 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
     failed: grantable ? machines.filter((machine) => FAILED.has(machine.state)).length : 0,
     machines,
     allMachines,
+    channelChecks: updates.channelChecks(),
   }
 }
 
@@ -391,6 +406,13 @@ function continueDevelopmentUpdate(input: {
 export function updateProcedures() {
   return {
     fleet: t.procedure.query(({ ctx }) => updateFleet(ctx)),
+    /**
+     * "Check for updates now" (spec §9.2). The daily timer answers "is anything
+     * new"; this answers it for a human who is looking at the panel and does not
+     * want to wait a day. Rate-limited per channel inside the service, so a
+     * held-down button is one feed request, not a loop.
+     */
+    checkNow: t.procedure.mutation(({ ctx }) => familyState(ctx).modules.updates.checkNow()),
     repairCompatibility: t.procedure.mutation(({ ctx }) => {
       if (!ctx.requestCoordinatorRestart) {
         throw new TRPCError({

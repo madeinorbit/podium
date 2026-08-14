@@ -167,6 +167,139 @@ describe('fleet default update channel', () => {
   })
 })
 
+/**
+ * POD-2100. The disagreement this replaces was not subtle:
+ * `UpdatesService.channelOf` resolved a machine with no pin to `dev` while
+ * `machines.setUpdateChannel` and `machines.applyUpdate` resolved the SAME
+ * machine to `stable`. Which authority a machine belonged to depended on which
+ * code path asked, which decides which target it is granted.
+ *
+ * The claim under test is an identity, so the test states it as one: one machine,
+ * three paths, one channel.
+ */
+describe('one default channel', () => {
+  function addMachine(registry: ReturnType<typeof harness>['registry'], id: string) {
+    registry.sessionStore.machines.upsertMachine({
+      id,
+      name: id,
+      hostname: id,
+      tokenHash: `${id}-token`,
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+  }
+
+  it('resolves an unpinned machine identically through channelOf and both fleet handlers', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'edge'
+    const { registry, caller } = harness()
+    addMachine(registry, 'unpinned')
+    const refreshTarget = vi
+      .spyOn(registry.modules.updates, 'refreshTarget')
+      .mockResolvedValue(undefined)
+
+    const machine = registry.modules.updates.fleet().find((row) => row.id === 'unpinned')
+    expect(machine).toBeDefined()
+    expect(registry.modules.updates.channelOf(machine as never)).toBe('edge')
+
+    await caller.machines.setUpdateChannel({ id: 'unpinned', channel: null })
+    await caller.machines.applyUpdate({ id: 'unpinned' })
+
+    // Not merely "each handler refreshed something" — the SAME channel the
+    // service would grant against, twice.
+    expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['edge', 'edge'])
+    registry.dispose()
+  })
+
+  it('follows the fleet default onto dev as readily as onto stable', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'dev'
+    const { registry, caller } = harness()
+    addMachine(registry, 'unpinned')
+    const refreshTarget = vi
+      .spyOn(registry.modules.updates, 'refreshTarget')
+      .mockResolvedValue(undefined)
+
+    const machine = registry.modules.updates.fleet().find((row) => row.id === 'unpinned')
+    expect(registry.modules.updates.channelOf(machine as never)).toBe('dev')
+
+    await caller.machines.applyUpdate({ id: 'unpinned' })
+
+    expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['dev'])
+    registry.dispose()
+  })
+
+  it('lets a pin win over the fleet default on every path', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'edge'
+    const { registry, caller } = harness()
+    addMachine(registry, 'pinned')
+    registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
+    const refreshTarget = vi
+      .spyOn(registry.modules.updates, 'refreshTarget')
+      .mockResolvedValue(undefined)
+
+    const machine = registry.modules.updates.fleet().find((row) => row.id === 'pinned')
+    expect(registry.modules.updates.channelOf(machine as never)).toBe('stable')
+
+    await caller.machines.applyUpdate({ id: 'pinned' })
+
+    expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['stable'])
+    registry.dispose()
+  })
+})
+
+/**
+ * Spec §9.2 makes the refresh cadence part of the contract — "checked 2 h ago"
+ * has to be renderable, which means the check has to be recorded and exposed.
+ */
+describe('release target checks', () => {
+  /** The release feed is stubbed: a unit lane must never reach the network. */
+  const offline = () =>
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('getaddrinfo ENOTFOUND'))
+
+  it('exposes per-channel checked-at and outcome on the fleet payload', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'stable'
+    const fetchSpy = offline()
+    const { registry, caller } = harness()
+    await registry.modules.updates.refreshTarget('stable')
+
+    const fleet = await caller.updates.fleet()
+
+    expect(fleet.channelChecks).toEqual([
+      {
+        channel: 'stable',
+        checkedAt: expect.any(Number),
+        outcome: {
+          status: 'unavailable',
+          reason: 'stable target unavailable: getaddrinfo ENOTFOUND',
+        },
+      },
+    ])
+    fetchSpy.mockRestore()
+    registry.dispose()
+  })
+
+  it('has nothing to say about a channel it has never checked', async () => {
+    const { registry, caller } = harness()
+
+    await expect(caller.updates.fleet()).resolves.toMatchObject({ channelChecks: [] })
+    registry.dispose()
+  })
+
+  it('checkNow checks the channels in use and returns their outcomes', async () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'stable'
+    const fetchSpy = offline()
+    const { registry, caller } = harness()
+
+    const results = await caller.updates.checkNow()
+
+    // The host machine is pinned to `dev` by the harness, and the fleet default
+    // is `stable`; both are in use, nothing else is — `edge` is not polled for
+    // nobody's benefit.
+    expect(results.map((record) => record.channel)).toEqual(['dev', 'stable'])
+    expect(results.every((record) => record.outcome.status === 'unavailable')).toBe(true)
+    fetchSpy.mockRestore()
+    registry.dispose()
+  })
+})
+
 describe('updates tRPC', () => {
   it('reports coordinator preparation readiness and failures with the fleet', async () => {
     const preparation = {

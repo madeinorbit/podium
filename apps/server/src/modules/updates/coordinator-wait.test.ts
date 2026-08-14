@@ -32,6 +32,8 @@ describe('restartCoordinatorAfterDevelopmentFleet', () => {
       nextGrantId: () => 'g1',
       concurrency: 3,
       grantDeadlineMs: SILENCE_MS,
+      // This is the development wave, stated rather than assumed (POD-2100).
+      fleetChannel: () => 'dev',
     })
     service.setTarget(target)
     service.authorize()

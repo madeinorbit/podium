@@ -13,6 +13,7 @@ import {
   type MachineId,
   type MachineUseDecision,
   type MachineWire,
+  resolveMachineChannel,
   type UpdateChannel,
   type UserId,
 } from '@podium/model'
@@ -566,7 +567,7 @@ export class MachinesService {
    * service never reads config directly and tests can state a fleet default.
    */
   private fleetChannel(): UpdateChannel {
-    return this.deps.fleetUpdateChannel?.() ?? 'stable'
+    return resolveMachineChannel(undefined, this.deps.fleetUpdateChannel?.())
   }
 
   /**
@@ -577,7 +578,7 @@ export class MachinesService {
   updateChannel(machineId: MachineId): UpdateChannel | undefined {
     const machine = this.machineRecords().find((candidate) => candidate.id === machineId)
     if (!machine) return undefined
-    return machine.updateChannelOverride ?? this.fleetChannel()
+    return resolveMachineChannel(machine.updateChannelOverride, this.fleetChannel())
   }
 
   listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): MachineListing[] {
@@ -600,7 +601,7 @@ export class MachinesService {
         hostname: m.hostname,
         online: this.daemons.has(m.id),
         lastSeenAt: m.lastSeenAt,
-        updateChannel: m.updateChannelOverride ?? this.fleetChannel(),
+        updateChannel: resolveMachineChannel(m.updateChannelOverride, this.fleetChannel()),
         updateChannelOverride: m.updateChannelOverride,
         targetVersion: target ?? null,
         targetUnavailableReason: targetUnavailableReason ?? null,

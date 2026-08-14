@@ -16,7 +16,7 @@
  * dependency does not drag the whole fleet module into the hub role.
  */
 
-import { asMachineId } from '@podium/model'
+import { asMachineId, resolveMachineChannel } from '@podium/model'
 import type { UpdateChannel, UserId, MachineId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
@@ -78,11 +78,16 @@ export const machineSetUpdateChannelHandler = async ({
   input,
 }: FleetArgs<{ id: string; channel: UpdateChannel | null }>) => {
   const modules = mods(ctx)
-  modules.machines.setUpdateChannel(asMachineId(input.id), input.channel)
+  const machineId = asMachineId(input.id)
+  modules.machines.setUpdateChannel(machineId, input.channel)
   // Refresh the channel the machine ACTUALLY lands on, which after a `null` clear
-  // is the fleet default rather than anything in the input (POD-1882).
+  // is the fleet default rather than anything in the input (POD-1882) — and the
+  // fleet default is asked for, not assumed to be a literal (POD-2100).
   await modules.updates.refreshTarget(
-    modules.machines.updateChannel(asMachineId(input.id)) ?? 'stable',
+    resolveMachineChannel(
+      modules.machines.updateChannel(machineId),
+      modules.updates.fleetDefaultChannel(),
+    ),
   )
   return modules.machines.listMachines()
 }
@@ -91,7 +96,9 @@ export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: 
   const modules = mods(ctx)
   const machine = modules.machines.listMachines().find((candidate) => candidate.id === input.id)
   if (!machine) throw new TRPCError({ code: 'NOT_FOUND', message: 'machine not found' })
-  await modules.updates.refreshTarget(machine.updateChannel ?? 'stable')
+  await modules.updates.refreshTarget(
+    resolveMachineChannel(machine.updateChannel, modules.updates.fleetDefaultChannel()),
+  )
   // The outcome is what this machine's row will say. Callers must not infer
   // success from a granted-id list: an empty list has five different meanings.
   const outcome = modules.updates.authorizeMachine(asMachineId(input.id))

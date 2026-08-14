@@ -72,6 +72,7 @@ import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
+import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
@@ -442,6 +443,14 @@ export async function startServer(
     registry.modules.updates.refreshTarget('edge'),
     registry.modules.updates.refreshTarget('stable'),
   ])
+  // …and keep asking. Boot is the only time this used to happen, so a server up
+  // for a month advertised the day-one target and a feed that was unreachable in
+  // that one boot second stayed "unavailable" for the month (POD-2100, spec §9.2).
+  const targetRefresh = startTargetRefresh({
+    refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+    operationActive: (channel) => registry.modules.updates.operationActive(channel),
+    schedule: timerSchedule,
+  })
 
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
@@ -1080,6 +1089,9 @@ export async function startServer(
           server,
           persist: [
             ['messaging.stop', () => messaging.stop()],
+            // An armed refresh timer that outlives the server would resolve a
+            // target against a service whose store is already closed.
+            ['updates.stopTargetRefresh', () => targetRefresh.stop()],
             // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
             // final network flush: shutdown is a user-visible latency path
             // (POD-611 made it deterministic and fast), and a report is worth
