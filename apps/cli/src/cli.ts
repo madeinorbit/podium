@@ -160,6 +160,7 @@ export type LaunchPlan =
   | { kind: 'worktree'; args: string[] }
   | { kind: 'workspace'; args: string[] }
   | { kind: 'lock'; args: string[] }
+  | { kind: 'interactions'; args: string[] }
   | { kind: 'workflow'; args: string[] }
   | { kind: 'merge-lock'; args: string[] }
   | { kind: 'status' }
@@ -605,6 +606,7 @@ export function resolvePlan(
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
   if (argv[0] === 'workspace') return { kind: 'workspace', args: argv.slice(1) }
   if (argv[0] === 'lock') return { kind: 'lock', args: argv.slice(1) }
+  if (argv[0] === 'interactions') return { kind: 'interactions', args: argv.slice(1) }
   if (argv[0] === 'workflow') return { kind: 'workflow', args: argv.slice(1) }
   if (argv[0] === 'merge-lock') return { kind: 'merge-lock', args: argv.slice(1) }
   if (argv[0] === 'status') return { kind: 'status' }
@@ -1482,6 +1484,14 @@ export async function main(
     case 'workflow': {
       const { workflowCliMain } = await import('./workflow-cli')
       await workflowCliMain(plan.args)
+      return
+    }
+    // `podium interactions <command>` (POD-2020): the blocking asks a session
+    // is stopped on, listed and answered WITHOUT attaching a terminal — which is
+    // the whole point of the PendingInteraction aggregate (spec §4).
+    case 'interactions': {
+      const { interactionsCliMain } = await import('./interactions-cli')
+      await interactionsCliMain(plan.args)
       return
     }
     // `podium lock <command>`: advisory named lease locks [spec:SP-85d1].

@@ -213,13 +213,32 @@ export class InteractionsRepository {
          SET status = 'answered', answer_json = ?, answered_by = ?, delivered_via = ?, answered_at = ?
          WHERE id = ? AND status = 'asked'`,
       )
-      .run(
-        JSON.stringify(input.answer),
-        input.answeredBy,
-        input.deliveredVia,
-        input.at,
-        input.id,
+      .run(JSON.stringify(input.answer), input.answeredBy, input.deliveredVia, input.at, input.id)
+    return res.changes > 0
+  }
+
+  /**
+   * Record how the answer actually reached the agent, AFTER the row was claimed.
+   *
+   * A separate statement from {@link answer} because that one guards on
+   * `status = 'asked'` — that guard IS the idempotency claim — and the row is
+   * already `answered` by the time delivery reports. Reusing `answer` here
+   * silently updated nothing, and left every successfully delivered answer
+   * recorded as `unverified`.
+   *
+   * Guarded on `status = 'answered'` so a late delivery report cannot resurrect
+   * a row that expired underneath it.
+   */
+  recordDelivery(
+    id: string,
+    deliveredVia: NonNullable<PendingInteractionWire['deliveredVia']>,
+  ): boolean {
+    const res = this.db
+      .prepare(
+        `UPDATE pending_interactions SET delivered_via = ?
+         WHERE id = ? AND status = 'answered'`,
       )
+      .run(deliveredVia, id)
     return res.changes > 0
   }
 

@@ -42,13 +42,13 @@ import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type {
   InteractionAnswer,
-  InteractionAnswerOutcome,
   InteractionAnsweredBy,
+  InteractionAnswerOutcome,
   PendingInteractionWire,
 } from '@podium/protocol'
 import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
-import type { AnswerDeliveryResult } from '../superagent/answer-delivery'
 import type { InboxPrincipalReference } from '../sessions/inbox'
+import type { AnswerDeliveryResult } from '../superagent/answer-delivery'
 import { defaultAnswerFor, resolveAnswerText } from './answers'
 import { type InteractionAskSpec, type QuestionPromptInput, synthesizeAsk } from './synthesis'
 
@@ -209,7 +209,9 @@ export class InteractionService {
     if (!q?.toolInputJson) return undefined
     try {
       const parsed = JSON.parse(q.toolInputJson) as { questions?: unknown }
-      return Array.isArray(parsed.questions) ? (parsed.questions as QuestionPromptInput[]) : undefined
+      return Array.isArray(parsed.questions)
+        ? (parsed.questions as QuestionPromptInput[])
+        : undefined
     } catch {
       return undefined
     }
@@ -269,7 +271,8 @@ export class InteractionService {
       answer = input.answer
     } else {
       const resolved = resolveAnswerText(spec, input.text ?? '')
-      if (!resolved.ok) return { ok: false, reason: 'unknown-interaction', detail: resolved.message }
+      if (!resolved.ok)
+        return { ok: false, reason: 'unknown-interaction', detail: resolved.message }
       answer = resolved.answer
     }
 
@@ -287,13 +290,10 @@ export class InteractionService {
     if (!claimed) return { ok: false, reason: 'already-answered' }
 
     const delivery = await this.deliver(row, answer, input.principal)
-    this.deps.store.answer({
-      id: row.id,
-      answer,
-      answeredBy: input.answeredBy,
-      deliveredVia: delivery.via,
-      at: this.deps.now(),
-    })
+    // `recordDelivery`, not a second `answer`: that one guards on
+    // `status = 'asked'` — the guard IS the claim above — so it would update
+    // nothing here and leave every delivered answer recorded as unverified.
+    this.deps.store.recordDelivery(row.id, delivery.via)
     const settled = this.deps.store.get(row.id)
     if (settled) this.deps.publish(settled)
     return delivery.ok
@@ -345,7 +345,11 @@ export class InteractionService {
       if (!result.ok) return { ok: false, via: 'unverified', detail: result.message }
       return { ok: true, via: result.via }
     } catch (err) {
-      return { ok: false, via: 'unverified', detail: err instanceof Error ? err.message : String(err) }
+      return {
+        ok: false,
+        via: 'unverified',
+        detail: err instanceof Error ? err.message : String(err),
+      }
     }
   }
 }

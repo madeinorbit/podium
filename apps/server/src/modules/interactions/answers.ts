@@ -109,7 +109,8 @@ export function resolveAnswerText(spec: InteractionAskSpec, text: string): Answe
         }
         return { ok: true, answer: { kind: 'permission', decision: 'allow-always' } }
       }
-      if (AFFIRM.has(lower)) return { ok: true, answer: { kind: 'permission', decision: 'allow-once' } }
+      if (AFFIRM.has(lower))
+        return { ok: true, answer: { kind: 'permission', decision: 'allow-once' } }
       if (NEGATE.has(lower)) return { ok: true, answer: { kind: 'permission', decision: 'deny' } }
       return {
         ok: false,
@@ -158,7 +159,8 @@ export function resolveAnswerText(spec: InteractionAskSpec, text: string): Answe
           },
         }
       }
-      if (NEGATE.has(lower)) return { ok: true, answer: { kind: 'plan-approval', decision: 'reject' } }
+      if (NEGATE.has(lower))
+        return { ok: true, answer: { kind: 'plan-approval', decision: 'reject' } }
       // Anything else is treated as redirection, which is the useful reading:
       // an operator typing a paragraph at a plan is telling it what to change.
       return { ok: true, answer: { kind: 'plan-approval', decision: 'reject', feedback: t } }

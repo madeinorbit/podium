@@ -184,10 +184,14 @@ export const interactionsAnswerInput = z
   .object({
     id: z.string().min(1),
     text: z.string().min(1).optional(),
-    answer: z.object({ kind: z.string().min(1) }).passthrough().optional(),
+    answer: z
+      .object({ kind: z.string().min(1) })
+      .passthrough()
+      .optional(),
   })
   .refine((v) => (v.text === undefined) !== (v.answer === undefined), {
-    message: 'answer takes exactly one of `text` (resolved server-side) or `answer` (already typed)',
+    message:
+      'answer takes exactly one of `text` (resolved server-side) or `answer` (already typed)',
   })
 
 export const interactionsAnswerContract = {
