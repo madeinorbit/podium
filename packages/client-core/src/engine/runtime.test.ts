@@ -82,6 +82,15 @@ class FakeHub {
   }
   setVisible(): void {}
   sendSessionDraft(): void {}
+  /** Versioned draft frames the runtime pushed, and whether the socket took
+   *  them. `connected` mirrors the real hub's send guard. */
+  draftEdits: Array<{ sessionId: string; baseRev: number; text: string }> = []
+  connected = true
+  sendDraftEdit(sessionId: string, baseRev: number, text: string): boolean {
+    if (!this.connected) return false
+    this.draftEdits.push({ sessionId, baseRev, text })
+    return true
+  }
 }
 
 const KNOWN_REPO = {
@@ -228,6 +237,8 @@ function makeEngine(
     storage?: StorageApi
     spawnConfirmGraceMs?: number
     workspacePruneGraceMs?: number
+    draftSendDebounceMs?: number
+    draftPersistDebounceMs?: number
     principal?: string
   } = {},
 ) {
@@ -249,6 +260,12 @@ function makeEngine(
       : {}),
     ...(opts.workspacePruneGraceMs !== undefined
       ? { workspacePruneGraceMs: opts.workspacePruneGraceMs }
+      : {}),
+    ...(opts.draftSendDebounceMs !== undefined
+      ? { draftSendDebounceMs: opts.draftSendDebounceMs }
+      : {}),
+    ...(opts.draftPersistDebounceMs !== undefined
+      ? { draftPersistDebounceMs: opts.draftPersistDebounceMs }
       : {}),
   })
   return { engine, hub, rw, fatals, errors }
@@ -2089,6 +2106,241 @@ describe('one delta, one snapshot (POD-1645)', () => {
     expect(state.sessions.map((s) => s.sessionId)).toEqual(['a'])
     expect(state.issues.map((i) => i.id)).toEqual(['i1'])
     engine.dispose()
+    await settle()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// OFFLINE-FIRST DRAFTS (POD-2045).
+//
+// The composer is the one surface where the server is not allowed to be the
+// authority. These tests state that as behaviour: what a person typed stays on
+// screen no matter what arrives on the socket, unsent text survives a dead
+// connection and a reload, and the two sides still converge once the server is
+// back. Before this, every keystroke was a fire-and-forget frame that a
+// disconnected socket dropped, and the reconnect replay that followed was
+// adopted unconditionally — so a slow server DELETED text mid-sentence.
+// ---------------------------------------------------------------------------
+describe('offline-first composer drafts (POD-2045)', () => {
+  const SID = asSessionId('s-draft')
+  const draftOf = (e: ReturnType<typeof makeEngine>['engine']): string | undefined =>
+    e.getSnapshot().drafts[SID]
+
+  it('paints a keystroke locally before anything reaches the server', async () => {
+    const { engine, hub } = makeEngine({ draftSendDebounceMs: 5 })
+    engine.start()
+    await settle()
+    hub.connected = false
+
+    engine.getSnapshot().setSessionDraft(SID, 'typed with the socket down')
+
+    expect(draftOf(engine)).toBe('typed with the socket down')
+    engine.dispose()
+    await settle()
+  })
+
+  // THE BUG. A slow server drops the frames carrying the newest text, then
+  // reconnects and replays a draft older than what is on screen.
+  it('never lets a stale replay overwrite newer local text', async () => {
+    const { engine, hub } = makeEngine({ draftSendDebounceMs: 5 })
+    engine.start()
+    await settle()
+
+    engine.getSnapshot().setSessionDraft(SID, 'hello world')
+    hub.emit('sessionDraft', SID, 'hello', { rev: 3 })
+
+    expect(draftOf(engine)).toBe('hello world')
+    engine.dispose()
+    await settle()
+  })
+
+  it('re-offers the local text against the rev the server actually holds', async () => {
+    const { engine, hub } = makeEngine({ draftSendDebounceMs: 5 })
+    engine.start()
+    await settle()
+
+    engine.getSnapshot().setSessionDraft(SID, 'hello world')
+    hub.emit('sessionDraft', SID, 'hello', { rev: 3 })
+    await settle()
+
+    // Based on rev 3, not on the rev we knew before the replay: an edit whose
+    // base is stale is REJECTED by the server's arbitration, so refusing the
+    // rev would leave the client shouting a losing sentence forever.
+    expect(hub.draftEdits.at(-1)).toEqual({
+      sessionId: SID,
+      baseRev: 3,
+      text: 'hello world',
+    })
+    engine.dispose()
+    await settle()
+  })
+
+  it('holds the line against an older server that stamps no rev at all', async () => {
+    const { engine, hub } = makeEngine({ draftSendDebounceMs: 5 })
+    engine.start()
+    await settle()
+
+    engine.getSnapshot().setSessionDraft(SID, 'hello world')
+    hub.emit('sessionDraft', SID, 'hello')
+
+    expect(draftOf(engine)).toBe('hello world')
+    engine.dispose()
+    await settle()
+  })
+
+  it('takes a draft from another device when nothing local is unsent', async () => {
+    const { engine, hub } = makeEngine({ draftSendDebounceMs: 5 })
+    engine.start()
+    await settle()
+
+    hub.emit('sessionDraft', SID, 'typed on the phone', { rev: 1 })
+
+    expect(draftOf(engine)).toBe('typed on the phone')
+    engine.dispose()
+    await settle()
+  })
+
+  it('coalesces a burst of keystrokes into one frame', async () => {
+    const { engine, hub } = makeEngine({ draftSendDebounceMs: 20 })
+    engine.start()
+    await settle()
+    const before = hub.draftEdits.length
+
+    const actions = engine.getSnapshot()
+    actions.setSessionDraft(SID, 'h')
+    actions.setSessionDraft(SID, 'he')
+    actions.setSessionDraft(SID, 'hel')
+    actions.setSessionDraft(SID, 'hell')
+    actions.setSessionDraft(SID, 'hello')
+    await settle(60)
+
+    expect(hub.draftEdits.slice(before)).toEqual([{ sessionId: SID, baseRev: 0, text: 'hello' }])
+    engine.dispose()
+    await settle()
+  })
+
+  // Clearing is what a SEND does, and a send that leaves the draft standing on
+  // another device for a quarter of a second reads as the message duplicating.
+  it('sends a clear immediately rather than waiting out the debounce', async () => {
+    const { engine, hub } = makeEngine({ draftSendDebounceMs: 10_000 })
+    engine.start()
+    await settle()
+
+    const actions = engine.getSnapshot()
+    actions.setSessionDraft(SID, 'about to send')
+    actions.setSessionDraft(SID, '')
+
+    expect(hub.draftEdits.at(-1)).toEqual({ sessionId: SID, baseRev: 0, text: '' })
+    engine.dispose()
+    await settle()
+  })
+
+  it('settles once its own edit echoes back, and stops re-sending', async () => {
+    const { engine, hub } = makeEngine({ draftSendDebounceMs: 5 })
+    engine.start()
+    await settle()
+
+    engine.getSnapshot().setSessionDraft(SID, 'hello world')
+    await settle()
+    const sentBeforeEcho = hub.draftEdits.length
+
+    hub.emit('sessionDraft', SID, 'hello world', { rev: 4 })
+    hub.health = { status: 'ok', rttMs: 1, since: 0 }
+    hub.emit('connectionHealth', hub.health)
+    await settle()
+
+    expect(draftOf(engine)).toBe('hello world')
+    expect(hub.draftEdits.length).toBe(sentBeforeEcho)
+    engine.dispose()
+    await settle()
+  })
+
+  it('re-offers text typed while disconnected as soon as the socket returns', async () => {
+    const { engine, hub } = makeEngine({ draftSendDebounceMs: 5 })
+    engine.start()
+    await settle()
+    hub.connected = false
+
+    engine.getSnapshot().setSessionDraft(SID, 'typed during the outage')
+    await settle()
+    expect(hub.draftEdits).toEqual([])
+
+    hub.connected = true
+    hub.health = { status: 'ok', rttMs: 1, since: 0 }
+    hub.emit('connectionHealth', hub.health)
+    await settle()
+
+    expect(hub.draftEdits.at(-1)).toEqual({
+      sessionId: SID,
+      baseRev: 0,
+      text: 'typed during the outage',
+    })
+    engine.dispose()
+    await settle()
+  })
+
+  it('keeps a draft across a reload with no server in reach', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage, draftSendDebounceMs: 5, draftPersistDebounceMs: 5 })
+    first.engine.start()
+    await settle()
+    first.hub.connected = false
+    first.engine.getSnapshot().setSessionDraft(SID, 'survives the reload')
+    await settle(40)
+    first.engine.dispose()
+    await settle()
+
+    // A NEW runtime over the same device storage — the reload. No hub traffic
+    // and no start() before the read: the draft is on screen from frame one.
+    const second = makeEngine({ storage })
+    expect(second.engine.getSnapshot().drafts[SID]).toBe('survives the reload')
+    second.engine.dispose()
+    await settle()
+  })
+
+  it('re-offers a restored draft on the next connect', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage, draftSendDebounceMs: 5, draftPersistDebounceMs: 5 })
+    first.engine.start()
+    await settle()
+    first.hub.connected = false
+    first.engine.getSnapshot().setSessionDraft(SID, 'never reached the server')
+    await settle(40)
+    first.engine.dispose()
+    await settle()
+
+    const second = makeEngine({ storage, draftSendDebounceMs: 5 })
+    second.engine.start()
+    await settle()
+    second.hub.health = { status: 'ok', rttMs: 1, since: 0 }
+    second.hub.emit('connectionHealth', second.hub.health)
+    await settle()
+
+    expect(second.hub.draftEdits.at(-1)).toEqual({
+      sessionId: SID,
+      baseRev: 0,
+      text: 'never reached the server',
+    })
+    second.engine.dispose()
+    await settle()
+  })
+
+  it('forgets a draft that was cleared', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage, draftSendDebounceMs: 5, draftPersistDebounceMs: 5 })
+    first.engine.start()
+    await settle()
+    const actions = first.engine.getSnapshot()
+    actions.setSessionDraft(SID, 'temporary')
+    await settle(40)
+    actions.setSessionDraft(SID, '')
+    await settle(40)
+    first.engine.dispose()
+    await settle()
+
+    const second = makeEngine({ storage })
+    expect(second.engine.getSnapshot().drafts[SID]).toBeUndefined()
+    second.engine.dispose()
     await settle()
   })
 })

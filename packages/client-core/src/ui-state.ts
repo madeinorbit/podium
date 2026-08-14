@@ -217,6 +217,19 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
    *  model's shared vocabulary because it is a client-only key; the routing
    *  table above states its home and this list is what `uiStateRoute` reads. */
   'podium.workspaces',
+  /**
+   * This device's unsent composer drafts (POD-2045).
+   *
+   * DEVICE-LOCAL is the load-bearing choice, not a default. The draft's shared
+   * copy already travels — the server holds a versioned document per session and
+   * fans it out to your other devices. What this key stores is the half the
+   * server cannot vouch for: text typed while it was unreachable, which exists
+   * NOWHERE else until the socket comes back. Replicating it would mean sending
+   * the very thing that could not be sent, and reading someone's phone's
+   * half-written sentence over their laptop's would reintroduce, from storage,
+   * the clobber the ledger exists to prevent.
+   */
+  'podium.drafts.v1',
   /** Dev diagnostics: remote-typing echo HUD. */
   'podium.echoHud',
   /** Dev diagnostics: switch-latency console trace. */
