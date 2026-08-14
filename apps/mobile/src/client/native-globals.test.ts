@@ -4,9 +4,15 @@
 // file asks the question the rest of the lane cannot: does shared client code
 // run on a device whose `window` is React Native's `global`?
 
+import { asUserId } from '@podium/model'
+import { createClientRuntime } from '@podium/client-core/engine'
 import { platformIsOnline, platformOnlineEvents } from '@podium/client-core/outbox'
+import { asClientPrincipal } from '@podium/client-core/principal'
+import { createReplica, memoryStorage } from '@podium/client-core/replica'
+import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { afterEach, describe, expect, test } from 'vitest'
 import { installNativeGlobals, type NativeGlobals } from '../../test/native-globals'
+import { createNativeConnectivity, nativeClientSeams } from './native-connectivity'
 import { readServerConfig } from './trpc'
 
 let natives: NativeGlobals | undefined
@@ -68,5 +74,60 @@ describe('readServerConfig without a browser location', () => {
       httpOrigin: 'https://podium.example:8443',
       override: true,
     })
+  })
+})
+
+/** A NetInfo that reports one state and never changes — the phone's answer,
+ *  standing in for the `navigator.onLine` that does not exist there. */
+function netInfoSaying(online: boolean) {
+  return {
+    addEventListener: (handler: (state: { isConnected: boolean | null }) => void) => {
+      handler({ isConnected: online })
+      return () => {}
+    },
+  }
+}
+
+const appStateActive = {
+  currentState: 'active' as const,
+  addEventListener: () => ({ remove: () => {} }),
+}
+
+describe('the client boots on native globals', () => {
+  test('the engine starts and stops without reaching for a DOM', () => {
+    // THE F4 CLAIM, tested: every path a cold start runs must survive globals
+    // that answer `typeof` and nothing else. Before the guards this threw inside
+    // the outbox's platform probe, on the first line of the app's boot.
+    natives = installNativeGlobals()
+    const connectivity = createNativeConnectivity({
+      appState: appStateActive,
+      netInfo: netInfoSaying(true),
+    })
+    const engine = createClientRuntime({
+      principal: asClientPrincipal(asUserId('operator')),
+      config: { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:0/client' },
+      api: {} as never,
+      onFatalError: () => {},
+      createReplicaFn: () => createReplica({ storage: memoryStorage() }),
+      routerWindow: createMemoryRouterWindow(),
+      ...nativeClientSeams(connectivity),
+    })
+    expect(() => engine.start()).not.toThrow()
+    engine.destroy()
+    connectivity.dispose()
+  })
+
+  test('reachability comes from NetInfo, where the browser probe can only guess', () => {
+    natives = installNativeGlobals()
+    // The browser probe is not merely unavailable here — it is CONFIDENTLY
+    // WRONG: no `navigator.onLine` reads as online, which is why an
+    // airplane-mode phone retried every queued write every five seconds.
+    expect(platformIsOnline()).toBe(true)
+    const connectivity = createNativeConnectivity({
+      appState: appStateActive,
+      netInfo: netInfoSaying(false),
+    })
+    expect(connectivity.isOnline()).toBe(false)
+    connectivity.dispose()
   })
 })

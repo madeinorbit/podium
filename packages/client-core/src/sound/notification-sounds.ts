@@ -21,6 +21,7 @@
  */
 
 import type { SessionId, SessionMeta } from '@podium/model'
+import { hasDomWindow } from '../platform-globals'
 import type { UiState } from '../replica/replica'
 import { SOUND_OWNER_KEY, SOUNDS_ENABLED_KEY } from '../ui-state'
 import { play, prewarmAudio, type SoundName } from './cuelume'
@@ -114,7 +115,11 @@ export class NotificationSounder {
   /** Arm DOM listeners: gesture pre-warm (WKWebView audio unlock) + the
    *  focus-driven window election. Returns the cleanup. */
   attach(): () => void {
-    if (typeof window === 'undefined') return () => {}
+    // A DOM window, not merely a window (POD-2055 F4). React Native has the
+    // second and not the first, so `typeof window === 'undefined'` waved this
+    // through on a phone and the next line threw — inside `ClientRuntime.start`,
+    // which makes it a crash on the app's boot path rather than a missing sound.
+    if (!hasDomWindow()) return () => {}
     const prewarm = (): void => prewarmAudio()
     const claim = (): void => this.deps.writeOwner(this.windowId)
     window.addEventListener('pointerdown', prewarm, { passive: true })
