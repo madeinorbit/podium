@@ -1,4 +1,4 @@
-import type { JSX } from 'react'
+import { type JSX, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 
 export function formatAppError(error: unknown, fallback = 'Something went wrong'): string {
@@ -35,44 +35,118 @@ export function reloadApp(win: ReloadWindow = window): void {
   }
 }
 
+/** True when the keystroke belongs to whatever the operator is typing into. */
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+}
+
+/**
+ * The terminal error screen. A crash is already loud enough, so this one stays
+ * quiet: one yellow rule, the true sentence, one recovery action. Diagnostic
+ * detail is real but disclosed — present for whoever will file the bug, invisible
+ * to whoever just wants back in [POD-1004].
+ */
 export function AppErrorPage({
   title = 'Podium could not start',
   message,
+  detail,
   onRetry,
+  retryLabel = 'Try again',
   win,
 }: {
   title?: string
-  message: string
+  /** Visible prose. The actionable half of a connection or replica failure. */
+  message?: string
+  /** Raw diagnostic text, tucked behind "What happened". */
+  detail?: string
   onRetry?: () => void
+  retryLabel?: string
   win?: ReloadWindow
 }): JSX.Element {
+  const [copied, setCopied] = useState(false)
+
+  // The exit must be reachable without a mouse: focus lands on the reload
+  // (autoFocus, below), and `R` triggers it from anywhere on this screen.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'r' && event.key !== 'R') return
+      if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return
+      event.preventDefault()
+      reloadApp(win)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [win])
+
+  async function copyReport(): Promise<void> {
+    if (!detail) return
+    try {
+      await navigator.clipboard.writeText(detail)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // A denied clipboard is not worth a second error screen; the text is on
+      // screen already and can be selected by hand.
+    }
+  }
+
   return (
-    <main className="flex min-h-full items-center justify-center bg-background p-5">
-      <section className="w-[min(520px,100%)] rounded-md border border-border bg-card p-5">
-        <div className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">ERROR</div>
-        <h1 className="my-2 text-[22px] font-medium text-foreground">{title}</h1>
-        <p className="m-0 text-muted-foreground [overflow-wrap:anywhere]">{message}</p>
+    <main className="flex min-h-full items-center justify-center bg-background p-6">
+      <section className="w-[min(440px,100%)]">
+        <div className="h-[2px] w-6 rounded-full bg-primary" />
+        <h1 className="mt-[18px] mb-0 text-[23px] leading-[1.25] font-medium tracking-[-0.02em] text-balance text-foreground">
+          {title}
+        </h1>
         {/* This screen only means the interface is down. Agents run in the daemon,
             not in this window, so the first thing an operator needs to know is that
             nothing they started has stopped. */}
-        <p className="mt-4 mb-0 rounded-sm border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          Your agents are safe and still running uninterrupted — they work in the background,
-          independently of this window. Reloading only restarts the interface.
+        <p className="mt-2.5 mb-0 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+          {message ?? (
+            <>
+              <span className="font-medium text-foreground">
+                Your agents are still working uninterrupted
+              </span>{' '}
+              in the background, independently of this window. Reloading restarts the interface
+              only.
+            </>
+          )}
         </p>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-[22px] flex flex-wrap items-center gap-2">
+          <Button autoFocus type="button" onClick={() => reloadApp(win)}>
+            Reload interface
+          </Button>
           {onRetry && (
-            <Button type="button" onClick={onRetry}>
-              Retry
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-muted-foreground"
+              onClick={onRetry}
+            >
+              {retryLabel}
             </Button>
           )}
-          <Button
-            type="button"
-            variant={onRetry ? 'outline' : 'default'}
-            onClick={() => reloadApp(win)}
-          >
-            Reload Podium
-          </Button>
         </div>
+        {detail && (
+          <details className="mt-6 border-t border-border pt-3">
+            <summary className="cursor-pointer list-none font-mono text-[9.5px] tracking-[0.1em] text-muted-foreground/70 uppercase hover:text-muted-foreground">
+              What happened
+            </summary>
+            <pre className="mt-2.5 mb-0 font-mono text-[10.5px] leading-[1.7] whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]">
+              {detail}
+            </pre>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="-ml-2.5 mt-2 text-muted-foreground"
+              onClick={() => void copyReport()}
+            >
+              {copied ? 'Copied' : 'Copy report'}
+            </Button>
+          </details>
+        )}
       </section>
     </main>
   )

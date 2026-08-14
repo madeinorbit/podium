@@ -61,7 +61,9 @@ describe('ErrorBoundary', () => {
       )
     })
 
-    expect(container.textContent).toContain('Podium crashed')
+    expect(container.textContent).toContain('The interface stopped. Your agents did not.')
+    // The error is evidence, not the headline: it lives inside the disclosure.
+    expect(container.querySelector('details')?.textContent).toContain('render exploded')
     expect(onError).toHaveBeenCalledWith(expect.stringContaining('render exploded'))
   })
 })

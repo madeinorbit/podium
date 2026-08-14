@@ -1,6 +1,6 @@
+import { reportCrash } from '@podium/client-core/logging'
 import { createLogger } from '@podium/logger'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { reportCrash } from '@podium/client-core/logging'
 import { AppErrorPage, formatAppError } from './AppErrorPage'
 
 const log = createLogger('web:boundary')
@@ -52,8 +52,12 @@ export class ErrorBoundary extends Component<
     if (this.state.message) {
       return (
         <AppErrorPage
-          title="Podium crashed"
-          message={`The Podium interface hit an error while rendering: ${this.state.message}`}
+          // The headline carries the reassurance, because the operator's real
+          // question is "did I just lose the work?" and the answer is no. The
+          // error itself is evidence, not the news [POD-1004].
+          title="The interface stopped. Your agents did not."
+          detail={`The Podium interface hit an error while rendering: ${this.state.message}`}
+          retryLabel="Try rendering again"
           onRetry={() => {
             // Reset the boundary itself (resetKey only clears on a config change),
             // then let the owner reset whatever state it keeps.
