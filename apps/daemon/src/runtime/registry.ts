@@ -223,6 +223,33 @@ export function harnessOwningServerDriver(driverId: string): AgentKind | undefin
 }
 
 /**
+ * Did THIS SPAWN name a server driver at all? The id if so, undefined otherwise
+ * (POD-2113).
+ *
+ * THE ONE PLACE THE REFUSE/DEGRADE RULE IS WRITTEN DOWN, and it exists because
+ * having it written twice is how the spawn path drifted. `launchServerDriverSession`
+ * refuses in two places — before resolution when a probe could not answer, and
+ * after it when the driver was not the one picked — and the second keyed on the
+ * per-spawn field while the FIRST keyed on `requested`, the env-folded value.
+ * That gap turned one stale `PODIUM_RUNTIME_DRIVER` on a box whose binary is off
+ * the daemon's PATH into a permanent refusal of every spawn of every harness:
+ * ENOENT reads as `unprobeable`, and an unprobeable verdict is deliberately not
+ * memoized, so it re-failed per spawn forever. Both refusals ask this function
+ * now, so the rule cannot be half-applied again.
+ *
+ * SERVER FAMILY ONLY, and asked of the manifests rather than by matching a
+ * substring, so a second server driver (W6's codex) is covered the day it is
+ * declared rather than the day someone remembers this line.
+ */
+export function spawnNamedServerDriver(
+  /** The per-spawn field ONLY. Folding the env default in defeats the point. */
+  perSpawn: RuntimeContractRequest | undefined,
+): string | undefined {
+  if (typeof perSpawn !== 'string') return undefined
+  return isServerDriverId(perSpawn) ? perSpawn : undefined
+}
+
+/**
  * Did THIS SPAWN name a server driver that resolution did not give it? Returns
  * the id it named, for the refusal message; undefined when there is nothing to
  * refuse (POD-2113).
@@ -251,8 +278,33 @@ export function unhonouredSpawnDriver(input: {
   perSpawn: RuntimeContractRequest | undefined
   resolved: DriverId
 }): string | undefined {
-  const { perSpawn, resolved } = input
-  if (typeof perSpawn !== 'string') return undefined
-  if (perSpawn === resolved) return undefined
-  return isServerDriverId(perSpawn) ? perSpawn : undefined
+  return droppedDriverPreference({
+    preference: spawnNamedServerDriver(input.perSpawn),
+    resolved: input.resolved,
+  })
+}
+
+/**
+ * A SERVER-FAMILY PREFERENCE THAT RESOLUTION DID NOT HONOUR, whoever expressed
+ * it. The id, or undefined when nothing was dropped (POD-2113).
+ *
+ * SEPARATE FROM WHO ASKED, on purpose. {@link unhonouredSpawnDriver} feeds this
+ * the PER-SPAWN id only and refuses on the answer; the degrade path feeds it the
+ * env-folded `requested` and merely LOGS the answer. Same question, two
+ * consequences — which is the whole shape of this feature, and the reason it is
+ * one function rather than two similar conditions that can drift.
+ *
+ * Extracted so the degrade's guard is pinned by a test (review finding 3): a
+ * `log.warn` is the ONLY trace a machine-wide degrade leaves anywhere until a
+ * driver id reaches a read surface (POD-2122), so a silent regression in the
+ * condition that decides whether to emit it would be invisible by construction.
+ * The emission itself needs a daemon and is not asserted here; the decision is.
+ */
+export function droppedDriverPreference(input: {
+  preference: string | undefined
+  resolved: DriverId
+}): string | undefined {
+  const { preference, resolved } = input
+  if (preference === undefined || preference === resolved) return undefined
+  return isServerDriverId(preference) ? preference : undefined
 }

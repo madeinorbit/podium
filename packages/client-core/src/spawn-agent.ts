@@ -1,5 +1,6 @@
 import { createLogger } from '@podium/logger'
 import type { AgentKind, IssueId, RepoId, SessionId, MachineId } from '@podium/model'
+import type { RuntimeContractRequest } from '@podium/protocol'
 import type { PodiumClientApi } from './api'
 
 const log = createLogger('client-core:spawn')
@@ -72,6 +73,9 @@ export async function createDraftAgent(args: {
   firstPrompt?: string
   model?: string
   effort?: string
+  /** The per-spawn driver override, forwarded verbatim — see `sessions.create`
+   *  in `api.ts`. Absent changes nothing, which is every caller today. */
+  runtimeContract?: RuntimeContractRequest
 }): Promise<void> {
   assertSpawnPlacement(args.target)
   const text = args.firstPrompt?.trim()
@@ -84,6 +88,7 @@ export async function createDraftAgent(args: {
     ...(text ? { initialPrompt: text } : {}),
     ...(args.model ? { model: args.model } : {}),
     ...(args.effort ? { effort: args.effort } : {}),
+    ...(args.runtimeContract !== undefined ? { runtimeContract: args.runtimeContract } : {}),
   })
   // Non-argv harnesses only get a composer draft seed from create; still deliver
   // via resumeAndSend. Argv agents already received the prompt on launch —

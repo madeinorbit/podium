@@ -35,10 +35,11 @@ import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { opencodeVersionProbe } from '../runtime/opencode-server'
 import {
   availableDriverIds,
+  droppedDriverPreference,
   harnessOwningServerDriver,
   isServerDriver,
-  isServerDriverId,
   resolveRuntimeDriver,
+  spawnNamedServerDriver,
   terminalProfileFor,
   unhonouredSpawnDriver,
 } from '../runtime/registry'
@@ -680,6 +681,14 @@ async function launchServerDriverSession(
   const requested = runtimeDriverFor(runtimeDriverByEnv(), msg.runtimeContract)
   if (!requested) return false
   /**
+   * WHAT *THIS SPAWN* SAID, as opposed to what the machine was configured to
+   * prefer. `requested` has the env default folded in and cannot tell them
+   * apart; every refusal below keys on this instead, and the reason is the rule
+   * this function's docstring states — a fact about the MACHINE may be papered
+   * over, an instruction from THIS SPAWN may not.
+   */
+  const namedHere = spawnNamedServerDriver(msg.runtimeContract)
+  /**
    * AN EXPLICIT REQUEST FOR A SERVER DRIVER IS NOT SILENTLY DOWNGRADED BECAUSE A
    * PROBE WAS SLOW.
    *
@@ -700,13 +709,36 @@ async function launchServerDriverSession(
    * not answer would sail past this refusal, then vanish from `available` below,
    * and come back as a terminal session: the deliberate request silently
    * converted into a different kind of session because a box was busy.
+   *
+   * WHICH PROBE and MAY I REFUSE READ DIFFERENT INPUTS, deliberately (POD-2113).
+   * The subject above is probe SELECTION, and `requested` is right for it: every
+   * caller of `probeFor` wants the probe belonging to the driver id in hand,
+   * whatever named it. The REFUSAL below keys on `namedHere`, because a probe
+   * that could not answer is a fact about this machine and only a per-spawn
+   * instruction outranks it.
    */
-  const requestedProbe = harnessOwningServerDriver(requested) === 'codex' ? codexProbe : probe
-  if (
-    !requestedProbe.drivable &&
-    requestedProbe.reason === 'unprobeable' &&
-    isServerDriverId(requested)
-  ) {
+  const probeFor = (driverId: string): typeof probe | typeof codexProbe =>
+    harnessOwningServerDriver(driverId) === 'codex' ? codexProbe : probe
+  const requestedProbe = probeFor(requested)
+  /**
+   * REFUSED ONLY WHEN *THIS SPAWN* NAMED THE DRIVER — the fix to a defect this
+   * very check used to have (POD-2113, found by review).
+   *
+   * It read `isServerDriverId(requested)`, so a machine-wide
+   * `PODIUM_RUNTIME_DRIVER` triggered it too. `ok` is false on ENOENT as well as
+   * on a timeout and an `unprobeable` verdict is deliberately NOT memoized, so
+   * on a daemon whose PATH lacks the binary — installed under `~/.opencode/bin`
+   * while the daemon starts from a systemd unit, which is the normal case — one
+   * env var refused EVERY spawn of EVERY harness, permanently, at one process
+   * fork per spawn. That is precisely "a stale env var kills every spawn on the
+   * box", the outcome this whole function argues must never happen, and it was
+   * the docstring three lines up that was telling the truth while the code was
+   * not. W6's second driver doubled the ways in without changing the shape.
+   *
+   * `namedHere === requested` whenever this fires (the per-spawn field wins in
+   * `runtimeDriverFor`), so `requestedProbe` is this driver's own probe.
+   */
+  if (namedHere !== undefined && !requestedProbe.drivable && requestedProbe.reason === 'unprobeable') {
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -754,11 +786,19 @@ async function launchServerDriverSession(
   })
   if (unhonoured !== undefined) {
     // WHY, not just WHAT. The two reasons want different fixes — upgrade this
-    // machine's opencode, or stop asking a harness for a driver it does not
+    // machine's binary, or stop asking a harness for a driver it does not
     // declare — and "could not honour it" alone sends an operator to neither.
-    const why = probe.drivable
+    //
+    // THE PROBE OF THE DRIVER THAT WAS REFUSED, not opencode's. This line read
+    // `probe` unconditionally until W6 landed a second server family, at which
+    // point a refused `codex-app-server` explained itself with opencode's
+    // version diagnostic — an answer about the wrong binary, which is worse than
+    // no answer because it sends the operator to upgrade something that was
+    // never asked about.
+    const unhonouredProbe = probeFor(unhonoured)
+    const why = unhonouredProbe.drivable
       ? `harness '${msg.agentKind}' does not declare it (this spawn resolved to '${resolution.driverId}')`
-      : `${probe.diagnostic.title}: ${probe.diagnostic.body}`
+      : `${unhonouredProbe.diagnostic.title}: ${unhonouredProbe.diagnostic.body}`
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -784,14 +824,26 @@ async function launchServerDriverSession(
     // Only for a SERVER-family preference that was dropped. A terminal id
     // resolving to its sibling is not a degrade, and `true` names no driver at
     // all — warning on either would train an operator to ignore the line that
-    // matters. Per-spawn server ids never reach here; they were refused above.
-    if (isServerDriverId(requested) && requested !== resolution.driverId) {
+    // matters. Per-spawn server ids never reach here; they were refused above,
+    // so what remains is the machine-wide default, which is exactly the value
+    // that must degrade rather than refuse. The guard is a function so a test
+    // can pin it — this line is the degrade's only trace anywhere.
+    const dropped = droppedDriverPreference({
+      preference: requested,
+      resolved: resolution.driverId,
+    })
+    if (dropped !== undefined) {
+      // `probeFor(dropped)` for the same reason the refusal above uses it: the
+      // only record this degrade leaves must name the binary it is about.
+      const droppedProbe = probeFor(dropped)
       log.warn('a machine-wide runtime driver preference was not honoured', {
         sessionId: msg.sessionId,
-        preferred: requested,
+        preferred: dropped,
         resolved: resolution.driverId,
         agentKind: msg.agentKind,
-        reason: probe.drivable ? 'the harness does not declare it' : probe.diagnostic.title,
+        reason: droppedProbe.drivable
+          ? 'the harness does not declare it'
+          : droppedProbe.diagnostic.title,
       })
     }
     return false

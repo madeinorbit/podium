@@ -27,8 +27,10 @@ import {
 } from './opencode-server'
 import {
   availableDriverIds,
+  droppedDriverPreference,
   isServerDriver,
   resolveRuntimeDriver,
+  spawnNamedServerDriver,
   unhonouredSpawnDriver,
 } from './registry'
 
@@ -143,6 +145,81 @@ describe('driver resolution', () => {
     // would turn `PODIUM_RUNTIME_DRIVER=claude-pty` on an opencode session into
     // a dead spawn.
     expect(unhonouredSpawnDriver({ perSpawn: 'claude-pty', resolved: 'generic-pty' })).toBeUndefined()
+  })
+
+  it('asks ONE question for both refusals, so a stale env var cannot kill a box', () => {
+    /**
+     * THE DEFECT THIS PINS (POD-2113, found by review). The spawn path refuses in
+     * two places — before resolution when a probe could not answer, and after it
+     * when the driver was not the one picked — and only the second asked whether
+     * THIS SPAWN named the driver. The first asked `requested`, the env default
+     * already folded in.
+     *
+     * That is not a cosmetic asymmetry. A probe reports `unprobeable` on ENOENT,
+     * not just on a timeout, and that verdict is deliberately never memoized —
+     * so on a daemon whose PATH lacks the binary (installed under `~/.opencode/bin`,
+     * daemon started from a systemd unit) a single `PODIUM_RUNTIME_DRIVER` made
+     * EVERY spawn of EVERY harness refuse, permanently, forking a probe each
+     * time. The machine-wide value is exactly the one that must degrade.
+     */
+    expect(spawnNamedServerDriver('opencode-server')).toBe('opencode-server')
+    // W6'S SECOND SERVER DRIVER, which doubled the ways into the defect without
+    // changing its shape. Read off the manifests rather than matched by name, so
+    // a third family is covered when it is declared, not when someone remembers
+    // this test.
+    expect(spawnNamedServerDriver('codex-app-server')).toBe('codex-app-server')
+    // THE MACHINE-WIDE DEFAULT NEVER REACHES THIS FUNCTION — it arrives as
+    // `undefined` here and lives on in `requested` for probe selection and the
+    // degrade warning. This one line is what keeps a stale env var survivable.
+    expect(spawnNamedServerDriver(undefined)).toBeUndefined()
+    // `true` asks for the contract and names no driver, so there is nothing to
+    // refuse on its behalf.
+    expect(spawnNamedServerDriver(true)).toBeUndefined()
+    expect(spawnNamedServerDriver(false)).toBeUndefined()
+    // Terminal ids are not the server family and all reach the same PTY launch.
+    expect(spawnNamedServerDriver('generic-pty')).toBeUndefined()
+    expect(spawnNamedServerDriver('claude-pty')).toBeUndefined()
+    // An unknown id is not refused HERE — `resolveRuntimeDriver` owns that
+    // refusal and names the id. Answering for it too would be two places
+    // deciding one thing, which is the class of bug this whole test is about.
+    expect(spawnNamedServerDriver('not-a-real-driver')).toBeUndefined()
+    // AND THE TWO REFUSALS AGREE BY CONSTRUCTION: the post-resolution one is
+    // written in terms of this same predicate, so the rule cannot be
+    // half-applied again the way it was.
+    expect(unhonouredSpawnDriver({ perSpawn: 'codex-app-server', resolved: 'generic-pty' })).toBe(
+      'codex-app-server',
+    )
+  })
+
+  it('pins the guard on the degrade warning, which is the degrade’s ONLY trace', () => {
+    /**
+     * A MACHINE-WIDE PREFERENCE THAT QUIETLY BECAME A TERMINAL SESSION leaves
+     * exactly one mark anywhere in the system: a `log.warn` in the spawn path.
+     * Until a driver id reaches a read surface (POD-2122) there is nothing else
+     * for an operator to find — so a regression in the condition that decides
+     * whether to emit it would be invisible by construction, which is why the
+     * condition is a function rather than an inline `&&` (review finding 3).
+     *
+     * The EMISSION needs a daemon and is not asserted here. The DECISION is.
+     */
+    expect(
+      droppedDriverPreference({ preference: 'opencode-server', resolved: 'generic-pty' }),
+    ).toBe('opencode-server')
+    expect(
+      droppedDriverPreference({ preference: 'codex-app-server', resolved: 'claude-pty' }),
+    ).toBe('codex-app-server')
+    // Honoured: nothing was dropped, so warning would be noise — and noise here
+    // is what teaches an operator to skip the one line that matters.
+    expect(
+      droppedDriverPreference({ preference: 'opencode-server', resolved: 'opencode-server' }),
+    ).toBeUndefined()
+    // No preference at all is the overwhelmingly common spawn.
+    expect(droppedDriverPreference({ preference: undefined, resolved: 'generic-pty' })).toBeUndefined()
+    // A terminal id resolving to its sibling is not a degrade: both reach the
+    // same PTY launch, so nothing was lost to report.
+    expect(
+      droppedDriverPreference({ preference: 'claude-pty', resolved: 'generic-pty' }),
+    ).toBeUndefined()
   })
 
   it('REFUSES an unknown id rather than quietly giving it a terminal session', () => {
