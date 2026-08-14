@@ -1,10 +1,9 @@
 import type { SessionMeta, SessionOffer } from '@podium/model/browser'
 import { ChevronDown, Lightbulb, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
-import { useOfferOverlayHost } from './offer-overlay'
+import { chargeSeat, useOfferLift } from './offer-lift'
 
 /** The user's feedback rides the action's prompt as one turn. */
 export const composeOfferPrompt = (prompt: string, feedback: string): string =>
@@ -16,55 +15,73 @@ const OFFER_UNDO_FADE_MS = 500
 
 type DismissPhase = 'visible' | 'leaving' | 'undo' | 'undo-leaving'
 
-/** Where the detail's clip window sits inside the overlay layer: flush with the
- *  offer row's own edges, and ending exactly at its top so the panel rises out
- *  of the row. All four numbers are layer-relative pixels. */
-type OverlayBox = { left: number; right: number; bottom: number }
-
 /**
- * Track the offer row's box inside the overlay layer.
+ * Publish the open fold's height to the lifting host (POD-1068).
  *
- * The clip window is placed rather than sized: it runs from just below the
- * panel header down to the row's top edge, so the panel can only ever grow
- * into space that already belongs to the layer. Nothing above the row is
- * measured, resized, or re-laid-out when the fold opens.
+ * The number IS the animation: the seat's negative top margin, the lifted
+ * region's transform, and the fold's own height all read `--offer-lift` and
+ * transition to it together, so the pane above rides up by exactly the pixels
+ * the detail took. It is capped at the room the host will give, and the detail
+ * scrolls inside whatever is left over.
+ *
+ * Returns whether this host lifts at all, and whether the detail was capped —
+ * the only two things here worth a render.
  */
-function useOverlayBox(
-  host: HTMLElement | null,
-  row: HTMLElement | null,
+function useOfferFoldLift(
+  body: HTMLElement | null,
   expanded: boolean,
-): OverlayBox | null {
-  const [box, setBox] = useState<OverlayBox | null>(null)
-  // Layout effect: the box must be known in the same frame the panel is
-  // revealed, or the first open slides up from a stale anchor.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `expanded` is a re-measure trigger, not a read — the row moves when the dock slides open, and a ResizeObserver never fires for a box that only changed position
+): { lifted: boolean; capped: boolean } {
+  const lift = useOfferLift()
+  const [capped, setCapped] = useState(false)
+  // This bar's identity with the host, so a second bar for the same offer (chat
+  // mode keeps the native dock mounted) cannot overwrite this one's claim.
+  const claim = useRef({})
+  // Layout effect: the height must be published in the same frame the fold is
+  // marked open, or the first open animates from a stale (zero) lift.
   useLayoutEffect(() => {
-    if (!host || !row) return
-    const measure = (): void => {
-      const layer = host.getBoundingClientRect()
-      const seat = row.getBoundingClientRect()
-      // A hidden pane (PanelDeck parks warm panels at display:none) measures
-      // zero. Keep the last good box instead of collapsing the clip window.
-      if (layer.height === 0 || seat.height === 0) return
-      const next = {
-        left: Math.max(0, seat.left - layer.left),
-        right: Math.max(0, layer.right - seat.right),
-        bottom: Math.max(0, layer.bottom - seat.top),
-      }
-      setBox((prev) =>
-        prev && prev.left === next.left && prev.right === next.right && prev.bottom === next.bottom
-          ? prev
-          : next,
-      )
+    if (!lift) return
+    const publishLift = (px: number): void => {
+      lift.setLift(claim.current, px)
+      chargeSeat(body, px)
     }
-    measure()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
-    observer.observe(host)
-    observer.observe(row)
-    return () => observer.disconnect()
-  }, [host, row, expanded])
-  return box
+    const close = (): void => {
+      publishLift(0)
+      setCapped(false)
+    }
+    if (!expanded || !body) {
+      close()
+      return
+    }
+    const publish = (): void => {
+      // The body keeps its natural height however small the clip around it is,
+      // so this measures what the fold WANTS, not what it currently shows.
+      const wanted = body.offsetHeight
+      const room = lift.room()
+      // A hidden pane measures zero; a lift of zero there would leave a stale
+      // open fold showing nothing when the pane comes back.
+      if (wanted === 0) return
+      setCapped(wanted > room)
+      publishLift(Math.min(wanted, room))
+    }
+    publish()
+    const stopWatchingRoom = lift.watchRoom(publish)
+    if (typeof ResizeObserver === 'undefined') {
+      return () => {
+        stopWatchingRoom()
+        close()
+      }
+    }
+    // The detail grows on its own while open — the feedback field appears, the
+    // artifact strip loads — and the lift has to follow it.
+    const observer = new ResizeObserver(publish)
+    observer.observe(body)
+    return () => {
+      observer.disconnect()
+      stopWatchingRoom()
+      close()
+    }
+  }, [body, expanded, lift])
+  return { lifted: lift !== null, capped }
 }
 
 function OfferActionLabel({ label, pending }: { label: string; pending: boolean }): JSX.Element {
@@ -119,11 +136,10 @@ export function OfferBar({
   session?: SessionMeta
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
-  // Callback ref, not useRef: the overlay measurement has to re-run the moment
-  // the row lands in the DOM, and a plain ref never re-renders to say so.
-  const [rowEl, setRowEl] = useState<HTMLDivElement | null>(null)
-  const overlayHost = useOfferOverlayHost()
-  const overlayBox = useOverlayBox(overlayHost, rowEl, expanded)
+  // Callback ref, not useRef: the fold has to be measured the moment its body
+  // lands in the DOM, and a plain ref never re-renders to say so.
+  const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
+  const { lifted, capped } = useOfferFoldLift(bodyEl, expanded)
   // The input-action awaiting feedback (index into offer.actions), if any.
   const [pending, setPending] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
@@ -276,12 +292,9 @@ export function OfferBar({
   }
 
   const detailId = `offer-detail-${offer.createdAt}`
-  // The row is the anchor AND the seat: the overlay panel is placed flush with
-  // its edges and rises out of its top edge.
-  const overlaid = overlayHost !== null && overlayBox !== null
 
   const detailBody = (
-    <div className="offer-fold-detail-body">
+    <div ref={setBodyEl} className="offer-fold-detail-body">
       {detail && (
         <p className="max-w-[132ch] text-[13px] leading-[1.6] whitespace-pre-wrap text-muted-foreground">
           {detail}
@@ -370,12 +383,13 @@ export function OfferBar({
 
   return (
     <div
-      ref={setRowEl}
       data-testid="offer-bar"
       aria-busy={submitting !== null || undefined}
       className={cn(
         'offer-fold-root font-sans',
-        overlaid && 'offer-fold-root--overlaid',
+        // The host absorbs the fold by lifting the pane above it, so the detail
+        // is sized in px from `--offer-lift` rather than revealed in place.
+        lifted && 'offer-fold-root--lifted',
         expanded && 'offer-fold-root--expanded',
         dismissPhase === 'leaving' && 'offer-fold-root--leaving',
       )}
@@ -445,40 +459,17 @@ export function OfferBar({
         </div>
       </div>
 
-      {overlaid ? (
-        createPortal(
-          <div
-            data-testid="offer-overlay"
-            className={cn('offer-overlay-clip', expanded && 'offer-overlay-clip--open')}
-            style={{ left: overlayBox.left, right: overlayBox.right, bottom: overlayBox.bottom }}
-          >
-            <div
-              id={detailId}
-              data-testid="offer-detail"
-              aria-hidden={!expanded}
-              inert={!expanded}
-              className="offer-overlay-panel"
-            >
-              {/* Once the panel is tall enough to scroll, its top edge IS the
-                  header's underside. A hard cut there reads as a clipped box;
-                  the scrim dissolves the text into the header instead. */}
-              <div className="offer-overlay-scrim" aria-hidden="true" />
-              {detailBody}
-            </div>
-          </div>,
-          overlayHost,
-        )
-      ) : (
-        <div
-          id={detailId}
-          data-testid="offer-detail"
-          aria-hidden={!expanded}
-          inert={!expanded}
-          className="offer-fold-detail"
-        >
-          <div className="offer-fold-detail-clip">{detailBody}</div>
+      <div
+        id={detailId}
+        data-testid="offer-detail"
+        aria-hidden={!expanded}
+        inert={!expanded}
+        className="offer-fold-detail"
+      >
+        <div className={cn('offer-fold-detail-clip', capped && 'offer-fold-detail-clip--capped')}>
+          {detailBody}
         </div>
-      )}
+      </div>
     </div>
   )
 }

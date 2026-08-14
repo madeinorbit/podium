@@ -313,7 +313,10 @@ export function ChatView({
 
   return (
     <div className={cn('flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}>
-      <div className="relative flex min-h-0 flex-1">
+      {/* `offer-lift-region`: an opened offer fold pushes the whole transcript
+          up under the panel header instead of resizing it — the feed keeps its
+          box, so nothing here re-renders or loses its scroll (POD-1068). */}
+      <div className="offer-lift-region relative flex min-h-0 flex-1">
         <TranscriptFeed
           scrollerRef={chat.scrollerRef}
           onScroll={chat.scroll.onScroll}

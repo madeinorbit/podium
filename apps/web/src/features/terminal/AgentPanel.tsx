@@ -50,7 +50,7 @@ import {
 import { ChatView } from '@/features/chat/ChatView'
 import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
-import { OfferOverlayContext } from '@/features/chat/offer-overlay'
+import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
 import { agentBrandDot } from '@/lib/agent-tone'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
@@ -351,10 +351,10 @@ export function AgentPanel({
   // by one frame so a freshly mounted dock still gets its enter transition.
   const dockOpenTarget = Boolean(nativeOffer)
   const [dockOpen, setDockOpen] = useState(false)
-  // The element an expanded offer paints into (POD-1017). State, not a ref: the
-  // OfferBars below only learn the layer exists through a re-render.
-  const [offerOverlayHost, setOfferOverlayHost] = useState<HTMLDivElement | null>(null)
   const panelRootRef = useRef<HTMLDivElement | null>(null)
+  // An opened offer fold is absorbed by PUSHING this panel's surface up under
+  // the header rather than by resizing it (POD-1068) — see `offer-lift.ts`.
+  const offerLift = useOfferLiftHost(panelRootRef)
   const termSurfaceRef = useRef<HTMLDivElement | null>(null)
   const dockInnerRef = useRef<HTMLDivElement | null>(null)
   const dockUnpinRef = useRef<(() => void) | null>(null)
@@ -698,7 +698,10 @@ export function AgentPanel({
           is model token · segment · snooze · archive · overflow. */}
       <div
         data-testid="agent-panel-header"
-        className="flex h-[36px] flex-none items-center overflow-hidden gap-3 border-b border-hairline-soft px-4"
+        // `offer-lift-header`: the band the pane slides under when an offer
+        // fold opens. It has to outrank the lifted surface to cast its shadow
+        // over it, hence the z-rung.
+        className="offer-lift-header relative z-[1] flex h-[36px] flex-none items-center overflow-hidden gap-3 border-b border-hairline-soft px-4"
       >
         {session && (
           <>
@@ -1013,7 +1016,10 @@ export function AgentPanel({
             ref={termSurfaceRef}
             data-testid="terminal-surface"
             className={cn(
-              'relative flex min-h-0 flex-1 flex-col',
+              // `offer-lift-region`: the PTY is what an opened offer fold
+              // pushes up under the header. Its box never changes, so the
+              // terminal is never re-gridded and the TUI never repaints.
+              'offer-lift-region relative flex min-h-0 flex-1 flex-col',
               effectiveMode === 'chat' && 'hidden',
             )}
             style={{ backgroundColor: termBg }}
@@ -1074,7 +1080,12 @@ export function AgentPanel({
           {ready && (
             <div
               data-testid="prompt-chrome"
-              className={cn('flex-none px-[13px] font-mono', effectiveMode === 'chat' && 'hidden')}
+              // Rides up with the PTY it hugs, but is never clipped: it is a
+              // 20px strip, and clipping it by the lift would erase it.
+              className={cn(
+                'offer-lift-rise flex-none px-[13px] font-mono',
+                effectiveMode === 'chat' && 'hidden',
+              )}
               style={{ backgroundColor: termBg }}
             >
               <div className="border-t issue-hairline-35" aria-hidden="true" />
@@ -1091,7 +1102,10 @@ export function AgentPanel({
               in native mode. Clicking a button sends its prompt as a user turn. */}
           {dockOffer && (
             <div
-              className={cn('offer-dock flex-none', dockOpen && 'offer-dock--open')}
+              // `offer-lift-seat`: the fold's height grows this dock, and the
+              // dock's own negative top margin hands the same pixels back to
+              // the flex solver, so nothing above it is ever re-measured.
+              className={cn('offer-dock offer-lift-seat flex-none', dockOpen && 'offer-dock--open')}
               data-testid="native-offer-dock"
               aria-hidden={!nativeOffer}
               onTransitionEnd={(e) => {
@@ -1194,19 +1208,10 @@ export function AgentPanel({
           />
         </>
       )}
-      {/* Offer overlay layer (POD-1017). Empty until an offer's fold is opened,
-          at which point OfferBar portals its detail here. It starts BELOW the
-          header, so a tall panel slides up and stops beneath the tab strip
-          instead of pushing the terminal — the fold no longer changes any box
-          the PTY is measured against. Last child + a z-rung above the rail
-          popovers so it paints over both the terminal and the chat feed;
-          pointer-events are handed back by the panel itself. */}
-      <div ref={setOfferOverlayHost} className="offer-overlay-layer" />
     </div>
   )
-  // The offer overlay layer lives inside the panel; every OfferBar below —
-  // native dock and chat composer alike — reaches it through this provider.
-  return (
-    <OfferOverlayContext.Provider value={offerOverlayHost}>{panel}</OfferOverlayContext.Provider>
-  )
+  // Every OfferBar below — native dock and chat composer alike — reaches this
+  // panel's lift through the provider, and the panel root carries the one
+  // number (`--offer-lift`) the seat, the surface and the fold all read.
+  return <OfferLiftContext.Provider value={offerLift}>{panel}</OfferLiftContext.Provider>
 }

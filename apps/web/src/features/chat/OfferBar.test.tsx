@@ -1,9 +1,9 @@
 import type { SessionOffer } from '@podium/model'
-import { act } from 'react'
+import { act, type JSX, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OfferBar } from './OfferBar'
-import { OfferOverlayContext } from './offer-overlay'
+import { OfferLiftContext, type OfferLiftHost, useOfferLiftHost } from './offer-lift'
 
 // ---------------------------------------------------------------------------
 // Agent action offer bar [spec:SP-c7f1]: shared between ChatView and the
@@ -321,65 +321,157 @@ describe('OfferBar', () => {
     expect(container.querySelector('[data-testid="offer-primary-action"]')).toBeNull()
   })
 
-  // POD-1017: given an overlay layer, the opened fold must leave the offer row —
-  // and therefore the PTY and transcript above it — at exactly the size it had.
-  it('paints the opened fold into the overlay layer, seated on the row', () => {
-    const host = document.createElement('div')
-    document.body.appendChild(host)
-    // The layer starts under the 36px header and runs to the panel's floor; the
-    // row is the bottom 48px of it, inset by the dock's own 13px padding.
-    const rects = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
-      this: Element,
-    ): DOMRect {
-      const box =
-        this === host
-          ? { top: 36, left: 0, right: 800, bottom: 600 }
-          : this.classList.contains('offer-fold-root')
-            ? { top: 552, left: 13, right: 787, bottom: 600 }
-            : { top: 0, left: 0, right: 0, bottom: 0 }
-      return {
-        ...box,
-        x: box.left,
-        y: box.top,
-        width: box.right - box.left,
-        height: box.bottom - box.top,
-        toJSON: () => box,
+  // POD-1068: the detail stays in flow under the row — what changes is who pays
+  // for it. The host is handed the fold's height and pushes the pane above up
+  // by it, so the PTY and the transcript keep the box they had.
+  describe('lifting host', () => {
+    /** jsdom lays nothing out; the fold's natural height is stubbed instead. */
+    const withNaturalDetailHeight = (height: number): (() => void) => {
+      const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.classList.contains('offer-fold-detail-body') ? height : 0
+        },
+      })
+      return () => {
+        if (original) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original)
+        else Reflect.deleteProperty(HTMLElement.prototype, 'offsetHeight')
       }
-    })
-    try {
-      act(() =>
-        root.render(
-          <OfferOverlayContext.Provider value={host}>
-            <OfferBar offer={offer} disabled={false} onAction={() => {}} />
-          </OfferOverlayContext.Provider>,
-        ),
-      )
-      // Nothing foldable is left inside the row itself.
-      expect(container.querySelector('[data-testid="offer-detail"]')).toBeNull()
-      expect(container.querySelector('.offer-fold-detail')).toBeNull()
+    }
 
-      const clip = host.querySelector<HTMLElement>('[data-testid="offer-overlay"]')
-      expect(clip?.style.left).toBe('13px')
-      expect(clip?.style.right).toBe('13px')
-      expect(clip?.style.bottom).toBe('48px')
-      expect(clip?.className).not.toContain('offer-overlay-clip--open')
-      expect(host.querySelector('[data-testid="offer-detail"]')?.getAttribute('aria-hidden')).toBe(
-        'true',
-      )
+    const liftHost = (room: number): { host: OfferLiftHost; lifts: number[] } => {
+      const lifts: number[] = []
+      return {
+        lifts,
+        host: {
+          setLift: (_caller, px) => lifts.push(px),
+          room: () => room,
+          watchRoom: () => () => {},
+        },
+      }
+    }
 
+    const toggleDisclosure = (): void => {
       act(() => {
         container.querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
       })
-      expect(host.querySelector<HTMLElement>('[data-testid="offer-overlay"]')?.className).toContain(
-        'offer-overlay-clip--open',
-      )
-      expect(host.querySelector('[data-testid="offer-detail"]')?.getAttribute('aria-hidden')).toBe(
-        'false',
-      )
-      expect(host.textContent).toContain('Show failures')
-    } finally {
-      rects.mockRestore()
-      host.remove()
     }
+
+    it('publishes the opened fold height to the host and takes it back on close', () => {
+      const restore = withNaturalDetailHeight(210)
+      const { host, lifts } = liftHost(1000)
+      try {
+        act(() =>
+          root.render(
+            <OfferLiftContext.Provider value={host}>
+              <OfferBar offer={offer} disabled={false} onAction={() => {}} />
+            </OfferLiftContext.Provider>,
+          ),
+        )
+        // Closed: nothing is asked of the pane above.
+        expect(lifts.at(-1)).toBe(0)
+        // The fold is still the row's own child — only the paying changes.
+        expect(container.querySelector('.offer-fold-detail')).not.toBeNull()
+        expect(container.querySelector('.offer-fold-root')?.className).toContain(
+          'offer-fold-root--lifted',
+        )
+
+        toggleDisclosure()
+        expect(lifts.at(-1)).toBe(210)
+        expect(container.querySelector('.offer-fold-detail-clip')?.className).not.toContain(
+          'offer-fold-detail-clip--capped',
+        )
+
+        toggleDisclosure()
+        expect(lifts.at(-1)).toBe(0)
+      } finally {
+        restore()
+      }
+    })
+
+    it('caps the lift at the room offered and scrolls the detail past it', () => {
+      const restore = withNaturalDetailHeight(400)
+      const { host, lifts } = liftHost(120)
+      try {
+        act(() =>
+          root.render(
+            <OfferLiftContext.Provider value={host}>
+              <OfferBar offer={offer} disabled={false} onAction={() => {}} />
+            </OfferLiftContext.Provider>,
+          ),
+        )
+        toggleDisclosure()
+        expect(lifts.at(-1)).toBe(120)
+        expect(container.querySelector('.offer-fold-detail-clip')?.className).toContain(
+          'offer-fold-detail-clip--capped',
+        )
+      } finally {
+        restore()
+      }
+    })
+
+    // A panel can hold two bars for ONE offer: chat mode keeps the native dock
+    // mounted at zero height so it can animate away. The closed one must not
+    // zero the panel's lift, and must not charge its own seat for a fold it is
+    // not showing — that second margin is free space the flex solver hands to
+    // the transcript, which then grows by exactly the height it must not.
+    it('charges only the seat whose fold is open, across two bars in one panel', () => {
+      const restore = withNaturalDetailHeight(210)
+      const Panel = (): JSX.Element => {
+        const rootRef = useRef<HTMLDivElement | null>(null)
+        const host = useOfferLiftHost(rootRef)
+        return (
+          <div ref={rootRef}>
+            <OfferLiftContext.Provider value={host}>
+              <div className="offer-lift-seat" data-testid="seat-dock">
+                <OfferBar offer={offer} disabled={false} onAction={() => {}} />
+              </div>
+              <div className="offer-lift-seat" data-testid="seat-chat">
+                <OfferBar offer={offer} disabled={false} onAction={() => {}} />
+              </div>
+            </OfferLiftContext.Provider>
+          </div>
+        )
+      }
+      try {
+        act(() => root.render(<Panel />))
+        const seat = (which: string): HTMLElement =>
+          container.querySelector<HTMLElement>(`[data-testid="seat-${which}"]`) as HTMLElement
+        const panelLift = (): string =>
+          (container.firstElementChild as HTMLElement).style.getPropertyValue('--offer-lift')
+
+        act(() => {
+          seat('chat').querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
+        })
+        expect(panelLift()).toBe('210px')
+        expect(seat('chat').style.getPropertyValue('--offer-seat-lift')).toBe('210px')
+        expect(seat('dock').style.getPropertyValue('--offer-seat-lift')).toBe('0px')
+
+        act(() => {
+          seat('chat').querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
+        })
+        expect(panelLift()).toBe('0px')
+        expect(seat('chat').style.getPropertyValue('--offer-seat-lift')).toBe('0px')
+      } finally {
+        restore()
+      }
+    })
+
+    it('leaves the fold in flow, and asks for no lift, without a host', () => {
+      const restore = withNaturalDetailHeight(210)
+      try {
+        act(() => root.render(<OfferBar offer={offer} disabled={false} onAction={() => {}} />))
+        expect(container.querySelector('.offer-fold-root')?.className).not.toContain(
+          'offer-fold-root--lifted',
+        )
+        toggleDisclosure()
+        expect(container.querySelector('.offer-fold-detail')?.getAttribute('aria-hidden')).toBe(
+          'false',
+        )
+      } finally {
+        restore()
+      }
+    })
   })
 })

@@ -250,6 +250,10 @@ export function ChatComposer({
       // leaves a dead gap above the keyboard under the composer. --kb-open (0/1) is
       // set from visualViewport by the shell when a soft keyboard is tracked.
       className={cn(
+        // `offer-lift-seat`: the composer carries the offer, so an opened fold
+        // grows it upwards — and its negative top margin keeps that growth off
+        // the feed's books, which rides up by the same pixels instead.
+        'offer-lift-seat',
         compact
           ? // The Superagent's box: inset from all four edges with the thread
             // dissolving into the ground above it, instead of a full-bleed bar
