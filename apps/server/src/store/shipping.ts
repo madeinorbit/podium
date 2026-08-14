@@ -20,10 +20,13 @@ import {
   type ShipOrder as ShipOrderValue,
   ShipStep,
   type ShipStep as ShipStepValue,
+  ShipTrainManifest,
+  type ShipTrainManifest as ShipTrainManifestValue,
 } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 type SqlRow = Record<string, unknown>
+const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
 
 const frozenOrderFacts = (order: ShipOrderValue) => ({
   issueId: order.issueId,
@@ -526,6 +529,102 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       .prepare(`${attemptSelect} WHERE order_id = ? ORDER BY lease_generation DESC LIMIT 1`)
       .get(orderId) as SqlRow | undefined
     return row ? mapAttempt(row) : null
+  }
+
+  listAttempts(): ShipAttemptValue[] {
+    return (this.db.prepare(`${attemptSelect} ORDER BY started_at, id`).all() as SqlRow[]).map(
+      mapAttempt,
+    )
+  }
+
+  claimTrain(input: {
+    id: string
+    leaderOrderId: ShipOrderValue['id']
+    startedAt: string
+    members: {
+      orderId: ShipOrderValue['id']
+      sourceBranch: string
+      machineId: ShipAttemptValue['machineId']
+    }[]
+  }): {
+    manifest: ShipTrainManifestValue
+    claimed: { order: ShipOrderValue; attempt: ShipAttemptValue }[]
+  } {
+    return transaction(this.db, () => {
+      const claimed = input.members.map((member) => {
+        const order = this.getOrder(member.orderId)
+        if (!order || order.state !== 'queued') {
+          throw new Error(`ship train member ${member.orderId} is not queued`)
+        }
+        const previous = this.latestAttemptForOrder(order.id)
+        return this.claimAttempt({
+          orderId: order.id,
+          expectedState: 'queued',
+          expectedAttemptId: previous?.id ?? null,
+          expectedGeneration: previous?.leaseGeneration ?? 0,
+          machineId: member.machineId,
+          startedAt: input.startedAt,
+        })
+      })
+      const byOrder = new Map(claimed.map((item) => [item.order.id, item]))
+      const manifest = ShipTrainManifest.parse({
+        id: input.id,
+        leaderOrderId: input.leaderOrderId,
+        members: input.members.map((member) => {
+          const item = byOrder.get(member.orderId)!
+          return {
+            orderId: item.order.id,
+            attemptId: item.attempt.id,
+            generation: item.attempt.leaseGeneration,
+            sourceBranch: member.sourceBranch,
+            approvedBaseSha: item.order.approvedBaseSha,
+            approvedHeadSha: item.order.approvedHeadSha,
+          }
+        }),
+      })
+      const leader = byOrder.get(input.leaderOrderId)
+      if (!leader) throw new Error(`ship train ${input.id} has no claimed leader`)
+      const effectKey = `train-membership:${manifest.id}:${leader.attempt.leaseGeneration}`
+      this.appendStep({
+        id: `step:${leader.attempt.id}:${effectKey}:planned` as ShipStepValue['id'],
+        orderId: leader.order.id,
+        attemptId: leader.attempt.id,
+        effectKey,
+        idempotencyKey: `${effectKey}:planned`,
+        generation: leader.attempt.leaseGeneration,
+        inputFence: {
+          sourceBaseSha: leader.attempt.expectedSourceBaseSha,
+          approvedHeadSha: leader.attempt.approvedHeadSha,
+          targetSha: leader.attempt.expectedTargetSha,
+        },
+        kind: 'train-membership',
+        state: 'planned',
+        summary: `${TRAIN_MANIFEST_PREFIX}${JSON.stringify(manifest)}`,
+        recordedAt: input.startedAt,
+      })
+      return { manifest, claimed }
+    })
+  }
+
+  trainManifestForAttempt(attemptId: ShipAttemptValue['id']): ShipTrainManifestValue | null {
+    for (const step of this.stepsForAttempt(attemptId)) {
+      if (!step.summary.startsWith(TRAIN_MANIFEST_PREFIX)) continue
+      try {
+        return ShipTrainManifest.parse(JSON.parse(step.summary.slice(TRAIN_MANIFEST_PREFIX.length)))
+      } catch {
+        throw new Error(`ship train manifest for ${attemptId} is invalid`)
+      }
+    }
+    return null
+  }
+
+  activeTrainForOrder(orderId: ShipOrderValue['id']): ShipTrainManifestValue | null {
+    for (const attempt of this.listAttempts().reverse()) {
+      if (attempt.finishedAt) continue
+      const manifest = this.trainManifestForAttempt(attempt.id)
+      if (manifest?.members.some((member) => member.orderId === orderId)) return manifest
+    }
+    return null
   }
 
   /** Claim one active order through its durable order/attempt winner. Recovery
@@ -1198,6 +1297,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       const order = this.getOrder(receipt.orderId)
       const covering = this.getOrder(coveringOrderId)
       const coveringReceipt = this.receiptForOrder(coveringOrderId)
+      const coveringAttempt = this.latestAttemptForOrder(coveringOrderId)
+      const manifest = coveringAttempt
+        ? this.trainManifestForAttempt(coveringAttempt.id)
+        : null
       if (!order || !covering || !coveringReceipt || covering.state !== 'shipped') {
         throw new Error(`covered delivery receipt ${receipt.id} has no shipped covering order`)
       }
@@ -1206,20 +1309,22 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         if (JSON.stringify(existing) === JSON.stringify(receipt)) return existing
         throw new Error(`ship order ${order.id} already has different immutable receipt`)
       }
-      if (order.state !== 'queued') {
-        throw new Error(`covered ship order ${order.id} is ${order.state}, not queued`)
+      if (order.state !== 'preflight') {
+        throw new Error(`covered ship order ${order.id} is ${order.state}, not preflight`)
       }
-      const reaches = (candidate: ShipOrderValue, visiting = new Set<string>()): boolean => {
-        if (candidate.id === order.id) return true
-        if (visiting.has(candidate.id)) return false
-        visiting.add(candidate.id)
-        return candidate.deliveryDependsOn.some((id) => {
-          const dependency = this.getOrder(id)
-          return dependency ? reaches(dependency, visiting) : false
-        })
-      }
-      if (!reaches(covering)) {
-        throw new Error(`ship order ${covering.id} does not cover dependency ${order.id}`)
+      const member = manifest?.members.find((candidate) => candidate.orderId === order.id)
+      const memberAttempt = member ? this.getAttempt(member.attemptId) : null
+      if (
+        !manifest ||
+        manifest.leaderOrderId !== covering.id ||
+        !member ||
+        !memberAttempt ||
+        memberAttempt.finishedAt ||
+        memberAttempt.leaseGeneration !== member.generation ||
+        member.approvedBaseSha !== order.approvedBaseSha ||
+        member.approvedHeadSha !== order.approvedHeadSha
+      ) {
+        throw new Error(`ship order ${order.id} has no exact claimed train membership`)
       }
       if (
         order.repoId !== covering.repoId ||
@@ -1235,6 +1340,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       ) {
         throw new Error(`covered delivery receipt ${receipt.id} does not match its train proof`)
       }
+      this.finishAttempt(memberAttempt.id, memberAttempt.leaseGeneration, {
+        finishedAt: receipt.completedAt,
+        outcome: 'succeeded',
+        testedIntegrationSha: receipt.testedIntegrationSha,
+        landedRefSha: receipt.landedRefSha,
+        destinationSha: receipt.destinationSha,
+        validationProfileId: receipt.validationProfileId,
+        validationResult: 'passed',
+      })
       this.db
         .prepare(
           `INSERT INTO delivery_receipts
@@ -1259,7 +1373,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       const changed = this.db
         .prepare(
           `UPDATE ship_orders SET state = 'shipped', state_changed_at = ?, hold_code = NULL
-           WHERE id = ? AND state = 'queued'`,
+           WHERE id = ? AND state = 'preflight'`,
         )
         .run(receipt.completedAt, receipt.orderId)
       if (changed.changes !== 1) throw new Error(`ship order ${order.id} coverage fence failed`)

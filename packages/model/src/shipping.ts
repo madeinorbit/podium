@@ -50,6 +50,36 @@ export const DescendantTip = z.object({
 })
 export type DescendantTip = z.infer<typeof DescendantTip>
 
+export const ShipTrainMember = z.object({
+  orderId: ShipOrderIdField,
+  attemptId: ShipAttemptIdField,
+  generation: z.number().int().positive(),
+  sourceBranch: z.string().min(1),
+  approvedBaseSha: z.string().min(1),
+  approvedHeadSha: z.string().min(1),
+})
+export type ShipTrainMember = z.infer<typeof ShipTrainMember>
+
+export const ShipTrainManifest = z
+  .object({
+    id: z.string().min(1),
+    leaderOrderId: ShipOrderIdField,
+    members: z.array(ShipTrainMember).min(1),
+  })
+  .superRefine((manifest, ctx) => {
+    if (manifest.members.at(-1)?.orderId !== manifest.leaderOrderId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['leaderOrderId'],
+        message: 'train leader must be the final ordered member',
+      })
+    }
+    if (new Set(manifest.members.map((member) => member.orderId)).size !== manifest.members.length) {
+      ctx.addIssue({ code: 'custom', path: ['members'], message: 'train members must be unique' })
+    }
+  })
+export type ShipTrainManifest = z.infer<typeof ShipTrainManifest>
+
 const descendantTipKey = (tip: DescendantTip): string => `${tip.issueId}\0${tip.approvedHeadSha}`
 
 export const descendantTipsMatch = (

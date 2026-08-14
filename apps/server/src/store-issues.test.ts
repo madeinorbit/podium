@@ -685,14 +685,17 @@ describe('shipping durable store', () => {
     })
     s.shipping.createOrder(lower)
     s.shipping.createOrder(covering)
-    const claimed = s.shipping.claimAttempt({
-      orderId: covering.id,
-      expectedState: 'queued',
-      expectedAttemptId: null,
-      expectedGeneration: 0,
-      machineId: asMachineId('machine-1'),
+    const train = s.shipping.claimTrain({
+      id: 'train-1',
+      leaderOrderId: covering.id,
       startedAt: '2026-08-12T10:01:00.000Z',
+      members: [lower, covering].map((order) => ({
+        orderId: order.id,
+        sourceBranch: `issue/${order.id}`,
+        machineId: asMachineId('machine-1'),
+      })),
     })
+    const claimed = train.claimed.find((item) => item.order.id === covering.id)!
     for (const [from, to] of [
       ['preflight', 'composing'],
       ['composing', 'validating'],

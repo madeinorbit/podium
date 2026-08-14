@@ -3,6 +3,7 @@ import {
   ProviderPullRequestRef,
   ShipAttemptIdField,
   ShipOrderIdField,
+  ShipTrainManifest,
 } from '@podium/model'
 import { z } from 'zod'
 
@@ -60,6 +61,7 @@ export const ShippingJobRequestMessage = z
     expectedTargetSha: z.string().min(1),
     destination: z.string().min(1),
     validationProfile: ShippingValidationProfile,
+    train: ShipTrainManifest.optional(),
     providerRef: ProviderPullRequestRef.optional(),
   })
   .strict()
@@ -90,6 +92,7 @@ export function shippingJobRequestFingerprint(
       timeoutMs: input.validationProfile.timeoutMs,
       resourceLocks: [...input.validationProfile.resourceLocks],
     },
+    train: input.train ?? null,
     providerRef: input.providerRef
       ? {
           provider: input.providerRef.provider,
@@ -140,6 +143,15 @@ export const ShippingJobResult = z.object({
   landedRefSha: z.string().min(1).optional(),
   validationProfileId: z.string().min(1).optional(),
   validationResult: z.enum(['passed', 'failed']).optional(),
+  trainProofs: z
+    .array(
+      z.object({
+        orderId: ShipOrderIdField,
+        approvedHeadSha: z.string().min(1),
+        landedRefSha: z.string().min(1),
+      }),
+    )
+    .optional(),
   logs: z.array(z.string()),
   artifactRefs: z.array(z.string()),
   heartbeatedAt: z.string(),
