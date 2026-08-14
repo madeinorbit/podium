@@ -146,6 +146,8 @@ export interface MissionProgress {
   total: number
   done: number
   run: number
+  /** Work awaiting the operator's review, not active execution. */
+  review: number
   block: number
   wait: number
 }
@@ -428,18 +430,18 @@ function sessionsForIssue(
  * keeps them in their own section, and counting them as "to go" makes a
  * mission that is itself being worked read as nothing happening.
  *
- * Four segments: done / run / block / wait. The artifact's arithmetic (`done` by
- * stage, `run` by stage, `block` by state, `wait` = the remainder) lets one
+ * Five segments: done / run / review / block / wait. The artifact's arithmetic (`done` by
+ * stage, `run` by stage, `review` by stage, `block` by state, `wait` = the remainder) lets one
  * issue land in two buckets, which would push the bar past 100%. Classification
- * here is EXCLUSIVE in the order done → block → run → wait: blocked work is not
- * running, and that is the segment the operator needs to see.
+ * here is EXCLUSIVE in the order done → block → review → run → wait: blocked
+ * work is not running, and review work is an obligation rather than execution.
  */
 export function missionProgress(
   issues: readonly IssueNavigationModel[],
   sessions: readonly SessionMeta[],
   rootId: string | null | undefined,
 ): MissionProgress {
-  const empty = { total: 0, done: 0, run: 0, block: 0, wait: 0 }
+  const empty = { total: 0, done: 0, run: 0, review: 0, block: 0, wait: 0 }
   if (!rootId) return empty
   const ids = missionIssueIds(issues, rootId, sessions)
   const scope = issues.filter((issue) => ids.has(issue.id) && !issue.archived && !issue.deletedAt)
@@ -458,14 +460,23 @@ export function missionProgress(
   )
   let done = 0
   let run = 0
+  let review = 0
   let block = 0
   for (const issue of units) {
     if (issue.stage === 'done' || issue.closedReason) done += 1
     else if (issue.blocked) block += 1
-    else if (issue.stage === 'in_progress' || issue.stage === 'review') run += 1
+    else if (issue.stage === 'review') review += 1
+    else if (issue.stage === 'in_progress') run += 1
   }
   const total = units.length
-  return { total, done, run, block, wait: Math.max(0, total - done - run - block) }
+  return {
+    total,
+    done,
+    run,
+    review,
+    block,
+    wait: Math.max(0, total - done - run - review - block),
+  }
 }
 
 /**

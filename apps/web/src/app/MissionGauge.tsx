@@ -23,8 +23,9 @@ import { cn } from '@/lib/utils'
  * half lives in `missionProgress` (one unit of work is one task; the root is
  * the container being measured, not a segment of it).
  *
- * Bands run done → running → blocked → to go, so the track fills from the left
- * as work lands and never reshuffles when one task changes state.
+ * Bands run done → in review → running → blocked → to go, so review-stage
+ * work cannot masquerade as execution when the fleet chip correctly says zero
+ * agents. The track fills from the left as work lands.
  *
  * ---------------------------------------------------------------------------
  * THE NARROW LADDER — the deck starts at 300px, so this is routine
@@ -93,12 +94,13 @@ export function MissionGauge({
   live: number
   working: number
 }): JSX.Element {
-  const { total, done, run, block, wait } = progress
+  const { total, done, run, review, block, wait } = progress
   const crew = missionCrewLabel(live, working)
   const reading =
     [
       `${done} of ${total} task${total === 1 ? '' : 's'} done`,
       run > 0 ? `${run} running` : null,
+      review > 0 ? `${review} in review` : null,
       block > 0 ? `${block} blocked` : null,
       wait > 0 ? `${wait} to go` : null,
     ]
@@ -110,6 +112,7 @@ export function MissionGauge({
   const bands = (
     [
       ['done', 'done', done],
+      ['review', 'in review', review],
       ['run', 'running', run],
       ['block', 'blocked', block],
       ['wait', 'to go', wait],

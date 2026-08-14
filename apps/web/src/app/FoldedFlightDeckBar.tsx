@@ -39,8 +39,9 @@ import { useReplicaIssues, useStoreSelector } from './store'
  *   WHICH mission instead of which column.
  *
  *   THE GAUGE. One tick per task, top-down, in the open gauge's own state order
- *   (done → running → blocked → to go) so nothing reshuffles when the deck
- *   folds. The column itself becomes the meter; the exact datum sits under it.
+ *   (done → in review → running → blocked → to go) so review-stage work
+ *   never reads as active execution when the deck folds. The column itself
+ *   becomes the meter; the exact datum sits under it.
  *
  *   THE FOOT. What wants you, at the bottom where the thumb rests — amber ONLY
  *   when something is actually asking — and then fleet presence. A stack with
@@ -49,7 +50,7 @@ import { useReplicaIssues, useStoreSelector } from './store'
  */
 
 /** Top-down state order, identical to the open gauge's bands. */
-const TICK_ORDER = ['done', 'run', 'block', 'wait'] as const
+const TICK_ORDER = ['done', 'review', 'run', 'block', 'wait'] as const
 
 /**
  * Where one-tick-per-task stops being a reading and becomes a texture.
@@ -85,10 +86,11 @@ const NO_COLOUR_PICK = (_color: IssueColorSlot | null): void => {}
 /** The mission's state as one sentence — the same one the open gauge speaks, so
  *  folding cannot change what the mission is said to have done. */
 function reading(progress: MissionProgress): string {
-  const { total, done, run, block, wait } = progress
+  const { total, done, run, review, block, wait } = progress
   return [
     `${done} of ${total} task${total === 1 ? '' : 's'} done`,
     run > 0 ? `${run} running` : null,
+    review > 0 ? `${review} in review` : null,
     block > 0 ? `${block} blocked` : null,
     wait > 0 ? `${wait} to go` : null,
   ]
@@ -104,8 +106,8 @@ function SpineGauge({
   progress: MissionProgress
   onExpand: () => void
 }): JSX.Element {
-  const { total, done, run, block, wait } = progress
-  const counts = { done, run, block, wait }
+  const { total, done, run, review, block, wait } = progress
+  const counts = { done, run, review, block, wait }
   const perTask = total <= TICK_LIMIT
   const marks = perTask
     ? TICK_ORDER.flatMap((state) =>

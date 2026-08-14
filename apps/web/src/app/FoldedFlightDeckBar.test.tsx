@@ -5,7 +5,7 @@ import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 
 const state = {
   rows: [{ liveAgentCount: 3, workingAgentCount: 1, actionableCount: 2 }],
-  progress: { total: 5, done: 1, run: 2, block: 0, wait: 2 },
+  progress: { total: 5, done: 1, run: 2, review: 0, block: 0, wait: 2 },
 }
 
 vi.mock('./store', () => ({
@@ -24,7 +24,7 @@ vi.mock('@podium/client-core/viewmodels', () => ({
 
 afterEach(() => {
   state.rows = [{ liveAgentCount: 3, workingAgentCount: 1, actionableCount: 2 }]
-  state.progress = { total: 5, done: 1, run: 2, block: 0, wait: 2 }
+  state.progress = { total: 5, done: 1, run: 2, review: 0, block: 0, wait: 2 }
   cleanup()
 })
 
@@ -67,8 +67,23 @@ describe('folded Flight Deck', () => {
     expect(screen.getByTestId('flight-deck-activity')).not.toBeNull()
   })
 
+  it('reports a zero-agent review root as review, not running', () => {
+    state.rows = [{ liveAgentCount: 0, workingAgentCount: 0, actionableCount: 1 }]
+    state.progress = { total: 1, done: 0, run: 0, review: 1, block: 0, wait: 0 }
+    render(<FoldedFlightDeckBar onExpand={vi.fn()} />)
+
+    const gauge = screen.getByTestId('flight-deck-gauge')
+    expect(ticks()).toEqual(['review'])
+    expect(gauge.getAttribute('aria-label')).toContain('1 in review')
+    expect(gauge.getAttribute('aria-label')).not.toContain('running')
+    expect(screen.getByTestId('flight-deck-activity').getAttribute('aria-label')).toContain(
+      '0 agents',
+    )
+    expect(screen.getByTestId('flight-deck-attention').textContent).toContain('1')
+  })
+
   it('keeps the reading when a mission outgrows one tick per task', () => {
-    state.progress = { total: 60, done: 30, run: 10, block: 0, wait: 20 }
+    state.progress = { total: 60, done: 30, run: 10, review: 0, block: 0, wait: 20 }
     render(<FoldedFlightDeckBar onExpand={vi.fn()} />)
 
     const gauge = screen.getByTestId('flight-deck-gauge')

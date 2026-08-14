@@ -2,6 +2,7 @@ import {
   deriveFleetPresence,
   deriveGitStamp,
   FLEET_KIND_LIMIT,
+  type MissionProgress,
 } from '@podium/client-core/viewmodels'
 import type { IssueGitState, SessionMeta } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
@@ -107,19 +108,13 @@ export function GitStampLine({
  *  status word has not. */
 export const ROW_PROGRESS_MIN_TASKS = 2
 
-export interface RowProgress {
-  total: number
-  done: number
-  run: number
-  block: number
-  wait: number
-}
+export type RowProgress = MissionProgress
 
 /**
  * The row's baseline rule: a segmented meter drawn across the text column, in
  * the row's existing bottom padding, so a row that has one costs no height and
- * a list of thirty keeps one even rhythm. Nothing here is amber — a progress
- * meter asks nothing of the operator, and yellow is reserved for what does.
+ * a list of thirty keeps one even rhythm. Review is the one amber segment: it
+ * is the progress state that explicitly asks the operator for attention.
  */
 export function RowProgressMeter({
   progress,
@@ -147,6 +142,11 @@ export function RowProgressMeter({
           },
         ]}
       />
+      {progress.review > 0 ? (
+        <View
+          style={[styles.seg, { width: pct(progress.review), backgroundColor: color.needsYou }]}
+        />
+      ) : null}
       <View style={[styles.seg, { width: pct(progress.block), backgroundColor: color.danger }]} />
     </View>
   )

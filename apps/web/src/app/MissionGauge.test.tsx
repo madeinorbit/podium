@@ -18,7 +18,7 @@ describe('Flight Deck mission gauge', () => {
     // (DESIGN.md §5). The gate is now the one `RowProgressMeter` uses.
     const view = render(
       <MissionGauge
-        progress={{ total: 5, done: 2, run: 2, block: 1, wait: 0 }}
+        progress={{ total: 5, done: 2, run: 2, review: 0, block: 1, wait: 0 }}
         live={4}
         working={0}
       />,
@@ -39,7 +39,7 @@ describe('Flight Deck mission gauge', () => {
 
     view.rerender(
       <MissionGauge
-        progress={{ total: 5, done: 2, run: 2, block: 1, wait: 0 }}
+        progress={{ total: 5, done: 2, run: 2, review: 0, block: 1, wait: 0 }}
         live={4}
         working={2}
       />,
@@ -54,7 +54,7 @@ describe('Flight Deck mission gauge', () => {
     // sweep, so the gauge is completely still.
     view.rerender(
       <MissionGauge
-        progress={{ total: 5, done: 4, run: 0, block: 1, wait: 0 }}
+        progress={{ total: 5, done: 4, run: 0, review: 0, block: 1, wait: 0 }}
         live={4}
         working={2}
       />,
@@ -66,7 +66,7 @@ describe('Flight Deck mission gauge', () => {
   it('gives a band to every state that has work and to no state that has none', () => {
     const view = render(
       <MissionGauge
-        progress={{ total: 1, done: 0, run: 1, block: 0, wait: 0 }}
+        progress={{ total: 1, done: 0, run: 1, review: 0, block: 0, wait: 0 }}
         live={1}
         working={1}
       />,
@@ -80,7 +80,7 @@ describe('Flight Deck mission gauge', () => {
 
     view.rerender(
       <MissionGauge
-        progress={{ total: 8, done: 3, run: 2, block: 1, wait: 2 }}
+        progress={{ total: 8, done: 3, run: 2, review: 0, block: 1, wait: 2 }}
         live={5}
         working={5}
       />,
@@ -103,7 +103,7 @@ describe('Flight Deck mission gauge', () => {
   it('the chip says who is computing, never "live"', () => {
     const view = render(
       <MissionGauge
-        progress={{ total: 3, done: 0, run: 1, block: 0, wait: 0 }}
+        progress={{ total: 3, done: 0, run: 1, review: 0, block: 0, wait: 0 }}
         live={3}
         working={1}
       />,
@@ -114,11 +114,29 @@ describe('Flight Deck mission gauge', () => {
 
     view.rerender(
       <MissionGauge
-        progress={{ total: 3, done: 0, run: 0, block: 0, wait: 1 }}
+        progress={{ total: 3, done: 0, run: 0, review: 0, block: 0, wait: 1 }}
         live={3}
         working={0}
       />,
     )
     expect(screen.getByTestId('mission-live-chip').textContent).toBe('3 agents')
+  })
+
+  it('calls an unstaffed review task in review instead of running', () => {
+    render(
+      <MissionGauge
+        progress={{ total: 1, done: 0, run: 0, review: 1, block: 0, wait: 0 }}
+        live={0}
+        working={0}
+      />,
+    )
+
+    expect(bands().map((band) => band.getAttribute('data-s'))).toEqual(['review'])
+    expect(label(bands()[0])).toBe('1 in review')
+    expect(screen.getByTestId('mission-gauge').getAttribute('aria-label')).toBe(
+      '0 of 1 task done, 1 in review · 0 agents',
+    )
+    expect(screen.getByTestId('mission-gauge').getAttribute('data-running')).toBe('false')
+    expect(screen.getByTestId('mission-gauge-track').querySelector('.row-progress-sweep')).toBeNull()
   })
 })

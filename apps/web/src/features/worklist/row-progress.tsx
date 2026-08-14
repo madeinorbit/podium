@@ -119,6 +119,7 @@ export function rowProgressLabel(progress: MissionProgress): string {
     `${progress.total} tasks`,
     `${progress.done} done`,
     `${progress.run} running`,
+    ...(progress.review > 0 ? [`${progress.review} in review`] : []),
     ...(progress.block > 0 ? [`${progress.block} blocked`] : []),
     `${progress.wait} waiting`,
   ].join(' · ')
@@ -179,6 +180,13 @@ export function RowProgressMeter({
       >
         {working && <span className="row-progress-sweep" aria-hidden="true" />}
       </span>
+      {progress.review > 0 && (
+        <span
+          data-segment="review"
+          className={cn(segment, 'bg-attention')}
+          style={{ width: pct(progress.review) }}
+        />
+      )}
     </span>
   )
 }

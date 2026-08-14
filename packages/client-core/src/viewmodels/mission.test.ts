@@ -341,6 +341,7 @@ describe('missionIssueIds', () => {
       total: 1,
       done: 1,
       run: 0,
+      review: 0,
       block: 0,
       wait: 0,
     })
@@ -740,11 +741,11 @@ describe('buildFlightDeckRows', () => {
 
 describe('missionProgress', () => {
   const cases: Array<[string, IssueNavigationModel[], MissionProgress]> = [
-    ['no mission at all', [], { total: 0, done: 0, run: 0, block: 0, wait: 0 }],
+    ['no mission at all', [], { total: 0, done: 0, run: 0, review: 0, block: 0, wait: 0 }],
     [
       'a lone root, which IS the single unit because it contains nothing',
       [issue('root')],
-      { total: 1, done: 0, run: 1, block: 0, wait: 0 },
+      { total: 1, done: 0, run: 1, review: 0, block: 0, wait: 0 },
     ],
     [
       // POD-710, the whole complaint: one sub-issue is ONE unit of work. The
@@ -753,7 +754,7 @@ describe('missionProgress', () => {
       // untouched child.
       'a root with one child, as one unit and one only',
       [issue('root', { stage: 'in_progress' }), issue('a', { parentId: 'root', stage: 'backlog' })],
-      { total: 1, done: 0, run: 0, block: 0, wait: 1 },
+      { total: 1, done: 0, run: 0, review: 0, block: 0, wait: 1 },
     ],
     [
       'a root with N children, every one of them a unit and the root none',
@@ -763,7 +764,7 @@ describe('missionProgress', () => {
         issue('b', { parentId: 'root', stage: 'in_progress' }),
         issue('c', { parentId: 'root', stage: 'backlog' }),
       ],
-      { total: 3, done: 1, run: 1, block: 0, wait: 1 },
+      { total: 3, done: 1, run: 1, review: 0, block: 0, wait: 1 },
     ],
     [
       'grandchildren, which are units at any depth',
@@ -773,18 +774,19 @@ describe('missionProgress', () => {
         issue('a1', { parentId: 'a', stage: 'done' }),
         issue('a2', { parentId: 'a', stage: 'backlog' }),
       ],
-      { total: 3, done: 2, run: 0, block: 0, wait: 1 },
+      { total: 3, done: 2, run: 0, review: 0, block: 0, wait: 1 },
     ],
     [
-      'all four segments at once',
+      'all five segments at once',
       [
         issue('root', { stage: 'planning' }),
         issue('a', { parentId: 'root', stage: 'done' }),
         issue('b', { parentId: 'root', stage: 'review' }),
         issue('c', { parentId: 'root', blocked: true }),
         issue('d', { parentId: 'root', stage: 'backlog' }),
+        issue('e', { parentId: 'root', stage: 'in_progress' }),
       ],
-      { total: 4, done: 1, run: 1, block: 1, wait: 1 },
+      { total: 5, done: 1, run: 1, review: 1, block: 1, wait: 1 },
     ],
     [
       'a child closed for another reason than stage=done',
@@ -792,12 +794,12 @@ describe('missionProgress', () => {
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', closedReason: 'duplicate' }),
       ],
-      { total: 1, done: 1, run: 0, block: 0, wait: 0 },
+      { total: 1, done: 1, run: 0, review: 0, block: 0, wait: 0 },
     ],
     [
       'blocked in-progress work, counted once and as blocked',
       [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', blocked: true })],
-      { total: 1, done: 0, run: 0, block: 1, wait: 0 },
+      { total: 1, done: 0, run: 0, review: 0, block: 1, wait: 0 },
     ],
     [
       'done work that is also flagged blocked, counted once as done',
@@ -805,12 +807,23 @@ describe('missionProgress', () => {
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', stage: 'done', blocked: true }),
       ],
-      { total: 1, done: 1, run: 0, block: 0, wait: 0 },
+      { total: 1, done: 1, run: 0, review: 0, block: 0, wait: 0 },
     ],
   ]
 
   it.each(cases)('reports %s', (_name, issues, expected) => {
     expect(missionProgress(issues, [], issues[0]?.id ?? null)).toEqual(expected)
+  })
+
+  it('classifies a review-stage root with no agents as review, not running', () => {
+    expect(missionProgress([issue('root', { stage: 'review' })], [], 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 0,
+      review: 1,
+      block: 0,
+      wait: 0,
+    })
   })
 
   it('does not count an empty hopscotch origin as a running unit', () => {
@@ -826,6 +839,7 @@ describe('missionProgress', () => {
       total: 0,
       done: 0,
       run: 0,
+      review: 0,
       block: 0,
       wait: 0,
     })
@@ -839,7 +853,7 @@ describe('missionProgress', () => {
       issue('c', { parentId: 'root', stage: 'planning' }),
     ]
     const p = missionProgress(issues, [], 'root')
-    expect(p.done + p.run + p.block + p.wait).toBe(p.total)
+    expect(p.done + p.run + p.review + p.block + p.wait).toBe(p.total)
   })
 
   // THE bug this signature exists to fix: the filter is a display preference,
@@ -852,7 +866,7 @@ describe('missionProgress', () => {
       issue('b', { parentId: 'root', seq: 2, stage: 'done' }),
       issue('c', { parentId: 'root', seq: 3 }),
     ]
-    const expected = { total: 3, done: 2, run: 1, block: 0, wait: 0 }
+    const expected = { total: 3, done: 2, run: 1, review: 0, block: 0, wait: 0 }
     for (const mode of ['full', 'active', 'needs-you'] as const) {
       // The spine really does shrink in the filtered modes…
       const rows = buildFlightDeckRows(issues, [], 'root', mode)
@@ -868,6 +882,7 @@ describe('missionProgress', () => {
       total: 1,
       done: 1,
       run: 0,
+      review: 0,
       block: 0,
       wait: 0,
     })
@@ -883,8 +898,8 @@ describe('missionProgress', () => {
       [],
       'root',
     )
-    expect(alone).toEqual({ total: 1, done: 0, run: 1, block: 0, wait: 0 })
-    expect(container).toEqual({ total: 1, done: 1, run: 0, block: 0, wait: 0 })
+    expect(alone).toEqual({ total: 1, done: 0, run: 1, review: 0, block: 0, wait: 0 })
+    expect(container).toEqual({ total: 1, done: 1, run: 0, review: 0, block: 0, wait: 0 })
   })
 
   it('is empty rather than throwing when there is no mission root', () => {
@@ -892,6 +907,7 @@ describe('missionProgress', () => {
       total: 0,
       done: 0,
       run: 0,
+      review: 0,
       block: 0,
       wait: 0,
     })
@@ -909,6 +925,7 @@ describe('missionProgress', () => {
       total: 1,
       done: 1,
       run: 0,
+      review: 0,
       block: 0,
       wait: 0,
     })
@@ -925,6 +942,7 @@ describe('missionProgress', () => {
       total: 1,
       done: 0,
       run: 0,
+      review: 0,
       block: 0,
       wait: 1,
     })
@@ -944,6 +962,7 @@ describe('missionProgress', () => {
       total: 1,
       done: 0,
       run: 1,
+      review: 0,
       block: 0,
       wait: 0,
     })
@@ -958,6 +977,7 @@ describe('missionProgress', () => {
       total: 1,
       done: 0,
       run: 1,
+      review: 0,
       block: 0,
       wait: 0,
     })
@@ -971,6 +991,7 @@ describe('missionProgress', () => {
       total: 1,
       done: 0,
       run: 0,
+      review: 0,
       block: 0,
       wait: 1,
     })
@@ -986,6 +1007,7 @@ describe('missionProgress', () => {
       total: 1,
       done: 0,
       run: 1,
+      review: 0,
       block: 0,
       wait: 0,
     })

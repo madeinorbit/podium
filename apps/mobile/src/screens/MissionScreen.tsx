@@ -2,6 +2,7 @@ import { useSlice } from '@podium/client-core/react'
 import {
   agentBadge,
   isSessionWorking,
+  type MissionProgress,
   missionCrewLabel,
   missionProgress,
   missionRootFor,
@@ -331,7 +332,7 @@ function MissionBody({
   allWorktreePaths: string[]
   current: SessionMeta | undefined
   currentIssue: IssueWire | undefined
-  progress: { total: number; done: number; run: number; block: number; wait: number }
+  progress: MissionProgress
   live: number
   working: number
   attention: number
@@ -490,7 +491,7 @@ function MissionBar({
   open,
   onToggle,
 }: {
-  progress: { total: number; done: number; run: number; block: number; wait: number }
+  progress: MissionProgress
   live: number
   working: number
   attention: number
@@ -543,6 +544,9 @@ function MissionBar({
             styles.barSeg,
             { width: pct(progress.run), backgroundColor: alpha(color.working, 0.45) },
           ]}
+        />
+        <View
+          style={[styles.barSeg, { width: pct(progress.review), backgroundColor: color.needsYou }]}
         />
         <View
           style={[styles.barSeg, { width: pct(progress.block), backgroundColor: color.danger }]}

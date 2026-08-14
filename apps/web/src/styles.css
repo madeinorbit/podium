@@ -2106,11 +2106,13 @@ html[data-density="balanced"] .header-quota-pools {
 /* THE GAUGE SPINE (POD-738): one 4px tick per task, running top-down in the open
    gauge's own state order. The states take the open gauge's tokens so the two
    readings can never disagree — done in Accent Blue, running in the working blue
-   the spinner wears, and BLOCKED WITH NO HUE AT ALL (`--warning` IS `--attention`
+   the spinner wears, review in attention yellow, and BLOCKED WITH NO HUE AT ALL
+   (`--warning` IS `--attention`
    in Superade, so a warning-toned tick would spend the one signal colour on work
    that is asking nothing). At 4px there is no room for the open gauge's tint +
-   floor-rule pair, so each state is one saturation instead: full for done, the
-   design's 60% for running, and two neutral weights for stopped and not-started. */
+   floor-rule pair, so each state is one saturation instead: full for done and
+   review, the design's 60% for running, and two neutral weights for stopped
+   and not-started. */
 .deck-tick {
   width: 4px;
   flex: 0 1 26px;
@@ -2123,6 +2125,9 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .deck-tick[data-s="run"] {
   background: color-mix(in srgb, var(--live) 60%, transparent);
+}
+.deck-tick[data-s="review"] {
+  background: var(--attention);
 }
 .deck-tick[data-s="block"] {
   background: color-mix(in srgb, var(--foreground) 34%, transparent);
@@ -7691,6 +7696,11 @@ a.ref-link--session::before {
   box-shadow: inset 0 -2px 0 var(--live);
   color: var(--text-strong);
 }
+.gauge-band[data-s="review"] {
+  background-color: color-mix(in srgb, var(--attention) 20%, transparent);
+  box-shadow: inset 0 -2px 0 var(--attention);
+  color: var(--text-strong);
+}
 /* Blocked's ground is `.gauge-hatch`; its floor rule is the theme's own
    foreground, never a hue. */
 .gauge-band[data-s="block"] {
@@ -7743,6 +7753,7 @@ a.ref-link--session::before {
 }
 @container gauge-band (min-width: 64px) {
   .gauge-band[data-s="run"] .gauge-band-word,
+  .gauge-band[data-s="review"] .gauge-band-word,
   .gauge-band[data-s="block"] .gauge-band-word {
     display: inline;
   }
