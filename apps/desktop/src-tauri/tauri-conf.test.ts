@@ -83,6 +83,16 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('__PODIUM_TOGGLE_RIGHT_SIDEBAR__')
   })
 
+  it('names Hide and Quit after the product, not the running binary', () => {
+    // The predefined items default to NSRunningApplication.localizedName, which
+    // under `tauri dev` is the bare cargo executable — "Quit podium-desktop".
+    // The bundle reads CFBundleName ("Podium", from productName) and was always
+    // right; explicit text is what keeps dev showing the shipped menu.
+    expect(mainSource).toContain('.hide_with_text("Hide Podium")')
+    expect(mainSource).toContain('.quit_with_text("Quit Podium")')
+    expect(mainSource).not.toContain('.quit()')
+  })
+
   it('never closes the main window from Cmd+W', () => {
     expect(mainSource).toContain('MenuItemBuilder::with_id("close-tab", "Close Tab")')
     expect(mainSource).toContain('.accelerator("CmdOrCtrl+W")')

@@ -682,17 +682,26 @@ fn main() {
                 let about = MenuItemBuilder::with_id("about-podium", "About Podium").build(app)?;
                 let check_updates =
                     MenuItemBuilder::with_id("check-updates", "Check for Updates…").build(app)?;
+                // Hide/Quit carry the app name explicitly. Left to their defaults, the
+                // predefined items title themselves from NSRunningApplication's
+                // localizedName, which reads CFBundleName — and `tauri dev` runs the
+                // bare cargo binary with no .app bundle, so the menu says "Quit
+                // podium-desktop". The packaged bundle gets CFBundleName "Podium" from
+                // productName and never had the problem; explicit text makes dev show
+                // the same menu the bundle ships, and is identical where it was
+                // already right. (This menu is hardcoded English throughout, so no
+                // localization is lost.)
                 let podium_menu = SubmenuBuilder::new(app, "Podium")
                     .item(&about)
                     .item(&check_updates)
                     .separator()
                     .services()
                     .separator()
-                    .hide()
+                    .hide_with_text("Hide Podium")
                     .hide_others()
                     .show_all()
                     .separator()
-                    .quit()
+                    .quit_with_text("Quit Podium")
                     .build()?;
                 // Cmd+N, same reasoning as Cmd+W below: an unclaimed accelerator
                 // never reaches the webview, so the only way the web app can own
