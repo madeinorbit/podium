@@ -2851,7 +2851,14 @@ html[data-density="balanced"] .header-quota-pools {
    keeps its full scroll surface everywhere the shelf is not actually drawn. Its
    inline padding is the SAME expression the scroller uses, and it stops short of
    the reading rail by the rail's own width — so the shelf's edges land exactly
-   on the column's, at every pane width, with no second number to keep in step. */
+   on the column's, at every pane width, with no second number to keep in step.
+
+   The rail's width is subtracted INSIDE the expression, and that is not belt and
+   braces: a percentage in `padding` resolves against the CONTAINING BLOCK, which
+   for both the scroller and this layer is the box that holds the feed AND the
+   rail. Without the subtraction the measure comes out 24px narrow — harmlessly,
+   because both sides make the same mistake, but the number in the rule would
+   stop being the number on screen. */
 .brief-shelf-layer {
   position: absolute;
   top: 0;
@@ -2861,7 +2868,7 @@ html[data-density="balanced"] .header-quota-pools {
   display: flex;
   justify-content: center;
   box-sizing: border-box;
-  padding: 11px max(32px, calc((100% - 888px) / 2)) 0;
+  padding: 11px max(32px, calc((100% - 888px - var(--chat-rail-w, 0px)) / 2)) 0;
   pointer-events: none;
   animation: brief-shelf-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -2887,7 +2894,7 @@ html[data-density="balanced"] .header-quota-pools {
    gradient: the shelf is translucent, so a gradient to a solid would have to
    guess the colour of whatever is scrolling behind it and would be wrong twice a
    second. Masking the TEXT is right against any backdrop. */
-.brief-shelf-text {
+.brief-shelf-text.chat-md {
   flex: 1;
   min-width: 0;
   max-height: 46px;

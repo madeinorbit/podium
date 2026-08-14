@@ -39,7 +39,12 @@ export function PinnedBrief({ brief }: { brief: PinnedBriefState | null }): JSX.
     <div className="brief-shelf-layer" data-testid="pinned-brief">
       <div className="brief-shelf" data-open={open ? 'true' : undefined}>
         <div
-          className="brief-shelf-text"
+          // `chat-md` on purpose: the shelf is carrying the reader's own
+          // markdown, and expanded it may be a pasted spec with lists and code
+          // in it. Without the class those get the browser's defaults — a 1em
+          // paragraph margin alone would push the first line most of the way out
+          // of a two-line clamp.
+          className="chat-md brief-shelf-text"
           // biome-ignore lint/security/noDangerouslySetInnerHtml: lifted verbatim from the row's own body, which renderMarkdown already sanitized
           dangerouslySetInnerHTML={{ __html: brief.html }}
         />

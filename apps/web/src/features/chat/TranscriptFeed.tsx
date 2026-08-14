@@ -291,7 +291,15 @@ export function TranscriptFeed({
         // so the failure POD-747 documented cannot come back. Below ~950px the
         // expression collapses to exactly the flat 32px inset, which is the
         // behaviour of the version this replaces.
-        compact ? 'px-3.5 pt-3 pb-4' : 'px-[max(32px,calc((100%-888px)/2))] pt-[26px] pb-[14px]',
+        //
+        // The rail's width comes OUT of the expression because a percentage in
+        // `padding` resolves against the CONTAINING BLOCK — here the box holding
+        // this scroller AND the reading rail beside it, not this scroller. The
+        // pinned brief's shelf uses the identical expression so the two share one
+        // measure; see `.brief-shelf-layer` in styles.css.
+        compact
+          ? 'px-3.5 pt-3 pb-4'
+          : 'px-[max(32px,calc((100%-888px-var(--chat-rail-w,0px))/2))] pt-[26px] pb-[14px]',
       )}
       ref={scrollerRef}
       onScroll={onScroll}
