@@ -1,24 +1,10 @@
 /**
- * THE PINNED BRIEF (POD-993 round 2) — the shelf drawn OVER the feed.
+ * THE PINNED BRIEF (POD-993 round 2) — the shelf drawn OVER the feed, holding
+ * the question a long answer has pushed off the top of the screen.
  *
- * A long answer pushes the question that caused it off the top of the screen,
- * and the reader loses the one piece of context every line below depends on. The
- * shelf is the answer to that, and the whole design of it follows from one
- * constraint: it must be able to appear and leave WITHOUT MOVING A ROW.
- *
- * That is why it is absolutely positioned over the column rather than sticky
- * inside it. A sticky row is still in the flow — it changes the height of the
- * document as it pins and unpins, so the words the reader is mid-sentence on
- * shift under them, and two consecutive briefs have to be hand-translated past
- * one another on every scroll frame. Overlaying costs one thing, occlusion, and
- * pays for it with a blur and a rim so what is underneath reads as underneath.
- *
- * It keeps the brief's own geometry — same radius, same measure, same ink — so
- * the reader recognises it as the message they wrote and not as a new kind of
- * chrome. What it adds is what a shelf needs and a message does not: a height.
- * Clamped to two lines behind a mask that fades the third, with one control on
- * the right to open it in place. Expanded, it scrolls inside itself and keeps
- * that control in reach.
+ * It overlays the column rather than sticking inside it because it must be able
+ * to appear and leave WITHOUT MOVING A ROW. See `.brief-shelf-layer` in
+ * styles.css for the full argument and the geometry.
  */
 import type { JSX, MouseEvent as ReactMouseEvent, RefObject, WheelEvent } from 'react'
 import { useState } from 'react'

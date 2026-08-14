@@ -482,10 +482,17 @@ export function TranscriptFeed({
                 the feed is already the "this is happening" signal, and a second
                 one under the card would be the same fact twice, competing with
                 it. Only the two states the tail cannot express get a caption —
-                waiting behind another turn, and not arriving at all. */}
+                waiting behind another turn, and not arriving at all.
+
+                The word is PENDING, not "queued" — one noun for every
+                not-yet-delivered bubble, whatever parked it (a hibernated
+                session, a turn already in flight, a server that queued it).
+                The delivered design said "queued"; main had already settled on
+                "pending" for the same state, and one vocabulary matters more
+                here than one word. */}
             {p.state !== 'sending' && (
               <div className="msg-foot" data-side="right">
-                {p.state === 'queued' && <span className="transcript-delivery">queued</span>}
+                {p.state === 'queued' && <span className="transcript-delivery">pending</span>}
                 {p.state === 'failed' && (
                   <span className="transcript-delivery transcript-delivery--error">
                     not delivered
@@ -519,13 +526,13 @@ export function TranscriptFeed({
               </div>
             </div>
             <div className="msg-foot" data-side="right">
-              <span className="transcript-delivery">queued · sends after this turn</span>
+              <span className="transcript-delivery">pending · sends after this turn</span>
               <button
                 data-pressable
                 type="button"
                 className="msg-action msg-action--retract"
-                aria-label="Retract queued message"
-                title="Retract queued message"
+                aria-label="Retract pending message"
+                title="Retract pending message"
                 onClick={() => void onRetractQueued(message.id)}
               >
                 <X size={13} aria-hidden="true" />

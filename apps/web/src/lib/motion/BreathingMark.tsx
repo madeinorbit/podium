@@ -10,25 +10,20 @@
  * ten-frame stepped glyph read there as a terminal artefact rather than as the
  * app thinking.
  *
- * So the tail gets a mark that INHALES. A face-on ring of dots whose radius
- * undulates: two travelling waves around the circumference, three lanes deep,
- * brightest where a lobe swells. It does not spin and it does not pulse — there
- * is no frame you could point at as "the beat" — which is what separates it from
- * every progress affordance in the app and is why it can be watched for a minute
- * without becoming irritating.
+ * So the tail gets a mark that INHALES: a face-on ring of dots whose radius
+ * undulates, two travelling waves deep. It neither spins nor pulses — there is
+ * no frame you could point at as "the beat" — which is why it survives being
+ * watched.
  *
- * Why canvas and not CSS: the effect is per-dot, and the phase of each dot is a
- * function of its angle, so in CSS it would be 26 elements × 3 lanes = 78 nodes
- * each carrying its own delayed keyframe — 78 animated boxes at the hot end of a
- * feed that is already streaming. One canvas is one composited layer, painted
- * from a single shared rAF loop no matter how many marks are mounted, and it
- * stops dead the moment the last one unmounts.
+ * Canvas, not CSS: the phase is per-dot, so CSS would be 78 separately delayed
+ * nodes at the hot end of a streaming feed. One canvas is one composited layer,
+ * and one shared rAF loop paints every mounted mark and stops when the last
+ * unmounts.
  *
- * It is licensed by the same predicate as the spinner (DESIGN.md §5, amended by
- * this issue): it renders ONLY while the session is genuinely computing or a
- * message is in transport to it, and gating remains the caller's job. Under
- * `prefers-reduced-motion` it paints one frame and never asks for another — the
- * mark remains, the breathing does not.
+ * Licensed by the spinner's own predicate (DESIGN.md §5, amended here): it
+ * renders ONLY while the session is computing or a message is in transport, and
+ * gating stays the caller's job. Under `prefers-reduced-motion` it paints one
+ * frame and never asks for another.
  */
 import { type JSX, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'

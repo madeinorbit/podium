@@ -101,13 +101,8 @@ const COPY_ACK_MS = 1400
  * message — when, and take-a-copy — are in the same place for every voice.
  *
  * It is always present and always the same height, so nothing reflows when the
- * pointer crosses a row. What changes is INK, and it changes in two registers.
- * The CLOCK is information — a reader should be able to answer "when was this?"
- * without hunting for it with a mouse — so it rests at 40% and comes to full ink
- * on hover. The BUTTONS are not information; they are a thing you do, and a
- * transcript with two grey glyphs under every paragraph is a transcript wearing
- * its toolbar. They rest at nothing, 2px low, and rise into place under the
- * pointer. One curve, one duration, both directions.
+ * pointer crosses a row; what changes is ink, in two registers — see `.msg-foot`
+ * in styles.css for why the clock and the buttons rest differently.
  */
 function MessageActions({
   text,
@@ -207,24 +202,14 @@ function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
 /**
  * THE BRIEF IN FLOW IS NEVER CUT AND NEVER MOVES (POD-993, round 2).
  *
- * Two earlier readings are preserved in the design because the current rule is
- * the seam between them. POD-747 removed a clamp that fired on EVERY collapsed
- * brief - a two-line message arriving pre-truncated behind a "Read more" for the
- * four words it was hiding - and it was right: in the flow of the document a
- * brief is the one thing the reader wrote themselves. What POD-747 then had to do
- * about a pasted forty-line spec was refuse it the pin, so the context shelf
- * vanished for exactly the exchanges that needed one.
+ * POD-747 established that a brief is the one thing the reader wrote themselves,
+ * so nothing in the column may truncate it. Round one honoured that but made the
+ * row `position: sticky` with a clamp that engaged once it stuck — which changed
+ * the height of the flow under the reader as it pinned.
  *
- * The round-one answer was `position: sticky` on the row itself plus a clamp that
- * engaged once it stuck. It worked, and it cost the thing a transcript can least
- * afford: the row was still IN the column, so pinning and unpinning changed the
- * height of the flow under the reader's eyes, and two consecutive briefs had to
- * be hand-translated past one another in JS on every scroll frame.
- *
- * So the pin left the column. The brief here is now only ever a brief - whole, in
+ * So the pin left the column. The brief here is only ever a brief: whole, in
  * flow, no clamp, no toggle, no sticky, no transform. The pinned state is a
- * separate SHELF drawn over the feed (see `PinnedBrief`), which can appear and
- * leave without moving a single row underneath it.
+ * separate SHELF over the feed — see `PinnedBrief` and `.brief-shelf-layer`.
  */
 function PromptBubble({ children }: { children: ReactNode }): JSX.Element {
   return (

@@ -1,27 +1,18 @@
 /**
  * PODIUM'S OWN MAIL, FOLDED TO ONE LINE (POD-993).
  *
- * System mail is provenance. It explains why the agent did what it did next, and
- * a reader scanning a conversation needs to see THAT one arrived and from whom —
- * not the paragraph. Each frame used to be its own row with its own header, so a
- * turn that received three notes spent three rows and three headers saying almost
- * the same thing before the answer got a word in.
+ * System mail is provenance: a reader scanning a conversation needs to see THAT
+ * one arrived and from whom, not the paragraph. Each frame used to be its own
+ * row with its own header, so a turn receiving three notes spent three rows
+ * before the answer got a word in.
  *
- * The whole burst is now ONE object: a quiet tinted line reading "3 notes from
- * Podium" with the issues they came from, which opens into a card that lists them
- * — sender in a fixed left column, subject and time on one baseline, two lines of
- * the body under it. That is the shape mail has everywhere else in computing, and
- * it is the shape that lets a reader decide in one glance whether any of this is
- * for them.
+ * The whole burst is now ONE object — a counted, tinted line that opens into a
+ * real mail list. See `.mail-group` in styles.css for the shape and its reasons.
  *
- * WHAT OPENS ON ARRIVAL. A frame that asks a question or requests a reply is not
- * background — it has a consequence, and folding it would hide the one kind of
- * mail that does. If any frame in the burst is consequential, the card is open
- * when it lands.
- *
- * WHAT IS NOT LOST. The card's two-line preview is a preview: clicking an item
- * opens that frame's full markdown, with its refs, code and links live. Nothing
- * in the frame is unreachable — it is just no longer in the way.
+ * WHAT OPENS ON ARRIVAL: any frame that asks a question or requests a reply,
+ * because folding it would hide the one kind of mail with a consequence.
+ * WHAT IS NOT LOST: the two-line preview is a preview — clicking an item opens
+ * that frame's full markdown, refs and code live.
  */
 import { envelopePrincipal, type ParsedEnvelope } from '@podium/client-core/viewmodels'
 import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
