@@ -31,8 +31,12 @@
 
 import { createLogger } from '@podium/logger'
 import {
+  applyDraftEdit,
   type Capability,
   computePriorities,
+  DEFAULT_LEASE_MS,
+  type DraftDoc,
+  emptyDraftDoc,
   type SessionId,
   type SessionUserOverlay,
   type UserId,
@@ -43,7 +47,6 @@ import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
-import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from '../draft-doc'
 import type { Session } from '../session'
 
 const log = createLogger('server:sessions')

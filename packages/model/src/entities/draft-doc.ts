@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId } from '../ids'
 /**
  * Versioned draft document — the conflict model for Draft Sync v2 (POD-859).
  *
@@ -11,6 +11,24 @@ import type { SessionId } from '@podium/model'
  * This module is PURE: it reads no clock and holds no state. The caller supplies
  * the edit's server-stamped time (`at`) and the current time for lease queries,
  * which keeps the arbitration deterministic and unit-testable.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT LIVES IN THE MODEL RATHER THAN THE SERVER (POD-2045)
+ * ---------------------------------------------------------------------------
+ *
+ * It began as `apps/server/src/modules/sessions/draft-doc.ts`, where only the
+ * sequencer could see it — and a conflict model only one side of a conflict can
+ * read is half a model. The browser client needs the same vocabulary to be
+ * offline-first: it holds its own local draft, stamps it against the last `rev`
+ * the server confirmed, and must decide — with no server present — whether an
+ * arriving document supersedes what the person is typing right now.
+ *
+ * So the shape moved here, unchanged, and the two sides now agree on it by
+ * construction instead of by comment. The SEQUENCING stays the server's alone:
+ * nothing in this module assigns a rev to itself, and a client that called
+ * `applyDraftEdit` on its own would only be predicting what the server will say.
+ * The client's local arbitration is its own, smaller rule set
+ * (`@podium/client-core`'s draft ledger) expressed over these same fields.
  *
  * See docs/superpowers/specs/2026-07-17-draft-sync-v2-design.md §1, §3.
  */

@@ -1,5 +1,5 @@
-import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { asSessionId } from '../ids'
 import {
   applyDraftEdit,
   DEFAULT_HISTORY_LIMIT,
