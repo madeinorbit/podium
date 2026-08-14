@@ -186,6 +186,26 @@ export type FeedServerFrame = Extract<
 export const FEED_TASK_BUDGET_MS = 16.7
 export const FEED_INTERACTABILITY_BUDGET_MS = 50
 
+/**
+ * The queued-DELTA backlog above which replay is abandoned for a snapshot resync.
+ *
+ * The ingress queue drains one envelope per macrotask, so a backlog of D deltas
+ * costs at BEST D × FEED_TASK_BUDGET_MS of degraded interactivity before the
+ * client is current again — at 256 that is ~4.3 seconds even when every task
+ * makes budget, and a client that queued 256 deltas faster than it applied them
+ * is not briefly behind, it is losing. Past that point the recovery the protocol
+ * already owns is cheaper: `requestFreshWorld()` cycles the socket, the fresh
+ * admission serves one world at its head, and the whole backlog is replaced by
+ * ONE install instead of replayed frame by frame.
+ *
+ * Counted over `feedDelta` frames ONLY, deliberately: a bootstrap world
+ * legitimately arrives as an arbitrarily long run of `feedBootstrap` chunks, and
+ * a bound that counted those would abandon every large world mid-download and
+ * request another — a resync loop that never converges. Rescope/resync frames
+ * are rare singles and already trigger their own recovery.
+ */
+export const FEED_DELTA_RESYNC_QUEUE_DEPTH = 256
+
 export interface FeedTaskTiming {
   kind: FeedServerFrame['type']
   durationMs: number
@@ -203,6 +223,10 @@ export interface FeedBudgetSnapshot {
   overTaskBudget: number
   overInteractabilityBudget: number
   maxQueueDepth: number
+  /** Times the delta backlog crossed {@link FEED_DELTA_RESYNC_QUEUE_DEPTH} and
+   *  the queue was traded for a snapshot resync. Non-zero means the client fell
+   *  terminally behind and recovered — worth knowing, never silent. */
+  backlogResyncs: number
 }
 
 /**
@@ -441,6 +465,10 @@ export class SocketHub {
   }> = []
   private feedIngressScheduled = false
   private feedIngressGeneration = 0
+  /** Running count of `feedDelta` entries in `feedIngressQueue` — the number the
+   *  resync bound compares, kept as a counter because computing it would scan the
+   *  queue on every enqueue. */
+  private feedDeltaQueueDepth = 0
   private readonly feedBudgetStats: FeedBudgetSnapshot = {
     tasks: 0,
     yieldedTasks: 0,
@@ -448,6 +476,7 @@ export class SocketHub {
     overTaskBudget: 0,
     overInteractabilityBudget: 0,
     maxQueueDepth: 0,
+    backlogResyncs: 0,
   }
   private socket: WebSocketLike | undefined
   private connectedFlag = false
@@ -711,9 +740,7 @@ export class SocketHub {
     this.socket = undefined
     // Frames from a closed socket cannot be installed after a replacement
     // socket starts a new feed identity/stream.
-    this.feedIngressQueue.length = 0
-    this.feedIngressScheduled = false
-    this.feedIngressGeneration += 1
+    this.clearFeedIngress()
     // D7 stale-visible: the replica keeps serving its last-known slice, marked
     // stale. Told here rather than by an embedder watching `connected`, so the
     // posture changes at the same instant the frames stop.
@@ -1314,9 +1341,7 @@ export class SocketHub {
     this.stopHeartbeat()
     this.socket?.close()
     this.socket = undefined
-    this.feedIngressQueue.length = 0
-    this.feedIngressScheduled = false
-    this.feedIngressGeneration += 1
+    this.clearFeedIngress()
     this.connectedFlag = false
     this.inputQueue.length = 0
     this.preOpenQueue.length = 0
@@ -1335,14 +1360,40 @@ export class SocketHub {
     kind: FeedServerFrame['type'],
   ): void {
     this.feedIngressQueue.push({ raw, socket, kind })
+    if (kind === 'feedDelta') this.feedDeltaQueueDepth += 1
     this.feedBudgetStats.maxQueueDepth = Math.max(
       this.feedBudgetStats.maxQueueDepth,
       this.feedIngressQueue.length,
     )
+    // A backlog past the bound is terminal under replay (see the constant's
+    // header): drop it and let the reconnect's pushed world replace it with one
+    // install. Feed-mode only — the legacy sink has no `requestFreshWorld`
+    // contract, and a v1 hub never receives these frames anyway.
+    if (this.opts.feed !== undefined && this.feedDeltaQueueDepth > FEED_DELTA_RESYNC_QUEUE_DEPTH) {
+      this.feedBudgetStats.backlogResyncs += 1
+      log.warn('feed delta backlog exceeded the replay bound — resyncing from a snapshot', {
+        queuedDeltas: this.feedDeltaQueueDepth,
+        queuedFrames: this.feedIngressQueue.length,
+        bound: FEED_DELTA_RESYNC_QUEUE_DEPTH,
+      })
+      this.clearFeedIngress()
+      this.requestFreshWorld()
+      return
+    }
     if (this.feedIngressScheduled) return
     this.feedIngressScheduled = true
     const generation = this.feedIngressGeneration
     this.scheduleFeedTask(() => this.drainFeedIngress(generation))
+  }
+
+  /** Drop the queued feed frames and invalidate any drain already scheduled.
+   *  Shared by dispose and the backlog resync — the two paths where replaying
+   *  what is queued would be wrong. */
+  private clearFeedIngress(): void {
+    this.feedIngressQueue.length = 0
+    this.feedDeltaQueueDepth = 0
+    this.feedIngressScheduled = false
+    this.feedIngressGeneration += 1
   }
 
   /**
@@ -1355,6 +1406,7 @@ export class SocketHub {
     this.feedIngressScheduled = false
     const entry = this.feedIngressQueue.shift()
     if (entry === undefined) return
+    if (entry.kind === 'feedDelta') this.feedDeltaQueueDepth -= 1
 
     if (this.socket === entry.socket) {
       const startedAt = interactionNow()

@@ -128,6 +128,10 @@ class BindingCache implements KernelCacheRead {
     return this.records
   }
 
+  read(entity: string, entityId: string): EntityRecord | undefined {
+    return this.records.find((record) => record.entity === entity && record.entityId === entityId)
+  }
+
   durability(): 'durable' {
     return 'durable'
   }

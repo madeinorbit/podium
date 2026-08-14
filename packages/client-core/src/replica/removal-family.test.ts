@@ -407,6 +407,11 @@ describe.each(
         events.push(event)
         facade.onKernelEvent(event)
       },
+      // The shipped roots wrap each post-commit burst in the facade's batch()
+      // (one drain per applied frame); running the whole removal family under
+      // the same wiring keeps these properties certified against the assembly
+      // the product actually ships.
+      batchEvents: (emitAll) => facade.batch(emitAll),
     })
     const sink = new FeedSink({ replica, bootstraps })
     const client: Client = {

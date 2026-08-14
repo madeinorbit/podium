@@ -2,7 +2,7 @@ import { addSink } from '@podium/logger'
 import { asMachineId, asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SocketHub, type WebSocketLike } from './socket-hub'
+import { FEED_DELTA_RESYNC_QUEUE_DEPTH, SocketHub, type WebSocketLike } from './socket-hub'
 
 class FakeSocket implements WebSocketLike {
   sent: string[] = []
@@ -142,6 +142,95 @@ describe('SocketHub', () => {
 
     expect(frames).toEqual([])
     expect(hub.feedBudget().tasks).toBe(0)
+    hub.dispose()
+  })
+
+  it('trades a runaway delta backlog for a snapshot resync instead of replaying it', () => {
+    // The terminal shape this bounds: deltas arrive faster than one-per-macrotask
+    // replay can drain them, the queue only grows, and the main thread never
+    // catches up. Past the bound the queue is dropped and the socket cycled —
+    // the fresh admission's pushed world replaces the whole backlog with ONE
+    // install (`requestFreshWorld`).
+    const sock = new FakeSocket()
+    const tasks: Array<() => void> = []
+    const frames: unknown[] = []
+    let disconnects = 0
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+      feed: {
+        connected: () => {},
+        disconnected: () => {
+          disconnects += 1
+        },
+        frame: (frame) => frames.push(frame),
+      },
+      scheduleFeedTask: (task) => tasks.push(task),
+    })
+    hub.connect()
+    sock.open()
+
+    const rawDelta = (seq: number) =>
+      JSON.stringify({
+        type: 'feedDelta',
+        feedId: 'f1',
+        epoch: 'e1',
+        fromSeq: seq - 1,
+        seq,
+        minAvailableSeq: 0,
+        changes: [],
+      })
+    for (let seq = 1; seq <= FEED_DELTA_RESYNC_QUEUE_DEPTH + 1; seq += 1) {
+      sock.onmessage?.({ data: rawDelta(seq) })
+    }
+
+    // The backlog was dropped, not replayed: whatever was scheduled before the
+    // bound tripped delivers nothing.
+    while (tasks.length > 0) tasks.shift()?.()
+    expect(frames).toEqual([])
+    expect(hub.feedBudget().backlogResyncs).toBe(1)
+    // The socket was cycled, which is what makes the server push a fresh world.
+    expect(disconnects).toBe(1)
+    hub.dispose()
+  })
+
+  it('does not count a bootstrap world toward the resync bound — a large world is not a backlog', () => {
+    // The counter-case that keeps the bound from looping: a big slice arrives as
+    // an arbitrarily long run of feedBootstrap chunks, and abandoning THAT
+    // download would request another world forever.
+    const sock = new FakeSocket()
+    const tasks: Array<() => void> = []
+    const frames: unknown[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+      feed: { connected: () => {}, disconnected: () => {}, frame: (frame) => frames.push(frame) },
+      scheduleFeedTask: (task) => tasks.push(task),
+    })
+    hub.connect()
+    sock.open()
+
+    const rawChunk = (last: boolean) =>
+      JSON.stringify({
+        type: 'feedBootstrap',
+        feedId: 'f1',
+        epoch: 'e1',
+        fromSeq: 0,
+        seq: 0,
+        minAvailableSeq: 0,
+        changes: [],
+        last,
+      })
+    for (let i = 0; i < FEED_DELTA_RESYNC_QUEUE_DEPTH + 1; i += 1) {
+      sock.onmessage?.({ data: rawChunk(false) })
+    }
+    sock.onmessage?.({ data: rawChunk(true) })
+
+    expect(hub.feedBudget().backlogResyncs).toBe(0)
+    while (tasks.length > 0) tasks.shift()?.()
+    expect(frames).toHaveLength(FEED_DELTA_RESYNC_QUEUE_DEPTH + 2)
     hub.dispose()
   })
 

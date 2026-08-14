@@ -95,6 +95,23 @@ export interface ReplicaOptions {
    */
   readonly validator?: KnownKindValidatorPort
   readonly onEvent?: (event: ReplicaEvent) => void
+  /**
+   * Wraps every post-commit emission burst — one applied frame's events, or one
+   * bootstrap install's whole replay — in a single call.
+   *
+   * `emitApplied` emits one event per change plus a cursor, and an install emits
+   * one `upserted` per row of the ENTIRE slice; a consumer that derives its view
+   * per event therefore pays its full derivation once per row, which is what made
+   * a rebootstrap on a large store effectively never finish. This seam lets that
+   * consumer treat the burst as one unit — the client facade passes its own
+   * `batch()`, so one applied frame drains its listeners once. Pass-through by
+   * default. The wrapper MUST be synchronous and MUST call `emitAll` exactly
+   * once: on the multi-region path it runs inside `span.onCommit`, where an
+   * await would break the IndexedDB auto-close rule (see `unitOfWork`), and a
+   * wrapper that skipped `emitAll` would swallow the frame's public projection
+   * along with the cursor advance it reports.
+   */
+  readonly batchEvents?: (emitAll: () => void) => void
   /** ADR 2 D6.5 — a failed bootstrap RESTARTS (resumable bootstrap is deferred). */
   readonly maxBootstrapAttempts?: number
 }
@@ -140,6 +157,7 @@ export class Replica {
   private readonly unitOfWork: SyncUnitOfWork | undefined
   private readonly validator: KnownKindValidatorPort | undefined
   private readonly emit: (event: ReplicaEvent) => void
+  private readonly batchEvents: (emitAll: () => void) => void
   private readonly maxBootstrapAttempts: number
 
   private state: Posture = 'cold'
@@ -191,6 +209,7 @@ export class Replica {
     }
     this.validator = options.validator
     this.emit = options.onEvent ?? (() => {})
+    this.batchEvents = options.batchEvents ?? ((emitAll) => emitAll())
     this.maxBootstrapAttempts = options.maxBootstrapAttempts ?? 3
     this.cursorValue = this.readCursorSafely()
     if (this.cursorValue !== null) this.state = 'stale'
@@ -516,6 +535,11 @@ export class Replica {
     write: (span?: SyncSpan) => void,
     adopt: () => void,
   ): Promise<void> {
+    // The one choke point every post-commit burst passes through, so wrapping
+    // HERE is what makes `batchEvents`'s "one burst, one call" a property rather
+    // than a rule each call site remembers: a live frame, a heal reply, a
+    // drained buffer frame and a whole install all adopt through this function.
+    const adoptBatched = (): void => this.batchEvents(adopt)
     const overlay = this.overlayPort
     if (overlay === undefined || retirements.length === 0) {
       // ONE REGION. D10 clause 2 permits an autocommit explicitly, and a span here
@@ -524,7 +548,7 @@ export class Replica {
       // the multi-participant path CANNOT reach it, because reaching it requires
       // `retirements` to be empty, and an empty batch enrols no second participant.
       write()
-      adopt()
+      adoptBatched()
       // Already durable and already adopted. A resolved promise keeps ONE return type
       // for both arms, so a caller cannot forget to await the arm that needs it.
       return Promise.resolve()
@@ -542,7 +566,7 @@ export class Replica {
         // Strictly AFTER durability, through the span's own protocol. Nothing the
         // Replica observes — cursor, exits, public events — escapes before the commit,
         // and an abort simply never runs this, so there is nothing to undo.
-        span.onCommit(adopt)
+        span.onCommit(adoptBatched)
     })
   }
 

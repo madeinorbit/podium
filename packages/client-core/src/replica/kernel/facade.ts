@@ -89,7 +89,7 @@ import type {
   UiState,
 } from '../contract'
 import { COLD_CURSOR, type FeedCursor } from '../feed'
-import { kindForEntity, rowKey } from './kinds'
+import { entityForKind, kindForEntity, rowKey } from './kinds'
 import type { SideCache } from './side-cache'
 
 /**
@@ -103,6 +103,15 @@ import type { SideCache } from './side-cache'
 export interface KernelCacheRead {
   readCursor(): { readonly seq: number } | null
   readEntities(): readonly EntityRecord[]
+  /**
+   * One row, by the kernel's own identity. `ReplicaCacheStore` has carried this
+   * read from the start; it is on THIS view because the projection below applies
+   * events as deltas, and a delta path whose only read was `readEntities()`
+   * would re-materialise every entity of every kind to learn about one row —
+   * the exact O(store) walk the delta path exists to remove. Still read-only:
+   * a narrower read is not a second writer.
+   */
+  read(entity: string, entityId: string): EntityRecord | undefined
   durability(): 'durable' | 'degraded-memory' | 'unavailable'
 }
 
@@ -194,22 +203,69 @@ const ALL_KINDS: readonly ReplicaKind[] = [
  *  pre-bootstrap (the same contract `rows()` has on the legacy path). */
 const EMPTY: readonly never[] = Object.freeze([])
 
+/**
+ * One kind's materialised projection.
+ *
+ * `rows` is the array `rows()` hands out — sorted by `keyOf` ascending, and the
+ * identity downstream memos key on. `byId` is the SAME row objects keyed by the
+ * kernel's `entityId`, so a delta can find the row it replaces without walking
+ * the store. entityId and not `rowKey`, deliberately: deltas arrive addressed by
+ * the envelope's identity, and translating through the row VALUE would trust the
+ * payload to agree with the envelope — the store keys on the envelope, so this
+ * index must too.
+ */
+interface KindProjection {
+  rows: readonly unknown[]
+  readonly byId: Map<string, unknown>
+}
+
 export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplica {
   const { cache, side } = init
   const listeners = new Map<ReplicaKind, Set<() => void>>()
   const batchListeners = new Set<(changed: ReadonlySet<ReplicaKind>) => void>()
-  /** Cleared per kind when an event touched it; `rows()` re-projects lazily so a
-   *  burst of frames costs one projection, not one per frame. */
-  const projected = new Map<ReplicaKind, readonly unknown[]>()
+  /**
+   * The materialised per-kind projections, maintained INCREMENTALLY.
+   *
+   * The previous shape — clear the kind's memo on every event, rebuild from a
+   * full `readEntities()` scan-and-sort on the next read — was measured in a live
+   * client at ~628ms PER CHANGE (r² = 0.9997 over 228 envelopes): the memo was
+   * cleared immediately before the synchronous drain that would have used it, so
+   * "one projection per burst" was really one O(store) rescan per change. Here an
+   * event applies as a DELTA to the kind it touched (`dirtyRows`, reconciled
+   * lazily in `project`), and the full scan happens only when a kind has no
+   * state at all — first read, and the wholesale replacements below.
+   *
+   * A kind whose CONTENTS did not change keeps the identical `rows` reference:
+   * engine slices memoise on that identity (`worklist`'s `sourceEqual`), so
+   * identity stability is part of the contract, not an optimisation.
+   */
+  const projected = new Map<ReplicaKind, KindProjection>()
+  /** entityIds an event touched since the kind was last reconciled. The delta is
+   *  RECORDED here and applied on the next read, so a burst that nobody reads —
+   *  a rebootstrap's per-row replay — costs a set insert per event, not an array
+   *  rebuild per event. */
+  const dirtyRows = new Map<ReplicaKind, Set<string>>()
   /** Kinds touched since the outermost batch opened. */
   const pending = new Set<ReplicaKind>()
   let batchDepth = 0
 
-  function touch(kinds: readonly ReplicaKind[]): void {
-    for (const kind of kinds) {
-      projected.delete(kind)
-      pending.add(kind)
+  function touchRow(kind: ReplicaKind, entityId: string): void {
+    let dirty = dirtyRows.get(kind)
+    if (dirty === undefined) {
+      dirty = new Set<string>()
+      dirtyRows.set(kind, dirty)
     }
+    dirty.add(entityId)
+    pending.add(kind)
+    if (batchDepth === 0) drain()
+  }
+
+  /** The whole slice was replaced: no delta describes that, so every kind's
+   *  state is dropped and the next read rebuilds from one full scan. */
+  function touchAllKinds(): void {
+    projected.clear()
+    dirtyRows.clear()
+    for (const kind of ALL_KINDS) pending.add(kind)
     if (batchDepth === 0) drain()
   }
 
@@ -240,8 +296,29 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   }
 
   function project<K extends ReplicaKind>(kind: K): ReplicaRows[K][] {
-    const cached = projected.get(kind)
-    if (cached !== undefined) return cached as ReplicaRows[K][]
+    let state = projected.get(kind)
+    if (state === undefined) {
+      buildMissingProjections()
+      state = projected.get(kind) as KindProjection
+    } else {
+      reconcile(kind, state)
+    }
+    return state.rows as ReplicaRows[K][]
+  }
+
+  /**
+   * The full scan, for every kind that has no state — ONE `readEntities()` pass
+   * shared across all of them, because materialising the store is the cost and
+   * eleven kinds re-paying it after a bootstrap is eleven times the bill for one
+   * answer. Kinds that already hold state are left alone: rebuilding a clean
+   * kind would mint a new array identity for unchanged contents, which is the
+   * memo churn the identity contract forbids.
+   */
+  function buildMissingProjections(): void {
+    const building = new Map<ReplicaKind, Map<string, unknown>>()
+    for (const kind of ALL_KINDS) {
+      if (!projected.has(kind)) building.set(kind, new Map<string, unknown>())
+    }
     let records: readonly EntityRecord[]
     try {
       records = cache.readEntities()
@@ -250,20 +327,95 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       // here and the kernel Replica's own ladder is what heals it.
       records = EMPTY
     }
-    const rows: ReplicaRows[K][] = []
     for (const record of records) {
-      if (kindForEntity(record.entity) !== kind) continue
+      const kind = kindForEntity(record.entity)
+      if (kind === undefined) continue
+      const byId = building.get(kind)
+      if (byId === undefined) continue
       if (record.value === null || typeof record.value !== 'object') continue
-      rows.push(record.value as ReplicaRows[K])
+      byId.set(record.entityId, record.value)
     }
-    // Deterministic order, by the kernel's own key rather than by store
-    // enumeration. The engine sorts everything it renders, so this is not a
-    // display decision — it is what stops `rows()` from returning two different
-    // permutations of one slice to the shadow comparison and to a memo.
-    rows.sort((a, b) => (keyOf(kind, a) < keyOf(kind, b) ? -1 : 1))
-    const frozen = rows.length === 0 ? (EMPTY as unknown as ReplicaRows[K][]) : rows
-    projected.set(kind, frozen)
-    return frozen
+    for (const [kind, byId] of building) {
+      const rows = [...byId.values()]
+      // Deterministic order, by the kernel's own key rather than by store
+      // enumeration. The engine sorts everything it renders, so this is not a
+      // display decision — it is what stops `rows()` from returning two different
+      // permutations of one slice to the shadow comparison and to a memo.
+      rows.sort((a, b) => (keyOf(kind, a as never) < keyOf(kind, b as never) ? -1 : 1))
+      projected.set(kind, { rows: rows.length === 0 ? EMPTY : rows, byId })
+      // A full read subsumes any recorded delta; leaving one behind would
+      // re-apply it against state that already includes it.
+      dirtyRows.delete(kind)
+    }
+  }
+
+  /**
+   * Apply the recorded deltas to one kind's materialised state.
+   *
+   * The CACHE is still the only source of row truth: each dirty id is re-read
+   * through `cache.read`, never taken from the event that recorded it, so this
+   * path cannot disagree with what a full rebuild would have produced — the
+   * events only say WHICH rows to re-read. (An upsert-then-remove of one entity
+   * inside one frame therefore lands absent on the first re-read, exactly as the
+   * full scan would see it.)
+   *
+   * The new `rows` array is built as one linear merge — survivors in their
+   * existing order, replacements and inserts merged in at their sorted position
+   * — so the ordering `buildMissingProjections` establishes is preserved without
+   * re-sorting the slice, and the work per drain is bounded by the touched
+   * KIND's size, never the store's. When every delta turns out to be a no-op
+   * (a remove for a row this view never held), the existing array is kept, so
+   * identity-keyed memos see no change — because there was none.
+   */
+  function reconcile(kind: ReplicaKind, state: KindProjection): void {
+    const dirty = dirtyRows.get(kind)
+    if (dirty === undefined || dirty.size === 0) return
+    dirtyRows.delete(kind)
+    const entity = entityForKind(kind)
+    const replaced = new Set<unknown>()
+    const added: unknown[] = []
+    for (const entityId of dirty) {
+      const previous = state.byId.get(entityId)
+      let next: unknown
+      try {
+        const record = cache.read(entity, entityId)
+        // The same admission rule as the full scan: a value that is not an
+        // object row is not rendered, whatever the event said.
+        next =
+          record !== undefined && record.value !== null && typeof record.value === 'object'
+            ? record.value
+            : undefined
+      } catch {
+        // Same never-throws contract as the full scan: unreadable reads as gone.
+        next = undefined
+      }
+      if (next === previous) continue
+      if (previous !== undefined) replaced.add(previous)
+      if (next === undefined) {
+        state.byId.delete(entityId)
+      } else {
+        state.byId.set(entityId, next)
+        added.push(next)
+      }
+    }
+    if (replaced.size === 0 && added.length === 0) return
+    added.sort((a, b) => (keyOf(kind, a as never) < keyOf(kind, b as never) ? -1 : 1))
+    const merged: unknown[] = []
+    let take = 0
+    for (const row of state.rows) {
+      if (replaced.has(row)) continue
+      const key = keyOf(kind, row as never)
+      while (take < added.length && keyOf(kind, added[take] as never) < key) {
+        merged.push(added[take])
+        take += 1
+      }
+      merged.push(row)
+    }
+    while (take < added.length) {
+      merged.push(added[take])
+      take += 1
+    }
+    state.rows = merged.length === 0 ? EMPTY : merged
   }
 
   /** `rowKey` rather than a local copy of the sessions/`id` split: this feeds the
@@ -418,7 +570,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       switch (event.type) {
         case 'upserted': {
           const kind = kindForEntity(event.record.entity)
-          if (kind !== undefined) touch([kind])
+          if (kind !== undefined) touchRow(kind, event.record.entityId)
           return
         }
         case 'removed':
@@ -434,11 +586,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           // arrangement — do not "fix" this case by branching, and do not read
           // this comment as licence to collapse the two anywhere else.
           const kind = kindForEntity(event.entity)
-          if (kind !== undefined) touch([kind])
+          if (kind !== undefined) touchRow(kind, event.entityId)
           return
         }
         case 'bootstrap-installed':
-          touch(ALL_KINDS)
+          touchAllKinds()
           return
         default:
           // `cursor`, `posture`, `heal`, `bootstrap-failed` do not change the

@@ -441,6 +441,12 @@ export async function openKernelAssembly(
       bootstraps,
     }),
     onEvent: (event) => facade.onKernelEvent(event),
+    // ONE DRAIN PER FRAME. The kernel emits one event per change (and one
+    // upserted per row on an install); unbatched, each event drained the
+    // facade's listeners — and the engine's derivations behind them — once per
+    // row. The kernel wraps each post-commit burst in this call, and the
+    // facade's own batch() coalesces it to a single notification per kind.
+    batchEvents: (emitAll) => facade.batch(emitAll),
   })
 
   const sink = new FeedSink({ replica: kernel, bootstraps })

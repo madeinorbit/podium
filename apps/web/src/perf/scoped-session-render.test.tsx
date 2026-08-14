@@ -206,6 +206,12 @@ class RenderProbeCache implements KernelCacheRead {
     return this.records
   }
 
+  read(entity: string, entityId: string): EntityRecord | undefined {
+    return this.records.find(
+      (candidate) => candidate.entity === entity && candidate.entityId === entityId,
+    )
+  }
+
   durability(): 'durable' {
     return 'durable'
   }

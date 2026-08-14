@@ -1,6 +1,7 @@
 import { asMutationId } from '@podium/model'
 import type { EntityRecord, ReplicaEvent } from '@podium/sync/replica'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { FEED_TASK_BUDGET_MS } from '../../socket-transport'
 import { memoryStorage } from '../replica'
 import { createKernelReplica, type KernelCacheRead } from './facade'
 import { entityForKind, kindForEntity, rowKey } from './kinds'
@@ -13,13 +14,21 @@ class FakeCache implements KernelCacheRead {
   cursor: { seq: number } | null = null
   mode: 'durable' | 'degraded-memory' | 'unavailable' = 'durable'
   throwOnRead = false
+  /** How many times the facade materialised the WHOLE store. The scaling guard
+   *  below asserts on this: a delta must not cost a full scan. */
+  readEntitiesCalls = 0
 
   readCursor() {
     return this.cursor
   }
   readEntities(): readonly EntityRecord[] {
+    this.readEntitiesCalls += 1
     if (this.throwOnRead) throw new Error('store unreadable')
     return this.records
+  }
+  read(entity: string, entityId: string): EntityRecord | undefined {
+    if (this.throwOnRead) throw new Error('store unreadable')
+    return this.records.find((r) => r.entity === entity && r.entityId === entityId)
   }
   durability() {
     return this.mode
@@ -123,6 +132,123 @@ describe('read model projection', () => {
     const snap = await replica.hydrate()
     expect(snap.sessions.map((r) => r.sessionId)).toEqual(['s1'])
     expect(snap.cursor).toBe(7)
+  })
+})
+
+describe('incremental projection — per-drain work must not scale with the store', () => {
+  // The regression this block guards was MEASURED, not hypothesised: every
+  // inbound change cleared the per-kind memo and re-materialised every entity of
+  // every kind through `readEntities()` on the next read — 628ms per change in a
+  // live client (r² = 0.9997 over 228 envelopes), ~38x the 16.7ms feed task
+  // budget. The contract now is that an event applies as a DELTA: the store is
+  // materialised once, and a change re-reads its own row, never the world.
+  const upserted = (entity: string, entityId: string): ReplicaEvent => ({
+    type: 'upserted',
+    record: { entity, entityId, value: {}, provenance: { seq: 1 } },
+    readmitted: false,
+  })
+
+  it('applies an upsert as a delta, at its sorted position, without a rescan', () => {
+    const { cache, replica } = build()
+    // Ballast in ANOTHER kind: the cost the old path paid was the whole store,
+    // so the guard only means something with a store much bigger than the slice.
+    for (let i = 0; i < 500; i += 1) {
+      cache.records.push({
+        entity: 'issueEvent',
+        entityId: `e${i}`,
+        value: { id: `e${i}` },
+        provenance: { seq: 1 },
+      })
+    }
+    cache.put('session', 's1', session('s1'))
+    cache.put('session', 's3', session('s3'))
+    expect(replica.rows('sessions').map((r) => r.sessionId)).toEqual(['s1', 's3'])
+    const issueEventsBefore = replica.rows('issueEvents')
+    expect(cache.readEntitiesCalls).toBe(1)
+
+    // Lands BETWEEN the held rows — the delta must respect `keyOf` order, not
+    // append.
+    cache.put('session', 's2', session('s2'))
+    replica.onKernelEvent(upserted('session', 's2'))
+    expect(replica.rows('sessions').map((r) => r.sessionId)).toEqual(['s1', 's2', 's3'])
+    expect(cache.readEntitiesCalls).toBe(1)
+    // The untouched kind keeps its identity — worklist's `sourceEqual` memoises
+    // on exactly this reference.
+    expect(replica.rows('issueEvents')).toBe(issueEventsBefore)
+  })
+
+  it('applies a removal as a delta; removing a row this view never held keeps the identity', () => {
+    const { cache, replica } = build()
+    cache.put('session', 's1', session('s1'))
+    cache.put('session', 's2', session('s2'))
+    const before = replica.rows('sessions')
+    expect(cache.readEntitiesCalls).toBe(1)
+
+    cache.drop('session', 's1')
+    replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 's1' })
+    expect(replica.rows('sessions').map((r) => r.sessionId)).toEqual(['s2'])
+    expect(cache.readEntitiesCalls).toBe(1)
+
+    // A remove for a row that was never projected changes nothing, so the
+    // array identity survives — "no change" and "no event" must be
+    // indistinguishable to an identity-keyed memo.
+    const held = replica.rows('sessions')
+    replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 'never-held' })
+    expect(replica.rows('sessions')).toBe(held)
+    expect(replica.rows('sessions')).not.toBe(before)
+  })
+
+  it('a bootstrap install still replaces the world: deltas cannot describe a swap', () => {
+    const { cache, replica } = build()
+    cache.put('session', 'old', session('old'))
+    expect(replica.rows('sessions')).toHaveLength(1)
+
+    cache.records = []
+    cache.put('session', 'new-1', session('new-1'))
+    cache.put('session', 'new-2', session('new-2'))
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'rescope',
+      snapshotSeq: 9,
+      entityCount: 2,
+      bufferedFramesApplied: 0,
+    })
+    expect(replica.rows('sessions').map((r) => r.sessionId)).toEqual(['new-1', 'new-2'])
+    // The swap re-scans ONCE for all kinds together, not once per kind.
+    expect(cache.readEntitiesCalls).toBe(2)
+  })
+
+  it('stays under the feed task budget applying one change against a large store', () => {
+    const { cache, replica } = build()
+    const rows = 20_000
+    for (let i = 0; i < rows; i += 1) {
+      const id = `s${String(i).padStart(6, '0')}`
+      cache.records.push({
+        entity: 'session',
+        entityId: id,
+        value: { sessionId: id },
+        provenance: { seq: 1 },
+      })
+    }
+    expect(replica.rows('sessions')).toHaveLength(rows)
+
+    // Median of repeated runs, so one GC pause cannot fail the build; the
+    // structural assertion (no rescan) is above — this is the budget backstop
+    // the live measurement was made against.
+    const samples: number[] = []
+    for (let run = 0; run < 25; run += 1) {
+      const id = `s${String(run).padStart(6, '0')}`
+      const value = { sessionId: id }
+      const record = cache.records[run] as { value: unknown }
+      record.value = value // in place: FakeCache.put would cost O(store) itself
+      const startedAt = performance.now()
+      replica.onKernelEvent(upserted('session', id))
+      replica.rows('sessions')
+      samples.push(performance.now() - startedAt)
+    }
+    samples.sort((a, b) => a - b)
+    expect(samples[Math.floor(samples.length / 2)]).toBeLessThan(FEED_TASK_BUDGET_MS)
+    expect(cache.readEntitiesCalls).toBe(1)
   })
 })
 

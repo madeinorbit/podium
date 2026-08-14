@@ -67,6 +67,7 @@ function harness(
      */
     overlay?: (store: InMemoryReplicaStore) => OptimisticOverlayPort
     validator?: KnownKindValidatorPort
+    batchEvents?: (emitAll: () => void) => void
     maxBootstrapAttempts?: number
   } = {},
 ): Harness {
@@ -82,6 +83,7 @@ function harness(
     // which is the object that owns the physical transaction.
     unitOfWork: store.unitOfWork,
     validator: options.validator,
+    batchEvents: options.batchEvents,
     maxBootstrapAttempts: options.maxBootstrapAttempts,
     onEvent: (event) => events.push(event),
   })
@@ -1858,6 +1860,76 @@ describe('feed order is the correctness property, including inside one frame', (
     channel.push(bootstrapChunk(50, [], true))
     await h.replica.settled()
     expect(h.replica.view('session', 'buf')).toEqual({ name: 'survived' })
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────
+describe('batched emissions — one commit is ONE burst through batchEvents', () => {
+  // The seam exists because the consumer's cost is per NOTIFICATION, not per
+  // event: a frame emits one event per change and an install emits one upserted
+  // per row of the whole slice, and a client that drained its listeners once per
+  // event never finished a large install. The property here is exactly one wrap
+  // per commit, with every post-commit event INSIDE it — a wrap that leaked the
+  // cursor or the install marker outside the burst would notify against a view
+  // the batch had not published yet.
+  function bursting() {
+    const bursts: ReplicaEvent[][] = []
+    let h!: Harness
+    h = harness({
+      batchEvents: (emitAll) => {
+        const mark = h.events.length
+        emitAll()
+        bursts.push(h.events.slice(mark))
+      },
+    })
+    return { h, bursts }
+  }
+
+  it('an install is one burst: every row, the install marker and the posture move', async () => {
+    const { h, bursts } = bursting()
+    await bootstrapped(h, 10, [session(4, 's1', 'one'), session(7, 's2', 'two')])
+
+    expect(bursts).toHaveLength(1)
+    expect(bursts[0]?.map((event) => event.type)).toEqual([
+      'upserted',
+      'upserted',
+      'bootstrap-installed',
+      'posture',
+    ])
+  })
+
+  it('an applied frame is one burst: its change events and its cursor together', async () => {
+    const { h, bursts } = bursting()
+    await bootstrapped(h, 10, [])
+    bursts.length = 0
+
+    h.replica.receive(
+      deltaFrame(10, 12, [session(11, 's1', 'one'), removeChange(12, 'session', 's2')]),
+    )
+    await h.replica.settled()
+
+    expect(bursts).toHaveLength(1)
+    expect(bursts[0]?.map((event) => event.type)).toEqual(['upserted', 'removed', 'cursor'])
+  })
+
+  it('a drained buffer is one burst PER FRAME — batching must not merge commits', async () => {
+    // Two frames buffered behind a heal each commit separately, so each owes its
+    // own burst: merging them would report frame 2's cursor inside frame 1's
+    // notification, certifying data the first commit never carried.
+    const { h, bursts } = bursting()
+    await bootstrapped(h, 10, [])
+    h.authority.changesSinceQueue = [deltaFrame(10, 11, [session(11, 'healed', 'h')])]
+    bursts.length = 0
+
+    h.replica.receive(deltaFrame(11, 12, [session(12, 'b1', 'x')]))
+    h.replica.receive(deltaFrame(12, 13, [session(13, 'b2', 'y')]))
+    await h.replica.settled()
+
+    expect(bursts.map((burst) => burst.map((event) => event.type))).toEqual([
+      ['upserted', 'cursor'],
+      ['upserted', 'cursor'],
+      ['upserted', 'cursor'],
+    ])
   })
 })
 
