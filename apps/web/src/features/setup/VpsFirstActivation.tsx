@@ -212,6 +212,11 @@ export function VpsFirstActivation({
               {command}
             </code>
           </div>
+          <p className="mt-3 text-[12.5px] leading-[1.55] text-[#7f858f]">
+            The shorter <code className="font-mono text-[#a8adb6]">curl … | sh</code> command only
+            installs Podium and exits. This complete command also installs the supported agents and
+            starts the interactive VPS setup while your SSH terminal is still attached.
+          </p>
         </section>
 
         <section className="rounded-[13px] bg-[#1b1e24] p-5 shadow-[inset_0_0_0_1px_#2f343d] sm:p-6">

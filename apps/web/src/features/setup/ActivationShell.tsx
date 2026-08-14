@@ -61,7 +61,7 @@ export function ActivationShell({
           </p>
           <div className={cn('mt-11', contentClassName)}>{children}</div>
           {onExplore && (
-            <div className="mt-10 flex flex-wrap items-center gap-3.5 border-t border-[#363b45] pt-[22px]">
+            <div className="mt-10 flex flex-wrap items-center gap-3.5 border-t border-[#363b45] pt-[22px] pb-8 sm:pb-10">
               <button
                 type="button"
                 onClick={onExplore}
