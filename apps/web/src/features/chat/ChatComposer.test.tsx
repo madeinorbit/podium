@@ -188,6 +188,52 @@ describe('ChatComposer, non-compact (the main chat)', () => {
     expect(sendButton().className).toContain('bg-primary')
   })
 
+  // AUTO-GROW COSTS A LAYOUT, AND IT USED TO COST THREE (POD-2045).
+  //
+  // The box measures itself on every keystroke, and measuring means a forced
+  // synchronous layout of the whole document — which on a long transcript is
+  // the most expensive thing that happens between pressing a key and seeing the
+  // character. It was paying that price twice per keystroke plus a full
+  // computed-style parse, on the ~95% of keystrokes where the height does not
+  // change at all. What is left is the one measurement the feature IS.
+  it('measures its line box once, not once per keystroke', async () => {
+    const spy = vi.spyOn(window, 'getComputedStyle')
+    try {
+      const { ta } = await mount({ compact: false, draft: 'a' })
+      const onTextarea = (): number => spy.mock.calls.filter((c) => c[0] === ta).length
+      const afterFirst = onTextarea()
+
+      await mount({ compact: false, draft: 'ab' })
+      await mount({ compact: false, draft: 'abc' })
+      await mount({ compact: false, draft: 'abcd' })
+
+      expect(onTextarea()).toBe(afterFirst)
+      expect(afterFirst).toBeLessThanOrEqual(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('does not force a reflow when the height did not change', async () => {
+    const { ta } = await mount({ compact: false, draft: 'a' })
+    let reflows = 0
+    // The transition-pinning read. It exists to give the height animation a
+    // start value to interpolate FROM, so it is only owed when the height is
+    // actually about to move.
+    Object.defineProperty(ta, 'offsetHeight', {
+      get: () => {
+        reflows++
+        return 0
+      },
+      configurable: true,
+    })
+
+    await mount({ compact: false, draft: 'ab' })
+    await mount({ compact: false, draft: 'abc' })
+
+    expect(reflows).toBe(0)
+  })
+
   it('anchors notices above the field and attachments inside it', async () => {
     const attachments = {
       ...noopAttachments,

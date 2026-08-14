@@ -174,6 +174,9 @@ export function ChatComposer({
   onBackendEffortChange?: (effort: string) => void
 }): JSX.Element {
   const lastInterruptEscapeAt = useRef<number | null>(null)
+  /** The main chat's auto-grow memory: the field's line box (fixed for this
+   *  mount) and the last height it wrote. See the effect below. */
+  const growCache = useRef<{ oneLine: number; lastTarget: number | null } | null>(null)
 
   // A session switch reuses this composer on mobile. Never let the first Esc
   // from one session arm the second Esc in another.
@@ -198,27 +201,63 @@ export function ChatComposer({
   // the Superagent's box is sized by <PromptAutoGrow> below, which derives its
   // cap from the field's own line-height instead of a hard 176px, so the two
   // must never both write `style.height`.
+  //
+  // ---------------------------------------------------------------------------
+  // THIS EFFECT IS ON THE KEYSTROKE PATH, SO IT PAYS FOR ITSELF TWICE (POD-2045)
+  // ---------------------------------------------------------------------------
+  //
+  // Reading `scrollHeight` after setting `height:auto` forces a synchronous
+  // layout of the whole document. On a long transcript that is the single most
+  // expensive thing between pressing a key and seeing the character, and this
+  // effect used to do it TWICE per keystroke — once to measure, once more to
+  // pin the transition's start value — plus a full computed-style parse. On the
+  // overwhelming majority of keystrokes the height does not change at all, so
+  // all of that bought nothing.
+  //
+  // Two things are cached, and neither is a guess about the DOM:
+  //
+  //   the LINE BOX  is a function of font and padding, which are set by the
+  //                 class list and cannot change while this composer is mounted;
+  //   the TARGET    is compared before writing, and the transition-pinning
+  //                 reflow is owed only when the height is genuinely about to
+  //                 move — there is nothing to interpolate from otherwise.
+  //
+  // The measurement itself stays: reading the content height IS the feature.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the draft changes
   useEffect(() => {
     if (compact) return
     const ta = taRef.current
     if (!ta) return
-    // Measure the content height at height:auto, then restore the previous
-    // pixel height and force a reflow BEFORE setting the target — the reflow
-    // pins the transition's start value to the old height (measuring at auto
-    // otherwise makes the start value 'auto', which cannot interpolate, so
-    // the height would snap instead of animate).
+    let cache = growCache.current
+    if (!cache) {
+      const cs = getComputedStyle(ta)
+      cache = {
+        oneLine:
+          Number.parseFloat(cs.lineHeight) +
+          Number.parseFloat(cs.paddingTop) +
+          Number.parseFloat(cs.paddingBottom),
+        lastTarget: null,
+      }
+      growCache.current = cache
+    }
+    // Measure the content height at height:auto. Cap in px (max-h-44 = 176px)
+    // so the animated height never fights the CSS clamp; past the cap the
+    // textarea scrolls. When empty, scrollHeight includes the (possibly
+    // wrapped) placeholder — size to one line instead.
     const prev = ta.style.height
     ta.style.height = 'auto'
-    // Cap in px (max-h-44 = 176px) so the animated height never fights the
-    // CSS clamp; past the cap the textarea scrolls. When empty, scrollHeight
-    // includes the (possibly wrapped) placeholder — size to one line instead.
-    const cs = getComputedStyle(ta)
-    const oneLine =
-      Number.parseFloat(cs.lineHeight) +
-      Number.parseFloat(cs.paddingTop) +
-      Number.parseFloat(cs.paddingBottom)
-    const target = ta.value ? Math.min(ta.scrollHeight, 176) : oneLine
+    const target = ta.value ? Math.min(ta.scrollHeight, 176) : cache.oneLine
+    if (Number.isFinite(target) && target === cache.lastTarget) {
+      // Same height as last time. Put back what was there and stop: no
+      // transition to pin, so no second forced layout.
+      ta.style.height = prev || `${target}px`
+      return
+    }
+    cache.lastTarget = target
+    // Restore the previous pixel height and force a reflow BEFORE setting the
+    // target — the reflow pins the transition's start value to the old height
+    // (measuring at auto otherwise makes the start value 'auto', which cannot
+    // interpolate, so the height would snap instead of animate).
     ta.style.height = prev || `${target}px`
     void ta.offsetHeight
     ta.style.height = `${target}px`
