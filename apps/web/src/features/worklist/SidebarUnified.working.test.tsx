@@ -199,42 +199,54 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(screen.getAllByText('Reviewable issue')).toHaveLength(1)
   })
 
-  it('working rows show the braille spinner + timer; waiting rows the amber pill', () => {
+  // POD-1057 (3a): the lifecycle stamp lives in line 1's fixed meta column, not
+  // trailing the status word on line 2. The words and the clock are separate
+  // readings — one is prose, the other tabulates down the whole column — and
+  // splitting them is what lets every row's title ellipsize at the same x.
+  it('puts the working spinner + clock in the meta column, the word on line 2', () => {
     render(<SidebarUnified />)
     const workingRow = screen
       .getByText('Fully working issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    // The fully-working issue wears the working phase: spinner + counting timer.
     expect(workingRow.querySelector('[data-phase="working"]')).toBeTruthy()
-    expect(workingRow.querySelector('.spb')).toBeTruthy()
+    const meta = workingRow.querySelector('[data-testid="row-meta-column"]') as HTMLElement
+    // The spinner rides the clock, and both are in the meta column.
+    expect(meta.querySelector('.spb')).toBeTruthy()
+    expect(meta.textContent).toMatch(/\d+:\d\d/)
     const workingStatus = workingRow.querySelector('[data-testid="row-lifecycle-status"]')
     expect(workingStatus?.textContent).toContain('working')
-    expect(workingStatus?.textContent).toContain('·')
     // The partially-working issue has a question waiting → the row reads
-    // waiting (stillness) with the amber count pill, working elsewhere or not.
+    // waiting (stillness), and says so in line 2's one ochre sentence.
     const waitingRow = screen
       .getByText('Partly working issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(waitingRow.querySelector('[data-phase="waiting"]')).toBeTruthy()
-    expect(waitingRow.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
+    const waitingStatus = waitingRow.querySelector(
+      '[data-testid="row-lifecycle-status"]',
+    ) as HTMLElement
+    expect(waitingStatus.getAttribute('data-phase')).toBe('waiting')
+    expect(waitingStatus.style.color).toBe('var(--attention)')
+    // ONE ask, so no count leads the sentence — the pill's words earn their
+    // place only for a branch whose ask is bigger than this row (POD-1057).
+    expect(waitingRow.querySelector('[data-testid="need-count"]')).toBeNull()
   })
 
-  // POD-703: the ask owns the phase and the square's amber corner, but the row
-  // is the only place this mission appears — so an agent still computing under
-  // it must be visible, in the motion grammar's own device. A mission with a
-  // live agent used to render as total stillness the moment anything on it
-  // asked, which reads as "the fleet stopped".
+  // POD-703: the ask owns the phase, but the row is the only place this mission
+  // appears — so an agent still computing under it must be visible, in the
+  // motion grammar's own device. A mission with a live agent used to render as
+  // total stillness the moment anything on it asked, which reads as "the fleet
+  // stopped".
   it('keeps the working spinner on a waiting row that still has an agent computing', () => {
     render(<SidebarUnified />)
     const waitingRow = screen
       .getByText('Partly working issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    // Amber keeps the square (The Signal Rule) …
-    expect(
-      waitingRow.querySelector('[data-testid="issue-id-square"][data-badge="dot"]'),
-    ).toBeTruthy()
-    // … and the spinner returns to line 2, where it is the row's only
-    // "an agent is computing" mark rather than a second one.
+    // Amber keeps line 2 (The Signal Rule): the meta column shows how long the
+    // ask has been sitting there, not a second running clock …
+    const meta = waitingRow.querySelector('[data-testid="row-meta-column"]') as HTMLElement
+    expect(meta.querySelector('.spb')).toBeNull()
+    // … and the spinner sits in line 2's status lockup, where it is the row's
+    // only "an agent is computing" mark rather than a second one.
     expect(waitingRow.querySelector('.spb')).toBeTruthy()
     const status = waitingRow.querySelector('[data-testid="row-lifecycle-status"]')
     // Both facts, and no head-count eating the width they need.
@@ -274,7 +286,9 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(status.textContent).toContain('5:40 total')
     // Completion is stated in words now (POD-293): the done ✓ glyph is gone from
     // line 2 — "done · 5:40 total" in mono carries it, one clean voice, no icon.
-    expect(status.querySelector('svg')).toBeNull()
+    // Scoped to the lockup's own children: the fleet glyphs are SVGs too, and
+    // they live one level in (POD-1057).
+    expect(status.querySelector(':scope > svg')).toBeNull()
     expect(doneRow.querySelector('[data-testid="git-stamp"]')).toBeNull()
   })
 
@@ -319,10 +333,11 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .getByText('Reviewable issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(row.querySelector('[data-phase="waiting"]')).toBeTruthy()
-    // POD-293: a decision row states its ask in words, so the amber count pill is
-    // suppressed — the square's amber dot still marks the row as waiting.
+    // POD-293 / POD-1057: a decision row states its ask in words, and those
+    // words are the row's whole amber voice — there is no pill and no square
+    // dot beside them saying the same thing in a second vocabulary.
     expect(row.querySelector('[aria-label="1 waiting on you"]')).toBeNull()
-    expect(row.querySelector('[data-testid="issue-id-square"][data-badge="dot"]')).toBeTruthy()
+    expect(row.querySelector('[data-testid="need-count"]')).toBeNull()
     const chip = row.querySelector('[data-testid="awaiting-merge-status"]') as HTMLElement
     expect(chip.textContent).toBe('ready to merge · 2')
     // POD-293: the ask is the row's one amber voice as a plain weighted word —

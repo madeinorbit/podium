@@ -191,7 +191,9 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
     render(<SidebarUnified />)
     expect(screen.getByText('Unread issue').className).toContain('font-semibold')
     expect(screen.getByText('Read issue').className).not.toContain('font-semibold')
-    const unreadRow = screen.getByText('Unread issue').closest('[class*="group/row"]') as HTMLElement
+    const unreadRow = screen
+      .getByText('Unread issue')
+      .closest('[class*="group/row"]') as HTMLElement
     const dot = unreadRow.querySelector('[data-testid="row-unread-dot"]')
     expect(dot).toBeTruthy()
     expect(dot?.closest('[data-testid="issue-fleet-summary"]')).toBeNull()
@@ -221,8 +223,10 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
 
   it('opening an unsnoozed issue clears its "Unsnoozed" tag via defer(null) (#138 FIX C)', () => {
     render(<SidebarUnified />)
-    // The tag renders while deferUntil is in the past…
-    expect(screen.getByText('Unsnoozed')).toBeTruthy()
+    // The tag renders while deferUntil is in the past. It is a mono word on
+    // line 2 now rather than a boxed badge on line 1 (POD-1057) — line 1 is a
+    // title and a time, and every other mark moved down into the machine voice.
+    expect(screen.getByText('unsnoozed')).toBeTruthy()
     fireEvent.click(screen.getByText('Unsnoozed issue'))
     // …and opening the issue nulls deferUntil so the tag source is gone.
     expect(deferIssue).toHaveBeenCalledWith('d1', null)
@@ -230,7 +234,7 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
 
   it('shows a suspended row as one dim line with its snooze marker (#133, POD-293)', () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByRole('button', { name: 'Snoozed · 1' }))
+    fireEvent.click(screen.getByRole('button', { name: '1 snoozed' }))
     // Suspended work is out of triage: one dim line, no chrome — the alarm icon
     // and full row give way to the fold's own "snoozed …" marker (POD-293).
     const row = screen

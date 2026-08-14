@@ -8,7 +8,7 @@ import {
   type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, isIssueDeferred, type IssueId } from '@podium/model/browser'
+import { asIssueId, type IssueId, isIssueDeferred } from '@podium/model/browser'
 import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -16,13 +16,14 @@ import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
+import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
 import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
+import { useCollapsedKeys } from './sidebar-common'
 import { AppToolsRow, NewWorkRow } from './spawn-row'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
-import { BRIDGE_NOTCH_W } from './WorkRowShell'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
@@ -69,40 +70,33 @@ export function SidebarUnified(): JSX.Element {
           the header of the sidebar. This was uncalled for." Progress moved to
           the rows themselves (`RowProgressMeter`), where it is a fact about one
           thing the operator can click rather than an aggregate over a scope
-          nobody asked about. What is left is the 9px spacer that was always
-          here, so the list starts where it always did. */}
-      <div className="h-[9px] flex-none" aria-hidden="true" />
-      {/* The scroll container leaves horizontal head-room past the aside edge
-          (negative margin + matching padding) so the selected row's bridge notch
-          can paint OVER the aside border into the engraved column — overflow
-          clips at the padding box, so the notch survives (#41).
+          nobody asked about.
 
-          THE HEAD-ROOM IS THE NOTCH'S WIDTH, NOT A PIXEL LESS (POD-761). It was
-          5px against a 10px notch, so half the notch fell outside the padding
-          box — where it was not painted but WAS scrollable overflow, and every
-          selected row gave the column a 5px sideways scroll. Anything that hangs
-          off a row's right edge has to fit in here, or it comes back as scroll.
-          `overflow-x-clip` holds that line: it makes the head-room a PAINTING
-          allowance rather than a scrollable one, since `overflow-y: auto` alone
-          computes the x axis to `auto`. (Chrome computes the pair to `hidden`,
-          which still measures overflow — hence the width match above, which is
-          what actually removes it.)
-          The padding matches the negative margin exactly now (POD-725): rows are
-          FULL-BLEED bands, so the list has no side inset of its own and each row
-          owns its 14px text inset. No row gap either — rows are separated by
-          their own hairline rules; between groups the project-group mb-2.5
-          clusters repo + snoozed/done as one unit. */}
+          NO SPACER, AND NO NOTCH HEAD-ROOM (POD-1057, the 3a design). The 9px
+          gap that used to hold this space is gone: the list opens on a SECTION
+          BAND now, and the band draws its own top hairline — a spacer above it
+          would push that rule off the seam it is meant to be.
+
+          The horizontal head-room went with the bridge notch. The selected row
+          paints nothing past its right edge any more (selection is the band's
+          own lift and a 3px ink spine), so there is nothing to overhang the
+          aside and nothing to reserve — and with it goes the sideways scroll
+          POD-761 had to chase. `overflow-x-clip` stays: it keeps a long unbroken
+          title from ever turning into one again. Rows are FULL-BLEED, so the
+          list has no side inset of its own and each row owns its 13px text
+          inset. */}
       <div
         data-testid="work-scroll"
         className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
-        style={{ marginRight: -BRIDGE_NOTCH_W, paddingRight: BRIDGE_NOTCH_W }}
       >
         <WorkSections derivation={derivation} />
       </div>
-      {/* Footer: the design's 38px strip at the column's 16px inset. The mock
-          writes `new task` / `search` as bare mono words; we keep our muted icon
-          controls (operator call) and the ⌘K hint stays right-aligned. */}
-      <AppToolsRow className="h-[38px] flex-none border-t border-hairline-soft px-4" />
+      {/* Footer: the 3a design's 34px strip at the column's own 13px inset, on
+          the same `--muted` ground as the section bands — the two chrome ends of
+          the column read as one tone, and the list floats between them. We keep
+          our muted icon controls (operator call) where the mock writes
+          `new task` / `search` as bare mono words; the ⌘K hint stays right. */}
+      <AppToolsRow className="h-[34px] flex-none border-t border-hairline-bar bg-muted px-[13px]" />
     </>
   )
 }
@@ -133,7 +127,6 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     selectPanel,
     openIssuePage,
     renameIssue,
-    setIssueColor,
     archiveIssue,
     applySortPatches,
     setIssueTucked,
@@ -291,7 +284,10 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     )
     stableRowsRef.current = stableRows
     const stableByKey = new Map(
-      stableRows.map((row) => [row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`, row]),
+      stableRows.map((row) => [
+        row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`,
+        row,
+      ]),
     )
     const activeSlots = new Set<string>()
     const stableTargets = raw.map((target) => {
@@ -322,7 +318,9 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   // derived only from row slots; content/clock updates keep the same revision,
   // while insertion, removal, lane changes, and reordering opt the measurement
   // back in for the affected frame.
-  const layoutSignature = transitionTargets.map((target) => `${target.key}:${target.placement}`).join('|')
+  const layoutSignature = transitionTargets
+    .map((target) => `${target.key}:${target.placement}`)
+    .join('|')
   const layoutRevisionRef = useRef({ signature: '', revision: 0 })
   if (layoutRevisionRef.current.signature !== layoutSignature) {
     layoutRevisionRef.current = {
@@ -402,15 +400,29 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   })
   const onGripDown = (e: ReactPointerEvent, issueId: IssueId) => startDrag(e, issueId)
 
+  // SECTION BANDS FOLD (POD-1057). Every band in this column is a header you can
+  // shut: `Pinned`, and one per project. The state is read here rather than
+  // inside each band because the list itself has to consult it — see the
+  // shortcut numbering below — and because one subscription over N keys beats a
+  // component-per-group whose only purpose would be to own a hook.
+  const bandKeys = useMemo(
+    () => [PINNED_FOLD_KEY, ...targetGroups.map((group) => projectFoldKey(group.key))],
+    [targetGroups],
+  )
+  const [collapsedBands, toggleBand] = useCollapsedKeys(bandKeys)
+  const pinnedCollapsed = collapsedBands.has(PINNED_FOLD_KEY)
+  const groupCollapsed = (groupKey: string): boolean => collapsedBands.has(projectFoldKey(groupKey))
+
   // ⌘-hold row shortcuts (POD-790). The order is the column's own reading order
   // — pinned first, then each project group's live rows — taken from the SETTLED
   // groups rather than from `transitionRows`, so a row on its way out cannot
   // renumber the rows above it mid-animation.
   //
-  // Only live issue rows are numbered. The folds are skipped because a digit
-  // pointing into collapsed content would select something the operator cannot
-  // see, and worktree rows because they are roster BANDS, not tasks — the thing
-  // being counted here is "the missions in my column".
+  // Only live issue rows are numbered. A SHUT BAND is skipped whole, for the
+  // same reason the folds are: a digit pointing into collapsed content selects
+  // something the operator cannot see. Worktree rows are skipped because they
+  // are roster BANDS, not tasks — the thing being counted here is "the missions
+  // in my column".
   const activateRow = (row: UnifiedIssueRowView): void => {
     setSelectedClosedPlacement({ issueId: row.issue.id, folded: false })
     // Exactly what clicking the row does, draft carve-out included: a draft
@@ -421,7 +433,10 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     else selectIssue(row.issue)
   }
   const shortcutRows: UnifiedIssueRowView[] = []
-  for (const group of [{ rows: pinned }, ...targetGroups]) {
+  for (const group of [
+    { rows: pinnedCollapsed ? [] : pinned },
+    ...targetGroups.map((group) => ({ rows: groupCollapsed(group.key) ? [] : group.rows })),
+  ]) {
     for (const row of group.rows) {
       if (row.kind === 'issue' && shortcutRows.length < MAX_ROW_SHORTCUTS) shortcutRows.push(row)
     }
@@ -475,7 +490,6 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           }}
           onOpenIssue={openIssuePage}
           onRenameIssue={renameIssue}
-          onColorChangeIssue={setIssueColor}
           onGripDown={draggable ? onGripDown : undefined}
           onTuck={
             rowAwaitsTuck(row, selectedIssueId, selectedWasFolded, now)
@@ -612,68 +626,78 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             layout="position"
             layoutDependency={layoutRevision}
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-            className="mb-2.5 flex min-w-0 flex-col"
+            className="flex min-w-0 flex-col"
             data-testid="pinned-section"
             data-drag-scope="pinned"
           >
-            <PinnedSectionLabel count={renderedPinned.length} />
-            {renderedPinned.map((item) => renderWorkRow(item))}
+            <PinnedSectionLabel
+              count={renderedPinned.length}
+              collapsed={pinnedCollapsed}
+              onToggle={() => toggleBand(PINNED_FOLD_KEY)}
+            />
+            {!pinnedCollapsed && renderedPinned.map((item) => renderWorkRow(item))}
           </motion.div>
         )}
-        {renderedGroups.map((group, index) => (
-          <motion.div
-            layout="position"
-            layoutDependency={layoutRevision}
-            transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-            key={group.key}
-            className="mb-2.5 flex min-w-0 flex-col last:mb-0"
-            data-testid="project-group"
-            data-drag-scope={`group:${group.key}`}
-          >
-            <ProjectGroupLabel
-              label={group.label}
-              count={group.rows.length}
-              first={index === 0 && renderedPinned.length === 0}
-            />
-            {group.rows.map((item) => renderWorkRow(item))}
-            {group.snoozedRows.length > 0 && (
-              <motion.div
-                layout="position"
-                layoutDependency={layoutRevision}
-                transition={
-                  shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
-                }
-              >
-                <SnoozedIssueFold
-                  groupKey={group.key}
-                  rows={group.snoozedRows}
-                  renderRow={renderWorkRow}
-                  settleTransition={settle}
-                />
-              </motion.div>
-            )}
-            {/* The column's one tail fold. Suspended work folds above it; both
-                are group headers, and they are the only foldable things in this
-                column now that the rows are flat. */}
-            {group.closedRows.length > 0 && (
-              <motion.div
-                layout="position"
-                layoutDependency={layoutRevision}
-                transition={
-                  shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
-                }
-              >
-                <ClosedIssueFold
-                  groupKey={group.key}
-                  rows={group.closedRows}
-                  renderRow={renderWorkRow}
-                  issueForRow={(item) => item.value.row as UnifiedIssueRowView}
-                  onArchive={archiveClosedIssue}
-                />
-              </motion.div>
-            )}
-          </motion.div>
-        ))}
+        {renderedGroups.map((group) => {
+          // A shut band takes the WHOLE group with it — its live rows and both
+          // of its tail folds. Half a collapsed project (a band with a Closed
+          // fold still hanging under it) would be the worst of both readings.
+          const collapsed = groupCollapsed(group.key)
+          return (
+            <motion.div
+              layout="position"
+              layoutDependency={layoutRevision}
+              transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
+              key={group.key}
+              className="flex min-w-0 flex-col"
+              data-testid="project-group"
+              data-collapsed={collapsed ? 'true' : 'false'}
+              data-drag-scope={`group:${group.key}`}
+            >
+              <ProjectGroupLabel
+                label={group.label}
+                count={group.rows.length}
+                collapsed={collapsed}
+                onToggle={() => toggleBand(projectFoldKey(group.key))}
+              />
+              {!collapsed && group.rows.map((item) => renderWorkRow(item))}
+              {!collapsed && group.snoozedRows.length > 0 && (
+                <motion.div
+                  layout="position"
+                  layoutDependency={layoutRevision}
+                  transition={
+                    shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                  }
+                >
+                  <SnoozedIssueFold
+                    groupKey={group.key}
+                    rows={group.snoozedRows}
+                    renderRow={renderWorkRow}
+                    settleTransition={settle}
+                  />
+                </motion.div>
+              )}
+              {/* The column's one tail fold. Suspended work folds above it. */}
+              {!collapsed && group.closedRows.length > 0 && (
+                <motion.div
+                  layout="position"
+                  layoutDependency={layoutRevision}
+                  transition={
+                    shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                  }
+                >
+                  <ClosedIssueFold
+                    groupKey={group.key}
+                    rows={group.closedRows}
+                    renderRow={renderWorkRow}
+                    issueForRow={(item) => item.value.row as UnifiedIssueRowView}
+                    onArchive={archiveClosedIssue}
+                  />
+                </motion.div>
+              )}
+            </motion.div>
+          )
+        })}
       </LayoutGroup>
     </MotionConfig>
   )

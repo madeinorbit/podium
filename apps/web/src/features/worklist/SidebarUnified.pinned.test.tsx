@@ -218,7 +218,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     // Unread no longer blocks fold eligibility (manual tuck path). Past-grace
     // finished rows — read or not — land in Closed; only selection stickiness
     // keeps a selected finished row open without an explicit tuck.
-    const toggle = screen.getByRole('button', { name: 'Closed · 3' })
+    const toggle = screen.getByRole('button', { name: '3 closed' })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByText('Closed alpha')).toBeNull()
     expect(screen.queryByText('Closed beta')).toBeNull()
@@ -237,5 +237,65 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
 
     fireEvent.click(toggle)
     expect(screen.queryByText('Closed alpha')).toBeNull()
+  })
+
+  /**
+   * THE BANDS FOLD (POD-1057, the 3a design).
+   *
+   * Every section header in this column is a control now — `Pinned` and one per
+   * project — so a machine carrying four repos can be reduced to four lines with
+   * one of them open. The three things worth pinning down: the band stays while
+   * its contents go, a shut project takes its TAIL FOLDS with it (half a
+   * collapsed project is the worst of both readings), and the state lands on the
+   * per-user replicated `podium:sidebar:` key rather than somewhere device-local.
+   */
+  it('shuts the PINNED band without shutting the column', () => {
+    render(<SidebarUnified />)
+    const band = screen.getByTestId('pinned-section-label')
+    expect(band.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('Pinned issue')).toBeTruthy()
+
+    fireEvent.click(band)
+
+    expect(band.getAttribute('aria-expanded')).toBe('false')
+    expect(band.getAttribute('data-collapsed')).toBe('true')
+    // The band itself survives — with its count, which is the whole point of
+    // being able to shut it and still know what is in there.
+    expect(band.textContent).toContain('Pinned')
+    expect(screen.queryByText('Pinned issue')).toBeNull()
+    // The project below is untouched.
+    expect(screen.getByText('Plain issue')).toBeTruthy()
+    expect(ui.get('podium:sidebar:pinned-fold')).toBe('true')
+
+    fireEvent.click(band)
+    expect(screen.getByText('Plain issue')).toBeTruthy()
+    expect(screen.getByText('Pinned issue')).toBeTruthy()
+    // Back to default = the key is CLEARED, not written 'false': an absent key
+    // is what "expanded" means, and storing the default would replicate a row
+    // per project per user saying nothing.
+    expect(ui.get('podium:sidebar:pinned-fold')).toBeNull()
+  })
+
+  it('shuts a project band over its rows AND its closed fold', () => {
+    render(<SidebarUnified />)
+    const group = screen.getByTestId('project-group')
+    const groupKey = group.getAttribute('data-drag-scope')?.replace(/^group:/, '')
+    const band = screen.getByTestId('project-group-label')
+    expect(screen.getByTestId('closed-fold-toggle')).toBeTruthy()
+
+    fireEvent.click(band)
+
+    expect(group.getAttribute('data-collapsed')).toBe('true')
+    expect(screen.queryByText('Plain issue')).toBeNull()
+    expect(screen.queryByTestId('closed-fold-toggle')).toBeNull()
+    // Pinned work lives above every project group, so it is not a project's to
+    // hide (POD-166, R3) — and this is the assertion that proves the two bands
+    // read independent state rather than sharing one key.
+    expect(screen.getByText('Pinned issue')).toBeTruthy()
+    expect(ui.get(`podium:sidebar:project-fold:${groupKey}`)).toBe('true')
+
+    fireEvent.click(band)
+    expect(screen.getByText('Plain issue')).toBeTruthy()
+    expect(screen.getByTestId('closed-fold-toggle')).toBeTruthy()
   })
 })

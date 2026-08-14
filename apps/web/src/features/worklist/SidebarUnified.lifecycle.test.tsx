@@ -174,7 +174,7 @@ describe('closed issue fold lifecycle', () => {
   it('folds snoozed rows with arrival motion and removes every drag target', () => {
     render(<SidebarUnified />)
 
-    const toggle = screen.getByRole('button', { name: 'Snoozed · 1' })
+    const toggle = screen.getByRole('button', { name: '1 snoozed' })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByText('Snoozed issue')).toBeNull()
 

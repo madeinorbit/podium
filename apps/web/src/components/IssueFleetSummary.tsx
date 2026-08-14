@@ -38,19 +38,83 @@ import { cn } from '@/lib/utils'
 export function IssueFleetSummary({
   sessions,
   size = 18,
+  variant = 'tiles',
   className,
 }: {
   sessions: SessionMeta[]
   /** Tile edge in px — 18 in the sidebar, 16 on the denser board card, where an
    *  18px tile of saturated terracotta was the loudest thing on the card and won
-   *  the first look from the title. */
+   *  the first look from the title. In `glyphs` this is the GLYPH's own size. */
   size?: number
+  /** How loudly the stack speaks (POD-1057).
+   *
+   *  `tiles` is the original: a rounded, brand-tinted chip per harness kind. It
+   *  is right on a board card, where the card is the object and the fleet is one
+   *  of four facts on it.
+   *
+   *  `glyphs` is the 3a work row's: the same marks, unboxed, at one ink with the
+   *  rest of line 2. A worklist column is thirty rows deep and the fleet is the
+   *  quietest fact in each of them — thirty stacks of coloured chips was the
+   *  first thing the eye landed on, ahead of every title. Same derivation, same
+   *  accessible label; only the volume changes. */
+  variant?: 'tiles' | 'glyphs'
   className?: string
 }): JSX.Element | null {
   const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
   if (present.length === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)
   const glyph = Math.round(size * 0.66)
+  if (variant === 'glyphs') {
+    return (
+      <span
+        className={cn('flex flex-none items-center gap-1', className)}
+        role="img"
+        aria-label={label}
+        title={label}
+        data-testid="issue-fleet-summary"
+        data-variant="glyphs"
+      >
+        {shown.map(({ kind, parked }) => {
+          const AgentIcon = agentIconFor(kind)
+          return (
+            <span
+              key={kind}
+              data-agent-kind={kind}
+              data-parked={parked ? '' : undefined}
+              // One ink for every harness, a step below the words beside it: the
+              // mark answers WHICH agent by silhouette, and the status phrase it
+              // leads is the thing being read. Parked agents ghost rather than
+              // disappear — a stopped teammate is still on the task.
+              className={cn('flex flex-none items-center text-text-dim', parked && 'opacity-45')}
+            >
+              {AgentIcon ? (
+                <AgentIcon size={size} strokeWidth={1.8} aria-hidden="true" />
+              ) : (
+                <span style={{ fontSize: size }}>✳</span>
+              )}
+            </span>
+          )
+        })}
+        {/* The head-count appears only when the marks UNDER-COUNT — nine agents
+            across three harnesses draw three glyphs, and "3" would be a lie by
+            omission. One or two agents of one kind each are already counted by
+            their own marks, so the number would be the same fact twice. */}
+        {present.length > shown.length && (
+          <span className="font-mono tabular-nums text-text-dim" data-testid="issue-fleet-total">
+            {present.length}
+          </span>
+        )}
+        {nativeCount > 0 && (
+          <span
+            className="font-mono tabular-nums text-text-dim"
+            data-testid="issue-fleet-subagent-count"
+          >
+            ×{nativeCount}
+          </span>
+        )}
+      </span>
+    )
+  }
   return (
     <span
       className={cn('flex flex-none items-center gap-[5px]', className)}

@@ -23,13 +23,19 @@
  *
  * So the meter is not a chip on a line: it is the row's own BASELINE RULE,
  * spanning the text column from the title's left edge to the row's right
- * inset, drawn inside the row's existing bottom padding. It is absolutely
- * positioned, so a row that grows one costs exactly zero pixels of height and
- * a list of thirty rows keeps one even rhythm whether every row has a meter or
- * none does. Because it starts under the TITLE rather than at the row's edge,
- * it can never be misread as a divider between two rows.
+ * inset, as the third line of the row's text block.
  *
- * Reading it is one saccade down the column: the meters are all the same
+ * IT COSTS HEIGHT NOW, AND THAT IS THE 3a DESIGN'S CALL (POD-1057). It used to
+ * be absolutely positioned inside the row's bottom padding, so a metered row
+ * and a bare one were the same 44px — bought by pushing a 2px rule into the
+ * gap between two rows, which only read as "belonging" to the row above
+ * because a hairline separated them. With the hairlines gone that trick has
+ * nothing to lean on: an absolutely-positioned rule floating in the space
+ * between two untinted rows is ambiguous about which one it describes. In flow
+ * it is unambiguous, and the design accepts the 8px: a metered row is 52px, a
+ * bare row 44px, and the difference itself reads as "this row has a subtree".
+ *
+ * Reading it is still one saccade down the column: the meters are all the same
  * length and all at the same x, so the eye compares fill, not geometry.
  *
  * ---------------------------------------------------------------------------
@@ -153,21 +159,22 @@ export function RowProgressMeter({
       role="img"
       aria-label={label}
       title={label}
-      // Inside the row's bottom padding: -2px puts the rule below the status
-      // line's descender box without adding a pixel to the row. Two pixels and a
-      // square end (POD-725) — the design draws this as a rule, not a capsule,
-      // and a pill at 2px is all cap and no bar. The trough is `--hairline-soft`,
-      // the same seam tone as the rule between two rows, so an empty meter reads
-      // as "there is a length here" without becoming a second divider.
-      className="pointer-events-none absolute inset-x-0 -bottom-[2px] flex h-[2px] overflow-hidden bg-hairline-soft"
+      // Three pixels with a 2px radius (3a). It went up a pixel and gained its
+      // corners when it came in-flow: at 2px square-ended, sitting in the row's
+      // own text block rather than in the seam below it, the empty part read as
+      // a stray underline. The trough is `--border-strong` — a step darker than
+      // the seam tone it used to wear, because there is no longer a hairline
+      // beside it to be confused with, and an empty meter has to be visible
+      // enough to say "this row is seven tasks, none of them started".
+      className="pointer-events-none flex h-[3px] w-full overflow-hidden rounded-[2px] bg-border-strong"
     >
       <span
         data-segment="done"
-        // Settled work reads in `--text-faint` (POD-725): the same ramp step the
-        // row's own micro labels wear, so the finished part of the bar sits at
-        // the quietest legible tone in both themes rather than in the motion
-        // grammar's private grey.
-        className={cn(segment, 'bg-text-faint')}
+        // Settled work reads in `--text-dim`: one step up from the trough it
+        // sits in, so the boundary between done and not-done is legible at 3px,
+        // and one step down from the row's own body ink, so a full bar never
+        // out-reads the title above it.
+        className={cn(segment, 'bg-text-dim')}
         style={{ width: pct(progress.done) }}
       />
       <span

@@ -17,18 +17,17 @@ import {
 } from '@podium/client-core/viewmodels'
 import {
   asSessionId,
-  type IssueColorSlot,
   type IssueId,
+  isIssueDeferred,
+  issueReturnedFromDefer,
   type SessionId,
   type SessionMeta,
 } from '@podium/model/browser'
-import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { AlarmClock, Pin } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
-import { IdSquare } from '@/components/IdSquare'
+import { idSquareLabel } from '@/components/IdSquare'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/lib/issue-labels'
@@ -86,7 +85,6 @@ export function UnifiedIssueRow({
   onSelectPanelForIssue,
   onOpenIssue,
   onRenameIssue,
-  onColorChangeIssue,
   onGripDown,
   onTuck,
   shortcutDigit,
@@ -104,7 +102,6 @@ export function UnifiedIssueRow({
   /** Open the issue PAGE (the context menu's "Open"). */
   onOpenIssue: (id: IssueId) => void
   onRenameIssue: (id: string, title: string) => void
-  onColorChangeIssue: (id: string, color: IssueColorSlot | null) => unknown
   /** Manual-sort drag start (POD-168); absent = row not draggable. */
   onGripDown?: (e: ReactPointerEvent, issueId: IssueId) => void
   /** Dismiss a finished row into the Closed fold (POD-293); absent = not a
@@ -151,23 +148,16 @@ export function UnifiedIssueRow({
     [issues],
   )
   const hex = issueColorHex(issue.color)
-  const square = (
-    <IdSquare
-      issue={issue}
-      state={phase}
-      selected={active}
-      size={30}
-      // The corner badge punches out of the ROW's own ground, not the card tier
-      // it used to assume — a white ring around the dot was visible on every
-      // paper row. `--row-bg` is set by the tinted-row case in WorkRowShell; the
-      // fallback covers plain and selected rows, whose ground is the column.
-      ringColor="var(--row-bg, var(--sidebar))"
-      // The ask wins the corner (amber dot); otherwise a working row shows the
-      // blue spinner badge on the square itself (POD-293), not beside line 2.
-      badge={waitingCount > 0 ? { kind: 'dot' } : phase === 'working' ? { kind: 'spinner' } : null}
-      onColorChange={(color) => onColorChangeIssue(issue.id, color)}
-    />
-  )
+  // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057, the 3a design). The 30px tinted
+  // square is gone from this column: it carried the ref, the phase (solid vs
+  // dashed rim), a corner badge, and — on click — the colour picker, which made
+  // the smallest object in the row the busiest one. Each of those four jobs went
+  // somewhere it reads better: the ref is these digits, the phase and the ask
+  // are line 2's one ochre sentence, the working spinner is the meta column's
+  // clock, and the colour picker is in the row's context menu with every other
+  // property of an issue. The colour itself did not go anywhere — it is the
+  // band's ground, which is a bigger, quieter statement of the same fact.
+  const idLabel = idSquareLabel(issue)
   // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
   // issue this one was spun off from. One quiet ⤷ tick on line 2; selecting
   // the row flashes the origin.
@@ -211,28 +201,64 @@ export function UnifiedIssueRow({
       }}
     />
   ) : null
+  // WHERE THE LIFECYCLE STAMP GOES, BY PHASE (3a).
+  //
+  // A working row's clock and a waiting row's "how long has this been sitting
+  // there" belong in line 1's meta column, where they tabulate down the whole
+  // list and can be compared at a glance. A finished row's `67:44 total` does
+  // not: it is the tail of a sentence ("done · 67:44 total"), it is the only
+  // one of the three that is prose rather than a reading, and on a done row the
+  // meta column is already spoken for by the tuck chip.
+  const timer = (
+    <PhaseTimer
+      phase={timing.phase}
+      sinceMs={timing.sinceMs}
+      baseMs={timing.baseMs ?? 0}
+      totalMs={timing.totalMs}
+      // The micro role, matching line 2 and the id gutter — every mono mark in
+      // this row is now set at one size (POD-783's floor).
+      size={10.5}
+      // The design puts the braille spinner in front of the running clock, and
+      // that is the ONLY perpetual motion in the row (DESIGN.md §5).
+      showSpinner={timing.phase === 'working'}
+      plainLanguage
+      leadingSeparator={timing.phase === 'done'}
+      mutedWaiting
+      className="flex-none"
+    />
+  )
   return (
     <>
       <WorkRowShell
         testId="unified-issue-row"
         deemphasized={issue.audience === 'agent'}
-        square={square}
+        idNumber={idLabel.number}
+        idLabel={idLabel.full}
         shortcutDigit={shortcutDigit}
         label={label}
         onTuck={onTuck}
         statusLine={
           <>
             {/* THE ONE WORKING MARK ON A ROW THAT IS ALSO ASKING (POD-703). The
-                square's corner belongs to the ask (The Signal Rule), so when
-                both are true the spinner comes back to line 2 — the place
-                POD-293 moved it away from precisely because the square already
-                carried it. There is no duplication here: the square is amber,
-                so this is the row's only "an agent is computing" mark, in the
-                motion grammar's own device and its calm blue. */}
+                meta column belongs to the ask's own stamp when a row is waiting,
+                so when an agent is ALSO computing the spinner comes back here —
+                the row's only "something is running" mark, in the motion
+                grammar's own device and its calm blue. */}
             {working && phase !== 'working' && (
               // `.spb` already paints itself `--motion-working`, so the glyph
-              // stays calm blue inside a dim waiting lockup without a prop.
+              // stays calm blue inside an ochre waiting lockup without a prop.
               <BrailleSpinner size={9} className="mr-1" />
+            )}
+            {/* THE PILL'S WORDS, WITHOUT THE PILL (3a). A branch whose ask is
+                three levels down used to say `3 need you` in an amber box on
+                line 1, next to a status line already reading `waiting on your
+                decision` — the same signal twice, in two vocabularies. The count
+                is the part that was worth keeping, so it leads the sentence the
+                line was already saying, in the line's own ochre. */}
+            {decision === null && waitingCount > 1 && (
+              <span className="flex-none" data-testid="need-count">
+                {waitingCount} need you ·{' '}
+              </span>
             )}
             {decision !== null ? (
               // The one word that answers "what is being asked of me here" — a
@@ -261,28 +287,8 @@ export function UnifiedIssueRow({
         }
         hex={hex}
         phase={phase}
-        waitingCount={waitingCount}
-        // Suppress the amber pill when the row already states its ask in words
-        // (needs review / ready to merge) — one amber voice per region (POD-293).
-        showWaitingPill={decision === null}
-        timeMeta={
-          <PhaseTimer
-            phase={timing.phase}
-            sinceMs={timing.sinceMs}
-            baseMs={timing.baseMs ?? 0}
-            totalMs={timing.totalMs}
-            // One phrase, one size (POD-783). "needs review · 8h ago" is a single
-            // mono sentence on line 2, so the timer matches the status word it
-            // follows rather than setting its own — it was 11px when POD-450
-            // pinned the row, then drifted to 10px against a 12px status line.
-            size={12}
-            showSpinner={false}
-            plainLanguage
-            leadingSeparator
-            mutedWaiting
-            className="flex-none"
-          />
-        }
+        timeMeta={timing.phase === 'done' ? undefined : timer}
+        statusTime={timing.phase === 'done' ? timer : undefined}
         // The row's baseline progress rule (POD-516 round 3). Renders only where
         // there is a real done/total — a mission of two tasks or more — and the
         // running segment sweeps only while an agent on this row is genuinely
@@ -321,7 +327,9 @@ export function UnifiedIssueRow({
           origin &&
           !continuation && (
             <span
-              className="shell-type-micro flex-none font-mono tabular-nums"
+              // No size of its own: line 2 sets one, and a second here was what
+              // made the tick's line box taller than the sentence it annotates.
+              className="flex-none tabular-nums"
               data-testid="spinoff-origin-tick"
               title={`Spun off from ${issueDisplayRef(origin)} · ${origin.title}`}
             >
@@ -333,42 +341,32 @@ export function UnifiedIssueRow({
         onDoubleClick={() => rename.begin()}
         editor={renameEditor}
         titleHint={issueIdTitle(issue)}
-        extras={
+        // LINE 1 IS A TITLE AND A TIME (3a). Everything that used to trail the
+        // title — the fleet stack, the pin, the alarm clock, the two word
+        // badges — now leads line 2 in the machine voice, at one ink with the
+        // status phrase it introduces. The pin and the alarm did not survive the
+        // move: a pinned row is under the PINNED band and a snoozed one inside
+        // the Snoozed fold, so both marks restated the row's own address.
+        marks={
           <>
-            {/* The row's ref lives in the identity square alone (POD-85) — the
-                muted repeat here doubled every row's ID for no added signal.
-                Hover still surfaces the full ref via titleHint. */}
-            {issue.audience === 'agent' && (
-              <span
-                className="shell-type-micro flex-none rounded border border-slate-500/40 px-1 uppercase tracking-wide text-slate-500"
-                data-testid="internal-issue-badge"
-              >
-                internal
-              </span>
-            )}
             {/* One rule, no exceptions: an agent on this issue or anywhere in its
                 subtree shows here. Drafts used to be carved out on the grounds
                 that their row already WAS the agent — true when the sidebar was
-                the only column, but the Flight Deck owns the tree now and the
-                draft row kept nothing but an issue square, so the one row that
-                is purely an agent was the one row that never named one. */}
-            <IssueFleetSummary sessions={fleetSessions} className="ml-0.5" />
-            {issue.pinned && (
-              <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
-            )}
-            {isIssueDeferred(issue, now) && (
-              <AlarmClock
-                size={10}
-                className="flex-none text-muted-foreground"
-                aria-label="Snoozed"
-              />
+                the only column, but the Flight Deck owns the tree now, and the
+                one row that is purely an agent was the one row that never named
+                one. */}
+            <IssueFleetSummary sessions={fleetSessions} size={11} variant="glyphs" />
+            {issue.audience === 'agent' && (
+              <span className="flex-none text-text-dim" data-testid="internal-issue-badge">
+                internal
+              </span>
             )}
             {issueReturnedFromDefer(issue, now) && (
               <span
-                className="shell-type-micro flex-none rounded border border-amber-500/40 px-1 font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+                className="flex-none font-semibold text-attention"
                 title="Snooze ended — back in your queue"
               >
-                Unsnoozed
+                unsnoozed
               </span>
             )}
           </>

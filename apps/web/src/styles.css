@@ -85,14 +85,41 @@ html[data-density="compact"] {
   line-height: var(--shell-leading-column-title);
   letter-spacing: -0.015em;
 }
-/* 9px, the design's own value (POD-725). The row is full-bleed now, with a
-   hairline instead of a gap between rows, so the padding IS the whole rhythm of
-   the column — a pixel here is worth two anywhere else. */
+/* 6px (POD-1057, the 3a sidebar). It was 9px against a row that drew a hairline
+   under itself; with the rules gone the padding IS the whole rhythm of the
+   column, and the design sets its two-line row at 44px total — a 16px title
+   line, 5px, a 14px status line, and 6px of air top and bottom. A row that also
+   carries the progress rule lands at 52px on the same padding. Exported as a
+   var because the tuck chip has to align itself to line 1's box, and it cannot
+   know the density switch any other way. */
 .shell-work-row {
-  padding-block: 9px;
+  --work-row-pad: 6px;
+  padding-block: var(--work-row-pad);
 }
 html[data-density="compact"] .shell-work-row {
-  padding-block: 7.5px;
+  --work-row-pad: 5px;
+}
+/* THE ROW'S TWO LINES RUN TIGHTER THAN THE ROLES THEY TAKE THEIR SIZE FROM.
+   The shell roles set a reading leading (13/18, 10.5/14) because most shell text
+   is prose that may wrap. These two never wrap — one truncates, the other is a
+   single mono phrase — so their leading is pure row height, and the 3a design
+   spends it on the 44px row instead. Size still comes from the role token, so
+   both lines follow the density switch.
+
+   THEY ARE CLASSES RATHER THAN `leading-*` UTILITIES because styles.css is
+   UNLAYERED and Tailwind's utilities are not: `.shell-type-primary`'s
+   line-height beats `leading-[16px]` no matter what the markup says, so an
+   inline override here is not a tighter row, it is a silently ignored one. */
+.shell-work-row-title {
+  font-size: var(--shell-type-primary);
+  line-height: 16px;
+}
+html[data-density="compact"] .shell-work-row-title {
+  line-height: 15px;
+}
+.shell-work-row-status {
+  font-size: var(--shell-type-micro);
+  line-height: 1;
 }
 html,
 body,

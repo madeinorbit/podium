@@ -176,7 +176,10 @@ function buildSnapshot() {
     // slice re-derives when time moves. Pinned here: this probe measures
     // derivations per PUBLISH, and a wall clock would add unrelated ticks.
     coarseNow: Date.parse('2026-07-06T12:00:00.000Z'),
-    uiState: { get: () => null, set: vi.fn() },
+    // `subscribe` is part of the contract, not an extra: the section bands read
+    // their fold state through `useCollapsedKeys`, which subscribes rather than
+    // seeds (POD-540's rule, POD-1057's reader).
+    uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: [
       sess('s-a', 'i-a', 'working'),

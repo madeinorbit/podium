@@ -20,15 +20,19 @@
  */
 import { isLayoutKey, layoutKeyFromLegacy } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { closedFoldKey, snoozedFoldKey } from './fold-keys'
+import { closedFoldKey, PINNED_FOLD_KEY, projectFoldKey, snoozedFoldKey } from './fold-keys'
 
 /** Every fold key the worklist writes, under a representative id. The per-issue
- *  row disclosure is NOT among them any more: POD-516 made the worklist flat, so
- *  the group folds are the only foldable things in the column — and round 2 cut
- *  the Proposed section, so there are exactly two. */
+ *  row disclosure is NOT among them: POD-516 made the worklist flat, so only
+ *  GROUP-level things fold. POD-1057 added the two section bands to that set —
+ *  the 3a design makes every header in the column a control — which is exactly
+ *  the moment the spelling above has to be checked again, since a band whose key
+ *  fell out of the layout family would come back expanded on the next device. */
 const FOLD_KEYS = [
   ['snoozed fold', snoozedFoldKey('proj-podium')],
   ['closed fold', closedFoldKey('proj-podium')],
+  ['project band', projectFoldKey('proj-podium')],
+  ['pinned band', PINNED_FOLD_KEY],
 ] as const
 
 describe('sidebar fold state is per-user replicated layout', () => {

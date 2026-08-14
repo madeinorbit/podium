@@ -229,7 +229,7 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     // grandchild and every session belong to the Flight Deck, not here.
     const titles = screen
       .getAllByTestId('unified-issue-row')
-      .map((row) => row.querySelector('.shell-type-primary')?.textContent)
+      .map((row) => row.querySelector('.shell-work-row-title')?.textContent)
       .sort()
     expect(titles).toEqual(['Operator workspace', 'Sidebar unread dot'])
     expect(screen.queryByText('Flight deck spine')).toBeNull()
@@ -261,17 +261,21 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     render(<SidebarUnified />)
     // The question is on a grandchild's session; nothing below the mission row
     // renders, so the row has to say it itself.
-    const pill = missionRow().querySelector('[data-testid="need-pill"]') as HTMLElement
-    expect(pill.textContent).toBe('Needs you')
-    expect(pill.getAttribute('aria-label')).toBe('1 waiting on you')
-    // And the status line names WHERE, since no visible row can explain it.
+    // The status line names WHERE, since no visible row can explain it, and it
+    // is the row's ONE amber voice (POD-1057): the boxed `Needs you` pill that
+    // used to sit on line 1 saying the same thing is gone.
     const status = missionRow().querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
     expect(status.textContent).toContain('deep: #3 needs you')
-    // A mission with nothing asked of the human wears no pill at all.
+    expect(status.style.color).toBe('var(--attention)')
+    expect(missionRow().querySelector('[data-testid="need-pill"]')).toBeNull()
+    // One ask, so no count leads the sentence.
+    expect(missionRow().querySelector('[data-testid="need-count"]')).toBeNull()
+    // A mission with nothing asked of the human says nothing in amber at all.
     const solo = screen
       .getByText('Sidebar unread dot')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    expect(solo.querySelector('[data-testid="need-pill"]')).toBeNull()
+    const soloStatus = solo.querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
+    expect(soloStatus.style.color).not.toBe('var(--attention)')
   })
 
   it('stacks real harness kinds with the agent total and the native-child count', () => {
@@ -302,29 +306,41 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     const fleet = solo.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
     const tile = fleet.querySelector('[data-agent-kind="grok"]') as HTMLElement
     expect(tile.getAttribute('data-parked')).toBe('')
-    // Ghosted: the muted pair, none of the harness's own tint.
-    expect(tile.className).toContain('bg-muted')
-    expect(tile.className).not.toContain('bg-chip')
+    // Ghosted. In the work row's glyph variant (POD-1057) the marks carry no
+    // tint of their own, so parked is said by ink alone rather than by swapping
+    // the harness's tile pair.
+    expect(fleet.getAttribute('data-variant')).toBe('glyphs')
+    expect(tile.className).toContain('opacity-45')
     // A lone agent shows its tile and no total — the number would say nothing.
     expect(fleet.querySelector('[data-testid="issue-fleet-total"]')).toBeNull()
     expect(fleet.getAttribute('title')).toBe('1 agent · 1 parked')
   })
 
-  it('ends the column with the tucked-away fold and nothing else foldable', () => {
+  it('ends the column with the tucked-away fold, and folds only bands', () => {
     render(<SidebarUnified />)
     const closed = screen.getByTestId('closed-fold-toggle')
-    expect(closed.textContent).toContain('Closed · 1')
+    // The tail fold leads with the QUANTITY (POD-1057): what you are deciding
+    // about is whether the pile is worth opening.
+    expect(closed.textContent).toContain('1 closed')
     expect(closed.getAttribute('aria-expanded')).toBe('false')
-    // It is the ONLY disclosure in the column here. (The ID square's colour
-    // picker also carries aria-expanded, but it is a popup — `aria-haspopup`
-    // separates "opens a menu" from "reveals the rows beneath me".)
-    expect(
-      screen
-        .getAllByRole('button')
-        .filter(
-          (button) => button.hasAttribute('aria-expanded') && !button.hasAttribute('aria-haspopup'),
-        ),
-    ).toEqual([closed])
+    // WHAT MAY FOLD, EXHAUSTIVELY: the section bands (POD-1057 made every one of
+    // them a header you can shut) and the column's tail fold. No ROW has a
+    // disclosure of its own — that is the tree this column refuses to grow.
+    const foldables = screen
+      .getAllByRole('button')
+      .filter(
+        (button) => button.hasAttribute('aria-expanded') && !button.hasAttribute('aria-haspopup'),
+      )
+    expect(foldables).toContain(closed)
+    for (const button of foldables) {
+      const testId = button.getAttribute('data-testid')
+      expect([
+        'project-group-label',
+        'pinned-section-label',
+        'closed-fold-toggle',
+        'snoozed-fold-toggle',
+      ]).toContain(testId)
+    }
   })
 
   /**

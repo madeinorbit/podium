@@ -12,6 +12,20 @@ import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { closedFoldKey, snoozedFoldKey } from './fold-keys'
 import { useCollapsed } from './sidebar-common'
+import { ID_GUTTER_W } from './WorkRowShell'
+
+/** The two TAIL folds — suspended work and settled closures — in the 3a
+ *  design's one voice: a count, a rule across the column, and the chevron
+ *  holding its right end.
+ *
+ *  They read `12 closed` rather than `Closed · 12` now. A tail fold is a
+ *  quantity of work that is out of the way, and the quantity is what you are
+ *  deciding about ("is it worth opening?"); leading with the label put the
+ *  answer second. It also stops these looking like the SECTION BANDS above them,
+ *  which are the things that own a name — a fold is not a section, it is the end
+ *  of one. */
+const TAIL_FOLD_CLASS =
+  'flex w-full items-center gap-[9px] px-[13px] pb-1 text-left font-mono text-[10px] tracking-[.02em] tabular-nums text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]'
 
 /**
  * The redesigned work sidebar (#41, .design/specs/sidebar.md): the
@@ -37,54 +51,132 @@ import { useCollapsed } from './sidebar-common'
  * The type alias stays so the override-taking signatures below keep reading the
  * same way; the shape is the slice's.
 
-/** The one section-label voice in this column (POD-725): the design's mono
- *  8.5px / .16em uppercase micro label at the column's 14px inset, with the
- *  group's size pushed to the right edge.
+/**
+ * THE SECTION BAND (POD-1057, the 3a design).
  *
- *  The trailing hairline that used to fill the row is gone. Now that the rows
- *  below are full-bleed bands separated by their own rules, a second rule on the
- *  label line was one horizontal too many — and the count is the fact the space
- *  was worth spending on. `label-mono` carries the size and the case; only the
- *  tracking and the (fainter) ink are overridden. */
-const SECTION_LABEL_CLASS =
-  'label-mono flex items-center gap-1.5 px-3.5 pb-2 tracking-[.16em] text-text-faint'
-
-/** Project section label. Grouping is always on — no toggle, no chevron, no
- *  collapse. */
-export function ProjectGroupLabel({
+ * It used to be a label: mono micro type floating on the column's ground with
+ * the group's count at the right edge, and nothing around it. That worked while
+ * every row under it drew a hairline — the label was one more horizontal in a
+ * ruled list. With the rules gone (see `WorkRowShell`) the labels were the only
+ * structure left in a 30-row column and they were the lightest marks in it.
+ *
+ * So the label became a BAND: 34px, full-bleed, one tone up from the column on
+ * `--muted`, closed top and bottom by a hairline. It is the only ruled thing in
+ * the list now, which is exactly why the list reads as grouped — you see four
+ * bands, not thirty rules.
+ *
+ * AND IT IS A CONTROL. Every band in this column shuts: pinned, and each
+ * project. Collapsing takes the group's live rows and its snoozed/closed tails
+ * with it, so a machine carrying four repos can be folded to four lines and one
+ * of them opened. The state persists per user (`fold-keys.ts`).
+ *
+ * The chevron is revealed rather than resident: at rest the band is a label with
+ * a number, which is all it has to be, and the affordance appears under the
+ * pointer. A COLLAPSED band keeps its chevron permanently — a shut band that
+ * looked exactly like an open one with nothing in it would be a trap.
+ */
+function SectionBand({
   label,
   count,
-  first,
+  collapsed,
+  onToggle,
+  testId,
+  countTestId,
+  icon,
 }: {
   label: string
-  /** Rows in this group's open lane — the mock's right-aligned section count. */
+  /** Rows in this section's open lane — the design's right-aligned count. */
   count: number
-  first: boolean
+  collapsed: boolean
+  onToggle: () => void
+  testId: string
+  countTestId?: string
+  icon?: JSX.Element
 }): JSX.Element {
   return (
-    <div
-      data-testid="project-group-label"
-      className={cn(SECTION_LABEL_CLASS, first ? 'pt-[2px]' : 'pt-2')}
+    <button
+      data-pressable
+      type="button"
+      data-testid={testId}
+      data-collapsed={collapsed ? 'true' : 'false'}
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+      title={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
+      className="group/band flex h-[34px] w-full flex-none items-center gap-2 border-y border-hairline-bar bg-muted px-[13px] text-left transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
     >
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {icon}
+      {/* --muted-foreground, not --label: the band is a HEADER now, not a
+          floating caption, and the design sets it a step darker to match. */}
+      <span className="label-mono min-w-0 flex-1 truncate tracking-[.16em] text-muted-foreground">
+        {label}
+      </span>
+      <ChevronRight
+        size={11}
+        aria-hidden="true"
+        className={cn(
+          'flex-none text-text-faint transition-[transform,opacity] duration-150',
+          !collapsed && 'rotate-90',
+          collapsed ? 'opacity-100' : 'opacity-0 group-hover/band:opacity-100',
+        )}
+      />
       {count > 0 && (
-        <span className="flex-none tabular-nums" data-testid="project-group-count">
+        <span
+          className="shell-type-micro flex-none font-mono tabular-nums text-muted-foreground"
+          data-testid={countTestId}
+        >
           {count}
         </span>
       )}
-    </div>
+    </button>
   )
 }
 
-/** PINNED section label (POD-166, R3): the one section above all project
- *  groups — same mono voice, led by an attention-toned pin. */
-export function PinnedSectionLabel({ count }: { count: number }): JSX.Element {
+/** Project section band. `first` no longer changes anything — a band owns its
+ *  own top rule wherever it lands — and is kept out of the signature entirely. */
+export function ProjectGroupLabel({
+  label,
+  count,
+  collapsed,
+  onToggle,
+}: {
+  label: string
+  count: number
+  collapsed: boolean
+  onToggle: () => void
+}): JSX.Element {
   return (
-    <div data-testid="pinned-section-label" className={cn(SECTION_LABEL_CLASS, 'pt-[2px]')}>
-      <Pin size={9} className="flex-none text-attention" aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate">Pinned</span>
-      {count > 0 && <span className="flex-none tabular-nums">{count}</span>}
-    </div>
+    <SectionBand
+      label={label}
+      count={count}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      testId="project-group-label"
+      countTestId="project-group-count"
+    />
+  )
+}
+
+/** PINNED section band (POD-166, R3): the one section above all project groups.
+ *  It keeps a pin, and it is the only band with a mark — every other band in the
+ *  column is a project, so the pin is what says "this one is not". */
+export function PinnedSectionLabel({
+  count,
+  collapsed,
+  onToggle,
+}: {
+  count: number
+  collapsed: boolean
+  onToggle: () => void
+}): JSX.Element {
+  return (
+    <SectionBand
+      label="Pinned"
+      count={count}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      testId="pinned-section-label"
+      icon={<Pin size={9} className="flex-none text-attention" aria-hidden="true" />}
+    />
   )
 }
 
@@ -184,15 +276,18 @@ export function FoldedWorkRow({
       onContextMenu={onContextMenu}
       title={`${issueDisplayRef(issue)} · ${issue.title}`}
       className={cn(
-        // Full-bleed like the live rows above it (POD-725): a folded row is the
-        // same list, one line tall, so it starts at the same 14px inset and
-        // carries no radius of its own.
-        'group/crow flex w-full min-w-0 items-center gap-2.5 py-[3px] pr-8 pl-3.5 text-left transition-colors',
+        // Full-bleed like the live rows above it: a folded row is the same list,
+        // one line tall, so it starts at the same 13px inset, hangs its number in
+        // the same 26px gutter, and carries no radius of its own.
+        'group/crow flex w-full min-w-0 items-center gap-[11px] py-[3px] pr-8 pl-[13px] text-left transition-colors',
         active ? 'bg-accent' : 'hover:bg-muted',
       )}
     >
-      <span className="shell-type-micro flex-none font-mono font-semibold tracking-[.02em] tabular-nums text-text-faint">
-        {issueDisplayRef(issue)}
+      <span
+        className="shell-type-micro flex flex-none justify-end font-mono tabular-nums text-text-faint"
+        style={{ width: ID_GUTTER_W }}
+      >
+        {issue.seq}
       </span>
       <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
         {issue.title}
@@ -230,19 +325,19 @@ export function SnoozedIssueFold({
       <button
         data-pressable
         type="button"
-        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 px-3.5 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
+        className={cn(TAIL_FOLD_CLASS, 'pt-3')}
         aria-expanded={!collapsed}
         aria-controls={contentId}
         onClick={toggle}
         data-testid="snoozed-fold-toggle"
       >
+        <span>{rows.length} snoozed</span>
+        <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
         <ChevronRight
-          size={11}
+          size={12}
           className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
           aria-hidden="true"
         />
-        <span>Snoozed · {rows.length}</span>
-        <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
       </button>
       {!collapsed && (
         <div id={contentId} className="min-w-0" data-testid="snoozed-fold-rows">
@@ -303,23 +398,26 @@ export function ClosedIssueFold<T>({
   }
   return (
     <div className="min-w-0" data-testid="closed-issue-fold">
-      <div className="group/fold relative flex min-h-[31px] items-center">
+      <div className="group/fold relative flex items-center">
         <button
           data-pressable
           type="button"
-          className="flex min-h-[31px] w-full items-center gap-1.5 px-3.5 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
+          className={cn(TAIL_FOLD_CLASS, 'pt-4')}
           aria-expanded={!collapsed}
           aria-controls={contentId}
           onClick={toggle}
           data-testid="closed-fold-toggle"
         >
+          <span>{rows.length} closed</span>
+          <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
+          {/* The chevron holds the right end of the rule, so the fold reads as
+              one horizontal from the count to the control (3a). The archive-all
+              chip parks over it on hover. */}
           <ChevronRight
-            size={11}
+            size={12}
             className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
             aria-hidden="true"
           />
-          <span>Closed · {rows.length}</span>
-          <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
         </button>
         <button
           data-pressable
@@ -328,7 +426,7 @@ export function ClosedIssueFold<T>({
           aria-label={`Archive all ${issueRows.length} closed issues`}
           title="Archive all closed issues"
           onClick={archiveAll}
-          className="shell-type-micro absolute right-2.5 flex h-5 items-center gap-1 rounded-[5px] border border-hairline-bar bg-chip px-1.5 font-mono font-medium tracking-[.02em] text-label opacity-0 shadow-sm transition-[color,opacity,background-color] duration-100 group-hover/fold:opacity-100 group-focus-within/fold:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong disabled:pointer-events-none disabled:opacity-0"
+          className="shell-type-micro absolute right-[13px] bottom-0 flex h-5 items-center gap-1 rounded-[5px] border border-hairline-bar bg-chip px-1.5 font-mono font-medium tracking-[.02em] text-label opacity-0 shadow-sm transition-[color,opacity,background-color] duration-100 group-hover/fold:opacity-100 group-focus-within/fold:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong disabled:pointer-events-none disabled:opacity-0"
           data-testid="closed-issues-archive-all"
         >
           <Archive size={10} aria-hidden="true" />

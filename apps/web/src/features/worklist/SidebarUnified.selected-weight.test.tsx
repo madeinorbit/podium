@@ -155,32 +155,32 @@ function rowButton(label: string): HTMLElement {
 afterEach(cleanup)
 
 describe('SidebarUnified selection weight (#41 redesign)', () => {
-  it('a selected row wears the colour-mixed background and bridge notch without changing title weight', () => {
+  it('a selected row is a lifted band with an ink spine, and no bridge notch', () => {
     render(<SidebarUnified />)
     const active = rowButton('Read selected issue')
-    // Selection reads as the slate colour-mixed background + border on the row
-    // wrapper (handoff §2.5) — inline style, colour-flowed from the issue colour
-    // (slate for uncoloured issues).
     const row = active.closest('[class*="group/row"]') as HTMLElement
     expect(row.getAttribute('data-selected')).toBe('true')
-    // (The colour-mixed background itself is inline style — happy-dom drops
-    // color-mix() values, so the paint is asserted in the Chromium probe.)
-    // Selection has its own band and notch; title weight remains reserved for unread.
-    const label = screen.getByText('Read selected issue')
-    expect(label.className).not.toContain('font-semibold')
-    expect(label.className).not.toContain('font-medium')
-    // The bridge notch grows out of the selected row toward the engraved column.
-    expect(row.querySelector('[data-testid="bridge-notch"]')).toBeTruthy()
-    // Unselected rows carry neither the notch nor the selected background.
+    // THE BAND LIFTS to the raised tier and takes a 3px spine. `--chip` rather
+    // than `--card` because two presets give card and sidebar the same value
+    // (POD-1057); the spine is NEUTRAL ink because the issue's hue is already
+    // the row's resting ground, and selection is a different question.
+    expect(row.className).toContain('bg-chip')
+    expect(row.style.boxShadow).toBe('inset 3px 0 0 var(--text-strong)')
+    // NO BRIDGE NOTCH. The 3a design drops the tab that used to grow out of the
+    // selected row into the engraved column — with it went the whole horizontal
+    // head-room the scroller had to reserve for it (see SidebarUnified).
+    expect(row.querySelector('[data-testid="bridge-notch"]')).toBeNull()
     const other = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
     expect(other.getAttribute('data-selected')).toBe('false')
-    expect(other.querySelector('[data-testid="bridge-notch"]')).toBeNull()
+    expect(other.className).not.toContain('bg-chip')
   })
 
-  it('unread remains the sole weight signal', () => {
+  it('gives selection one weight step, and unread the one above it', () => {
     render(<SidebarUnified />)
-    const unreadLabel = screen.getByText('Unread issue')
-    expect(unreadLabel.className).toContain('font-semibold')
+    // Medium for the row you are in, semibold for a row with something new —
+    // and nothing at all for the other twenty-eight.
+    expect(screen.getByText('Read selected issue').className).toContain('font-medium')
+    expect(screen.getByText('Unread issue').className).toContain('font-semibold')
   })
 
   it('selection never changes density-owned row geometry (POD-81)', () => {
@@ -198,9 +198,10 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
 
     // Balanced and compact density own their distinct vertical padding in CSS,
     // rather than baking one mode's geometry into the component utility list.
-    expect(cssBlock('.shell-work-row')).toContain('padding-block: 9px')
+    expect(cssBlock('.shell-work-row')).toContain('--work-row-pad: 6px')
+    expect(cssBlock('.shell-work-row')).toContain('padding-block: var(--work-row-pad)')
     expect(cssBlock('html[data-density="compact"] .shell-work-row')).toContain(
-      'padding-block: 7.5px',
+      '--work-row-pad: 5px',
     )
 
     // The selection ring is an inset box-shadow, never a border that changes

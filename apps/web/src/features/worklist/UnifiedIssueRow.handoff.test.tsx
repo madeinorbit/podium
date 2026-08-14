@@ -51,7 +51,6 @@ describe('UnifiedIssueRow handoff copy', () => {
         onSelectPanelForIssue={vi.fn()}
         onOpenIssue={vi.fn()}
         onRenameIssue={vi.fn()}
-        onColorChangeIssue={vi.fn()}
       />,
     )
 

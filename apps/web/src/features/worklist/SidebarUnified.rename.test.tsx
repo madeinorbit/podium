@@ -183,13 +183,19 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
     expect(updateMutate).not.toHaveBeenCalled()
   })
 
-  it('writes a picked ID-square colour through the outboxed updateIssue action', async () => {
+  // The colour picker used to hang off the row's ID square. The 3a design took
+  // the square out of this column (POD-1057) and the affordance went where every
+  // other property of an issue is set — the row's context menu. The WRITE is
+  // what this test has always been about, and it is unchanged: outboxed through
+  // `store.updateIssue`, never straight at `trpc.issues.update`.
+  it('writes a picked colour through the outboxed updateIssue action', async () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByRole('button', { name: 'Set colour for task #1' }))
+    fireEvent.contextMenu(screen.getByText('Original title'))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Set colour/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Violet' }))
 
-    // The square repaints on the press now (POD-781 group 2): the colour is one
-    // more `issues.update` patch, so it rides the queue the rename already does.
+    // The row repaints on the press (POD-781 group 2): the colour is one more
+    // `issues.update` patch, so it rides the queue the rename already does.
     await waitFor(() => expect(updateIssue).toHaveBeenCalledWith('a', { color: 'violet' }))
     expect(updateMutate).not.toHaveBeenCalled()
   })

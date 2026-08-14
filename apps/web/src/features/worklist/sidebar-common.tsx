@@ -5,6 +5,7 @@
  * PanelRow used by every session list in the unified sidebar.
  */
 
+import type { RoutedUiState } from '@podium/client-core/ui-state'
 import {
   agentBadge,
   agentColorHex,
@@ -21,7 +22,15 @@ import type {
   ReactNode,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
@@ -142,10 +151,7 @@ export function ResizableColumn({
     const animationWidth = measuredOpenWidth > 0 ? measuredOpenWidth : renderedWidth
     if (measuredOpenWidth > 0) setRenderedWidth(measuredOpenWidth)
     const animation = root.animate(
-      [
-        { width: `${open ? 0 : animationWidth}px` },
-        { width: `${open ? animationWidth : 0}px` },
-      ],
+      [{ width: `${open ? 0 : animationWidth}px` }, { width: `${open ? animationWidth : 0}px` }],
       { duration: COLLAPSE_MS, easing: COLLAPSE_EASE, fill: 'both' },
     )
     collapseAnimation.current = animation
@@ -311,6 +317,57 @@ export function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, 
   // the worklist went flat), so this is inert — noted because it is the one
   // thing to look at if a fold's render count ever matters.
   const toggle = useCallback(() => setCollapsed(!collapsed), [setCollapsed, collapsed])
+  return [collapsed, toggle]
+}
+
+/**
+ * {@link useCollapsed} over a SET of keys, read in one subscription (POD-1057).
+ *
+ * The 3a column makes every section band foldable, and there is one band per
+ * project — a list whose length is the machine's, not the code's. `useCollapsed`
+ * cannot answer that: a hook per group means a hook inside a loop, and the only
+ * legal shape for that is a component per group, which would hide the collapse
+ * state from the list that has to consult it (the ⌘-hold digits must skip rows
+ * inside a shut band, or a keystroke selects something nobody can see).
+ *
+ * So this reads N keys against ONE store subscription and hands the caller the
+ * whole answer. The snapshot is a bit STRING rather than a Set because
+ * `useSyncExternalStore` compares snapshots by identity: a fresh Set per read is
+ * an infinite render loop, and a string of the same characters is the same
+ * string. The Set is derived from it afterwards, memoised on the bits.
+ *
+ * Absent key = expanded, which is the right default for a band: a section that
+ * starts shut hides work the operator never asked to hide. (The tail folds go
+ * the other way and keep `useCollapsed`.)
+ */
+export function useCollapsedKeys(
+  keys: readonly string[],
+): [ReadonlySet<string>, (key: string) => void] {
+  const ui = useStoreSelector((s) => s.uiState) as RoutedUiState | undefined
+  const signature = keys.join('\u0000')
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the joined
+  // signature IS the dependency — `keys` is a fresh array on every render.
+  const keyList = useMemo(() => (signature === '' ? [] : signature.split('\u0000')), [signature])
+  const subscribe = useCallback(
+    (onChange: () => void) => (ui ? ui.subscribe(onChange) : () => {}),
+    [ui],
+  )
+  const getSnapshot = useCallback(
+    () => keyList.map((key) => (ui?.get(key) === 'true' ? '1' : '0')).join(''),
+    [ui, keyList],
+  )
+  const getServerSnapshot = useCallback(() => '0'.repeat(keyList.length), [keyList])
+  const bits = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  const collapsed = useMemo(
+    () => new Set(keyList.filter((_, index) => bits[index] === '1')),
+    [keyList, bits],
+  )
+  const toggle = useCallback(
+    (key: string) => {
+      ui?.set(key, ui.get(key) === 'true' ? null : 'true')
+    },
+    [ui],
+  )
   return [collapsed, toggle]
 }
 
