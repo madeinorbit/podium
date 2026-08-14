@@ -572,6 +572,17 @@
               "queuedAt": "changes[0].value.queuedAt",
               "stateChangedAt": "changes[0].value.stateChangedAt",
               "queueRank": 6,
+              "train": {
+                "id": "changes[0].value.train.id",
+                "index": 6,
+                "size": 6
+              },
+              "waitEstimate": {
+                "lowerBoundMs": 6,
+                "upperBoundMs": 6,
+                "sampleSize": 6,
+                "basis": "lane-history"
+              },
               "hold": {
                 "id": "changes[0].value.hold.id",
                 "generation": 6,
@@ -588,7 +599,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"landing\",\"humanState\":\"shipped\",\"activity\":\"landing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":6,\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":6,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}],\"last\":false}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"landing\",\"humanState\":\"shipped\",\"activity\":\"landing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":6,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":6,\"size\":6},\"waitEstimate\":{\"lowerBoundMs\":6,\"upperBoundMs\":6,\"sampleSize\":6,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":6,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}],\"last\":false}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -1545,6 +1556,17 @@
           "queuedAt": "value.queuedAt",
           "stateChangedAt": "value.stateChangedAt",
           "queueRank": 6,
+          "train": {
+            "id": "value.train.id",
+            "index": 6,
+            "size": 6
+          },
+          "waitEstimate": {
+            "lowerBoundMs": 6,
+            "upperBoundMs": 6,
+            "sampleSize": 6,
+            "basis": "lane-history"
+          },
           "hold": {
             "id": "value.hold.id",
             "generation": 6,
@@ -1558,7 +1580,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":6,\"entity\":\"shipOrder\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"issueId\":\"value.issueId\",\"repoId\":\"value.repoId\",\"targetBranch\":\"value.targetBranch\",\"destination\":\"value.destination\",\"state\":\"landing\",\"humanState\":\"shipped\",\"activity\":\"landing\",\"queuedAt\":\"value.queuedAt\",\"stateChangedAt\":\"value.stateChangedAt\",\"queueRank\":6,\"hold\":{\"id\":\"value.hold.id\",\"generation\":6,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"value.receiptId\"}}"
+      "encoded": "{\"seq\":6,\"entity\":\"shipOrder\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"issueId\":\"value.issueId\",\"repoId\":\"value.repoId\",\"targetBranch\":\"value.targetBranch\",\"destination\":\"value.destination\",\"state\":\"landing\",\"humanState\":\"shipped\",\"activity\":\"landing\",\"queuedAt\":\"value.queuedAt\",\"stateChangedAt\":\"value.stateChangedAt\",\"queueRank\":6,\"train\":{\"id\":\"value.train.id\",\"index\":6,\"size\":6},\"waitEstimate\":{\"lowerBoundMs\":6,\"upperBoundMs\":6,\"sampleSize\":6,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"value.hold.id\",\"generation\":6,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"value.receiptId\"}}"
     },
     {
       "schema": "FeedChange",
@@ -2976,6 +2998,17 @@
               "queuedAt": "changes[0].value.queuedAt",
               "stateChangedAt": "changes[0].value.stateChangedAt",
               "queueRank": 6,
+              "train": {
+                "id": "changes[0].value.train.id",
+                "index": 6,
+                "size": 6
+              },
+              "waitEstimate": {
+                "lowerBoundMs": 6,
+                "upperBoundMs": 6,
+                "sampleSize": 6,
+                "basis": "lane-history"
+              },
               "hold": {
                 "id": "changes[0].value.hold.id",
                 "generation": 6,
@@ -2991,7 +3024,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"landing\",\"humanState\":\"shipped\",\"activity\":\"landing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":6,\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":6,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":6,\"seq\":6,\"minAvailableSeq\":6,\"changes\":[{\"seq\":6,\"entity\":\"shipOrder\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"issueId\":\"changes[0].value.issueId\",\"repoId\":\"changes[0].value.repoId\",\"targetBranch\":\"changes[0].value.targetBranch\",\"destination\":\"changes[0].value.destination\",\"state\":\"landing\",\"humanState\":\"shipped\",\"activity\":\"landing\",\"queuedAt\":\"changes[0].value.queuedAt\",\"stateChangedAt\":\"changes[0].value.stateChangedAt\",\"queueRank\":6,\"train\":{\"id\":\"changes[0].value.train.id\",\"index\":6,\"size\":6},\"waitEstimate\":{\"lowerBoundMs\":6,\"upperBoundMs\":6,\"sampleSize\":6,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"changes[0].value.hold.id\",\"generation\":6,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"changes[0].value.hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"changes[0].value.receiptId\"}}]}"
     },
     {
       "schema": "FeedDeltaMessage",

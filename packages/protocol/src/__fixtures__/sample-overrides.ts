@@ -18,6 +18,7 @@
  */
 
 import {
+  canonicalShippingDestination,
   LAYOUT_EXACT_KEYS,
   LayoutKeyField,
   LayoutSnapshot,
@@ -28,12 +29,19 @@ import {
   ShipHoldCode,
   ShipOrder,
   ShipStep,
+  ShipTrainLane,
+  ShipTrainManifest,
   shipRepairRef,
   ShipwrightAttemptResult,
   ShipwrightEvidenceRef,
   TERMINAL_SHIP_STEP_STATES,
 } from '@podium/model'
 import type { z } from 'zod'
+import {
+  ShippingEvidenceRequestMessage,
+  ShippingRepairApplyRequestMessage,
+  ShippingTrainExecution,
+} from '../messages/shipping'
 import type { SampleOptions } from './sampler'
 
 /** One exact key from the closed layout vocabulary — stable fixture pin. */
@@ -98,6 +106,9 @@ export type SampleFixup = (value: unknown, opts: SampleOptions, path: string) =>
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/** The one 64-hex digest every `^[a-f0-9]{64}$` field in these fixtures uses. */
+const DIGEST = 'a'.repeat(64)
+
 /**
  * Schema identity → repair of a CROSS-FIELD invariant, applied after the walk.
  *
@@ -153,13 +164,114 @@ export const SAMPLE_FIXUPS = new Map<z.ZodTypeAny, SampleFixup>([
     },
   ],
   [
+    ShipTrainLane,
+    (value: unknown) => {
+      if (!isRecord(value)) return value
+      const profile = isRecord(value.validationProfile) ? value.validationProfile : undefined
+      const locks = Array.isArray(profile?.resourceLocks) ? (profile.resourceLocks as string[]) : []
+      return {
+        ...value,
+        // Two 64-hex digests the generic walker cannot spell.
+        laneKey: DIGEST,
+        validationProfileDigest: DIGEST,
+        // The lane must carry the CANONICAL spelling of its own destination.
+        // Run it through the production canonicaliser rather than writing the
+        // canonical form out here, so the fixture cannot disagree with the rule.
+        destination: canonicalShippingDestination(
+          typeof value.destination === 'string' ? value.destination : 'local:main',
+          typeof value.targetBranch === 'string' ? value.targetBranch : 'main',
+        ),
+        ...(profile
+          ? {
+              // Sorted and de-duplicated, which is the invariant stated twice.
+              validationProfile: { ...profile, resourceLocks: [...new Set(locks)].sort() },
+            }
+          : {}),
+      }
+    },
+  ],
+  [
+    ShipTrainManifest,
+    (value: unknown) => {
+      if (!isRecord(value)) return value
+      // ONE MEMBER, and that is the whole trick. The manifest correlates nine
+      // invariants across its member list — unique order/attempt/issue/branch
+      // ids, a single machine custody owner, dependencies that are sorted,
+      // unique, and must both precede their dependent AND name the immediate
+      // predecessor. A single member satisfies every one of them by
+      // construction, so the fixture pins the shape without encoding a
+      // canonical ordering that would then be a second copy of the rule.
+      const members = Array.isArray(value.members) ? value.members : []
+      const first = isRecord(members[0]) ? members[0] : undefined
+      if (!first) return value
+      const lane = isRecord(value.lane) ? value.lane : undefined
+      const member = {
+        ...first,
+        // The frozen target is the lane's, so the member's approval base is
+        // READ FROM the lane rather than restated.
+        approvedBaseSha: lane?.expectedTargetSha ?? first.approvedBaseSha,
+        machineId: lane?.machineId ?? first.machineId,
+        deliveryDependsOn: [],
+      }
+      return {
+        ...value,
+        members: [member],
+        memberCount: 1,
+        // The leader is the final ordered member — with one member, that member.
+        leaderOrderId: member.orderId,
+      }
+    },
+  ],
+  [
+    ShippingTrainExecution,
+    (value: unknown) => {
+      if (!isRecord(value)) return value
+      const manifest = isRecord(value.manifest) ? value.manifest : undefined
+      const members = Array.isArray(manifest?.members) ? manifest.members : []
+      // The executed subset is drawn FROM the manifest it claims, so take the
+      // ids from there rather than sampling a parallel list that then has to be
+      // kept in step with it.
+      const memberOrderIds = members.filter(isRecord).map((member) => member.orderId)
+      const candidate = isRecord(value.candidate) ? value.candidate : undefined
+      return {
+        ...value,
+        ...(memberOrderIds.length > 0 ? { memberOrderIds } : {}),
+        // Round zero means an approved candidate and nothing else; a repaired
+        // one is a later round. Derived from the sampled candidate so whichever
+        // arm the arm index picked stays coherent.
+        repairRound: candidate?.kind === 'approved' ? 0 : 1,
+      }
+    },
+  ],
+  [
+    ShippingEvidenceRequestMessage,
+    (value: unknown) =>
+      isRecord(value) ? { ...value, artifactRef: `artifact://shipping/${DIGEST}` } : value,
+  ],
+  [
+    ShippingRepairApplyRequestMessage,
+    (value: unknown) =>
+      isRecord(value)
+        ? {
+            ...value,
+            repairRef: shipRepairRef('fixture-order', 'fixture-attempt', 1, DIGEST),
+          }
+        : value,
+  ],
+  [
     ShipwrightAttemptResult,
     (value: unknown) => {
       if (!isRecord(value)) return value
       // The repair ref is an inline `.regex(/^refs\/podium\/ship-repair\//)`, so
       // it has no schema identity of its own to override. Built with the
-      // production speller so the fixture cannot disagree with the real ref.
-      return { ...value, repairRef: shipRepairRef('fixture-attempt', 1) }
+      // production speller so the fixture cannot disagree with the real ref —
+      // which is the point: when that speller grew an order id and a context
+      // digest, this call failed to compile the corpus rather than pinning a ref
+      // shape the server had stopped minting.
+      return {
+        ...value,
+        repairRef: shipRepairRef('fixture-order', 'fixture-attempt', 1, 'a'.repeat(64)),
+      }
     },
   ],
 ])

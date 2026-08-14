@@ -3,6 +3,289 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
+      "schema": "ShippingEvidenceRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "shippingEvidenceRequest",
+        "requestId": "requestId",
+        "authority": {
+          "type": "shippingJobRequest",
+          "requestId": "authority.requestId",
+          "action": "start",
+          "jobId": "authority.jobId",
+          "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "orderId": "authority.orderId",
+          "attemptId": "authority.attemptId",
+          "generation": 1,
+          "operation": "preflight",
+          "shippingProtocolVersion": 1,
+          "repoPath": "authority.repoPath",
+          "repoId": "authority.repoId",
+          "sourceBranch": "authority.sourceBranch",
+          "targetBranch": "authority.targetBranch",
+          "approvedBaseSha": "authority.approvedBaseSha",
+          "approvedHeadSha": "authority.approvedHeadSha",
+          "expectedTargetSha": "authority.expectedTargetSha",
+          "destination": "authority.destination",
+          "policyId": "authority.policyId",
+          "validationProfile": {
+            "id": "authority.validationProfile.id",
+            "argv": ["authority.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 1,
+            "resourceLocks": []
+          }
+        },
+        "artifactRef": "artifact://shipping/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "maxBytes": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingEvidenceRequest\",\"requestId\":\"requestId\",\"authority\":{\"type\":\"shippingJobRequest\",\"requestId\":\"authority.requestId\",\"action\":\"start\",\"jobId\":\"authority.jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"authority.orderId\",\"attemptId\":\"authority.attemptId\",\"generation\":1,\"operation\":\"preflight\",\"shippingProtocolVersion\":1,\"repoPath\":\"authority.repoPath\",\"repoId\":\"authority.repoId\",\"sourceBranch\":\"authority.sourceBranch\",\"targetBranch\":\"authority.targetBranch\",\"approvedBaseSha\":\"authority.approvedBaseSha\",\"approvedHeadSha\":\"authority.approvedHeadSha\",\"expectedTargetSha\":\"authority.expectedTargetSha\",\"destination\":\"authority.destination\",\"policyId\":\"authority.policyId\",\"validationProfile\":{\"id\":\"authority.validationProfile.id\",\"argv\":[\"authority.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]}},\"artifactRef\":\"artifact://shipping/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"maxBytes\":1}"
+    },
+    {
+      "schema": "ShippingEvidenceRequestMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "shippingEvidenceRequest",
+        "requestId": "requestId",
+        "authority": {
+          "type": "shippingJobRequest",
+          "requestId": "authority.requestId",
+          "action": "start",
+          "jobId": "authority.jobId",
+          "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "orderId": "authority.orderId",
+          "attemptId": "authority.attemptId",
+          "generation": 1,
+          "operation": "preflight",
+          "shippingProtocolVersion": 1,
+          "repoPath": "authority.repoPath",
+          "repoId": "authority.repoId",
+          "sourceBranch": "authority.sourceBranch",
+          "targetBranch": "authority.targetBranch",
+          "approvedBaseSha": "authority.approvedBaseSha",
+          "approvedHeadSha": "authority.approvedHeadSha",
+          "expectedTargetSha": "authority.expectedTargetSha",
+          "destination": "authority.destination",
+          "policyId": "authority.policyId",
+          "validationProfile": {
+            "id": "authority.validationProfile.id",
+            "argv": ["authority.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 1,
+            "resourceLocks": ["authority.validationProfile.resourceLocks[0]"]
+          },
+          "repair": {
+            "round": 1,
+            "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "repairRef": "authority.repair.repairRef",
+            "candidateHeadSha": "authority.repair.candidateHeadSha"
+          },
+          "train": {
+            "version": 1,
+            "id": "authority.train.id",
+            "subsetId": "authority.train.subsetId",
+            "repairRound": 0,
+            "lane": {
+              "repoId": "authority.train.lane.repoId",
+              "repoPath": "authority.train.lane.repoPath",
+              "machineId": "authority.train.lane.machineId",
+              "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "laneRevision": 1,
+              "targetBranch": "authority.train.lane.targetBranch",
+              "expectedTargetSha": "authority.train.lane.expectedTargetSha",
+              "destination": "authority.train.lane.destination",
+              "providerRef": {
+                "provider": "authority.train.lane.providerRef.provider",
+                "id": "authority.train.lane.providerRef.id",
+                "url": "authority.train.lane.providerRef.url"
+              },
+              "policyId": "authority.train.lane.policyId",
+              "validationProfile": {
+                "id": "authority.train.lane.validationProfile.id",
+                "argv": ["authority.train.lane.validationProfile.argv[0]"],
+                "cwd": "integration-root",
+                "timeoutMs": 1,
+                "resourceLocks": ["authority.train.lane.validationProfile.resourceLocks[0]"]
+              },
+              "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "memberCount": 1,
+            "leaderOrderId": "authority.train.members[0].orderId",
+            "members": [
+              {
+                "orderId": "authority.train.members[0].orderId",
+                "issueId": "authority.train.members[0].issueId",
+                "attemptId": "authority.train.members[0].attemptId",
+                "generation": 1,
+                "machineId": "authority.train.lane.machineId",
+                "sourceBranch": "authority.train.members[0].sourceBranch",
+                "approvedBaseSha": "authority.train.lane.expectedTargetSha",
+                "approvedHeadSha": "authority.train.members[0].approvedHeadSha",
+                "deliveryDependsOn": []
+              }
+            ]
+          },
+          "providerRef": {
+            "provider": "authority.providerRef.provider",
+            "id": "authority.providerRef.id",
+            "url": "authority.providerRef.url"
+          }
+        },
+        "artifactRef": "artifact://shipping/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "maxBytes": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingEvidenceRequest\",\"requestId\":\"requestId\",\"authority\":{\"type\":\"shippingJobRequest\",\"requestId\":\"authority.requestId\",\"action\":\"start\",\"jobId\":\"authority.jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"authority.orderId\",\"attemptId\":\"authority.attemptId\",\"generation\":1,\"operation\":\"preflight\",\"shippingProtocolVersion\":1,\"repoPath\":\"authority.repoPath\",\"repoId\":\"authority.repoId\",\"sourceBranch\":\"authority.sourceBranch\",\"targetBranch\":\"authority.targetBranch\",\"approvedBaseSha\":\"authority.approvedBaseSha\",\"approvedHeadSha\":\"authority.approvedHeadSha\",\"expectedTargetSha\":\"authority.expectedTargetSha\",\"destination\":\"authority.destination\",\"policyId\":\"authority.policyId\",\"validationProfile\":{\"id\":\"authority.validationProfile.id\",\"argv\":[\"authority.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"authority.validationProfile.resourceLocks[0]\"]},\"repair\":{\"round\":1,\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"authority.repair.repairRef\",\"candidateHeadSha\":\"authority.repair.candidateHeadSha\"},\"train\":{\"version\":1,\"id\":\"authority.train.id\",\"subsetId\":\"authority.train.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"authority.train.lane.repoId\",\"repoPath\":\"authority.train.lane.repoPath\",\"machineId\":\"authority.train.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"authority.train.lane.targetBranch\",\"expectedTargetSha\":\"authority.train.lane.expectedTargetSha\",\"destination\":\"authority.train.lane.destination\",\"providerRef\":{\"provider\":\"authority.train.lane.providerRef.provider\",\"id\":\"authority.train.lane.providerRef.id\",\"url\":\"authority.train.lane.providerRef.url\"},\"policyId\":\"authority.train.lane.policyId\",\"validationProfile\":{\"id\":\"authority.train.lane.validationProfile.id\",\"argv\":[\"authority.train.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"authority.train.lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"authority.train.members[0].orderId\",\"members\":[{\"orderId\":\"authority.train.members[0].orderId\",\"issueId\":\"authority.train.members[0].issueId\",\"attemptId\":\"authority.train.members[0].attemptId\",\"generation\":1,\"machineId\":\"authority.train.lane.machineId\",\"sourceBranch\":\"authority.train.members[0].sourceBranch\",\"approvedBaseSha\":\"authority.train.lane.expectedTargetSha\",\"approvedHeadSha\":\"authority.train.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"providerRef\":{\"provider\":\"authority.providerRef.provider\",\"id\":\"authority.providerRef.id\",\"url\":\"authority.providerRef.url\"}},\"artifactRef\":\"artifact://shipping/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"maxBytes\":1}"
+    },
+    {
+      "schema": "ShippingEvidenceRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "shippingEvidenceRequest",
+        "requestId": "requestId",
+        "authority": {
+          "type": "shippingJobRequest",
+          "requestId": "authority.requestId",
+          "action": "status",
+          "jobId": "authority.jobId",
+          "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "orderId": "authority.orderId",
+          "attemptId": "authority.attemptId",
+          "generation": 2,
+          "operation": "apply-repair",
+          "shippingProtocolVersion": 2,
+          "repoPath": "authority.repoPath",
+          "repoId": "authority.repoId",
+          "sourceBranch": "authority.sourceBranch",
+          "targetBranch": "authority.targetBranch",
+          "approvedBaseSha": "authority.approvedBaseSha",
+          "approvedHeadSha": "authority.approvedHeadSha",
+          "expectedTargetSha": "authority.expectedTargetSha",
+          "destination": "authority.destination",
+          "policyId": "authority.policyId",
+          "validationProfile": {
+            "id": "authority.validationProfile.id",
+            "argv": ["authority.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 2,
+            "resourceLocks": ["authority.validationProfile.resourceLocks[0]"]
+          },
+          "repair": {
+            "round": 2,
+            "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "repairRef": "authority.repair.repairRef",
+            "candidateHeadSha": "authority.repair.candidateHeadSha"
+          },
+          "train": {
+            "version": 2,
+            "capability": "shipping.train.v2",
+            "manifest": {
+              "version": 1,
+              "id": "authority.train.manifest.id",
+              "subsetId": "authority.train.manifest.subsetId",
+              "repairRound": 0,
+              "lane": {
+                "repoId": "authority.train.manifest.lane.repoId",
+                "repoPath": "authority.train.manifest.lane.repoPath",
+                "machineId": "authority.train.manifest.lane.machineId",
+                "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "laneRevision": 2,
+                "targetBranch": "authority.train.manifest.lane.targetBranch",
+                "expectedTargetSha": "authority.train.manifest.lane.expectedTargetSha",
+                "destination": "authority.train.manifest.lane.destination",
+                "providerRef": {
+                  "provider": "authority.train.manifest.lane.providerRef.provider",
+                  "id": "authority.train.manifest.lane.providerRef.id",
+                  "url": "authority.train.manifest.lane.providerRef.url"
+                },
+                "policyId": "authority.train.manifest.lane.policyId",
+                "validationProfile": {
+                  "id": "authority.train.manifest.lane.validationProfile.id",
+                  "argv": ["authority.train.manifest.lane.validationProfile.argv[0]"],
+                  "cwd": "integration-root",
+                  "timeoutMs": 2,
+                  "resourceLocks": [
+                    "authority.train.manifest.lane.validationProfile.resourceLocks[0]"
+                  ]
+                },
+                "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "memberCount": 1,
+              "leaderOrderId": "authority.train.manifest.members[0].orderId",
+              "members": [
+                {
+                  "orderId": "authority.train.manifest.members[0].orderId",
+                  "issueId": "authority.train.manifest.members[0].issueId",
+                  "attemptId": "authority.train.manifest.members[0].attemptId",
+                  "generation": 2,
+                  "machineId": "authority.train.manifest.lane.machineId",
+                  "sourceBranch": "authority.train.manifest.members[0].sourceBranch",
+                  "approvedBaseSha": "authority.train.manifest.lane.expectedTargetSha",
+                  "approvedHeadSha": "authority.train.manifest.members[0].approvedHeadSha",
+                  "deliveryDependsOn": []
+                }
+              ]
+            },
+            "subsetId": "authority.train.subsetId",
+            "memberOrderIds": ["authority.train.manifest.members[0].orderId"],
+            "repairRound": 1,
+            "candidate": {
+              "kind": "repair",
+              "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "repairRef": "authority.train.candidate.repairRef",
+              "candidateHeadSha": "authority.train.candidate.candidateHeadSha"
+            }
+          },
+          "providerRef": {
+            "provider": "authority.providerRef.provider",
+            "id": "authority.providerRef.id",
+            "url": "authority.providerRef.url"
+          }
+        },
+        "artifactRef": "artifact://shipping/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "maxBytes": 2
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingEvidenceRequest\",\"requestId\":\"requestId\",\"authority\":{\"type\":\"shippingJobRequest\",\"requestId\":\"authority.requestId\",\"action\":\"status\",\"jobId\":\"authority.jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"authority.orderId\",\"attemptId\":\"authority.attemptId\",\"generation\":2,\"operation\":\"apply-repair\",\"shippingProtocolVersion\":2,\"repoPath\":\"authority.repoPath\",\"repoId\":\"authority.repoId\",\"sourceBranch\":\"authority.sourceBranch\",\"targetBranch\":\"authority.targetBranch\",\"approvedBaseSha\":\"authority.approvedBaseSha\",\"approvedHeadSha\":\"authority.approvedHeadSha\",\"expectedTargetSha\":\"authority.expectedTargetSha\",\"destination\":\"authority.destination\",\"policyId\":\"authority.policyId\",\"validationProfile\":{\"id\":\"authority.validationProfile.id\",\"argv\":[\"authority.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":2,\"resourceLocks\":[\"authority.validationProfile.resourceLocks[0]\"]},\"repair\":{\"round\":2,\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"authority.repair.repairRef\",\"candidateHeadSha\":\"authority.repair.candidateHeadSha\"},\"train\":{\"version\":2,\"capability\":\"shipping.train.v2\",\"manifest\":{\"version\":1,\"id\":\"authority.train.manifest.id\",\"subsetId\":\"authority.train.manifest.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"authority.train.manifest.lane.repoId\",\"repoPath\":\"authority.train.manifest.lane.repoPath\",\"machineId\":\"authority.train.manifest.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":2,\"targetBranch\":\"authority.train.manifest.lane.targetBranch\",\"expectedTargetSha\":\"authority.train.manifest.lane.expectedTargetSha\",\"destination\":\"authority.train.manifest.lane.destination\",\"providerRef\":{\"provider\":\"authority.train.manifest.lane.providerRef.provider\",\"id\":\"authority.train.manifest.lane.providerRef.id\",\"url\":\"authority.train.manifest.lane.providerRef.url\"},\"policyId\":\"authority.train.manifest.lane.policyId\",\"validationProfile\":{\"id\":\"authority.train.manifest.lane.validationProfile.id\",\"argv\":[\"authority.train.manifest.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":2,\"resourceLocks\":[\"authority.train.manifest.lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"authority.train.manifest.members[0].orderId\",\"members\":[{\"orderId\":\"authority.train.manifest.members[0].orderId\",\"issueId\":\"authority.train.manifest.members[0].issueId\",\"attemptId\":\"authority.train.manifest.members[0].attemptId\",\"generation\":2,\"machineId\":\"authority.train.manifest.lane.machineId\",\"sourceBranch\":\"authority.train.manifest.members[0].sourceBranch\",\"approvedBaseSha\":\"authority.train.manifest.lane.expectedTargetSha\",\"approvedHeadSha\":\"authority.train.manifest.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"subsetId\":\"authority.train.subsetId\",\"memberOrderIds\":[\"authority.train.manifest.members[0].orderId\"],\"repairRound\":1,\"candidate\":{\"kind\":\"repair\",\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"authority.train.candidate.repairRef\",\"candidateHeadSha\":\"authority.train.candidate.candidateHeadSha\"}},\"providerRef\":{\"provider\":\"authority.providerRef.provider\",\"id\":\"authority.providerRef.id\",\"url\":\"authority.providerRef.url\"}},\"artifactRef\":\"artifact://shipping/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"maxBytes\":2}"
+    },
+    {
+      "schema": "ShippingEvidenceResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "shippingEvidenceResult",
+        "requestId": "requestId",
+        "artifactRef": "artifactRef",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingEvidenceResult\",\"requestId\":\"requestId\",\"artifactRef\":\"artifactRef\",\"ok\":true}"
+    },
+    {
+      "schema": "ShippingEvidenceResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "shippingEvidenceResult",
+        "requestId": "requestId",
+        "artifactRef": "artifactRef",
+        "ok": true,
+        "content": "content",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingEvidenceResult\",\"requestId\":\"requestId\",\"artifactRef\":\"artifactRef\",\"ok\":true,\"content\":\"content\",\"error\":\"error\"}"
+    },
+    {
       "schema": "ShippingJobAction",
       "variant": "minimal",
       "wire": "start",
@@ -69,13 +352,16 @@
         "attemptId": "attemptId",
         "generation": 1,
         "operation": "preflight",
+        "shippingProtocolVersion": 1,
         "repoPath": "repoPath",
+        "repoId": "repoId",
         "sourceBranch": "sourceBranch",
         "targetBranch": "targetBranch",
         "approvedBaseSha": "approvedBaseSha",
         "approvedHeadSha": "approvedHeadSha",
         "expectedTargetSha": "expectedTargetSha",
         "destination": "destination",
+        "policyId": "policyId",
         "validationProfile": {
           "id": "validationProfile.id",
           "argv": ["validationProfile.argv[0]"],
@@ -87,11 +373,11 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"shippingJobRequest\",\"requestId\":\"requestId\",\"action\":\"start\",\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"generation\":1,\"operation\":\"preflight\",\"repoPath\":\"repoPath\",\"sourceBranch\":\"sourceBranch\",\"targetBranch\":\"targetBranch\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"expectedTargetSha\":\"expectedTargetSha\",\"destination\":\"destination\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]}}"
+      "encoded": "{\"type\":\"shippingJobRequest\",\"requestId\":\"requestId\",\"action\":\"start\",\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"generation\":1,\"operation\":\"preflight\",\"shippingProtocolVersion\":1,\"repoPath\":\"repoPath\",\"repoId\":\"repoId\",\"sourceBranch\":\"sourceBranch\",\"targetBranch\":\"targetBranch\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"expectedTargetSha\":\"expectedTargetSha\",\"destination\":\"destination\",\"policyId\":\"policyId\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]}}"
     },
     {
       "schema": "ShippingJobRequestMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "shippingJobRequest",
         "requestId": "requestId",
@@ -102,19 +388,73 @@
         "attemptId": "attemptId",
         "generation": 1,
         "operation": "preflight",
+        "shippingProtocolVersion": 1,
         "repoPath": "repoPath",
+        "repoId": "repoId",
         "sourceBranch": "sourceBranch",
         "targetBranch": "targetBranch",
         "approvedBaseSha": "approvedBaseSha",
         "approvedHeadSha": "approvedHeadSha",
         "expectedTargetSha": "expectedTargetSha",
         "destination": "destination",
+        "policyId": "policyId",
         "validationProfile": {
           "id": "validationProfile.id",
           "argv": ["validationProfile.argv[0]"],
           "cwd": "integration-root",
           "timeoutMs": 1,
           "resourceLocks": ["validationProfile.resourceLocks[0]"]
+        },
+        "repair": {
+          "round": 1,
+          "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "repairRef": "repair.repairRef",
+          "candidateHeadSha": "repair.candidateHeadSha"
+        },
+        "train": {
+          "version": 1,
+          "id": "train.id",
+          "subsetId": "train.subsetId",
+          "repairRound": 0,
+          "lane": {
+            "repoId": "train.lane.repoId",
+            "repoPath": "train.lane.repoPath",
+            "machineId": "train.lane.machineId",
+            "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "laneRevision": 1,
+            "targetBranch": "train.lane.targetBranch",
+            "expectedTargetSha": "train.lane.expectedTargetSha",
+            "destination": "train.lane.destination",
+            "providerRef": {
+              "provider": "train.lane.providerRef.provider",
+              "id": "train.lane.providerRef.id",
+              "url": "train.lane.providerRef.url"
+            },
+            "policyId": "train.lane.policyId",
+            "validationProfile": {
+              "id": "train.lane.validationProfile.id",
+              "argv": ["train.lane.validationProfile.argv[0]"],
+              "cwd": "integration-root",
+              "timeoutMs": 1,
+              "resourceLocks": ["train.lane.validationProfile.resourceLocks[0]"]
+            },
+            "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "memberCount": 1,
+          "leaderOrderId": "train.members[0].orderId",
+          "members": [
+            {
+              "orderId": "train.members[0].orderId",
+              "issueId": "train.members[0].issueId",
+              "attemptId": "train.members[0].attemptId",
+              "generation": 1,
+              "machineId": "train.lane.machineId",
+              "sourceBranch": "train.members[0].sourceBranch",
+              "approvedBaseSha": "train.lane.expectedTargetSha",
+              "approvedHeadSha": "train.members[0].approvedHeadSha",
+              "deliveryDependsOn": []
+            }
+          ]
         },
         "providerRef": {
           "provider": "providerRef.provider",
@@ -125,7 +465,112 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"shippingJobRequest\",\"requestId\":\"requestId\",\"action\":\"start\",\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"generation\":1,\"operation\":\"preflight\",\"repoPath\":\"repoPath\",\"sourceBranch\":\"sourceBranch\",\"targetBranch\":\"targetBranch\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"expectedTargetSha\":\"expectedTargetSha\",\"destination\":\"destination\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"validationProfile.resourceLocks[0]\"]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"}}"
+      "encoded": "{\"type\":\"shippingJobRequest\",\"requestId\":\"requestId\",\"action\":\"start\",\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"generation\":1,\"operation\":\"preflight\",\"shippingProtocolVersion\":1,\"repoPath\":\"repoPath\",\"repoId\":\"repoId\",\"sourceBranch\":\"sourceBranch\",\"targetBranch\":\"targetBranch\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"expectedTargetSha\":\"expectedTargetSha\",\"destination\":\"destination\",\"policyId\":\"policyId\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"validationProfile.resourceLocks[0]\"]},\"repair\":{\"round\":1,\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"repair.repairRef\",\"candidateHeadSha\":\"repair.candidateHeadSha\"},\"train\":{\"version\":1,\"id\":\"train.id\",\"subsetId\":\"train.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"train.lane.repoId\",\"repoPath\":\"train.lane.repoPath\",\"machineId\":\"train.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"train.lane.targetBranch\",\"expectedTargetSha\":\"train.lane.expectedTargetSha\",\"destination\":\"train.lane.destination\",\"providerRef\":{\"provider\":\"train.lane.providerRef.provider\",\"id\":\"train.lane.providerRef.id\",\"url\":\"train.lane.providerRef.url\"},\"policyId\":\"train.lane.policyId\",\"validationProfile\":{\"id\":\"train.lane.validationProfile.id\",\"argv\":[\"train.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"train.lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"train.members[0].orderId\",\"members\":[{\"orderId\":\"train.members[0].orderId\",\"issueId\":\"train.members[0].issueId\",\"attemptId\":\"train.members[0].attemptId\",\"generation\":1,\"machineId\":\"train.lane.machineId\",\"sourceBranch\":\"train.members[0].sourceBranch\",\"approvedBaseSha\":\"train.lane.expectedTargetSha\",\"approvedHeadSha\":\"train.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"}}"
+    },
+    {
+      "schema": "ShippingJobRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "shippingJobRequest",
+        "requestId": "requestId",
+        "action": "status",
+        "jobId": "jobId",
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "orderId": "orderId",
+        "attemptId": "attemptId",
+        "generation": 2,
+        "operation": "apply-repair",
+        "shippingProtocolVersion": 2,
+        "repoPath": "repoPath",
+        "repoId": "repoId",
+        "sourceBranch": "sourceBranch",
+        "targetBranch": "targetBranch",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "expectedTargetSha": "expectedTargetSha",
+        "destination": "destination",
+        "policyId": "policyId",
+        "validationProfile": {
+          "id": "validationProfile.id",
+          "argv": ["validationProfile.argv[0]"],
+          "cwd": "integration-root",
+          "timeoutMs": 2,
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
+        },
+        "repair": {
+          "round": 2,
+          "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "repairRef": "repair.repairRef",
+          "candidateHeadSha": "repair.candidateHeadSha"
+        },
+        "train": {
+          "version": 2,
+          "capability": "shipping.train.v2",
+          "manifest": {
+            "version": 1,
+            "id": "train.manifest.id",
+            "subsetId": "train.manifest.subsetId",
+            "repairRound": 0,
+            "lane": {
+              "repoId": "train.manifest.lane.repoId",
+              "repoPath": "train.manifest.lane.repoPath",
+              "machineId": "train.manifest.lane.machineId",
+              "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "laneRevision": 2,
+              "targetBranch": "train.manifest.lane.targetBranch",
+              "expectedTargetSha": "train.manifest.lane.expectedTargetSha",
+              "destination": "train.manifest.lane.destination",
+              "providerRef": {
+                "provider": "train.manifest.lane.providerRef.provider",
+                "id": "train.manifest.lane.providerRef.id",
+                "url": "train.manifest.lane.providerRef.url"
+              },
+              "policyId": "train.manifest.lane.policyId",
+              "validationProfile": {
+                "id": "train.manifest.lane.validationProfile.id",
+                "argv": ["train.manifest.lane.validationProfile.argv[0]"],
+                "cwd": "integration-root",
+                "timeoutMs": 2,
+                "resourceLocks": ["train.manifest.lane.validationProfile.resourceLocks[0]"]
+              },
+              "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "memberCount": 1,
+            "leaderOrderId": "train.manifest.members[0].orderId",
+            "members": [
+              {
+                "orderId": "train.manifest.members[0].orderId",
+                "issueId": "train.manifest.members[0].issueId",
+                "attemptId": "train.manifest.members[0].attemptId",
+                "generation": 2,
+                "machineId": "train.manifest.lane.machineId",
+                "sourceBranch": "train.manifest.members[0].sourceBranch",
+                "approvedBaseSha": "train.manifest.lane.expectedTargetSha",
+                "approvedHeadSha": "train.manifest.members[0].approvedHeadSha",
+                "deliveryDependsOn": []
+              }
+            ]
+          },
+          "subsetId": "train.subsetId",
+          "memberOrderIds": ["train.manifest.members[0].orderId"],
+          "repairRound": 1,
+          "candidate": {
+            "kind": "repair",
+            "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "repairRef": "train.candidate.repairRef",
+            "candidateHeadSha": "train.candidate.candidateHeadSha"
+          }
+        },
+        "providerRef": {
+          "provider": "providerRef.provider",
+          "id": "providerRef.id",
+          "url": "providerRef.url"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingJobRequest\",\"requestId\":\"requestId\",\"action\":\"status\",\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"generation\":2,\"operation\":\"apply-repair\",\"shippingProtocolVersion\":2,\"repoPath\":\"repoPath\",\"repoId\":\"repoId\",\"sourceBranch\":\"sourceBranch\",\"targetBranch\":\"targetBranch\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"expectedTargetSha\":\"expectedTargetSha\",\"destination\":\"destination\",\"policyId\":\"policyId\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":2,\"resourceLocks\":[\"validationProfile.resourceLocks[0]\"]},\"repair\":{\"round\":2,\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"repair.repairRef\",\"candidateHeadSha\":\"repair.candidateHeadSha\"},\"train\":{\"version\":2,\"capability\":\"shipping.train.v2\",\"manifest\":{\"version\":1,\"id\":\"train.manifest.id\",\"subsetId\":\"train.manifest.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"train.manifest.lane.repoId\",\"repoPath\":\"train.manifest.lane.repoPath\",\"machineId\":\"train.manifest.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":2,\"targetBranch\":\"train.manifest.lane.targetBranch\",\"expectedTargetSha\":\"train.manifest.lane.expectedTargetSha\",\"destination\":\"train.manifest.lane.destination\",\"providerRef\":{\"provider\":\"train.manifest.lane.providerRef.provider\",\"id\":\"train.manifest.lane.providerRef.id\",\"url\":\"train.manifest.lane.providerRef.url\"},\"policyId\":\"train.manifest.lane.policyId\",\"validationProfile\":{\"id\":\"train.manifest.lane.validationProfile.id\",\"argv\":[\"train.manifest.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":2,\"resourceLocks\":[\"train.manifest.lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"train.manifest.members[0].orderId\",\"members\":[{\"orderId\":\"train.manifest.members[0].orderId\",\"issueId\":\"train.manifest.members[0].issueId\",\"attemptId\":\"train.manifest.members[0].attemptId\",\"generation\":2,\"machineId\":\"train.manifest.lane.machineId\",\"sourceBranch\":\"train.manifest.members[0].sourceBranch\",\"approvedBaseSha\":\"train.manifest.lane.expectedTargetSha\",\"approvedHeadSha\":\"train.manifest.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"subsetId\":\"train.subsetId\",\"memberOrderIds\":[\"train.manifest.members[0].orderId\"],\"repairRound\":1,\"candidate\":{\"kind\":\"repair\",\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"train.candidate.repairRef\",\"candidateHeadSha\":\"train.candidate.candidateHeadSha\"}},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"}}"
     },
     {
       "schema": "ShippingJobResult",
@@ -167,10 +612,25 @@
         "observedSourceSha": "observedSourceSha",
         "observedTargetSha": "observedTargetSha",
         "observedDestinationSha": "observedDestinationSha",
+        "repairBaseSha": "repairBaseSha",
         "testedIntegrationSha": "testedIntegrationSha",
         "landedRefSha": "landedRefSha",
         "validationProfileId": "validationProfileId",
         "validationResult": "passed",
+        "trainProofs": [
+          {
+            "issueId": "trainProofs[0].issueId",
+            "orderId": "trainProofs[0].orderId",
+            "attemptId": "trainProofs[0].attemptId",
+            "generation": 1,
+            "sourceApprovedSha": "trainProofs[0].sourceApprovedSha",
+            "resultCommitSha": "trainProofs[0].resultCommitSha",
+            "testedIntegrationSha": "trainProofs[0].testedIntegrationSha",
+            "landedRefSha": "trainProofs[0].landedRefSha",
+            "providerLandedRefSha": "trainProofs[0].providerLandedRefSha",
+            "destinationSha": "trainProofs[0].destinationSha"
+          }
+        ],
         "logs": ["logs[0]"],
         "artifactRefs": ["artifactRefs[0]"],
         "heartbeatedAt": "heartbeatedAt",
@@ -179,7 +639,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"machineId\":\"machineId\",\"generation\":1,\"operation\":\"preflight\",\"state\":\"running\",\"classification\":\"observed\",\"summary\":\"summary\",\"observedSourceSha\":\"observedSourceSha\",\"observedTargetSha\":\"observedTargetSha\",\"observedDestinationSha\":\"observedDestinationSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"logs\":[\"logs[0]\"],\"artifactRefs\":[\"artifactRefs[0]\"],\"heartbeatedAt\":\"heartbeatedAt\",\"finishedAt\":\"finishedAt\"}"
+      "encoded": "{\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"machineId\":\"machineId\",\"generation\":1,\"operation\":\"preflight\",\"state\":\"running\",\"classification\":\"observed\",\"summary\":\"summary\",\"observedSourceSha\":\"observedSourceSha\",\"observedTargetSha\":\"observedTargetSha\",\"observedDestinationSha\":\"observedDestinationSha\",\"repairBaseSha\":\"repairBaseSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"trainProofs\":[{\"issueId\":\"trainProofs[0].issueId\",\"orderId\":\"trainProofs[0].orderId\",\"attemptId\":\"trainProofs[0].attemptId\",\"generation\":1,\"sourceApprovedSha\":\"trainProofs[0].sourceApprovedSha\",\"resultCommitSha\":\"trainProofs[0].resultCommitSha\",\"testedIntegrationSha\":\"trainProofs[0].testedIntegrationSha\",\"landedRefSha\":\"trainProofs[0].landedRefSha\",\"providerLandedRefSha\":\"trainProofs[0].providerLandedRefSha\",\"destinationSha\":\"trainProofs[0].destinationSha\"}],\"logs\":[\"logs[0]\"],\"artifactRefs\":[\"artifactRefs[0]\"],\"heartbeatedAt\":\"heartbeatedAt\",\"finishedAt\":\"finishedAt\"}"
     },
     {
       "schema": "ShippingJobResultMessage",
@@ -223,10 +683,25 @@
         "observedSourceSha": "observedSourceSha",
         "observedTargetSha": "observedTargetSha",
         "observedDestinationSha": "observedDestinationSha",
+        "repairBaseSha": "repairBaseSha",
         "testedIntegrationSha": "testedIntegrationSha",
         "landedRefSha": "landedRefSha",
         "validationProfileId": "validationProfileId",
         "validationResult": "passed",
+        "trainProofs": [
+          {
+            "issueId": "trainProofs[0].issueId",
+            "orderId": "trainProofs[0].orderId",
+            "attemptId": "trainProofs[0].attemptId",
+            "generation": 1,
+            "sourceApprovedSha": "trainProofs[0].sourceApprovedSha",
+            "resultCommitSha": "trainProofs[0].resultCommitSha",
+            "testedIntegrationSha": "trainProofs[0].testedIntegrationSha",
+            "landedRefSha": "trainProofs[0].landedRefSha",
+            "providerLandedRefSha": "trainProofs[0].providerLandedRefSha",
+            "destinationSha": "trainProofs[0].destinationSha"
+          }
+        ],
         "logs": ["logs[0]"],
         "artifactRefs": ["artifactRefs[0]"],
         "heartbeatedAt": "heartbeatedAt",
@@ -237,7 +712,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"machineId\":\"machineId\",\"generation\":1,\"operation\":\"preflight\",\"state\":\"running\",\"classification\":\"observed\",\"summary\":\"summary\",\"observedSourceSha\":\"observedSourceSha\",\"observedTargetSha\":\"observedTargetSha\",\"observedDestinationSha\":\"observedDestinationSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"logs\":[\"logs[0]\"],\"artifactRefs\":[\"artifactRefs[0]\"],\"heartbeatedAt\":\"heartbeatedAt\",\"finishedAt\":\"finishedAt\",\"type\":\"shippingJobResult\",\"requestId\":\"requestId\"}"
+      "encoded": "{\"jobId\":\"jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"orderId\",\"attemptId\":\"attemptId\",\"machineId\":\"machineId\",\"generation\":1,\"operation\":\"preflight\",\"state\":\"running\",\"classification\":\"observed\",\"summary\":\"summary\",\"observedSourceSha\":\"observedSourceSha\",\"observedTargetSha\":\"observedTargetSha\",\"observedDestinationSha\":\"observedDestinationSha\",\"repairBaseSha\":\"repairBaseSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"trainProofs\":[{\"issueId\":\"trainProofs[0].issueId\",\"orderId\":\"trainProofs[0].orderId\",\"attemptId\":\"trainProofs[0].attemptId\",\"generation\":1,\"sourceApprovedSha\":\"trainProofs[0].sourceApprovedSha\",\"resultCommitSha\":\"trainProofs[0].resultCommitSha\",\"testedIntegrationSha\":\"trainProofs[0].testedIntegrationSha\",\"landedRefSha\":\"trainProofs[0].landedRefSha\",\"providerLandedRefSha\":\"trainProofs[0].providerLandedRefSha\",\"destinationSha\":\"trainProofs[0].destinationSha\"}],\"logs\":[\"logs[0]\"],\"artifactRefs\":[\"artifactRefs[0]\"],\"heartbeatedAt\":\"heartbeatedAt\",\"finishedAt\":\"finishedAt\",\"type\":\"shippingJobResult\",\"requestId\":\"requestId\"}"
     },
     {
       "schema": "ShippingJobState",
@@ -256,6 +731,681 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"running\""
+    },
+    {
+      "schema": "ShippingRepairApplyRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "shippingRepairApplyRequest",
+        "requestId": "requestId",
+        "authority": {
+          "type": "shippingJobRequest",
+          "requestId": "authority.requestId",
+          "action": "start",
+          "jobId": "authority.jobId",
+          "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "orderId": "authority.orderId",
+          "attemptId": "authority.attemptId",
+          "generation": 1,
+          "operation": "preflight",
+          "shippingProtocolVersion": 1,
+          "repoPath": "authority.repoPath",
+          "repoId": "authority.repoId",
+          "sourceBranch": "authority.sourceBranch",
+          "targetBranch": "authority.targetBranch",
+          "approvedBaseSha": "authority.approvedBaseSha",
+          "approvedHeadSha": "authority.approvedHeadSha",
+          "expectedTargetSha": "authority.expectedTargetSha",
+          "destination": "authority.destination",
+          "policyId": "authority.policyId",
+          "validationProfile": {
+            "id": "authority.validationProfile.id",
+            "argv": ["authority.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 1,
+            "resourceLocks": []
+          }
+        },
+        "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repairBaseSha": "repairBaseSha",
+        "repairRef": "refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "patch": "patch",
+        "touchedPaths": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingRepairApplyRequest\",\"requestId\":\"requestId\",\"authority\":{\"type\":\"shippingJobRequest\",\"requestId\":\"authority.requestId\",\"action\":\"start\",\"jobId\":\"authority.jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"authority.orderId\",\"attemptId\":\"authority.attemptId\",\"generation\":1,\"operation\":\"preflight\",\"shippingProtocolVersion\":1,\"repoPath\":\"authority.repoPath\",\"repoId\":\"authority.repoId\",\"sourceBranch\":\"authority.sourceBranch\",\"targetBranch\":\"authority.targetBranch\",\"approvedBaseSha\":\"authority.approvedBaseSha\",\"approvedHeadSha\":\"authority.approvedHeadSha\",\"expectedTargetSha\":\"authority.expectedTargetSha\",\"destination\":\"authority.destination\",\"policyId\":\"authority.policyId\",\"validationProfile\":{\"id\":\"authority.validationProfile.id\",\"argv\":[\"authority.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]}},\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairBaseSha\":\"repairBaseSha\",\"repairRef\":\"refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"patch\":\"patch\",\"touchedPaths\":[]}"
+    },
+    {
+      "schema": "ShippingRepairApplyRequestMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "shippingRepairApplyRequest",
+        "requestId": "requestId",
+        "authority": {
+          "type": "shippingJobRequest",
+          "requestId": "authority.requestId",
+          "action": "start",
+          "jobId": "authority.jobId",
+          "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "orderId": "authority.orderId",
+          "attemptId": "authority.attemptId",
+          "generation": 1,
+          "operation": "preflight",
+          "shippingProtocolVersion": 1,
+          "repoPath": "authority.repoPath",
+          "repoId": "authority.repoId",
+          "sourceBranch": "authority.sourceBranch",
+          "targetBranch": "authority.targetBranch",
+          "approvedBaseSha": "authority.approvedBaseSha",
+          "approvedHeadSha": "authority.approvedHeadSha",
+          "expectedTargetSha": "authority.expectedTargetSha",
+          "destination": "authority.destination",
+          "policyId": "authority.policyId",
+          "validationProfile": {
+            "id": "authority.validationProfile.id",
+            "argv": ["authority.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 1,
+            "resourceLocks": ["authority.validationProfile.resourceLocks[0]"]
+          },
+          "repair": {
+            "round": 1,
+            "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "repairRef": "authority.repair.repairRef",
+            "candidateHeadSha": "authority.repair.candidateHeadSha"
+          },
+          "train": {
+            "version": 1,
+            "id": "authority.train.id",
+            "subsetId": "authority.train.subsetId",
+            "repairRound": 0,
+            "lane": {
+              "repoId": "authority.train.lane.repoId",
+              "repoPath": "authority.train.lane.repoPath",
+              "machineId": "authority.train.lane.machineId",
+              "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "laneRevision": 1,
+              "targetBranch": "authority.train.lane.targetBranch",
+              "expectedTargetSha": "authority.train.lane.expectedTargetSha",
+              "destination": "authority.train.lane.destination",
+              "providerRef": {
+                "provider": "authority.train.lane.providerRef.provider",
+                "id": "authority.train.lane.providerRef.id",
+                "url": "authority.train.lane.providerRef.url"
+              },
+              "policyId": "authority.train.lane.policyId",
+              "validationProfile": {
+                "id": "authority.train.lane.validationProfile.id",
+                "argv": ["authority.train.lane.validationProfile.argv[0]"],
+                "cwd": "integration-root",
+                "timeoutMs": 1,
+                "resourceLocks": ["authority.train.lane.validationProfile.resourceLocks[0]"]
+              },
+              "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "memberCount": 1,
+            "leaderOrderId": "authority.train.members[0].orderId",
+            "members": [
+              {
+                "orderId": "authority.train.members[0].orderId",
+                "issueId": "authority.train.members[0].issueId",
+                "attemptId": "authority.train.members[0].attemptId",
+                "generation": 1,
+                "machineId": "authority.train.lane.machineId",
+                "sourceBranch": "authority.train.members[0].sourceBranch",
+                "approvedBaseSha": "authority.train.lane.expectedTargetSha",
+                "approvedHeadSha": "authority.train.members[0].approvedHeadSha",
+                "deliveryDependsOn": []
+              }
+            ]
+          },
+          "providerRef": {
+            "provider": "authority.providerRef.provider",
+            "id": "authority.providerRef.id",
+            "url": "authority.providerRef.url"
+          }
+        },
+        "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repairBaseSha": "repairBaseSha",
+        "repairRef": "refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "patch": "patch",
+        "touchedPaths": ["touchedPaths[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingRepairApplyRequest\",\"requestId\":\"requestId\",\"authority\":{\"type\":\"shippingJobRequest\",\"requestId\":\"authority.requestId\",\"action\":\"start\",\"jobId\":\"authority.jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"authority.orderId\",\"attemptId\":\"authority.attemptId\",\"generation\":1,\"operation\":\"preflight\",\"shippingProtocolVersion\":1,\"repoPath\":\"authority.repoPath\",\"repoId\":\"authority.repoId\",\"sourceBranch\":\"authority.sourceBranch\",\"targetBranch\":\"authority.targetBranch\",\"approvedBaseSha\":\"authority.approvedBaseSha\",\"approvedHeadSha\":\"authority.approvedHeadSha\",\"expectedTargetSha\":\"authority.expectedTargetSha\",\"destination\":\"authority.destination\",\"policyId\":\"authority.policyId\",\"validationProfile\":{\"id\":\"authority.validationProfile.id\",\"argv\":[\"authority.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"authority.validationProfile.resourceLocks[0]\"]},\"repair\":{\"round\":1,\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"authority.repair.repairRef\",\"candidateHeadSha\":\"authority.repair.candidateHeadSha\"},\"train\":{\"version\":1,\"id\":\"authority.train.id\",\"subsetId\":\"authority.train.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"authority.train.lane.repoId\",\"repoPath\":\"authority.train.lane.repoPath\",\"machineId\":\"authority.train.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"authority.train.lane.targetBranch\",\"expectedTargetSha\":\"authority.train.lane.expectedTargetSha\",\"destination\":\"authority.train.lane.destination\",\"providerRef\":{\"provider\":\"authority.train.lane.providerRef.provider\",\"id\":\"authority.train.lane.providerRef.id\",\"url\":\"authority.train.lane.providerRef.url\"},\"policyId\":\"authority.train.lane.policyId\",\"validationProfile\":{\"id\":\"authority.train.lane.validationProfile.id\",\"argv\":[\"authority.train.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"authority.train.lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"authority.train.members[0].orderId\",\"members\":[{\"orderId\":\"authority.train.members[0].orderId\",\"issueId\":\"authority.train.members[0].issueId\",\"attemptId\":\"authority.train.members[0].attemptId\",\"generation\":1,\"machineId\":\"authority.train.lane.machineId\",\"sourceBranch\":\"authority.train.members[0].sourceBranch\",\"approvedBaseSha\":\"authority.train.lane.expectedTargetSha\",\"approvedHeadSha\":\"authority.train.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"providerRef\":{\"provider\":\"authority.providerRef.provider\",\"id\":\"authority.providerRef.id\",\"url\":\"authority.providerRef.url\"}},\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairBaseSha\":\"repairBaseSha\",\"repairRef\":\"refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"patch\":\"patch\",\"touchedPaths\":[\"touchedPaths[0]\"]}"
+    },
+    {
+      "schema": "ShippingRepairApplyRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "shippingRepairApplyRequest",
+        "requestId": "requestId",
+        "authority": {
+          "type": "shippingJobRequest",
+          "requestId": "authority.requestId",
+          "action": "status",
+          "jobId": "authority.jobId",
+          "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "orderId": "authority.orderId",
+          "attemptId": "authority.attemptId",
+          "generation": 2,
+          "operation": "apply-repair",
+          "shippingProtocolVersion": 2,
+          "repoPath": "authority.repoPath",
+          "repoId": "authority.repoId",
+          "sourceBranch": "authority.sourceBranch",
+          "targetBranch": "authority.targetBranch",
+          "approvedBaseSha": "authority.approvedBaseSha",
+          "approvedHeadSha": "authority.approvedHeadSha",
+          "expectedTargetSha": "authority.expectedTargetSha",
+          "destination": "authority.destination",
+          "policyId": "authority.policyId",
+          "validationProfile": {
+            "id": "authority.validationProfile.id",
+            "argv": ["authority.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 2,
+            "resourceLocks": ["authority.validationProfile.resourceLocks[0]"]
+          },
+          "repair": {
+            "round": 2,
+            "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "repairRef": "authority.repair.repairRef",
+            "candidateHeadSha": "authority.repair.candidateHeadSha"
+          },
+          "train": {
+            "version": 2,
+            "capability": "shipping.train.v2",
+            "manifest": {
+              "version": 1,
+              "id": "authority.train.manifest.id",
+              "subsetId": "authority.train.manifest.subsetId",
+              "repairRound": 0,
+              "lane": {
+                "repoId": "authority.train.manifest.lane.repoId",
+                "repoPath": "authority.train.manifest.lane.repoPath",
+                "machineId": "authority.train.manifest.lane.machineId",
+                "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "laneRevision": 2,
+                "targetBranch": "authority.train.manifest.lane.targetBranch",
+                "expectedTargetSha": "authority.train.manifest.lane.expectedTargetSha",
+                "destination": "authority.train.manifest.lane.destination",
+                "providerRef": {
+                  "provider": "authority.train.manifest.lane.providerRef.provider",
+                  "id": "authority.train.manifest.lane.providerRef.id",
+                  "url": "authority.train.manifest.lane.providerRef.url"
+                },
+                "policyId": "authority.train.manifest.lane.policyId",
+                "validationProfile": {
+                  "id": "authority.train.manifest.lane.validationProfile.id",
+                  "argv": ["authority.train.manifest.lane.validationProfile.argv[0]"],
+                  "cwd": "integration-root",
+                  "timeoutMs": 2,
+                  "resourceLocks": [
+                    "authority.train.manifest.lane.validationProfile.resourceLocks[0]"
+                  ]
+                },
+                "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "memberCount": 1,
+              "leaderOrderId": "authority.train.manifest.members[0].orderId",
+              "members": [
+                {
+                  "orderId": "authority.train.manifest.members[0].orderId",
+                  "issueId": "authority.train.manifest.members[0].issueId",
+                  "attemptId": "authority.train.manifest.members[0].attemptId",
+                  "generation": 2,
+                  "machineId": "authority.train.manifest.lane.machineId",
+                  "sourceBranch": "authority.train.manifest.members[0].sourceBranch",
+                  "approvedBaseSha": "authority.train.manifest.lane.expectedTargetSha",
+                  "approvedHeadSha": "authority.train.manifest.members[0].approvedHeadSha",
+                  "deliveryDependsOn": []
+                }
+              ]
+            },
+            "subsetId": "authority.train.subsetId",
+            "memberOrderIds": ["authority.train.manifest.members[0].orderId"],
+            "repairRound": 1,
+            "candidate": {
+              "kind": "repair",
+              "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "repairRef": "authority.train.candidate.repairRef",
+              "candidateHeadSha": "authority.train.candidate.candidateHeadSha"
+            }
+          },
+          "providerRef": {
+            "provider": "authority.providerRef.provider",
+            "id": "authority.providerRef.id",
+            "url": "authority.providerRef.url"
+          }
+        },
+        "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repairBaseSha": "repairBaseSha",
+        "repairRef": "refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "patch": "patch",
+        "touchedPaths": ["touchedPaths[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingRepairApplyRequest\",\"requestId\":\"requestId\",\"authority\":{\"type\":\"shippingJobRequest\",\"requestId\":\"authority.requestId\",\"action\":\"status\",\"jobId\":\"authority.jobId\",\"requestDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"orderId\":\"authority.orderId\",\"attemptId\":\"authority.attemptId\",\"generation\":2,\"operation\":\"apply-repair\",\"shippingProtocolVersion\":2,\"repoPath\":\"authority.repoPath\",\"repoId\":\"authority.repoId\",\"sourceBranch\":\"authority.sourceBranch\",\"targetBranch\":\"authority.targetBranch\",\"approvedBaseSha\":\"authority.approvedBaseSha\",\"approvedHeadSha\":\"authority.approvedHeadSha\",\"expectedTargetSha\":\"authority.expectedTargetSha\",\"destination\":\"authority.destination\",\"policyId\":\"authority.policyId\",\"validationProfile\":{\"id\":\"authority.validationProfile.id\",\"argv\":[\"authority.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":2,\"resourceLocks\":[\"authority.validationProfile.resourceLocks[0]\"]},\"repair\":{\"round\":2,\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"authority.repair.repairRef\",\"candidateHeadSha\":\"authority.repair.candidateHeadSha\"},\"train\":{\"version\":2,\"capability\":\"shipping.train.v2\",\"manifest\":{\"version\":1,\"id\":\"authority.train.manifest.id\",\"subsetId\":\"authority.train.manifest.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"authority.train.manifest.lane.repoId\",\"repoPath\":\"authority.train.manifest.lane.repoPath\",\"machineId\":\"authority.train.manifest.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":2,\"targetBranch\":\"authority.train.manifest.lane.targetBranch\",\"expectedTargetSha\":\"authority.train.manifest.lane.expectedTargetSha\",\"destination\":\"authority.train.manifest.lane.destination\",\"providerRef\":{\"provider\":\"authority.train.manifest.lane.providerRef.provider\",\"id\":\"authority.train.manifest.lane.providerRef.id\",\"url\":\"authority.train.manifest.lane.providerRef.url\"},\"policyId\":\"authority.train.manifest.lane.policyId\",\"validationProfile\":{\"id\":\"authority.train.manifest.lane.validationProfile.id\",\"argv\":[\"authority.train.manifest.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":2,\"resourceLocks\":[\"authority.train.manifest.lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"authority.train.manifest.members[0].orderId\",\"members\":[{\"orderId\":\"authority.train.manifest.members[0].orderId\",\"issueId\":\"authority.train.manifest.members[0].issueId\",\"attemptId\":\"authority.train.manifest.members[0].attemptId\",\"generation\":2,\"machineId\":\"authority.train.manifest.lane.machineId\",\"sourceBranch\":\"authority.train.manifest.members[0].sourceBranch\",\"approvedBaseSha\":\"authority.train.manifest.lane.expectedTargetSha\",\"approvedHeadSha\":\"authority.train.manifest.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"subsetId\":\"authority.train.subsetId\",\"memberOrderIds\":[\"authority.train.manifest.members[0].orderId\"],\"repairRound\":1,\"candidate\":{\"kind\":\"repair\",\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"authority.train.candidate.repairRef\",\"candidateHeadSha\":\"authority.train.candidate.candidateHeadSha\"}},\"providerRef\":{\"provider\":\"authority.providerRef.provider\",\"id\":\"authority.providerRef.id\",\"url\":\"authority.providerRef.url\"}},\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairBaseSha\":\"repairBaseSha\",\"repairRef\":\"refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"patch\":\"patch\",\"touchedPaths\":[\"touchedPaths[0]\"]}"
+    },
+    {
+      "schema": "ShippingRepairApplyResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "shippingRepairApplyResult",
+        "requestId": "requestId",
+        "ok": true,
+        "summary": "summary",
+        "artifactRefs": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingRepairApplyResult\",\"requestId\":\"requestId\",\"ok\":true,\"summary\":\"summary\",\"artifactRefs\":[]}"
+    },
+    {
+      "schema": "ShippingRepairApplyResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "shippingRepairApplyResult",
+        "requestId": "requestId",
+        "ok": true,
+        "summary": "summary",
+        "candidateHeadSha": "candidateHeadSha",
+        "artifactRefs": ["artifactRefs[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"shippingRepairApplyResult\",\"requestId\":\"requestId\",\"ok\":true,\"summary\":\"summary\",\"candidateHeadSha\":\"candidateHeadSha\",\"artifactRefs\":[\"artifactRefs[0]\"]}"
+    },
+    {
+      "schema": "ShippingRepairCandidate",
+      "variant": "minimal",
+      "wire": {
+        "round": 1,
+        "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repairRef": "repairRef",
+        "candidateHeadSha": "candidateHeadSha"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"round\":1,\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"repairRef\",\"candidateHeadSha\":\"candidateHeadSha\"}"
+    },
+    {
+      "schema": "ShippingRepairCandidate",
+      "variant": "full",
+      "wire": {
+        "round": 1,
+        "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repairRef": "repairRef",
+        "candidateHeadSha": "candidateHeadSha"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"round\":1,\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"repairRef\",\"candidateHeadSha\":\"candidateHeadSha\"}"
+    },
+    {
+      "schema": "ShippingTrainExecution",
+      "variant": "minimal",
+      "wire": {
+        "version": 2,
+        "capability": "shipping.train.v2",
+        "manifest": {
+          "version": 1,
+          "id": "manifest.id",
+          "subsetId": "manifest.subsetId",
+          "repairRound": 0,
+          "lane": {
+            "repoId": "manifest.lane.repoId",
+            "repoPath": "manifest.lane.repoPath",
+            "machineId": "manifest.lane.machineId",
+            "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "laneRevision": 1,
+            "targetBranch": "manifest.lane.targetBranch",
+            "expectedTargetSha": "manifest.lane.expectedTargetSha",
+            "destination": "manifest.lane.destination",
+            "policyId": "manifest.lane.policyId",
+            "validationProfile": {
+              "id": "manifest.lane.validationProfile.id",
+              "argv": ["manifest.lane.validationProfile.argv[0]"],
+              "cwd": "integration-root",
+              "timeoutMs": 1,
+              "resourceLocks": []
+            },
+            "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "memberCount": 1,
+          "leaderOrderId": "manifest.members[0].orderId",
+          "members": [
+            {
+              "orderId": "manifest.members[0].orderId",
+              "issueId": "manifest.members[0].issueId",
+              "attemptId": "manifest.members[0].attemptId",
+              "generation": 1,
+              "machineId": "manifest.lane.machineId",
+              "sourceBranch": "manifest.members[0].sourceBranch",
+              "approvedBaseSha": "manifest.lane.expectedTargetSha",
+              "approvedHeadSha": "manifest.members[0].approvedHeadSha",
+              "deliveryDependsOn": []
+            }
+          ]
+        },
+        "subsetId": "subsetId",
+        "memberOrderIds": ["manifest.members[0].orderId"],
+        "repairRound": 0,
+        "candidate": {
+          "kind": "approved"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":2,\"capability\":\"shipping.train.v2\",\"manifest\":{\"version\":1,\"id\":\"manifest.id\",\"subsetId\":\"manifest.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"manifest.lane.repoId\",\"repoPath\":\"manifest.lane.repoPath\",\"machineId\":\"manifest.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"manifest.lane.targetBranch\",\"expectedTargetSha\":\"manifest.lane.expectedTargetSha\",\"destination\":\"manifest.lane.destination\",\"policyId\":\"manifest.lane.policyId\",\"validationProfile\":{\"id\":\"manifest.lane.validationProfile.id\",\"argv\":[\"manifest.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"manifest.members[0].orderId\",\"members\":[{\"orderId\":\"manifest.members[0].orderId\",\"issueId\":\"manifest.members[0].issueId\",\"attemptId\":\"manifest.members[0].attemptId\",\"generation\":1,\"machineId\":\"manifest.lane.machineId\",\"sourceBranch\":\"manifest.members[0].sourceBranch\",\"approvedBaseSha\":\"manifest.lane.expectedTargetSha\",\"approvedHeadSha\":\"manifest.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"subsetId\":\"subsetId\",\"memberOrderIds\":[\"manifest.members[0].orderId\"],\"repairRound\":0,\"candidate\":{\"kind\":\"approved\"}}"
+    },
+    {
+      "schema": "ShippingTrainExecution",
+      "variant": "full/arm0",
+      "wire": {
+        "version": 2,
+        "capability": "shipping.train.v2",
+        "manifest": {
+          "version": 1,
+          "id": "manifest.id",
+          "subsetId": "manifest.subsetId",
+          "repairRound": 0,
+          "lane": {
+            "repoId": "manifest.lane.repoId",
+            "repoPath": "manifest.lane.repoPath",
+            "machineId": "manifest.lane.machineId",
+            "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "laneRevision": 1,
+            "targetBranch": "manifest.lane.targetBranch",
+            "expectedTargetSha": "manifest.lane.expectedTargetSha",
+            "destination": "manifest.lane.destination",
+            "providerRef": {
+              "provider": "manifest.lane.providerRef.provider",
+              "id": "manifest.lane.providerRef.id",
+              "url": "manifest.lane.providerRef.url"
+            },
+            "policyId": "manifest.lane.policyId",
+            "validationProfile": {
+              "id": "manifest.lane.validationProfile.id",
+              "argv": ["manifest.lane.validationProfile.argv[0]"],
+              "cwd": "integration-root",
+              "timeoutMs": 1,
+              "resourceLocks": ["manifest.lane.validationProfile.resourceLocks[0]"]
+            },
+            "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "memberCount": 1,
+          "leaderOrderId": "manifest.members[0].orderId",
+          "members": [
+            {
+              "orderId": "manifest.members[0].orderId",
+              "issueId": "manifest.members[0].issueId",
+              "attemptId": "manifest.members[0].attemptId",
+              "generation": 1,
+              "machineId": "manifest.lane.machineId",
+              "sourceBranch": "manifest.members[0].sourceBranch",
+              "approvedBaseSha": "manifest.lane.expectedTargetSha",
+              "approvedHeadSha": "manifest.members[0].approvedHeadSha",
+              "deliveryDependsOn": []
+            }
+          ]
+        },
+        "subsetId": "subsetId",
+        "memberOrderIds": ["manifest.members[0].orderId"],
+        "repairRound": 0,
+        "candidate": {
+          "kind": "approved"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":2,\"capability\":\"shipping.train.v2\",\"manifest\":{\"version\":1,\"id\":\"manifest.id\",\"subsetId\":\"manifest.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"manifest.lane.repoId\",\"repoPath\":\"manifest.lane.repoPath\",\"machineId\":\"manifest.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"manifest.lane.targetBranch\",\"expectedTargetSha\":\"manifest.lane.expectedTargetSha\",\"destination\":\"manifest.lane.destination\",\"providerRef\":{\"provider\":\"manifest.lane.providerRef.provider\",\"id\":\"manifest.lane.providerRef.id\",\"url\":\"manifest.lane.providerRef.url\"},\"policyId\":\"manifest.lane.policyId\",\"validationProfile\":{\"id\":\"manifest.lane.validationProfile.id\",\"argv\":[\"manifest.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"manifest.lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"manifest.members[0].orderId\",\"members\":[{\"orderId\":\"manifest.members[0].orderId\",\"issueId\":\"manifest.members[0].issueId\",\"attemptId\":\"manifest.members[0].attemptId\",\"generation\":1,\"machineId\":\"manifest.lane.machineId\",\"sourceBranch\":\"manifest.members[0].sourceBranch\",\"approvedBaseSha\":\"manifest.lane.expectedTargetSha\",\"approvedHeadSha\":\"manifest.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"subsetId\":\"subsetId\",\"memberOrderIds\":[\"manifest.members[0].orderId\"],\"repairRound\":0,\"candidate\":{\"kind\":\"approved\"}}"
+    },
+    {
+      "schema": "ShippingTrainExecution",
+      "variant": "full/arm1",
+      "wire": {
+        "version": 2,
+        "capability": "shipping.train.v2",
+        "manifest": {
+          "version": 1,
+          "id": "manifest.id",
+          "subsetId": "manifest.subsetId",
+          "repairRound": 0,
+          "lane": {
+            "repoId": "manifest.lane.repoId",
+            "repoPath": "manifest.lane.repoPath",
+            "machineId": "manifest.lane.machineId",
+            "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "laneRevision": 2,
+            "targetBranch": "manifest.lane.targetBranch",
+            "expectedTargetSha": "manifest.lane.expectedTargetSha",
+            "destination": "manifest.lane.destination",
+            "providerRef": {
+              "provider": "manifest.lane.providerRef.provider",
+              "id": "manifest.lane.providerRef.id",
+              "url": "manifest.lane.providerRef.url"
+            },
+            "policyId": "manifest.lane.policyId",
+            "validationProfile": {
+              "id": "manifest.lane.validationProfile.id",
+              "argv": ["manifest.lane.validationProfile.argv[0]"],
+              "cwd": "integration-root",
+              "timeoutMs": 2,
+              "resourceLocks": ["manifest.lane.validationProfile.resourceLocks[0]"]
+            },
+            "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "memberCount": 1,
+          "leaderOrderId": "manifest.members[0].orderId",
+          "members": [
+            {
+              "orderId": "manifest.members[0].orderId",
+              "issueId": "manifest.members[0].issueId",
+              "attemptId": "manifest.members[0].attemptId",
+              "generation": 2,
+              "machineId": "manifest.lane.machineId",
+              "sourceBranch": "manifest.members[0].sourceBranch",
+              "approvedBaseSha": "manifest.lane.expectedTargetSha",
+              "approvedHeadSha": "manifest.members[0].approvedHeadSha",
+              "deliveryDependsOn": []
+            }
+          ]
+        },
+        "subsetId": "subsetId",
+        "memberOrderIds": ["manifest.members[0].orderId"],
+        "repairRound": 1,
+        "candidate": {
+          "kind": "repair",
+          "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "repairRef": "candidate.repairRef",
+          "candidateHeadSha": "candidate.candidateHeadSha"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":2,\"capability\":\"shipping.train.v2\",\"manifest\":{\"version\":1,\"id\":\"manifest.id\",\"subsetId\":\"manifest.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"manifest.lane.repoId\",\"repoPath\":\"manifest.lane.repoPath\",\"machineId\":\"manifest.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":2,\"targetBranch\":\"manifest.lane.targetBranch\",\"expectedTargetSha\":\"manifest.lane.expectedTargetSha\",\"destination\":\"manifest.lane.destination\",\"providerRef\":{\"provider\":\"manifest.lane.providerRef.provider\",\"id\":\"manifest.lane.providerRef.id\",\"url\":\"manifest.lane.providerRef.url\"},\"policyId\":\"manifest.lane.policyId\",\"validationProfile\":{\"id\":\"manifest.lane.validationProfile.id\",\"argv\":[\"manifest.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":2,\"resourceLocks\":[\"manifest.lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"manifest.members[0].orderId\",\"members\":[{\"orderId\":\"manifest.members[0].orderId\",\"issueId\":\"manifest.members[0].issueId\",\"attemptId\":\"manifest.members[0].attemptId\",\"generation\":2,\"machineId\":\"manifest.lane.machineId\",\"sourceBranch\":\"manifest.members[0].sourceBranch\",\"approvedBaseSha\":\"manifest.lane.expectedTargetSha\",\"approvedHeadSha\":\"manifest.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"subsetId\":\"subsetId\",\"memberOrderIds\":[\"manifest.members[0].orderId\"],\"repairRound\":1,\"candidate\":{\"kind\":\"repair\",\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"candidate.repairRef\",\"candidateHeadSha\":\"candidate.candidateHeadSha\"}}"
+    },
+    {
+      "schema": "ShippingTrainRequest",
+      "variant": "minimal",
+      "wire": {
+        "version": 1,
+        "id": "id",
+        "subsetId": "subsetId",
+        "repairRound": 0,
+        "lane": {
+          "repoId": "lane.repoId",
+          "repoPath": "lane.repoPath",
+          "machineId": "lane.machineId",
+          "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "laneRevision": 1,
+          "targetBranch": "lane.targetBranch",
+          "expectedTargetSha": "lane.expectedTargetSha",
+          "destination": "lane.destination",
+          "policyId": "lane.policyId",
+          "validationProfile": {
+            "id": "lane.validationProfile.id",
+            "argv": ["lane.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 1,
+            "resourceLocks": []
+          },
+          "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "memberCount": 1,
+        "leaderOrderId": "members[0].orderId",
+        "members": [
+          {
+            "orderId": "members[0].orderId",
+            "issueId": "members[0].issueId",
+            "attemptId": "members[0].attemptId",
+            "generation": 1,
+            "machineId": "lane.machineId",
+            "sourceBranch": "members[0].sourceBranch",
+            "approvedBaseSha": "lane.expectedTargetSha",
+            "approvedHeadSha": "members[0].approvedHeadSha",
+            "deliveryDependsOn": []
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"id\":\"id\",\"subsetId\":\"subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"lane.repoId\",\"repoPath\":\"lane.repoPath\",\"machineId\":\"lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"lane.targetBranch\",\"expectedTargetSha\":\"lane.expectedTargetSha\",\"destination\":\"lane.destination\",\"policyId\":\"lane.policyId\",\"validationProfile\":{\"id\":\"lane.validationProfile.id\",\"argv\":[\"lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"members[0].orderId\",\"members\":[{\"orderId\":\"members[0].orderId\",\"issueId\":\"members[0].issueId\",\"attemptId\":\"members[0].attemptId\",\"generation\":1,\"machineId\":\"lane.machineId\",\"sourceBranch\":\"members[0].sourceBranch\",\"approvedBaseSha\":\"lane.expectedTargetSha\",\"approvedHeadSha\":\"members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]}"
+    },
+    {
+      "schema": "ShippingTrainRequest",
+      "variant": "full/arm0",
+      "wire": {
+        "version": 1,
+        "id": "id",
+        "subsetId": "subsetId",
+        "repairRound": 0,
+        "lane": {
+          "repoId": "lane.repoId",
+          "repoPath": "lane.repoPath",
+          "machineId": "lane.machineId",
+          "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "laneRevision": 1,
+          "targetBranch": "lane.targetBranch",
+          "expectedTargetSha": "lane.expectedTargetSha",
+          "destination": "lane.destination",
+          "providerRef": {
+            "provider": "lane.providerRef.provider",
+            "id": "lane.providerRef.id",
+            "url": "lane.providerRef.url"
+          },
+          "policyId": "lane.policyId",
+          "validationProfile": {
+            "id": "lane.validationProfile.id",
+            "argv": ["lane.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 1,
+            "resourceLocks": ["lane.validationProfile.resourceLocks[0]"]
+          },
+          "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "memberCount": 1,
+        "leaderOrderId": "members[0].orderId",
+        "members": [
+          {
+            "orderId": "members[0].orderId",
+            "issueId": "members[0].issueId",
+            "attemptId": "members[0].attemptId",
+            "generation": 1,
+            "machineId": "lane.machineId",
+            "sourceBranch": "members[0].sourceBranch",
+            "approvedBaseSha": "lane.expectedTargetSha",
+            "approvedHeadSha": "members[0].approvedHeadSha",
+            "deliveryDependsOn": []
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"id\":\"id\",\"subsetId\":\"subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"lane.repoId\",\"repoPath\":\"lane.repoPath\",\"machineId\":\"lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"lane.targetBranch\",\"expectedTargetSha\":\"lane.expectedTargetSha\",\"destination\":\"lane.destination\",\"providerRef\":{\"provider\":\"lane.providerRef.provider\",\"id\":\"lane.providerRef.id\",\"url\":\"lane.providerRef.url\"},\"policyId\":\"lane.policyId\",\"validationProfile\":{\"id\":\"lane.validationProfile.id\",\"argv\":[\"lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"members[0].orderId\",\"members\":[{\"orderId\":\"members[0].orderId\",\"issueId\":\"members[0].issueId\",\"attemptId\":\"members[0].attemptId\",\"generation\":1,\"machineId\":\"lane.machineId\",\"sourceBranch\":\"members[0].sourceBranch\",\"approvedBaseSha\":\"lane.expectedTargetSha\",\"approvedHeadSha\":\"members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]}"
+    },
+    {
+      "schema": "ShippingTrainRequest",
+      "variant": "full/arm1",
+      "wire": {
+        "version": 2,
+        "capability": "shipping.train.v2",
+        "manifest": {
+          "version": 1,
+          "id": "manifest.id",
+          "subsetId": "manifest.subsetId",
+          "repairRound": 0,
+          "lane": {
+            "repoId": "manifest.lane.repoId",
+            "repoPath": "manifest.lane.repoPath",
+            "machineId": "manifest.lane.machineId",
+            "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "laneRevision": 2,
+            "targetBranch": "manifest.lane.targetBranch",
+            "expectedTargetSha": "manifest.lane.expectedTargetSha",
+            "destination": "manifest.lane.destination",
+            "providerRef": {
+              "provider": "manifest.lane.providerRef.provider",
+              "id": "manifest.lane.providerRef.id",
+              "url": "manifest.lane.providerRef.url"
+            },
+            "policyId": "manifest.lane.policyId",
+            "validationProfile": {
+              "id": "manifest.lane.validationProfile.id",
+              "argv": ["manifest.lane.validationProfile.argv[0]"],
+              "cwd": "integration-root",
+              "timeoutMs": 2,
+              "resourceLocks": ["manifest.lane.validationProfile.resourceLocks[0]"]
+            },
+            "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "memberCount": 1,
+          "leaderOrderId": "manifest.members[0].orderId",
+          "members": [
+            {
+              "orderId": "manifest.members[0].orderId",
+              "issueId": "manifest.members[0].issueId",
+              "attemptId": "manifest.members[0].attemptId",
+              "generation": 2,
+              "machineId": "manifest.lane.machineId",
+              "sourceBranch": "manifest.members[0].sourceBranch",
+              "approvedBaseSha": "manifest.lane.expectedTargetSha",
+              "approvedHeadSha": "manifest.members[0].approvedHeadSha",
+              "deliveryDependsOn": []
+            }
+          ]
+        },
+        "subsetId": "subsetId",
+        "memberOrderIds": ["manifest.members[0].orderId"],
+        "repairRound": 1,
+        "candidate": {
+          "kind": "repair",
+          "contextDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "repairRef": "candidate.repairRef",
+          "candidateHeadSha": "candidate.candidateHeadSha"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":2,\"capability\":\"shipping.train.v2\",\"manifest\":{\"version\":1,\"id\":\"manifest.id\",\"subsetId\":\"manifest.subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"manifest.lane.repoId\",\"repoPath\":\"manifest.lane.repoPath\",\"machineId\":\"manifest.lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":2,\"targetBranch\":\"manifest.lane.targetBranch\",\"expectedTargetSha\":\"manifest.lane.expectedTargetSha\",\"destination\":\"manifest.lane.destination\",\"providerRef\":{\"provider\":\"manifest.lane.providerRef.provider\",\"id\":\"manifest.lane.providerRef.id\",\"url\":\"manifest.lane.providerRef.url\"},\"policyId\":\"manifest.lane.policyId\",\"validationProfile\":{\"id\":\"manifest.lane.validationProfile.id\",\"argv\":[\"manifest.lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":2,\"resourceLocks\":[\"manifest.lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"manifest.members[0].orderId\",\"members\":[{\"orderId\":\"manifest.members[0].orderId\",\"issueId\":\"manifest.members[0].issueId\",\"attemptId\":\"manifest.members[0].attemptId\",\"generation\":2,\"machineId\":\"manifest.lane.machineId\",\"sourceBranch\":\"manifest.members[0].sourceBranch\",\"approvedBaseSha\":\"manifest.lane.expectedTargetSha\",\"approvedHeadSha\":\"manifest.members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]},\"subsetId\":\"subsetId\",\"memberOrderIds\":[\"manifest.members[0].orderId\"],\"repairRound\":1,\"candidate\":{\"kind\":\"repair\",\"contextDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"repairRef\":\"candidate.repairRef\",\"candidateHeadSha\":\"candidate.candidateHeadSha\"}}"
     },
     {
       "schema": "ShippingValidationProfile",

@@ -1345,6 +1345,7 @@
         "orderId": "orderId",
         "approvedBaseSha": "approvedBaseSha",
         "approvedHeadSha": "approvedHeadSha",
+        "resultCommitSha": "resultCommitSha",
         "testedIntegrationSha": "testedIntegrationSha",
         "landedRefSha": "landedRefSha",
         "destinationSha": "destinationSha",
@@ -1356,7 +1357,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"destinationSha\":\"destinationSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"destination\":\"destination\",\"completedAt\":\"completedAt\"}"
+      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"resultCommitSha\":\"resultCommitSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"destinationSha\":\"destinationSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"destination\":\"destination\",\"completedAt\":\"completedAt\"}"
     },
     {
       "schema": "DeliveryReceipt",
@@ -1366,6 +1367,7 @@
         "orderId": "orderId",
         "approvedBaseSha": "approvedBaseSha",
         "approvedHeadSha": "approvedHeadSha",
+        "resultCommitSha": "resultCommitSha",
         "testedIntegrationSha": "testedIntegrationSha",
         "landedRefSha": "landedRefSha",
         "destinationSha": "destinationSha",
@@ -1377,7 +1379,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"destinationSha\":\"destinationSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"destination\":\"destination\",\"completedAt\":\"completedAt\"}"
+      "encoded": "{\"id\":\"id\",\"orderId\":\"orderId\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"resultCommitSha\":\"resultCommitSha\",\"testedIntegrationSha\":\"testedIntegrationSha\",\"landedRefSha\":\"landedRefSha\",\"destinationSha\":\"destinationSha\",\"validationProfileId\":\"validationProfileId\",\"validationResult\":\"passed\",\"destination\":\"destination\",\"completedAt\":\"completedAt\"}"
     },
     {
       "schema": "DeliveryReceiptId",
@@ -10218,6 +10220,8 @@
           }
         ],
         "repoId": "repoId",
+        "repoPath": "repoPath",
+        "machineId": "machineId",
         "targetBranch": "targetBranch",
         "destination": "destination",
         "approvedBaseSha": "approvedBaseSha",
@@ -10248,6 +10252,14 @@
         },
         "requestedAt": "requestedAt",
         "policyId": "policyId",
+        "validationProfile": {
+          "id": "validationProfile.id",
+          "argv": ["validationProfile.argv[0]"],
+          "cwd": "integration-root",
+          "timeoutMs": 1,
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
+        },
+        "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "closeMode": "after-destination",
         "state": "queued",
         "stateChangedAt": "stateChangedAt"
@@ -10255,7 +10267,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"descendantManifest\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}],\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[\"deliveryDependsOn[0]\"],\"evidenceManifestRef\":\"evidenceManifestRef\",\"currentIntegrationReceipt\":{\"rootIssueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\",\"descendants\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"},\"requestedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"requestedBy.actor.id\"},\"onBehalfOf\":\"requestedBy.onBehalfOf\"},\"requestedAt\":\"requestedAt\",\"policyId\":\"policyId\",\"closeMode\":\"after-destination\",\"state\":\"queued\",\"stateChangedAt\":\"stateChangedAt\"}"
+      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"descendantManifest\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}],\"repoId\":\"repoId\",\"repoPath\":\"repoPath\",\"machineId\":\"machineId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[\"deliveryDependsOn[0]\"],\"evidenceManifestRef\":\"evidenceManifestRef\",\"currentIntegrationReceipt\":{\"rootIssueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\",\"descendants\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"},\"requestedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"requestedBy.actor.id\"},\"onBehalfOf\":\"requestedBy.onBehalfOf\"},\"requestedAt\":\"requestedAt\",\"policyId\":\"policyId\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"closeMode\":\"after-destination\",\"state\":\"queued\",\"stateChangedAt\":\"stateChangedAt\"}"
     },
     {
       "schema": "ShipOrder",
@@ -10270,6 +10282,8 @@
           }
         ],
         "repoId": "repoId",
+        "repoPath": "repoPath",
+        "machineId": "machineId",
         "targetBranch": "targetBranch",
         "destination": "destination",
         "approvedBaseSha": "approvedBaseSha",
@@ -10300,6 +10314,14 @@
         },
         "requestedAt": "requestedAt",
         "policyId": "policyId",
+        "validationProfile": {
+          "id": "validationProfile.id",
+          "argv": ["validationProfile.argv[0]"],
+          "cwd": "integration-root",
+          "timeoutMs": 2,
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
+        },
+        "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "closeMode": "leave-open",
         "state": "preflight",
         "stateChangedAt": "stateChangedAt"
@@ -10307,7 +10329,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"descendantManifest\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}],\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[\"deliveryDependsOn[0]\"],\"evidenceManifestRef\":\"evidenceManifestRef\",\"currentIntegrationReceipt\":{\"rootIssueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\",\"descendants\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"},\"requestedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"requestedBy.actor.id\"},\"onBehalfOf\":\"requestedBy.onBehalfOf\"},\"requestedAt\":\"requestedAt\",\"policyId\":\"policyId\",\"closeMode\":\"leave-open\",\"state\":\"preflight\",\"stateChangedAt\":\"stateChangedAt\"}"
+      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"descendantManifest\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}],\"repoId\":\"repoId\",\"repoPath\":\"repoPath\",\"machineId\":\"machineId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[\"deliveryDependsOn[0]\"],\"evidenceManifestRef\":\"evidenceManifestRef\",\"currentIntegrationReceipt\":{\"rootIssueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\",\"descendants\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"},\"requestedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"requestedBy.actor.id\"},\"onBehalfOf\":\"requestedBy.onBehalfOf\"},\"requestedAt\":\"requestedAt\",\"policyId\":\"policyId\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":2,\"resourceLocks\":[\"validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"closeMode\":\"leave-open\",\"state\":\"preflight\",\"stateChangedAt\":\"stateChangedAt\"}"
     },
     {
       "schema": "ShipOrder",
@@ -10322,6 +10344,8 @@
           }
         ],
         "repoId": "repoId",
+        "repoPath": "repoPath",
+        "machineId": "machineId",
         "targetBranch": "targetBranch",
         "destination": "destination",
         "approvedBaseSha": "approvedBaseSha",
@@ -10352,6 +10376,14 @@
         },
         "requestedAt": "requestedAt",
         "policyId": "policyId",
+        "validationProfile": {
+          "id": "validationProfile.id",
+          "argv": ["validationProfile.argv[0]"],
+          "cwd": "integration-root",
+          "timeoutMs": 3,
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
+        },
+        "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "closeMode": "leave-open",
         "state": "composing",
         "stateChangedAt": "stateChangedAt"
@@ -10359,7 +10391,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"descendantManifest\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}],\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[\"deliveryDependsOn[0]\"],\"evidenceManifestRef\":\"evidenceManifestRef\",\"currentIntegrationReceipt\":{\"rootIssueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\",\"descendants\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"},\"requestedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"requestedBy.actor.id\"},\"onBehalfOf\":\"requestedBy.onBehalfOf\"},\"requestedAt\":\"requestedAt\",\"policyId\":\"policyId\",\"closeMode\":\"leave-open\",\"state\":\"composing\",\"stateChangedAt\":\"stateChangedAt\"}"
+      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"descendantManifest\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}],\"repoId\":\"repoId\",\"repoPath\":\"repoPath\",\"machineId\":\"machineId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[\"deliveryDependsOn[0]\"],\"evidenceManifestRef\":\"evidenceManifestRef\",\"currentIntegrationReceipt\":{\"rootIssueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\",\"descendants\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"},\"requestedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"requestedBy.actor.id\"},\"onBehalfOf\":\"requestedBy.onBehalfOf\"},\"requestedAt\":\"requestedAt\",\"policyId\":\"policyId\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":3,\"resourceLocks\":[\"validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"closeMode\":\"leave-open\",\"state\":\"composing\",\"stateChangedAt\":\"stateChangedAt\"}"
     },
     {
       "schema": "ShipOrder",
@@ -10374,6 +10406,8 @@
           }
         ],
         "repoId": "repoId",
+        "repoPath": "repoPath",
+        "machineId": "machineId",
         "targetBranch": "targetBranch",
         "destination": "destination",
         "approvedBaseSha": "approvedBaseSha",
@@ -10404,6 +10438,14 @@
         },
         "requestedAt": "requestedAt",
         "policyId": "policyId",
+        "validationProfile": {
+          "id": "validationProfile.id",
+          "argv": ["validationProfile.argv[0]"],
+          "cwd": "integration-root",
+          "timeoutMs": 4,
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
+        },
+        "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "closeMode": "leave-open",
         "state": "validating",
         "stateChangedAt": "stateChangedAt"
@@ -10411,7 +10453,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"descendantManifest\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}],\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[\"deliveryDependsOn[0]\"],\"evidenceManifestRef\":\"evidenceManifestRef\",\"currentIntegrationReceipt\":{\"rootIssueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\",\"descendants\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"},\"requestedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"requestedBy.actor.job\"},\"onBehalfOf\":\"requestedBy.onBehalfOf\"},\"requestedAt\":\"requestedAt\",\"policyId\":\"policyId\",\"closeMode\":\"leave-open\",\"state\":\"validating\",\"stateChangedAt\":\"stateChangedAt\"}"
+      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"descendantManifest\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}],\"repoId\":\"repoId\",\"repoPath\":\"repoPath\",\"machineId\":\"machineId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[\"deliveryDependsOn[0]\"],\"evidenceManifestRef\":\"evidenceManifestRef\",\"currentIntegrationReceipt\":{\"rootIssueId\":\"issueId\",\"approvedHeadSha\":\"approvedHeadSha\",\"descendants\":[{\"issueId\":\"descendantManifest[0].issueId\",\"approvedHeadSha\":\"descendantManifest[0].approvedHeadSha\"}]},\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"},\"requestedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"requestedBy.actor.job\"},\"onBehalfOf\":\"requestedBy.onBehalfOf\"},\"requestedAt\":\"requestedAt\",\"policyId\":\"policyId\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":4,\"resourceLocks\":[\"validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"closeMode\":\"leave-open\",\"state\":\"validating\",\"stateChangedAt\":\"stateChangedAt\"}"
     },
     {
       "schema": "ShipOrderActivity",
@@ -10520,6 +10562,17 @@
         "queuedAt": "queuedAt",
         "stateChangedAt": "stateChangedAt",
         "queueRank": 1,
+        "train": {
+          "id": "train.id",
+          "index": 1,
+          "size": 1
+        },
+        "waitEstimate": {
+          "lowerBoundMs": 1,
+          "upperBoundMs": 1,
+          "sampleSize": 1,
+          "basis": "lane-history"
+        },
         "hold": {
           "id": "hold.id",
           "generation": 1,
@@ -10532,7 +10585,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"state\":\"queued\",\"humanState\":\"waiting\",\"activity\":\"waiting\",\"queuedAt\":\"queuedAt\",\"stateChangedAt\":\"stateChangedAt\",\"queueRank\":1,\"hold\":{\"id\":\"hold.id\",\"generation\":1,\"reasonCode\":\"approval-stale\",\"headline\":\"hold.headline\",\"actions\":[\"retry\"]},\"receiptId\":\"receiptId\"}"
+      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"state\":\"queued\",\"humanState\":\"waiting\",\"activity\":\"waiting\",\"queuedAt\":\"queuedAt\",\"stateChangedAt\":\"stateChangedAt\",\"queueRank\":1,\"train\":{\"id\":\"train.id\",\"index\":1,\"size\":1},\"waitEstimate\":{\"lowerBoundMs\":1,\"upperBoundMs\":1,\"sampleSize\":1,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"hold.id\",\"generation\":1,\"reasonCode\":\"approval-stale\",\"headline\":\"hold.headline\",\"actions\":[\"retry\"]},\"receiptId\":\"receiptId\"}"
     },
     {
       "schema": "ShipOrderProjection",
@@ -10549,6 +10602,17 @@
         "queuedAt": "queuedAt",
         "stateChangedAt": "stateChangedAt",
         "queueRank": 2,
+        "train": {
+          "id": "train.id",
+          "index": 2,
+          "size": 2
+        },
+        "waitEstimate": {
+          "lowerBoundMs": 2,
+          "upperBoundMs": 2,
+          "sampleSize": 2,
+          "basis": "lane-history"
+        },
         "hold": {
           "id": "hold.id",
           "generation": 2,
@@ -10561,7 +10625,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"state\":\"preflight\",\"humanState\":\"in_progress\",\"activity\":\"checking\",\"queuedAt\":\"queuedAt\",\"stateChangedAt\":\"stateChangedAt\",\"queueRank\":2,\"hold\":{\"id\":\"hold.id\",\"generation\":2,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"receiptId\"}"
+      "encoded": "{\"id\":\"id\",\"issueId\":\"issueId\",\"repoId\":\"repoId\",\"targetBranch\":\"targetBranch\",\"destination\":\"destination\",\"state\":\"preflight\",\"humanState\":\"in_progress\",\"activity\":\"checking\",\"queuedAt\":\"queuedAt\",\"stateChangedAt\":\"stateChangedAt\",\"queueRank\":2,\"train\":{\"id\":\"train.id\",\"index\":2,\"size\":2},\"waitEstimate\":{\"lowerBoundMs\":2,\"upperBoundMs\":2,\"sampleSize\":2,\"basis\":\"lane-history\"},\"hold\":{\"id\":\"hold.id\",\"generation\":2,\"reasonCode\":\"policy:fixture-hold\",\"headline\":\"hold.headline\",\"actions\":[\"policy:fixture-action\"]},\"receiptId\":\"receiptId\"}"
     },
     {
       "schema": "ShipOrderState",
@@ -10716,6 +10780,306 @@
       "encoded": "\"planned\""
     },
     {
+      "schema": "ShipTrainId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipTrainId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipTrainIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipTrainIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipTrainLane",
+      "variant": "minimal",
+      "wire": {
+        "repoId": "repoId",
+        "repoPath": "repoPath",
+        "machineId": "machineId",
+        "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "laneRevision": 1,
+        "targetBranch": "targetBranch",
+        "expectedTargetSha": "expectedTargetSha",
+        "destination": "destination",
+        "policyId": "policyId",
+        "validationProfile": {
+          "id": "validationProfile.id",
+          "argv": ["validationProfile.argv[0]"],
+          "cwd": "integration-root",
+          "timeoutMs": 1,
+          "resourceLocks": []
+        },
+        "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"repoId\":\"repoId\",\"repoPath\":\"repoPath\",\"machineId\":\"machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"targetBranch\",\"expectedTargetSha\":\"expectedTargetSha\",\"destination\":\"destination\",\"policyId\":\"policyId\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ShipTrainLane",
+      "variant": "full",
+      "wire": {
+        "repoId": "repoId",
+        "repoPath": "repoPath",
+        "machineId": "machineId",
+        "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "laneRevision": 1,
+        "targetBranch": "targetBranch",
+        "expectedTargetSha": "expectedTargetSha",
+        "destination": "destination",
+        "providerRef": {
+          "provider": "providerRef.provider",
+          "id": "providerRef.id",
+          "url": "providerRef.url"
+        },
+        "policyId": "policyId",
+        "validationProfile": {
+          "id": "validationProfile.id",
+          "argv": ["validationProfile.argv[0]"],
+          "cwd": "integration-root",
+          "timeoutMs": 1,
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
+        },
+        "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"repoId\":\"repoId\",\"repoPath\":\"repoPath\",\"machineId\":\"machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"targetBranch\",\"expectedTargetSha\":\"expectedTargetSha\",\"destination\":\"destination\",\"providerRef\":{\"provider\":\"providerRef.provider\",\"id\":\"providerRef.id\",\"url\":\"providerRef.url\"},\"policyId\":\"policyId\",\"validationProfile\":{\"id\":\"validationProfile.id\",\"argv\":[\"validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "schema": "ShipTrainManifest",
+      "variant": "minimal",
+      "wire": {
+        "version": 1,
+        "id": "id",
+        "subsetId": "subsetId",
+        "repairRound": 0,
+        "lane": {
+          "repoId": "lane.repoId",
+          "repoPath": "lane.repoPath",
+          "machineId": "lane.machineId",
+          "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "laneRevision": 1,
+          "targetBranch": "lane.targetBranch",
+          "expectedTargetSha": "lane.expectedTargetSha",
+          "destination": "lane.destination",
+          "policyId": "lane.policyId",
+          "validationProfile": {
+            "id": "lane.validationProfile.id",
+            "argv": ["lane.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 1,
+            "resourceLocks": []
+          },
+          "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "memberCount": 1,
+        "leaderOrderId": "members[0].orderId",
+        "members": [
+          {
+            "orderId": "members[0].orderId",
+            "issueId": "members[0].issueId",
+            "attemptId": "members[0].attemptId",
+            "generation": 1,
+            "machineId": "lane.machineId",
+            "sourceBranch": "members[0].sourceBranch",
+            "approvedBaseSha": "lane.expectedTargetSha",
+            "approvedHeadSha": "members[0].approvedHeadSha",
+            "deliveryDependsOn": []
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"id\":\"id\",\"subsetId\":\"subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"lane.repoId\",\"repoPath\":\"lane.repoPath\",\"machineId\":\"lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"lane.targetBranch\",\"expectedTargetSha\":\"lane.expectedTargetSha\",\"destination\":\"lane.destination\",\"policyId\":\"lane.policyId\",\"validationProfile\":{\"id\":\"lane.validationProfile.id\",\"argv\":[\"lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"members[0].orderId\",\"members\":[{\"orderId\":\"members[0].orderId\",\"issueId\":\"members[0].issueId\",\"attemptId\":\"members[0].attemptId\",\"generation\":1,\"machineId\":\"lane.machineId\",\"sourceBranch\":\"members[0].sourceBranch\",\"approvedBaseSha\":\"lane.expectedTargetSha\",\"approvedHeadSha\":\"members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]}"
+    },
+    {
+      "schema": "ShipTrainManifest",
+      "variant": "full",
+      "wire": {
+        "version": 1,
+        "id": "id",
+        "subsetId": "subsetId",
+        "repairRound": 0,
+        "lane": {
+          "repoId": "lane.repoId",
+          "repoPath": "lane.repoPath",
+          "machineId": "lane.machineId",
+          "laneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "laneRevision": 1,
+          "targetBranch": "lane.targetBranch",
+          "expectedTargetSha": "lane.expectedTargetSha",
+          "destination": "lane.destination",
+          "providerRef": {
+            "provider": "lane.providerRef.provider",
+            "id": "lane.providerRef.id",
+            "url": "lane.providerRef.url"
+          },
+          "policyId": "lane.policyId",
+          "validationProfile": {
+            "id": "lane.validationProfile.id",
+            "argv": ["lane.validationProfile.argv[0]"],
+            "cwd": "integration-root",
+            "timeoutMs": 1,
+            "resourceLocks": ["lane.validationProfile.resourceLocks[0]"]
+          },
+          "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "memberCount": 1,
+        "leaderOrderId": "members[0].orderId",
+        "members": [
+          {
+            "orderId": "members[0].orderId",
+            "issueId": "members[0].issueId",
+            "attemptId": "members[0].attemptId",
+            "generation": 1,
+            "machineId": "lane.machineId",
+            "sourceBranch": "members[0].sourceBranch",
+            "approvedBaseSha": "lane.expectedTargetSha",
+            "approvedHeadSha": "members[0].approvedHeadSha",
+            "deliveryDependsOn": []
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"id\":\"id\",\"subsetId\":\"subsetId\",\"repairRound\":0,\"lane\":{\"repoId\":\"lane.repoId\",\"repoPath\":\"lane.repoPath\",\"machineId\":\"lane.machineId\",\"laneKey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"laneRevision\":1,\"targetBranch\":\"lane.targetBranch\",\"expectedTargetSha\":\"lane.expectedTargetSha\",\"destination\":\"lane.destination\",\"providerRef\":{\"provider\":\"lane.providerRef.provider\",\"id\":\"lane.providerRef.id\",\"url\":\"lane.providerRef.url\"},\"policyId\":\"lane.policyId\",\"validationProfile\":{\"id\":\"lane.validationProfile.id\",\"argv\":[\"lane.validationProfile.argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"lane.validationProfile.resourceLocks[0]\"]},\"validationProfileDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"memberCount\":1,\"leaderOrderId\":\"members[0].orderId\",\"members\":[{\"orderId\":\"members[0].orderId\",\"issueId\":\"members[0].issueId\",\"attemptId\":\"members[0].attemptId\",\"generation\":1,\"machineId\":\"lane.machineId\",\"sourceBranch\":\"members[0].sourceBranch\",\"approvedBaseSha\":\"lane.expectedTargetSha\",\"approvedHeadSha\":\"members[0].approvedHeadSha\",\"deliveryDependsOn\":[]}]}"
+    },
+    {
+      "schema": "ShipTrainMember",
+      "variant": "minimal",
+      "wire": {
+        "orderId": "orderId",
+        "issueId": "issueId",
+        "attemptId": "attemptId",
+        "generation": 1,
+        "machineId": "machineId",
+        "sourceBranch": "sourceBranch",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "deliveryDependsOn": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"orderId\":\"orderId\",\"issueId\":\"issueId\",\"attemptId\":\"attemptId\",\"generation\":1,\"machineId\":\"machineId\",\"sourceBranch\":\"sourceBranch\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[]}"
+    },
+    {
+      "schema": "ShipTrainMember",
+      "variant": "full",
+      "wire": {
+        "orderId": "orderId",
+        "issueId": "issueId",
+        "attemptId": "attemptId",
+        "generation": 1,
+        "machineId": "machineId",
+        "sourceBranch": "sourceBranch",
+        "approvedBaseSha": "approvedBaseSha",
+        "approvedHeadSha": "approvedHeadSha",
+        "deliveryDependsOn": ["deliveryDependsOn[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"orderId\":\"orderId\",\"issueId\":\"issueId\",\"attemptId\":\"attemptId\",\"generation\":1,\"machineId\":\"machineId\",\"sourceBranch\":\"sourceBranch\",\"approvedBaseSha\":\"approvedBaseSha\",\"approvedHeadSha\":\"approvedHeadSha\",\"deliveryDependsOn\":[\"deliveryDependsOn[0]\"]}"
+    },
+    {
+      "schema": "ShipTrainSubsetId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipTrainSubsetId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "ShipTrainSubsetIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipTrainSubsetIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ShipTrainValidationProfile",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "argv": ["argv[0]"],
+        "cwd": "integration-root",
+        "timeoutMs": 1,
+        "resourceLocks": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"argv\":[\"argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[]}"
+    },
+    {
+      "schema": "ShipTrainValidationProfile",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "argv": ["argv[0]"],
+        "cwd": "integration-root",
+        "timeoutMs": 1,
+        "resourceLocks": ["resourceLocks[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"argv\":[\"argv[0]\"],\"cwd\":\"integration-root\",\"timeoutMs\":1,\"resourceLocks\":[\"resourceLocks[0]\"]}"
+    },
+    {
       "schema": "ShipValidationResult",
       "variant": "minimal",
       "wire": "passed",
@@ -10746,7 +11110,7 @@
           "family": "route.family",
           "accountId": "route.accountId"
         },
-        "repairRef": "refs/podium/ship-repair/fixture-attempt/1",
+        "repairRef": "refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "contract": {
           "kind": "patch",
           "summary": "contract.summary",
@@ -10760,7 +11124,7 @@
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"level\":\"mechanic\",\"route\":{\"level\":\"mechanic\",\"agent\":\"claude-code\",\"model\":\"route.model\",\"effort\":\"route.effort\",\"family\":\"route.family\",\"accountId\":\"route.accountId\"},\"repairRef\":\"refs/podium/ship-repair/fixture-attempt/1\",\"contract\":{\"kind\":\"patch\",\"summary\":\"contract.summary\",\"behaviorImpact\":\"none\",\"touchedPaths\":[],\"patch\":\"contract.patch\",\"concerns\":[]}}"
+      "encoded": "{\"level\":\"mechanic\",\"route\":{\"level\":\"mechanic\",\"agent\":\"claude-code\",\"model\":\"route.model\",\"effort\":\"route.effort\",\"family\":\"route.family\",\"accountId\":\"route.accountId\"},\"repairRef\":\"refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"contract\":{\"kind\":\"patch\",\"summary\":\"contract.summary\",\"behaviorImpact\":\"none\",\"touchedPaths\":[],\"patch\":\"contract.patch\",\"concerns\":[]}}"
     },
     {
       "schema": "ShipwrightAttemptResult",
@@ -10775,7 +11139,7 @@
           "family": "route.family",
           "accountId": "route.accountId"
         },
-        "repairRef": "refs/podium/ship-repair/fixture-attempt/1",
+        "repairRef": "refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "contract": {
           "kind": "patch",
           "summary": "contract.summary",
@@ -10788,7 +11152,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"level\":\"mechanic\",\"route\":{\"level\":\"mechanic\",\"agent\":\"claude-code\",\"model\":\"route.model\",\"effort\":\"route.effort\",\"family\":\"route.family\",\"accountId\":\"route.accountId\"},\"repairRef\":\"refs/podium/ship-repair/fixture-attempt/1\",\"contract\":{\"kind\":\"patch\",\"summary\":\"contract.summary\",\"behaviorImpact\":\"none\",\"touchedPaths\":[\"contract.touchedPaths[0]\"],\"patch\":\"contract.patch\",\"concerns\":[\"contract.concerns[0]\"]}}"
+      "encoded": "{\"level\":\"mechanic\",\"route\":{\"level\":\"mechanic\",\"agent\":\"claude-code\",\"model\":\"route.model\",\"effort\":\"route.effort\",\"family\":\"route.family\",\"accountId\":\"route.accountId\"},\"repairRef\":\"refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"contract\":{\"kind\":\"patch\",\"summary\":\"contract.summary\",\"behaviorImpact\":\"none\",\"touchedPaths\":[\"contract.touchedPaths[0]\"],\"patch\":\"contract.patch\",\"concerns\":[\"contract.concerns[0]\"]}}"
     },
     {
       "schema": "ShipwrightAttemptResult",
@@ -10803,7 +11167,7 @@
           "family": "route.family",
           "accountId": "route.accountId"
         },
-        "repairRef": "refs/podium/ship-repair/fixture-attempt/1",
+        "repairRef": "refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "contract": {
           "kind": "inspection",
           "verdict": "ambiguous",
@@ -10814,7 +11178,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"level\":\"solver\",\"route\":{\"level\":\"solver\",\"agent\":\"codex\",\"model\":\"route.model\",\"effort\":\"route.effort\",\"family\":\"route.family\",\"accountId\":\"route.accountId\"},\"repairRef\":\"refs/podium/ship-repair/fixture-attempt/1\",\"contract\":{\"kind\":\"inspection\",\"verdict\":\"ambiguous\",\"summary\":\"contract.summary\",\"concerns\":[\"contract.concerns[0]\"]}}"
+      "encoded": "{\"level\":\"solver\",\"route\":{\"level\":\"solver\",\"agent\":\"codex\",\"model\":\"route.model\",\"effort\":\"route.effort\",\"family\":\"route.family\",\"accountId\":\"route.accountId\"},\"repairRef\":\"refs/podium/ship-repair/fixture-order/fixture-attempt/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"contract\":{\"kind\":\"inspection\",\"verdict\":\"ambiguous\",\"summary\":\"contract.summary\",\"concerns\":[\"contract.concerns[0]\"]}}"
     },
     {
       "schema": "ShipwrightBehaviorImpact",
