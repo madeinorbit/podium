@@ -10,7 +10,6 @@ import {
   type MachineId,
   type SessionMeta,
 } from '@podium/model/browser'
-import { harnessSupportsNoTools } from '@podium/harness/metadata'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -231,13 +230,24 @@ export function accountOptions(
   ]
   if (role === 'coding')
     return [...allNative, ...MANAGED_CODING_ACCOUNTS.map((o) => ({ id: o.id, label: o.label }))]
-  if (role === 'shipwright') {
-    return allNative.filter((option) => {
-      const harness = option.id.slice('native:'.length).split(':', 1)[0]
-      return harness !== undefined && harnessSupportsNoTools(harness)
-    })
-  }
-  if (role === 'superagent') return allNative
+  // SHIPWRIGHT OFFERS WHAT THE SUPERAGENT DOES, and the omission is deliberate.
+  //
+  // This branch used to narrow the list to harnesses with a native all-tools-off
+  // mechanism (today Claude Code alone) by calling `harnessSupportsNoTools` from
+  // `@podium/harness/metadata`. That import answered one boolean by reaching the whole
+  // manifest registry, so the browser's settings chunk grew to 846KB of source against
+  // a 280KB budget — and it broke `manifest-platform` besides, since browser-safe
+  // apps/web may not take values from node-only packages/harness.
+  //
+  // The eligibility rule is not lost, just no longer duplicated here: the server
+  // enforces it where it can actually refuse (`shipping/shipwright-router.ts`,
+  // `superagent/headless.ts`). Showing it again in the picker needs the server to
+  // PROJECT the answer, which belongs with the real shipwright UI — and that UI should
+  // likely disable ineligible entries WITH THE REASON ('Codex cannot disable its
+  // tools') rather than silently omit them, which is a seam worth designing once
+  // instead of twice. Until then the whole control sits behind the dev-only
+  // `shipwright` feature flag, and the engine it configures is dormant regardless.
+  if (role === 'superagent' || role === 'shipwright') return allNative
   return [
     ...allNative.filter((option) => option.id.startsWith('native:codex')),
     ...MANAGED_PROVIDERS.map((o) => ({ id: asAccountId('managed:' + o.provider), label: o.label })),

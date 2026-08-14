@@ -82,6 +82,11 @@ describe('accountOptions', () => {
       'managed:openai',
       'managed:openrouter',
     ])
+    // Shipwright mirrors the superagent: every native account, discovered logins
+    // included. It deliberately no longer narrows to all-tools-off harnesses — doing
+    // that in the browser meant importing the harness manifest registry into the
+    // settings bundle. The rule still holds where it can refuse (the server's
+    // shipwright router), and this asserts the picker does NOT restate it.
     expect(
       accountOptions('shipwright', [
         {
@@ -92,7 +97,14 @@ describe('accountOptions', () => {
           status: 'connected',
         },
       ]).map((option) => option.id),
-    ).toEqual(['native:claude-code'])
+    ).toEqual([
+      'native:claude-code',
+      'native:codex',
+      'native:grok',
+      'native:opencode',
+      'native:cursor',
+      'native:grok:fingerprint',
+    ])
   })
 })
 

@@ -128,6 +128,24 @@ export const FEATURES = [
     description: 'Choose between balanced and compact shell styling in Appearance.',
     visibility: 'edge',
   },
+  {
+    // The shipwright repair engine (`apps/server/src/modules/shipping/shipwright.ts`)
+    // is COMPLETE AND DORMANT: `ShipwrightService` is constructed nowhere outside its
+    // own test, and the shipping service never names it. So the account this control
+    // writes to `roles.shipwright` is a preference nothing reads.
+    //
+    // `hidden` rather than `edge` ON PURPOSE — the gate is not about release channel
+    // but about whether the reader can act on what they see. An edge user toggling an
+    // account for an engine that cannot run is offered a decision with no effect,
+    // which is worse than an absent control. Dev installs get it so the picker stays
+    // exercisable while the real shipwright UI is built; that UI is what should widen
+    // this, in the same change that wires the engine up.
+    id: 'shipwright',
+    name: 'Shipwright',
+    description:
+      'Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.',
+    visibility: 'hidden',
+  },
 ] as const satisfies readonly FeatureDefinition[]
 
 export type FeatureId = (typeof FEATURES)[number]['id']

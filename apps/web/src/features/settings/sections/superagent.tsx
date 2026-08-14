@@ -3,6 +3,7 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { useFeature } from '@/lib/use-feature'
 import { type AccountView, RoleBackendEditor, Section } from './shared'
 
 /** The orchestrator's backend (account/model/effort) + the restart escape hatch. */
@@ -15,6 +16,10 @@ export function SuperagentSection({
   accounts: AccountView[]
   patch: (p: Partial<PodiumSettings>) => void
 }): JSX.Element {
+  // Dev-only until the real shipwright UI lands and wires the repair engine up; see
+  // the `shipwright` entry in packages/protocol/src/features.ts for why it is `hidden`
+  // rather than `edge`.
+  const shipwrightEnabled = useFeature('shipwright')
   return (
     <Section
       title="Superagent"
@@ -27,20 +32,26 @@ export function SuperagentSection({
         onChange={(superagent) => patch({ roles: { ...settings.roles, superagent } })}
       />
       <RestartSuperagentButton />
-      <div className="mt-6 border-t border-border pt-5">
-        <h3 className="mb-1 text-sm font-medium">Shipwright</h3>
-        <p className="settings-prose mb-3">
-          Personal account for bounded conflict and gate repair. Only harnesses that can disable
-          tools, settings, and hooks are offered; live model availability and quota choose among
-          that account&apos;s models for each safe-fix attempt.
-        </p>
-        <RoleBackendEditor
-          role="shipwright"
-          backend={settings.roles.shipwright}
-          accounts={accounts}
-          onChange={(shipwright) => patch({ roles: { ...settings.roles, shipwright } })}
-        />
-      </div>
+      {shipwrightEnabled && (
+        <div className="mt-6 border-t border-border pt-5">
+          <h3 className="mb-1 text-sm font-medium">Shipwright</h3>
+          {/* The claim "only harnesses that can disable tools are offered" used to live
+              here and was true of a picker that filtered itself in the browser. It no
+              longer filters (see accountOptions in ./shared.tsx), so the constraint is
+              stated as a fact about repairs instead of a promise about this list. */}
+          <p className="settings-prose mb-3">
+            Personal account for bounded conflict and gate repair. A repair runs a tool-less turn,
+            so only a harness that can disable its own tools can serve — Claude Code today. The
+            repair engine is not wired up yet, so this choice is saved but not yet acted on.
+          </p>
+          <RoleBackendEditor
+            role="shipwright"
+            backend={settings.roles.shipwright}
+            accounts={accounts}
+            onChange={(shipwright) => patch({ roles: { ...settings.roles, shipwright } })}
+          />
+        </div>
+      )}
     </Section>
   )
 }

@@ -5044,6 +5044,726 @@
     },
     {
       "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipping",
+        "visibility": "edge",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipping",
+        "name": "Shipping",
+        "description": "Show durable delivery progress in the right sidebar.",
+        "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
         "id": "tab-splitting",
         "visibility": "edge",
         "configValue": "unset",
@@ -10796,6 +11516,726 @@
         "name": "Shell density",
         "description": "Choose between balanced and compact shell styling in Appearance.",
         "visibility": "edge",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
+        "listed": false,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "shipwright",
+        "visibility": "hidden",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "shipwright",
+        "name": "Shipwright",
+        "description": "Show the Shipwright account picker in Superagent settings. The bounded shipping-repair engine is not wired up yet, so the chosen account is stored but never used.",
+        "visibility": "hidden",
         "listed": true,
         "enabled": false,
         "source": "config",
