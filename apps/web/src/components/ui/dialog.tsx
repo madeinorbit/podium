@@ -62,7 +62,12 @@ function DialogContent({
         className={cn(
           "fixed z-50 outline-none",
           position === "centered"
-            ? "top-1/2 left-1/2 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95"
+            ? // A centred popup is `fixed`, so anything taller than the viewport hung
+              // off both edges with nothing able to scroll it — the page behind cannot.
+              // Bound it to the viewport and let it scroll itself. Both utilities sit in
+              // tailwind-merge groups a call site can override (`max-h-*`, `overflow-*`),
+              // so the modals that manage their own inner scroll keep doing so.
+              "top-1/2 left-1/2 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-auto overscroll-contain rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95"
             : "inset-0",
           className
         )}

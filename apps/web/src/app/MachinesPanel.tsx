@@ -1,11 +1,14 @@
 // This app-level surface composes settings, setup, and machine capabilities.
-import { asMachineId } from '@podium/model'
+
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
+import { asMachineId } from '@podium/model'
 import type { MachineWire, UpdateChannel } from '@podium/model/browser'
-import type { JSX } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { ChevronLeft } from 'lucide-react'
+import type { JSX, ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { type Store, useStoreSelector } from '@/app/store'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -35,8 +38,8 @@ import {
   useServerTransfer,
   useServerTransferStatus,
 } from '@/features/machines/server-transfer'
-import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { NetworkStep } from '@/features/setup/network-step'
+import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -76,7 +79,7 @@ export function ServerTransferProgress({
         className="space-y-1 rounded-md border border-warning/40 bg-warning/10 px-3 py-2"
         role="alert"
       >
-        <p className="settings-label text-warning">Connection could not be confirmed</p>
+        <p className="settings-label text-warning!">Connection could not be confirmed</p>
         <p className="settings-prose">
           {detail ??
             `${targetName} may already be serving. Keep the old server stopped, check the target, and do not retry the transfer.`}
@@ -88,7 +91,7 @@ export function ServerTransferProgress({
   if (state === 'aborted') {
     return (
       <div className="space-y-1 rounded-md border border-destructive/30 px-3 py-2" role="alert">
-        <p className="settings-label text-destructive">Transfer stopped safely</p>
+        <p className="settings-label text-destructive!">Transfer stopped safely</p>
         <p className="settings-prose">
           {detail ??
             `The current server is still active. Resolve the reported problem before trying ${targetName} again.`}
@@ -133,8 +136,8 @@ export function ServerTransferProgress({
   )
 }
 
-export { SERVER_TRANSFER_CONFIRMATION }
 export type { ServerTransferStatusSnapshot }
+export { SERVER_TRANSFER_CONFIRMATION }
 
 /** One machine's server-side convergence, as the fleet read model reports it. */
 export interface MachineConvergence {
@@ -272,151 +275,165 @@ export function MachinesPanel({
     setSettingsTab('network')
   }
 
+  const closeAddMachine = useCallback((): void => {
+    setAddOpen(false)
+    pairing.reset()
+    setRecommendServer(false)
+    setMakeServerAfterPair(false)
+  }, [pairing.reset])
+
   return (
     <div className="py-3">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h3 className="settings-h">Machines</h3>
-          <p className="settings-prose mt-1">
-            Every machine running a Podium daemon that has paired with this server. Sessions from
-            all machines appear together in your workspace.
-          </p>
-        </div>
-        <Dialog
-          open={addOpen}
-          onOpenChange={(o) => {
-            setAddOpen(o)
-            if (!o) {
-              pairing.reset()
-              setRecommendServer(false)
-              setMakeServerAfterPair(false)
-            }
-          }}
+      {addOpen ? (
+        // ONE LAYER: pairing is a sub-flow of the Settings sheet, so it takes the
+        // sheet's own body and offers a way back rather than stacking a dialog on
+        // a dialog. It also inherits the pane's scrolling, which is what a fixed,
+        // centred popup could never do on a short window.
+        <AddMachineFlow
+          onBack={closeAddMachine}
+          intro={
+            pairing.pairingCode && !pairing.joinCommand && !pairing.loading
+              ? 'This server needs a reachable URL before it can pair a machine — set that up here.'
+              : 'Run the command below on the other machine. It installs the three supported agents and copies existing native logins from one of your online machines.'
+          }
         >
-          <DialogTrigger
-            render={<Button variant="outline" size="sm" type="button" onClick={openAddMachine} />}
-          >
-            Add machine
-          </DialogTrigger>
-          <DialogContent showCloseButton className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Add a machine</DialogTitle>
-              <DialogDescription>
-                {pairing.pairingCode && !pairing.joinCommand && !pairing.loading
-                  ? 'This server needs a reachable URL before it can pair a machine — set that up here.'
-                  : 'Run the command below on the other machine. It installs the three supported agents and copies existing native logins from one of your online machines.'}
-              </DialogDescription>
-            </DialogHeader>
-            {pairing.error && <p className="settings-prose text-destructive">{pairing.error}</p>}
-            {pairing.loading && <p className="settings-prose">Generating pairing code…</p>}
-            {pairing.pairingCode && pairing.joinCommand && (
-              <PairingCodeDisplay
-                code={pairing.pairingCode}
-                joinCommand={pairing.joinCommand}
-                publicUrl={pairing.publicUrl}
-                onChangeUrl={goChangeUrl}
-                podiumManaged={pairing.podiumManaged}
-                onManagedChange={(managed) => void pairing.mint({ podiumManaged: managed })}
-                recommendServer={recommendServer}
-                makeServerAfterPair={makeServerAfterPair}
-                onMakeServerAfterPairChange={setMakeServerAfterPair}
-                pairedMachine={newlyPairedMachine}
-                onReviewPairedMachine={() => {
-                  if (newlyPairedMachine) {
-                    setAddOpen(false)
-                    setServerTransferTarget(newlyPairedMachine)
+          {pairing.error && (
+            <p className="settings-prose text-destructive!" role="alert">
+              {pairing.error}
+            </p>
+          )}
+          {pairing.loading && (
+            <p className="settings-prose flex items-center gap-2">
+              <span className="spb" aria-hidden="true" />
+              Generating pairing code…
+            </p>
+          )}
+          {pairing.pairingCode && pairing.joinCommand && (
+            <PairingCodeDisplay
+              code={pairing.pairingCode}
+              joinCommand={pairing.joinCommand}
+              publicUrl={pairing.publicUrl}
+              onChangeUrl={goChangeUrl}
+              podiumManaged={pairing.podiumManaged}
+              onManagedChange={(managed) => void pairing.mint({ podiumManaged: managed })}
+              recommendServer={recommendServer}
+              makeServerAfterPair={makeServerAfterPair}
+              onMakeServerAfterPairChange={setMakeServerAfterPair}
+              pairedMachine={newlyPairedMachine}
+              onNewCode={() => void pairing.mint({ podiumManaged: pairing.podiumManaged })}
+              minting={pairing.loading}
+              onReviewPairedMachine={() => {
+                if (newlyPairedMachine) {
+                  closeAddMachine()
+                  setServerTransferTarget(newlyPairedMachine)
+                }
+              }}
+            />
+          )}
+          {pairing.pairingCode && !pairing.joinCommand && !pairing.loading && (
+            // No publicUrl yet ⇒ the server can't build a join command. Let the user set up
+            // reachability right here (same flow as the CLI / first-run setup), then re-mint —
+            // which now returns a full one-line join command.
+            <NetworkStep
+              embedded
+              trpc={trpc}
+              onSaved={() => void pairing.mint({ podiumManaged: pairing.podiumManaged })}
+            />
+          )}
+        </AddMachineFlow>
+      ) : (
+        <>
+          {/* No wrap: the action belongs to the heading's line at every width —
+              wrapped, it lands under the paragraph and reads as part of it. */}
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="settings-h">Machines</h3>
+              <p className="settings-prose mt-1">
+                Every machine running a Podium daemon that has paired with this server. Sessions
+                from all machines appear together in your workspace.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              className="flex-none"
+              onClick={openAddMachine}
+            >
+              Add machine
+            </Button>
+          </div>
+
+          {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
+
+          {activeTransferMachine && !serverTransferTarget && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-hairline-soft bg-muted/20 p-3.5">
+              <div className="min-w-0 flex-1">
+                <ServerTransferProgress
+                  state={
+                    transferDisplayState(transferStatus.snapshot?.transfer ?? null) ?? 'preparing'
                   }
-                }}
-              />
-            )}
-            {pairing.pairingCode && !pairing.joinCommand && !pairing.loading && (
-              // No publicUrl yet ⇒ the server can't build a join command. Let the user set up
-              // reachability right here (same flow as the CLI / first-run setup), then re-mint —
-              // which now returns a full one-line join command.
-              <NetworkStep
-                embedded
-                trpc={trpc}
-                onSaved={() => void pairing.mint({ podiumManaged: pairing.podiumManaged })}
-              />
-            )}
-            {pairing.pairingCode && pairing.joinCommand && (
-              <DialogFooter showCloseButton>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={pairing.loading}
-                  onClick={() => void pairing.mint({ podiumManaged: pairing.podiumManaged })}
-                >
-                  New code
-                </Button>
-              </DialogFooter>
-            )}
-          </DialogContent>
-        </Dialog>
-        {serverTransferTarget && (
-          <ServerTransferDialog
-            machine={serverTransferTarget}
-            sourceName={sourceMachine?.name ?? 'the current server'}
-            status={transferStatus}
-            trpc={trpc}
-            open
-            onOpenChange={(open) => {
-              if (!open) setServerTransferTarget(null)
-            }}
-          />
-        )}
-      </div>
+                  targetName={activeTransferMachine.name}
+                  detail={transferErrorMessage(transferStatus.snapshot?.transfer ?? null)}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="flex-none"
+                onClick={() => setServerTransferTarget(activeTransferMachine)}
+              >
+                View transfer
+              </Button>
+            </div>
+          )}
 
-      {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
-
-      {activeTransferMachine && !serverTransferTarget && (
-        <div className="mb-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
-          <ServerTransferProgress
-            state={transferDisplayState(transferStatus.snapshot?.transfer ?? null) ?? 'preparing'}
-            targetName={activeTransferMachine.name}
-            detail={transferErrorMessage(transferStatus.snapshot?.transfer ?? null)}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="flex-none"
-            onClick={() => setServerTransferTarget(activeTransferMachine)}
-          >
-            View transfer
-          </Button>
-        </div>
+          {machines.length === 0 ? (
+            <p className="settings-prose rounded-lg border border-hairline-soft bg-muted/20 p-3.5">
+              No machines paired yet. Click "Add machine" to get started.
+            </p>
+          ) : (
+            // The run, not a stack of cards: one hairline between machines, the
+            // same list grammar Connected devices uses two tabs away.
+            <div className="divide-y divide-border border-y border-border">
+              {machines.map((m) => (
+                <MachineRow
+                  key={m.id}
+                  machine={m}
+                  now={now}
+                  trpc={trpc}
+                  isThisMachine={m.id === thisMachineId}
+                  onTransferServer={
+                    eligibleTransferTargets.has(m.id) ? () => setServerTransferTarget(m) : null
+                  }
+                  serverTransferUnsupported={unsupportedTransferTargets.has(m.id)}
+                  showOwnershipTransfer={showOwnershipTransfer}
+                  // Inline "Enable": only on this device's own row, only while it is offline
+                  // (online means the daemon is already running) [spec:SP-3701].
+                  hosting={m.id === thisMachineId && !m.online ? hosting : null}
+                  onFindRepos={m.online ? () => setFindReposFor(m.id) : null}
+                  serverAppVersion={serverAppVersion}
+                  convergence={convergence.rows.get(m.id) ?? null}
+                  onConvergenceChanged={convergence.refresh}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      {machines.length === 0 ? (
-        <p className="settings-prose py-2">
-          No machines paired yet. Click "Add machine" to get started.
-        </p>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {machines.map((m) => (
-            <MachineRow
-              key={m.id}
-              machine={m}
-              now={now}
-              trpc={trpc}
-              isThisMachine={m.id === thisMachineId}
-              onTransferServer={
-                eligibleTransferTargets.has(m.id) ? () => setServerTransferTarget(m) : null
-              }
-              serverTransferUnsupported={unsupportedTransferTargets.has(m.id)}
-              showOwnershipTransfer={showOwnershipTransfer}
-              // Inline "Enable": only on this device's own row, only while it is offline
-              // (online means the daemon is already running) [spec:SP-3701].
-              hosting={m.id === thisMachineId && !m.online ? hosting : null}
-              onFindRepos={m.online ? () => setFindReposFor(m.id) : null}
-              serverAppVersion={serverAppVersion}
-              convergence={convergence.rows.get(m.id) ?? null}
-              onConvergenceChanged={convergence.refresh}
-            />
-          ))}
-        </div>
+      {serverTransferTarget && (
+        <ServerTransferDialog
+          machine={serverTransferTarget}
+          sourceName={sourceMachine?.name ?? 'the current server'}
+          status={transferStatus}
+          trpc={trpc}
+          open
+          onOpenChange={(open) => {
+            if (!open) setServerTransferTarget(null)
+          }}
+        />
       )}
 
       {findReposFor && (
@@ -427,6 +444,58 @@ export function MachinesPanel({
         />
       )}
     </div>
+  )
+}
+
+/**
+ * The pairing sub-flow, as a takeover of the Settings pane body.
+ *
+ * A dialog over the sheet would be the second modal layer the sheet tier forbids
+ * — two backdrops, two owners of Escape — and, being `fixed` and centred, it hung
+ * off both edges of a short window with nothing able to scroll it. Here the pane
+ * scrolls, and Escape means "back to the list" rather than "throw the whole
+ * Settings sheet away mid-pairing".
+ */
+function AddMachineFlow({
+  onBack,
+  intro,
+  children,
+}: {
+  onBack: () => void
+  intro: string
+  children: ReactNode
+}): JSX.Element {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      // Capture phase, and `preventDefault` rather than `stopPropagation`: the
+      // sheet's own Escape handler is a window listener registered before this
+      // one, and it stands down for an already-defaulted event.
+      event.preventDefault()
+      onBack()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onBack])
+
+  return (
+    <section className="settings-section-enter" aria-labelledby="add-machine-heading">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="-ml-2.5 mb-3 text-muted-foreground"
+        onClick={onBack}
+      >
+        <ChevronLeft data-icon="inline-start" aria-hidden="true" />
+        Back to machines
+      </Button>
+      <h3 id="add-machine-heading" className="settings-h">
+        Add a machine
+      </h3>
+      <p className="settings-prose mt-1">{intro}</p>
+      <div className="mt-5 space-y-5">{children}</div>
+    </section>
   )
 }
 
@@ -518,6 +587,8 @@ function PairingCodeDisplay({
   onMakeServerAfterPairChange,
   pairedMachine,
   onReviewPairedMachine,
+  onNewCode,
+  minting,
 }: {
   code: string
   joinCommand: string | null
@@ -530,6 +601,9 @@ function PairingCodeDisplay({
   onMakeServerAfterPairChange: (value: boolean) => void
   pairedMachine: MachineWire | null
   onReviewPairedMachine: () => void
+  /** Mint a fresh code and join command for the same options. */
+  onNewCode: () => void
+  minting: boolean
 }): JSX.Element {
   const [copied, setCopied] = useState(false)
 
@@ -542,93 +616,72 @@ function PairingCodeDisplay({
   }
 
   return (
-    // min-w-0: the dialog is a CSS grid, whose items default to min-width:auto — without this a
-    // long, unbreakable URL/token pushes the whole popup wider than its max-width.
-    <div className="min-w-0 space-y-3">
-      {publicUrl && (
-        // Show which URL the join code points at — the #1 thing that goes wrong (a throwaway
-        // tunnel URL). One click to change it in Settings → Network.
-        <div className="flex flex-col gap-1">
-          <span className="settings-micro uppercase tracking-wide">
-            Server URL this code points at
+    // min-w-0: a long, unbreakable URL or token must wrap inside the pane rather
+    // than push the whole column past its measure.
+    <div className="min-w-0 space-y-5">
+      {/* THE OPTIONS COME FIRST because they re-mint the command underneath
+          them: a choice offered after the thing it changes is a choice made
+          twice. */}
+      <div className="space-y-2">
+        {/* A control that names itself and then explains itself: the same
+            label-over-prose pair a settings Row makes, so this checkbox reads at
+            the sheet's scale rather than a size of its own. */}
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-hairline-soft bg-muted/20 px-3 py-2.5 transition-colors hover:border-border">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={podiumManaged}
+            onChange={(event) => onManagedChange(event.currentTarget.checked)}
+          />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="settings-label">Podium-managed machine</span>
+            <span className="settings-prose">
+              When off, mark this machine as shared and keep native logins local.
+            </span>
           </span>
-          <div className="flex items-start gap-2">
-            <code className="min-w-0 flex-1 break-all rounded bg-muted px-2 py-1 text-[13px]">
-              {publicUrl}
-            </code>
+        </label>
+        {recommendServer && (
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={makeServerAfterPair}
+              onChange={(event) => onMakeServerAfterPairChange(event.currentTarget.checked)}
+            />
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="settings-label">Recommended: make this the server</span>
+              <span className="settings-prose">
+                If this is an always-on VPS, make it the server. Your current machine keeps its
+                agent sessions but stops hosting the shared Podium state.
+              </span>
+            </span>
+          </label>
+        )}
+      </div>
+
+      <div className="min-w-0 space-y-2">
+        {publicUrl && (
+          // Which URL the join code points at — the #1 thing that goes wrong (a
+          // throwaway tunnel URL). It sits above the command because it is what
+          // the command will dial. One click to change it in Settings → Network.
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="settings-micro flex-none">Server URL this code points at</span>
+            <code className="settings-value min-w-0 break-all">{publicUrl}</code>
             {onChangeUrl && (
               <Button
                 type="button"
-                variant="outline"
-                size="sm"
-                className="flex-none"
+                variant="ghost"
+                size="xs"
+                className="flex-none text-muted-foreground"
                 onClick={onChangeUrl}
               >
                 Change…
               </Button>
             )}
           </div>
-        </div>
-      )}
-      <div className="flex flex-col gap-1">
-        <span className="settings-micro uppercase tracking-wide">Pairing code</span>
-        <code className="block rounded bg-muted px-2 py-1 font-mono text-[13.5px] tracking-widest">
-          {code}
-        </code>
-      </div>
-      {/* A control that names itself and then explains itself: the same
-          label-over-prose pair a settings Row makes, so this checkbox reads at
-          the sheet's scale rather than a size of its own. */}
-      <label className="flex items-start gap-2 rounded-md border border-border px-2.5 py-2">
-        <input
-          type="checkbox"
-          className="mt-0.5"
-          checked={podiumManaged}
-          onChange={(event) => onManagedChange(event.currentTarget.checked)}
-        />
-        <span className="flex flex-col gap-0.5">
-          <span className="settings-label">Podium-managed machine</span>
-          <span className="settings-prose">
-            When off, mark this machine as shared and keep native logins local.
-          </span>
-        </span>
-      </label>
-      {recommendServer && (
-        <label className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2 text-[12px]">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={makeServerAfterPair}
-            onChange={(event) => onMakeServerAfterPairChange(event.currentTarget.checked)}
-          />
-          <span className="flex flex-col gap-0.5">
-            <span className="text-foreground">Recommended: make this the server</span>
-            <span className="text-[11px] text-muted-foreground">
-              If this is an always-on VPS, make it the server. Your current machine keeps its agent
-              sessions but stops hosting the shared Podium state.
-            </span>
-          </span>
-        </label>
-      )}
-      {pairedMachine && (
-        <div
-          className="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-2.5 py-2 text-[12px]"
-          role="status"
-        >
-          <span className="min-w-0 flex-1 text-muted-foreground">
-            <strong className="text-foreground">{pairedMachine.name}</strong> is paired, and the
-            server reports it is ready for transfer review.
-          </span>
-          <Button type="button" size="sm" className="flex-none" onClick={onReviewPairedMachine}>
-            Review transfer
-          </Button>
-        </div>
-      )}
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <span className="settings-micro uppercase tracking-wide">
-            Command to run on the other machine
-          </span>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="settings-label">Command to run on the other machine</span>
           {joinCommand && (
             <Button type="button" size="sm" className="flex-none" onClick={copy}>
               {copied ? 'Copied' : 'Copy command'}
@@ -638,9 +691,9 @@ function PairingCodeDisplay({
         {joinCommand ? (
           // Meant to be copied, not read: keep it to a single line on a carved surface that
           // scrolls horizontally, so a long install command can't balloon and dominate the
-          // dialog. The Copy button above is the real affordance; `title` exposes the full text.
+          // pane. The Copy button above is the real affordance; `title` exposes the full text.
           <code
-            className="block max-w-full overflow-x-auto whitespace-nowrap rounded-md border bg-muted px-2.5 py-2 font-mono text-[12px] leading-relaxed text-muted-foreground [scrollbar-width:thin]"
+            className="block max-w-full overflow-x-auto whitespace-nowrap rounded-md border border-hairline-soft bg-muted px-2.5 py-2 font-mono text-[12px] leading-relaxed text-muted-foreground [scrollbar-width:thin]"
             title={joinCommand}
           >
             {joinCommand}
@@ -648,8 +701,48 @@ function PairingCodeDisplay({
         ) : (
           <p className="settings-prose">Finish setup to get a one-line join command.</p>
         )}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="settings-micro">Pairing code</span>
+          <code className="settings-value tracking-[0.16em]">{code}</code>
+          <span className="settings-micro" aria-hidden="true">
+            ·
+          </span>
+          <span className="settings-micro">The code expires after one use or 1 hour.</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
+            disabled={minting}
+            onClick={onNewCode}
+          >
+            New code
+          </Button>
+        </div>
       </div>
-      <p className="settings-micro">The code expires after one use or 1 hour.</p>
+
+      {/* The end of the flow: still waiting, or paired. One line, never both. */}
+      {pairedMachine ? (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-success/30 bg-success/5 px-3 py-2.5"
+          role="status"
+        >
+          <span className="settings-prose min-w-0 flex-1">
+            <strong className="font-medium text-foreground">{pairedMachine.name}</strong> is paired,
+            and the server reports it is ready for transfer review.
+          </span>
+          <Button type="button" size="sm" className="flex-none" onClick={onReviewPairedMachine}>
+            Review transfer
+          </Button>
+        </div>
+      ) : (
+        joinCommand && (
+          <p className="settings-prose flex items-center gap-2" role="status">
+            <span className="spb" aria-hidden="true" />
+            Waiting for the machine to run the command…
+          </p>
+        )
+      )}
     </div>
   )
 }
@@ -733,19 +826,19 @@ function ServerTransferDialog({
               />
             </label>
             {transfer.publicUrl.trim() !== '' && !transfer.urlIsValid && (
-              <p className="settings-prose text-destructive" role="alert">
+              <p className="settings-prose text-destructive!" role="alert">
                 Enter a complete HTTP or HTTPS public URL.
               </p>
             )}
             {(transfer.error || status.error || transferErrorMessage(transfer.transfer)) && (
-              <p className="settings-prose text-destructive" role="alert">
+              <p className="settings-prose text-destructive!" role="alert">
                 {transfer.error ?? status.error ?? transferErrorMessage(transfer.transfer)}
               </p>
             )}
           </div>
         )}
         {transfer.showProgress && (transfer.error || status.error) && (
-          <p className="settings-prose text-destructive" role="alert">
+          <p className="settings-prose text-destructive!" role="alert">
             {transfer.error ?? status.error}
           </p>
         )}
@@ -906,276 +999,297 @@ function MachineRow({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2 text-[13.5px]">
-      {/* Online/offline dot */}
-      <span
-        role="img"
-        className={cn(
-          'flex-none size-1.5 rounded-full',
-          machine.online ? 'bg-success' : 'bg-muted-foreground/40',
-        )}
-        title={machine.online ? 'Online' : 'Offline'}
-        aria-label={machine.online ? 'Online' : 'Offline'}
-      />
-
-      {/* Name — inline editable */}
-      <div className="min-w-0 flex-1">
-        {editing ? (
-          <Input
-            className="h-6 px-1.5 text-[13.5px]"
-            value={name}
-            autoFocus
-            disabled={renaming}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => void commitRename()}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void commitRename()
-              if (e.key === 'Escape') {
-                setName(machine.name)
-                setEditing(false)
-              }
-            }}
-            aria-label="Machine name"
+    <div className="py-4">
+      {/* IDENTITY LEFT, ACTIONS RIGHT. The row used to be one wrap of eleven
+          equal-weight items — dot, name, two pills, hostname, version, badge,
+          timestamp and four buttons — so nothing led and the buttons landed in a
+          different place on every row. Now the machine names itself on one line,
+          says what it is on a second in machine voice, and every action sits in
+          one cluster on the same right edge. */}
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-5">
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          {/* Online/offline dot */}
+          <span
+            role="img"
+            className={cn(
+              'mt-[7px] size-1.5 flex-none rounded-full',
+              machine.online ? 'bg-success' : 'bg-muted-foreground/40',
+            )}
+            title={machine.online ? 'Online' : 'Offline'}
+            aria-label={machine.online ? 'Online' : 'Offline'}
           />
-        ) : (
-          <button
-            data-pressable
-            type="button"
-            className="cursor-text truncate text-left text-foreground hover:underline"
-            title="Click to rename"
-            onClick={() => setEditing(true)}
-          >
-            {machine.name}
-          </button>
-        )}
-      </div>
 
-      {isThisMachine && (
-        <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground uppercase tracking-wide">
-          this machine
-        </span>
-      )}
-
-      <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground uppercase tracking-wide">
-        {machine.podiumManaged === false ? 'shared' : 'Podium-managed'}
-      </span>
-
-      {/* Hostname */}
-      <span
-        className="hidden max-w-[140px] flex-none truncate settings-micro sm:block"
-        title={machine.hostname}
-      >
-        {machine.hostname}
-      </span>
-
-      {/* Daemon build version + skew badge [POD-838] */}
-      {daemonVersion && (
-        <span
-          className="settings-micro hidden flex-none sm:block"
-          title={`Podium ${daemonVersion} on this machine`}
-        >
-          {daemonVersion}
-        </span>
-      )}
-      {needsUpdate && (
-        <span
-          className="flex-none rounded bg-warning/15 px-1.5 py-0.5 text-[11px] text-warning uppercase tracking-wide"
-          title={`This machine runs Podium ${daemonVersion}; its selected update target is ${updateTargetVersion}.`}
-        >
-          update available
-        </span>
-      )}
-
-      {/* Last seen */}
-      <span className="settings-micro flex-none">
-        {machine.online ? 'now' : relativeTime(machine.lastSeenAt, now)}
-      </span>
-
-      {/* Discover this machine's repos (POD-787) */}
-      {onFindRepos && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="flex-none text-muted-foreground"
-          onClick={onFindRepos}
-        >
-          Find repos
-        </Button>
-      )}
-
-      {/* Enable hosting on this (offline, previously paired) device [spec:SP-3701] */}
-      {hosting && (
-        <>
-          {hosting.error && (
-            <span
-              className="max-w-[24ch] truncate settings-micro text-destructive"
-              title={hosting.error}
-            >
-              {hosting.error}
-            </span>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="flex-none"
-            disabled={hosting.busy}
-            onClick={() => void hosting.enable()}
-          >
-            {hosting.busy ? 'Enabling…' : 'Enable'}
-          </Button>
-        </>
-      )}
-
-      {(onTransferServer || serverTransferUnsupported) && (
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="flex-none"
-            disabled={serverTransferUnsupported}
-            title={
-              serverTransferUnsupported
-                ? 'Update this machine to the same Podium version as the server first.'
-                : undefined
-            }
-            onClick={onTransferServer ?? undefined}
-          >
-            Make server
-          </Button>
-          {serverTransferUnsupported && (
-            <span className="settings-micro flex-none text-warning">Same version required</span>
-          )}
-        </>
-      )}
-
-      {/* Transfer ownership — OWNER ONLY (POD-1495); see `mayTransfer` above. */}
-      {mayTransfer && (
-        <Dialog
-          open={transferOpen}
-          onOpenChange={(open) => {
-            setTransferOpen(open)
-            // Reopening starts clean: a half-typed recipient left over from an
-            // abandoned attempt is the wrong thing to have next to a Transfer button.
-            if (!open) {
-              setRecipientId('')
-              setConfirmName('')
-              setTransferError(null)
-            }
-          }}
-        >
-          <DialogTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="flex-none text-muted-foreground"
-              />
-            }
-          >
-            Transfer
-          </DialogTrigger>
-          <DialogContent showCloseButton>
-            <DialogHeader>
-              <DialogTitle>Transfer ownership?</DialogTitle>
-              <DialogDescription>
-                <strong>{machine.name}</strong> ({machine.hostname}) becomes theirs. They get to
-                see, use and manage it; you lose all three the moment you confirm. You will not be
-                able to undo this or transfer it back — only the new owner can.
-                <br />
-                <br />
-                Everyone you have shared this machine with loses their access too: every share on{' '}
-                <strong>{machine.name}</strong> is dropped, and the new owner decides who gets it
-                back.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col gap-3 text-[13.5px]">
-              <label htmlFor="ownership-recipient" className="flex flex-col gap-1">
-                <span className="text-muted-foreground">New owner's account name</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              {/* Name — inline editable */}
+              {editing ? (
                 <Input
-                  id="ownership-recipient"
-                  value={recipientId}
+                  className="h-7 w-full max-w-[22rem] px-1.5"
+                  value={name}
                   autoFocus
-                  disabled={transferring}
-                  placeholder="the account they sign in with"
-                  onChange={(e) => setRecipientId(e.target.value)}
-                  aria-label="New owner's account name"
+                  disabled={renaming}
+                  onChange={(e) => setName(e.target.value)}
+                  onBlur={() => void commitRename()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void commitRename()
+                    if (e.key === 'Escape') {
+                      setName(machine.name)
+                      setEditing(false)
+                    }
+                  }}
+                  aria-label="Machine name"
                 />
-              </label>
-              <label htmlFor="ownership-name" className="flex flex-col gap-1">
-                <span className="text-muted-foreground">
-                  Type <strong>{machine.name}</strong> to confirm
-                </span>
-                <Input
-                  id="ownership-name"
-                  value={confirmName}
-                  disabled={transferring}
-                  onChange={(e) => setConfirmName(e.target.value)}
-                  aria-label="Type the machine name to confirm"
-                />
-              </label>
-              {transferError && (
-                <p className="settings-prose text-destructive" role="alert">
-                  {transferError}
-                </p>
+              ) : (
+                <button
+                  data-pressable
+                  type="button"
+                  className="settings-label min-w-0 cursor-text truncate text-left hover:underline"
+                  title="Click to rename"
+                  onClick={() => setEditing(true)}
+                >
+                  {machine.name}
+                </button>
+              )}
+
+              {isThisMachine && (
+                <Badge variant="outline" className="h-4 flex-none px-1.5 text-[11px]">
+                  this machine
+                </Badge>
+              )}
+
+              {/* Only the exception is worth a pill: "Podium-managed" was on every
+                  row, and a badge every row carries says nothing. */}
+              {machine.podiumManaged === false && (
+                <Badge variant="outline" className="h-4 flex-none px-1.5 text-[11px]">
+                  shared
+                </Badge>
+              )}
+
+              {needsUpdate && (
+                <Badge
+                  variant="warning"
+                  className="h-4 flex-none px-1.5 text-[11px]"
+                  title={`This machine runs Podium ${daemonVersion}; its selected update target is ${updateTargetVersion}.`}
+                >
+                  update available
+                </Badge>
               )}
             </div>
-            <DialogFooter showCloseButton>
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                disabled={
-                  transferring || recipientId.trim() === '' || confirmName.trim() !== machine.name
-                }
-                onClick={() => void transfer()}
-              >
-                {transferring ? 'Transferring…' : 'Transfer ownership'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
 
-      {/* Revoke */}
-      <Dialog open={revokeOpen} onOpenChange={setRevokeOpen}>
-        <DialogTrigger
-          render={
+            {/* The machine's own voice: what it is, what it runs, when it was last
+                here — one line, mono where the value is a machine's. */}
+            <div className="settings-micro mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5">
+              <span className="min-w-0 truncate font-mono" title={machine.hostname}>
+                {machine.hostname}
+              </span>
+              {daemonVersion && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-mono" title={`Podium ${daemonVersion} on this machine`}>
+                    {daemonVersion}
+                  </span>
+                </>
+              )}
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">
+                {machine.online ? 'Online' : `Last seen ${relativeTime(machine.lastSeenAt, now)}`}
+              </span>
+              {serverTransferUnsupported && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-warning">Same version required</span>
+                </>
+              )}
+              {hosting?.error && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="min-w-0 truncate text-destructive" title={hosting.error}>
+                    {hosting.error}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1 sm:flex-none sm:justify-end">
+          {/* Discover this machine's repos (POD-787) */}
+          {onFindRepos && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="flex-none text-destructive hover:text-destructive hover:bg-destructive/10"
-            />
-          }
-        >
-          Revoke
-        </DialogTrigger>
-        <DialogContent showCloseButton>
-          <DialogHeader>
-            <DialogTitle>Revoke machine?</DialogTitle>
-            <DialogDescription>
-              "<strong>{machine.name}</strong>" ({machine.hostname}) will be disconnected and will
-              need to re-pair to reconnect. Any sessions running on it will continue until they
-              finish.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter showCloseButton>
+              className="flex-none text-muted-foreground"
+              onClick={onFindRepos}
+            >
+              Find repos
+            </Button>
+          )}
+
+          {/* Enable hosting on this (offline, previously paired) device [spec:SP-3701] */}
+          {hosting && (
             <Button
               type="button"
-              variant="destructive"
+              variant="outline"
               size="sm"
-              disabled={revoking}
-              onClick={() => void revoke()}
+              className="flex-none"
+              disabled={hosting.busy}
+              onClick={() => void hosting.enable()}
             >
-              {revoking ? 'Revoking…' : 'Revoke'}
+              {hosting.busy ? 'Enabling…' : 'Enable'}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          )}
+
+          {(onTransferServer || serverTransferUnsupported) && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="flex-none"
+              disabled={serverTransferUnsupported}
+              title={
+                serverTransferUnsupported
+                  ? 'Update this machine to the same Podium version as the server first.'
+                  : undefined
+              }
+              onClick={onTransferServer ?? undefined}
+            >
+              Make server
+            </Button>
+          )}
+
+          {/* Transfer ownership — OWNER ONLY (POD-1495); see `mayTransfer` above. */}
+          {mayTransfer && (
+            <Dialog
+              open={transferOpen}
+              onOpenChange={(open) => {
+                setTransferOpen(open)
+                // Reopening starts clean: a half-typed recipient left over from an
+                // abandoned attempt is the wrong thing to have next to a Transfer button.
+                if (!open) {
+                  setRecipientId('')
+                  setConfirmName('')
+                  setTransferError(null)
+                }
+              }}
+            >
+              <DialogTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="flex-none text-muted-foreground"
+                  />
+                }
+              >
+                Transfer
+              </DialogTrigger>
+              <DialogContent showCloseButton>
+                <DialogHeader>
+                  <DialogTitle>Transfer ownership?</DialogTitle>
+                  <DialogDescription>
+                    <strong>{machine.name}</strong> ({machine.hostname}) becomes theirs. They get to
+                    see, use and manage it; you lose all three the moment you confirm. You will not
+                    be able to undo this or transfer it back — only the new owner can.
+                    <br />
+                    <br />
+                    Everyone you have shared this machine with loses their access too: every share
+                    on <strong>{machine.name}</strong> is dropped, and the new owner decides who
+                    gets it back.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex flex-col gap-3 text-[13.5px]">
+                  <label htmlFor="ownership-recipient" className="flex flex-col gap-1">
+                    <span className="text-muted-foreground">New owner's account name</span>
+                    <Input
+                      id="ownership-recipient"
+                      value={recipientId}
+                      autoFocus
+                      disabled={transferring}
+                      placeholder="the account they sign in with"
+                      onChange={(e) => setRecipientId(e.target.value)}
+                      aria-label="New owner's account name"
+                    />
+                  </label>
+                  <label htmlFor="ownership-name" className="flex flex-col gap-1">
+                    <span className="text-muted-foreground">
+                      Type <strong>{machine.name}</strong> to confirm
+                    </span>
+                    <Input
+                      id="ownership-name"
+                      value={confirmName}
+                      disabled={transferring}
+                      onChange={(e) => setConfirmName(e.target.value)}
+                      aria-label="Type the machine name to confirm"
+                    />
+                  </label>
+                  {transferError && (
+                    <p className="settings-prose text-destructive!" role="alert">
+                      {transferError}
+                    </p>
+                  )}
+                </div>
+                <DialogFooter showCloseButton>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={
+                      transferring ||
+                      recipientId.trim() === '' ||
+                      confirmName.trim() !== machine.name
+                    }
+                    onClick={() => void transfer()}
+                  >
+                    {transferring ? 'Transferring…' : 'Transfer ownership'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+
+          {/* Revoke */}
+          <Dialog open={revokeOpen} onOpenChange={setRevokeOpen}>
+            <DialogTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  // Quiet until you reach for it. Revoke is on every row, and three
+                  // red words down the right edge were the loudest thing in a pane
+                  // whose actual signal is which machine needs an update.
+                  className="flex-none text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                />
+              }
+            >
+              Revoke
+            </DialogTrigger>
+            <DialogContent showCloseButton>
+              <DialogHeader>
+                <DialogTitle>Revoke machine?</DialogTitle>
+                <DialogDescription>
+                  "<strong>{machine.name}</strong>" ({machine.hostname}) will be disconnected and
+                  will need to re-pair to reconnect. Any sessions running on it will continue until
+                  they finish.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter showCloseButton>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={revoking}
+                  onClick={() => void revoke()}
+                >
+                  {revoking ? 'Revoking…' : 'Revoke'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
 
       {machine.podiumManaged !== false && (
         <MachineUpdateControls
@@ -1392,11 +1506,16 @@ function MachineUpdateControls({
     (rowState ? CONVERGENCE_PROGRESS_LABELS[rowState] : undefined) ?? 'Starting update…'
 
   return (
+    // A quiet third line under the machine it belongs to, indented to the name's
+    // own column and separated by air rather than by a second rule — the run's
+    // hairlines already say where one machine ends.
     <div
-      className="flex basis-full flex-wrap items-center gap-2 border-t border-border/60 pt-2"
+      className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 pl-4"
       data-machine-update-controls={machine.id}
     >
-      <span className="settings-micro flex-none uppercase tracking-wide">Update source</span>
+      {/* Sentence case, not a tracked mono eyebrow: this label repeats once per
+          machine, and a caps rule shouted down the whole list. */}
+      <span className="settings-micro flex-none">Update source</span>
       {/* POD-1882: choosing a SOURCE PER MACHINE is a Podium-development affordance,
           so the control hides with the flag. What the machine is actually on stays
           readable either way — the Target chip below never hides, and Settings →
@@ -1435,20 +1554,25 @@ function MachineUpdateControls({
         </span>
       )}
 
-      <span
-        className={cn(
-          'flex-none rounded px-1.5 py-0.5 text-[11px]',
-          targetVersion ? 'bg-muted text-muted-foreground' : 'bg-warning/15 text-warning',
-        )}
-      >
-        {targetLabel}
-      </span>
+      {/* A known target is a fact, not an alert: it reads in machine voice like
+          the version beside the machine's name, and only takes a badge when
+          there is nothing to report. */}
+      {targetVersion ? (
+        // One element, not a sans word wrapping a mono span: the version string
+        // is asserted verbatim elsewhere, and a nested node would answer to it.
+        <span className="settings-micro flex-none">{targetLabel}</span>
+      ) : (
+        <Badge variant="warning" className="h-4 flex-none px-1.5 text-[11px]">
+          {targetLabel}
+        </Badge>
+      )}
       {busy && (
         <span
-          className="flex-none settings-micro text-muted-foreground"
+          className="settings-micro flex flex-none items-center gap-1.5"
           role="status"
           data-machine-update-progress={machine.id}
         >
+          <span className="spb" aria-hidden="true" />
           {progressLabel}
         </span>
       )}
@@ -1475,22 +1599,25 @@ function MachineUpdateControls({
       </Button>
 
       {(unavailableReason || updateError || updateStatus) && (
-        <div className="flex basis-full flex-col gap-0.5">
+        // min-w-0 as well as basis-full: a flex item's automatic minimum is its
+        // min-content width, and these lines are `truncate` (nowrap), so without
+        // it the longest reason set the row's width and ran off the pane.
+        <div className="flex min-w-0 basis-full flex-col gap-0.5">
           {unavailableReason && (
             <span
-              className="min-w-0 truncate settings-micro text-warning"
+              className="min-w-0 truncate settings-micro text-warning!"
               title={unavailableReason}
             >
               {unavailableReason}
             </span>
           )}
           {updateError && (
-            <span className="min-w-0 settings-micro text-destructive" role="alert">
+            <span className="min-w-0 settings-micro text-destructive!" role="alert">
               {updateError}
             </span>
           )}
           {updateStatus && (
-            <span className="min-w-0 settings-micro text-success" role="status">
+            <span className="min-w-0 settings-micro text-success!" role="status">
               {updateStatus}
             </span>
           )}

@@ -678,11 +678,29 @@ describe('MachinesPanel server transfer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
     await screen.findByText(/recommended: make this the server/i)
-    const [close] = screen.getAllByRole('button', { name: 'Close' })
-    if (!close) throw new Error('close control missing')
-    fireEvent.click(close)
+    // The pairing flow is a takeover of the pane, so leaving it is a way BACK to
+    // the list rather than a dialog close.
+    fireEvent.click(screen.getByRole('button', { name: 'Back to machines' }))
 
+    expect(screen.queryByText(/recommended: make this the server/i)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add machine' })).toBeTruthy()
     expect(transferMutate).not.toHaveBeenCalled()
+  })
+
+  it('Escape leaves the pairing takeover instead of the Settings sheet', async () => {
+    const sheetEscape = vi.fn()
+    window.addEventListener('keydown', sheetEscape)
+    setServerTransferTrpc(vi.fn())
+    render(<MachinesPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    await screen.findByRole('button', { name: 'Back to machines' })
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('button', { name: 'Back to machines' })).toBeNull()
+    // The sheet's own handler stands down for an already-defaulted Escape.
+    expect(sheetEscape.mock.calls[0]?.[0]?.defaultPrevented).toBe(true)
+    window.removeEventListener('keydown', sheetEscape)
   })
 })
 

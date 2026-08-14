@@ -134,11 +134,14 @@ test('clicks Make server and follows proof-backed status through Connected', asy
 
   // Pairing cancellation is UI-only: opening and closing the pairing flow must
   // not start a transfer or mutate the current server.
+  // Pairing takes over the Settings pane rather than stacking a dialog on the
+  // sheet, and Escape returns to the machine list without closing Settings.
   await page.getByRole('button', { name: 'Add machine' }).click()
-  const pairingDialog = page.getByRole('dialog', { name: 'Add a machine' })
-  await expect(pairingDialog).toBeVisible()
+  const pairing = page.getByRole('region', { name: 'Add a machine' })
+  await expect(pairing).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(pairingDialog).toBeHidden()
+  await expect(pairing).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Add machine' })).toBeVisible()
   expect(started).toBe(false)
   expect(submittedBody).toBe('')
 
