@@ -7,7 +7,7 @@ import {
   shipRepairRef,
   type IssueWire,
 } from '@podium/model'
-import type { ShippingJobResult } from '@podium/protocol/daemon'
+import { shippingEvidenceFingerprint, type ShippingJobResult } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -822,11 +822,11 @@ describe('ShippingService enqueue transaction', () => {
     issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
-    await service.runOrder(order.id)
-
-    expect(store.shipping.openHoldForOrder(order.id)?.evidenceRefs).not.toContain(
-      '/native/daemon/validation.log',
+    await expect(service.runOrder(order.id)).rejects.toThrow(
+      `shipping daemon result fence failed for attempt:${order.id}:1:preflight`,
     )
+
+    expect(store.shipping.openHoldForOrder(order.id)).toBeNull()
     service.dispose()
   })
 
@@ -1794,7 +1794,12 @@ describe('ShippingService enqueue transaction', () => {
     crashBeforeAcknowledgement = false
     issues.shippingCommit(
       issue.id,
-      { expectedStage: 'shipping', nextStage: 'review', needsHuman: false },
+      {
+        expectedStage: 'shipping',
+        nextStage: 'review',
+        needsHuman: false,
+        shipOrderChanges: [],
+      },
       () => {},
     )
     issues.update(issue.id, { branch: 'issue/drifted-after-repair-decision' })
@@ -1812,13 +1817,14 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('reopens a released train repair from its persisted context after restart and daemon loss', async () => {
-    const daemonEvidenceRef = `artifact://shipping/${'e'.repeat(64)}`
+    let daemonEvidenceRef: string | undefined
     let evidenceRegistry: ShippingEvidenceRegistry | undefined
     let persistedEvidenceRef: ReturnType<ShippingEvidenceRegistry['materialize']> | undefined
     let originalContext: ShippingRepairContext | undefined
     let reopenedContext: ShippingRepairContext | undefined
     const consider = vi.fn(async (input: ShippingRepairContext) => {
       if (!originalContext) {
+        if (!daemonEvidenceRef) throw new Error('daemon evidence ref was not constructed')
         originalContext = JSON.parse(JSON.stringify(input)) as ShippingRepairContext
         persistedEvidenceRef = evidenceRegistry!.materialize({
           sourceRef: daemonEvidenceRef,
@@ -1854,6 +1860,15 @@ describe('ShippingService enqueue transaction', () => {
     const repair: ShippingRepairPort = { consider, acknowledge: vi.fn(async () => {}) }
     const daemon: Parameters<typeof harness>[0] = async (input, machineId) => {
       if (input.action === 'start' && input.operation === 'prepare-merge-group') {
+        daemonEvidenceRef = `artifact://shipping/${createHash('sha256')
+          .update(
+            shippingEvidenceFingerprint(
+              { type: 'shippingJobRequest', requestId: 'evidence', ...input },
+              machineId,
+              0,
+            ),
+          )
+          .digest('hex')}`
         return {
           jobId: input.jobId,
           requestDigest: input.requestDigest,
@@ -1910,6 +1925,9 @@ describe('ShippingService enqueue transaction', () => {
     expect(store.shipping.activeTrainForOrder(leader.receipt.order.id)).toBeNull()
     expect(originalContext?.authority.train).toBeDefined()
     expect(originalContext?.failure.repairBaseSha).toBe('partial-train-candidate')
+    const evidenceRef = daemonEvidenceRef
+    expect(evidenceRef).toMatch(/^artifact:\/\/shipping\/[a-f0-9]{64}$/)
+    if (!evidenceRef) throw new Error('daemon evidence ref was not recorded')
     service.dispose()
 
     issues.update(leader.issue.id, { branch: 'issue/drifted-after-train-release' })
@@ -1932,7 +1950,7 @@ describe('ShippingService enqueue transaction', () => {
     const restartedEvidence = new ShippingEvidenceRegistry(store.shipping)
     expect(
       restartedEvidence.resolve({
-        sourceRef: daemonEvidenceRef,
+        sourceRef: evidenceRef,
         order: reopenedContext!.order,
         attempt: reopenedContext!.attempt,
         custody: reopenedContext!.custody,

@@ -592,7 +592,15 @@ describe('shipping durable store', () => {
     expect(() =>
       s.shipping.transitionOrder(order.id, 'queued', 'verifying', '2026-08-12T10:06:30.000Z'),
     ).toThrow(/illegal ship order transition/)
-    s.shipping.transitionOrder(order.id, 'queued', 'preflight', '2026-08-12T10:06:10.000Z')
+    const retry = s.shipping.claimAttempt({
+      orderId: order.id,
+      expectedState: 'queued',
+      expectedAttemptId: attempt.id,
+      expectedGeneration: attempt.leaseGeneration,
+      machineId: attempt.machineId,
+      startedAt: '2026-08-12T10:06:10.000Z',
+    })
+    expect(retry.attempt.leaseGeneration).toBe(4)
     s.shipping.transitionOrder(order.id, 'preflight', 'composing', '2026-08-12T10:06:20.000Z')
     s.shipping.transitionOrder(order.id, 'composing', 'validating', '2026-08-12T10:06:30.000Z')
     s.shipping.transitionOrder(order.id, 'validating', 'landing', '2026-08-12T10:06:40.000Z')
@@ -612,15 +620,19 @@ describe('shipping durable store', () => {
       completedAt: '2026-08-12T10:08:00.000Z',
     }
     expect(() => s.shipping.completeVerifiedOrder(receipt)).toThrow(/successful proof/)
-    const finished = s.shipping.finishAttempt(attempt.id, 3, {
-      finishedAt: '2026-08-12T10:07:30.000Z',
-      outcome: 'succeeded',
-      testedIntegrationSha: 'tested-integration',
-      landedRefSha: 'landed-ref',
-      destinationSha: 'destination-tip',
-      validationProfileId: 'default',
-      validationResult: 'passed',
-    })
+    const finished = s.shipping.finishAttempt(
+      retry.attempt.id,
+      retry.attempt.leaseGeneration,
+      {
+        finishedAt: '2026-08-12T10:07:30.000Z',
+        outcome: 'succeeded',
+        testedIntegrationSha: 'tested-integration',
+        landedRefSha: 'landed-ref',
+        destinationSha: 'destination-tip',
+        validationProfileId: 'default',
+        validationResult: 'passed',
+      },
+    )
     expect(finished).toMatchObject({
       approvedHeadSha: 'approved-head',
       testedIntegrationSha: 'tested-integration',
