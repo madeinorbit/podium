@@ -50,22 +50,29 @@ export const DescendantTip = z.object({
 })
 export type DescendantTip = z.infer<typeof DescendantTip>
 
-export const ShipTrainMember = z.object({
-  orderId: ShipOrderIdField,
-  attemptId: ShipAttemptIdField,
-  generation: z.number().int().positive(),
-  sourceBranch: z.string().min(1),
-  approvedBaseSha: z.string().min(1),
-  approvedHeadSha: z.string().min(1),
-})
+export const ShipTrainMember = z
+  .object({
+    orderId: ShipOrderIdField,
+    issueId: IssueIdField,
+    attemptId: ShipAttemptIdField,
+    generation: z.number().int().positive(),
+    machineId: MachineIdField,
+    sourceBranch: z.string().min(1),
+    approvedBaseSha: z.string().min(1),
+    approvedHeadSha: z.string().min(1),
+    deliveryDependsOn: z.array(ShipOrderIdField),
+  })
+  .strict()
 export type ShipTrainMember = z.infer<typeof ShipTrainMember>
 
 export const ShipTrainManifest = z
   .object({
+    version: z.literal(1),
     id: z.string().min(1),
     leaderOrderId: ShipOrderIdField,
     members: z.array(ShipTrainMember).min(1),
   })
+  .strict()
   .superRefine((manifest, ctx) => {
     if (manifest.members.at(-1)?.orderId !== manifest.leaderOrderId) {
       ctx.addIssue({
@@ -76,6 +83,44 @@ export const ShipTrainManifest = z
     }
     if (new Set(manifest.members.map((member) => member.orderId)).size !== manifest.members.length) {
       ctx.addIssue({ code: 'custom', path: ['members'], message: 'train members must be unique' })
+    }
+    if (
+      new Set(manifest.members.map((member) => member.attemptId)).size !== manifest.members.length
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['members'],
+        message: 'train attempt custody must be unique',
+      })
+    }
+    if (new Set(manifest.members.map((member) => member.machineId)).size !== 1) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['members'],
+        message: 'train members must share one machine custody owner',
+      })
+    }
+    const indexByOrder = new Map(
+      manifest.members.map((member, index) => [member.orderId, index] as const),
+    )
+    for (const [index, member] of manifest.members.entries()) {
+      if (new Set(member.deliveryDependsOn).size !== member.deliveryDependsOn.length) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['members', index, 'deliveryDependsOn'],
+          message: 'train member dependencies must be unique',
+        })
+      }
+      for (const dependency of member.deliveryDependsOn) {
+        const dependencyIndex = indexByOrder.get(dependency)
+        if (dependencyIndex !== undefined && dependencyIndex >= index) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['members', index, 'deliveryDependsOn'],
+            message: 'train member dependencies must precede their dependent',
+          })
+        }
+      }
     }
   })
 export type ShipTrainManifest = z.infer<typeof ShipTrainManifest>

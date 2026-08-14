@@ -695,6 +695,27 @@ describe('shipping durable store', () => {
         machineId: asMachineId('machine-1'),
       })),
     })
+    expect(train.manifest).toMatchObject({
+      version: 1,
+      leaderOrderId: covering.id,
+      members: [
+        {
+          orderId: lower.id,
+          issueId: lower.issueId,
+          machineId: asMachineId('machine-1'),
+          deliveryDependsOn: [],
+        },
+        {
+          orderId: covering.id,
+          issueId: covering.issueId,
+          machineId: asMachineId('machine-1'),
+          deliveryDependsOn: [lower.id],
+        },
+      ],
+    })
+    for (const member of train.manifest.members) {
+      expect(s.shipping.trainManifestForAttempt(member.attemptId)).toEqual(train.manifest)
+    }
     const claimed = train.claimed.find((item) => item.order.id === covering.id)!
     for (const [from, to] of [
       ['preflight', 'composing'],

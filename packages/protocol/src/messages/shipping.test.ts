@@ -1,5 +1,36 @@
 import { describe, expect, it } from 'vitest'
-import { ControlMessage, DaemonMessage, shippingJobRequestFingerprint } from '../daemon'
+import {
+  ControlMessage,
+  DaemonMessage,
+  ShippingTrainExecution,
+  shippingJobRequestFingerprint,
+} from '../daemon'
+
+const train = {
+  version: 1 as const,
+  manifest: {
+    version: 1 as const,
+    id: 'train-1',
+    leaderOrderId: 'order-1',
+    members: [
+      {
+        orderId: 'order-1',
+        issueId: 'issue-1',
+        attemptId: 'attempt-1',
+        generation: 2,
+        machineId: 'machine-1',
+        sourceBranch: 'issue/1',
+        approvedBaseSha: 'a'.repeat(40),
+        approvedHeadSha: 'b'.repeat(40),
+        deliveryDependsOn: [],
+      },
+    ],
+  },
+  subsetId: 'subset-1',
+  memberOrderIds: ['order-1'],
+  repairRound: 0,
+  candidate: { kind: 'approved' as const },
+}
 
 const requestFacts = {
   type: 'shippingJobRequest' as const,
@@ -24,6 +55,7 @@ const requestFacts = {
     timeoutMs: 60_000,
     resourceLocks: ['validation:agent'],
   },
+  train,
 }
 const { type: _type, requestId: _requestId, action: _action, ...fingerprintFacts } = requestFacts
 const request = {
@@ -58,9 +90,34 @@ describe('shipping machine protocol', () => {
           timeoutMs: 60_000,
           resourceLocks: ['validation:agent'],
         },
+        train,
         providerRef: null,
       }),
     )
+  })
+
+  it('binds an ordered claimed subset and repair identity to the request', () => {
+    expect(ShippingTrainExecution.parse(train)).toEqual(train)
+    expect(
+      ShippingTrainExecution.safeParse({
+        ...train,
+        memberOrderIds: ['missing-order'],
+      }).success,
+    ).toBe(false)
+    expect(
+      shippingJobRequestFingerprint({
+        ...(fingerprintFacts as Parameters<typeof shippingJobRequestFingerprint>[0]),
+        train: {
+          ...train,
+          repairRound: 1,
+          candidate: {
+            kind: 'repair',
+            repairRef: 'refs/podium/repairs/attempt-1/1',
+            candidateHeadSha: 'd'.repeat(40),
+          },
+        },
+      }),
+    ).not.toBe(shippingJobRequestFingerprint(fingerprintFacts as never))
   })
 
   it('round-trips the purpose-built request and result frames', () => {

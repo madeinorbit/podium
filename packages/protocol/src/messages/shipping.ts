@@ -37,6 +37,64 @@ export const ShippingValidationProfile = z
   .strict()
 export type ShippingValidationProfile = z.infer<typeof ShippingValidationProfile>
 
+export const ShippingTrainExecution = z
+  .object({
+    version: z.literal(1),
+    manifest: ShipTrainManifest,
+    subsetId: z.string().min(1),
+    memberOrderIds: z.array(ShipOrderIdField).min(1),
+    repairRound: z.number().int().nonnegative(),
+    candidate: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('approved') }).strict(),
+      z
+        .object({
+          kind: z.literal('repair'),
+          repairRef: z.string().min(1),
+          candidateHeadSha: z.string().min(1),
+        })
+        .strict(),
+    ]),
+  })
+  .strict()
+  .superRefine((execution, ctx) => {
+    if (new Set(execution.memberOrderIds).size !== execution.memberOrderIds.length) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['memberOrderIds'],
+        message: 'execution subset members must be unique',
+      })
+    }
+    const manifestIndexes = new Map(
+      execution.manifest.members.map((member, index) => [member.orderId, index] as const),
+    )
+    let previousIndex = -1
+    for (const [index, orderId] of execution.memberOrderIds.entries()) {
+      const manifestIndex = manifestIndexes.get(orderId)
+      if (manifestIndex === undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['memberOrderIds', index],
+          message: 'execution subset member is absent from the claimed manifest',
+        })
+      } else if (manifestIndex <= previousIndex) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['memberOrderIds', index],
+          message: 'execution subset must preserve canonical manifest order',
+        })
+      } else {
+        previousIndex = manifestIndex
+      }
+    }
+  })
+export type ShippingTrainExecution = z.infer<typeof ShippingTrainExecution>
+
+/** Raw manifests remain parseable for existing journal entries. New effects
+ * use ShippingTrainExecution so subset and repair identity are immutable
+ * journal facts; the executor rejects legacy multi-member dispatches. */
+export const ShippingTrainRequest = z.union([ShipTrainManifest, ShippingTrainExecution])
+export type ShippingTrainRequest = z.infer<typeof ShippingTrainRequest>
+
 /**
  * One daemon-owned shipping effect. The server supplies immutable facts and an
  * operation name, never a command line. `jobId + generation` is the replay and
@@ -61,7 +119,7 @@ export const ShippingJobRequestMessage = z
     expectedTargetSha: z.string().min(1),
     destination: z.string().min(1),
     validationProfile: ShippingValidationProfile,
-    train: ShipTrainManifest.optional(),
+    train: ShippingTrainRequest.optional(),
     providerRef: ProviderPullRequestRef.optional(),
   })
   .strict()

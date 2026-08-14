@@ -568,40 +568,47 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       })
       const byOrder = new Map(claimed.map((item) => [item.order.id, item]))
       const manifest = ShipTrainManifest.parse({
+        version: 1,
         id: input.id,
         leaderOrderId: input.leaderOrderId,
         members: input.members.map((member) => {
           const item = byOrder.get(member.orderId)!
           return {
             orderId: item.order.id,
+            issueId: item.order.issueId,
             attemptId: item.attempt.id,
             generation: item.attempt.leaseGeneration,
+            machineId: item.attempt.machineId,
             sourceBranch: member.sourceBranch,
             approvedBaseSha: item.order.approvedBaseSha,
             approvedHeadSha: item.order.approvedHeadSha,
+            deliveryDependsOn: [...item.order.deliveryDependsOn].sort(),
           }
         }),
       })
       const leader = byOrder.get(input.leaderOrderId)
       if (!leader) throw new Error(`ship train ${input.id} has no claimed leader`)
-      const effectKey = `train-membership:${manifest.id}:${leader.attempt.leaseGeneration}`
-      this.appendStep({
-        id: `step:${leader.attempt.id}:${effectKey}:planned` as ShipStepValue['id'],
-        orderId: leader.order.id,
-        attemptId: leader.attempt.id,
-        effectKey,
-        idempotencyKey: `${effectKey}:planned`,
-        generation: leader.attempt.leaseGeneration,
-        inputFence: {
-          sourceBaseSha: leader.attempt.expectedSourceBaseSha,
-          approvedHeadSha: leader.attempt.approvedHeadSha,
-          targetSha: leader.attempt.expectedTargetSha,
-        },
-        kind: 'train-membership',
-        state: 'planned',
-        summary: `${TRAIN_MANIFEST_PREFIX}${JSON.stringify(manifest)}`,
-        recordedAt: input.startedAt,
-      })
+      for (const member of manifest.members) {
+        const claimedMember = byOrder.get(member.orderId)!
+        const effectKey = `train-membership:${manifest.id}:${member.attemptId}:${member.generation}`
+        this.appendStep({
+          id: `step:${member.attemptId}:${effectKey}:planned` as ShipStepValue['id'],
+          orderId: member.orderId,
+          attemptId: member.attemptId,
+          effectKey,
+          idempotencyKey: `${effectKey}:planned`,
+          generation: member.generation,
+          inputFence: {
+            sourceBaseSha: member.approvedBaseSha,
+            approvedHeadSha: member.approvedHeadSha,
+            targetSha: claimedMember.attempt.expectedTargetSha,
+          },
+          kind: 'train-membership',
+          state: 'planned',
+          summary: `${TRAIN_MANIFEST_PREFIX}${JSON.stringify(manifest)}`,
+          recordedAt: input.startedAt,
+        })
+      }
       return { manifest, claimed }
     })
   }
@@ -610,7 +617,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     for (const step of this.stepsForAttempt(attemptId)) {
       if (!step.summary.startsWith(TRAIN_MANIFEST_PREFIX)) continue
       try {
-        return ShipTrainManifest.parse(JSON.parse(step.summary.slice(TRAIN_MANIFEST_PREFIX.length)))
+        const manifest = ShipTrainManifest.parse(
+          JSON.parse(step.summary.slice(TRAIN_MANIFEST_PREFIX.length)),
+        )
+        const member = manifest.members.find((candidate) => candidate.attemptId === attemptId)
+        if (
+          !member ||
+          member.orderId !== step.orderId ||
+          member.generation !== step.generation ||
+          step.inputFence.sourceBaseSha !== member.approvedBaseSha ||
+          step.inputFence.approvedHeadSha !== member.approvedHeadSha
+        ) {
+          throw new Error('manifest does not bind the enclosing attempt step')
+        }
+        return manifest
       } catch {
         throw new Error(`ship train manifest for ${attemptId} is invalid`)
       }
@@ -619,7 +639,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   }
 
   activeTrainForOrder(orderId: ShipOrderValue['id']): ShipTrainManifestValue | null {
-    for (const attempt of this.listAttempts().reverse()) {
+    const attempts = (
+      this.db
+        .prepare(`${attemptSelect} WHERE order_id = ? ORDER BY started_at, id`)
+        .all(orderId) as SqlRow[]
+    ).map(mapAttempt)
+    for (const attempt of attempts.reverse()) {
       if (attempt.finishedAt) continue
       const manifest = this.trainManifestForAttempt(attempt.id)
       if (manifest?.members.some((member) => member.orderId === orderId)) return manifest
