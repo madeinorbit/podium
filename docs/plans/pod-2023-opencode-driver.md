@@ -130,6 +130,16 @@ memory via the existing attribution).
   turn, interrupt works, hibernate → resume works. Script it in the e2e harness
   (`tests/e2e/`) as far as CI allows; document the manual remainder in the issue.
 
+## Precondition recorded from W3's review (durability of runtime events)
+
+`runtimeEvent` is classified stream.live on the argument that a gap is re-readable from
+`snapshot()` — but `snapshot()` has no wire representation, so for W5 the argument is
+circular. **Before any legacy observation path is retired for server-family sessions, the
+runtime event stream needs a durable story**: either an ack + durable queue on the frame
+family, or a wire representation for `snapshot()` that the server can request after a gap.
+This driver must not rely on the 64-event diagnostic tail as its only recovery. Decide and
+implement the minimal variant as part of this item; record the choice as an issue comment.
+
 ## Out of scope
 Attach v2 (client-terminal spawning). Codex (W6). Superagent/headless-thread migration.
 Pooling. UI beyond what testing needs. Anthropic-subscription anything (opencode + Anthropic

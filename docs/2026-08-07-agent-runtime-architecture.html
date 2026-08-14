@@ -250,7 +250,9 @@ handle.health(): { alive, memoryBytes, scopeUnit, oomEvents }   // feeds hiberna
 
 <h3>Turns &amp; control — the one write path</h3>
 
-<pre><code>handle.send(input, { origin, delivery: 'when-ready' | 'queue' | 'interrupt' | 'steer' }): TurnReceipt
+<pre><code>handle.send(input, { origin, principal, delivery: 'when-ready' | 'queue' | 'interrupt' | 'steer' }): TurnReceipt
+  // principal: the ACTING principal (opaque tag) — carried through queueing so the server's
+  // drain boundary re-authorizes as the real sender, never as a system default (W3-review F3)
   // TurnInput: text + attachments (refs from stageAttachment) + Declared per-turn overrides (model/effort)
   // 'steer' appends into the open turn — Declared: native on codex (turn/steer); embedded/terminal degrade to
   // 'queue', and the receipt REPORTS the downgrade (deliveredAs) — no silent substitution
