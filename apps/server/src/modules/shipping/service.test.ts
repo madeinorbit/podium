@@ -1941,6 +1941,16 @@ describe('ShippingService enqueue transaction', () => {
       () => {},
     )
     issues.update(leader.issue.id, { branch: 'issue/drifted-after-train-release' })
+    issues.shippingCommit(
+      leader.issue.id,
+      {
+        expectedStage: 'review',
+        nextStage: 'shipping',
+        needsHuman: true,
+        shipOrderChanges: [],
+      },
+      () => {},
+    )
     const unavailableDaemon = vi.fn(async () => {
       throw new Error('daemon journal and logs unavailable')
     })
