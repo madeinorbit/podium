@@ -263,6 +263,20 @@ export class Session {
    *  scrape/inject engine (reported on bind). Transient — not persisted; re-set on
    *  every (re)bind. Surfaced in toMeta so a client retires its own sampler/flush. */
   draftSyncEngine = false
+  /**
+   * AGENT RUNTIME CONTRACT (POD-1761 W4): true when this session's daemon built
+   * a driver handle for it, reported on bind.
+   *
+   * TRANSIENT ON PURPOSE, exactly like `draftSyncEngine` above. The fact belongs
+   * to a LIVE DRIVER, not to a session's history: a receipt can only be obtained
+   * from a daemon that is currently driving this session, so a value that
+   * survived the process that made it true would send W4's migrated callers down
+   * the receipt path for a session whose driver no longer exists. Re-set on every
+   * (re)bind, false whenever we have not been told otherwise — which is the safe
+   * direction, because false means "use the legacy path" and the legacy path
+   * always works.
+   */
+  runtimeContract = false
   /** Agent action offer [spec:SP-c7f1] — a freeform message + action buttons the
    *  agent offers the user as next steps. Lives in its own `offers` table (not
    *  toRow()); the registry seeds it at load and on set/clear. undefined = none.

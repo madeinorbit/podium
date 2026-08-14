@@ -529,6 +529,22 @@ export const BindMessage = z.object({
   // engine for this session. Surfaced in SessionMeta so a client retires its own
   // sampler/flush. Additive; older daemons omit it (no engine).
   draftSyncEngine: z.boolean().optional(),
+  /**
+   * AGENT RUNTIME CONTRACT, REPORTED BY THE PARTY THAT DECIDED IT (POD-1761 W4).
+   *
+   * True when the daemon actually built a driver handle for this session — i.e.
+   * `bindRuntimeContract` registered it. The server cannot compute this itself:
+   * the daemon takes the OR of a machine-wide env var it owns and the per-spawn
+   * field, and it declines the flag for profileless harnesses (a shell has no
+   * turns to be honest about). A server that inferred the answer from the field
+   * it sent would be wrong in both directions — flagged-by-env sessions it never
+   * asked for, and asked-for sessions the daemon refused.
+   *
+   * This is what W4's migrated senders branch on: a receipt only exists for a
+   * session with a driver behind it, so the branch has to key on the driver, not
+   * on an intent. Additive; older daemons omit it (legacy path only).
+   */
+  runtimeContract: z.boolean().optional(),
 })
 export const AgentFrameMessage = z.object({
   type: z.literal('agentFrame'),

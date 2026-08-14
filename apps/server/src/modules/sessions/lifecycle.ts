@@ -63,6 +63,7 @@ import {
   type SessionOpenUrlMessage,
   type SubscriptionRegistry,
   type SyncChangesSinceResult,
+  type TurnReceipt,
 } from '@podium/protocol'
 import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
@@ -133,6 +134,7 @@ import {
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import type { ReceiptSender, ReceiptSendInput, ReceiptSendVia } from './receipt-send'
 import type { SessionRuntimeGateway } from './runtime-gateway'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionSpawnResult } from './session-start'
@@ -256,6 +258,29 @@ export class SessionLifecycle {
    *  for the five machine verbs, the durable completion of `queue`, and the sink
    *  for the driver's causal stream. No caller routes through it until W4. */
   readonly runtimeGateway!: SessionRuntimeGateway
+  /** The send seam W4's migrated callers route through: one legacy-shaped answer
+   *  now, one honest receipt to reconcile with later, and the single place the
+   *  per-session contract flag is read. */
+  readonly receiptSender!: ReceiptSender
+  /**
+   * THE MIGRATED SEND VERB (POD-1761 W4) — what `sendText` / `queueText` /
+   * `interruptText` / `resumeAndSend` above collapse into.
+   *
+   * An arrow rather than a bound field because `receiptSender` is assigned by
+   * the composition function below this declaration: reading it inside the
+   * closure defers the read to call time, which is what keeps the construction
+   * -order audit satisfied without reordering the wiring.
+   *
+   * The four verbs stay exported beside it, and not only for the legacy path —
+   * `ReceiptSender` itself calls them when a session has no driver behind it.
+   * They are the flag-off implementation, not dead weight awaiting deletion.
+   */
+  readonly receiptSend = (
+    via: ReceiptSendVia,
+    input: ReceiptSendInput,
+    onReceipt?: (receipt: TurnReceipt) => void,
+  ): { ok: boolean; queued?: boolean; reason?: string } =>
+    this.receiptSender.send(via, input, onReceipt ? (receipt) => onReceipt(receipt) : undefined)
   private readonly daemonLifecycle!: SessionDaemonLifecycle
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView

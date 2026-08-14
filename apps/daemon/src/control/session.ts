@@ -403,6 +403,9 @@ export async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promis
       agentKind: msg.agentKind,
       geometry,
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+      // The driver handle actually exists for this session (POD-1761 W4). The
+      // server records it and W4's senders branch on it — see BindMessage.
+      ...(ctx.runtime?.has(msg.sessionId) ? { runtimeContract: true } : {}),
     })
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)
@@ -616,6 +619,9 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       agentKind: msg.agentKind,
       geometry: msg.geometry,
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+      // The driver handle actually exists for this session (POD-1761 W4). The
+      // server records it and W4's senders branch on it — see BindMessage.
+      ...(ctx.runtime?.has(msg.sessionId) ? { runtimeContract: true } : {}),
     })
     existing.redraw()
     // Re-push agent state for the same reason we re-seed the transcript below: a
@@ -742,6 +748,9 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       agentKind: msg.agentKind,
       geometry,
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+      // The driver handle actually exists for this session (POD-1761 W4). The
+      // server records it and W4's senders branch on it — see BindMessage.
+      ...(ctx.runtime?.has(msg.sessionId) ? { runtimeContract: true } : {}),
     })
     // attachAbducoAgent nudges the PTY before the bridge is wired, so that
     // initial repaint can be lost. Nudge once more after bind to make a fresh

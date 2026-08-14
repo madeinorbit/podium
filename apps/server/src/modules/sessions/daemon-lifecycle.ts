@@ -203,6 +203,11 @@ export class SessionDaemonLifecycle {
           // Whether the daemon runs the composer engine for this session (POD-859)
           // — surfaced in meta so a client retires its own sampler/flush.
           s.draftSyncEngine = msg.draftSyncEngine ?? false
+          // Whether the daemon drives this session through the agent-runtime
+          // contract (POD-1761 W4) — the fact W4's migrated senders branch on.
+          // Absent from an older daemon means the legacy path, which is both the
+          // truth and the safe default.
+          s.runtimeContract = msg.runtimeContract ?? false
           this.persist(s)
           this.autoContinue.onSessionLive(s.sessionId)
         }

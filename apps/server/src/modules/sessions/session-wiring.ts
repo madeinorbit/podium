@@ -51,7 +51,9 @@ import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
 import { SessionRepository } from './repository'
+import { ReceiptSender } from './receipt-send'
 import { SessionRuntimeGateway } from './runtime-gateway'
+import type { RuntimeDurableQueuePort } from './runtime-gateway'
 import { SessionAuthz } from './session-authz'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionClientPlane } from './session-client-plane'
@@ -451,52 +453,85 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
   })
   /**
+   * THE DURABLE FIFO, BUILT ONCE AND SHARED (POD-1761 W3, extracted by W4).
+   *
+   * Both the gateway and the send seam complete `queue` through this port, and
+   * they must complete it through the SAME one: two enqueues that agreed today
+   * and drifted tomorrow would be two queues with one name, differing in exactly
+   * the place — position, refusal vocabulary, resurrect — where callers read a
+   * promise about ordering.
+   *
+   * It is the reason `queue` never crosses the socket at all: the table survives
+   * a daemon restart, a machine going offline and a parked session, and
+   * forwarding it would move that promise to the one place that cannot keep it.
+   */
+  const durableQueue: RuntimeDurableQueuePort = {
+    enqueue: (input) => {
+      const queued = bag.inbox.queueText({
+        sessionId: input.sessionId,
+        text: input.text,
+        inputOrigin: input.origin,
+        // THE SENDER'S OWN PRINCIPAL, carried into the durable row so
+        // `authorizeAtDrain` re-resolves the right delegation immediately
+        // before the bytes cross. Hardcoding the system principal here — which
+        // this did until POD-2021's review — authorized every contract-routed
+        // turn as system, which is a privilege escalation the moment W4 routes
+        // a real caller.
+        principal: input.principal,
+      })
+      if (!queued.ok) {
+        return {
+          ok: false as const,
+          reason:
+            queued.reason === 'no resume ref'
+              ? ('no_resume_ref' as const)
+              : ('not_running' as const),
+          ...(queued.reason ? { detail: queued.reason } : {}),
+        }
+      }
+      return {
+        ok: true as const,
+        // The position is the table's real depth, read back rather than counted
+        // here — a number that drifted from the table would be a promise about
+        // ordering that nothing kept.
+        position: bag.store.sync.listQueuedMessages(input.sessionId).length,
+      }
+    },
+  }
+  /**
    * THE AGENT RUNTIME CONTRACT'S SERVER HALF (POD-1761 W3).
    *
    * Built here so the daemon lifecycle below can route `runtimeEvent` frames
-   * into it. NOTHING CALLS ITS WRITE VERBS YET — W4 migrates the ~29 send sites
-   * onto receipts, cluster by cluster, behind the same flag. Until then this is
-   * the destination that had to exist first, and an unflagged session produces
-   * no frames for it to record.
+   * into it, and so W4's send seam has a contract path to route through.
    */
   bag.runtimeGateway = new SessionRuntimeGateway({
     rpc: bag.rpc,
-    queue: {
-      // The DURABLE FIFO, and the reason `queue` completes on this side of the
-      // socket at all: the table survives a daemon restart, a machine going
-      // offline and a parked session. The position is the table's real depth,
-      // read back rather than counted here.
-      enqueue: (input) => {
-        const queued = bag.inbox.queueText({
-          sessionId: input.sessionId,
-          text: input.text,
-          inputOrigin: input.origin,
-          // THE SENDER'S OWN PRINCIPAL, carried into the durable row so
-          // `authorizeAtDrain` re-resolves the right delegation immediately
-          // before the bytes cross. Hardcoding the system principal here — which
-          // this did until POD-2021's review — authorized every contract-routed
-          // turn as system, which is a privilege escalation the moment W4 routes
-          // a real caller.
-          principal: input.principal,
-        })
-        if (!queued.ok) {
-          return {
-            ok: false as const,
-            reason:
-              queued.reason === 'no resume ref'
-                ? ('no_resume_ref' as const)
-                : ('not_running' as const),
-            ...(queued.reason ? { detail: queued.reason } : {}),
-          }
-        }
-        return {
-          ok: true as const,
-          position: bag.store.sync.listQueuedMessages(input.sessionId).length,
-        }
-      },
-    },
+    queue: durableQueue,
     machineOf: (sessionId: SessionId) => bag.sessions.get(sessionId)?.machineId,
     // The one place "an unattributed turn acts as the system" is written down.
+    systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
+    now: () => bag.now(),
+  })
+  /**
+   * THE SEND SEAM W4'S MIGRATED CALLERS ROUTE THROUGH.
+   *
+   * One place reads the flag, so "is this session on the contract" is answered
+   * identically for messages, steward, the superagent and automations — and so
+   * the answer can be watched changing in one place rather than in ~29.
+   */
+  bag.receiptSender = new ReceiptSender({
+    legacy: bag.inbox,
+    contract: bag.runtimeGateway,
+    queue: durableQueue,
+    // REPORTED BY THE DAEMON ON BIND, never computed here: the daemon ORs a
+    // machine-wide env var it owns with the per-spawn field and declines the flag
+    // for harnesses with no turns to be honest about, so a server that inferred
+    // the answer would be wrong in both directions.
+    onContract: (sessionId: SessionId) => bag.sessions.get(sessionId)?.runtimeContract === true,
+    liveWithEmptyQueue: (sessionId: SessionId) => {
+      const s = bag.sessions.get(sessionId)
+      return s?.status === 'live' && s.queuedMessageCount === 0
+    },
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
   })

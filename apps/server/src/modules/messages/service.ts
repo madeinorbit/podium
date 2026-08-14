@@ -48,7 +48,7 @@ import {
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
-import { asDelegationRef } from '@podium/protocol'
+import { asDelegationRef, type TurnReceipt } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
@@ -210,6 +210,29 @@ export interface MessageDeliveryDeps {
       queued?: boolean
       reason?: string
     }
+    /**
+     * THE RECEIPT PATH (POD-1761 W4), and the ONLY send port delivery uses when
+     * it is wired.
+     *
+     * It subsumes the three verbs above rather than sitting beside them: `via`
+     * carries the same choice `injectAndMark` already made, so the urgency x
+     * lifecycle table is untouched and the transport it picked is simply named
+     * once instead of switched on twice. What changes is the EVIDENCE — the
+     * synchronous answer is the same shape the verbs return today, and
+     * `onReceipt` arrives afterwards with what the driver actually did, which is
+     * what settles the ledger row instead of a queue-depth guess.
+     *
+     * OPTIONAL, for the same reason `sessionById` above is: a great many fixtures
+     * wire the three verbs and nothing else, and the fallback is the legacy path
+     * they already exercise — so an unwired fixture is flag-off, never wrong.
+     * `ReceiptSender` decides per session whether a receipt is coming at all; a
+     * legacy-driven session gets none, and no reconciliation fires.
+     */
+    receiptSend?(
+      via: 'now' | 'queue' | 'interrupt',
+      input: InboxDeliveryInput,
+      onReceipt?: (receipt: TurnReceipt) => void,
+    ): { ok: boolean; queued?: boolean; reason?: string }
   }
   /** Legacy mailbox mirror (store.issues.addIssueMessage) — issue-addressed
    *  sends dual-write so inbox/claim/pending keep working (drop with the table). */
@@ -1139,8 +1162,16 @@ export class MessageDeliveryService {
       principal,
       sourceMessageId: message.id,
     }
-    const r =
-      via === 'now'
+    // ONE SEND, WITH THE MODE THE TABLE ABOVE ALREADY PICKED (POD-1761 W4).
+    // `receiptSend` is the migrated path; the three-way switch below it is the
+    // legacy one, kept intact and reached whenever this session has no driver
+    // behind it — which is what makes flag-off byte-identical rather than
+    // merely similar.
+    const r = sessions.receiptSend
+      ? sessions.receiptSend(via, input, (receipt) => {
+          this.reconcileReceipt(message.id, sessionId, receipt)
+        })
+      : via === 'now'
         ? sessions.sendText(input)
         : via === 'interrupt'
           ? sessions.interruptText(input)
@@ -1448,44 +1479,72 @@ export class MessageDeliveryService {
     // (controller); everything else is mail (POD-552 / POD-118).
     const originOf = (m: MessageRow) =>
       m.fromKind === 'operator' ? ('controller' as const) : ('mail' as const)
+    // THE IDLE DRAIN'S SEND, MIGRATED (POD-1761 W4). Same verb the batch always
+    // used — this path already knows the session is idle, so `now` is the mode
+    // and nothing about that choice changes. `reconcile` names which row the
+    // late receipt belongs to, because a batch dispatches several and a receipt
+    // that could not say which one would settle the wrong one.
+    const push = (
+      input: InboxDeliveryInput,
+      reconcile: string,
+    ): { ok: boolean; queued?: boolean; reason?: string } =>
+      sessions.receiptSend
+        ? sessions.receiptSend('now', input, (receipt) => {
+            this.reconcileReceipt(reconcile, session.sessionId, receipt)
+          })
+        : sessions.sendText(input)
     for (const m of inlineRows) {
-      const r = sessions.sendText({
-        sessionId: session.sessionId,
-        text: this.render.renderFor(m, session.sessionId),
-        inputOrigin: originOf(m),
-        principal: this.inboxPrincipal(m),
-        sourceMessageId: m.id,
-      })
+      const r = push(
+        {
+          sessionId: session.sessionId,
+          text: this.render.renderFor(m, session.sessionId),
+          inputOrigin: originOf(m),
+          principal: this.inboxPrincipal(m),
+          sourceMessageId: m.id,
+        },
+        m.id,
+      )
       if (r.ok) this.recordPush(m, session.sessionId)
     }
     if (pointerRows.length === 1 && pointerRows[0]!.body.length <= INLINE_BODY_MAX) {
       // One short fyi delivers inline with its full envelope (id present) — the
       // echo can still confirm it; record a push and let the echo/read follow.
       const m = pointerRows[0]!
-      const r = sessions.sendText({
-        sessionId: session.sessionId,
-        text: this.render.renderFor(m, session.sessionId),
-        inputOrigin: originOf(m),
-        principal: this.inboxPrincipal(m),
-        sourceMessageId: m.id,
-      })
+      const r = push(
+        {
+          sessionId: session.sessionId,
+          text: this.render.renderFor(m, session.sessionId),
+          inputOrigin: originOf(m),
+          principal: this.inboxPrincipal(m),
+          sourceMessageId: m.id,
+        },
+        m.id,
+      )
       if (r.ok) this.recordPush(m, session.sessionId)
     } else if (pointerRows.length > 0) {
       // Coalesced nudge: the bodies (and ids) are NOT in the transcript, so these
       // can only be confirmed by an inbox READ. Record the push (injected) and
       // wait — the sweep never re-nudges a pointer row [POD-834].
-      const r = sessions.sendText({
-        sessionId: session.sessionId,
-        text: this.render.pointerText(pointerRows),
-        inputOrigin: 'mail',
-        principal: {
-          kind: 'system',
-          attribution: { actor: actorSystem('message-pointer'), onBehalfOf: null },
-          principalRef: 'message-pointer',
-          delegation: null,
+      const r = push(
+        {
+          sessionId: session.sessionId,
+          text: this.render.pointerText(pointerRows),
+          inputOrigin: 'mail',
+          principal: {
+            kind: 'system',
+            attribution: { actor: actorSystem('message-pointer'), onBehalfOf: null },
+            principalRef: 'message-pointer',
+            delegation: null,
+          },
+          sourceMessageId: pointerRows[0]!.id,
         },
-        sourceMessageId: pointerRows[0]!.id,
-      })
+        // ONE RECEIPT, ONE ROW, and the coalesced nudge only has one id it can
+        // honestly claim: the pointer text carries no message ids, so the other
+        // rows in the batch are confirmed by an inbox read and never by this
+        // send's receipt. Attributing it to all of them would put evidence on
+        // rows the driver said nothing about.
+        pointerRows[0]!.id,
+      )
       if (r.ok) for (const m of pointerRows) this.markInjected(m, session.sessionId)
     }
   }
@@ -1788,6 +1847,64 @@ export class MessageDeliveryService {
         'message.injected',
       )
     }
+  }
+
+  /**
+   * WHAT THE DRIVER ACTUALLY DID, WRITTEN INTO THE LEDGER (POD-1761 W4).
+   *
+   * ---------------------------------------------------------------------------
+   * THIS FUNCTION RECORDS. IT NEVER RESENDS.
+   * ---------------------------------------------------------------------------
+   *
+   * That restraint is the whole `unverified` policy. `unverified` means the
+   * keystrokes were delivered but acceptance could not be PROVEN inside the
+   * driver's verification window — it does not mean they failed. A path that
+   * reacted by resending would turn the one honest outcome in the contract into
+   * duplicate turns, which is precisely the lie the outcome exists to avoid, and
+   * it would fire hardest on a slow agent (the case most likely to have received
+   * the text and be working on it).
+   *
+   * So a receipt moves no row and triggers no push. It records `message.receipt`
+   * beside the transitions the row already emitted, which is what "ledger-visible
+   * delivered-unconfirmed" means here. The paths that DO advance a row are
+   * unchanged and remain the only ones: the transcript echo confirms it
+   * (`markDelivered` via 'echo'), an inbox read confirms a pointer, and the
+   * existing sweep remains the backstop for a row whose echo never came. The
+   * sweep is not a blind retry — it is the same time-based backstop as before the
+   * migration, and this item does not get to change delivery semantics while
+   * moving the evidence.
+   *
+   * What the ledger gains is the ability to tell three things apart that were
+   * indistinguishable while delivery was inferred: a turn that provably opened,
+   * a turn whose acceptance is genuinely unknown, and a push the driver refused.
+   */
+  private reconcileReceipt(messageId: string, sessionId: SessionId, receipt: TurnReceipt): void {
+    const message = this.deps.messages.getMessage(messageId)
+    // Already settled by the echo, read or a cancellation while the window was
+    // open — the receipt is late evidence about a question that is closed, and
+    // re-stamping it would move a delivered row backwards.
+    if (!message) return
+    this.emitTransition({ ...message, deliveredTo: sessionId }, 'message.receipt', {
+      outcome: receipt.outcome,
+      ...(receipt.outcome === 'accepted'
+        ? { provenBy: receipt.provenBy, turnEpoch: receipt.turnEpoch }
+        : {}),
+      ...('deliveredAs' in receipt ? { deliveredAs: receipt.deliveredAs } : {}),
+      ...(receipt.outcome === 'queued' ? { position: receipt.position } : {}),
+      ...(receipt.outcome === 'unverified'
+        ? {
+            // THE HONEST NAME, on the row, where the ledger can show it.
+            deliveryConfirmed: false,
+            verificationWindowMs: receipt.verificationWindowMs,
+          }
+        : {}),
+      ...(receipt.outcome === 'refused'
+        ? {
+            refusedFor: receipt.refusal.reason,
+            ...(receipt.refusal.detail ? { refusalDetail: receipt.refusal.detail } : {}),
+          }
+        : {}),
+    })
   }
 
   /** queued → delivered: the PUSH is confirmed [POD-834]. `via` records HOW it was

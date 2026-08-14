@@ -1131,7 +1131,26 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // caller that is not a person. The queue is what makes "the user started
         // typing" and "the steward nudged" impossible to interleave; `deliveredAs`
         // reports the degradation.
-        if (session.lease?.kind === 'human-controller' && options.origin !== 'human') {
+        //
+        // AND THE LEASE IS HELD BY SOMEBODY, NOT BY A CATEGORY (POD-1761 W4,
+        // closing W3's review precondition 1). Keying only on `origin !== 'human'`
+        // serializes the steward behind a takeover but lets a SECOND PERSON type
+        // straight into it — two humans interleaving mid-turn is the exact race
+        // the one-lease rule exists to prevent, and it was reachable because
+        // `SendOptions` carried no holder identity to compare.
+        //
+        // The identity it compares is the acting principal's `ref`, folded in
+        // rather than added beside it: the contract already carries "who is
+        // acting" through queueing for authorization, and a second holder field
+        // would be a second answer to the same question — two ids that can
+        // disagree about who is typing. A send with no principal cannot prove it
+        // is the holder, so it queues; that is the safe direction, because
+        // queueing costs an ordering delay and interleaving costs a corrupted
+        // turn.
+        const leaseBlocks =
+          session.lease?.kind === 'human-controller' &&
+          (options.origin !== 'human' || options.principal?.ref !== session.lease.holder)
+        if (leaseBlocks) {
           return enqueue()
         }
 
