@@ -104,8 +104,18 @@ html {
   /* Match the app background so overscroll/keyboard gutters are themed, never white. */
   background: var(--background);
 }
+html,
 body {
   overscroll-behavior: none;
+}
+/* WKWebView otherwise keeps the document itself as an elastic scroll surface,
+   even though every visible shell screen already fits and clips the viewport.
+   Lock only the native document: nested feeds, panels and terminals retain
+   their own overflow behavior, while two-axis trackpad gestures can no longer
+   pull the whole app away from the window edge. */
+html[data-podium-desktop="true"],
+html[data-podium-desktop="true"] body {
+  overflow: hidden;
 }
 .dot {
   width: 7px;
