@@ -66,12 +66,28 @@ export type {
 } from './events.js'
 export type { DriverFamily, DriverId } from './families.js'
 export type {
+  ElicitationAnswer,
+  ElicitationAsk,
+  InteractionAnswer,
   InteractionAnswerability,
   InteractionAnswerOutcome,
   InteractionKind,
-  InteractionPayload,
   InteractionSource,
+  LoginAnswer,
+  LoginAsk,
   PendingInteraction,
+  PermissionAnswer,
+  PermissionAsk,
+  PlanApprovalAnswer,
+  PlanApprovalAsk,
+  QuestionAnswer,
+  QuestionAsk,
+  QuestionOption,
+  QuestionPrompt,
+  QuestionSelection,
+  RecoveryAnswer,
+  RecoveryAsk,
+  RecoveryChoice,
 } from './interactions.js'
 export type { PermittedFailure } from './permitted-failures.js'
 // ---- What each family is permitted to fail ---------------------------------

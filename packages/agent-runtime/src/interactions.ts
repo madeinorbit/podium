@@ -49,6 +49,7 @@ export type {
   ElicitationAnswer,
   ElicitationAsk,
   InteractionAnswer,
+  InteractionAskSpec,
   LoginAnswer,
   LoginAsk,
   PendingInteraction,

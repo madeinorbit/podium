@@ -36,7 +36,7 @@
 import type { PendingInteraction } from '@podium/agent-runtime'
 import { TERMINAL_PERMITTED_FAILURES } from '@podium/agent-runtime'
 import type { ConformanceControl, ConformanceTarget } from '@podium/agent-runtime/testing'
-import { runConformance } from '@podium/agent-runtime/testing'
+import { defaultAskFor, runConformance } from '@podium/agent-runtime/testing'
 import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation, DaemonMessage } from '@podium/protocol'
 import {
@@ -245,14 +245,13 @@ function makeWorld(): { target: ConformanceTarget } {
   }
 
   const control: ConformanceControl = {
-    askInteraction(sessionId, kind, payload) {
+    askInteraction(sessionId, spec) {
       const id = `ask-${++nextId}`
       phases.set(sessionId, { phase: 'needs_user', since: iso(), nativeSubagentCount: 0 })
       const interaction: PendingInteraction = {
         id,
         sessionId,
-        kind,
-        payload: (payload as PendingInteraction['payload']) ?? {},
+        ...(typeof spec === 'string' ? defaultAskFor(spec) : spec),
         askedAt: iso(),
         // The classifier is what sees a menu on a screen; it is the family's
         // source wherever there is no hook channel, and it is why the identity
@@ -268,7 +267,7 @@ function makeWorld(): { target: ConformanceTarget } {
       // the at-least-once weakness the permitted-failures table names, produced
       // here rather than described.
       void id
-      return control.askInteraction(sessionId, 'permission', {})
+      return control.askInteraction(sessionId, 'permission')
     },
     completeTurn(sessionId) {
       phases.set(sessionId, { phase: 'idle', since: iso(), nativeSubagentCount: 0 })

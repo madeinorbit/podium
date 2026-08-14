@@ -70,6 +70,64 @@
       "encoded": "{\"ev\":\"cwd-changed\",\"cwd\":\"cwd\"}"
     },
     {
+      "schema": "ElicitationAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "elicitation",
+        "action": "accept"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"elicitation\",\"action\":\"accept\"}"
+    },
+    {
+      "schema": "ElicitationAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "elicitation",
+        "action": "accept",
+        "content": {
+          "content.key": {
+            "unknownFixture": "content.content.key"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"elicitation\",\"action\":\"accept\",\"content\":{\"content.key\":{\"unknownFixture\":\"content.content.key\"}}}"
+    },
+    {
+      "schema": "ElicitationAsk",
+      "variant": "minimal",
+      "wire": {
+        "message": "message",
+        "requestedSchema": {}
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"message\":\"message\",\"requestedSchema\":{}}"
+    },
+    {
+      "schema": "ElicitationAsk",
+      "variant": "full",
+      "wire": {
+        "message": "message",
+        "requestedSchema": {
+          "requestedSchema.key": {
+            "unknownFixture": "requestedSchema.requestedSchema.key"
+          }
+        },
+        "serverName": "serverName"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"message\":\"message\",\"requestedSchema\":{\"requestedSchema.key\":{\"unknownFixture\":\"requestedSchema.requestedSchema.key\"}},\"serverName\":\"serverName\"}"
+    },
+    {
       "schema": "ExitClassification",
       "variant": "minimal",
       "wire": "clean",
@@ -132,6 +190,103 @@
       "encoded": "{\"ev\":\"git-activity\",\"commits\":[\"commits[0]\"],\"touchedFiles\":[\"touchedFiles[0]\"]}"
     },
     {
+      "schema": "InteractionAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "permission",
+        "decision": "allow-once"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"permission\",\"decision\":\"allow-once\"}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "permission",
+        "decision": "allow-once",
+        "feedback": "feedback"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"permission\",\"decision\":\"allow-once\",\"feedback\":\"feedback\"}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "question",
+        "selections": [
+          {
+            "optionIndices": [2],
+            "text": "selections[0].text"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"question\",\"selections\":[{\"optionIndices\":[2],\"text\":\"selections[0].text\"}]}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "plan-approval",
+        "decision": "reject",
+        "autoAcceptEdits": true,
+        "feedback": "feedback"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"plan-approval\",\"decision\":\"reject\",\"autoAcceptEdits\":true,\"feedback\":\"feedback\"}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "elicitation",
+        "action": "cancel",
+        "content": {
+          "content.key": {
+            "unknownFixture": "content.content.key"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"elicitation\",\"action\":\"cancel\",\"content\":{\"content.key\":{\"unknownFixture\":\"content.content.key\"}}}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm4",
+      "wire": {
+        "kind": "login",
+        "outcome": "cancelled"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"login\",\"outcome\":\"cancelled\"}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm5",
+      "wire": {
+        "kind": "recovery",
+        "choice": "abandon"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"recovery\",\"choice\":\"abandon\"}"
+    },
+    {
       "schema": "InteractionAnswerability",
       "variant": "minimal",
       "wire": "structured",
@@ -148,6 +303,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"structured\""
+    },
+    {
+      "schema": "InteractionAnsweredBy",
+      "variant": "minimal",
+      "wire": "policy",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"policy\""
+    },
+    {
+      "schema": "InteractionAnsweredBy",
+      "variant": "full",
+      "wire": "policy",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"policy\""
     },
     {
       "schema": "InteractionAnswerOutcome",
@@ -192,7 +365,10 @@
           "id": "interaction.id",
           "sessionId": "interaction.sessionId",
           "kind": "permission",
-          "payload": {},
+          "payload": {
+            "toolName": "interaction.payload.toolName",
+            "canAlwaysAllow": true
+          },
           "askedAt": "2026-01-02T03:04:05.000Z",
           "source": "protocol",
           "answerable": "structured"
@@ -201,7 +377,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"ev\":\"asked\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\"}}"
+      "encoded": "{\"ev\":\"asked\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"toolName\":\"interaction.payload.toolName\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\"}}"
     },
     {
       "schema": "InteractionEvent",
@@ -213,9 +389,9 @@
           "sessionId": "interaction.sessionId",
           "kind": "permission",
           "payload": {
-            "interaction.payload.key": {
-              "unknownFixture": "interaction.payload.interaction.payload.key"
-            }
+            "toolName": "interaction.payload.toolName",
+            "inputSummary": "interaction.payload.inputSummary",
+            "canAlwaysAllow": true
           },
           "askedAt": "2026-01-02T03:04:05.000Z",
           "source": "protocol",
@@ -227,7 +403,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"ev\":\"asked\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"interaction.payload.key\":{\"unknownFixture\":\"interaction.payload.interaction.payload.key\"}},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+      "encoded": "{\"ev\":\"asked\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"toolName\":\"interaction.payload.toolName\",\"inputSummary\":\"interaction.payload.inputSummary\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
     },
     {
       "schema": "InteractionEvent",
@@ -246,6 +422,45 @@
     {
       "schema": "InteractionEvent",
       "variant": "full/arm2",
+      "wire": {
+        "ev": "expired",
+        "id": "id",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"expired\",\"id\":\"id\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "full/arm3",
+      "wire": {
+        "ev": "expired",
+        "id": "id",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"expired\",\"id\":\"id\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "full/arm4",
+      "wire": {
+        "ev": "expired",
+        "id": "id",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"expired\",\"id\":\"id\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "full/arm5",
       "wire": {
         "ev": "expired",
         "id": "id",
@@ -293,13 +508,83 @@
       "encoded": "\"protocol\""
     },
     {
+      "schema": "InteractionStatus",
+      "variant": "minimal",
+      "wire": "asked",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"asked\""
+    },
+    {
+      "schema": "InteractionStatus",
+      "variant": "full",
+      "wire": "asked",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"asked\""
+    },
+    {
+      "schema": "LoginAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "login",
+        "outcome": "completed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"login\",\"outcome\":\"completed\"}"
+    },
+    {
+      "schema": "LoginAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "login",
+        "outcome": "completed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"login\",\"outcome\":\"completed\"}"
+    },
+    {
+      "schema": "LoginAsk",
+      "variant": "minimal",
+      "wire": {
+        "provider": "provider",
+        "reason": "auth-expired"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"provider\":\"provider\",\"reason\":\"auth-expired\"}"
+    },
+    {
+      "schema": "LoginAsk",
+      "variant": "full",
+      "wire": {
+        "provider": "provider",
+        "reason": "auth-expired",
+        "url": "url"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"provider\":\"provider\",\"reason\":\"auth-expired\",\"url\":\"url\"}"
+    },
+    {
       "schema": "PendingInteraction",
       "variant": "minimal",
       "wire": {
         "id": "id",
         "sessionId": "sessionId",
         "kind": "permission",
-        "payload": {},
+        "payload": {
+          "toolName": "payload.toolName",
+          "canAlwaysAllow": true
+        },
         "askedAt": "2026-01-02T03:04:05.000Z",
         "source": "protocol",
         "answerable": "structured"
@@ -307,19 +592,19 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\"}"
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{\"toolName\":\"payload.toolName\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\"}"
     },
     {
       "schema": "PendingInteraction",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "id": "id",
         "sessionId": "sessionId",
         "kind": "permission",
         "payload": {
-          "payload.key": {
-            "unknownFixture": "payload.payload.key"
-          }
+          "toolName": "payload.toolName",
+          "inputSummary": "payload.inputSummary",
+          "canAlwaysAllow": true
         },
         "askedAt": "2026-01-02T03:04:05.000Z",
         "source": "protocol",
@@ -330,7 +615,485 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{\"payload.key\":{\"unknownFixture\":\"payload.payload.key\"}},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{\"toolName\":\"payload.toolName\",\"inputSummary\":\"payload.inputSummary\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "question",
+        "payload": {
+          "questions": [
+            {
+              "question": "payload.questions[0].question",
+              "multiSelect": false,
+              "otherIndex": 2,
+              "previewLayout": false,
+              "options": [
+                {
+                  "label": "payload.questions[0].options[0].label",
+                  "description": "payload.questions[0].options[0].description",
+                  "preview": "payload.questions[0].options[0].preview"
+                }
+              ]
+            }
+          ]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "sdk-callback",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "auto-denied",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"question\",\"payload\":{\"questions\":[{\"question\":\"payload.questions[0].question\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"payload.questions[0].options[0].label\",\"description\":\"payload.questions[0].options[0].description\",\"preview\":\"payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm2",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "plan-approval",
+        "payload": {
+          "plan": "payload.plan",
+          "autoAcceptOffered": true
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "hook",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"plan\":\"payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm3",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "elicitation",
+        "payload": {
+          "message": "payload.message",
+          "requestedSchema": {
+            "payload.requestedSchema.key": {
+              "unknownFixture": "payload.requestedSchema.payload.requestedSchema.key"
+            }
+          },
+          "serverName": "payload.serverName"
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"elicitation\",\"payload\":{\"message\":\"payload.message\",\"requestedSchema\":{\"payload.requestedSchema.key\":{\"unknownFixture\":\"payload.requestedSchema.payload.requestedSchema.key\"}},\"serverName\":\"payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm4",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "login",
+        "payload": {
+          "provider": "payload.provider",
+          "reason": "re-auth",
+          "url": "payload.url"
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"login\",\"payload\":{\"provider\":\"payload.provider\",\"reason\":\"re-auth\",\"url\":\"payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm5",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "recovery",
+        "payload": {
+          "reason": "unknown",
+          "prompt": "payload.prompt",
+          "offered": ["abandon"]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"recovery\",\"payload\":{\"reason\":\"unknown\",\"prompt\":\"payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "permission",
+        "payload": {
+          "toolName": "payload.toolName",
+          "canAlwaysAllow": true
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "protocol",
+        "answerable": "structured",
+        "status": "asked",
+        "fingerprint": "fingerprint"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{\"toolName\":\"payload.toolName\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"status\":\"asked\",\"fingerprint\":\"fingerprint\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "permission",
+        "payload": {
+          "toolName": "payload.toolName",
+          "inputSummary": "payload.inputSummary",
+          "canAlwaysAllow": true
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "protocol",
+        "answerable": "structured",
+        "policyVerdict": "auto-allowed",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "asked",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "policy",
+        "answer": {
+          "kind": "permission",
+          "decision": "allow-once",
+          "feedback": "answer.feedback"
+        },
+        "deliveredVia": "menu",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{\"toolName\":\"payload.toolName\",\"inputSummary\":\"payload.inputSummary\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"asked\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"policy\",\"answer\":{\"kind\":\"permission\",\"decision\":\"allow-once\",\"feedback\":\"answer.feedback\"},\"deliveredVia\":\"menu\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "question",
+        "payload": {
+          "questions": [
+            {
+              "question": "payload.questions[0].question",
+              "multiSelect": false,
+              "otherIndex": 2,
+              "previewLayout": false,
+              "options": [
+                {
+                  "label": "payload.questions[0].options[0].label",
+                  "description": "payload.questions[0].options[0].description",
+                  "preview": "payload.questions[0].options[0].preview"
+                }
+              ]
+            }
+          ]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "sdk-callback",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "auto-denied",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "answered",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "superagent",
+        "answer": {
+          "kind": "question",
+          "selections": [
+            {
+              "optionIndices": [2],
+              "text": "answer.selections[0].text"
+            }
+          ]
+        },
+        "deliveredVia": "text",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"question\",\"payload\":{\"questions\":[{\"question\":\"payload.questions[0].question\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"payload.questions[0].options[0].label\",\"description\":\"payload.questions[0].options[0].description\",\"preview\":\"payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"answered\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"superagent\",\"answer\":{\"kind\":\"question\",\"selections\":[{\"optionIndices\":[2],\"text\":\"answer.selections[0].text\"}]},\"deliveredVia\":\"text\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm2",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "plan-approval",
+        "payload": {
+          "plan": "payload.plan",
+          "autoAcceptOffered": true
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "hook",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "expired",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "human",
+        "answer": {
+          "kind": "plan-approval",
+          "decision": "reject",
+          "autoAcceptEdits": true,
+          "feedback": "answer.feedback"
+        },
+        "deliveredVia": "structured",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"plan\":\"payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"expired\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"human\",\"answer\":{\"kind\":\"plan-approval\",\"decision\":\"reject\",\"autoAcceptEdits\":true,\"feedback\":\"answer.feedback\"},\"deliveredVia\":\"structured\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm3",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "elicitation",
+        "payload": {
+          "message": "payload.message",
+          "requestedSchema": {
+            "payload.requestedSchema.key": {
+              "unknownFixture": "payload.requestedSchema.payload.requestedSchema.key"
+            }
+          },
+          "serverName": "payload.serverName"
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "expired",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "human",
+        "answer": {
+          "kind": "elicitation",
+          "action": "cancel",
+          "content": {
+            "answer.content.key": {
+              "unknownFixture": "answer.content.answer.content.key"
+            }
+          }
+        },
+        "deliveredVia": "unverified",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"elicitation\",\"payload\":{\"message\":\"payload.message\",\"requestedSchema\":{\"payload.requestedSchema.key\":{\"unknownFixture\":\"payload.requestedSchema.payload.requestedSchema.key\"}},\"serverName\":\"payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"expired\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"human\",\"answer\":{\"kind\":\"elicitation\",\"action\":\"cancel\",\"content\":{\"answer.content.key\":{\"unknownFixture\":\"answer.content.answer.content.key\"}}},\"deliveredVia\":\"unverified\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm4",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "login",
+        "payload": {
+          "provider": "payload.provider",
+          "reason": "re-auth",
+          "url": "payload.url"
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "expired",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "human",
+        "answer": {
+          "kind": "login",
+          "outcome": "cancelled"
+        },
+        "deliveredVia": "unverified",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"login\",\"payload\":{\"provider\":\"payload.provider\",\"reason\":\"re-auth\",\"url\":\"payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"expired\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"human\",\"answer\":{\"kind\":\"login\",\"outcome\":\"cancelled\"},\"deliveredVia\":\"unverified\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm5",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "recovery",
+        "payload": {
+          "reason": "unknown",
+          "prompt": "payload.prompt",
+          "offered": ["abandon"]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "expired",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "human",
+        "answer": {
+          "kind": "recovery",
+          "choice": "abandon"
+        },
+        "deliveredVia": "unverified",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"recovery\",\"payload\":{\"reason\":\"unknown\",\"prompt\":\"payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"expired\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"human\",\"answer\":{\"kind\":\"recovery\",\"choice\":\"abandon\"},\"deliveredVia\":\"unverified\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PermissionAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "permission",
+        "decision": "allow-once"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"permission\",\"decision\":\"allow-once\"}"
+    },
+    {
+      "schema": "PermissionAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "permission",
+        "decision": "allow-once",
+        "feedback": "feedback"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"permission\",\"decision\":\"allow-once\",\"feedback\":\"feedback\"}"
+    },
+    {
+      "schema": "PermissionAsk",
+      "variant": "minimal",
+      "wire": {
+        "toolName": "toolName",
+        "canAlwaysAllow": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"toolName\":\"toolName\",\"canAlwaysAllow\":true}"
+    },
+    {
+      "schema": "PermissionAsk",
+      "variant": "full",
+      "wire": {
+        "toolName": "toolName",
+        "inputSummary": "inputSummary",
+        "canAlwaysAllow": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"toolName\":\"toolName\",\"inputSummary\":\"inputSummary\",\"canAlwaysAllow\":true}"
+    },
+    {
+      "schema": "PlanApprovalAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "plan-approval",
+        "decision": "approve"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"plan-approval\",\"decision\":\"approve\"}"
+    },
+    {
+      "schema": "PlanApprovalAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "plan-approval",
+        "decision": "approve",
+        "autoAcceptEdits": true,
+        "feedback": "feedback"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"plan-approval\",\"decision\":\"approve\",\"autoAcceptEdits\":true,\"feedback\":\"feedback\"}"
+    },
+    {
+      "schema": "PlanApprovalAsk",
+      "variant": "minimal",
+      "wire": {
+        "plan": "plan",
+        "autoAcceptOffered": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"plan\":\"plan\",\"autoAcceptOffered\":true}"
+    },
+    {
+      "schema": "PlanApprovalAsk",
+      "variant": "full",
+      "wire": {
+        "plan": "plan",
+        "autoAcceptOffered": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"plan\":\"plan\",\"autoAcceptOffered\":true}"
     },
     {
       "schema": "ProcessEvent",
@@ -383,6 +1146,221 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"ev\":\"adopted\",\"bindingVersion\":3}"
+    },
+    {
+      "schema": "QuestionAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "question",
+        "selections": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"question\",\"selections\":[]}"
+    },
+    {
+      "schema": "QuestionAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "question",
+        "selections": [
+          {
+            "optionIndices": [1],
+            "text": "selections[0].text"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"question\",\"selections\":[{\"optionIndices\":[1],\"text\":\"selections[0].text\"}]}"
+    },
+    {
+      "schema": "QuestionAsk",
+      "variant": "minimal",
+      "wire": {
+        "questions": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"questions\":[]}"
+    },
+    {
+      "schema": "QuestionAsk",
+      "variant": "full",
+      "wire": {
+        "questions": [
+          {
+            "question": "questions[0].question",
+            "multiSelect": true,
+            "otherIndex": 1,
+            "previewLayout": true,
+            "options": [
+              {
+                "label": "questions[0].options[0].label",
+                "description": "questions[0].options[0].description",
+                "preview": "questions[0].options[0].preview"
+              }
+            ]
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"questions\":[{\"question\":\"questions[0].question\",\"multiSelect\":true,\"otherIndex\":1,\"previewLayout\":true,\"options\":[{\"label\":\"questions[0].options[0].label\",\"description\":\"questions[0].options[0].description\",\"preview\":\"questions[0].options[0].preview\"}]}]}"
+    },
+    {
+      "schema": "QuestionOption",
+      "variant": "minimal",
+      "wire": {
+        "label": "label"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"label\":\"label\"}"
+    },
+    {
+      "schema": "QuestionOption",
+      "variant": "full",
+      "wire": {
+        "label": "label",
+        "description": "description",
+        "preview": "preview"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"label\":\"label\",\"description\":\"description\",\"preview\":\"preview\"}"
+    },
+    {
+      "schema": "QuestionPrompt",
+      "variant": "minimal",
+      "wire": {
+        "question": "question",
+        "multiSelect": true,
+        "previewLayout": true,
+        "options": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"question\":\"question\",\"multiSelect\":true,\"previewLayout\":true,\"options\":[]}"
+    },
+    {
+      "schema": "QuestionPrompt",
+      "variant": "full",
+      "wire": {
+        "question": "question",
+        "multiSelect": true,
+        "otherIndex": 1,
+        "previewLayout": true,
+        "options": [
+          {
+            "label": "options[0].label",
+            "description": "options[0].description",
+            "preview": "options[0].preview"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"question\":\"question\",\"multiSelect\":true,\"otherIndex\":1,\"previewLayout\":true,\"options\":[{\"label\":\"options[0].label\",\"description\":\"options[0].description\",\"preview\":\"options[0].preview\"}]}"
+    },
+    {
+      "schema": "QuestionSelection",
+      "variant": "minimal",
+      "wire": {
+        "optionIndices": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"optionIndices\":[]}"
+    },
+    {
+      "schema": "QuestionSelection",
+      "variant": "full",
+      "wire": {
+        "optionIndices": [1],
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"optionIndices\":[1],\"text\":\"text\"}"
+    },
+    {
+      "schema": "RecoveryAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "recovery",
+        "choice": "full-resume"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"recovery\",\"choice\":\"full-resume\"}"
+    },
+    {
+      "schema": "RecoveryAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "recovery",
+        "choice": "full-resume"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"recovery\",\"choice\":\"full-resume\"}"
+    },
+    {
+      "schema": "RecoveryAsk",
+      "variant": "minimal",
+      "wire": {
+        "reason": "cache-miss",
+        "prompt": "prompt",
+        "offered": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"reason\":\"cache-miss\",\"prompt\":\"prompt\",\"offered\":[]}"
+    },
+    {
+      "schema": "RecoveryAsk",
+      "variant": "full",
+      "wire": {
+        "reason": "cache-miss",
+        "prompt": "prompt",
+        "offered": ["full-resume"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"reason\":\"cache-miss\",\"prompt\":\"prompt\",\"offered\":[\"full-resume\"]}"
+    },
+    {
+      "schema": "RecoveryChoice",
+      "variant": "minimal",
+      "wire": "full-resume",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"full-resume\""
+    },
+    {
+      "schema": "RecoveryChoice",
+      "variant": "full",
+      "wire": "full-resume",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"full-resume\""
     },
     {
       "schema": "Refusal",
@@ -671,9 +1649,13 @@
           "sessionId": "interaction.sessionId",
           "kind": "elicitation",
           "payload": {
-            "interaction.payload.key": {
-              "unknownFixture": "interaction.payload.interaction.payload.key"
-            }
+            "message": "interaction.payload.message",
+            "requestedSchema": {
+              "interaction.payload.requestedSchema.key": {
+                "unknownFixture": "interaction.payload.requestedSchema.interaction.payload.requestedSchema.key"
+              }
+            },
+            "serverName": "interaction.payload.serverName"
           },
           "askedAt": "2026-01-02T03:04:05.000Z",
           "source": "screen-classifier",
@@ -685,7 +1667,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"elicitation\",\"payload\":{\"interaction.payload.key\":{\"unknownFixture\":\"interaction.payload.interaction.payload.key\"}},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"elicitation\",\"payload\":{\"message\":\"interaction.payload.message\",\"requestedSchema\":{\"interaction.payload.requestedSchema.key\":{\"unknownFixture\":\"interaction.payload.requestedSchema.interaction.payload.requestedSchema.key\"}},\"serverName\":\"interaction.payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -1430,7 +2412,10 @@
           "id": "interaction.id",
           "sessionId": "interaction.sessionId",
           "kind": "permission",
-          "payload": {},
+          "payload": {
+            "toolName": "interaction.payload.toolName",
+            "canAlwaysAllow": true
+          },
           "askedAt": "2026-01-02T03:04:05.000Z",
           "source": "protocol",
           "answerable": "structured"
@@ -1439,11 +2424,11 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\"}}"
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"toolName\":\"interaction.payload.toolName\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\"}}"
     },
     {
       "schema": "RuntimeInteractionAskedMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "runtimeInteractionAsked",
         "sessionId": "sessionId",
@@ -1452,9 +2437,9 @@
           "sessionId": "interaction.sessionId",
           "kind": "permission",
           "payload": {
-            "interaction.payload.key": {
-              "unknownFixture": "interaction.payload.interaction.payload.key"
-            }
+            "toolName": "interaction.payload.toolName",
+            "inputSummary": "interaction.payload.inputSummary",
+            "canAlwaysAllow": true
           },
           "askedAt": "2026-01-02T03:04:05.000Z",
           "source": "protocol",
@@ -1466,7 +2451,157 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"interaction.payload.key\":{\"unknownFixture\":\"interaction.payload.interaction.payload.key\"}},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"toolName\":\"interaction.payload.toolName\",\"inputSummary\":\"interaction.payload.inputSummary\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "question",
+          "payload": {
+            "questions": [
+              {
+                "question": "interaction.payload.questions[0].question",
+                "multiSelect": false,
+                "otherIndex": 2,
+                "previewLayout": false,
+                "options": [
+                  {
+                    "label": "interaction.payload.questions[0].options[0].label",
+                    "description": "interaction.payload.questions[0].options[0].description",
+                    "preview": "interaction.payload.questions[0].options[0].preview"
+                  }
+                ]
+              }
+            ]
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "sdk-callback",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "auto-denied",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"question\",\"payload\":{\"questions\":[{\"question\":\"interaction.payload.questions[0].question\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"interaction.payload.questions[0].options[0].label\",\"description\":\"interaction.payload.questions[0].options[0].description\",\"preview\":\"interaction.payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "plan-approval",
+          "payload": {
+            "plan": "interaction.payload.plan",
+            "autoAcceptOffered": true
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "hook",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"plan\":\"interaction.payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "elicitation",
+          "payload": {
+            "message": "interaction.payload.message",
+            "requestedSchema": {
+              "interaction.payload.requestedSchema.key": {
+                "unknownFixture": "interaction.payload.requestedSchema.interaction.payload.requestedSchema.key"
+              }
+            },
+            "serverName": "interaction.payload.serverName"
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"elicitation\",\"payload\":{\"message\":\"interaction.payload.message\",\"requestedSchema\":{\"interaction.payload.requestedSchema.key\":{\"unknownFixture\":\"interaction.payload.requestedSchema.interaction.payload.requestedSchema.key\"}},\"serverName\":\"interaction.payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "login",
+          "payload": {
+            "provider": "interaction.payload.provider",
+            "reason": "re-auth",
+            "url": "interaction.payload.url"
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"login\",\"payload\":{\"provider\":\"interaction.payload.provider\",\"reason\":\"re-auth\",\"url\":\"interaction.payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "recovery",
+          "payload": {
+            "reason": "unknown",
+            "prompt": "interaction.payload.prompt",
+            "offered": ["abandon"]
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"recovery\",\"payload\":{\"reason\":\"unknown\",\"prompt\":\"interaction.payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
     },
     {
       "schema": "RuntimeInterruptRequestMessage",
@@ -1648,9 +2783,13 @@
           "sessionId": "interaction.sessionId",
           "kind": "elicitation",
           "payload": {
-            "interaction.payload.key": {
-              "unknownFixture": "interaction.payload.interaction.payload.key"
-            }
+            "message": "interaction.payload.message",
+            "requestedSchema": {
+              "interaction.payload.requestedSchema.key": {
+                "unknownFixture": "interaction.payload.requestedSchema.interaction.payload.requestedSchema.key"
+              }
+            },
+            "serverName": "interaction.payload.serverName"
           },
           "askedAt": "2026-01-02T03:04:05.000Z",
           "source": "screen-classifier",
@@ -1662,7 +2801,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"elicitation\",\"payload\":{\"interaction.payload.key\":{\"unknownFixture\":\"interaction.payload.interaction.payload.key\"}},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"elicitation\",\"payload\":{\"message\":\"interaction.payload.message\",\"requestedSchema\":{\"interaction.payload.requestedSchema.key\":{\"unknownFixture\":\"interaction.payload.requestedSchema.interaction.payload.requestedSchema.key\"}},\"serverName\":\"interaction.payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
     },
     {
       "schema": "RuntimeMessage",

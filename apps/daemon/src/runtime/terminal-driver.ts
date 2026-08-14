@@ -60,6 +60,7 @@ import type {
   HookAcceptPort,
   HookAcceptWatch,
   InteractionAnswerOutcome,
+  InteractionAskSpec,
   PendingInteraction,
   QueuedTurn,
   Refusal,
@@ -537,14 +538,43 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   function askFromObservation(session: DriverSession, observation: AgentObservation): void {
     const profile = profiles.get(session.sessionId)
     const need = observation.state.need
+    // THE PAYLOAD IS TYPED PER KIND (POD-2020 replaced the opaque record), so
+    // the two arms are built separately rather than from one merged bag.
+    //
+    // WHAT THE DRIVER CAN AND CANNOT FILL, stated because the gaps are real:
+    // `AgentRuntimeState.need` carries the tool name and a bounded detail for a
+    // permission, and for a question it carries only a SUMMARY — the menu's
+    // options live in the transcript, which this driver does not read. So the
+    // question arm ships one option-less prompt, which is honest: the ask
+    // exists, the session is blocked, and the options are not knowable here.
+    // The server aggregate reads the transcript tail and fills them in.
+    const kindAndPayload: InteractionAskSpec =
+      need?.kind === 'permission'
+        ? {
+            kind: 'permission',
+            payload: {
+              toolName: need.ask?.toolName ?? need.summary ?? 'unknown tool',
+              ...(need.ask?.detail ? { inputSummary: need.ask.detail } : {}),
+              canAlwaysAllow: need.ask?.canAlwaysAllow ?? false,
+            },
+          }
+        : {
+            kind: 'question',
+            payload: {
+              questions: [
+                {
+                  question: need?.summary ?? '',
+                  multiSelect: false,
+                  previewLayout: false,
+                  options: [],
+                },
+              ],
+            },
+          }
     const interaction: PendingInteraction = {
       id: `ask:${observation.transitionId}`,
       sessionId: session.sessionId,
-      kind: need?.kind === 'permission' ? 'permission' : 'question',
-      payload: {
-        ...(need?.summary ? { summary: need.summary } : {}),
-        ...(need?.ask ? { ask: need.ask } : {}),
-      },
+      ...kindAndPayload,
       askedAt: observation.providerAt ?? observation.receivedAt,
       source: profile?.hookAnchoredAccept ? 'hook' : 'screen-classifier',
       // Even a hook-SOURCED ask is answered by typing digits into a native menu,

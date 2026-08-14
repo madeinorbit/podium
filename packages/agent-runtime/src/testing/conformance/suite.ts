@@ -220,7 +220,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
       it('REFUSED is typed, and `needs_user` is what a blocking ask produces', async () => {
         const { handle, control } = setup()
         const session = await handle
-        control.askInteraction(session.binding.sessionId, 'permission', { tool: 'Bash' })
+        control.askInteraction(session.binding.sessionId, 'permission')
         const receipt = await session.send(
           { text: 'go on' },
           { origin: 'steward', delivery: 'when-ready' },
@@ -320,8 +320,9 @@ export function describeDriverConformance(target: ConformanceTarget): void {
       it('asked → answered, and the ask is enumerable while open', async () => {
         const { handle, control } = setup()
         const session = await handle
-        const id = control.askInteraction(session.binding.sessionId, 'permission', {
-          tool: 'Bash',
+        const id = control.askInteraction(session.binding.sessionId, {
+          kind: 'permission',
+          payload: { toolName: 'Bash', inputSummary: 'ls', canAlwaysAllow: false },
         })
         const open = await session.interactions()
         // "Stuck" is supposed to be impossible to hide: a blocked session is BY
@@ -355,8 +356,13 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // Resume-time recovery prompts are asked while the handle is still
         // starting. A driver that gated interactions on a running turn would
         // strand every background executor at boot.
-        const id = control.askInteraction(session.binding.sessionId, 'recovery', {
-          prompt: 'resume from summary?',
+        const id = control.askInteraction(session.binding.sessionId, {
+          kind: 'recovery',
+          payload: {
+            reason: 'cache-miss',
+            prompt: 'resume from summary?',
+            offered: ['full-resume', 'summary-resume'],
+          },
         })
         expect((await session.interactions()).map((i) => i.id)).toContain(id)
       })

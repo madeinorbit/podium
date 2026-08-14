@@ -448,15 +448,29 @@ export const RecoveryAnswer = z.object({
 })
 export type RecoveryAnswer = z.infer<typeof RecoveryAnswer>
 
-/** Fields every ask carries regardless of kind. Spread into each arm rather than
- *  held in a base object a union extends: `z.discriminatedUnion` needs the
- *  literal on the arm itself, and an intersection would lose the narrowing that
- *  is the whole point of keying on `kind`. */
-const INTERACTION_BASE = {
+/**
+ * Fields every ask carries regardless of kind, SPLIT AROUND the discriminant.
+ *
+ * Spread into each arm rather than held in a base object a union extends:
+ * `z.discriminatedUnion` needs the literal on the arm itself, and an
+ * intersection would lose the narrowing that is the whole point of keying on
+ * `kind`.
+ *
+ * The split into head and tail is not cosmetic. Zod emits parsed keys in SHAPE
+ * order, so the golden pins it; typing the payload was supposed to be the only
+ * wire change here, and spreading one base object ahead of `kind`/`payload`
+ * would have moved four other fields at the same time. Head, discriminant,
+ * payload, tail keeps `id · sessionId · kind · payload · askedAt · source ·
+ * answerable · policyVerdict · expiresAt` exactly as W1 shipped it.
+ */
+const INTERACTION_HEAD = {
   /** UNBRANDED BY DECISION: minted by the driver that observed the ask, in that
    *  driver's namespace. W2's durable aggregate keys its own rows. */
   id: z.string().min(1),
   sessionId: z.string().min(1).pipe(SessionIdField),
+} as const
+
+const INTERACTION_TAIL = {
   askedAt: z.string().datetime(),
   source: InteractionSource,
   answerable: InteractionAnswerability,
@@ -465,6 +479,21 @@ const INTERACTION_BASE = {
    *  answers the ask. */
   expiresAt: z.string().datetime().optional(),
 } as const
+
+/** One ask arm: head, discriminant, its own payload, tail. */
+const askArm = <K extends InteractionKind, P extends z.ZodTypeAny>(kind: K, payload: P) =>
+  z.object({ ...INTERACTION_HEAD, kind: z.literal(kind), payload, ...INTERACTION_TAIL })
+
+/** The same arm plus the server aggregate's lifecycle — see
+ *  {@link PendingInteractionWire}. */
+const recordArm = <K extends InteractionKind, P extends z.ZodTypeAny>(kind: K, payload: P) =>
+  z.object({
+    ...INTERACTION_HEAD,
+    kind: z.literal(kind),
+    payload,
+    ...INTERACTION_TAIL,
+    ...INTERACTION_RECORD,
+  })
 
 /**
  * THE ASK, KEYED ON ITS KIND (POD-2020, replacing W1's opaque `payload` record).
@@ -475,14 +504,33 @@ const INTERACTION_BASE = {
  * have to guess whether `toolName` is there.
  */
 export const PendingInteraction = z.discriminatedUnion('kind', [
-  z.object({ ...INTERACTION_BASE, kind: z.literal('permission'), payload: PermissionAsk }),
-  z.object({ ...INTERACTION_BASE, kind: z.literal('question'), payload: QuestionAsk }),
-  z.object({ ...INTERACTION_BASE, kind: z.literal('plan-approval'), payload: PlanApprovalAsk }),
-  z.object({ ...INTERACTION_BASE, kind: z.literal('elicitation'), payload: ElicitationAsk }),
-  z.object({ ...INTERACTION_BASE, kind: z.literal('login'), payload: LoginAsk }),
-  z.object({ ...INTERACTION_BASE, kind: z.literal('recovery'), payload: RecoveryAsk }),
+  askArm('permission', PermissionAsk),
+  askArm('question', QuestionAsk),
+  askArm('plan-approval', PlanApprovalAsk),
+  askArm('elicitation', ElicitationAsk),
+  askArm('login', LoginAsk),
+  askArm('recovery', RecoveryAsk),
 ])
 export type PendingInteraction = z.infer<typeof PendingInteraction>
+
+/**
+ * THE ASK WITHOUT ITS IDENTITY — a kind paired with the payload THAT kind takes.
+ *
+ * Every producer of an interaction builds this before the aggregate (or the
+ * driver) mints an id, and all three of them — the fake driver, the terminal
+ * driver, the server synthesizer — reached for `Pick<PendingInteraction, 'kind'
+ * | 'payload'>` first and were wrong in the same way. A plain `Pick` over a
+ * union is NOT distributive: it collapses to `{kind: InteractionKind; payload:
+ * AnyPayload}`, which would let a `login` kind carry a `question` payload —
+ * exactly the pairing the discriminated union exists to make unrepresentable.
+ *
+ * So it is written once, here, distributively.
+ */
+export type InteractionAskSpec = PendingInteraction extends infer T
+  ? T extends { kind: infer K; payload: infer P }
+    ? { readonly kind: K; readonly payload: P }
+    : never
+  : never
 
 /** THE ANSWER, keyed on the same discriminant as the ask. */
 export const InteractionAnswer = z.discriminatedUnion('kind', [
@@ -543,7 +591,8 @@ export const InteractionAnsweredBy = z.enum(['policy', 'superagent', 'human'])
 export type InteractionAnsweredBy = z.infer<typeof InteractionAnsweredBy>
 
 /** Fields the SERVER aggregate adds to a driver's ask. Same spread-not-extend
- *  reason as {@link INTERACTION_BASE}. */
+ *  reason as {@link INTERACTION_HEAD}, and they go after the tail so the ask's
+ *  own field order is byte-identical to {@link PendingInteraction}'s. */
 const INTERACTION_RECORD = {
   status: InteractionStatus,
   /**
@@ -596,42 +645,12 @@ const INTERACTION_RECORD = {
  * prevent. The arm in `./sync.ts` imports it from this file.
  */
 export const PendingInteractionWire = z.discriminatedUnion('kind', [
-  z.object({
-    ...INTERACTION_BASE,
-    kind: z.literal('permission'),
-    payload: PermissionAsk,
-    ...INTERACTION_RECORD,
-  }),
-  z.object({
-    ...INTERACTION_BASE,
-    kind: z.literal('question'),
-    payload: QuestionAsk,
-    ...INTERACTION_RECORD,
-  }),
-  z.object({
-    ...INTERACTION_BASE,
-    kind: z.literal('plan-approval'),
-    payload: PlanApprovalAsk,
-    ...INTERACTION_RECORD,
-  }),
-  z.object({
-    ...INTERACTION_BASE,
-    kind: z.literal('elicitation'),
-    payload: ElicitationAsk,
-    ...INTERACTION_RECORD,
-  }),
-  z.object({
-    ...INTERACTION_BASE,
-    kind: z.literal('login'),
-    payload: LoginAsk,
-    ...INTERACTION_RECORD,
-  }),
-  z.object({
-    ...INTERACTION_BASE,
-    kind: z.literal('recovery'),
-    payload: RecoveryAsk,
-    ...INTERACTION_RECORD,
-  }),
+  recordArm('permission', PermissionAsk),
+  recordArm('question', QuestionAsk),
+  recordArm('plan-approval', PlanApprovalAsk),
+  recordArm('elicitation', ElicitationAsk),
+  recordArm('login', LoginAsk),
+  recordArm('recovery', RecoveryAsk),
 ])
 export type PendingInteractionWire = z.infer<typeof PendingInteractionWire>
 

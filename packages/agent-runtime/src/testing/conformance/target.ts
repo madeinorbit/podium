@@ -23,6 +23,7 @@
 import type { SessionId } from '@podium/model'
 import type {
   DriverFamily,
+  InteractionAskSpec,
   InteractionKind,
   PermittedFailure,
   ProcessEvent,
@@ -33,7 +34,12 @@ import type {
 /** The out-of-band nudges the corpus needs. Structurally satisfied by the
  *  fake's `control`; real drivers implement it against their own harness. */
 export interface ConformanceControl {
-  askInteraction(sessionId: SessionId, kind: InteractionKind, payload?: unknown): string
+  /** A bare kind takes the minimal valid payload for it ({@link defaultAskFor});
+   *  a full spec pins the payload the case actually cares about. `payload?:
+   *  unknown` was the pre-POD-2020 shape and is gone deliberately — a corpus
+   *  that could pass an arbitrary bag would not exercise the typed vocabulary
+   *  it is supposed to be proving. */
+  askInteraction(sessionId: SessionId, spec: InteractionKind | InteractionAskSpec): string
   reaskInteraction(sessionId: SessionId, id: string): string
   completeTurn(sessionId: SessionId): void
   processEvent(sessionId: SessionId, ev: ProcessEvent): void

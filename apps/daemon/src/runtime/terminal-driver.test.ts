@@ -696,18 +696,49 @@ describe('interactions', () => {
         phase: 'needs_user',
         since: '2026-08-14T00:00:00.000Z',
         nativeSubagentCount: 0,
-        need: { kind: 'permission', summary: 'Bash wants to run tests' },
+        need: {
+          kind: 'permission',
+          summary: 'Bash',
+          ask: { toolName: 'Bash', detail: 'bun test', canAlwaysAllow: true },
+        },
       },
     })
     const open = await session.interactions()
     expect(open).toHaveLength(1)
     const ask = open[0] as PendingInteraction
     expect(ask.kind).toBe('permission')
-    expect(ask.payload).toEqual({ summary: 'Bash wants to run tests' })
+    // POD-2020 typed the payload per kind, so this is the `permission` arm and
+    // not the bag of whatever the transition happened to carry.
+    expect(ask.payload).toEqual({
+      toolName: 'Bash',
+      inputSummary: 'bun test',
+      canAlwaysAllow: true,
+    })
     // A hook-sourced ask still has a keystroke-emulated ANSWER: that asymmetry is
     // what keeps the whole family behind the at-least-once exemption.
     expect(ask.source).toBe('hook')
     expect(ask.answerable).toBe('keystroke-emulated')
+  })
+
+  it('names the ask honestly when the channel carried no tool call', async () => {
+    // Claude's `permission_prompt` Notification carries a rendered message and
+    // no tool call. A blocking ask with a weak subject still beats no row —
+    // what must not happen is inventing an `inputSummary` there is no input for.
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    world.observe(session.binding.sessionId, {
+      transitionKind: 'needs_user',
+      nextPhase: 'needs_user',
+      state: {
+        phase: 'needs_user',
+        since: '2026-08-14T00:00:00.000Z',
+        nativeSubagentCount: 0,
+        need: { kind: 'permission', summary: 'Bash wants to run tests' },
+      },
+    })
+    const ask = (await session.interactions())[0] as PendingInteraction
+    expect(ask.payload).toEqual({ toolName: 'Bash wants to run tests', canAlwaysAllow: false })
   })
 
   it('closes an ask that a person answered at the terminal', async () => {

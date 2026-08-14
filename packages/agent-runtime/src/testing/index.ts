@@ -29,5 +29,10 @@ export {
   createFakeDriver,
   createFakeServerDriver,
   createFakeTerminalDriver,
+  /** The minimal valid payload per kind (POD-2020) — exported because every
+   *  driver's `ConformanceControl` needs it to satisfy a bare-kind
+   *  `askInteraction`, and three copies of "what does a boring permission ask
+   *  look like" is three things to keep in step. */
+  defaultAskFor,
   resetFakeRuntime,
 } from './fake-driver.js'
