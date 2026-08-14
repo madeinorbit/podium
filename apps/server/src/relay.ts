@@ -126,6 +126,7 @@ import {
   shippingResourceHolderId,
 } from './modules/shipping'
 import { scheduledShipOrderProjectionRows } from './modules/shipping/projection'
+import { ShipwrightService } from './modules/shipping/shipwright'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
@@ -1768,6 +1769,67 @@ export class SessionRegistry {
       label: `Shipping ${orderId} attempt ${generation}`,
       workspace: null,
     })
+    const shippingPolicy = new CompatibilityShippingPolicyResolver(
+      () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
+    )
+    const shipwright = new ShipwrightService({
+      headless,
+      settingsFor: (userId) => settings.getSettingsFor(userId),
+      modelCatalog: (machineId) => settings.getModelCatalog(machineId),
+      quota: async (machineId) => (await rpc.agentQuota(false, machineId)).agents,
+      nativeAccountId: (machineId, agent, requested) =>
+        machines.nativeAccountIdForMachine(machineId, agent, requested),
+      validationProfile: (issue) => shippingPolicy.resolve(issue).validationProfile,
+      evidence: {
+        materialize: async (input) => {
+          for (const ref of input.refs) {
+            const resolved = await rpc.shippingEvidence(
+              input.authority,
+              ref,
+              1,
+              input.custody.machineId,
+            )
+            if (!resolved.ok) throw new Error(resolved.error ?? 'shipping evidence was refused')
+          }
+          return input.refs as import('@podium/model').ShipwrightEvidenceRef[]
+        },
+      },
+      context: async (input, limits) => {
+        const content: string[] = []
+        for (const ref of input.failure.artifactRefs) {
+          const resolved = await rpc.shippingEvidence(
+            input.authority,
+            ref,
+            limits.maxFailureBytes,
+            input.custody.machineId,
+          )
+          if (!resolved.ok || resolved.content === undefined) {
+            throw new Error(resolved.error ?? 'shipping evidence was refused')
+          }
+          content.push(resolved.content)
+        }
+        return { output: content.join('\n'), relevantDiff: '' }
+      },
+      applyPatch: async (input) => {
+        const result = await rpc.shippingRepairApply(
+          {
+            authority: input.authority,
+            contextDigest: input.contextDigest,
+            repairRef: input.repairRef,
+            patch: input.patch,
+            touchedPaths: input.touchedPaths,
+          },
+          input.custody.machineId,
+        )
+        return result.ok && result.candidateHeadSha
+          ? {
+              ok: true,
+              candidateHeadSha: result.candidateHeadSha,
+              evidenceRefs: result.artifactRefs,
+            }
+          : { ok: false, summary: result.summary, evidenceRefs: result.artifactRefs }
+      },
+    })
     shipping = new ShippingService({
       repository: this.store.shipping,
       issues: {
@@ -1778,6 +1840,7 @@ export class SessionRegistry {
         },
         children: (id, recursive) => issues.children(id, recursive),
         shippingCommit: (id, mutation, write) => issues.shippingCommit(id, mutation, write),
+        shippingCommitMany: (entries, write) => issues.shippingCommitMany(entries, write),
         takeBranchCustody: async (issue) => {
           const stopped = await issueSessionLifecycle.stopIssue({
             issueId: issue.id,
@@ -1901,9 +1964,9 @@ export class SessionRegistry {
         // explicitly permits this typed boundary to return no accepted record.
         acceptedReviewEvidence: () => null,
       },
-      policy: new CompatibilityShippingPolicyResolver(
-        () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
-      ),
+      policy: shippingPolicy,
+      repair: shipwright,
+      background: false,
       resourceAdmission: {
         acquire: ({ order, attempt, issue, names, ttlSeconds }) => {
           const key = shippingLockKey(order.id, attempt.id, attempt.leaseGeneration)
@@ -2133,6 +2196,7 @@ export class SessionRegistry {
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping), the leaked-draft reap, and the issue ledger boot reconcile.
     issues.boot(systemPrincipal('boot-reconcile'))
+    shipping.start()
     void shipping
       .reconcile()
       .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))

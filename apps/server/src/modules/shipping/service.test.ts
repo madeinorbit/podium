@@ -112,6 +112,7 @@ function harness(
         branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
       })),
     shippingCommit: issues.shippingCommit.bind(issues),
+    shippingCommitMany: issues.shippingCommitMany.bind(issues),
     ...(options.takeBranchCustody ? { takeBranchCustody: options.takeBranchCustody } : {}),
   }
   const deps: ConstructorParameters<typeof ShippingService>[0] = {
@@ -1768,6 +1769,7 @@ describe('ShippingService enqueue transaction', () => {
       orderId: order.id,
       attemptId: `attempt:${order.id}:1`,
       generation: 1,
+      contextDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
     restarted.dispose()
   })

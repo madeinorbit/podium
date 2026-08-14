@@ -11,6 +11,7 @@ import {
   type IssueId,
   type IssueWire,
   integrationReceiptMatchesOrder,
+  shipRepairRef,
   type MachineId,
   type ShipAttempt,
   type ShipHold,
@@ -34,6 +35,7 @@ import {
   type RootIntegrationReceiptStore,
   sameFrozenShipOrder,
   type ShippingRepository,
+  type StoredShippingRepairCandidate,
 } from '../../store/shipping'
 import type { ShippingIssueMutation } from '../issues/service/crud'
 import type { ShippingPolicyResolver } from './policy'
@@ -51,6 +53,7 @@ import type {
   ShippingRepairContext,
   ShippingRepairDecision,
   ShippingRepairPort,
+  shippingRepairContextDigest,
 } from './repair-contract'
 
 const LEASE_MS = 45_000
@@ -152,6 +155,10 @@ export interface ShippingIssuePort {
     mutation: ShippingIssueMutation,
     write: () => T,
   ): { issue: IssueWire; result: T }
+  shippingCommitMany<T>(
+    entries: readonly { id: IssueId; mutation: ShippingIssueMutation }[],
+    write: () => T,
+  ): { issues: IssueWire[]; result: T }
   takeBranchCustody?(issue: IssueWire): Promise<{ ok: boolean; detail: string }>
 }
 
@@ -325,10 +332,13 @@ export class ShippingService {
 
   constructor(private readonly deps: ShippingServiceDeps) {
     this.now = deps.now ?? (() => new Date().toISOString())
-    if (deps.background !== false) {
-      this.timer = setInterval(() => void this.tick(), SCHEDULER_INTERVAL_MS)
-      this.timer.unref?.()
-    }
+    if (deps.background !== false) this.start()
+  }
+
+  start(): void {
+    if (this.timer) return
+    this.timer = setInterval(() => void this.tick(), SCHEDULER_INTERVAL_MS)
+    this.timer.unref?.()
   }
 
   /** Resolve the intentionally tiny `issues.ship` command into the live approval
@@ -1031,38 +1041,117 @@ export class ShippingService {
           destination: order.destination,
           completedAt: finishedAt,
         }
-        const shipped = {
-          ...order,
-          state: 'shipped' as const,
-          stateChangedAt: finishedAt,
+        const coveredSettlements = coveredPrefix.flatMap((covered) => {
+          const live = this.deps.repository.getOrder(covered.id)
+          const proof = result.trainProofs?.find((candidate) => candidate.orderId === covered.id)
+          if (
+            !live ||
+            live.state !== 'preflight' ||
+            !proof ||
+            proof.sourceApprovedSha !== live.approvedHeadSha ||
+            !proof.resultCommitSha ||
+            !proof.testedIntegrationSha ||
+            !proof.landedRefSha ||
+            !proof.providerLandedRefSha ||
+            !proof.destinationSha
+          ) {
+            return []
+          }
+          const coveredReceipt: DeliveryReceipt = {
+            id: asDeliveryReceiptId(`receipt_${live.id}`),
+            orderId: live.id,
+            approvedBaseSha: live.approvedBaseSha,
+            approvedHeadSha: live.approvedHeadSha,
+            resultCommitSha: proof.resultCommitSha,
+            testedIntegrationSha,
+            landedRefSha,
+            destinationSha,
+            validationProfileId: result.validationProfileId!,
+            validationResult: 'passed',
+            destination: live.destination,
+            completedAt: finishedAt,
+          }
+          return [{ order: live, receipt: coveredReceipt }]
+        })
+        if (coveredSettlements.length !== coveredPrefix.length) {
+          await this.hold(
+            order,
+            attempt,
+            'approval-stale',
+            'Train membership changed before settlement',
+            'The verified train proof no longer covers every claimed immutable prefix member.',
+            result.artifactRefs,
+            this.effectCommit(order, attempt, 'verify', result),
+          )
+          return
         }
-        const specs = this.projectionSpecs(this.replaceOrder(shipped), undefined, receipt)
+        const landingTrain = this.deps.repository.trainManifestForAttempt(attempt.id)
         this.deps.beforeCompletionCommit?.(receipt)
+        for (const covered of coveredSettlements) {
+          this.deps.beforeCompletionCommit?.(covered.receipt)
+        }
         try {
-          this.deps.issues.shippingCommit(
-            order.issueId,
-            {
-              expectedStage: 'shipping',
-              nextStage: 'done',
-              needsHuman: false,
-              shipOrderChanges: specs,
-              event: {
-                kind: 'issue.shipped',
-                payload: { orderId: order.id, receiptId: receipt.id },
-              },
-            },
-            () =>
-              this.deps.repository.commitEffectResult({
-                orderId: order.id,
-                expectedState: 'verifying',
-                attemptId: attempt.id,
-                generation: attempt.leaseGeneration,
-                ...this.effectCommit(order, attempt, 'verify', result),
-                outcome: {
-                  kind: 'verified',
-                  receipt,
-                  attemptFinishedAt: finishedAt,
+          this.deps.issues.shippingCommitMany(
+            [
+              {
+                id: order.issueId,
+                mutation: {
+                  expectedStage: 'shipping' as const,
+                  nextStage: 'done' as const,
+                  needsHuman: false,
+                  shipOrderChanges: () => this.projectionSpecs(),
+                  event: {
+                    kind: 'issue.shipped',
+                    payload: { orderId: order.id, receiptId: receipt.id },
+                  },
                 },
+              },
+              ...coveredSettlements.map((covered) => ({
+                id: covered.order.issueId,
+                mutation: {
+                  expectedStage: 'shipping' as const,
+                  nextStage: 'done' as const,
+                  needsHuman: false,
+                  shipOrderChanges: () => this.projectionSpecs(),
+                  event: {
+                    kind: 'issue.shipped',
+                    payload: {
+                      orderId: covered.order.id,
+                      receiptId: covered.receipt.id,
+                      coveredBy: order.id,
+                    },
+                  },
+                },
+              })),
+            ],
+            () =>
+              this.deps.repository.completeVerifiedTrain({
+                leader: {
+                  orderId: order.id,
+                  expectedState: 'verifying',
+                  attemptId: attempt.id,
+                  generation: attempt.leaseGeneration,
+                  ...this.effectCommit(order, attempt, 'verify', result),
+                  outcome: {
+                    kind: 'verified',
+                    receipt,
+                    attemptFinishedAt: finishedAt,
+                  },
+                },
+                covered: coveredSettlements.map((covered) => ({
+                  receipt: covered.receipt,
+                  coveringOrderId: order.id,
+                  effectEnvelopeKey: `${result.jobId}:${result.requestDigest}`,
+                })),
+                ...(landingTrain
+                  ? {
+                      release: {
+                        trainId: landingTrain.id,
+                        releasedAt: finishedAt,
+                        reason: 'landed',
+                      },
+                    }
+                  : {}),
               }),
           )
         } catch (error) {
@@ -1075,17 +1164,15 @@ export class ShippingService {
           receiptId: receipt.id,
         })
         this.leases.delete(order.id)
-        if (coveredPrefix.length > 0) {
-          await this.settleCoveredPrefix(
-            order,
-            receipt,
-            coveredPrefix,
-            result.trainProofs ?? [],
-            `${result.jobId}:${result.requestDigest}`,
-          )
+        for (const covered of coveredSettlements) {
+          this.audit('shipping.order_shipped', covered.order.issueId, {
+            orderId: covered.order.id,
+            receiptId: covered.receipt.id,
+            coveredBy: order.id,
+          })
+          this.leases.delete(covered.order.id)
+          await this.invalidateStaleDescendants(covered.order, destinationSha)
         }
-        const landedTrain = this.deps.repository.trainManifestForAttempt(attempt.id)
-        if (landedTrain) this.deps.repository.releaseTrain(landedTrain.id, finishedAt, 'landed')
         await this.invalidateStaleDescendants(order, receipt.destinationSha)
       }
     } finally {
@@ -1113,7 +1200,6 @@ export class ShippingService {
         })
       ).order
     }
-    const projectionBeforeCancellation = this.projectionSnapshot()
     if (!['queued', 'preflight', 'composing', 'validating', 'repairing'].includes(order.state)) {
       throw new Error(`shipping order ${order.id} can no longer be safely cancelled`)
     }
@@ -1140,26 +1226,52 @@ export class ShippingService {
         planned: this.step(order, attempt, intentKey, 'cancel', 'planned', intentStartedAt),
         running: this.step(order, attempt, intentKey, 'cancel', 'running', intentStartedAt),
       })
-      return this.settleCancellation(order, attempt, issue, projectionBeforeCancellation)
+      return this.settleCancellation(order, attempt, issue)
     }
     const at = this.now()
-    const cancelled = {
-      ...order,
-      state: 'cancelled' as const,
-      stateChangedAt: at,
-    }
-    const result = this.deps.issues.shippingCommit(
-      order.issueId,
-      {
-        expectedStage: 'shipping',
-        nextStage: 'review',
-        needsHuman: false,
-        shipOrderChanges: this.projectionSpecs(this.replaceOrder(cancelled)),
-        event: {
-          kind: 'issue.shipping_cancelled',
-          payload: { orderId: order.id },
-        },
-      },
+    const cancellationMembers = activeTrain
+      ? activeTrain.members.map((member) => this.requiredOrder(member.orderId))
+      : [order]
+    const result = this.deps.issues.shippingCommitMany(
+      cancellationMembers.map((member) => ({
+        id: member.issueId,
+        mutation:
+          member.id === order.id
+            ? {
+                expectedStage: 'shipping' as const,
+                nextStage: 'review' as const,
+                needsHuman: false,
+                shipOrderChanges: () => this.projectionSpecs(),
+                event: {
+                  kind: 'issue.shipping_cancelled',
+                  payload: { orderId: order.id },
+                },
+              }
+            : {
+                expectedStage: 'shipping' as const,
+                needsHuman: member.state !== 'preflight',
+                shipOrderChanges: () => this.projectionSpecs(),
+                event: () => {
+                  const sibling = this.requiredOrder(member.id)
+                  const hold = this.deps.repository.openHoldForOrder(member.id)
+                  return hold
+                    ? {
+                        kind: 'issue.ship_hold_raised',
+                        payload: {
+                          orderId: member.id,
+                          holdId: hold.id,
+                          generation: hold.generation,
+                          reasonCode: hold.reasonCode,
+                          actions: hold.actions,
+                        },
+                      }
+                    : {
+                        kind: 'issue.shipping_train_reset',
+                        payload: { orderId: sibling.id, cancelledPeer: order.id },
+                      }
+                },
+              },
+      })),
       () => {
         return this.deps.repository.cancelAttemptAndOrder(
           order.id,
@@ -1172,7 +1284,6 @@ export class ShippingService {
       },
     ).result
     this.leases.delete(order.id)
-    this.reconcileProjectionChanges(projectionBeforeCancellation, new Set([order.issueId]))
     return result
   }
 
@@ -1180,7 +1291,6 @@ export class ShippingService {
     order: ShipOrder,
     attempt: ShipAttempt,
     issue: IssueWire,
-    projectionBeforeCancellation = this.projectionSnapshot(),
   ): Promise<ShipOrder> {
     const intentKey = `cancel:${attempt.leaseGeneration}`
     const intent = this.deps.repository.latestStepForEffect(attempt.id, intentKey)
@@ -1296,23 +1406,45 @@ export class ShippingService {
       summary: 'shipping cancellation settled before custody release',
       finishedAt: at,
     })
-    const cancelled = {
-      ...order,
-      state: 'cancelled' as const,
-      stateChangedAt: at,
-    }
-    const result = this.deps.issues.shippingCommit(
-      order.issueId,
-      {
-        expectedStage: 'shipping',
-        nextStage: 'review',
-        needsHuman: false,
-        shipOrderChanges: this.projectionSpecs(this.replaceOrder(cancelled)),
-        event: {
-          kind: 'issue.shipping_cancelled',
-          payload: { orderId: order.id },
-        },
-      },
+    const cancellationMembers = train
+      ? train.members.map((member) => this.requiredOrder(member.orderId))
+      : [order]
+    const result = this.deps.issues.shippingCommitMany(
+      cancellationMembers.map((member) => ({
+        id: member.issueId,
+        mutation:
+          member.id === order.id
+            ? {
+                expectedStage: 'shipping' as const,
+                nextStage: 'review' as const,
+                needsHuman: false,
+                shipOrderChanges: () => this.projectionSpecs(),
+                event: { kind: 'issue.shipping_cancelled', payload: { orderId: order.id } },
+              }
+            : {
+                expectedStage: 'shipping' as const,
+                needsHuman: member.state !== 'preflight',
+                shipOrderChanges: () => this.projectionSpecs(),
+                event: () => {
+                  const hold = this.deps.repository.openHoldForOrder(member.id)
+                  return hold
+                    ? {
+                        kind: 'issue.ship_hold_raised',
+                        payload: {
+                          orderId: member.id,
+                          holdId: hold.id,
+                          generation: hold.generation,
+                          reasonCode: hold.reasonCode,
+                          actions: hold.actions,
+                        },
+                      }
+                    : {
+                        kind: 'issue.shipping_train_reset',
+                        payload: { orderId: member.id, cancelledPeer: order.id },
+                      }
+                },
+              },
+      })),
       () =>
         this.deps.repository.cancelAttemptAndOrder(
           order.id,
@@ -1329,7 +1461,6 @@ export class ShippingService {
         ),
     ).result
     this.leases.delete(order.id)
-    this.reconcileProjectionChanges(projectionBeforeCancellation, new Set([order.issueId]))
     return result
   }
 
@@ -1358,6 +1489,34 @@ export class ShippingService {
         `ship hold ${order.id} generation fence failed: expected ${expectedGeneration}`,
       )
     }
+    let openedRepair:
+      | {
+          candidate: StoredShippingRepairCandidate
+          decision: Extract<ShippingRepairDecision, { kind: 'patched' }>
+        }
+      | undefined
+    if (action === 'open-repair') {
+      const repair = this.deps.repair
+      const attempt = this.deps.repository.latestAttemptForOrder(order.id)
+      const marker = attempt
+        ? this.deps.repository
+            .stepsForAttempt(attempt.id)
+            .map((step) => parseRepairMarker(step.summary))
+            .findLast((candidate) => candidate !== null)
+        : null
+      if (!repair || !attempt || attempt.finishedAt || !marker) {
+        throw new Error(`ship hold ${hold.id} has no live repair context`)
+      }
+      const context = this.repairContext(order, attempt, issue, marker.failure)
+      const decision = await repair.consider(context)
+      if (decision.kind !== 'patched') {
+        throw new Error(`ship hold ${hold.id} did not produce an immutable repair candidate`)
+      }
+      openedRepair = {
+        candidate: this.durableRepairCandidate(order, attempt, context, decision, at),
+        decision,
+      }
+    }
     const resolvedHold: ShipHold = {
       ...hold,
       resolvedAt: at,
@@ -1380,10 +1539,31 @@ export class ShippingService {
         },
       },
       () => {
-        this.deps.repository.resolveHold(order.id, expectedGeneration, action, nextState, at)
+        this.deps.repository.resolveHold(
+          order.id,
+          expectedGeneration,
+          action,
+          nextState,
+          at,
+          openedRepair?.candidate,
+        )
         return this.requiredOrder(order.id)
       },
     ).result
+    if (openedRepair && this.deps.repair) {
+      this.deps.beforeRepairAcknowledge?.(openedRepair.decision.resultToken)
+      await this.deps.repair.acknowledge({
+        resultToken: openedRepair.decision.resultToken,
+        orderId: order.id,
+        attemptId: openedRepair.candidate.attemptId,
+        generation: openedRepair.candidate.generation,
+        contextDigest: openedRepair.candidate.contextDigest,
+        candidate: {
+          repairRef: openedRepair.candidate.repairRef,
+          candidateHeadSha: openedRepair.candidate.candidateHeadSha,
+        },
+      })
+    }
     this.audit('shipping.hold_resolved', order.issueId, {
       orderId: order.id,
       action,
@@ -1570,6 +1750,7 @@ export class ShippingService {
     trainProofs: NonNullable<ShippingJobResult['trainProofs']>,
     effectEnvelopeKey: string,
   ): Promise<void> {
+    const settlements: { order: ShipOrder; receipt: DeliveryReceipt }[] = []
     for (const frozen of prefix) {
       const order = this.deps.repository.getOrder(frozen.id)
       if (!order || order.state === 'shipped') continue
@@ -1601,30 +1782,31 @@ export class ShippingService {
         destination: order.destination,
         completedAt,
       }
-      const shipped = {
-        ...order,
-        state: 'shipped' as const,
-        stateChangedAt: completedAt,
-      }
       this.deps.beforeCompletionCommit?.(receipt)
-      this.deps.issues.shippingCommit(
-        order.issueId,
-        {
-          expectedStage: 'shipping',
-          nextStage: 'done',
+      settlements.push({ order, receipt })
+    }
+    if (settlements.length === 0) return
+    this.deps.issues.shippingCommitMany(
+      settlements.map(({ order, receipt }) => ({
+        id: order.issueId,
+        mutation: {
+          expectedStage: 'shipping' as const,
+          nextStage: 'done' as const,
           needsHuman: false,
-          shipOrderChanges: this.projectionSpecs(this.replaceOrder(shipped), undefined, receipt),
+          shipOrderChanges: () => this.projectionSpecs(),
           event: {
             kind: 'issue.shipped',
-            payload: {
-              orderId: order.id,
-              receiptId: receipt.id,
-              coveredBy: covering.id,
-            },
+            payload: { orderId: order.id, receiptId: receipt.id, coveredBy: covering.id },
           },
         },
-        () => this.deps.repository.completeCoveredOrder(receipt, covering.id, effectEnvelopeKey),
-      )
+      })),
+      () => {
+        for (const { receipt } of settlements) {
+          this.deps.repository.completeCoveredOrder(receipt, covering.id, effectEnvelopeKey)
+        }
+      },
+    )
+    for (const { order, receipt } of settlements) {
       this.audit('shipping.order_shipped', order.issueId, {
         orderId: order.id,
         receiptId: receipt.id,
@@ -2148,7 +2330,57 @@ export class ShippingService {
         if (!this.renewResourceLease(resourceLease)) {
           return { passed: false, summary: 'validation resource lease expired' }
         }
-        const execution = { memberOrderIds: subset.map((candidate) => candidate.id) }
+        const memberOrderIds = subset.map((candidate) => candidate.id)
+        const repair = this.repairCandidate(attempt)
+        const approvedExecution = {
+          memberOrderIds,
+          repairRound: 0,
+          candidate: { kind: 'approved' as const },
+        }
+        if (repair) {
+          const approvedRequest = this.jobInput(
+            order,
+            attempt,
+            issue,
+            'prepare-merge-group',
+            'start',
+            approvedExecution,
+            null,
+          )
+          const approved = await this.deps.daemon.shippingJob(approvedRequest, attempt.machineId)
+          this.assertJobResultAuthority(approvedRequest, attempt, approved)
+          if (approved.state !== 'succeeded') {
+            return { passed: false, summary: approved.summary }
+          }
+        }
+        const execution = repair
+          ? {
+              memberOrderIds,
+              repairRound: repair.round,
+              candidate: {
+                kind: 'repair' as const,
+                contextDigest: repair.contextDigest,
+                repairRef: repair.repairRef,
+                candidateHeadSha: repair.candidateHeadSha,
+              },
+            }
+          : approvedExecution
+        if (repair) {
+          const applyRequest = this.jobInput(
+            order,
+            attempt,
+            issue,
+            'apply-repair',
+            'start',
+            execution,
+            repair,
+          )
+          const applied = await this.deps.daemon.shippingJob(applyRequest, attempt.machineId)
+          this.assertJobResultAuthority(applyRequest, attempt, applied)
+          if (applied.state !== 'succeeded') {
+            return { passed: false, summary: applied.summary }
+          }
+        }
         const prepareRequest = this.jobInput(
           order,
           attempt,
@@ -2158,6 +2390,7 @@ export class ShippingService {
           execution,
         )
         const prepared = await this.deps.daemon.shippingJob(prepareRequest, attempt.machineId)
+        this.assertJobResultAuthority(prepareRequest, attempt, prepared)
         if (
           prepared.jobId !== prepareRequest.jobId ||
           prepared.requestDigest !== prepareRequest.requestDigest ||
@@ -2167,6 +2400,7 @@ export class ShippingService {
         }
         const validateRequest = this.jobInput(order, attempt, issue, 'validate', 'start', execution)
         const validated = await this.deps.daemon.shippingJob(validateRequest, attempt.machineId)
+        this.assertJobResultAuthority(validateRequest, attempt, validated)
         const passed =
           validated.jobId === validateRequest.jobId &&
           validated.requestDigest === validateRequest.requestDigest &&
@@ -2187,9 +2421,35 @@ export class ShippingService {
       isolation.interactions.length > 0
         ? `Validation isolated an interaction among ${failureOrderIds.join(', ')}.`
         : `Validation isolated failing changes: ${failureOrderIds.join(', ')}.`
-    const projectionBeforeIsolation = this.projectionSnapshot()
-    this.deps.ledger.commit({
-      write: () =>
+    const failures = new Set(failureOrderIds)
+    this.deps.issues.shippingCommitMany(
+      members.map((member) => ({
+        id: member.issueId,
+        mutation: {
+          expectedStage: 'shipping' as const,
+          needsHuman: failures.has(member.id),
+          shipOrderChanges: () => this.projectionSpecs(),
+          event: () => {
+            const hold = this.deps.repository.openHoldForOrder(member.id)
+            return hold
+              ? {
+                  kind: 'issue.ship_hold_raised',
+                  payload: {
+                    orderId: member.id,
+                    holdId: hold.id,
+                    generation: hold.generation,
+                    reasonCode: hold.reasonCode,
+                    actions: hold.actions,
+                  },
+                }
+              : {
+                  kind: 'issue.shipping_train_reset',
+                  payload: { orderId: member.id, isolatedFrom: manifest.id },
+                }
+          },
+        },
+      })),
+      () =>
         this.deps.repository.isolateTrainFailure({
           trainId: manifest.id,
           leaderOrderId: order.id,
@@ -2200,9 +2460,7 @@ export class ShippingService {
           isolatedAt: failed.finishedAt ?? this.now(),
           detail,
         }),
-      changes: () => this.projectionSpecs(),
-    })
-    this.reconcileProjectionChanges(projectionBeforeIsolation)
+    )
     for (const member of manifest.members) {
       this.leases.delete(member.orderId)
       this.greenPrefixes.invalidateOrder(member.orderId)
@@ -2222,7 +2480,7 @@ export class ShippingService {
     issue: IssueWire,
     failure: ShippingRepairContext['failure'],
   ): ShippingRepairContext {
-    return {
+    const context = {
       order,
       attempt,
       issue,
@@ -2232,6 +2490,43 @@ export class ShippingService {
         generation: attempt.leaseGeneration,
         machineId: attempt.machineId,
       },
+      authority: {
+        type: 'shippingJobRequest' as const,
+        requestId: 'shipwright-context',
+        ...this.jobInput(order, attempt, issue, failure.operation, 'status'),
+      },
+    }
+    return { ...context, contextDigest: shippingRepairContextDigest(context) }
+  }
+
+  private durableRepairCandidate(
+    order: ShipOrder,
+    attempt: ShipAttempt,
+    context: ShippingRepairContext,
+    decision: Extract<ShippingRepairDecision, { kind: 'patched' }>,
+    recordedAt: string,
+  ): StoredShippingRepairCandidate {
+    const sequence = this.deps.repository.repairCandidatesForAttempt(attempt.id).length + 1
+    const expectedRef = shipRepairRef(
+      order.id,
+      attempt.id,
+      attempt.leaseGeneration,
+      context.contextDigest,
+    )
+    if (decision.repairRef !== expectedRef) {
+      throw new Error(`shipping repair ref does not match exact context custody`)
+    }
+    return {
+      orderId: order.id,
+      attemptId: attempt.id,
+      generation: attempt.leaseGeneration,
+      sequence,
+      round: sequence,
+      contextDigest: context.contextDigest,
+      repairRef: decision.repairRef,
+      candidateHeadSha: decision.candidateHeadSha,
+      resultToken: decision.resultToken,
+      recordedAt,
     }
   }
 
@@ -2255,9 +2550,10 @@ export class ShippingService {
       summary: result.summary,
       artifactRefs: result.artifactRefs,
     }
+    const context = this.repairContext(order, attempt, issue, failure)
     let decision: ShippingRepairDecision
     try {
-      decision = await repair.consider(this.repairContext(order, attempt, issue, failure))
+      decision = await repair.consider(context)
     } catch (error) {
       this.audit('shipping.repair_consider_failed', order.issueId, {
         orderId: order.id,
@@ -2283,6 +2579,13 @@ export class ShippingService {
     }
     if (decision.kind === 'patched') {
       const changedAt = result.finishedAt ?? this.now()
+      const repairCandidate = this.durableRepairCandidate(
+        order,
+        attempt,
+        context,
+        decision,
+        changedAt,
+      )
       this.deps.ledger.commit({
         write: () =>
           this.deps.repository.commitEffectResult({
@@ -2291,6 +2594,7 @@ export class ShippingService {
             attemptId: attempt.id,
             generation: attempt.leaseGeneration,
             ...effect,
+            repairCandidate,
             outcome: { kind: 'transition', nextState: 'repairing', stateChangedAt: changedAt },
           }),
         changes: () => this.projectionSpecs(),
@@ -2313,6 +2617,7 @@ export class ShippingService {
         effect,
         undefined,
         decision.actions,
+        true,
       )
     }
     await this.acknowledgeEffect(
@@ -2328,6 +2633,15 @@ export class ShippingService {
       orderId: order.id,
       attemptId: attempt.id,
       generation: attempt.leaseGeneration,
+      contextDigest: context.contextDigest,
+      ...(decision.kind === 'patched'
+        ? {
+            candidate: {
+              repairRef: decision.repairRef,
+              candidateHeadSha: decision.candidateHeadSha,
+            },
+          }
+        : {}),
     })
     return true
   }
@@ -2337,27 +2651,44 @@ export class ShippingService {
     if (!repair) return
     const attempt = this.deps.repository.latestAttemptForOrder(order.id)
     if (!attempt) return
-    const marked = this.deps.repository
-      .stepsForAttempt(attempt.id)
-      .map((step) => ({ step, marker: parseRepairMarker(step.summary) }))
-      .findLast((entry) => entry.marker !== null)
-    if (!marked?.marker) return
-    const issue = this.deps.issues.get(order.issueId)
-    const replay = await repair.consider(
-      this.repairContext(marked.marker.order, marked.marker.attempt, issue, marked.marker.failure),
-    )
-    if (
-      replay.kind === 'not-applicable' ||
-      JSON.stringify(replay) !== JSON.stringify(marked.marker.decision)
-    ) {
-      throw new Error(`shipping repair result replay changed for ${attempt.id}`)
+    const candidate = this.deps.repository.repairCandidatesForAttempt(attempt.id).at(-1)
+    if (!candidate) {
+      const marker = this.deps.repository
+        .stepsForAttempt(attempt.id)
+        .map((step) => parseRepairMarker(step.summary))
+        .findLast((entry) => entry?.decision.kind === 'needs-decision')
+      if (!marker || marker.decision.kind !== 'needs-decision') return
+      const context = this.repairContext(
+        marker.order,
+        marker.attempt,
+        this.deps.issues.get(order.issueId),
+        marker.failure,
+      )
+      const replay = await repair.consider(context)
+      if (JSON.stringify(replay) !== JSON.stringify(marker.decision)) {
+        throw new Error(`shipping repair result replay changed for ${attempt.id}`)
+      }
+      this.deps.beforeRepairAcknowledge?.(marker.decision.resultToken)
+      await repair.acknowledge({
+        resultToken: marker.decision.resultToken,
+        orderId: order.id,
+        attemptId: attempt.id,
+        generation: attempt.leaseGeneration,
+        contextDigest: context.contextDigest,
+      })
+      return
     }
-    this.deps.beforeRepairAcknowledge?.(replay.resultToken)
+    this.deps.beforeRepairAcknowledge?.(candidate.resultToken)
     await repair.acknowledge({
-      resultToken: replay.resultToken,
+      resultToken: candidate.resultToken,
       orderId: order.id,
-      attemptId: marked.marker.attempt.id,
-      generation: marked.marker.attempt.leaseGeneration,
+      attemptId: candidate.attemptId,
+      generation: candidate.generation,
+      contextDigest: candidate.contextDigest,
+      candidate: {
+        repairRef: candidate.repairRef,
+        candidateHeadSha: candidate.candidateHeadSha,
+      },
     })
   }
 
@@ -2366,16 +2697,7 @@ export class ShippingService {
     for (const attempt of this.deps.repository
       .listAttempts()
       .filter((candidate) => candidate.orderId === order.id)) {
-      const repairCandidates = this.deps.repository
-        .stepsForAttempt(attempt.id)
-        .map((step) => parseRepairMarker(step.summary))
-        .filter((marker): marker is DurableRepairMarker => marker?.decision.kind === 'patched')
-        .map((marker, index) => ({
-          round: index + 1,
-          repairRef: marker.decision.kind === 'patched' ? marker.decision.repairRef : '',
-          candidateHeadSha:
-            marker.decision.kind === 'patched' ? marker.decision.candidateHeadSha : '',
-        }))
+      const repairCandidates = this.deps.repository.repairCandidatesForAttempt(attempt.id)
       for (const step of this.deps.repository.stepsForAttempt(attempt.id)) {
         if (!terminalStep(step)) continue
         if (
@@ -2387,17 +2709,18 @@ export class ShippingService {
           step.kind === 'publish' ||
           step.kind === 'verify'
         ) {
-          const repairMatch = step.effectKey.match(/:repair-(\d+)-([a-f0-9]{64})$/)
+          const repairMatch = step.effectKey.match(/:repair-(\d+)-([a-f0-9]{64})-([a-f0-9]{64})$/)
           const repair = repairMatch ? repairCandidates[Number(repairMatch[1]) - 1] : null
           if (repairMatch && !repair) {
             throw new Error(`shipping repair effect ${step.effectKey} has no durable candidate`)
           }
           if (
-            repairMatch &&
-            repair &&
-            createHash('sha256')
-              .update(`${repair.repairRef}\0${repair.candidateHeadSha}`)
-              .digest('hex') !== repairMatch[2]
+            (repairMatch &&
+              repair &&
+              createHash('sha256')
+                .update(`${repair.repairRef}\0${repair.candidateHeadSha}`)
+                .digest('hex') !== repairMatch[3]) ||
+            repair.contextDigest !== repairMatch[2]
           ) {
             throw new Error(`shipping repair effect ${step.effectKey} candidate digest changed`)
           }
@@ -2430,6 +2753,7 @@ export class ShippingService {
     },
     cancellationFailure?: { intentKey: string; terminalStep: ShipStep },
     actions: ShipHoldAction[] = ['retry', 'return-to-issue'],
+    preserveAttempt = false,
   ): Promise<void> {
     const generation =
       Math.max(
@@ -2451,30 +2775,33 @@ export class ShippingService {
       actions,
       raisedAt,
     }
-    const heldOrder: ShipOrder = {
-      ...order,
-      state: 'held',
-      stateChangedAt: raisedAt,
-      holdCode: reasonCode,
-    }
-    const projectionBeforeHold = this.projectionSnapshot()
-    this.deps.issues.shippingCommit(
-      order.issueId,
-      {
-        expectedStage: 'shipping',
-        needsHuman: true,
-        shipOrderChanges: this.projectionSpecs(this.replaceOrder(heldOrder), hold),
-        event: {
-          kind: 'issue.ship_hold_raised',
-          payload: {
-            orderId: order.id,
-            holdId: hold.id,
-            generation,
-            reasonCode,
-            actions: hold.actions,
+    const train = this.deps.repository.activeTrainForOrder(order.id)
+    const affected = train
+      ? train.members.map((member) => this.requiredOrder(member.orderId))
+      : [order]
+    this.deps.issues.shippingCommitMany(
+      affected.map((member) => ({
+        id: member.issueId,
+        mutation: {
+          expectedStage: 'shipping' as const,
+          needsHuman: true,
+          shipOrderChanges: () => this.projectionSpecs(),
+          event: () => {
+            const liveHold = this.deps.repository.openHoldForOrder(member.id)
+            if (!liveHold) return undefined
+            return {
+              kind: 'issue.ship_hold_raised',
+              payload: {
+                orderId: member.id,
+                holdId: liveHold.id,
+                generation: liveHold.generation,
+                reasonCode: liveHold.reasonCode,
+                actions: liveHold.actions,
+              },
+            }
           },
         },
-      },
+      })),
       () =>
         effect
           ? this.deps.repository.commitEffectResult({
@@ -2483,7 +2810,7 @@ export class ShippingService {
               attemptId: attempt.id,
               generation: attempt.leaseGeneration,
               ...effect,
-              outcome: { kind: 'hold', hold, attemptFinishedAt: raisedAt },
+              outcome: { kind: 'hold', hold, attemptFinishedAt: raisedAt, preserveAttempt },
             })
           : cancellationFailure
             ? this.deps.repository.commitCancellationHold({
@@ -2504,7 +2831,6 @@ export class ShippingService {
                 attemptFinishedAt: raisedAt,
               }),
     )
-    this.reconcileProjectionChanges(projectionBeforeHold, new Set([order.issueId]))
     this.leases.delete(order.id)
   }
 
@@ -2674,14 +3000,32 @@ export class ShippingService {
       repairRound?: number
       candidate?:
         | { kind: 'approved' }
-        | { kind: 'repair'; repairRef: string; candidateHeadSha: string }
+        | {
+            kind: 'repair'
+            contextDigest: string
+            repairRef: string
+            candidateHeadSha: string
+          }
     },
-    repairOverride?: { round: number; repairRef: string; candidateHeadSha: string } | null,
+    repairOverride?: {
+      round: number
+      contextDigest: string
+      repairRef: string
+      candidateHeadSha: string
+    } | null,
   ): Omit<ShippingJobRequestMessage, 'type' | 'requestId'> {
     const train = this.deps.repository.trainManifestForAttempt(attempt.id)
     const policy = this.deps.policy.resolve(issue)
     const durableRepair =
       repairOverride === null ? undefined : (repairOverride ?? this.repairCandidate(attempt))
+    const repairFacts = durableRepair
+      ? {
+          round: durableRepair.round,
+          contextDigest: durableRepair.contextDigest,
+          repairRef: durableRepair.repairRef,
+          candidateHeadSha: durableRepair.candidateHeadSha,
+        }
+      : undefined
     const memberOrderIds =
       execution?.memberOrderIds ?? train?.members.map((member) => member.orderId)
     const repairRound = execution?.repairRound ?? durableRepair?.round ?? 0
@@ -2690,6 +3034,7 @@ export class ShippingService {
       (durableRepair
         ? {
             kind: 'repair' as const,
+            contextDigest: durableRepair.contextDigest,
             repairRef: durableRepair.repairRef,
             candidateHeadSha: durableRepair.candidateHeadSha,
           }
@@ -2714,7 +3059,9 @@ export class ShippingService {
         train && subsetId
           ? `${attempt.id}:${operation}:${subsetId}`
           : durableRepair
-            ? `${attempt.id}:${operation}:repair-${durableRepair.round}-${createHash('sha256')
+            ? `${attempt.id}:${operation}:repair-${durableRepair.round}-${durableRepair.contextDigest}-${createHash(
+                'sha256',
+              )
                 .update(`${durableRepair.repairRef}\0${durableRepair.candidateHeadSha}`)
                 .digest('hex')}`
             : `${attempt.id}:${operation}`,
@@ -2739,7 +3086,7 @@ export class ShippingService {
           ...policy.validationProfile,
           resourceLocks: [...policy.validationProfile.resourceLocks].sort(),
         },
-      ...(durableRepair ? { repair: durableRepair } : {}),
+      ...(repairFacts ? { repair: repairFacts } : {}),
       ...(train
         ? {
             train: {
@@ -2764,20 +3111,8 @@ export class ShippingService {
     }
   }
 
-  private repairCandidate(
-    attempt: ShipAttempt,
-  ): { round: number; repairRef: string; candidateHeadSha: string } | undefined {
-    const markers = this.deps.repository
-      .stepsForAttempt(attempt.id)
-      .map((step) => parseRepairMarker(step.summary))
-      .filter((marker): marker is DurableRepairMarker => marker?.decision.kind === 'patched')
-    const marker = markers.at(-1)
-    if (!marker || marker.decision.kind !== 'patched') return undefined
-    return {
-      round: markers.length,
-      repairRef: marker.decision.repairRef,
-      candidateHeadSha: marker.decision.candidateHeadSha,
-    }
+  private repairCandidate(attempt: ShipAttempt): StoredShippingRepairCandidate | undefined {
+    return this.deps.repository.repairCandidatesForAttempt(attempt.id).at(-1)
   }
 
   private effectKeyFor(attempt: ShipAttempt, operation: ShippingJobResult['operation']): string {
@@ -2786,7 +3121,7 @@ export class ShippingService {
     const repairDigest = createHash('sha256')
       .update(`${repair.repairRef}\0${repair.candidateHeadSha}`)
       .digest('hex')
-    return `${operation}:${attempt.leaseGeneration}:repair-${repair.round}-${repairDigest}`
+    return `${operation}:${attempt.leaseGeneration}:repair-${repair.round}-${repair.contextDigest}-${repairDigest}`
   }
 
   private operationFor(state: ShipOrderState): ShippingJobResult['operation'] | null {

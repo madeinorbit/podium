@@ -6,7 +6,7 @@ import type {
   ShipHoldCode,
   ShipOrder,
 } from '@podium/model'
-import type { ShippingJobClassification } from '@podium/protocol/daemon'
+import type { ShippingJobClassification, ShippingJobRequestMessage } from '@podium/protocol/daemon'
 
 export interface ShippingRepairFailure {
   operation: 'prepare-merge-group' | 'validate'
@@ -25,6 +25,42 @@ export interface ShippingRepairContext {
     generation: number
     machineId: MachineId
   }
+  /** Canonical digest of the exact failed effect and its custody fence. */
+  contextDigest: string
+  authority: ShippingJobRequestMessage
+}
+
+export interface DurableShippingRepairCandidate {
+  orderId: ShipOrder['id']
+  attemptId: ShipAttempt['id']
+  generation: number
+  sequence: number
+  round: number
+  contextDigest: string
+  repairRef: string
+  candidateHeadSha: string
+  resultToken: string
+  recordedAt: string
+}
+
+export function shippingRepairContextDigest(
+  input: Omit<ShippingRepairContext, 'contextDigest'>,
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        orderId: input.order.id,
+        attemptId: input.attempt.id,
+        generation: input.custody.generation,
+        machineId: input.custody.machineId,
+        operation: input.failure.operation,
+        classification: input.failure.classification,
+        summary: input.failure.summary,
+        artifactRefs: [...input.failure.artifactRefs],
+        authorityRequestDigest: input.authority.requestDigest,
+      }),
+    )
+    .digest('hex')
 }
 
 export type ShippingRepairDecision =
@@ -50,5 +86,8 @@ export interface ShippingRepairPort {
     orderId: ShipOrder['id']
     attemptId: ShipAttempt['id']
     generation: number
+    contextDigest: string
+    candidate?: { repairRef: string; candidateHeadSha: string }
   }): Promise<void>
 }
+import { createHash } from 'node:crypto'

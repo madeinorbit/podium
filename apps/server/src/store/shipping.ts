@@ -43,6 +43,19 @@ import {
 type SqlRow = Record<string, unknown>
 const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
 
+export interface StoredShippingRepairCandidate {
+  orderId: ShipOrderValue['id']
+  attemptId: ShipAttemptValue['id']
+  generation: number
+  sequence: number
+  round: number
+  contextDigest: string
+  repairRef: string
+  candidateHeadSha: string
+  resultToken: string
+  recordedAt: string
+}
+
 const frozenOrderFacts = (order: ShipOrderValue) => ({
   issueId: order.issueId,
   descendantManifest: order.descendantManifest,
@@ -328,6 +341,61 @@ export interface RootIntegrationReceiptStore {
  * this repository. */
 export class ShippingRepository implements RootIntegrationReceiptStore {
   constructor(private readonly db: SqlDatabase) {}
+
+  repairCandidatesForAttempt(attemptId: ShipAttemptValue['id']): StoredShippingRepairCandidate[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT order_id AS orderId, attempt_id AS attemptId, generation, sequence, round,
+                  context_digest AS contextDigest, repair_ref AS repairRef,
+                  candidate_head_sha AS candidateHeadSha, result_token AS resultToken,
+                  recorded_at AS recordedAt
+             FROM ship_repair_candidates
+            WHERE attempt_id = ? ORDER BY sequence`,
+        )
+        .all(attemptId) as StoredShippingRepairCandidate[]
+    ).map((row) => ({ ...row }))
+  }
+
+  private recordRepairCandidate(input: StoredShippingRepairCandidate): void {
+    const attempt = this.getAttempt(input.attemptId)
+    const order = this.getOrder(input.orderId)
+    if (
+      !attempt ||
+      !order ||
+      attempt.orderId !== input.orderId ||
+      attempt.leaseGeneration !== input.generation ||
+      attempt.finishedAt
+    ) {
+      throw new Error(`ship repair ${input.attemptId}:${input.sequence} custody fence failed`)
+    }
+    const prior = this.repairCandidatesForAttempt(input.attemptId)
+    if (input.sequence !== prior.length + 1 || input.round !== input.sequence) {
+      throw new Error(`ship repair ${input.attemptId} causal sequence is not contiguous`)
+    }
+    if (!/^[a-f0-9]{64}$/.test(input.contextDigest)) {
+      throw new Error(`ship repair ${input.attemptId}:${input.sequence} context digest is invalid`)
+    }
+    this.db
+      .prepare(
+        `INSERT INTO ship_repair_candidates
+          (order_id, attempt_id, generation, sequence, round, context_digest,
+           repair_ref, candidate_head_sha, result_token, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.orderId,
+        input.attemptId,
+        input.generation,
+        input.sequence,
+        input.round,
+        input.contextDigest,
+        input.repairRef,
+        input.candidateHeadSha,
+        input.resultToken,
+        input.recordedAt,
+      )
+  }
 
   /**
    * Typed pre-admission proof for one exact delivery-root head. The key includes
@@ -1124,8 +1192,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         attempt.finishedAt ||
         latest?.id !== member.attemptId ||
         attempt.leaseGeneration !== member.generation ||
-        attempt.machineId !== member.machineId ||
-        this.hasCancellationIntent(member.attemptId, member.generation)
+        attempt.machineId !== member.machineId
       ) {
         this.invalidateActiveLane(
           manifest.lane.laneKey,
@@ -1503,13 +1570,19 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     effectKey: string
     operation: ShipStepValue['kind']
     terminalStep: ShipStepValue
+    repairCandidate?: StoredShippingRepairCandidate
     outcome:
       | {
           kind: 'transition'
           nextState: Exclude<ShipOrderState, 'held' | 'shipped'>
           stateChangedAt: string
         }
-      | { kind: 'hold'; hold: ShipHoldValue; attemptFinishedAt: string }
+      | {
+          kind: 'hold'
+          hold: ShipHoldValue
+          attemptFinishedAt: string
+          preserveAttempt?: boolean
+        }
       | {
           kind: 'verified'
           receipt: DeliveryReceiptValue
@@ -1565,6 +1638,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
 
       if (input.outcome.kind === 'transition') {
+        if (input.repairCandidate) this.recordRepairCandidate(input.repairCandidate)
         return this.transitionOrder(
           input.orderId,
           input.expectedState,
@@ -1573,10 +1647,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         )
       }
       if (input.outcome.kind === 'hold') {
-        this.finishAttempt(input.attemptId, input.generation, {
-          finishedAt: input.outcome.attemptFinishedAt,
-          outcome: 'failed',
-        })
+        if (!input.outcome.preserveAttempt) {
+          this.finishAttempt(input.attemptId, input.generation, {
+            finishedAt: input.outcome.attemptFinishedAt,
+            outcome: 'failed',
+          })
+        }
         this.raiseHold(input.outcome.hold)
         return this.getOrder(input.orderId) as ShipOrderValue
       }
@@ -2069,6 +2145,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     resolution: ShipHoldAction,
     nextState: Extract<ShipOrderState, 'queued' | 'repairing' | 'cancelled'>,
     resolvedAt: string,
+    repairCandidate?: StoredShippingRepairCandidate,
   ): ShipHoldValue {
     return transaction(this.db, () => {
       const hold = this.openHoldForOrder(orderId)
@@ -2084,6 +2161,18 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         !(legalHoldResolutionStates(resolution) as readonly ShipOrderState[]).includes(nextState)
       ) {
         throw new Error(`ship hold action ${resolution} cannot transition to ${nextState}`)
+      }
+      const attempt = this.latestAttemptForOrder(orderId)
+      if (nextState === 'repairing') {
+        if (!repairCandidate || !attempt || attempt.finishedAt) {
+          throw new Error(`ship hold ${hold.id} cannot open repair without a live candidate`)
+        }
+        this.recordRepairCandidate(repairCandidate)
+      } else if (attempt && !attempt.finishedAt) {
+        this.finishAttempt(attempt.id, attempt.leaseGeneration, {
+          finishedAt: resolvedAt,
+          outcome: nextState === 'cancelled' ? 'cancelled' : 'failed',
+        })
       }
       const changed = this.db
         .prepare(
@@ -2343,6 +2432,31 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         .run(receipt.completedAt, receipt.orderId)
       if (changed.changes !== 1) throw new Error(`ship order ${order.id} coverage fence failed`)
       return this.receiptForOrder(order.id) as DeliveryReceiptValue
+    })
+  }
+
+  completeVerifiedTrain(input: {
+    leader: Parameters<ShippingRepository['commitEffectResult']>[0]
+    covered: {
+      receipt: DeliveryReceiptValue
+      coveringOrderId: ShipOrderValue['id']
+      effectEnvelopeKey: string
+    }[]
+    release?: { trainId: ShipTrainManifestValue['id']; releasedAt: string; reason: string }
+  }): ShipOrderValue {
+    return transaction(this.db, () => {
+      const leader = this.commitEffectResult(input.leader)
+      for (const covered of input.covered) {
+        this.completeCoveredOrder(
+          covered.receipt,
+          covered.coveringOrderId,
+          covered.effectEnvelopeKey,
+        )
+      }
+      if (input.release) {
+        this.releaseTrain(input.release.trainId, input.release.releasedAt, input.release.reason)
+      }
+      return leader
     })
   }
 

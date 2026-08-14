@@ -70,6 +70,8 @@ export interface ShipwrightDeps {
     order: ShipOrder
     attempt: ShipAttempt
     custody: ShipwrightRepairInput['custody']
+    authority: ShipwrightRepairInput['authority']
+    contextDigest: string
     repairRef: string
     patch: string
     touchedPaths: string[]
@@ -110,6 +112,8 @@ export interface ShipwrightRepairInput {
     generation: number
     machineId: ShipAttempt['machineId']
   }
+  contextDigest: string
+  authority: import('@podium/protocol/daemon').ShippingJobRequestMessage
 }
 
 export interface ShipwrightEvidenceMaterializer {
@@ -119,6 +123,7 @@ export interface ShipwrightEvidenceMaterializer {
     order: ShipOrder
     attempt: ShipAttempt
     custody: ShipwrightRepairInput['custody']
+    authority: ShipwrightRepairInput['authority']
   }): Promise<readonly ShipwrightEvidenceRefValue[]>
 }
 
@@ -133,6 +138,7 @@ export interface ShipwrightContextInput {
     artifactRefs: readonly ShipwrightEvidenceRefValue[]
   }
   custody: ShipwrightRepairInput['custody']
+  authority: ShipwrightRepairInput['authority']
 }
 
 export type ShipwrightRepairRecommendation =
@@ -159,6 +165,8 @@ interface ShipwrightResultEnvelope {
   orderId: ShipOrder['id']
   attemptId: ShipAttempt['id']
   generation: number
+  contextDigest: string
+  candidate?: { repairRef: string; candidateHeadSha: string }
   receipts: ShipwrightResultReceipt[]
 }
 
@@ -167,11 +175,14 @@ const RESULT_TOKEN_PREFIX = 'shipwright-result:'
 function encodeResultToken(
   input: ShipwrightRepairInput,
   receipts: readonly ShipwrightResultReceipt[],
+  candidate?: { repairRef: string; candidateHeadSha: string },
 ): string {
   const envelope: ShipwrightResultEnvelope = {
     orderId: input.order.id,
     attemptId: input.attempt.id,
     generation: input.custody.generation,
+    contextDigest: input.contextDigest,
+    ...(candidate ? { candidate } : {}),
     receipts: [...receipts],
   }
   return `${RESULT_TOKEN_PREFIX}${Buffer.from(JSON.stringify(envelope)).toString('base64url')}`
@@ -189,7 +200,16 @@ function decodeResultToken(token: string): ShipwrightResultEnvelope {
     typeof (parsed as { attemptId?: unknown }).attemptId !== 'string' ||
     typeof (parsed as { generation?: unknown }).generation !== 'number' ||
     !Number.isInteger((parsed as { generation: number }).generation) ||
+    typeof (parsed as { contextDigest?: unknown }).contextDigest !== 'string' ||
+    !/^[a-f0-9]{64}$/.test((parsed as { contextDigest: string }).contextDigest) ||
     !Array.isArray((parsed as { receipts?: unknown }).receipts) ||
+    ('candidate' in parsed &&
+      (typeof (parsed as { candidate?: unknown }).candidate !== 'object' ||
+        (parsed as { candidate: unknown }).candidate === null ||
+        typeof (parsed as { candidate: { repairRef?: unknown } }).candidate.repairRef !==
+          'string' ||
+        typeof (parsed as { candidate: { candidateHeadSha?: unknown } }).candidate
+          .candidateHeadSha !== 'string')) ||
     (parsed as { receipts: unknown[] }).receipts.some(
       (item) =>
         typeof item !== 'object' ||
@@ -208,12 +228,16 @@ function decodeResultToken(token: string): ShipwrightResultEnvelope {
     orderId: ShipOrder['id']
     attemptId: ShipAttempt['id']
     generation: number
+    contextDigest: string
     receipts: { sessionId: string; turnId: string; requestDigest: string; accountId: AccountId }[]
+    candidate?: { repairRef: string; candidateHeadSha: string }
   }
   return {
     orderId: value.orderId,
     attemptId: value.attemptId,
     generation: value.generation,
+    contextDigest: value.contextDigest,
+    ...(value.candidate ? { candidate: value.candidate } : {}),
     receipts: value.receipts.map((item) => ({
       sessionId: asSessionId(item.sessionId),
       turnId: item.turnId,
@@ -379,6 +403,7 @@ export class ShipwrightService {
         order: input.order,
         attempt: input.attempt,
         custody: input.custody,
+        authority: input.authority,
       })
     } catch {
       return this.decision(
@@ -412,6 +437,7 @@ export class ShipwrightService {
             artifactRefs: parsedEvidence.data,
           },
           custody: input.custody,
+          authority: input.authority,
         },
         {
           maxContextBytes: this.budget.maxContextBytes,
@@ -449,6 +475,7 @@ export class ShipwrightService {
         level,
         rung,
         priorFamilies,
+        contextDigest: input.contextDigest,
       })
       turns += 1
       if (proposed.receipt) receipts.push(proposed.receipt)
@@ -489,6 +516,7 @@ export class ShipwrightService {
             rung: levels.length + rung * this.budget.maxInspectorTurns + inspectorTurns,
             priorFamilies,
             proposedPatch: patch,
+            contextDigest: input.contextDigest,
           })
           inspectorTurns += 1
           turns += 1
@@ -515,6 +543,8 @@ export class ShipwrightService {
         order: input.order,
         attempt: input.attempt,
         custody: input.custody,
+        authority: input.authority,
+        contextDigest: input.contextDigest,
         repairRef: proposed.attempt.repairRef,
         patch: patch.patch,
         touchedPaths: patch.touchedPaths,
@@ -527,6 +557,7 @@ export class ShipwrightService {
           order: input.order,
           attempt: input.attempt,
           custody: input.custody,
+          authority: input.authority,
         })
       } catch {
         return this.decision(
@@ -553,7 +584,10 @@ export class ShipwrightService {
           kind: 'patched',
           repairRef: proposed.attempt.repairRef,
           candidateHeadSha: applied.candidateHeadSha,
-          resultToken: encodeResultToken(input, receipts),
+          resultToken: encodeResultToken(input, receipts, {
+            repairRef: proposed.attempt.repairRef,
+            candidateHeadSha: applied.candidateHeadSha,
+          }),
         }
       }
       failure = {
@@ -578,12 +612,16 @@ export class ShipwrightService {
     orderId: ShipOrder['id']
     attemptId: ShipAttempt['id']
     generation: number
+    contextDigest: string
+    candidate?: { repairRef: string; candidateHeadSha: string }
   }): Promise<void> {
     const envelope = decodeResultToken(input.resultToken)
     if (
       envelope.orderId !== input.orderId ||
       envelope.attemptId !== input.attemptId ||
-      envelope.generation !== input.generation
+      envelope.generation !== input.generation ||
+      envelope.contextDigest !== input.contextDigest ||
+      JSON.stringify(envelope.candidate ?? null) !== JSON.stringify(input.candidate ?? null)
     ) {
       throw new Error('shipwright result acknowledgement fence mismatch')
     }
@@ -606,6 +644,7 @@ export class ShipwrightService {
     rung: number
     priorFamilies?: string[]
     proposedPatch?: ShipwrightPatch
+    contextDigest: string
   }): Promise<ShipwrightOutcome> {
     const owner = input.order.requestedBy.onBehalfOf
     if (!owner) {
@@ -761,7 +800,12 @@ export class ShipwrightService {
         attempt: {
           level: input.level,
           route,
-          repairRef: shipRepairRef(input.attempt.id, input.attempt.leaseGeneration),
+          repairRef: shipRepairRef(
+            input.order.id,
+            input.attempt.id,
+            input.attempt.leaseGeneration,
+            input.contextDigest,
+          ),
           contract,
         },
         patch: input.proposedPatch,
@@ -792,7 +836,12 @@ export class ShipwrightService {
       attempt: {
         level: input.level,
         route,
-        repairRef: shipRepairRef(input.attempt.id, input.attempt.leaseGeneration),
+        repairRef: shipRepairRef(
+          input.order.id,
+          input.attempt.id,
+          input.attempt.leaseGeneration,
+          input.contextDigest,
+        ),
         contract,
       },
       patch: contract,

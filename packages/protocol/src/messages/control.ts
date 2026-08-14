@@ -46,7 +46,11 @@ import {
   ServerTransferStatusRequestMessage,
   ServerTransferValidateRequestMessage,
 } from './server-transfer'
-import { ShippingJobRequestMessage } from './shipping'
+import {
+  ShippingEvidenceRequestMessage,
+  ShippingJobRequestMessage,
+  ShippingRepairApplyRequestMessage,
+} from './shipping'
 import {
   DraftTargetMessage,
   InputMessage,
@@ -127,5 +131,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ServerTransferAcknowledgeRequestMessage,
   ServerTransferStatusRequestMessage,
   ShippingJobRequestMessage,
+  ShippingEvidenceRequestMessage,
+  ShippingRepairApplyRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>

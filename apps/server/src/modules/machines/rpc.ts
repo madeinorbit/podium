@@ -17,8 +17,40 @@ import type {
   UsageBucketWire,
 } from '@podium/model'
 import { asMachineId } from '@podium/model'
-import type { BrowseDirsResultMessage, CredentialExportResultMessage, CredentialInstallResultMessage, DirListResultMessage, FileAssetResultMessage, FileReadResultMessage, FileWriteResultMessage, HandoffBindingExportInstruction, HandoffBindingFinalizeResultMessage, HandoffBindingImportInstruction, HandoffChunkReadResultMessage, HandoffExportResultMessage, HandoffImportChunkResultMessage, HandoffImportResultMessage, ModelChoiceWire, PortableCredentialBundle, PortableCredentialKind, RepoOp, ServerTransferManifest, ServerTransferManifestEntry, ServerTransferResultMessage, WorkspaceCleanResultMessage, WorkspaceExportResultMessage, WorkspaceImportResultMessage } from '@podium/protocol'
-import type { ControlMessage, DaemonMessage, ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
+import type {
+  BrowseDirsResultMessage,
+  CredentialExportResultMessage,
+  CredentialInstallResultMessage,
+  DirListResultMessage,
+  FileAssetResultMessage,
+  FileReadResultMessage,
+  FileWriteResultMessage,
+  HandoffBindingExportInstruction,
+  HandoffBindingFinalizeResultMessage,
+  HandoffBindingImportInstruction,
+  HandoffChunkReadResultMessage,
+  HandoffExportResultMessage,
+  HandoffImportChunkResultMessage,
+  HandoffImportResultMessage,
+  ModelChoiceWire,
+  PortableCredentialBundle,
+  PortableCredentialKind,
+  RepoOp,
+  ServerTransferManifest,
+  ServerTransferManifestEntry,
+  ServerTransferResultMessage,
+  WorkspaceCleanResultMessage,
+  WorkspaceExportResultMessage,
+  WorkspaceImportResultMessage,
+} from '@podium/protocol'
+import type {
+  ControlMessage,
+  DaemonMessage,
+  ShippingEvidenceResultMessage,
+  ShippingJobRequestMessage,
+  ShippingJobResult,
+  ShippingRepairApplyResultMessage,
+} from '@podium/protocol/daemon'
 import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
@@ -145,6 +177,8 @@ const CREDENTIAL_EXPORT = daemonRequestKind<Payload<CredentialExportResultMessag
 const CREDENTIAL_INSTALL = daemonRequestKind<Payload<CredentialInstallResultMessage>>('ci')
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
+const SHIPPING_EVIDENCE = daemonRequestKind<Payload<ShippingEvidenceResultMessage>>('se')
+const SHIPPING_REPAIR_APPLY = daemonRequestKind<Payload<ShippingRepairApplyResultMessage>>('sr')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
@@ -243,6 +277,10 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(SERVER_TRANSFER, msg.requestId, machineId, payloadOf(msg)),
   shippingJobResult: (broker, machineId, msg) =>
     void broker.settle(SHIPPING_JOB, msg.requestId, machineId, payloadOf(msg)),
+  shippingEvidenceResult: (broker, machineId, msg) =>
+    void broker.settle(SHIPPING_EVIDENCE, msg.requestId, machineId, payloadOf(msg)),
+  shippingRepairApplyResult: (broker, machineId, msg) =>
+    void broker.settle(SHIPPING_REPAIR_APPLY, msg.requestId, machineId, payloadOf(msg)),
   credentialInstallResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
 }
@@ -465,6 +503,50 @@ export class DaemonRpcService {
         heartbeatedAt: new Date().toISOString(),
       }),
       (requestId) => ({ type: 'shippingJobRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  shippingEvidence(
+    authority: ShippingJobRequestMessage,
+    artifactRef: string,
+    maxBytes: number,
+    machineId: MachineId,
+  ): Promise<Payload<ShippingEvidenceResultMessage>> {
+    return this.request(
+      SHIPPING_EVIDENCE,
+      15_000,
+      () => ({ artifactRef, ok: false, error: 'shipping evidence daemon did not answer' }),
+      (requestId) => ({
+        type: 'shippingEvidenceRequest',
+        requestId,
+        authority,
+        artifactRef,
+        maxBytes,
+      }),
+      machineId,
+    )
+  }
+
+  shippingRepairApply(
+    input: {
+      authority: ShippingJobRequestMessage
+      contextDigest: string
+      repairRef: string
+      patch: string
+      touchedPaths: string[]
+    },
+    machineId: MachineId,
+  ): Promise<Payload<ShippingRepairApplyResultMessage>> {
+    return this.request(
+      SHIPPING_REPAIR_APPLY,
+      40_000,
+      () => ({
+        ok: false,
+        summary: 'shipping repair daemon did not answer',
+        artifactRefs: [],
+      }),
+      (requestId) => ({ type: 'shippingRepairApplyRequest', requestId, ...input }),
       machineId,
     )
   }

@@ -206,6 +206,75 @@ export class IssueCrudModule {
     return { issue, result: result as T }
   }
 
+  shippingCommitMany<T>(
+    entries: readonly { id: IssueId; mutation: ShippingIssueMutation }[],
+    write: () => T,
+  ): { issues: IssueWire[]; result: T } {
+    if (entries.length === 0) throw new Error('shipping batch requires an affected issue')
+    const rows = entries.map(({ id }) => this.store.rowOrThrow(this.store.resolveRef(id)))
+    if (new Set(rows.map((row) => row.id)).size !== rows.length) {
+      throw new Error('shipping batch contains a duplicate issue')
+    }
+    const needsHumanBefore = new Map(rows.map((row) => [row.id, row.needsHuman] as const))
+    for (const [index, row] of rows.entries()) {
+      const mutation = entries[index]!.mutation
+      const expectedStages = Array.isArray(mutation.expectedStage)
+        ? mutation.expectedStage
+        : [mutation.expectedStage]
+      if (!(expectedStages as readonly string[]).includes(row.stage)) {
+        throw new Error(
+          `issue ${row.id} shipping stage fence failed: expected ${expectedStages.join(' or ')}`,
+        )
+      }
+      const nextStage = mutation.nextStage
+      if (nextStage) {
+        const legal =
+          (row.stage === 'review' && nextStage === 'shipping') ||
+          (row.stage === 'shipping' &&
+            (nextStage === 'review' || nextStage === 'done' || nextStage === 'shipping'))
+        if (!legal) {
+          throw new Error(`illegal shipping issue-stage transition ${row.stage} → ${nextStage}`)
+        }
+      }
+    }
+    for (const [index, row] of rows.entries()) {
+      const mutation = entries[index]!.mutation
+      if (mutation.nextStage) row.stage = mutation.nextStage
+      if (mutation.needsHuman === undefined) continue
+      row.needsHuman = mutation.needsHuman
+      row.humanQuestion = null
+      row.humanQuestionOptions = null
+      row.humanQuestionAskedBy = null
+      row.humanQuestionAskedAt = null
+    }
+    const committed = this.store.persistManyWith(rows, write, (result) => {
+      const changes = entries.flatMap(({ mutation }) =>
+        typeof mutation.shipOrderChanges === 'function'
+          ? mutation.shipOrderChanges(result)
+          : mutation.shipOrderChanges,
+      )
+      return [
+        ...new Map(changes.map((change) => [`${change.entity}:${change.id}`, change])).values(),
+      ]
+    })
+    for (const [index, row] of rows.entries()) {
+      const mutation = entries[index]!.mutation
+      const event =
+        typeof mutation.event === 'function' ? mutation.event(committed.result) : mutation.event
+      if (event) this.store.emitEvent(event.kind, row.id, event.payload)
+      const before = needsHumanBefore.get(row.id)
+      if (!before && mutation.needsHuman === true) {
+        this.store.emitEvent('issue.needs_human', row.id, { seq: row.seq, kind: 'ship-hold' })
+      } else if (before && mutation.needsHuman === false) {
+        this.store.emitEvent('issue.needs_human_cleared', row.id, {
+          seq: row.seq,
+          kind: 'ship-hold',
+        })
+      }
+    }
+    return committed
+  }
+
   /** Agent-posted "where things stand" — writes activityNotes directly (the same
    *  field the assistant digest maintains; an explicit agent post is fresher truth
    *  and simply overwrites, and vice versa). Shown in the issue sidebar header. */
@@ -352,9 +421,7 @@ export class IssueCrudModule {
       .repoOp('lsFiles', root, undefined, machineId)
       .catch(() => ({ ok: false, output: '' }))
     const trackedPaths = new Set(tracked.ok ? tracked.output.split('\0').filter(Boolean) : [])
-    const untrackedPaths = tracked.ok
-      ? sourcePaths.filter((path) => !trackedPaths.has(path))
-      : []
+    const untrackedPaths = tracked.ok ? sourcePaths.filter((path) => !trackedPaths.has(path)) : []
     const tracking: 'tracked' | 'untracked' | 'unknown' = !tracked.ok
       ? 'unknown'
       : untrackedPaths.length

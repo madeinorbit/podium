@@ -912,6 +912,57 @@ export class IssueStore {
     return wire
   }
 
+  /** Shipping-only multi-row variant: every affected issue row, normalized
+   * shipping write, and declared projection change shares one ledger commit. */
+  persistManyWith<T>(
+    rows: IssueRow[],
+    write: () => T,
+    extraChanges: (result: T) => readonly EntityChangeSpec[],
+  ): { issues: IssueWire[]; result: T } {
+    const backups = new Map(
+      rows.map((row) => [row.id, this.deps.store.issues.getIssue(row.id)] as const),
+    )
+    for (const row of rows) {
+      normalizeBlankIssueText(row)
+      row.updatedAt = this.now()
+    }
+    let result!: T
+    let wires!: IssueWire[]
+    try {
+      const committed = this.deps.ledger.commit({
+        write: () => {
+          result = write()
+          for (const row of rows) this.deps.store.issues.upsertIssue(row)
+          wires = rows.map((row) => this.toWire(row))
+          return { result, wires }
+        },
+        changes: ({ result: value, wires: committedWires }) => [
+          ...rows.flatMap((row, index) => [
+            {
+              entity: 'issue' as const,
+              id: row.id,
+              op: 'upsert' as const,
+              value: committedWires[index]!,
+            },
+            ...this.projectionChanges(row),
+          ]),
+          ...extraChanges(value),
+        ],
+      }).result
+      result = committed.result
+      wires = committed.wires
+    } catch (error) {
+      for (const row of rows) {
+        const backup = backups.get(row.id)
+        if (backup) Object.assign(row, backup)
+      }
+      throw error
+    }
+    this.bumpIssueInputs()
+    for (const row of rows) this.rows.set(row.id, row)
+    return { issues: wires, result }
+  }
+
   /** Full-list broadcast for mutations with cross-issue effects (see persist).
    *  No repository write of its own. Runs a ledger RECONCILE over the full wire
    *  list rather than per-write declarations because the full-list path exists

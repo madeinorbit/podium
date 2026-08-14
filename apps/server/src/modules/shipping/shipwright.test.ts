@@ -83,7 +83,9 @@ describe('bounded shipwright patch contract', () => {
   })
 
   it('mints only attempt and generation scoped refs', () => {
-    expect(shipRepairRef('attempt:one/two', 7)).toBe('refs/podium/ship-repair/attempt-one-two/7')
+    expect(shipRepairRef('order:one', 'attempt:one/two', 7, 'c'.repeat(64))).toBe(
+      `refs/podium/ship-repair/order-one/attempt-one-two/7/${'c'.repeat(64)}`,
+    )
   })
 
   it('accepts only opaque durable evidence references', () => {
@@ -228,6 +230,8 @@ describe('durable shipwright model results', () => {
       issue,
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
+      contextDigest: 'c'.repeat(64),
+      authority: {} as never,
     } as never)
 
     expect(result).toMatchObject({
@@ -250,6 +254,8 @@ describe('durable shipwright model results', () => {
       issue,
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
+      contextDigest: 'c'.repeat(64),
+      authority: {} as never,
     } as never)
 
     expect(seen).toEqual([
@@ -257,6 +263,7 @@ describe('durable shipwright model results', () => {
         order,
         attempt,
         custody: { attemptId: attempt.id, generation: 4, machineId },
+        authority: {} as never,
         failure: expect.objectContaining({
           artifactRefs: ['artifact://validation/gate-log'],
         }),
@@ -289,6 +296,8 @@ describe('durable shipwright model results', () => {
       issue,
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
+      contextDigest: 'c'.repeat(64),
+      authority: {} as never,
     } as never
 
     const first = await h.service.consider(input)
@@ -296,7 +305,7 @@ describe('durable shipwright model results', () => {
     expect(first).toEqual(replay)
     expect(first).toMatchObject({
       kind: 'patched',
-      repairRef: 'refs/podium/ship-repair/attempt-shipwright/4',
+      repairRef: `refs/podium/ship-repair/order-shipwright/attempt-shipwright/4/${'c'.repeat(64)}`,
       candidateHeadSha: 'candidate-sha',
       resultToken: expect.stringMatching(/^shipwright-result:/),
     })
@@ -317,6 +326,11 @@ describe('durable shipwright model results', () => {
       orderId: order.id,
       attemptId: attempt.id,
       generation: 4,
+      contextDigest: 'c'.repeat(64),
+      candidate: {
+        repairRef: `refs/podium/ship-repair/order-shipwright/attempt-shipwright/4/${'c'.repeat(64)}`,
+        candidateHeadSha: 'candidate-sha',
+      },
     } as never)
     expect(h.acknowledgements).toEqual([
       {
@@ -346,6 +360,8 @@ describe('durable shipwright model results', () => {
       issue,
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
+      contextDigest: 'c'.repeat(64),
+      authority: {} as never,
     } as never)
     expect(result).toMatchObject({
       kind: 'needs-decision',
@@ -389,6 +405,8 @@ describe('durable shipwright model results', () => {
       issue,
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
+      contextDigest: 'c'.repeat(64),
+      authority: {} as never,
     } as never)
     expect(result.kind).toBe('patched')
     expect(h.turns.map((turn) => turn.turnId)).toEqual([
@@ -423,6 +441,8 @@ describe('durable shipwright model results', () => {
       issue,
       failure,
       custody: { attemptId: attempt.id, generation: 4, machineId },
+      contextDigest: 'c'.repeat(64),
+      authority: {} as never,
     } as never)
     expect(result).toMatchObject({
       kind: 'needs-decision',

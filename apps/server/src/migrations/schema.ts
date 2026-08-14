@@ -1337,6 +1337,47 @@ export const shipAttempts = sqliteTable(
 /** Deterministically observed native Git-stack edges. The upper order depends
  * on the nearest queued lower order; immutable approved heads make discovery
  * order-independent across restarts and concurrent admission. */
+/** Append-only causal repair authority. Sequence is allocated transactionally
+ * under one attempt; round is deliberately identical so recovery never infers
+ * causality from timestamps, step ids, or query order. */
+export const shipRepairCandidates = sqliteTable(
+  'ship_repair_candidates',
+  {
+    orderId: brandedRef(text('order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    attemptId: brandedRef(text('attempt_id').$type<ShipAttemptId>(), () => shipAttempts.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    generation: integer().notNull(),
+    sequence: integer().notNull(),
+    round: integer().notNull(),
+    contextDigest: text('context_digest').notNull(),
+    repairRef: text('repair_ref').notNull(),
+    candidateHeadSha: text('candidate_head_sha').notNull(),
+    resultToken: text('result_token').notNull(),
+    recordedAt: text('recorded_at').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.attemptId, table.sequence],
+      name: 'ship_repair_candidates_pk',
+    }),
+    uniqueIndex('idx_ship_repair_candidates_ref').on(table.repairRef),
+    foreignKey({
+      columns: [table.attemptId, table.orderId],
+      foreignColumns: [shipAttempts.id, shipAttempts.orderId],
+      name: 'fk_ship_repair_candidates_attempt_order',
+    }).onDelete('restrict'),
+    check('ship_repair_candidates_generation_check', sql`generation > 0`),
+    check('ship_repair_candidates_sequence_check', sql`sequence > 0 AND round = sequence`),
+    check(
+      'ship_repair_candidates_context_check',
+      sql`length(context_digest) = 64 AND context_digest NOT GLOB '*[^a-f0-9]*'`,
+    ),
+  ],
+)
+
 export const shipOrderStackEdges = sqliteTable(
   'ship_order_stack_edges',
   {

@@ -30,6 +30,7 @@ export type ShippingJobOperation = z.infer<typeof ShippingJobOperation>
 export const ShippingRepairCandidate = z
   .object({
     round: z.number().int().positive(),
+    contextDigest: z.string().regex(/^[a-f0-9]{64}$/),
     repairRef: z.string().min(1),
     candidateHeadSha: z.string().min(1),
   })
@@ -56,6 +57,7 @@ export const ShippingTrainExecution = z
       z
         .object({
           kind: z.literal('repair'),
+          contextDigest: z.string().regex(/^[a-f0-9]{64}$/),
           repairRef: z.string().min(1),
           candidateHeadSha: z.string().min(1),
         })
@@ -120,6 +122,7 @@ export const shippingTrainSubsetFingerprint = (execution: {
         ? { kind: 'approved' }
         : {
             kind: 'repair',
+            contextDigest: execution.candidate.contextDigest,
             repairRef: execution.candidate.repairRef,
             candidateHeadSha: execution.candidate.candidateHeadSha,
           },
@@ -185,6 +188,7 @@ export const shippingJobRequestMatchesTrain = (request: ShippingJobRequestMessag
     'manifest' in request.train && request.train.candidate.kind === 'repair'
       ? {
           round: request.train.repairRound,
+          contextDigest: request.train.candidate.contextDigest,
           repairRef: request.train.candidate.repairRef,
           candidateHeadSha: request.train.candidate.candidateHeadSha,
         }
@@ -241,6 +245,7 @@ export function shippingJobRequestFingerprint(
     repair: input.repair
       ? {
           round: input.repair.round,
+          contextDigest: input.repair.contextDigest,
           repairRef: input.repair.repairRef,
           candidateHeadSha: input.repair.candidateHeadSha,
         }
@@ -259,6 +264,7 @@ export function shippingJobRequestFingerprint(
                 ? { kind: 'approved' }
                 : {
                     kind: 'repair',
+                    contextDigest: input.train.candidate.contextDigest,
                     repairRef: input.train.candidate.repairRef,
                     candidateHeadSha: input.train.candidate.candidateHeadSha,
                   },
@@ -383,10 +389,32 @@ export const shippingTrainProofsMatch = (
     return false
   }
   if (request.operation === 'apply-repair') {
+    if (!request.repair || result.testedIntegrationSha !== request.repair.candidateHeadSha) {
+      return false
+    }
+    if (!request.train) return result.trainProofs === undefined
+    const manifest = 'manifest' in request.train ? request.train.manifest : request.train
+    const members =
+      'manifest' in request.train
+        ? request.train.memberOrderIds.map((orderId) =>
+            manifest.members.find((member) => member.orderId === orderId),
+          )
+        : manifest.members
     return (
-      result.trainProofs === undefined &&
-      Boolean(request.repair) &&
-      result.testedIntegrationSha === request.repair?.candidateHeadSha
+      members.every(Boolean) &&
+      result.trainProofs?.length === members.length &&
+      members.every((member, index) => {
+        const proof = result.trainProofs?.[index]
+        return (
+          proof?.issueId === member!.issueId &&
+          proof.orderId === member!.orderId &&
+          proof.attemptId === member!.attemptId &&
+          proof.generation === member!.generation &&
+          proof.sourceApprovedSha === member!.approvedHeadSha &&
+          Boolean(proof.resultCommitSha)
+        )
+      }) &&
+      result.trainProofs.at(-1)?.resultCommitSha === request.repair.candidateHeadSha
     )
   }
   if (!request.train) return result.trainProofs === undefined
@@ -420,7 +448,8 @@ export const shippingTrainProofsMatch = (
   if (proofs.some((proof) => !proof.resultCommitSha)) return false
   if (request.operation === 'prepare-merge-group') {
     return 'manifest' in request.train && request.train.candidate.kind === 'repair'
-      ? result.testedIntegrationSha === request.train.candidate.candidateHeadSha
+      ? result.testedIntegrationSha === request.train.candidate.candidateHeadSha &&
+          proofs.at(-1)?.resultCommitSha === request.train.candidate.candidateHeadSha
       : proofs.at(-1)?.resultCommitSha === result.testedIntegrationSha
   }
   if (
@@ -467,3 +496,61 @@ export const ShippingJobResultMessage = ShippingJobResult.extend({
   requestId: z.string().min(1),
 })
 export type ShippingJobResultMessage = z.infer<typeof ShippingJobResultMessage>
+
+/** Authorized opaque-evidence read. The nested authority is the exact immutable
+ * effect request which minted the artifact ref; the daemon rejects any other
+ * order, generation, subset, or request digest before reading native bytes. */
+export const ShippingEvidenceRequestMessage = z
+  .object({
+    type: z.literal('shippingEvidenceRequest'),
+    requestId: z.string().min(1),
+    authority: ShippingJobRequestMessage,
+    artifactRef: z.string().regex(/^artifact:\/\/shipping\/[a-f0-9]{64}$/),
+    maxBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(256 * 1024),
+  })
+  .strict()
+export type ShippingEvidenceRequestMessage = z.infer<typeof ShippingEvidenceRequestMessage>
+
+export const ShippingEvidenceResultMessage = z
+  .object({
+    type: z.literal('shippingEvidenceResult'),
+    requestId: z.string().min(1),
+    artifactRef: z.string(),
+    ok: z.boolean(),
+    content: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .strict()
+export type ShippingEvidenceResultMessage = z.infer<typeof ShippingEvidenceResultMessage>
+
+export const ShippingRepairApplyRequestMessage = z
+  .object({
+    type: z.literal('shippingRepairApplyRequest'),
+    requestId: z.string().min(1),
+    authority: ShippingJobRequestMessage,
+    contextDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    repairRef: z.string().regex(/^refs\/podium\/ship-repair\//),
+    patch: z
+      .string()
+      .min(1)
+      .max(512 * 1024),
+    touchedPaths: z.array(z.string().min(1).max(1024)).max(128),
+  })
+  .strict()
+export type ShippingRepairApplyRequestMessage = z.infer<typeof ShippingRepairApplyRequestMessage>
+
+export const ShippingRepairApplyResultMessage = z
+  .object({
+    type: z.literal('shippingRepairApplyResult'),
+    requestId: z.string().min(1),
+    ok: z.boolean(),
+    summary: z.string(),
+    candidateHeadSha: z.string().optional(),
+    artifactRefs: z.array(z.string()),
+  })
+  .strict()
+export type ShippingRepairApplyResultMessage = z.infer<typeof ShippingRepairApplyResultMessage>

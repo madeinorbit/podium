@@ -755,6 +755,29 @@ describe('shipping durable store', () => {
     for (const member of train.manifest.members) {
       expect(s.shipping.trainManifestForAttempt(member.attemptId)).toEqual(train.manifest)
     }
+    const rawMemberInsert = (ordinal: number) =>
+      rawDb(s)
+        .prepare(
+          `INSERT INTO ship_train_members
+            (train_id, ordinal, issue_id, order_id, attempt_id, generation, machine_id,
+             source_branch, approved_base_sha, approved_head_sha, delivery_depends_on)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          train.manifest.id,
+          ordinal,
+          lower.issueId,
+          lower.id,
+          train.manifest.members[0]!.attemptId,
+          train.manifest.members[0]!.generation,
+          'machine-1',
+          'issue/lower',
+          lower.approvedBaseSha,
+          lower.approvedHeadSha,
+          '[]',
+        )
+    expect(() => rawMemberInsert(train.manifest.memberCount)).toThrow(/ordinal exceeds/)
+    expect(() => rawMemberInsert(0)).toThrow(/sealed after active claim/)
     expect(() =>
       rawDb(s)
         .prepare('UPDATE ship_train_manifests SET canonical_json = ? WHERE id = ?')

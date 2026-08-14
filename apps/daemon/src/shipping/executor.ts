@@ -6,11 +6,12 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
+  readFileSync,
   realpathSync,
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { serializeShipTrainManifest, type MachineId } from '@podium/model'
+import { shipRepairRef, type MachineId } from '@podium/model'
 import type {
   ShippingJobClassification,
   ShippingJobRequestMessage,
@@ -77,12 +78,13 @@ export interface ShippingProviderAdapter {
 function run(
   file: string,
   argv: string[],
-  options: { cwd?: string; timeoutMs?: number } = {},
+  options: { cwd?: string; timeoutMs?: number; input?: string } = {},
 ): CommandResult {
   const result = spawnSync(file, argv, {
     cwd: options.cwd,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
+    input: options.input,
+    stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     timeout: options.timeoutMs ?? GIT_TIMEOUT_MS,
     maxBuffer: MAX_OUTPUT_BYTES,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
@@ -373,12 +375,15 @@ export class ShippingExecutionPlane {
         'repair application has no immutable candidate',
       )
     }
-    if (!repair.repairRef.startsWith('refs/podium/repairs/')) {
+    if (
+      repair.repairRef !==
+      shipRepairRef(request.orderId, request.attemptId, request.generation, repair.contextDigest)
+    ) {
       return this.observed(
         request,
         'held',
         'invalid-request',
-        'repair ref is outside daemon repair custody',
+        'repair ref does not match exact order, attempt, generation, and context custody',
       )
     }
     const validRef = gitResult(request.repoPath, ['check-ref-format', repair.repairRef])
@@ -419,6 +424,9 @@ export class ShippingExecutionPlane {
         frozen.stderr || 'repair candidate freeze raced',
       )
     }
+    const members = this.trainMembers(request)
+    const trainProofs = members.length > 0 ? this.freezeRepairMemberProofs(request, members) : null
+    if (trainProofs && !Array.isArray(trainProofs)) return trainProofs
     return {
       ...this.observed(
         request,
@@ -427,8 +435,96 @@ export class ShippingExecutionPlane {
         `repair round ${repair.round} candidate frozen`,
       ),
       testedIntegrationSha: repair.candidateHeadSha,
+      ...(trainProofs ? { trainProofs } : {}),
       logs: [`repair ${repair.repairRef} ${repair.candidateHeadSha}`],
     }
+  }
+
+  private freezeRepairMemberProofs(
+    request: Request,
+    members: ReturnType<ShippingExecutionPlane['trainMembers']>,
+  ): NonNullable<Result['trainProofs']> | Result {
+    if (!request.repair || !request.train || !('manifest' in request.train)) {
+      return this.observed(
+        request,
+        'held',
+        'invalid-request',
+        'repair member proof lacks v2 custody',
+      )
+    }
+    const approvedTrain = {
+      ...request.train,
+      repairRound: 0,
+      candidate: { kind: 'approved' as const },
+    }
+    approvedTrain.subsetId = `subset:${createHash('sha256')
+      .update(shippingTrainSubsetFingerprint(approvedTrain))
+      .digest('hex')}` as typeof approvedTrain.subsetId
+    const approvedRequest: Request = {
+      ...request,
+      jobId: `${request.attemptId}:prepare-merge-group:${approvedTrain.subsetId}`,
+      operation: 'prepare-merge-group',
+      repair: undefined,
+      train: approvedTrain,
+      requestDigest: request.requestDigest,
+    }
+    const repairHead = request.repair.candidateHeadSha
+    const proofs: NonNullable<Result['trainProofs']> = []
+    let repaired = false
+    for (const [ordinal, member] of members.entries()) {
+      const approvedResult = refTip(
+        request.repoPath,
+        this.memberResultRef(approvedRequest, ordinal),
+      )
+      const mustUseRepair = !approvedResult || ordinal === members.length - 1
+      const resultCommitSha = mustUseRepair ? repairHead : approvedResult
+      if (
+        !resultCommitSha ||
+        !isAncestor(request.repoPath, member.approvedHeadSha, resultCommitSha) ||
+        (ordinal > 0 &&
+          !isAncestor(request.repoPath, proofs[ordinal - 1]!.resultCommitSha!, resultCommitSha))
+      ) {
+        return this.observed(
+          request,
+          'held',
+          'invalid-request',
+          `repair candidate cannot prove member ${member.orderId} in canonical order`,
+        )
+      }
+      if (mustUseRepair) repaired = true
+      const memberRef = this.memberResultRef(request, ordinal)
+      const frozen = gitResult(request.repoPath, [
+        'update-ref',
+        memberRef,
+        resultCommitSha,
+        ZERO_SHA,
+      ])
+      if (!frozen.ok && refTip(request.repoPath, memberRef) !== resultCommitSha) {
+        return this.observed(
+          request,
+          'held',
+          'source-moved',
+          frozen.stderr || `repair member ${member.orderId} proof raced`,
+        )
+      }
+      proofs.push({
+        issueId: member.issueId,
+        orderId: member.orderId,
+        attemptId: member.attemptId,
+        generation: member.generation,
+        sourceApprovedSha: member.approvedHeadSha,
+        resultCommitSha,
+      })
+    }
+    if (!repaired || proofs.at(-1)?.resultCommitSha !== repairHead) {
+      return this.observed(
+        request,
+        'held',
+        'invalid-request',
+        'repair candidate is not the exact terminal member result',
+      )
+    }
+    return proofs
   }
 
   private trainManifest(request: Request) {
@@ -496,6 +592,172 @@ export class ShippingExecutionPlane {
       `${createHash('sha256').update(request.jobId).digest('hex')}.log`,
     )
     return existsSync(logPath) ? logPath : null
+  }
+
+  readEvidence(request: Request, artifactRef: string, maxBytes: number): string | null {
+    const path = this.resolveEvidence(request, artifactRef)
+    if (!path) return null
+    const bytes = readFileSync(path)
+    return bytes.subarray(0, maxBytes).toString('utf8')
+  }
+
+  applyPatch(input: {
+    authority: Request
+    contextDigest: string
+    repairRef: string
+    patch: string
+    touchedPaths: string[]
+  }): { ok: boolean; summary: string; candidateHeadSha?: string; artifactRefs: string[] } {
+    const { authority } = input
+    if (
+      authority.requestDigest !== this.requestDigest(authority) ||
+      (authority.operation !== 'prepare-merge-group' && authority.operation !== 'validate') ||
+      input.repairRef !==
+        shipRepairRef(
+          authority.orderId,
+          authority.attemptId,
+          authority.generation,
+          input.contextDigest,
+        )
+    ) {
+      return { ok: false, summary: 'repair patch authority fence failed', artifactRefs: [] }
+    }
+    if (
+      input.touchedPaths.length === 0 ||
+      input.touchedPaths.some(
+        (path) => path.startsWith('/') || path.split('/').includes('..') || path.startsWith('-'),
+      )
+    ) {
+      return { ok: false, summary: 'repair patch path authority failed', artifactRefs: [] }
+    }
+    const existingRepair = refTip(authority.repoPath, input.repairRef)
+    if (existingRepair) {
+      return {
+        ok: true,
+        summary: `repair candidate ${existingRepair} already frozen`,
+        candidateHeadSha: existingRepair,
+        artifactRefs: [],
+      }
+    }
+    const entry = this.journal
+      .list()
+      .find(
+        (candidate) =>
+          candidate.request.jobId === authority.jobId &&
+          candidate.request.generation === authority.generation &&
+          candidate.request.requestDigest === authority.requestDigest,
+      )
+    if (!entry || entry.result.state !== 'held') {
+      return { ok: false, summary: 'failed shipping effect is not retained', artifactRefs: [] }
+    }
+    const failedPath = join(this.integrationDir, this.executionKey(authority))
+    const base =
+      entry.result.testedIntegrationSha ??
+      (worktrees(authority.repoPath).some((candidate) => candidate.path === failedPath)
+        ? refTip(failedPath, 'HEAD')
+        : null)
+    if (!base) {
+      return {
+        ok: false,
+        summary: 'failed integration has no repairable candidate',
+        artifactRefs: [],
+      }
+    }
+    const repairPath = join(
+      this.integrationDir,
+      `repair-${createHash('sha256').update(input.repairRef).digest('hex')}`,
+    )
+    const registered = worktrees(authority.repoPath).find(
+      (candidate) => candidate.path === repairPath,
+    )
+    if (!registered) {
+      if (existsSync(repairPath)) {
+        return { ok: false, summary: 'repair path exists outside git custody', artifactRefs: [] }
+      }
+      const added = gitResult(authority.repoPath, [
+        'worktree',
+        'add',
+        '--detach',
+        '--',
+        repairPath,
+        base,
+      ])
+      if (!added.ok) return { ok: false, summary: added.stderr, artifactRefs: [] }
+    } else if (registered.branch || !clean(repairPath)) {
+      return { ok: false, summary: 'repair checkout custody changed', artifactRefs: [] }
+    } else if (refTip(repairPath, 'HEAD') !== base) {
+      const resumedHead = refTip(repairPath, 'HEAD')
+      const message = gitResult(repairPath, ['log', '-1', '--format=%B'])
+      if (
+        !resumedHead ||
+        message.stdout !== `Podium repair ${input.contextDigest}` ||
+        !isAncestor(authority.repoPath, base, resumedHead)
+      ) {
+        return { ok: false, summary: 'repair checkout custody changed', artifactRefs: [] }
+      }
+      const resumed = gitResult(authority.repoPath, [
+        'update-ref',
+        input.repairRef,
+        resumedHead,
+        ZERO_SHA,
+      ])
+      if (!resumed.ok && refTip(authority.repoPath, input.repairRef) !== resumedHead) {
+        return {
+          ok: false,
+          summary: resumed.stderr || 'repair ref recovery raced',
+          artifactRefs: [],
+        }
+      }
+      return {
+        ok: true,
+        summary: `repair candidate ${resumedHead} recovered`,
+        candidateHeadSha: resumedHead,
+        artifactRefs: [],
+      }
+    }
+    const checked = run('git', ['apply', '--check', '--index', '-'], {
+      cwd: repairPath,
+      input: input.patch,
+    })
+    if (!checked.ok) return { ok: false, summary: checked.stderr, artifactRefs: [] }
+    const applied = run('git', ['apply', '--index', '-'], { cwd: repairPath, input: input.patch })
+    if (!applied.ok) return { ok: false, summary: applied.stderr, artifactRefs: [] }
+    const touched = gitResult(repairPath, ['diff', '--cached', '--name-only'])
+    const actualPaths = touched.stdout.split('\n').filter(Boolean).sort()
+    const declaredPaths = [...new Set(input.touchedPaths)].sort()
+    if (JSON.stringify(actualPaths) !== JSON.stringify(declaredPaths)) {
+      gitResult(repairPath, ['reset', '--hard', base])
+      return { ok: false, summary: 'repair patch touched undeclared paths', artifactRefs: [] }
+    }
+    const committed = gitResult(repairPath, [
+      '-c',
+      'user.name=Podium Shipwright',
+      '-c',
+      'user.email=shipwright@podium.local',
+      'commit',
+      '-m',
+      `Podium repair ${input.contextDigest}`,
+    ])
+    if (!committed.ok) return { ok: false, summary: committed.stderr, artifactRefs: [] }
+    const candidateHeadSha = refTip(repairPath, 'HEAD')
+    if (!candidateHeadSha) {
+      return { ok: false, summary: 'repair commit has no head', artifactRefs: [] }
+    }
+    const frozen = gitResult(authority.repoPath, [
+      'update-ref',
+      input.repairRef,
+      candidateHeadSha,
+      ZERO_SHA,
+    ])
+    if (!frozen.ok && refTip(authority.repoPath, input.repairRef) !== candidateHeadSha) {
+      return { ok: false, summary: frozen.stderr || 'repair ref raced', artifactRefs: [] }
+    }
+    return {
+      ok: true,
+      summary: `repair candidate ${candidateHeadSha} frozen`,
+      candidateHeadSha,
+      artifactRefs: [],
+    }
   }
 
   private sourceAndTarget(request: Request): {
@@ -679,11 +941,11 @@ export class ShippingExecutionPlane {
     const shadow = this.shadowRef(request)
     if (request.repair) {
       const applied = this.proof(request, 'apply-repair')
-      const approved = this.approvedPrepareProof(request)
+      const repairedProofs = applied?.trainProofs
       if (
         applied?.state !== 'succeeded' ||
         applied.testedIntegrationSha !== request.repair.candidateHeadSha ||
-        !approved?.trainProofs
+        !repairedProofs
       ) {
         return this.observed(
           request,
@@ -716,7 +978,7 @@ export class ShippingExecutionPlane {
           `repair train prepared at ${request.repair.candidateHeadSha}`,
         ),
         testedIntegrationSha: request.repair.candidateHeadSha,
-        trainProofs: approved.trainProofs,
+        trainProofs: repairedProofs,
         logs: [
           `shadow ${shadow} ${request.repair.candidateHeadSha}`,
           `integration checkout ${integration.path}`,
@@ -1256,29 +1518,6 @@ export class ShippingExecutionPlane {
       : null
   }
 
-  private approvedPrepareProof(request: Request): Result | null {
-    if (!request.train || !('manifest' in request.train)) return null
-    const requestTrain = request.train
-    const orderIds = requestTrain.memberOrderIds
-    const entries = this.journal.list().filter((entry) => {
-      const train = entry.request.train
-      return (
-        entry.request.attemptId === request.attemptId &&
-        entry.request.generation === request.generation &&
-        entry.request.operation === 'prepare-merge-group' &&
-        train !== undefined &&
-        'manifest' in train &&
-        serializeShipTrainManifest(train.manifest) ===
-          serializeShipTrainManifest(requestTrain.manifest) &&
-        train.candidate.kind === 'approved' &&
-        JSON.stringify(train.memberOrderIds) === JSON.stringify(orderIds) &&
-        entry.result.state === 'succeeded' &&
-        shippingTrainProofsMatch(entry.request, entry.result)
-      )
-    })
-    return entries.at(-1)?.result ?? null
-  }
-
   private ensureLandingCheckout(request: Request): { path: string } | Result {
     const repoKey = createHash('sha256')
       .update(realpathSync(request.repoPath))
@@ -1422,7 +1661,12 @@ export class ShippingExecutionPlane {
 
   private executionKey(request: Request): string {
     const subset = request.train && 'manifest' in request.train ? request.train.subsetId : 'single'
-    return `${safePart(request.orderId)}-${request.generation}-${safePart(subset)}`
+    const repair = request.repair
+      ? `-repair-${request.repair.round}-${request.repair.contextDigest}-${createHash('sha256')
+          .update(`${request.repair.repairRef}\0${request.repair.candidateHeadSha}`)
+          .digest('hex')}`
+      : ''
+    return `${safePart(request.orderId)}-${safePart(request.attemptId)}-${request.generation}-${safePart(subset)}${repair}`
   }
 
   private operationJobId(request: Request, operation: Request['operation']): string {
@@ -1430,7 +1674,7 @@ export class ShippingExecutionPlane {
       return `${request.attemptId}:${operation}:${request.train.subsetId}`
     }
     if (request.repair) {
-      return `${request.attemptId}:${operation}:repair-${request.repair.round}-${createHash(
+      return `${request.attemptId}:${operation}:repair-${request.repair.round}-${request.repair.contextDigest}-${createHash(
         'sha256',
       )
         .update(`${request.repair.repairRef}\0${request.repair.candidateHeadSha}`)

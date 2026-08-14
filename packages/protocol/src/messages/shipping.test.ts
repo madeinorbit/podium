@@ -165,6 +165,7 @@ describe('shipping machine protocol', () => {
           repairRound: 1,
           candidate: {
             kind: 'repair',
+            contextDigest: 'c'.repeat(64),
             repairRef: 'refs/podium/repairs/attempt-1/1',
             candidateHeadSha: 'd'.repeat(40),
           },

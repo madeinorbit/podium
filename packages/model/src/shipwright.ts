@@ -118,7 +118,14 @@ export type ShipwrightAttemptResult = z.infer<typeof ShipwrightAttemptResult>
 
 /** Stable repair-ref spelling. It contains only server-minted identifiers and a
  * generation fence; no model text ever enters a ref name. */
-export function shipRepairRef(attemptId: string, generation: number): string {
+export function shipRepairRef(
+  orderId: string,
+  attemptId: string,
+  generation: number,
+  contextDigest: string,
+): string {
+  const safeOrder = orderId.replace(/[^a-zA-Z0-9._-]+/g, '-')
   const safeAttempt = attemptId.replace(/[^a-zA-Z0-9._-]+/g, '-')
-  return `refs/podium/ship-repair/${safeAttempt}/${generation}`
+  if (!/^[a-f0-9]{64}$/.test(contextDigest)) throw new Error('invalid ship repair context digest')
+  return `refs/podium/ship-repair/${safeOrder}/${safeAttempt}/${generation}/${contextDigest}`
 }

@@ -180,6 +180,7 @@ describe('shipping evidence authority', () => {
     const ref = evidenceRef(request)
 
     expect(plane.resolveEvidence(request, ref)).toBe(logPath)
+    expect(plane.readEvidence(request, ref, 10)).toBe('validation')
 
     const { requestDigest: _digest, ...unsigned } = request
     const crossOrder = signRequest({
@@ -192,5 +193,6 @@ describe('shipping evidence authority', () => {
     })
     expect(plane.resolveEvidence(crossOrder, ref)).toBeNull()
     expect(plane.resolveEvidence(staleGeneration, ref)).toBeNull()
+    expect(plane.readEvidence(crossOrder, ref, 1024)).toBeNull()
   })
 })
