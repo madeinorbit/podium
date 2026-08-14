@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
@@ -1169,12 +1169,6 @@ describe('shipping durable store', () => {
 })
 
 /** White-box seam: reach the store's own SQLite connection to inject corrupt rows. */
-function rawDb(s: SessionStore): {
-  prepare(q: string): { run(...a: unknown[]): unknown }
-} {
-  return (
-    s as unknown as {
-      db: { prepare(q: string): { run(...a: unknown[]): unknown } }
-    }
-  ).db
+function rawDb(s: SessionStore): SqlDatabase {
+  return (s as unknown as { db: SqlDatabase }).db
 }

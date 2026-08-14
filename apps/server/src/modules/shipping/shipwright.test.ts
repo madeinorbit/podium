@@ -209,7 +209,7 @@ describe('durable shipwright model results', () => {
   const validationProfile = {
     id: 'frozen-gate',
     argv: ['bun', 'run', 'frozen-gate'],
-    cwd: 'integration-root',
+    cwd: 'integration-root' as const,
     timeoutMs: 30_000,
     resourceLocks: ['frozen-lock'],
   }
