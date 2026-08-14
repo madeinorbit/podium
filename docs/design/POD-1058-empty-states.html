@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POD-1058 — Ghost-preview empty states</title>
+<style>
+  /* ── The two palettes, lifted verbatim from apps/web/src/index.css ──────────
+     [data-theme="superade"] and [data-theme="superade"].dark. Anything drawn
+     below reads these, so a panel here and the shipped surface resolve the
+     same colour from the same name. */
+  .thm {
+    --background:#f2f1ed; --foreground:#38362f; --card:#fff; --secondary:#eceae4;
+    --muted:#f0efe9; --muted-foreground:#5f5d55; --success:#1d4ed8;
+    --sidebar:#f4f3f0; --engraved:#f4f3f0; --bar:#f7f7f5; --tabstrip:#faf9f7;
+    --rail:#eceae4; --chip:#fff; --hairline-soft:#eeede8; --hairline-bar:#e6e5e0;
+    --text-strong:#1d1c19; --text-dim:#8f8d85; --text-faint:#a3a199;
+    --attention:#8a6200; --claude:#b8532e;
+    /* The shipped ramp — see index.css :root */
+    --ghost-1:color-mix(in srgb,var(--foreground) 18%,transparent);
+    --ghost-2:color-mix(in srgb,var(--foreground) 14%,transparent);
+    --ghost-3:color-mix(in srgb,var(--foreground) 10%,transparent);
+    --ghost-4:color-mix(in srgb,var(--foreground) 6%,transparent);
+  }
+  .thm.dark {
+    --background:#16171a; --foreground:#d7dae0; --card:#23262d; --secondary:#2c3038;
+    --muted:#1e2024; --muted-foreground:#a8adb6; --success:#2a62f0;
+    --sidebar:#191a1e; --engraved:#191a1e; --bar:#1b1d21; --tabstrip:#202228;
+    --rail:#1e2024; --chip:#252830; --hairline-soft:#24272d; --hairline-bar:#26292f;
+    --text-strong:#f2f3f5; --text-dim:#848a94; --text-faint:#6f7580;
+    --attention:#e3ba52; --claude:#d97757;
+    /* …and .dark */
+    --ghost-1:color-mix(in srgb,var(--foreground) 12%,transparent);
+    --ghost-2:color-mix(in srgb,var(--foreground) 9%,transparent);
+    --ghost-3:color-mix(in srgb,var(--foreground) 5.5%,transparent);
+    --ghost-4:color-mix(in srgb,var(--foreground) 2.5%,transparent);
+  }
+
+  /* The one rule that makes a ghost a ghost. NEVER ANIMATED — there is no
+     keyframe anywhere in this file, deliberately. */
+  .ghost {
+    --hold:34%; --end:100%;
+    -webkit-mask-image:linear-gradient(to bottom,#000 0,#000 var(--hold),transparent var(--end));
+    mask-image:linear-gradient(to bottom,#000 0,#000 var(--hold),transparent var(--end));
+    pointer-events:none; user-select:none;
+  }
+  .bar{display:block;border-radius:4px}
+  .sq{display:block;flex:none;border-radius:3px}
+  .g1{background:var(--ghost-1)} .g2{background:var(--ghost-2)}
+  .g3{background:var(--ghost-3)} .g4{background:var(--ghost-4)}
+  .dot{display:block;flex:none;border-radius:50%;opacity:.4}
+
+  /* ── page chrome ─────────────────────────────────────────────────────────── */
+  :root{color-scheme:light dark}
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:44px 40px 80px;background:#eceae4;color:#1d1c19;
+    font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  h1{font-size:23px;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:15px;letter-spacing:-.01em;margin:44px 0 4px;padding-top:20px;border-top:1px solid #dedbd4}
+  .lede{max-width:78ch;color:#5f5d55;margin:0 0 4px}
+  .meta{font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#8f8d85}
+  .note{max-width:78ch;color:#5f5d55;font-size:13px;margin:8px 0 0}
+  .pair{display:flex;flex-wrap:wrap;gap:22px;margin-top:16px;align-items:flex-start}
+  .cap{font:11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#8f8d85;
+       text-transform:uppercase;letter-spacing:.12em;margin-bottom:7px}
+  .frame{border-radius:11px;overflow:hidden;border:1px solid #cdc9c0;
+         box-shadow:0 14px 34px -22px rgba(29,28,25,.5)}
+  code{font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;background:#e4e1d9;
+       padding:1px 5px;border-radius:4px}
+  .callout{max-width:78ch;margin-top:14px;padding:14px 16px;border-radius:9px;
+           background:#fdf7e7;border:1px solid #e6d6a8;font-size:13px}
+  ul{max-width:78ch;padding-left:19px;color:#38362f;font-size:13px}
+  li{margin:5px 0}
+
+  /* ── shared surface pieces ───────────────────────────────────────────────── */
+  .col{display:flex;flex-direction:column;background:var(--sidebar);color:var(--text-strong);
+       font:14px/1.55 ui-sans-serif,system-ui,sans-serif}
+  .lbl{display:flex;align-items:center;gap:6px;padding:2px 14px 8px;
+       font:600 8.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.16em;
+       text-transform:uppercase;color:var(--text-faint)}
+  .row46{display:flex;align-items:center;gap:10px;height:46px;padding:0 14px}
+  .cta{display:flex;align-items:center;justify-content:center;gap:8px;height:32px;
+       border-radius:9px;font:600 12.5px/1 ui-sans-serif,system-ui,sans-serif;
+       background:color-mix(in srgb,var(--attention) 12%,transparent);
+       box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--attention) 30%,transparent);
+       color:var(--attention)}
+  .h-strong{font:600 14.5px/1.3 ui-sans-serif,system-ui,sans-serif;letter-spacing:-.01em;
+            color:var(--text-strong);margin:0}
+  .body-dim{font:12.5px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--text-dim);margin:7px 0 0}
+</style>
+</head>
+<body>
+
+<h1>Ghost-preview empty states</h1>
+<p class="lede">The four surfaces from <em>ADE Empty States.dc.html</em>, as implemented. Each empty
+surface draws a dimmed, dead copy of its own content, fading out downward, under one line of live
+copy — the shape of what is coming, not a spinner.</p>
+<p class="meta">POD-1058 · branch <code>issue/1058-empty-states</code> · both Superade themes</p>
+
+<div class="callout">
+  <strong>What this page is.</strong> A token-accurate reconstruction, not a screenshot: it declares
+  the same <code>--ghost-1..4</code> ramp and the same Superade palette the app resolves, at the same
+  geometry and with the same copy, so both themes can be judged side by side without standing up a
+  runtime with an empty repo. The shipped markup is in the four components named under each state.
+  It is <em>not</em> a live capture of the running app.
+</div>
+
+<h2>1 · Work list — ghost rows</h2>
+<p class="meta">apps/web/src/features/worklist/WorkListEmpty.tsx</p>
+<p class="note">Four ghost rows at the live row's own 46px, straight under a label that names the
+project. On an empty list that label is the only thing saying <em>which</em> project is empty, which
+is what kills the “is this loading, or am I pointed at the wrong repo?” doubt. The
+<code>0</code> beside it is rendered rather than hidden — it is the cheapest proof the bars are not
+data.</p>
+<div class="pair" id="s1"></div>
+
+<h2>2 · Flight deck — ghost tree</h2>
+<p class="meta">apps/web/src/app/FlightDeck.tsx → EmptyDeck</p>
+<p class="note">A tree, not a stream: two task strips with sessions hanging under the deck's real
+rail, and a last strip whose id chip is dashed — that one stands for a proposed task. The two
+coloured session dots are the fastest way to say this pane is a status readout; they take the
+semantic status tokens only, never an issue colour. No button and no header title — the work list
+and the composer own both ways in, and there is no session to name yet.</p>
+<div class="pair" id="s2"></div>
+
+<h2>3 · Task explorer — right dock</h2>
+<p class="meta">apps/web/src/features/issues/explorer/IssueExplorerList.tsx → GhostRows</p>
+<p class="note">The real search field and the real stage tabs stay, at their honest <code>0</code>.
+The stages <em>are</em> the mental model of this pane and two lines of prose cannot teach them, so
+the strip earns its space even empty. Search stays enabled — typing a ref is how people arrive here
+— and only the promise of a count leaves the placeholder. Which tab looks selected is still
+<code>defaultTab()</code>'s call, unchanged.</p>
+<div class="pair" id="s3"></div>
+
+<h2>4 · Tab area — nothing open in the pane</h2>
+<p class="meta">apps/web/src/app/Workspace.tsx → Empty, GhostTabs</p>
+<p class="note">A tab is a <em>view</em>, and the copy says so: closing one closes the view and never
+touches the session. The button is the ＋ menu under the menu's own title, “New panel”, because it
+opens a menu rather than silently making a tab; the footnote lists what the menu offers. No shortcut
+is claimed — nothing registers one. The two ghost tabs carry a status dot and a file glyph so the
+strip teaches that both kinds live there. These alone are not faded: at 28px in a 38px strip a
+vertical mask reads as a bug.</p>
+<div class="pair" id="s4"></div>
+
+<h2>The ramp</h2>
+<p class="note">One ramp serves every surface. The tiers are mixes over <em>transparent</em>, not flat
+values, so the same four steps work over the work list, the deck and the dock — three different
+tones — without retuning. Light takes a heavier dose than dark for the same apparent step, because
+dark ink on stone loses contrast faster than light ink on near-black.</p>
+<div class="pair" id="ramp"></div>
+
+<h2>What to look at</h2>
+<ul>
+  <li><strong>Nothing moves.</strong> No shimmer, no pulse, anywhere. Motion is what makes a reader
+      classify bars as loading and then wait for something that will never arrive.</li>
+  <li><strong>Everything fades.</strong> Each block ends in a bottom mask, never a hard cut — a hard
+      cut reads as a list that got truncated.</li>
+  <li><strong>The honest zeros.</strong> <code>WORK IN &lt;project&gt; 0</code> and the seven stage
+      counts stay live beside the ghosts.</li>
+  <li><strong>Both themes from one definition.</strong> Every value above is a token; nothing is a
+      hard-coded hex in the components.</li>
+</ul>
+
+<h2>Two behaviour changes</h2>
+<ul>
+  <li>An empty pane now chooses its state from what there is to <em>adopt</em>, not from whether it
+      is alone. The picker is strictly better when another pane holds tabs; the old test drew a
+      “Pick a panel” heading over no choices for the empty half of a split whose sibling was also
+      empty.</li>
+  <li><code>useDefaultSpawn</code> gained <code>bindChord</code>. The work list's empty-state button
+      fires the same spawn as the row above it, and two mounted owners of the ⌘N binding would have
+      spawned two agents from one press.</li>
+</ul>
+
+<h2>Open</h2>
+<ul>
+  <li>The deck's empty state has <strong>no model icon</strong> in its header, where the mock draws
+      one. There is no session yet, so the icon could only name a <em>default</em> agent — an
+      invented identity on the one surface whose whole job is honest status. Easy to add if the
+      intent was “which agent would run”.</li>
+  <li>Filtered-to-empty states are untouched, as the design notes flag: a search with no hits and a
+      stage tab at 0 while others have rows keep their existing words. “No match” must never get the
+      same copy as “nothing exists yet”, and never a CTA.</li>
+  <li>The centre composer in the same design file belongs to POD-780 and is untouched.</li>
+</ul>
+
+<script>
+// Panels are built from data so the light and dark halves cannot drift apart —
+// one description, rendered twice per state.
+const el = (t, cls, css, kids) => {
+  const n = document.createElement(t)
+  if (cls) n.className = cls
+  if (css) n.style.cssText = css
+  for (const k of kids || []) n.appendChild(k)
+  return n
+}
+const bar = (tier, w, h, extra) =>
+  el('span', 'bar g' + tier, `width:${w};height:${h}px;${extra || ''}`)
+const sq = (tier, s) => el('span', 'sq g' + tier, `width:${s}px;height:${s}px`)
+const dot = (tone, s) => el('span', 'dot', `width:${s}px;height:${s}px;background:${tone}`)
+const txt = (t, cls, css) => { const n = el(t, cls, css); return n }
+
+function workList() {
+  const col = el('div', 'col', 'width:306px;height:430px;padding-top:10px')
+  const lbl = el('div', 'lbl')
+  lbl.appendChild(el('span', '', 'flex:1;min-width:0')).textContent = 'Work in podium'
+  lbl.appendChild(el('span')).textContent = '0'
+  col.appendChild(lbl)
+
+  const rows = [[1,'76%','42%',24,1],[2,'60%','34%',18,0],[3,'68%','28%',null,0],[4,'52%',null,null,0]]
+  const g = el('div', 'ghost', 'display:flex;flex-direction:column;flex:none')
+  for (const [tier, t, s, meta, sel] of rows) {
+    const r = el('div', 'row46', sel ? 'background:var(--ghost-4)' : '')
+    r.appendChild(sq(tier, 10))
+    const stack = el('span', '', 'display:flex;flex:1;min-width:0;flex-direction:column;gap:7px')
+    stack.appendChild(bar(tier, t, 8))
+    if (s) stack.appendChild(bar(Math.min(tier + 1, 4), s, 6))
+    r.appendChild(stack)
+    if (meta) r.appendChild(bar(Math.min(tier + 1, 4), meta + 'px', 12, 'border-radius:6px;flex:none'))
+    g.appendChild(r)
+  }
+  col.appendChild(g)
+
+  const copy = el('div', '', 'flex:1;padding:14px 22px 56px')
+  copy.appendChild(txt('p', 'h-strong')).textContent = 'Your work lands here'
+  copy.appendChild(txt('p', 'body-dim')).textContent = 'One row per task, newest first.'
+  const cta = el('div', 'cta', 'margin-top:16px')
+  cta.appendChild(el('span', '', 'width:10px;height:10px;border-radius:3px;background:var(--claude)'))
+  cta.appendChild(document.createTextNode('New Claude'))
+  cta.appendChild(el('span', '', 'font:10px/1 ui-monospace,Menlo,monospace;opacity:.6'))
+    .textContent = '⌘N'
+  copy.appendChild(cta)
+  col.appendChild(copy)
+  return col
+}
+
+function deck() {
+  const col = el('div', 'col', 'width:388px;height:430px;background:var(--card)')
+  const head = el('div', '', 'flex:none;padding:24px 26px 0')
+  head.appendChild(txt('p', '', 'margin:0;font:600 17px/1.3 ui-sans-serif,system-ui,sans-serif;letter-spacing:-.02em;color:var(--text-strong)'))
+    .textContent = 'Every agent, in one tree'
+  head.appendChild(txt('p', '', 'margin:8px 0 0;font:13px/1.55 ui-sans-serif,system-ui,sans-serif;color:var(--muted-foreground)'))
+    .textContent = 'Pick a task on the left or start a new one. You’ll see the agents on it, what each is doing, and the follow-ups they propose.'
+  col.appendChild(head)
+
+  const g = el('div', 'ghost', 'flex:1;min-height:0;display:flex;flex-direction:column;gap:15px;margin-top:24px;padding-right:24px;--end:92%')
+  const task = (tier, dashed) => {
+    const r = el('div', '', 'display:flex;align-items:center;gap:10px;padding-left:24px')
+    if (dashed) r.appendChild(el('span', '', 'width:34px;height:13px;flex:none;border-radius:4px;border:1px dashed var(--ghost-1)'))
+    else { r.appendChild(sq(tier, 10)); r.appendChild(bar(tier, '34px', 13, 'flex:none')) }
+    r.appendChild(bar(Math.min(tier + 1, 4), 'auto', 9, 'flex:1;min-width:0'))
+    if (!dashed) r.appendChild(bar(4, '14px', 9, 'flex:none'))
+    return r
+  }
+  const branch = (kids) => {
+    const b = el('div', '', 'position:relative;display:flex;flex-direction:column;gap:15px')
+    b.appendChild(el('span', '', 'position:absolute;left:32px;top:-6px;bottom:9px;width:1px;background:var(--ghost-4)'))
+    for (const k of kids) b.appendChild(k)
+    return b
+  }
+  const sess = (tone, w, tier, meta) => {
+    const r = el('div', '', 'display:flex;align-items:center;gap:10px;padding-left:40px')
+    r.appendChild(dot(tone, 7)); r.appendChild(bar(tier, w, 8))
+    if (meta) r.appendChild(bar(4, meta + 'px', 8))
+    return r
+  }
+  g.appendChild(task(1, false))
+  g.appendChild(branch([sess('var(--success)', '46%', 2, 22), sess('var(--attention)', '60%', 3, null)]))
+  g.appendChild(task(3, false))
+  g.appendChild(branch([sess('var(--ghost-3)', '52%', 4, null)]))
+  g.appendChild(task(4, true))
+  col.appendChild(g)
+  return col
+}
+
+function explorer() {
+  const col = el('div', 'col', 'width:340px;height:430px')
+  const head = el('div', '', 'flex:none;padding:16px 10px 4px')
+  head.appendChild(txt('p', '', 'margin:0;font:600 15px/1.3 ui-sans-serif,system-ui,sans-serif;letter-spacing:-.02em;color:var(--text-strong)'))
+    .textContent = 'No tasks yet'
+  head.appendChild(txt('p', '', 'margin:6px 0 0;font:12px/1.55 ui-sans-serif,system-ui,sans-serif;color:var(--muted-foreground)'))
+    .textContent = 'Every task in the project lives here — yours and everyone else’s. Search it, browse it by stage, open one for the detail.'
+  col.appendChild(head)
+
+  const search = el('div', '', 'flex:none;margin:8px 10px 6px;display:flex;align-items:center;height:28px;padding:0 8px;border-radius:6px;background:var(--card);box-shadow:inset 0 0 0 1px var(--hairline-bar);font:12px/1 ui-sans-serif,system-ui,sans-serif;color:var(--text-faint)')
+  search.textContent = 'Search tasks'
+  col.appendChild(search)
+
+  const tabs = el('div', '', 'flex:none;display:flex;flex-wrap:wrap;gap:3px;padding:0 10px 8px')
+  const names = ['Needs you','In progress','Review','Planning','Backlog','Proposed','Done']
+  names.forEach((n, i) => {
+    const t = el('span', '', `display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;font:10.5px/1 ui-monospace,Menlo,monospace;color:var(--text-faint)${i === 1 ? ';background:var(--secondary);color:var(--text-strong)' : ''}`)
+    t.appendChild(document.createTextNode(n))
+    t.appendChild(el('span', '', 'opacity:.55')).textContent = '0'
+    tabs.appendChild(t)
+  })
+  col.appendChild(tabs)
+
+  const g = el('div', 'ghost', 'flex:1;min-height:0;--hold:40%;--end:94%')
+  const rows = [[1,'72%',20],[2,'84%',14],[3,'58%',null],[4,'77%',null],[4,'46%',null]]
+  for (const [tier, w, meta] of rows) {
+    const r = el('div', '', 'display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-bottom:1px solid var(--hairline-soft)')
+    r.appendChild(sq(tier, 11))
+    r.appendChild(bar(tier, '38px', 9, 'flex:none'))
+    r.appendChild(bar(Math.min(tier + 1, 4), w, 9))
+    r.appendChild(el('span', '', 'flex:1'))
+    if (meta) r.appendChild(bar(4, meta + 'px', 9, 'flex:none'))
+    g.appendChild(r)
+  }
+  col.appendChild(g)
+  return col
+}
+
+function tabArea() {
+  const col = el('div', 'col', 'width:520px;height:430px;background:var(--background)')
+  const sheet = el('div', '', 'flex:1;display:flex;flex-direction:column;margin:12px;border-radius:11px;background:var(--card);box-shadow:inset 0 0 0 1px var(--hairline-bar);overflow:hidden')
+  const strip = el('div', '', 'flex:none;display:flex;align-items:center;gap:6px;height:38px;padding:0 10px;border-bottom:1px solid var(--hairline-soft);background:var(--tabstrip)')
+  const t1 = el('span', '', 'display:flex;align-items:center;gap:9px;height:28px;padding:0 12px;border-radius:8px;border:1px dashed var(--ghost-1)')
+  t1.appendChild(dot('var(--success)', 7)); t1.appendChild(bar(2, '70px', 7))
+  const t2 = el('span', '', 'display:flex;align-items:center;gap:9px;height:28px;padding:0 12px;border-radius:8px;opacity:.55')
+  t2.appendChild(el('span', 'sq g3', 'width:9px;height:11px;border-radius:2px'))
+  t2.appendChild(bar(3, '52px', 7))
+  const wrap = el('div', '', 'display:flex;gap:4px;pointer-events:none')
+  wrap.appendChild(t1); wrap.appendChild(t2)
+  strip.appendChild(wrap)
+  strip.appendChild(el('span', '', 'flex:1'))
+  strip.appendChild(el('span', '', 'font:18px/1 ui-sans-serif,system-ui,sans-serif;color:var(--text-dim)')).textContent = '＋'
+  sheet.appendChild(strip)
+
+  const mid = el('div', '', 'flex:1;display:flex;align-items:center;justify-content:center;padding:36px')
+  const box = el('div', '', 'display:flex;flex-direction:column;align-items:center;max-width:400px;text-align:center')
+  box.appendChild(txt('p', '', 'margin:0;font:600 21px/1.3 ui-sans-serif,system-ui,sans-serif;letter-spacing:-.02em;color:var(--text-strong)'))
+    .textContent = 'Nothing open in this pane'
+  box.appendChild(txt('p', '', 'margin:10px 0 0;font:13.5px/1.6 ui-sans-serif,system-ui,sans-serif;color:var(--muted-foreground)'))
+    .textContent = 'A tab is a view — one agent at work, or one file. Pick an agent in the flight deck to watch it here, or open a new panel.'
+  const cta = el('div', 'cta', 'margin-top:20px;height:34px;padding:0 15px')
+  cta.appendChild(document.createTextNode('＋  New panel'))
+  box.appendChild(cta)
+  box.appendChild(txt('p', '', 'margin:11px 0 0;font:11px/1 ui-monospace,Menlo,monospace;color:var(--text-faint)'))
+    .textContent = 'agent · shell · file'
+  mid.appendChild(box)
+  sheet.appendChild(mid)
+  col.appendChild(sheet)
+  return col
+}
+
+function rampSwatch() {
+  const col = el('div', 'col', 'width:340px;padding:18px 20px 22px;background:var(--sidebar)')
+  col.appendChild(txt('p', '', 'margin:0 0 12px;font:600 8.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--text-faint)'))
+    .textContent = 'ghost-1 → ghost-4'
+  for (let t = 1; t <= 4; t++) {
+    const r = el('div', '', 'display:flex;align-items:center;gap:10px;margin-bottom:8px')
+    r.appendChild(bar(t, '100%', 14, 'flex:1'))
+    r.appendChild(txt('span', '', 'flex:none;width:56px;font:10.5px/1 ui-monospace,Menlo,monospace;color:var(--text-faint)'))
+      .textContent = '--ghost-' + t
+    col.appendChild(r)
+  }
+  return col
+}
+
+for (const [id, build] of [['s1',workList],['s2',deck],['s3',explorer],['s4',tabArea],['ramp',rampSwatch]]) {
+  const host = document.getElementById(id)
+  for (const mode of ['light','dark']) {
+    const cell = el('div')
+    cell.appendChild(el('div','cap')).textContent = mode
+    const frame = el('div', 'frame thm' + (mode === 'dark' ? ' dark' : ''))
+    frame.appendChild(build())
+    cell.appendChild(frame)
+    host.appendChild(cell)
+  }
+}
+</script>
+</body>
+</html>
