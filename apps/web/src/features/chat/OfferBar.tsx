@@ -459,6 +459,10 @@ export function OfferBar({
               inert={!expanded}
               className="offer-overlay-panel"
             >
+              {/* Once the panel is tall enough to scroll, its top edge IS the
+                  header's underside. A hard cut there reads as a clipped box;
+                  the scrim dissolves the text into the header instead. */}
+              <div className="offer-overlay-scrim" aria-hidden="true" />
               {detailBody}
             </div>
           </div>,

@@ -5083,6 +5083,17 @@ html[data-density="balanced"] .header-quota-pools {
     opacity 140ms ease-out,
     visibility 0s linear 240ms;
 }
+/* Pinned to the panel's own top edge, which is the header's underside once the
+   panel is tall enough to scroll. Negative margin so it costs no layout. */
+.offer-overlay-scrim {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 16px;
+  margin-bottom: -16px;
+  background: linear-gradient(to bottom, var(--background), transparent);
+  pointer-events: none;
+}
 /* Top padding replaces the seam the in-flow fold inherited from the row. */
 .offer-overlay-panel .offer-fold-detail-body {
   padding: 11px 40px 15px 31px;
