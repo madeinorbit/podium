@@ -1378,6 +1378,31 @@ export const shipRepairCandidates = sqliteTable(
   ],
 )
 
+/** Server-custodied Shipwright evidence. The opaque ref binds the exact bytes
+ * to the originating shipping authority; rows are append-only so a daemon or
+ * server restart cannot silently change the context later consumed by repair. */
+export const shipEvidence = sqliteTable(
+  'ship_evidence',
+  {
+    ref: text().primaryKey(),
+    custodyDigest: text('custody_digest').notNull(),
+    contentDigest: text('content_digest').notNull(),
+    sourceRef: text('source_ref').notNull(),
+    content: text().notNull(),
+    materializedAt: text('materialized_at').notNull(),
+  },
+  (table) => [
+    check(
+      'ship_evidence_custody_digest_check',
+      sql`length(custody_digest) = 64 AND custody_digest NOT GLOB '*[^a-f0-9]*'`,
+    ),
+    check(
+      'ship_evidence_content_digest_check',
+      sql`length(content_digest) = 64 AND content_digest NOT GLOB '*[^a-f0-9]*'`,
+    ),
+  ],
+)
+
 export const shipOrderStackEdges = sqliteTable(
   'ship_order_stack_edges',
   {

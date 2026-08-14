@@ -142,16 +142,29 @@ export interface ShipwrightContextInput {
   authority: ShipwrightRepairInput['authority']
 }
 
-interface MaterializedEvidence {
+export interface MaterializedEvidence {
+  ref: string
   custodyDigest: string
+  contentDigest: string
+  sourceRef: string
   content: string
+  materializedAt: string
+}
+
+export interface ShippingEvidenceStore {
+  shippingEvidence(ref: string): MaterializedEvidence | null
+  shippingEvidenceForSource(custodyDigest: string, sourceRef: string): MaterializedEvidence | null
+  recordShippingEvidence(input: MaterializedEvidence): MaterializedEvidence
 }
 
 /** Server custody for daemon evidence. Native paths never enter this registry:
  * only bounded bytes read under exact journal authority are hashed into an
  * immutable, repair-context-bound reference before Shipwright sees them. */
 export class ShippingEvidenceRegistry {
-  private readonly entries = new Map<ShipwrightEvidenceRefValue, MaterializedEvidence>()
+  constructor(
+    private readonly store: ShippingEvidenceStore,
+    private readonly now: () => string = () => new Date().toISOString(),
+  ) {}
 
   private custodyDigest(input: {
     order: ShipOrder
@@ -183,29 +196,61 @@ export class ShippingEvidenceRegistry {
     authority: ShipwrightRepairInput['authority']
   }): ShipwrightEvidenceRefValue {
     const custodyDigest = this.custodyDigest(input)
+    const contentDigest = createHash('sha256').update(input.content).digest('hex')
     const ref = ShipwrightEvidenceRef.parse(
       `artifact://shipwright/${createHash('sha256')
-        .update(
-          `${custodyDigest}\0${input.sourceRef}\0${createHash('sha256')
-            .update(input.content)
-            .digest('hex')}`,
-        )
+        .update(`${custodyDigest}\0${input.sourceRef}\0${contentDigest}`)
         .digest('hex')}`,
     )
-    const existing = this.entries.get(ref)
+    this.store.recordShippingEvidence({
+      ref,
+      custodyDigest,
+      contentDigest,
+      sourceRef: input.sourceRef,
+      content: input.content,
+      materializedAt: this.now(),
+    })
+    return ref
+  }
+
+  resolve(input: {
+    sourceRef: string
+    order: ShipOrder
+    attempt: ShipAttempt
+    custody: ShipwrightRepairInput['custody']
+    authority: ShipwrightRepairInput['authority']
+  }): ShipwrightEvidenceRefValue | null {
+    const custodyDigest = this.custodyDigest(input)
+    const entry = this.store.shippingEvidenceForSource(custodyDigest, input.sourceRef)
+    if (!entry) return null
+    const ref = ShipwrightEvidenceRef.parse(entry.ref)
+    const expectedRef = `artifact://shipwright/${createHash('sha256')
+      .update(`${entry.custodyDigest}\0${entry.sourceRef}\0${entry.contentDigest}`)
+      .digest('hex')}`
     if (
-      existing &&
-      (existing.custodyDigest !== custodyDigest || existing.content !== input.content)
+      entry.custodyDigest !== custodyDigest ||
+      entry.sourceRef !== input.sourceRef ||
+      entry.contentDigest !== createHash('sha256').update(entry.content).digest('hex') ||
+      expectedRef !== ref
     ) {
       throw new Error(`shipwright evidence ${ref} immutable collision`)
     }
-    this.entries.set(ref, { custodyDigest, content: input.content })
     return ref
   }
 
   read(input: ShipwrightContextInput, ref: ShipwrightEvidenceRefValue, maxBytes: number): string {
-    const entry = this.entries.get(ref)
-    if (!entry || entry.custodyDigest !== this.custodyDigest(input)) {
+    const entry = this.store.shippingEvidence(ref)
+    const expectedRef = entry
+      ? `artifact://shipwright/${createHash('sha256')
+          .update(`${entry.custodyDigest}\0${entry.sourceRef}\0${entry.contentDigest}`)
+          .digest('hex')}`
+      : null
+    if (
+      !entry ||
+      expectedRef !== ref ||
+      entry.custodyDigest !== this.custodyDigest(input) ||
+      entry.contentDigest !== createHash('sha256').update(entry.content).digest('hex')
+    ) {
       throw new Error(`shipwright evidence ${ref} custody mismatch`)
     }
     if (!Number.isInteger(maxBytes) || maxBytes < 1) {
@@ -457,6 +502,14 @@ export class ShipwrightService {
     if (!kind) return { kind: 'not-applicable' }
     const receipts: ShipwrightResultReceipt[] = []
     const evidence = new Set<ShipwrightEvidenceRefValue>()
+    if (!input.order.requestedBy.onBehalfOf) {
+      return this.decision(
+        input,
+        'policy-refused',
+        'Shipping has no personal model owner for this repair.',
+        evidence,
+      )
+    }
     if (
       input.custody.attemptId !== input.attempt.id ||
       input.custody.generation !== input.attempt.leaseGeneration ||
@@ -676,6 +729,7 @@ export class ShipwrightService {
       'Bounded safe-fix attempts were exhausted without a deterministically applicable patch.',
       evidence,
       receipts,
+      receipts.length > 0,
     )
   }
 
@@ -934,6 +988,7 @@ export class ShipwrightService {
     detail: string,
     evidence: ReadonlySet<ShipwrightEvidenceRefValue>,
     receipts: readonly ShipwrightResultReceipt[] = [],
+    allowOpenRepair = true,
   ): Extract<ShipwrightRepairRecommendation, { kind: 'needs-decision' }> {
     return {
       kind: 'needs-decision',
@@ -942,7 +997,7 @@ export class ShipwrightService {
       detail,
       evidenceRefs: [...evidence],
       actions:
-        reasonCode === 'policy-refused'
+        reasonCode === 'policy-refused' || !allowOpenRepair
           ? ['retry', 'return-to-issue']
           : ['retry', 'return-to-issue', 'open-repair'],
       resultToken: encodeResultToken(input, receipts),

@@ -1773,7 +1773,7 @@ export class SessionRegistry {
     const shippingPolicy = new CompatibilityShippingPolicyResolver(
       () => this.store.settings.getSettings().gitWorkflow.defaultParentBranch || 'main',
     )
-    const shippingEvidence = new ShippingEvidenceRegistry()
+    const shippingEvidence = new ShippingEvidenceRegistry(this.store.shipping)
     const shipwright = new ShipwrightService({
       headless,
       settingsFor: (userId) => settings.getSettingsFor(userId),
@@ -1786,6 +1786,17 @@ export class SessionRegistry {
         materialize: async (input) => {
           const materialized: import('@podium/model').ShipwrightEvidenceRef[] = []
           for (const ref of input.refs) {
+            const existing = shippingEvidence.resolve({
+              sourceRef: ref,
+              order: input.order,
+              attempt: input.attempt,
+              custody: input.custody,
+              authority: input.authority,
+            })
+            if (existing) {
+              materialized.push(existing)
+              continue
+            }
             const resolved = await rpc.shippingEvidence(
               input.authority,
               ref,

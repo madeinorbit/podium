@@ -56,6 +56,15 @@ export interface StoredShippingRepairCandidate {
   recordedAt: string
 }
 
+export interface StoredShippingEvidence {
+  ref: string
+  custodyDigest: string
+  contentDigest: string
+  sourceRef: string
+  content: string
+  materializedAt: string
+}
+
 const frozenOrderFacts = (order: ShipOrderValue) => ({
   issueId: order.issueId,
   descendantManifest: order.descendantManifest,
@@ -342,6 +351,67 @@ export interface RootIntegrationReceiptStore {
  * this repository. */
 export class ShippingRepository implements RootIntegrationReceiptStore {
   constructor(private readonly db: SqlDatabase) {}
+
+  shippingEvidence(ref: string): StoredShippingEvidence | null {
+    const row = this.db
+      .prepare(
+        `SELECT ref, custody_digest AS custodyDigest, content_digest AS contentDigest,
+                source_ref AS sourceRef, content, materialized_at AS materializedAt
+           FROM ship_evidence WHERE ref = ?`,
+      )
+      .get(ref) as StoredShippingEvidence | undefined
+    return row ? { ...row } : null
+  }
+
+  shippingEvidenceForSource(
+    custodyDigest: string,
+    sourceRef: string,
+  ): StoredShippingEvidence | null {
+    const row = this.db
+      .prepare(
+        `SELECT ref, custody_digest AS custodyDigest, content_digest AS contentDigest,
+                source_ref AS sourceRef, content, materialized_at AS materializedAt
+           FROM ship_evidence WHERE custody_digest = ? AND source_ref = ? LIMIT 1`,
+      )
+      .get(custodyDigest, sourceRef) as StoredShippingEvidence | undefined
+    return row ? { ...row } : null
+  }
+
+  recordShippingEvidence(input: StoredShippingEvidence): StoredShippingEvidence {
+    if (createHash('sha256').update(input.content).digest('hex') !== input.contentDigest) {
+      throw new Error(`shipwright evidence ${input.ref} content digest mismatch`)
+    }
+    const existing =
+      this.shippingEvidence(input.ref) ??
+      this.shippingEvidenceForSource(input.custodyDigest, input.sourceRef)
+    if (existing) {
+      if (
+        existing.ref !== input.ref ||
+        existing.custodyDigest !== input.custodyDigest ||
+        existing.contentDigest !== input.contentDigest ||
+        existing.sourceRef !== input.sourceRef ||
+        existing.content !== input.content
+      ) {
+        throw new Error(`shipwright evidence ${input.ref} immutable collision`)
+      }
+      return existing
+    }
+    this.db
+      .prepare(
+        `INSERT INTO ship_evidence
+          (ref, custody_digest, content_digest, source_ref, content, materialized_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.ref,
+        input.custodyDigest,
+        input.contentDigest,
+        input.sourceRef,
+        input.content,
+        input.materializedAt,
+      )
+    return { ...input }
+  }
 
   repairCandidatesForAttempt(attemptId: ShipAttemptValue['id']): StoredShippingRepairCandidate[] {
     return (
@@ -1167,9 +1237,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
            JOIN ship_lane_revisions lr ON lr.lane_key = m.lane_key
           WHERE m.id = ?`,
       )
-      .get(manifest.id) as
-      | { releasedAt?: string; revision: number; claimCount: number }
-      | undefined
+      .get(manifest.id) as { releasedAt?: string; revision: number; claimCount: number } | undefined
     if (
       !authority ||
       authority.releasedAt ||
@@ -2479,6 +2547,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       coveringOrderId: ShipOrderValue['id']
       effectEnvelopeKey: string
     }[]
+    invalidations?: ShipHoldValue[]
     release?: { trainId: ShipTrainManifestValue['id']; releasedAt: string; reason: string }
   }): ShipOrderValue {
     return transaction(this.db, () => {
@@ -2493,6 +2562,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (input.release) {
         this.releaseTrain(input.release.trainId, input.release.releasedAt, input.release.reason)
       }
+      for (const hold of input.invalidations ?? []) this.raiseHold(hold)
       return leader
     })
   }

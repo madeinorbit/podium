@@ -1722,6 +1722,7 @@ describe('ShippingService enqueue transaction', () => {
 
   it('replays an identical repair result and acknowledges only after the hold commits', async () => {
     let crashBeforeAcknowledgement = true
+    let originalContextDigest = ''
     const decision = {
       kind: 'needs-decision' as const,
       resultToken: 'repair-result-1',
@@ -1731,9 +1732,10 @@ describe('ShippingService enqueue transaction', () => {
       evidenceRefs: ['artifact:repair'],
       actions: ['return-to-issue' as const],
     }
-    const consider = vi.fn(
-      async (_input: Parameters<ShippingRepairPort['consider']>[0]) => decision,
-    )
+    const consider = vi.fn(async (input: Parameters<ShippingRepairPort['consider']>[0]) => {
+      originalContextDigest = input.contextDigest
+      return decision
+    })
     const acknowledge = vi.fn(async (input: Parameters<ShippingRepairPort['acknowledge']>[0]) => {
       if (input.generation !== 1) throw new Error('stale repair generation')
     })
@@ -1780,6 +1782,7 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
 
     crashBeforeAcknowledgement = false
+    issues.update(issue.id, { branch: 'issue/drifted-after-repair-decision' })
     const restarted = new ShippingService(deps)
     await restarted.reconcile()
     expect(consider).toHaveBeenCalledTimes(1)
@@ -1788,8 +1791,109 @@ describe('ShippingService enqueue transaction', () => {
       orderId: order.id,
       attemptId: `attempt:${order.id}:1`,
       generation: 1,
-      contextDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      contextDigest: originalContextDigest,
     })
     restarted.dispose()
+  })
+
+  it('replays shipped receipts on boot to invalidate a later stale descendant', async () => {
+    const { store, issues, service, deps } = harness(provedShippingJob, {
+      resolveBranchTip: async (issue) =>
+        issue.title === 'landed predecessor' ? 'lower-head' : 'upper-head',
+      isAncestor: async (_issue, ancestor, descendant) =>
+        ancestor === 'lower-head' && descendant === 'upper-head',
+    })
+    const lowerIssue = issues.create({
+      repoPath: '/repo',
+      title: 'landed predecessor',
+      startNow: false,
+    })
+    issues.update(lowerIssue.id, { stage: 'review' })
+    const lower = await service.enqueue({
+      issueId: lowerIssue.id,
+      ...approval,
+      approved: { ...approval.approved, sourceHeadSha: 'lower-head' },
+    })
+    await service.runOrder(lower.order.id)
+    expect(store.shipping.getOrder(lower.order.id)?.state).toBe('shipped')
+
+    const upperIssue = issues.create({
+      repoPath: '/repo',
+      title: 'stale descendant',
+      startNow: false,
+    })
+    issues.update(upperIssue.id, { stage: 'review' })
+    const upper = await service.enqueue({
+      issueId: upperIssue.id,
+      ...approval,
+      approved: { ...approval.approved, sourceHeadSha: 'upper-head' },
+    })
+    service.dispose()
+
+    const restarted = new ShippingService(deps)
+    await restarted.reconcile()
+    expect(store.shipping.getOrder(upper.order.id)).toMatchObject({
+      state: 'held',
+      holdCode: 'approval-stale',
+    })
+    expect(store.issues.getIssue(upperIssue.id)?.needsHuman).toBe(true)
+    restarted.dispose()
+  })
+
+  it('keeps a preflight train sibling queued and non-human when its leader holds', async () => {
+    const heldDaemon: Parameters<typeof harness>[0] = async (input, machineId) => ({
+      jobId: input.jobId,
+      requestDigest: input.requestDigest,
+      orderId: input.orderId,
+      attemptId: input.attemptId,
+      machineId,
+      generation: input.generation,
+      operation: input.operation,
+      state: 'held',
+      classification: 'dirty-worktree',
+      summary: 'leader requires attention',
+      logs: [],
+      artifactRefs: [],
+      heartbeatedAt: '2026-08-13T10:00:00.000Z',
+      finishedAt: '2026-08-13T10:00:00.000Z',
+    })
+    const { store, issues, service } = harness(heldDaemon)
+    const issueA = issues.create({ repoPath: '/repo', title: 'train a', startNow: false })
+    const issueB = issues.create({ repoPath: '/repo', title: 'train b', startNow: false })
+    issues.update(issueA.id, { stage: 'review' })
+    issues.update(issueB.id, { stage: 'review' })
+    const admitted = [
+      { issue: issueA, receipt: await service.enqueue({ issueId: issueA.id, ...approval }) },
+      { issue: issueB, receipt: await service.enqueue({ issueId: issueB.id, ...approval }) },
+    ].sort(
+      (left, right) =>
+        left.receipt.order.requestedAt.localeCompare(right.receipt.order.requestedAt) ||
+        left.receipt.order.id.localeCompare(right.receipt.order.id),
+    )
+    const sibling = admitted[0]!
+    const leader = admitted[1]!
+    store.shipping.claimTrain({
+      leaderOrderId: leader.receipt.order.id,
+      startedAt: '2026-08-13T10:00:00.000Z',
+      members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
+    })
+    await expect(
+      service.enqueue({ issueId: sibling.issue.id, ...approval }),
+    ).resolves.toMatchObject({
+      created: false,
+      order: { id: sibling.receipt.order.id },
+    })
+
+    await service.runOrder(leader.receipt.order.id, [sibling.receipt.order])
+    expect(store.shipping.getOrder(leader.receipt.order.id)?.state).toBe('held')
+    expect(store.issues.getIssue(leader.issue.id)?.needsHuman).toBe(true)
+    expect(store.shipping.getOrder(sibling.receipt.order.id)?.state).toBe('queued')
+    expect(store.issues.getIssue(sibling.issue.id)?.needsHuman).toBe(false)
+    expect(
+      store.events
+        .listEventsSince(0, { kinds: ['issue.shipping_train_reset'] })
+        .some((event) => event.subject === sibling.issue.id),
+    ).toBe(true)
+    service.dispose()
   })
 })

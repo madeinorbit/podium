@@ -622,8 +622,8 @@ export class ShippingExecutionPlane {
     if (!isAncestor(input.authority.repoPath, input.base, input.candidate)) return false
     const commits = gitResult(input.authority.repoPath, [
       'rev-list',
+      '--first-parent',
       '--reverse',
-      '--ancestry-path',
       `${input.base}..${input.candidate}`,
     ])
     const patchCommit = commits.stdout.split('\n').filter(Boolean)[0]
@@ -662,21 +662,53 @@ export class ShippingExecutionPlane {
     ) {
       return false
     }
-    if (input.requireComposition === false) return true
-    const requiredHeads = this.trainMembers(input.authority).map(
-      (member) => member.approvedHeadSha,
-    )
+    if (!isAncestor(input.authority.repoPath, input.authority.expectedTargetSha, patchCommit)) {
+      return false
+    }
+    const requiredHeads = this.trainMembers(input.authority).map((member) => member.approvedHeadSha)
     if (requiredHeads.length === 0) requiredHeads.push(input.authority.approvedHeadSha)
-    return (
-      isAncestor(
-        input.authority.repoPath,
-        input.authority.expectedTargetSha,
-        input.candidate,
-      ) &&
-      requiredHeads.every((head) =>
-        isAncestor(input.authority.repoPath, head, input.candidate),
-      )
-    )
+    const composition = gitResult(input.authority.repoPath, [
+      'rev-list',
+      '--first-parent',
+      '--reverse',
+      `${patchCommit}..${input.candidate}`,
+    ])
+    if (!composition.ok) return false
+    const actual = composition.stdout.split('\n').filter(Boolean)
+    let candidate = patchCommit
+    for (const approvedHead of requiredHeads) {
+      if (isAncestor(input.authority.repoPath, approvedHead, candidate)) continue
+      const mergeCommit = actual.shift()
+      if (!mergeCommit) return input.requireComposition === false && candidate === input.candidate
+      const parents = gitResult(input.authority.repoPath, [
+        'show',
+        '-s',
+        '--format=%P',
+        mergeCommit,
+      ])
+      if (!parents.ok || parents.stdout !== `${candidate} ${approvedHead}`) return false
+      const expectedTree = gitResult(input.authority.repoPath, [
+        'merge-tree',
+        '--write-tree',
+        candidate,
+        approvedHead,
+      ])
+      const actualTree = gitResult(input.authority.repoPath, [
+        'show',
+        '-s',
+        '--format=%T',
+        mergeCommit,
+      ])
+      if (
+        !expectedTree.ok ||
+        !actualTree.ok ||
+        expectedTree.stdout.split('\n')[0] !== actualTree.stdout
+      ) {
+        return false
+      }
+      candidate = mergeCommit
+    }
+    return actual.length === 0 && candidate === input.candidate
   }
 
   private completeRepairComposition(

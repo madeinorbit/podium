@@ -5,7 +5,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asShipAttemptId, asShipOrderId, shipRepairRef } from '@podium/model'
-import { shippingJobRequestFingerprint, type ShippingJobRequestMessage } from '@podium/protocol/daemon'
+import {
+  shippingJobRequestFingerprint,
+  type ShippingJobRequestMessage,
+} from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it } from 'vitest'
 import { ShippingExecutionPlane } from './executor'
 
@@ -34,10 +37,9 @@ const expectSucceeded = (
   result: ReturnType<ShippingExecutionPlane['handle']>,
   boundary: string,
 ): void => {
-  expect(
-    result,
-    `${boundary}: ${result.classification}: ${result.summary}`,
-  ).toMatchObject({ state: 'succeeded' })
+  expect(result, `${boundary}: ${result.classification}: ${result.summary}`).toMatchObject({
+    state: 'succeeded',
+  })
 }
 
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -110,7 +112,27 @@ describe('shipping daemon restart recovery', () => {
     expect(git('merge-base', '--is-ancestor', target, repaired.candidateHeadSha!)).toBe('')
     expect(git('merge-base', '--is-ancestor', source, repaired.candidateHeadSha!)).toBe('')
 
-    git('update-ref', repairRef, source, repaired.candidateHeadSha!)
+    const repairedTree = git('rev-parse', `${repaired.candidateHeadSha!}^{tree}`)
+    const extraDescendant = git(
+      'commit-tree',
+      repairedTree,
+      '-p',
+      repaired.candidateHeadSha!,
+      '-m',
+      'unreviewed descendant',
+    )
+    git('update-ref', repairRef, extraDescendant, repaired.candidateHeadSha!)
+    expect(
+      plane.applyPatch({
+        authority: request,
+        contextDigest,
+        repairRef,
+        patch,
+        touchedPaths: ['value.txt'],
+      }),
+    ).toMatchObject({ ok: false, summary: expect.stringMatching(/deterministic patch result/) })
+
+    git('update-ref', repairRef, source, extraDescendant)
     expect(
       plane.applyPatch({
         authority: request,

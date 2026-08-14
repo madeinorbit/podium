@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   asAccountId,
   asMachineId,
@@ -10,6 +13,7 @@ import {
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
+import { SessionStore } from '../../store'
 import {
   ShippingEvidenceRegistry,
   ShipwrightService,
@@ -97,8 +101,14 @@ describe('bounded shipwright patch contract', () => {
     expect(ShipwrightEvidenceRef.safeParse('artifact://validation/../secret').success).toBe(false)
   })
 
-  it('materializes immutable bytes under exact repair custody and caps reads', () => {
-    const registry = new ShippingEvidenceRegistry()
+  it('persists immutable custody-bound bytes across a fresh server store and caps reads', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-shipwright-evidence-'))
+    const dbPath = join(root, 'podium.db')
+    const firstStore = new SessionStore(dbPath)
+    const registry = new ShippingEvidenceRegistry(
+      firstStore.shipping,
+      () => '2026-08-14T05:10:00.000Z',
+    )
     const input = {
       order: { id: 'order:evidence' },
       attempt: {
@@ -117,18 +127,33 @@ describe('bounded shipwright patch contract', () => {
         operation: 'validate',
       },
     }
-    const ref = registry.materialize(
-      {
+    const ref = registry.materialize({
+      ...input,
+      sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
+      content: 'bounded evidence',
+    } as never)
+    expect(
+      registry.materialize({
         ...input,
         sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
         content: 'bounded evidence',
-      } as never,
-    )
-    expect(registry.read({ ...input, failure: { artifactRefs: [ref] } } as never, ref, 7)).toBe(
+      } as never),
+    ).toBe(ref)
+    firstStore.close()
+
+    const restartedStore = new SessionStore(dbPath)
+    const restarted = new ShippingEvidenceRegistry(restartedStore.shipping)
+    expect(
+      restarted.resolve({
+        ...input,
+        sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
+      } as never),
+    ).toBe(ref)
+    expect(restarted.read({ ...input, failure: { artifactRefs: [ref] } } as never, ref, 7)).toBe(
       'bounded',
     )
     expect(() =>
-      registry.read(
+      restarted.read(
         {
           ...input,
           custody: { ...input.custody, generation: 4 },
@@ -138,6 +163,15 @@ describe('bounded shipwright patch contract', () => {
         100,
       ),
     ).toThrow(/custody mismatch/)
+    expect(() =>
+      restarted.materialize({
+        ...input,
+        sourceRef: `artifact://shipping/${'b'.repeat(64)}`,
+        content: 'changed evidence',
+      } as never),
+    ).toThrow(/immutable collision/)
+    restartedStore.close()
+    rmSync(root, { recursive: true, force: true })
   })
 })
 
@@ -170,6 +204,8 @@ describe('durable shipwright model results', () => {
       output: string
       relevantDiff: string
     }>,
+    nativeAccountId: ConstructorParameters<typeof ShipwrightService>[0]['nativeAccountId'] = () =>
+      asAccountId('native:claude-code:fingerprint-1'),
   ) {
     const sessions = new Map<string, Record<string, unknown>>()
     const creates: Record<string, unknown>[] = []
@@ -234,7 +270,7 @@ describe('durable shipwright model results', () => {
         quotaReads += 1
         return []
       },
-      nativeAccountId: () => asAccountId('native:claude-code:fingerprint-1'),
+      nativeAccountId,
       validationProfile: () => ({ id: 'gate' }) as never,
       evidence: {
         materialize:
@@ -282,6 +318,48 @@ describe('durable shipwright model results', () => {
       kind: 'needs-decision',
       reasonCode: 'policy-refused',
       evidenceRefs: [],
+      actions: ['retry', 'return-to-issue'],
+    })
+    expect(h.turns).toHaveLength(0)
+  })
+
+  it('does not advertise open repair when no personal model owner can dispatch', async () => {
+    const h = fixture('{}')
+    const result = await h.service.consider({
+      order: {
+        ...order,
+        requestedBy: { actor: order.requestedBy.actor, onBehalfOf: undefined },
+      },
+      attempt,
+      issue,
+      failure,
+      custody: { attemptId: attempt.id, generation: 4, machineId },
+      contextDigest: 'c'.repeat(64),
+      authority: {} as never,
+    } as never)
+
+    expect(result).toMatchObject({
+      kind: 'needs-decision',
+      reasonCode: 'policy-refused',
+      actions: ['retry', 'return-to-issue'],
+    })
+    expect(h.turns).toHaveLength(0)
+  })
+
+  it('does not advertise open repair when no model account is available before dispatch', async () => {
+    const h = fixture('{}', undefined, undefined, undefined, () => null)
+    const result = await h.service.consider({
+      order,
+      attempt,
+      issue,
+      failure,
+      custody: { attemptId: attempt.id, generation: 4, machineId },
+      contextDigest: 'c'.repeat(64),
+      authority: {} as never,
+    } as never)
+
+    expect(result).toMatchObject({
+      kind: 'needs-decision',
       actions: ['retry', 'return-to-issue'],
     })
     expect(h.turns).toHaveLength(0)

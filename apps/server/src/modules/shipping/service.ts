@@ -292,9 +292,7 @@ const cancellationTarget = (summary: string): ShipOrderId | null => {
     const parsed = JSON.parse(summary.slice(CANCELLATION_MARKER.length)) as {
       targetOrderId?: unknown
     }
-    return typeof parsed.targetOrderId === 'string'
-      ? (parsed.targetOrderId as ShipOrderId)
-      : null
+    return typeof parsed.targetOrderId === 'string' ? (parsed.targetOrderId as ShipOrderId) : null
   } catch {
     return null
   }
@@ -305,6 +303,14 @@ interface DurableRepairMarker {
   failure: ShippingRepairContext['failure']
   order: ShipOrder
   attempt: ShipAttempt
+  acknowledgement: {
+    resultToken: string
+    orderId: ShipOrder['id']
+    attemptId: ShipAttempt['id']
+    generation: number
+    contextDigest: string
+    candidate?: { repairRef: string; candidateHeadSha: string }
+  }
 }
 
 const repairMarker = (marker: DurableRepairMarker): string =>
@@ -318,6 +324,11 @@ const parseRepairMarker = (summary: string): DurableRepairMarker | null => {
       !parsed ||
       (parsed.decision?.kind !== 'patched' && parsed.decision?.kind !== 'needs-decision') ||
       !parsed.decision.resultToken ||
+      parsed.acknowledgement?.resultToken !== parsed.decision.resultToken ||
+      parsed.acknowledgement?.orderId !== parsed.order?.id ||
+      parsed.acknowledgement?.attemptId !== parsed.attempt?.id ||
+      parsed.acknowledgement?.generation !== parsed.attempt?.leaseGeneration ||
+      !/^[a-f0-9]{64}$/.test(parsed.acknowledgement?.contextDigest ?? '') ||
       (parsed.failure?.operation !== 'prepare-merge-group' &&
         parsed.failure?.operation !== 'validate')
     ) {
@@ -626,9 +637,16 @@ export class ShippingService {
       descendantManifest,
     )
     const displaced = this.deps.repository.activeTrainsForLane(order)
-    const displacedMembers = displaced.flatMap((manifest) =>
-      manifest.members.map((member) => this.requiredOrder(member.orderId)),
-    )
+    const displacedMembers = [
+      ...new Map(
+        displaced
+          .flatMap((manifest) =>
+            manifest.members.map((member) => this.requiredOrder(member.orderId)),
+          )
+          .filter((member) => member.issueId !== issue.id)
+          .map((member) => [member.id, member]),
+      ).values(),
+    ]
     let admission: { order: ShipOrder; created: boolean }
     try {
       admission = this.deps.issues.shippingCommitMany(
@@ -803,6 +821,7 @@ export class ShippingService {
    * in this API. */
   async reconcile(): Promise<void> {
     this.deps.ledger.reconcile('shipOrder', this.currentProjectionRows())
+    await this.recoverDescendantInvalidations()
     for (const order of this.deps.repository.listOrders()) {
       await this.replayDaemonAcknowledgements(order)
       await this.replayRepairAcknowledgement(order)
@@ -1134,6 +1153,10 @@ export class ShippingService {
           return
         }
         const landingTrain = this.deps.repository.trainManifestForAttempt(attempt.id)
+        const descendantInvalidations = await this.planStaleDescendants(
+          [order, ...coveredSettlements.map((covered) => covered.order)],
+          destinationSha,
+        )
         this.deps.beforeCompletionCommit?.(receipt)
         for (const covered of coveredSettlements) {
           this.deps.beforeCompletionCommit?.(covered.receipt)
@@ -1171,6 +1194,25 @@ export class ShippingService {
                   },
                 },
               })),
+              ...descendantInvalidations.map(({ order: descendant, hold, invalidatedBy }) => ({
+                id: descendant.issueId,
+                mutation: {
+                  expectedStage: 'shipping' as const,
+                  needsHuman: true,
+                  shipOrderChanges: () => this.projectionSpecs(),
+                  event: {
+                    kind: 'issue.ship_hold_raised' as const,
+                    payload: {
+                      orderId: descendant.id,
+                      holdId: hold.id,
+                      generation: hold.generation,
+                      reasonCode: hold.reasonCode,
+                      actions: hold.actions,
+                      invalidatedBy,
+                    },
+                  },
+                },
+              })),
             ],
             () =>
               this.deps.repository.completeVerifiedTrain({
@@ -1191,6 +1233,7 @@ export class ShippingService {
                   coveringOrderId: order.id,
                   effectEnvelopeKey: `${result.jobId}:${result.requestDigest}`,
                 })),
+                invalidations: descendantInvalidations.map(({ hold }) => hold),
                 ...(landingTrain
                   ? {
                       release: {
@@ -1219,9 +1262,7 @@ export class ShippingService {
             coveredBy: order.id,
           })
           this.leases.delete(covered.order.id)
-          await this.invalidateStaleDescendants(covered.order, destinationSha)
         }
-        await this.invalidateStaleDescendants(order, receipt.destinationSha)
       }
     } finally {
       for (const id of custodyIds) this.inFlight.delete(id)
@@ -1283,25 +1324,11 @@ export class ShippingService {
         attemptId: intentAttempt.id,
         generation: intentAttempt.leaseGeneration,
         planned: {
-          ...this.step(
-            intentOrder,
-            intentAttempt,
-            intentKey,
-            'cancel',
-            'planned',
-            intentStartedAt,
-          ),
+          ...this.step(intentOrder, intentAttempt, intentKey, 'cancel', 'planned', intentStartedAt),
           summary,
         },
         running: {
-          ...this.step(
-            intentOrder,
-            intentAttempt,
-            intentKey,
-            'cancel',
-            'running',
-            intentStartedAt,
-          ),
+          ...this.step(intentOrder, intentAttempt, intentKey, 'cancel', 'running', intentStartedAt),
           summary,
         },
       })
@@ -1952,20 +1979,22 @@ export class ShippingService {
     }
   }
 
-  private async invalidateStaleDescendants(
-    landed: ShipOrder,
+  private async planStaleDescendants(
+    landedOrders: readonly ShipOrder[],
     destinationSha: string,
-  ): Promise<void> {
-    const invalidating = new Set<ShipOrderId>([landed.id])
+  ): Promise<{ order: ShipOrder; hold: ShipHold; invalidatedBy: ShipOrderId }[]> {
+    const invalidating = new Set<ShipOrderId>(landedOrders.map((order) => order.id))
+    const invalidatedBy = landedOrders.at(-1)?.id
+    if (!invalidatedBy) return []
     const remaining = this.deps.repository.listOrders()
-    const pending: { order: ShipOrder; hold: ShipHold }[] = []
+    const pending: { order: ShipOrder; hold: ShipHold; invalidatedBy: ShipOrderId }[] = []
     let advanced = true
     while (advanced) {
       advanced = false
       for (const order of remaining) {
         const issue = this.deps.issues.get(order.issueId)
         let causallyDepends = order.deliveryDependsOn.some((id) => invalidating.has(id))
-        if (!causallyDepends && order.repoId === landed.repoId) {
+        if (!causallyDepends && landedOrders.some((landed) => order.repoId === landed.repoId)) {
           for (const id of invalidating) {
             const predecessor = this.deps.repository.getOrder(id)
             if (
@@ -2010,14 +2039,22 @@ export class ShippingService {
           actions: ['return-to-issue'],
           raisedAt,
         }
-        pending.push({ order, hold })
+        pending.push({ order, hold, invalidatedBy })
         invalidating.add(order.id)
         advanced = true
       }
     }
+    return pending
+  }
+
+  private async invalidateStaleDescendants(
+    landed: ShipOrder,
+    destinationSha: string,
+  ): Promise<void> {
+    const pending = await this.planStaleDescendants([landed], destinationSha)
     if (pending.length === 0) return
     this.deps.issues.shippingCommitMany(
-      pending.map(({ order, hold }) => ({
+      pending.map(({ order, hold, invalidatedBy }) => ({
         id: order.issueId,
         mutation: {
           expectedStage: 'shipping' as const,
@@ -2031,7 +2068,7 @@ export class ShippingService {
               generation: hold.generation,
               reasonCode: hold.reasonCode,
               actions: hold.actions,
-              invalidatedBy: landed.id,
+              invalidatedBy,
             },
           },
         },
@@ -2040,6 +2077,14 @@ export class ShippingService {
         for (const { hold } of pending) this.deps.repository.raiseHold(hold)
       },
     )
+  }
+
+  private async recoverDescendantInvalidations(): Promise<void> {
+    for (const landed of this.deps.repository.listOrders()) {
+      if (landed.state !== 'shipped') continue
+      const receipt = this.deps.repository.receiptForOrder(landed.id)
+      if (receipt) await this.invalidateStaleDescendants(landed, receipt.destinationSha)
+    }
   }
 
   private assertAdmission(issue: IssueWire): void {
@@ -2726,9 +2771,31 @@ export class ShippingService {
       'acknowledge',
     )
 
+    const repairAcknowledgement = {
+      resultToken: decision.resultToken,
+      orderId: order.id,
+      attemptId: attempt.id,
+      generation: attempt.leaseGeneration,
+      contextDigest: context.contextDigest,
+      ...(decision.kind === 'patched'
+        ? {
+            candidate: {
+              repairRef: decision.repairRef,
+              candidateHeadSha: decision.candidateHeadSha,
+            },
+          }
+        : {}),
+    }
+
     effect.terminalStep = {
       ...effect.terminalStep,
-      summary: repairMarker({ decision, failure, order, attempt }),
+      summary: repairMarker({
+        decision,
+        failure,
+        order,
+        attempt,
+        acknowledgement: repairAcknowledgement,
+      }),
     }
     if (decision.kind === 'patched') {
       const changedAt = result.finishedAt ?? this.now()
@@ -2781,21 +2848,7 @@ export class ShippingService {
       failedEffectAcknowledgement,
     )
     this.deps.beforeRepairAcknowledge?.(decision.resultToken)
-    await repair.acknowledge({
-      resultToken: decision.resultToken,
-      orderId: order.id,
-      attemptId: attempt.id,
-      generation: attempt.leaseGeneration,
-      contextDigest: context.contextDigest,
-      ...(decision.kind === 'patched'
-        ? {
-            candidate: {
-              repairRef: decision.repairRef,
-              candidateHeadSha: decision.candidateHeadSha,
-            },
-          }
-        : {}),
-    })
+    await repair.acknowledge(repairAcknowledgement)
     return true
   }
 
@@ -2811,36 +2864,8 @@ export class ShippingService {
         .map((step) => parseRepairMarker(step.summary))
         .findLast((entry) => entry?.decision.kind === 'needs-decision')
       if (!marker || marker.decision.kind !== 'needs-decision') return
-      const contextDigest = shippingRepairContextDigest({
-        order: marker.order,
-        attempt: marker.attempt,
-        issue: this.deps.issues.get(order.issueId),
-        failure: marker.failure,
-        custody: {
-          attemptId: marker.attempt.id,
-          generation: marker.attempt.leaseGeneration,
-          machineId: marker.attempt.machineId,
-        },
-        authority: {
-          type: 'shippingJobRequest',
-          requestId: 'shipwright-context',
-          ...this.jobInput(
-            marker.order,
-            marker.attempt,
-            this.deps.issues.get(order.issueId),
-            marker.failure.operation,
-            'status',
-          ),
-        },
-      })
       this.deps.beforeRepairAcknowledge?.(marker.decision.resultToken)
-      await repair.acknowledge({
-        resultToken: marker.decision.resultToken,
-        orderId: order.id,
-        attemptId: attempt.id,
-        generation: attempt.leaseGeneration,
-        contextDigest,
-      })
+      await repair.acknowledge(marker.acknowledgement)
       return
     }
     this.deps.beforeRepairAcknowledge?.(candidate.resultToken)
@@ -2949,21 +2974,25 @@ export class ShippingService {
         id: member.issueId,
         mutation: {
           expectedStage: 'shipping' as const,
-          needsHuman: true,
+          needsHuman: member.id === order.id || member.state !== 'preflight',
           shipOrderChanges: () => this.projectionSpecs(),
           event: () => {
             const liveHold = this.deps.repository.openHoldForOrder(member.id)
-            if (!liveHold) return undefined
-            return {
-              kind: 'issue.ship_hold_raised',
-              payload: {
-                orderId: member.id,
-                holdId: liveHold.id,
-                generation: liveHold.generation,
-                reasonCode: liveHold.reasonCode,
-                actions: liveHold.actions,
-              },
-            }
+            return liveHold
+              ? {
+                  kind: 'issue.ship_hold_raised',
+                  payload: {
+                    orderId: member.id,
+                    holdId: liveHold.id,
+                    generation: liveHold.generation,
+                    reasonCode: liveHold.reasonCode,
+                    actions: liveHold.actions,
+                  },
+                }
+              : {
+                  kind: 'issue.shipping_train_reset',
+                  payload: { orderId: member.id, heldPeer: order.id },
+                }
           },
         },
       })),
