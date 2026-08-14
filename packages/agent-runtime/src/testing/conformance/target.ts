@@ -45,7 +45,7 @@ export interface ConformanceControl {
   processEvent(sessionId: SessionId, ev: ProcessEvent): void
   failNextVerification(sessionId: SessionId): void
   /**
-   * How many times the driver has DELIVERED this session's prompt text.
+   * HOW MANY TIMES THE CALLER'S TEXT HAS REACHED THE AGENT.
    *
    * WHY THE CORPUS NEEDS A COUNTER AND NOT AN INFERENCE. "`unverified` is never
    * retried into a lie" was proven indirectly — the turn epoch stays 0, so no
@@ -56,13 +56,47 @@ export interface ConformanceControl {
    * unprovable send up to twice and reported success. An indirect proof is no
    * proof against the one driver it was written about.
    *
-   * COUNT DELIVERIES OF THE TEXT, not keystrokes. A driver whose submit needs a
-   * separate CR, or a bounded nudge at the same composer, has made ONE delivery:
-   * the caller's turn was handed over once. A SECOND delivery is a second copy
-   * of the user's words reaching the agent, which is the thing that must never
-   * happen behind an `unverified` receipt.
+   * ---------------------------------------------------------------------------
+   * WHAT COUNTS, AND WHY THIS IS A NAMED CONTRACT RATHER THAN A COUNTER
+   * ---------------------------------------------------------------------------
+   *
+   * It was `deliveryAttempts`, and three separate targets read three different
+   * questions into that name — which is how a corpus ends up with an instrument
+   * whose readings cannot be compared (POD-2085 review, findings 1 and 3):
+   *
+   *   - the fake counted at `send()` ENTRY, so a QUEUED send counted before the
+   *     words had gone anywhere. Every assertion about a drain was therefore
+   *     already true before the drain, and the property that meant to watch a
+   *     queue could not fail;
+   *   - POD-2024's codex fixture counted accepted `turn/start`s, so a NATIVE
+   *     STEER — which by definition starts no turn — counted zero. Measured, not
+   *     predicted: their run read 1 against an expected 1+1.
+   *
+   * The name is now the question, and the question is about the AGENT, not about
+   * turns. Four rules, and each exists because a target got it wrong:
+   *
+   *   1. A turn-opening send counts ONCE, when the words go out. `unverified`
+   *      counts too: the keystrokes really were delivered, which is the whole
+   *      distinction between `unverified` and `refused`.
+   *   2. A NATIVE STEER COUNTS. It opens no turn on purpose, so any counter
+   *      built on turn starts is blind to exactly the delivery the corpus most
+   *      needs to see.
+   *   3. A QUEUED send counts AT THE DRAIN, never at the send. Until the drain
+   *      the words are sitting in a queue and the agent has not seen them —
+   *      which is precisely what `queued` promises the caller.
+   *   4. A REFUSAL, a retry, a nudge, a second CR at the same composer: none of
+   *      them add a count. One handover of the caller's turn is one delivery,
+   *      however many bytes it took; a SECOND count means a second copy of the
+   *      user's words reached the agent.
+   *
+   * DO NOT WIDEN AN EXISTING COUNTER TO GO GREEN. POD-2024 tried
+   * `turnStarts + steers` against the old name, then reverted it themselves with
+   * the right reason: "widening the counter to go green is answering a broken
+   * measurement by changing what is measured". If your harness cannot observe
+   * one of the four cases above, that gap is a finding — say so rather than
+   * report a number that means something else.
    */
-  deliveryAttempts(sessionId: SessionId): number
+  textDeliveries(sessionId: SessionId): number
   restartSupervisor(): void
   connectWithoutSecret(sessionId: SessionId): { refused: boolean }
 }

@@ -26,6 +26,7 @@ import {
 } from '../fake-driver.js'
 import {
   assertNoNativeSteerEntitled,
+  assertSteerJoinedOpenTurn,
   assertUnverifiedClaimHonest,
   describeDriverConformance,
 } from './suite.js'
@@ -165,6 +166,63 @@ describe('the corpus has teeth', () => {
     // open turn. Both arguments are in `../../permitted-failures.ts`.
     expect(() => assertNoNativeSteerEntitled('server', 'opencode-server')).not.toThrow()
     expect(() => assertNoNativeSteerEntitled('terminal', 'generic-pty')).not.toThrow()
+  })
+
+  /**
+   * THE IMPOSTOR, KEPT RATHER THAN REBUILT (POD-2085 review, finding 3).
+   *
+   * The anti-substitution property was watched failing once against a
+   * hand-patched fake, and the patch was then thrown away — so the property's
+   * own teeth lived in a commit message. These three cases are the same
+   * experiment, committed: a driver that reports `deliveredAs: 'steer'` while
+   * queueing the words, run through the corpus's OWN assertion, plus the honest
+   * driver alongside it so a check that stopped discriminating shows up as a
+   * green impostor rather than as nothing at all.
+   */
+  const steerScenario = async (
+    driver: ReturnType<typeof createFakeServerDriver>,
+  ): Promise<Parameters<typeof assertSteerJoinedOpenTurn>[0]> => {
+    resetFakeRuntime()
+    const session = await driver.create(spec())
+    const sessionId = session.binding.sessionId
+    const opened = await session.send(
+      { text: 'open a turn' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    if (opened.outcome !== 'accepted') throw new Error('fixture: the first send must open a turn')
+    const before = driver.control.textDeliveries(sessionId)
+    // EVERY READING IS MEASURED, never handed in. A teeth test that fed the
+    // assertion the numbers it wanted to see would be testing arithmetic.
+    const receipt = await session.send({ text: 'steer me' }, { origin: 'mail', delivery: 'steer' })
+    return {
+      receipt,
+      openEpoch: opened.turnEpoch,
+      epochAfterReceipt: (await session.snapshot()).turnEpoch,
+      textDeliveries: { before, afterReceipt: driver.control.textDeliveries(sessionId) },
+    }
+  }
+
+  it('REFUSES a driver that reports a steer and queues the words', async () => {
+    const observed = await steerScenario(createFakeServerDriver({ steerImpostor: true }))
+    // THE LIE IS WELL-FORMED, which is the point: the outcome, the delivery and
+    // the epoch all say the words joined the open turn, and each of those is
+    // separately asserted elsewhere in the corpus. Only the DELIVERY betrays it.
+    const { receipt } = observed
+    expect(receipt.outcome).toBe('accepted')
+    if (receipt.outcome !== 'accepted') return
+    expect(receipt.deliveredAs).toBe('steer')
+    expect(observed.epochAfterReceipt).toBe(observed.openEpoch)
+    expect(observed.textDeliveries.afterReceipt).toBe(observed.textDeliveries.before)
+    expect(() => assertSteerJoinedOpenTurn(observed)).toThrow(/sitting in a queue/)
+  })
+
+  it('ACCEPTS a driver whose steer really reaches the agent', async () => {
+    const observed = await steerScenario(createFakeServerDriver())
+    const { receipt } = observed
+    expect(receipt.outcome).toBe('accepted')
+    if (receipt.outcome !== 'accepted') return
+    expect(receipt.deliveredAs).toBe('steer')
+    expect(() => assertSteerJoinedOpenTurn(observed)).not.toThrow()
   })
 
   it('ACCEPTS drivers that declare their family honestly', () => {

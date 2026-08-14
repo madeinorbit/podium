@@ -193,17 +193,18 @@ async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<bo
 }
 
 /**
- * Give an asynchronous drain room to happen, so a property that asserts it did
- * NOT happen is stating a behaviour rather than winning a race.
+ * THERE IS DELIBERATELY NO `settle(ms)` HELPER HERE (POD-2085 review, finding 2).
  *
- * A FIXED WAIT IS THE HONEST SHAPE HERE, unlike {@link waitUntil}: there is no
- * condition to poll for, because the property is about something that must never
- * arrive. The length is a trade — long enough for a drain that starts at the
- * fence and crosses a loopback socket, short enough that every target does not
- * pay it — and it bounds how slow an impostor would have to be to hide.
+ * One existed: a fixed wait, used by the anti-substitution property to give a
+ * drain "room to happen" before asserting that nothing had. It was a bet on a
+ * number — 250ms against a terminal drain whose floor is 800ms one directory
+ * over — and the reviewer collected on it with a 400ms impostor that passed.
+ * A corpus property that can be beaten by being slow is worse than no property,
+ * because it reads as coverage. {@link waitUntil} waits for something that must
+ * HAPPEN and stops the moment it does; nothing here waits out something that
+ * must not, because the invariants are stated where they have definite answers
+ * instead.
  */
-const settle = (ms = 250): Promise<void> => waitUntil(() => false, ms).then(() => undefined)
-
 const seqOf = (event: RuntimeEvent): number => Number(event.cursor.components.seq ?? 0)
 
 export function describeDriverConformance(target: ConformanceTarget): void {
@@ -311,7 +312,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // The counter's other end: a send that DID prove itself also delivered
         // exactly once, so the `unverified` assertion below is measuring
         // restraint rather than a counter nobody increments.
-        expect(control.deliveryAttempts(session.binding.sessionId)).toBe(1)
+        expect(control.textDeliveries(session.binding.sessionId)).toBe(1)
         // Rule 2: the guarantee is family-invariant, the MECHANISM is declared —
         // and a driver may not invent a mechanism it never claimed.
         expectDeclaredProof(driver.capabilities(), receipt)
@@ -359,6 +360,16 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           expect(receipt.outcome).toBe('accepted')
           if (receipt.outcome !== 'accepted') return
           expect(receipt.deliveredAs).toBe('steer')
+          // THE LIST CANNOT ROT IN THE OTHER DIRECTION EITHER (POD-2085 review,
+          // finding 6). Everything else about `NO_NATIVE_STEER_DRIVERS` is
+          // asserted on the branch below, which a driver with native steer never
+          // reaches — so a driver that GAINS a steer verb would leave a stale
+          // permission on the list with nothing to trip over it. An entitlement
+          // is a record of an absence; when the absence ends, so does it.
+          expect(
+            permitsNoNativeSteer(driver.id),
+            `driver '${driver.id}' has native steer AND is listed as entitled to decline it — remove it from NO_NATIVE_STEER_DRIVERS`,
+          ).toBe(false)
           return
         }
         // The permitted failure is the DOWNGRADE, never the silence. Whatever
@@ -427,14 +438,24 @@ export function describeDriverConformance(target: ConformanceTarget): void {
          * as a fresh instruction, which for a "stop, you're editing the wrong
          * file" is the difference between a nudge and a second wrong edit.
          *
-         * THE TURN EPOCH IS THE DISCRIMINATOR, and the corpus already has it.
-         * Steering means the words joined the OPEN turn: no epoch is opened for
-         * them, then or later. Queueing means they wait and become a turn of
-         * their own once this one fences. So complete the open turn and look at
-         * the epoch — an impostor's queued words surface exactly there, and no
-         * amount of honest-looking receipt fields can hide it.
+         * THE WITNESS IS THE DELIVERY, AND IT IS READ AT RECEIPT TIME — which is
+         * what makes this check race-free (POD-2085 review, finding 2). The
+         * first version waited a fixed 250ms after fencing the turn and then
+         * asserted no new epoch had appeared, so an impostor whose queue drained
+         * a little later simply outlasted the corpus; the reviewer built one at
+         * 400ms and it passed, and the terminal family's own drain cannot even
+         * type sooner than `READY_FLOOR_MS` = 800ms. Racing an unknown drain
+         * with a fixed sleep is not a test, it is a bet.
+         *
+         * There is nothing to race, because `accepted` already means the
+         * provider took the words. So the question is asked at the only moment
+         * with a definite answer: the instant the receipt resolves, had the
+         * caller's text reached the agent? A steer says yes by definition. An
+         * impostor holding the words in a queue says no, however honest its
+         * receipt fields look, and it cannot make the answer true later without
+         * also opening the turn its receipt swore it did not open.
          */
-        const { handle, control, driver } = setup()
+        const { handle, control } = setup()
         const session = await handle
         const sessionId = session.binding.sessionId
         const opened = await session.send(
@@ -444,7 +465,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(opened.outcome).toBe('accepted')
         if (opened.outcome !== 'accepted') return
         const openEpoch = opened.turnEpoch
-        const deliveredBefore = control.deliveryAttempts(sessionId)
+        const before = control.textDeliveries(sessionId)
 
         const receipt = await session.send(
           { text: 'and this too' },
@@ -455,53 +476,45 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         if (receipt.outcome === 'refused' || receipt.outcome === 'unverified') return
 
         if (receipt.deliveredAs === 'steer') {
-          expect(receipt.outcome).toBe('accepted')
-          if (receipt.outcome !== 'accepted') return
-          // The receipt names the turn it JOINED. A new epoch here would be a
-          // new turn wearing the steer label.
-          expect(receipt.turnEpoch).toBe(openEpoch)
-          // The words went somewhere. A driver that reported a steer and typed
-          // nothing at all would otherwise pass every assertion below by doing
-          // less than the impostor does.
-          expect(control.deliveryAttempts(sessionId)).toBeGreaterThan(deliveredBefore)
-
-          control.completeTurn(sessionId)
-          // NOT A POLL FOR SUCCESS — a poll for the FAILURE. The impostor's
-          // queue drains asynchronously, so reading the epoch immediately after
-          // the fence would let it through on timing rather than on behaviour.
-          // This waits out the window a drain would need and then insists
-          // nothing opened.
-          await settle()
-          const after = await session.snapshot()
-          expect(
-            after.turnEpoch,
-            'a steer opened a turn of its own — the words were queued, not steered',
-          ).toBeLessThanOrEqual(openEpoch)
+          assertSteerJoinedOpenTurn({
+            receipt,
+            openEpoch,
+            epochAfterReceipt: (await session.snapshot()).turnEpoch,
+            textDeliveries: { before, afterReceipt: control.textDeliveries(sessionId) },
+          })
           return
         }
 
-        // THE OTHER HALF: a reported queue must be a real queue. `deliveredAs`
-        // said the words are waiting behind this turn, so once it fences they
-        // must actually be handed over — a driver that answers `queued` and
-        // drops the text has told the caller its work is safe when it is gone.
+        // THE OTHER HALF: a reported queue must be a real queue, in both
+        // directions. `deliveredAs: 'queue'` promises the caller two things —
+        // the words are NOT with the agent yet, and they will be — and a driver
+        // that breaks either one has told them their work is somewhere it is
+        // not.
         expect(receipt.deliveredAs).toBe('queue')
+        expect(
+          control.textDeliveries(sessionId),
+          'a receipt said `queue` while the words had already gone to the agent — that is a send wearing a queue label',
+        ).toBe(before)
         control.completeTurn(sessionId)
-        const delivered = await waitUntil(
-          () => control.deliveryAttempts(sessionId) > deliveredBefore,
-        )
+        const delivered = await waitUntil(() => control.textDeliveries(sessionId) > before)
         expect(delivered, 'a queued turn was never delivered after the turn fenced').toBe(true)
         /**
          * WHY THE EPOCH IS NOT ASSERTED ON THIS SIDE, deliberately and after
          * measuring it (POD-2085). The mirror of the steer branch would be "a
-         * queued turn MUST open a new epoch", and it is true of the drivers that
+         * queued turn MUST open a new epoch". It is true of the drivers that
          * mint their own — the fake and opencode both advance on the drained
-         * delivery. It is NOT observable on the terminal family: there the epoch
-         * is minted by the causal observer from the harness's own signals, and a
+         * delivery — and NOT observable on the terminal family, where the epoch
+         * is minted by the causal observer from the harness's own signals and a
          * `snapshot()` taken between the drain and the next observation honestly
          * reports the epoch nobody has revised yet. Asserting it would fail a
          * driver for the observer's latency, which says nothing about delivery.
-         * The delivery counter is what the terminal family CAN prove, and it
-         * proves the part that matters: the words were handed over.
+         *
+         * The trade was worth naming rather than assuming (review, finding 1),
+         * and having named it: the epoch adds nothing here that the two
+         * assertions above do not already carry. Words that arrive AFTER a fence
+         * cannot join the fenced turn — fences are absorbing, which this corpus
+         * pins separately — so "delivered after the fence" IS "delivered as a
+         * new turn" for any driver that keeps that invariant.
          */
       })
 
@@ -557,7 +570,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // outcome replaced did — it re-submitted an unprovable send up to twice
         // and called the result success. One send, one delivery of the caller's
         // words, however many keystrokes that took.
-        expect(control.deliveryAttempts(session.binding.sessionId)).toBe(1)
+        expect(control.textDeliveries(session.binding.sessionId)).toBe(1)
       })
     })
 
@@ -1025,6 +1038,51 @@ export function runConformance(
     reset: opts.reset,
     spec: opts.spec,
   })
+}
+
+/**
+ * What a `deliveredAs: 'steer'` receipt has to be TRUE about.
+ *
+ * THE THREE READINGS, taken at the instant the receipt resolved, and every one
+ * of them is something an impostor cannot fake while queueing:
+ *
+ *   1. the receipt names the OPEN turn — it joined a turn, it did not open one;
+ *   2. the session is still on that turn — nothing was opened during the send
+ *      behind an honest-looking epoch in the receipt;
+ *   3. EXACTLY ONE more delivery of the caller's text has reached the agent.
+ *      This is the one that catches the substitution: words in a queue have not
+ *      reached anybody, and `textDeliveries` counts at the drain (see
+ *      `./target.ts`), so a queue-behind-the-turn reads as zero here no matter
+ *      how fast it drains afterwards.
+ *
+ * EQUALITY, NOT `<=`, on the epochs (POD-2085 review, finding 4). An epoch that
+ * went BACKWARDS after a fence is a different contract violation, and a bound
+ * that licenses it is not stating the invariant it claims to.
+ *
+ * Exported so the corpus's own teeth test can drive it with
+ * `createFakeServerDriver({ steerImpostor: true })` and watch it refuse — the
+ * same reason {@link assertUnverifiedClaimHonest} is exported, and the gap
+ * review finding 3 named: an assertion whose only caller is its own property
+ * cannot be shown to bite.
+ */
+export function assertSteerJoinedOpenTurn(observed: {
+  receipt: TurnReceipt
+  openEpoch: number
+  epochAfterReceipt: number
+  textDeliveries: { before: number; afterReceipt: number }
+}): void {
+  const { receipt, openEpoch, epochAfterReceipt, textDeliveries } = observed
+  expect(receipt.outcome).toBe('accepted')
+  if (receipt.outcome !== 'accepted') return
+  expect(receipt.turnEpoch, 'a steer receipt names a turn it did not join').toBe(openEpoch)
+  expect(
+    epochAfterReceipt,
+    'a steer opened a turn of its own — that is a new turn wearing the steer label',
+  ).toBe(openEpoch)
+  expect(
+    textDeliveries.afterReceipt,
+    'the receipt says the words joined the open turn, but nothing reached the agent — they are sitting in a queue',
+  ).toBe(textDeliveries.before + 1)
 }
 
 /**

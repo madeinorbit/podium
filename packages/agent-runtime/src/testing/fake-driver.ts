@@ -108,6 +108,18 @@ export interface FakeDriverOptions {
   /** Server-family fakes hold a per-session secret; connecting without it must
    *  be refused (spec §6). */
   requiresConnectSecret?: boolean
+  /**
+   * DELIBERATELY DISHONEST — the impostor the anti-substitution property exists
+   * to catch, kept in the tree rather than rebuilt by hand.
+   *
+   * Reports `deliveredAs: 'steer'` with the OPEN turn's epoch, and queues the
+   * words. Every receipt field is well-formed; the only thing wrong is that
+   * nothing reached the agent. POD-2085's first round watched this fail once
+   * and threw the patch away, which left the property's own teeth living in a
+   * commit message (review finding 3) — a check nothing in the tree would
+   * notice weakening.
+   */
+  steerImpostor?: boolean
 }
 
 /**
@@ -135,9 +147,9 @@ export interface FakeControl {
   /** The next `send` cannot prove acceptance inside its window. Refused unless
    *  the driver declared `mayReturnUnverified`. */
   failNextVerification(sessionId: SessionId): void
-  /** How many times this session's text has been delivered — see
-   *  `ConformanceControl.deliveryAttempts`. */
-  deliveryAttempts(sessionId: SessionId): number
+  /** How many times this session's text has reached the agent — see
+   *  `ConformanceControl.textDeliveries` for the four counting rules. */
+  textDeliveries(sessionId: SessionId): number
   /** Simulate a supervisor restart: every handle is dropped, the survivor
    *  registry is not. */
   restartSupervisor(): void
@@ -191,9 +203,10 @@ interface SessionCore {
   alive: boolean
   oomEvents: number
   failNextVerification: boolean
-  /** Deliveries of the caller's text, counted so the corpus can prove directly
-   *  that an unprovable send is not re-delivered. */
-  deliveryAttempts: number
+  /** Times the caller's text reached the agent, counted so the corpus can prove
+   *  directly that an unprovable send is not re-delivered — and that a queued
+   *  one is not delivered until it drains. */
+  textDeliveries: number
   /** Only ever read by `connectWithoutSecret`. Never in argv, never logged —
    *  the fake keeps the discipline the real one must (spec §6). */
   connectSecret: string | null
@@ -327,6 +340,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
   const interactionSource: InteractionSource = options.interactionSource ?? 'protocol'
   const atLeastOnce = options.atLeastOnceInteractions ?? false
   const requiresConnectSecret = options.requiresConnectSecret ?? family === 'server'
+  const steerImpostor = options.steerImpostor ?? false
 
   const capabilities = (): DriverCapabilities => ({
     send: {
@@ -422,6 +436,11 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     // rather than a receipt shape nothing honours.
     if (core.queue.length > 0) {
       core.queue.shift()
+      // Rule 3, the other end of it: THIS is where a queued turn's words reach
+      // the agent. Counting at `send()` instead made "the queue drained" true
+      // before the drain, which is the defect that let a queue that silently
+      // dropped its words pass the whole corpus (POD-2085 review, finding 1).
+      core.textDeliveries += 1
       openTurn(core, 'system')
     }
   }
@@ -556,10 +575,6 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           return { outcome: 'refused', refusal: refuse('lease_held', core.lease.holder) }
         }
 
-        // PAST EVERY REFUSAL, so the count means "the caller's words were handed
-        // over", not "somebody called send". A refusal delivers nothing.
-        core.deliveryAttempts += 1
-
         // DELIVERY DEGRADATION IS REPORTED, NEVER SILENT.
         const requested = options.delivery
         const deliveredAs: TurnDelivery = nativeDeliveries.includes(requested)
@@ -568,6 +583,18 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
             ? 'queue'
             : 'when-ready'
 
+        /**
+         * COUNTED WHERE THE WORDS LEAVE, ONCE PER BRANCH THAT SENDS THEM.
+         *
+         * This used to be a single increment above, past the refusals, on the
+         * argument that "the caller's words were handed over" is decided there.
+         * It is not: the QUEUE branch below hands nothing over — it parks the
+         * words — so the count ran ahead of the delivery and every assertion
+         * about a drain was already true before the drain (POD-2085 review,
+         * finding 1). `ConformanceControl.textDeliveries` states the four rules;
+         * this is the reference implementation of them, so each branch counts
+         * for itself and the queue counts at `closeTurn`'s drain instead.
+         */
         if (core.failNextVerification) {
           core.failNextVerification = false
           if (!mayReturnUnverified) {
@@ -575,6 +602,8 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
               'fake: verification failure requested on a driver that declared it cannot happen',
             )
           }
+          // Rule 1: the keystrokes went out, only the proof did not come back.
+          core.textDeliveries += 1
           return {
             outcome: 'unverified',
             deliveredAs,
@@ -587,6 +616,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           if (core.turnOpen) {
             closeTurn(core, { ev: 'completed', turnEpoch: core.turnEpoch, verdict: 'interrupted' })
           }
+          core.textDeliveries += 1
           return {
             outcome: 'accepted',
             turnEpoch: openTurn(core, options.origin),
@@ -598,7 +628,12 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
 
         if (deliveredAs === 'steer' && core.turnOpen) {
           // Appends into the OPEN turn: the epoch does not advance, which is
-          // exactly what distinguishes steer from a new turn.
+          // exactly what distinguishes steer from a new turn. Rule 2 — the
+          // delivery is REAL even though no turn opened, and a counter watching
+          // turn starts would report nothing here (POD-2024 measured exactly
+          // that against their codex fixture).
+          if (steerImpostor) core.queue.push(stamp())
+          else core.textDeliveries += 1
           return {
             outcome: 'accepted',
             turnEpoch: core.turnEpoch,
@@ -609,6 +644,8 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         }
 
         if (deliveredAs === 'queue' || core.turnOpen) {
+          // Rule 3: NOT counted here. The words are parked, and `queued` is the
+          // receipt that says so.
           core.queue.push(stamp())
           return {
             outcome: 'queued',
@@ -618,6 +655,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           }
         }
 
+        core.textDeliveries += 1
         return {
           outcome: 'accepted',
           turnEpoch: openTurn(core, options.origin),
@@ -824,7 +862,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       alive: true,
       oomEvents: 0,
       failNextVerification: false,
-      deliveryAttempts: 0,
+      textDeliveries: 0,
       connectSecret: requiresConnectSecret ? `secret-${sessionId}` : null,
       watchers: new Map(),
       usage: {},
@@ -909,8 +947,8 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     failNextVerification(sessionId) {
       coreFor(sessionId).failNextVerification = true
     },
-    deliveryAttempts(sessionId) {
-      return coreFor(sessionId).deliveryAttempts
+    textDeliveries(sessionId) {
+      return coreFor(sessionId).textDeliveries
     },
     restartSupervisor() {
       // Handles die; survivors do not. The observer generation bump happens on

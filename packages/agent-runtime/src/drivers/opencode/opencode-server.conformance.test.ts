@@ -221,9 +221,13 @@ function makeWorld(): { target: ConformanceTarget } {
       void server.close()
     },
 
-    deliveryAttempts(sessionId) {
+    textDeliveries(sessionId) {
       // COUNTED WHERE THE WORDS ARRIVE: one accepted `prompt_async` POST is one
-      // delivery of the caller's turn.
+      // delivery of the caller's turn. That satisfies the counting rules on
+      // `ConformanceControl.textDeliveries` without a change, and the reason is
+      // structural rather than lucky — this driver POSTs at the DRAIN
+      // (`drainQueue` → `deliver`), never at the queued `send()`, and it has no
+      // native steer to miss.
       return serverFor(sessionId).promptCount(opencodeIdFor(sessionId))
     },
 

@@ -302,7 +302,10 @@ function makeWorld(): { target: ConformanceTarget } {
       if (ev.ev !== 'exited') return
       runtime?.observe({ type: 'agentExit', sessionId, code: ev.code ?? 0 })
     },
-    deliveryAttempts(sessionId) {
+    textDeliveries(sessionId) {
+      // Counted at the PTY paste, which is where this family's words reach the
+      // agent: the queue drain types, so a queued turn counts when it drains and
+      // not when it was accepted into the queue (rule 3).
       return deliveries.get(sessionId) ?? 0
     },
     failNextVerification(sessionId) {
