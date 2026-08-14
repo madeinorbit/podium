@@ -26,7 +26,7 @@ import {
   asSessionId,
   asUserId,
 } from '@podium/model'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { asClientPrincipal } from '../principal'
 import { issueViewModelsFromReplica } from '../replica/issue-view-models'
@@ -45,6 +45,8 @@ class FakeHub {
   viewStates: Array<{ visible: string[]; focused: string | null }> = []
   disposedCount = 0
   connectCount = 0
+  connectNowCount = 0
+  visibles: boolean[] = []
   health: { status: 'ok' | 'degraded' | 'down'; rttMs: number | null; since: number } = {
     status: 'down',
     rttMs: null,
@@ -74,13 +76,18 @@ class FakeHub {
   connect(): void {
     this.connectCount++
   }
+  connectNow(): void {
+    this.connectNowCount++
+  }
   dispose(): void {
     this.disposedCount++
   }
   setViewState(visible: string[], focused: string | null): void {
     this.viewStates.push({ visible, focused })
   }
-  setVisible(): void {}
+  setVisible(v: boolean): void {
+    this.visibles.push(v)
+  }
   sendSessionDraft(): void {}
   /** Versioned draft frames the runtime pushed, and whether the socket took
    *  them. `connected` mirrors the real hub's send guard. */
@@ -2342,5 +2349,49 @@ describe('offline-first composer drafts (POD-2045)', () => {
     expect(second.engine.getSnapshot().drafts[SID]).toBeUndefined()
     second.engine.dispose()
     await settle()
+  })
+})
+
+describe('reconnect nudges from the platform (POD-2060)', () => {
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+  })
+
+  it('reconnects immediately when the browser says the network is back', async () => {
+    const { engine, hub } = makeEngine()
+    engine.start()
+    await settle()
+    expect(hub.connectNowCount).toBe(0)
+
+    window.dispatchEvent(new Event('online'))
+    expect(hub.connectNowCount).toBe(1)
+
+    // The listener is released with the rest of the runtime's subscriptions.
+    engine.dispose()
+    window.dispatchEvent(new Event('online'))
+    expect(hub.connectNowCount).toBe(1)
+  })
+
+  it('reconnects when the tab is foregrounded, and only then', async () => {
+    const { engine, hub } = makeEngine()
+    engine.start()
+    await settle()
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    // Hiding still reports visibility to the server; it must not dial out.
+    expect(hub.visibles.at(-1)).toBe(false)
+    expect(hub.connectNowCount).toBe(0)
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(hub.visibles.at(-1)).toBe(true)
+    // A tab that slept through its heartbeat deadline comes back on foreground
+    // instead of waiting out the backoff.
+    expect(hub.connectNowCount).toBe(1)
+
+    engine.dispose()
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(hub.connectNowCount).toBe(1)
   })
 })

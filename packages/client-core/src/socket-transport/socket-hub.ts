@@ -522,6 +522,12 @@ export class SocketHub {
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  /** The jittered delay the pending reconnect timer was armed with, so the close
+   *  log and the attempt log report the same number. */
+  private pendingRetryMs = RECONNECT_MIN_MS
+  /** Whether the CURRENT socket has delivered anything. Resets per connection:
+   *  it is what licenses the backoff reset (see `markAlive`). */
+  private sawTraffic = false
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined
   private heartbeatDeadline: ReturnType<typeof setTimeout> | undefined
   /** Send time of each unanswered ping, oldest first. Pongs arrive in ping order. */
@@ -620,6 +626,7 @@ export class SocketHub {
     let opened = false
     let reportedError = false
     this.intentionalClose = false
+    this.sawTraffic = false
     this.socket = socket
     socket.onopen = () => {
       opened = true
@@ -629,7 +636,8 @@ export class SocketHub {
       log.info('socket connected', { reconnect: this.everConnected })
       this.connectedFlag = true
       this.everConnected = true
-      this.reconnectDelay = RECONNECT_MIN_MS
+      // The backoff is NOT reset here — see `markAlive`. A TCP accept is not
+      // evidence that the server works.
       this.startHeartbeat()
       this.sendRaw({
         type: 'hello',
@@ -737,12 +745,6 @@ export class SocketHub {
 
   /** Common teardown for any socket end: from onclose or a heartbeat force-close. */
   private onSocketClosed(): void {
-    if (!this.intentionalClose) {
-      // `warn`, so it forwards at the client's default threshold: a client that
-      // keeps losing its socket is the thing an operator most wants to see from
-      // the outside, and it is invisible in the server's own logs.
-      log.warn('socket closed — reconnecting', { retryInMs: this.reconnectDelay })
-    }
     this.stopHeartbeat()
     this.connectedFlag = false
     this.socket = undefined
@@ -756,19 +758,56 @@ export class SocketHub {
     this.legacyFeed?.disconnected()
     this.notifyConnections()
     if (!this.intentionalClose) this.evaluateHealth()
-    if (!this.intentionalClose) this.scheduleReconnect()
+    if (!this.intentionalClose) {
+      const retryInMs = this.scheduleReconnect()
+      // `warn`, so it forwards at the client's default threshold: a client that
+      // keeps losing its socket is the thing an operator most wants to see from
+      // the outside, and it is invisible in the server's own logs. Logged AFTER
+      // scheduling so it reports the delay actually armed, jitter included.
+      log.warn('socket closed — reconnecting', { retryInMs })
+    }
   }
 
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer !== undefined) return
+  /** Arms the next attempt and returns the delay it will fire after (the
+   *  already-pending one when a timer is armed — this is called from every close
+   *  path, including a force-close that lands on top of a scheduled retry). */
+  private scheduleReconnect(): number {
+    if (this.reconnectTimer !== undefined) return this.pendingRetryMs
+    const base = this.reconnectDelay
+    // [base/2, base). A fleet that lost the same server in the same second must
+    // not come back in lockstep — the same reason the log forwarder jitters its
+    // retries (`logging/forward-sink.ts`). Without this a server restart brings
+    // every client back at 0.5/1/2/4/8/10s together, each paying a hello, an
+    // attach fan-out and a world.
+    const jittered = Math.floor(base / 2 + Math.random() * (base / 2))
+    this.pendingRetryMs = jittered
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined
       // `debug`: one line per attempt is flight-recorder context, not something
       // an operator wants forwarded during an hour-long outage.
-      log.debug('reconnecting', { afterMs: this.reconnectDelay })
+      log.debug('reconnecting', { afterMs: jittered })
       this.connect()
-    }, this.reconnectDelay)
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS)
+    }, jittered)
+    this.reconnectDelay = Math.min(base * 2, RECONNECT_MAX_MS)
+    return jittered
+  }
+
+  /**
+   * Out-of-band evidence the network is back (the browser's `online` event, an
+   * app returning to the foreground): skip the remaining backoff and try now.
+   *
+   * The `socket !== undefined` guard is load-bearing — `connect()` while a
+   * CONNECTING socket exists would otherwise be asked for a second socket, and a
+   * foregrounded tab can deliver both signals within the same tick.
+   */
+  connectNow(): void {
+    if (this.socket !== undefined || this.intentionalClose) return
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    this.reconnectDelay = RECONNECT_MIN_MS
+    this.connect()
   }
 
   private startHeartbeat(): void {
@@ -822,6 +861,14 @@ export class SocketHub {
 
   /** Any inbound traffic proves the connection is alive; clear the ping deadline. */
   private markAlive(): void {
+    if (!this.sawTraffic) {
+      this.sawTraffic = true
+      // THE BACKOFF RESETS HERE, not on TCP open: a server that accepts and then
+      // drops — an auth bounce, a half-deployed proxy — would otherwise reset the
+      // delay on every cycle and hammer it at 500ms forever. One inbound frame is
+      // the cheapest evidence that the thing on the other end actually serves.
+      this.reconnectDelay = RECONNECT_MIN_MS
+    }
     if (this.heartbeatDeadline === undefined) return
     clearTimeout(this.heartbeatDeadline)
     this.heartbeatDeadline = undefined

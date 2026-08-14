@@ -666,10 +666,24 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // Presence feeds the server's smart router (skip mobile push while visible).
     // Re-report view-state too so hiding the tab clears it (and showing re-asserts).
     if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', this.reactions.onVisibilityChange)
-      offs.push(() =>
-        document.removeEventListener('visibilitychange', this.reactions.onVisibilityChange),
-      )
+      const onVisibilityChange = (): void => {
+        this.reactions.onVisibilityChange()
+        // A tab that slept through its heartbeat deadline reconnects the moment it
+        // is foregrounded, instead of waiting out up to 10s of backoff with the
+        // feed and every terminal dark.
+        if (tabIsVisible()) this.hub.connectNow()
+      }
+      document.addEventListener('visibilitychange', onVisibilityChange)
+      offs.push(() => document.removeEventListener('visibilitychange', onVisibilityChange))
+    }
+    // The OS knows the network came back long before the backoff timer does.
+    // Feature-detected rather than assumed: React Native defines `window` as the
+    // global object, without DOM listeners on it (POD-2055 F4).
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      const dom = window
+      const onOnline = (): void => this.hub.connectNow()
+      dom.addEventListener('online', onOnline)
+      offs.push(() => dom.removeEventListener('online', onOnline))
     }
     this.reactions.onVisibilityChange()
     // A ghost tab restored from persistence needs no delta to be a ghost, so the

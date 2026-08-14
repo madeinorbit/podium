@@ -1425,3 +1425,165 @@ describe('view state', () => {
     })
   })
 })
+
+/** POD-2060: a fleet that lost the same server in the same second must not come
+ *  back in lockstep, backoff must reset on evidence of a WORKING server rather
+ *  than on TCP open, and out-of-band evidence that the network is back must skip
+ *  the remaining wait. */
+describe('SocketHub reconnect jitter and connectNow', () => {
+  function multiSetup() {
+    const sockets: FakeSocket[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s
+      },
+    })
+    return { sockets, hub }
+  }
+
+  /** The delay the hub armed its reconnect timer with, taken from the only
+   *  timeout scheduled while the socket closes (the heartbeat is stopped first). */
+  function scheduledDelay(
+    spy: { mockClear: () => void; mock: { calls: unknown[][] } },
+    close: () => void,
+  ): number {
+    spy.mockClear()
+    close()
+    const delays = spy.mock.calls.map((c: unknown[]) => Number(c[1]))
+    expect(delays).toHaveLength(1)
+    return delays[0] as number
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('jitters every reconnect delay into [base/2, base) while the base still doubles', () => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(globalThis, 'setTimeout')
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open() // the one connection that gets to open; it sends nothing
+
+    let base = 500
+    for (let i = 0; i < 8; i += 1) {
+      const delay = scheduledDelay(spy, () => sockets.at(-1)?.close())
+      expect(delay).toBeGreaterThanOrEqual(base / 2)
+      expect(delay).toBeLessThan(base)
+      const before = sockets.length
+      vi.advanceTimersByTime(delay)
+      expect(sockets.length).toBe(before + 1)
+      base = Math.min(base * 2, 10_000)
+    }
+  })
+
+  it('fires at the jittered time, not at the undivided base delay', () => {
+    vi.useFakeTimers()
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    sockets[0]?.close()
+    vi.advanceTimersByTime(249)
+    expect(sockets).toHaveLength(1)
+    vi.advanceTimersByTime(1) // base 500, random 0 → 250ms
+    expect(sockets).toHaveLength(2)
+  })
+
+  it('keeps growing the backoff for a server that accepts then drops without traffic', () => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(globalThis, 'setTimeout')
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+
+    // An accept-then-drop server (auth bounce, half-deployed proxy): every cycle
+    // opens, says nothing, and closes. Resetting on TCP open would peg this at 500ms.
+    let base = 500
+    for (let i = 0; i < 4; i += 1) {
+      const delay = scheduledDelay(spy, () => sockets.at(-1)?.close())
+      expect(delay).toBeGreaterThanOrEqual(base / 2)
+      expect(delay).toBeLessThan(base)
+      vi.advanceTimersByTime(delay)
+      sockets.at(-1)?.open()
+      base = Math.min(base * 2, 10_000)
+    }
+    expect(base).toBe(8_000)
+  })
+
+  it('resets the backoff on the first inbound message of a connection', () => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(globalThis, 'setTimeout')
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    const first = scheduledDelay(spy, () => sockets[0]?.close())
+    vi.advanceTimersByTime(first)
+
+    sockets[1]?.open()
+    sockets[1]?.recv({ type: 'welcome', clientId: 'c0' }) // the server is really there
+    const second = scheduledDelay(spy, () => sockets[1]?.close())
+    // Back to the floor's jitter window rather than the doubled one.
+    expect(second).toBeGreaterThanOrEqual(250)
+    expect(second).toBeLessThan(500)
+  })
+
+  it('connectNow skips the pending backoff and connects once', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    sockets[0]?.close()
+    expect(sockets).toHaveLength(1)
+
+    hub.connectNow()
+    expect(sockets).toHaveLength(2)
+    // The pending timer was cleared, so nothing opens a second socket later.
+    vi.advanceTimersByTime(30_000)
+    expect(sockets).toHaveLength(2)
+  })
+
+  it('connectNow resets the backoff so a later drop retries from the floor', () => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(globalThis, 'setTimeout')
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    const first = scheduledDelay(spy, () => sockets[0]?.close())
+    vi.advanceTimersByTime(first)
+    sockets[1]?.close() // still down: base is now 2000
+    hub.connectNow()
+
+    const next = scheduledDelay(spy, () => sockets.at(-1)?.close())
+    expect(next).toBeGreaterThanOrEqual(250)
+    expect(next).toBeLessThan(500)
+  })
+
+  it('connectNow does not open a second socket while one is connecting or open', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect() // CONNECTING: the socket exists but has not opened
+    hub.connectNow()
+    expect(sockets).toHaveLength(1)
+    sockets[0]?.open()
+    hub.connectNow()
+    expect(sockets).toHaveLength(1)
+  })
+
+  it('connectNow is a no-op after dispose', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    hub.dispose()
+    hub.connectNow()
+    expect(sockets).toHaveLength(1)
+    vi.advanceTimersByTime(30_000)
+    expect(sockets).toHaveLength(1)
+  })
+})
