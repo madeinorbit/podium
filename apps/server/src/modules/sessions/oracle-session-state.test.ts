@@ -410,7 +410,12 @@ describe('oracle: tab order', () => {
 })
 
 describe('oracle: composer drafts', () => {
-  it(`${provisional('readiness-4', 'composer text is shared-surface state on the reserved, unbuilt op-stream path')}: a draft edit fans out to every OTHER client and never echoes to its author`, async () => {
+  // POD-2045 replaced the no-echo policy this used to record. The author is now
+  // told which REV its edit became, because a client that holds unsent text has
+  // to rebase onto a rev it knows, and the broadcast is where that number lives.
+  // Still `provisional`: the op-stream conflict class remains reserved and
+  // unbuilt, and it is what would eventually replace this whole shape.
+  it(`${provisional('readiness-4', 'composer text is shared-surface state on the reserved, unbuilt op-stream path')}: a draft edit fans out to every client, its author included, carrying the rev it became`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const author: ServerMessage[] = []
@@ -432,10 +437,14 @@ describe('oracle: composer drafts', () => {
 
     o.reg.modules.sessions.setSessionDraft({ sessionId, text: 'half typed' }, authorId)
 
-    expect(watcher).toContainEqual({ type: 'sessionDraftChanged', sessionId, text: 'half typed' })
-    expect(author).not.toContainEqual(
-      expect.objectContaining({ type: 'sessionDraftChanged', sessionId }),
-    )
+    const shape = expect.objectContaining({
+      type: 'sessionDraftChanged',
+      sessionId,
+      text: 'half typed',
+      rev: 1,
+    })
+    expect(watcher).toContainEqual(shape)
+    expect(author).toContainEqual(shape)
   })
 
   it(`${provisional('readiness-4', 'whole-body draft persistence is current behavior, not the collaborative-text contract')}: persistence is DEBOUNCED for text but immediate for a cleared draft`, async () => {

@@ -156,10 +156,8 @@ export class SessionStateService {
     { readAt: Record<string, string | null>; snoozes: Record<string, string | null> }
   >()
 
-  private readonly drafts = new Map<SessionId, string>()
   private readonly draftDocs = new Map<SessionId, DraftDoc>()
   private readonly draftTimes = new Map<SessionId, string>()
-  private readonly draftWriteTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
   private readonly draftDocWriteTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
   private readonly draftInjectTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
   private readonly draftSendSuppressUntil = new Map<SessionId, number>()
@@ -177,15 +175,17 @@ export class SessionStateService {
     return this.draftSyncEnabled_
   }
 
-  /** Hydrate shared draft documents. Per-user rows remain lazy per principal. */
+  /**
+   * Hydrate shared draft documents. Per-user rows remain lazy per principal.
+   *
+   * `session_drafts` is ONE row per session, and the versioning columns sit
+   * beside the text column older builds wrote. So a draft persisted before this
+   * change loads here as an ordinary document at rev 0 — nothing has to migrate
+   * it, and nothing has to know whether it was written before or after.
+   */
   loadFromStore(): void {
-    this.drafts.clear()
     this.draftDocs.clear()
     this.draftTimes.clear()
-    for (const [rawSessionId, text] of Object.entries(this.ports.store.sessions.loadDrafts())) {
-      const sessionId = rawSessionId as SessionId
-      this.drafts.set(sessionId, text)
-    }
     for (const [rawSessionId, updatedAt] of Object.entries(
       this.ports.store.sessions.loadDraftTimes(),
     )) {
@@ -215,14 +215,10 @@ export class SessionStateService {
   }
 
   removeSession(sessionId: SessionId): void {
-    this.drafts.delete(sessionId)
     this.draftDocs.delete(sessionId)
     this.draftTimes.delete(sessionId)
     this.lastPriority.delete(sessionId)
     this.draftSendSuppressUntil.delete(sessionId)
-    const legacy = this.draftWriteTimers.get(sessionId)
-    if (legacy) clearTimeout(legacy)
-    this.draftWriteTimers.delete(sessionId)
     const versioned = this.draftDocWriteTimers.get(sessionId)
     if (versioned) clearTimeout(versioned)
     this.draftDocWriteTimers.delete(sessionId)
@@ -471,44 +467,27 @@ export class SessionStateService {
     return this.draftDocs.get(sessionId)?.rev
   }
 
+  /**
+   * An UNVERSIONED write — a legacy `setSessionDraft` frame, or the server
+   * seeding a draft itself (a spawn's initial prompt).
+   *
+   * It is sequenced like any other edit, based on whatever rev the document is
+   * at, which makes it unconditionally fresh and therefore always accepted. That
+   * is precisely the old last-writer-wins behaviour, now expressed inside the
+   * one arbitration rather than beside it.
+   */
   setDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): void {
-    if (this.draftSyncEnabled_) {
-      const current = this.draftDocs.get(input.sessionId) ?? emptyDraftDoc(input.sessionId)
-      this.applyVersionedEdit(
-        input.sessionId,
-        { baseRev: current.rev, text: input.text, origin: fromClientId ?? 'seed' },
-        fromClientId,
-      )
-      return
-    }
-    const previous = this.drafts.get(input.sessionId)
-    if (input.text) this.drafts.set(input.sessionId, input.text)
-    else this.drafts.delete(input.sessionId)
-    const session = this.ports.getSession(input.sessionId)
-    const draftNonemptyChanged = session && (session.draftUpdatedAt !== undefined) !== !!input.text
-    if (session) session.draftUpdatedAt = input.text ? new Date().toISOString() : undefined
-    if (draftNonemptyChanged) {
-      try {
-        this.ports.persistSession(input.sessionId)
-      } catch (error) {
-        if (previous === undefined) this.drafts.delete(input.sessionId)
-        else this.drafts.set(input.sessionId, previous)
-        throw error
-      }
-    }
-    this.ports.broadcastToClients(
-      { type: 'sessionDraftChanged', sessionId: input.sessionId, text: input.text },
-      fromClientId === undefined ? undefined : { exceptClientId: fromClientId },
+    const current = this.draftDocs.get(input.sessionId) ?? emptyDraftDoc(input.sessionId)
+    this.applyVersionedEdit(
+      input.sessionId,
+      { baseRev: current.rev, text: input.text, origin: fromClientId ?? 'seed' },
+      fromClientId,
     )
-    this.persistLegacyDraft(input.sessionId, input.text)
-    if (draftNonemptyChanged) this.ports.broadcastSessions()
   }
 
+  /** A VERSIONED edit: the sender names the rev it typed against, so a race can
+   *  be arbitrated instead of silently resolved in favour of whoever was last. */
   handleDraftEdit(input: DraftEditMessage, fromClientId: string): void {
-    if (!this.draftSyncEnabled_) {
-      this.setDraft({ sessionId: input.sessionId, text: input.text }, fromClientId)
-      return
-    }
     this.applyVersionedEdit(
       input.sessionId,
       { baseRev: input.baseRev, text: input.text, origin: fromClientId },
@@ -538,43 +517,19 @@ export class SessionStateService {
     this.ports.toMachine(machineId, { type: 'draftTarget', sessionId, text: doc.text })
   }
 
+  /**
+   * Serve every draft this principal may see to a freshly connected client.
+   *
+   * The document carries its rev, and that is what makes the replay SAFE rather
+   * than destructive. A client with unsent text of its own compares the rev it
+   * is told against the one it last confirmed, keeps whatever the person is
+   * mid-sentence on, and re-offers it (POD-2045). An unstamped replay left the
+   * receiver no way to tell "newer than you" from "older than you", so it took
+   * the server's word — and a reconnect after a slow patch deleted typing.
+   */
   replayDrafts(principal: SessionStatePrincipal, send: (message: LiveServerMessage) => void): void {
-    if (this.draftSyncEnabled_) {
-      for (const doc of this.draftDocs.values()) {
-        if (doc.text && this.canReadSession(principal, doc.sessionId)) send(this.draftWire(doc))
-      }
-      return
-    }
-    for (const [sessionId, text] of this.drafts) {
-      if (this.canReadSession(principal, sessionId)) {
-        send({ type: 'sessionDraftChanged', sessionId, text })
-      }
-    }
-  }
-
-  private persistLegacyDraft(sessionId: SessionId, text: string): void {
-    const existing = this.draftWriteTimers.get(sessionId)
-    if (existing) clearTimeout(existing)
-    this.draftWriteTimers.delete(sessionId)
-    if (!text) {
-      this.writeLegacyDraft(sessionId, '')
-      return
-    }
-    const timer = setTimeout(() => {
-      this.draftWriteTimers.delete(sessionId)
-      this.writeLegacyDraft(sessionId, this.drafts.get(sessionId) ?? '')
-    }, DRAFT_WRITE_DEBOUNCE_MS)
-    timer.unref?.()
-    this.draftWriteTimers.set(sessionId, timer)
-  }
-
-  private writeLegacyDraft(sessionId: SessionId, text: string): void {
-    try {
-      const updatedAt = this.ports.store.sessions.setDraft(sessionId, text)
-      if (updatedAt === undefined) this.draftTimes.delete(sessionId)
-      else this.draftTimes.set(sessionId, updatedAt)
-    } catch (error) {
-      log.warn('failed to persist the draft', { err: error, sessionId })
+    for (const doc of this.draftDocs.values()) {
+      if (doc.text && this.canReadSession(principal, doc.sessionId)) send(this.draftWire(doc))
     }
   }
 
@@ -608,12 +563,25 @@ export class SessionStateService {
         log.warn('failed to persist the DRAFT tag', { err: error, sessionId })
       }
     }
-    this.ports.broadcastToClients(
-      this.draftWire(doc),
-      fromClientId === undefined ? undefined : { exceptClientId: fromClientId },
-    )
+    // TO EVERY CLIENT, THE SENDER INCLUDED (POD-2045).
+    //
+    // The sender is not being told what it typed — it already knows that. It is
+    // being told WHERE IN THE SEQUENCE it landed, and there is no other way for
+    // it to find out. Excluding it left its `baseRev` frozen at whatever it knew
+    // before its own edit, so the next edit after a typing pause arrived with a
+    // stale base, fell outside the soft lease, and was rejected: a wasted round
+    // trip on every pause, and a draft that could never be confirmed at all.
+    //
+    // The echo is safe by construction on the receiving end — a client whose
+    // text already equals the document treats it as convergence, not as an
+    // instruction to repaint what it is typing into.
+    this.ports.broadcastToClients(this.draftWire(doc))
     this.persistDraftDoc(sessionId, doc)
     if (draftNonemptyChanged) this.ports.broadcastSessions()
+    // THE NATIVE COMPOSER STAYS BEHIND THE EXPERIMENT. Sequencing a document is
+    // bookkeeping; typing into somebody's terminal is not, and `draft-sync` is
+    // the switch for the second one only.
+    if (!this.draftSyncEnabled_) return
     if (doc.origin === 'native') this.cancelDraftInject(sessionId)
     else this.scheduleDraftInject(sessionId)
   }
