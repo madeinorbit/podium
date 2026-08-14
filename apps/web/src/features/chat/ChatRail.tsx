@@ -5,7 +5,6 @@ import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Minimap } from './Minimap'
-import { type TodoProgress, TodoRailChip } from './TodoBridge'
 import { VerbosityControl } from './VerbosityControl'
 
 /**
@@ -27,8 +26,6 @@ import { VerbosityControl } from './VerbosityControl'
  *
  * WHAT IS ALLOWED IN HERE. Orientation and reading, nothing else:
  *
- *   todos    a live `4/7` — present ONLY while the issue has a plan, and the
- *            single most useful thing a reader can learn about a running session
  *   find     ⌘F's affordance, so the shortcut is discoverable without a field
  *   density  summary / normal / verbose, at rest as three bars you can read
  *            without opening anything
@@ -47,7 +44,6 @@ export function ChatRail({
   verbosity,
   onVerbosityChange,
   verbosityOverridden,
-  todos,
   onFind,
   findOpen,
   lastAnswerText,
@@ -61,8 +57,6 @@ export function ChatRail({
   onVerbosityChange: (v: ChatVerbosity) => void
   /** A query is overriding a `summary` setting — the rail says so at rest. */
   verbosityOverridden: boolean
-  /** Null when this session has no issue or the issue published no todos. */
-  todos: TodoProgress | null
   onFind: () => void
   findOpen: boolean
   /** The agent's latest prose — what tl;dr summarises, and the button's gate. */
@@ -96,7 +90,6 @@ export function ChatRail({
   return (
     <div className="chat-rail">
       <div className="chat-rail-head">
-        {todos && <TodoRailChip todos={todos} />}
         <button
           data-pressable
           type="button"

@@ -1,7 +1,7 @@
-import { asSessionId } from '@podium/model'
 // @vitest-environment happy-dom
 import type { IssueEvent } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -203,12 +203,7 @@ describe('IssuePanelView inspector', () => {
   })
 
   it('keeps an archived child visible in the explorer, marked archived', () => {
-    mockIssues = [
-      ROOT,
-      OPEN_CHILD,
-      { ...DONE_CHILD, archived: true },
-      GRANDCHILD,
-    ]
+    mockIssues = [ROOT, OPEN_CHILD, { ...DONE_CHILD, archived: true }, GRANDCHILD]
     render(<IssuePanelView cwd="/r" />)
     const work = screen.getByTestId('dock-subissues')
     fireEvent.click(within(work).getByText(/Show 1 completed/))
@@ -289,7 +284,7 @@ describe('IssuePanelView inspector', () => {
   })
 
   // A branch is an address, not a verification result.
-  it('gives the branch and worktree their own section instead of trailing evidence', () => {
+  it('gives the branch and worktree their own section instead of trailing the artifacts', () => {
     mockIssues = [
       {
         ...ROOT,
@@ -301,8 +296,8 @@ describe('IssuePanelView inspector', () => {
           dirtyFiles: 0,
         },
         panel: {
-          todos: [{ text: 'Runtime verification', done: false }],
-          artifacts: [],
+          todos: [],
+          artifacts: [{ path: 'docs/runtime-verification.md' }],
           deferred: [],
         },
       },
@@ -316,7 +311,7 @@ describe('IssuePanelView inspector', () => {
     expect(within(checkout).getByText('issue/554-host-resource-lifecycle-policy')).toBeTruthy()
     expect(within(checkout).getByTitle('/r')).toBeTruthy()
     expect(
-      within(screen.getByTestId('dock-evidence')).queryByText(
+      within(screen.getByTestId('dock-artifacts')).queryByText(
         'issue/554-host-resource-lifecycle-policy',
       ),
     ).toBeNull()
@@ -448,9 +443,13 @@ describe('IssuePanelView inspector', () => {
     expect(setView).toHaveBeenCalledWith('issues')
   })
 
-  it('shows evidence only when the issue has any', () => {
+  // The dock shows what the work PRODUCED and what it parked. An agent's todo
+  // list is not one of those — it is the agent's own plan, and the dock stopped
+  // rendering it (POD-1071); the full issue page is where it still lives.
+  it('shows artifacts and deferred notes only when the issue has any, and never todos', () => {
     render(<IssuePanelView cwd="/r" />)
-    expect(screen.queryByTestId('dock-evidence')).toBeNull()
+    expect(screen.queryByTestId('dock-artifacts')).toBeNull()
+    expect(screen.queryByTestId('dock-deferred')).toBeNull()
     cleanup()
 
     mockIssues = [
@@ -458,8 +457,8 @@ describe('IssuePanelView inspector', () => {
         ...ROOT,
         panel: {
           todos: [{ text: 'Runtime verification', done: false }],
-          artifacts: [],
-          deferred: [],
+          artifacts: [{ path: 'docs/spine.md', title: 'Spine direction' }],
+          deferred: [{ text: 'Second pass on the rail', addedAt: '2026-08-07T00:00:00.000Z' }],
         },
       },
       OPEN_CHILD,
@@ -467,9 +466,11 @@ describe('IssuePanelView inspector', () => {
       GRANDCHILD,
     ]
     render(<IssuePanelView cwd="/r" />)
+    expect(within(screen.getByTestId('dock-artifacts')).getByText('Spine direction')).toBeTruthy()
     expect(
-      within(screen.getByTestId('dock-evidence')).getByText('Runtime verification'),
+      within(screen.getByTestId('dock-deferred')).getByText('Second pass on the rail'),
     ).toBeTruthy()
+    expect(screen.queryByText('Runtime verification')).toBeNull()
   })
 })
 

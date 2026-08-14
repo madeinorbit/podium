@@ -43,7 +43,12 @@ import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 
 /** Every stage a live issue can be moved between. `done` is not one of them —
  *  see the close dialog. */
-const OPEN_STAGES = ['backlog', 'planning', 'in_progress', 'review'] as const satisfies readonly IssueStage[]
+const OPEN_STAGES = [
+  'backlog',
+  'planning',
+  'in_progress',
+  'review',
+] as const satisfies readonly IssueStage[]
 const isSystemOwnedIssueStage = (stage: IssueStage): boolean => stage === 'shipping'
 
 /**
@@ -163,7 +168,7 @@ export function decisionLine(issue: IssueViewModel, active: readonly SessionMeta
 
 /** Git scope for this issue — the branch it delivers on, what is waiting to
  *  land, and dirt this issue is answerable for. It heads the dock's "Branch &
- *  worktree" section rather than trailing "Evidence & checks", where a branch
+ *  worktree" section rather than trailing the old "Evidence & checks", where a branch
  *  name read as a verification result (POD-516 r3 #6). The branch itself is
  *  machine voice, so it is set in mono. */
 export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element | null {

@@ -15,7 +15,13 @@ import {
   sessionNeedsHuman,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import type { IssueComment, SessionMeta, MachineId, IssueId, SessionId } from '@podium/model/browser'
+import type {
+  IssueComment,
+  IssueId,
+  MachineId,
+  SessionId,
+  SessionMeta,
+} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowDown,
@@ -38,7 +44,6 @@ import { useOperatorFocus } from '@/app/operator-focus'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import { copyToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
@@ -301,8 +306,8 @@ function ProgressMeter({
 /**
  * Where this task lives (POD-516 r3 #6). A branch and a worktree path are not
  * evidence and not a check — they are the address of the work, and filing them
- * under "Evidence & checks" is what made that section read as a junk drawer.
- * Reference information: compact, mono, and late in the scroll.
+ * under the old "Evidence & checks" heading is what made that section read as a
+ * junk drawer. Reference information: compact, mono, and late in the scroll.
  */
 function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   // An issue with no dedicated worktree is worked in the repo's own checkout —
@@ -552,21 +557,25 @@ function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element 
   )
 }
 
-/** Todos / Artifacts / Deferred — what the work actually produced and what it
- *  still owes, inline under one heading rather than three collapsibles. The
- *  branch and worktree used to ride along at the bottom of this section; they
- *  are an address, not a verification result, and they now have their own
- *  ({@link CheckoutPart}). */
-function EvidenceAndChecks({
+/** What the work produced, and what it parked — artifacts, then deferred notes,
+ *  each under its own plain heading.
+ *
+ *  This used to be one "Evidence & checks" heading over three lists. Two of
+ *  them have since left: the branch and worktree are an address rather than a
+ *  verification result and moved to {@link CheckoutPart}, and the todo
+ *  checklist is gone from the dock entirely (POD-1071) — the operator read the
+ *  section as a junk drawer, and an agent's private plan is not something the
+ *  human is meant to tick off here. The full issue page still lists todos for
+ *  anyone who wants them. What is left is named for what it is. */
+function ProducedAndDeferred({
   issue,
   machineId,
 }: {
   issue: IssueViewModel
   machineId?: MachineId
 }): JSX.Element | null {
-  const { trpc, httpOrigin, openFileInWorktree, openArtifact } = useStoreSelector(
+  const { httpOrigin, openFileInWorktree, openArtifact } = useStoreSelector(
     (s) => ({
-      trpc: s.trpc,
       httpOrigin: s.httpOrigin,
       openFileInWorktree: s.openFileInWorktree,
       openArtifact: s.openArtifact,
@@ -574,10 +583,8 @@ function EvidenceAndChecks({
     shallowEqual,
   )
   const panel = issue.panel
-  const todos = panel?.todos ?? []
   const artifacts = panel?.artifacts ?? []
   const deferred = panel?.deferred ?? []
-  const doneCount = todos.filter((t) => t.done).length
   // An issue with no dedicated worktree is worked in the repo's primary
   // checkout — serve its artifacts from there instead of rendering every
   // artifact as a dead disabled button.
@@ -589,193 +596,156 @@ function EvidenceAndChecks({
     label: string
   } | null>(null)
 
-  const toggleTodo = (index1: number, done: boolean): void => {
-    void trpc.issues.panelApply
-      .mutate({ id: issue.id, op: done ? 'todo-done' : 'todo-undone', index: index1 })
-      .catch(() => {})
-  }
-
-  // "Only when the issue actually has them" — an empty evidence heading is
-  // chrome, and the artifact does not render one.
-  if (todos.length === 0 && artifacts.length === 0 && deferred.length === 0) return null
+  // "Only when the issue actually has them" — an empty heading is chrome, and
+  // the artifact does not render one.
+  if (artifacts.length === 0 && deferred.length === 0) return null
 
   return (
-    <DockPart title="Evidence & checks" testId="dock-evidence">
-      {todos.length > 0 && (
-        <>
-          {/* The same meter as Subtasks, reading the same way, sitting with the
-              list it counts — two progress surfaces that disagreed about their
-              own grammar was half of why the other one read as random. */}
-          <ProgressMeter done={doneCount} total={todos.length} testId="dock-todos-meter" />
-          <div className="mb-2 flex flex-col gap-0.5">
-            {todos.map((t, i) => (
+    <>
+      {artifacts.length > 0 && (
+        <DockPart title="Artifacts" count={artifacts.length} testId="dock-artifacts">
+          <div className="mb-2 flex flex-col gap-2.5">
+            {artifacts.map((a) => {
+              const kind = artifactKind(a.entry ?? a.path)
+              const label = a.title ?? basename(a.path)
+              // Snapshotted artifacts ([spec:SP-0fc9]) serve from the permanent
+              // store; legacy path-only entries need the live worktree root.
+              const src = artifactUrl({
+                httpOrigin,
+                issueId: issue.id,
+                artifact: a,
+                root,
+                machineId,
+              })
+              if (src && kind === 'image') {
+                return (
+                  <figure key={a.path}>
+                    <button
+                      data-pressable
+                      type="button"
+                      className="block w-full cursor-zoom-in"
+                      title={`View ${label} full size`}
+                      onClick={() => setLightbox({ kind: 'image', src, label })}
+                    >
+                      <img
+                        src={src}
+                        alt={label}
+                        className="max-w-full rounded-md border border-border shadow-sm"
+                      />
+                    </button>
+                    <figcaption className="shell-type-micro mt-1 text-muted-foreground">
+                      {label}
+                    </figcaption>
+                  </figure>
+                )
+              }
+              if (src && kind === 'video') {
+                return (
+                  <figure key={a.path}>
+                    {/* Inline preview only (first frame + play glyph); clicking
+                      opens the lightbox, where the video plays with controls. */}
+                    <button
+                      data-pressable
+                      type="button"
+                      className="group relative block w-full cursor-zoom-in"
+                      title={`Play ${label}`}
+                      onClick={() => setLightbox({ kind: 'video', src, label })}
+                    >
+                      <video
+                        src={src}
+                        preload="metadata"
+                        muted
+                        className="pointer-events-none max-w-full rounded-md border border-border shadow-sm"
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center">
+                        <span className="flex size-9 items-center justify-center rounded-full bg-black/55 text-white transition-colors group-hover:bg-black/75">
+                          <Play size={16} aria-hidden="true" className="translate-x-px" />
+                        </span>
+                      </span>
+                    </button>
+                    <figcaption className="shell-type-micro mt-1 text-muted-foreground">
+                      {label}
+                    </figcaption>
+                  </figure>
+                )
+              }
+              return (
+                <Button
+                  key={a.path}
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto w-full justify-start gap-2 rounded-md px-1 py-1.5 text-left font-normal hover:bg-accent/60"
+                  disabled={!root && !a.artifactId}
+                  onClick={() => {
+                    // Snapshotted artifacts ([spec:SP-0fc9]) open their stored bytes
+                    // as an in-app artifact-scoped file tab — the source file may be
+                    // gone, and openFileInWorktree re-homes the dock's Issue panel to
+                    // root's containing workspace (#441). Only legacy path-only
+                    // entries open as live worktree file tabs.
+                    if (a.artifactId) {
+                      openArtifact({
+                        issueId: issue.id,
+                        artifactId: a.artifactId,
+                        path: a.entry ?? basename(a.path),
+                        ...(root ? { worktreePath: root } : {}),
+                      })
+                    } else if (root) {
+                      // Artifact paths may be worktree-relative; file tabs need absolute.
+                      // Owned by this issue (POD-149) so the tab stays in its strip.
+                      openFileInWorktree({
+                        machineId,
+                        root,
+                        path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+                        issueId: issue.id,
+                      })
+                    }
+                  }}
+                >
+                  <FileText size={14} className="flex-none text-blue-300" />
+                  <span
+                    className={cn(
+                      DOCK_ROW,
+                      'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
+                    )}
+                  >
+                    {label}
+                  </span>
+                  <span className={cn(DOCK_STAMP, 'flex-none text-text-faint')}>
+                    {basename(a.path)}
+                  </span>
+                </Button>
+              )
+            })}
+          </div>
+        </DockPart>
+      )}
+
+      {deferred.length > 0 && (
+        <DockPart title="Deferred" count={deferred.length} testId="dock-deferred">
+          <div className="mb-2 flex flex-col gap-1">
+            {deferred.map((d) => (
               <div
-                // biome-ignore lint/suspicious/noArrayIndexKey: todos are positional (1-based index API)
-                key={i}
+                key={`${d.addedAt}:${d.text}`}
                 className={cn(
                   DOCK_BODY,
-                  'flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/50',
+                  'flex items-baseline gap-2 px-1 py-0.5 text-foreground/80',
                 )}
               >
-                <Checkbox
-                  checked={t.done}
-                  onCheckedChange={(checked) => toggleTodo(i + 1, checked === true)}
-                  className="mt-0.5"
-                  aria-label={`${t.done ? 'Reopen' : 'Complete'} ${t.text}`}
-                />
-                <span
-                  className={cn(
-                    'transition-colors',
-                    t.done
-                      ? 'text-muted-foreground line-through decoration-muted-foreground/40'
-                      : 'text-foreground',
-                  )}
-                >
-                  {t.text}
+                {/* A deferred note is a parked idea, not an obligation — amber
+                  would claim it needs the operator now. */}
+                <span className="size-1 flex-none translate-y-[-2px] rounded-full bg-text-faint" />
+                <span className="min-w-0 flex-1">{d.text}</span>
+                <span className={cn(DOCK_STAMP, 'flex-none text-text-faint')}>
+                  {new Date(d.addedAt).toLocaleDateString()}
                 </span>
               </div>
             ))}
           </div>
-        </>
-      )}
-
-      {artifacts.length > 0 && (
-        <div className="mb-2 flex flex-col gap-2.5">
-          {artifacts.map((a) => {
-            const kind = artifactKind(a.entry ?? a.path)
-            const label = a.title ?? basename(a.path)
-            // Snapshotted artifacts ([spec:SP-0fc9]) serve from the permanent
-            // store; legacy path-only entries need the live worktree root.
-            const src = artifactUrl({
-              httpOrigin,
-              issueId: issue.id,
-              artifact: a,
-              root,
-              machineId,
-            })
-            if (src && kind === 'image') {
-              return (
-                <figure key={a.path}>
-                  <button
-                    data-pressable
-                    type="button"
-                    className="block w-full cursor-zoom-in"
-                    title={`View ${label} full size`}
-                    onClick={() => setLightbox({ kind: 'image', src, label })}
-                  >
-                    <img
-                      src={src}
-                      alt={label}
-                      className="max-w-full rounded-md border border-border shadow-sm"
-                    />
-                  </button>
-                  <figcaption className="shell-type-micro mt-1 text-muted-foreground">
-                    {label}
-                  </figcaption>
-                </figure>
-              )
-            }
-            if (src && kind === 'video') {
-              return (
-                <figure key={a.path}>
-                  {/* Inline preview only (first frame + play glyph); clicking
-                      opens the lightbox, where the video plays with controls. */}
-                  <button
-                    data-pressable
-                    type="button"
-                    className="group relative block w-full cursor-zoom-in"
-                    title={`Play ${label}`}
-                    onClick={() => setLightbox({ kind: 'video', src, label })}
-                  >
-                    <video
-                      src={src}
-                      preload="metadata"
-                      muted
-                      className="pointer-events-none max-w-full rounded-md border border-border shadow-sm"
-                    />
-                    <span className="absolute inset-0 flex items-center justify-center">
-                      <span className="flex size-9 items-center justify-center rounded-full bg-black/55 text-white transition-colors group-hover:bg-black/75">
-                        <Play size={16} aria-hidden="true" className="translate-x-px" />
-                      </span>
-                    </span>
-                  </button>
-                  <figcaption className="shell-type-micro mt-1 text-muted-foreground">
-                    {label}
-                  </figcaption>
-                </figure>
-              )
-            }
-            return (
-              <Button
-                key={a.path}
-                variant="ghost"
-                size="sm"
-                className="h-auto w-full justify-start gap-2 rounded-md px-1 py-1.5 text-left font-normal hover:bg-accent/60"
-                disabled={!root && !a.artifactId}
-                onClick={() => {
-                  // Snapshotted artifacts ([spec:SP-0fc9]) open their stored bytes
-                  // as an in-app artifact-scoped file tab — the source file may be
-                  // gone, and openFileInWorktree re-homes the dock's Issue panel to
-                  // root's containing workspace (#441). Only legacy path-only
-                  // entries open as live worktree file tabs.
-                  if (a.artifactId) {
-                    openArtifact({
-                      issueId: issue.id,
-                      artifactId: a.artifactId,
-                      path: a.entry ?? basename(a.path),
-                      ...(root ? { worktreePath: root } : {}),
-                    })
-                  } else if (root) {
-                    // Artifact paths may be worktree-relative; file tabs need absolute.
-                    // Owned by this issue (POD-149) so the tab stays in its strip.
-                    openFileInWorktree({
-                      machineId,
-                      root,
-                      path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
-                      issueId: issue.id,
-                    })
-                  }
-                }}
-              >
-                <FileText size={14} className="flex-none text-blue-300" />
-                <span
-                  className={cn(
-                    DOCK_ROW,
-                    'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
-                  )}
-                >
-                  {label}
-                </span>
-                <span className={cn(DOCK_STAMP, 'flex-none text-text-faint')}>
-                  {basename(a.path)}
-                </span>
-              </Button>
-            )
-          })}
-        </div>
-      )}
-
-      {deferred.length > 0 && (
-        <div className="mb-2 flex flex-col gap-1">
-          {deferred.map((d) => (
-            <div
-              key={`${d.addedAt}:${d.text}`}
-              className={cn(DOCK_BODY, 'flex items-baseline gap-2 px-1 py-0.5 text-foreground/80')}
-            >
-              {/* A deferred note is a parked idea, not an obligation — amber
-                  would claim it needs the operator now. */}
-              <span className="size-1 flex-none translate-y-[-2px] rounded-full bg-text-faint" />
-              <span className="min-w-0 flex-1">{d.text}</span>
-              <span className={cn(DOCK_STAMP, 'flex-none text-text-faint')}>
-                {new Date(d.addedAt).toLocaleDateString()}
-              </span>
-            </div>
-          ))}
-        </div>
+        </DockPart>
       )}
 
       {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
-    </DockPart>
+    </>
   )
 }
 
@@ -859,7 +829,7 @@ function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
  * Issue tab of the right dock: the approved task inspector. A two-row fixed
  * head (ref, controls), the decision band when the issue needs you, and then
  * ONE scroll — the description, then current update, subtasks, agents &
- * sessions, relations, evidence, branch & worktree, activity. No collapsible
+ * sessions, relations, artifacts, branch & worktree, activity. No collapsible
  * section chrome and no nested per-subissue tier: the whole task reads top to
  * bottom.
  *
@@ -1059,20 +1029,20 @@ export function IssuePanelView({
         </DockPart>
 
         {/* WHAT THE WORK PRODUCED, high (POD-743). The scroll used to be
-            ordered by how fast each fact moves, which put the evidence below two
-            sections of roster. That order was right when this panel was the only
+            ordered by how fast each fact moves, which put the artifacts below
+            two sections of roster. That order was right when this panel was the only
             place a task's shape was visible; the Flight Deck shows the shape now,
             and what is left for the dock to be good at is judging a task and
             acting on it. So the things you came to look at — the artifacts, then
             what happened — come first, and the structure the deck already draws
             (subtasks, relations, the roster) sits underneath.
 
-            Evidence renders nothing at all when the task has none, so a task
+            Both parts render nothing at all when the task has none, so a task
             that produced no artifacts opens on its timeline rather than on an
             empty heading. */}
-        <EvidenceAndChecks issue={issue} machineId={machineId} />
+        <ProducedAndDeferred issue={issue} machineId={machineId} />
 
-        {/* History, immediately under the evidence it explains — the two
+        {/* History, immediately under the output it explains — the two
             questions "what came out of this" and "what has been happening" are
             asked together, and they were three sections apart. */}
         <RecentActivity issue={issue} />

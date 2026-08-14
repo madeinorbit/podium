@@ -12,8 +12,8 @@ import {
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import {
-  asIssueId,
   type AgentKind,
+  asIssueId,
   type IssueWire,
   type SessionId,
   type SessionMeta,
@@ -265,12 +265,6 @@ export function MissionScreen() {
           openSession(session)
         }}
         onOpenIssue={(target) => setPeek(target)}
-        onToggleTodo={(index, done) => {
-          if (!peek) return
-          void store.trpc.issues.panelApply
-            .mutate({ id: peek.id, op: done ? 'todo-done' : 'todo-undone', index })
-            .catch(() => {})
-        }}
       />
       <ActionSheet
         visible={menuOpen}

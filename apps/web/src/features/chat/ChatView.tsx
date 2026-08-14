@@ -12,7 +12,6 @@ import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
 import { ImageLightbox } from './ImageLightbox'
-import { OpenTodosNotice, stoppedWithOpenTodos, useIssueTodos } from './TodoBridge'
 import { TranscriptFeed } from './TranscriptFeed'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatSurface } from './use-chat-surface'
@@ -31,7 +30,7 @@ import { type ChatSurface, useChatSurface } from './use-chat-surface'
  *  - `use-chat-send.ts` — sending, optimistic bubbles and their reconciliation;
  *  - `use-headless-turn.ts` — headless superagent-thread routing;
  *  - `use-attachments.ts` — image paste / drop / attach and upload;
- *  - `ChatRail` (with `Minimap` + `VerbosityControl` + the todo chip) /
+ *  - `ChatRail` (with `Minimap` + `VerbosityControl`) /
  *    `TranscriptSearchBar` / `TranscriptFeed` / `ChatComposer` (with
  *    `VoiceButton` + `AttachmentStrip`) / `ImageLightbox` — the pieces.
  *
@@ -51,7 +50,7 @@ import { type ChatSurface, useChatSurface } from './use-chat-surface'
  * two places that were already permanent —
  *
  *   the RAIL   the minimap's gutter, widened from 14px to 24px, now carrying
- *              todo progress, find, density and tl;dr above the map (ChatRail);
+ *              find, density and tl;dr above the map (ChatRail);
  *   ⌘F         search itself, which is a mode you enter, not furniture
  *              (TranscriptSearchBar, floating over the feed).
  *
@@ -156,7 +155,7 @@ export function ChatView({
    *  HEADLESS session — routes sends through the superagent turn mutations. */
   superThread?: SuperThreadRef
   /** Narrow-dock mode (the superagent side panel): hides the reading rail (map,
-   *  density, todos, tl;dr) and find. */
+   *  density, tl;dr) and find. */
   compact?: boolean
   /** Query-backed headless state for clients that mounted after turn-start. */
   initialTurnRunning?: boolean
@@ -232,16 +231,6 @@ export function ChatView({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [find.open, closeFind])
-
-  // The todo bridge (POD-413): the issue's published plan, counted. Null when
-  // this session has no issue or the issue has no todos — the rail chip and the
-  // end-of-transcript notice both simply don't exist in that case.
-  const todos = useIssueTodos(chat.session)
-  const showTodoStop = stoppedWithOpenTodos({
-    session: chat.session,
-    todos,
-    working: chat.activity?.tone === 'working',
-  })
 
   // Publish the scroller's own height so an operator prompt can decide whether
   // it is short enough to take the sticky pin (POD-1368; `usePinnable` in
@@ -372,7 +361,6 @@ export function ChatView({
             verbosity={chat.verbosity}
             onVerbosityChange={chat.setVerbosity}
             verbosityOverridden={chat.verbosity === 'summary' && chat.query !== ''}
-            todos={todos}
             findOpen={find.open}
             onFind={() => setFind((f) => ({ open: true, seq: f.seq + 1 }))}
             lastAnswerText={chat.lastAnswerText}
@@ -403,10 +391,6 @@ export function ChatView({
           </button>
         )}
       </div>
-      {/* The agent stopped and the plan still has items on it. Said once, at the
-          end of the transcript where the reader already is, and pointing at the
-          panel — chat does not keep a second copy of the list (TodoBridge). */}
-      {!compact && showTodoStop && todos && <OpenTodosNotice todos={todos} />}
       <ScopedChatComposer
         sessionId={sessionId}
         superThread={superThread}

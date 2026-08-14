@@ -14,7 +14,7 @@ import {
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import { ChevronDown, ChevronUp, ListChecks, Search, X } from 'lucide-react-native'
+import { ChevronDown, ChevronUp, Search, X } from 'lucide-react-native'
 import {
   type ReactElement,
   type ReactNode,
@@ -305,11 +305,6 @@ function AskReceipt({ item }: { item: TranscriptItem }) {
   )
 }
 
-export interface TranscriptTodoProgress {
-  done: number
-  total: number
-}
-
 export interface TranscriptTailState {
   label: string
   tone: 'working' | 'attention' | 'idle'
@@ -326,17 +321,7 @@ function elapsedSince(since: string | undefined, now: number): string | null {
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-function TranscriptTail({
-  state,
-  todos,
-  showOpenTodos,
-  onOpenTodos,
-}: {
-  state?: TranscriptTailState
-  todos?: TranscriptTodoProgress
-  showOpenTodos: boolean
-  onOpenTodos?: () => void
-}) {
+function TranscriptTail({ state }: { state?: TranscriptTailState }) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (!state?.since) return
@@ -344,41 +329,24 @@ function TranscriptTail({
     return () => clearInterval(timer)
   }, [state?.since, state?.tone])
 
-  if (!state && !(showOpenTodos && todos && onOpenTodos)) return null
-  const elapsed = elapsedSince(state?.since, now)
-  const open = todos ? todos.total - todos.done : 0
+  if (!state) return null
+  const elapsed = elapsedSince(state.since, now)
   return (
     <View style={styles.tailWrap}>
-      {showOpenTodos && todos && open > 0 && onOpenTodos ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`Stopped with ${open} of ${todos.total} todos open. Open the plan.`}
-          onPress={onOpenTodos}
-          style={({ pressed }) => [styles.todoNotice, pressed && styles.utilityPressed]}
+      <View style={styles.tail} accessibilityRole="text">
+        <Text
+          style={[
+            styles.tailMark,
+            state.tone === 'working' && styles.tailWorking,
+            state.tone === 'attention' && styles.tailAttention,
+          ]}
         >
-          <Icon as={ListChecks} size={13} color={color.accentTint} />
-          <Text style={styles.todoNoticeText}>
-            {open} of {todos.total} todos still open
-          </Text>
-          <Text style={styles.todoNoticeGo}>Open plan</Text>
-        </PressableScale>
-      ) : null}
-      {state ? (
-        <View style={styles.tail} accessibilityRole="text">
-          <Text
-            style={[
-              styles.tailMark,
-              state.tone === 'working' && styles.tailWorking,
-              state.tone === 'attention' && styles.tailAttention,
-            ]}
-          >
-            {state.tone === 'working' ? '⠿' : '●'}
-          </Text>
-          <Text style={styles.tailLabel}>{state.label}</Text>
-          {elapsed ? <Text style={styles.tailElapsed}>{elapsed}</Text> : null}
-          <View style={styles.tailRule} />
-        </View>
-      ) : null}
+          {state.tone === 'working' ? '⠿' : '●'}
+        </Text>
+        <Text style={styles.tailLabel}>{state.label}</Text>
+        {elapsed ? <Text style={styles.tailElapsed}>{elapsed}</Text> : null}
+        <View style={styles.tailRule} />
+      </View>
     </View>
   )
 }
@@ -565,9 +533,6 @@ export function TranscriptList({
   pendingTurns,
   onRetryPending,
   onQuote,
-  todos,
-  onOpenTodos,
-  showOpenTodos = false,
   tail,
   streaming = false,
   refreshControl,
@@ -593,10 +558,6 @@ export function TranscriptList({
   onRetryPending?: (turn: PendingTurn) => void
   /** Insert quoted markdown into the screen's composer. */
   onQuote?: (markdown: string) => void
-  /** Issue-owned plan progress. The feed only points to the checkable task sheet. */
-  todos?: TranscriptTodoProgress
-  onOpenTodos?: () => void
-  showOpenTodos?: boolean
   /** Live/idle state rendered as the transcript's final line. */
   tail?: TranscriptTailState
   /** The latest assistant row is actively receiving text, not merely a live session. */
@@ -998,12 +959,7 @@ export function TranscriptList({
         }}
         ListFooterComponent={
           <>
-            <TranscriptTail
-              state={tail}
-              todos={todos}
-              showOpenTodos={showOpenTodos}
-              onOpenTodos={onOpenTodos}
-            />
+            <TranscriptTail state={tail} />
             {footer ? <View style={styles.footer}>{footer}</View> : null}
           </>
         }
@@ -1071,22 +1027,6 @@ export function TranscriptList({
         </View>
       ) : (
         <View style={styles.readingTools}>
-          {todos && onOpenTodos ? (
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={`${todos.done} of ${todos.total} todos done. Open plan.`}
-              onPress={onOpenTodos}
-              style={({ pressed }) => [
-                styles.utilityButton,
-                styles.todoButton,
-                pressed && styles.utilityPressed,
-              ]}
-            >
-              <Text style={styles.todoFraction}>
-                {todos.done}/{todos.total}
-              </Text>
-            </PressableScale>
-          ) : null}
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel="Find in transcript"
@@ -1566,28 +1506,6 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: color.hairline,
   },
-  todoNotice: {
-    minHeight: 38,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.accentBorder,
-    borderRadius: radius.md,
-    backgroundColor: color.accentSoft,
-    paddingHorizontal: space.md,
-  },
-  todoNoticeText: {
-    ...sans(500),
-    flex: 1,
-    color: color.body,
-    fontSize: font.tiny,
-  },
-  todoNoticeGo: {
-    ...mono(500),
-    color: color.accentTint,
-    fontSize: font.micro,
-  },
   readingTools: {
     position: 'absolute',
     top: space.sm,
@@ -1607,15 +1525,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,
-  },
-  todoButton: {
-    minWidth: 44,
-    paddingHorizontal: space.sm,
-  },
-  todoFraction: {
-    ...mono(600),
-    color: color.accentTint,
-    fontSize: font.micro,
   },
   detailBars: {
     ...mono(600),

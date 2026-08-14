@@ -203,10 +203,6 @@ export function SessionConversation({
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = composerState({ session, headless: false, turnRunning: false, compact: false })
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
-  const issueTodos = issue?.panel?.todos ?? []
-  const todoProgress = issueTodos.length
-    ? { done: issueTodos.filter((todo) => todo.done).length, total: issueTodos.length }
-    : undefined
 
   return (
     <KeyboardAvoidingView
@@ -237,9 +233,6 @@ export function SessionConversation({
               onRetryPending={retry}
               onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
               bottomInset={composerHeight}
-              todos={todoProgress}
-              onOpenTodos={issue ? () => setPeekIssue(issue) : undefined}
-              showOpenTodos={session.agentState?.phase === 'idle'}
               streaming={
                 activity?.tone === 'working' &&
                 items.at(-1)?.role === 'assistant' &&
@@ -322,14 +315,6 @@ export function SessionConversation({
         sessions={allSessions}
         onClose={() => setPeekIssue(null)}
         onOpenSession={() => setPeekIssue(null)}
-        onToggleTodo={(index, done) => {
-          if (!livePeekIssue) return
-          void trpc.issues.panelApply.mutate({
-            id: livePeekIssue.id,
-            op: done ? 'todo-done' : 'todo-undone',
-            index,
-          })
-        }}
       />
     </KeyboardAvoidingView>
   )

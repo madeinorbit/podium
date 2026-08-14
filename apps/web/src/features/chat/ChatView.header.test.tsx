@@ -12,14 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 /**
  * THE RECLAIMED HEADER (POD-413).
  *
- * Three claims, each of which a future edit could quietly undo:
+ * Two claims, each of which a future edit could quietly undo:
  *
  *  1. nothing permanent — no search field above a conversation at rest, and
  *     ⌘F is what puts one there (and Esc is what takes it away, query and all);
- *  2. the todo bridge exists and POINTS: a live count in the rail, a notice when
- *     the agent stopped with the plan unfinished, and neither one a second copy
- *     of the list;
- *  3. the compact dock still gets none of it.
+ *  2. the compact dock still gets none of it.
  */
 
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
@@ -144,18 +141,6 @@ function item(id: string, cursor: string, text: string): TranscriptItem {
   return { id, cursor, role: 'assistant', text }
 }
 
-/** An issue whose published plan has `done` of `total` ticked. */
-function issueWithTodos(id: string, done: number, total: number): unknown {
-  return {
-    id,
-    panel: {
-      todos: Array.from({ length: total }, (_, i) => ({ text: `t${i}`, done: i < done })),
-      artifacts: [],
-      deferred: [],
-    },
-  }
-}
-
 let container: HTMLDivElement
 let root: Root
 
@@ -252,74 +237,5 @@ describe('the chat header is gone and find is behind ⌘F', () => {
     press('f', { metaKey: true })
     await flush()
     expect(findInput()).toBeNull()
-  })
-})
-
-describe('the todo bridge', () => {
-  it('shows the issue plan as a live count in the rail and opens the panel', async () => {
-    storeSessions = [meta({ issueId: 'i1' })]
-    storeIssues = [issueWithTodos('i1', 3, 7)]
-    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'hello')])
-
-    const chip = container.querySelector<HTMLButtonElement>('.chat-rail-todo')
-    expect(chip).not.toBeNull()
-    expect(chip?.textContent).toContain('3')
-    expect(chip?.textContent).toContain('7')
-
-    const opened: unknown[] = []
-    const onOpen = (e: Event): void => {
-      opened.push((e as CustomEvent).detail)
-    }
-    window.addEventListener('podium:open-right-panel', onOpen)
-    act(() => chip?.click())
-    window.removeEventListener('podium:open-right-panel', onOpen)
-    expect(opened).toEqual(['issue'])
-  })
-
-  it('has no chip at all when the issue published no todos', async () => {
-    storeSessions = [meta({ issueId: 'i1' })]
-    storeIssues = [issueWithTodos('i1', 0, 0)]
-    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'hello')])
-    expect(container.querySelector('.chat-rail-todo')).toBeNull()
-  })
-
-  it('says so in the feed when the agent stopped with the plan unfinished', async () => {
-    storeSessions = [
-      meta({
-        issueId: 'i1',
-        agentState: { phase: 'idle', since: '2026-06-03T00:00:00.000Z', nativeSubagentCount: 0 },
-      }),
-    ]
-    storeIssues = [issueWithTodos('i1', 3, 7)]
-    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'hello')])
-    const notice = container.querySelector('.chat-todo-notice')
-    expect(notice).not.toBeNull()
-    expect(notice?.textContent).toContain('4 of 7')
-    // It POINTS at the plan; it must never become a second copy of the list.
-    expect(notice?.textContent).not.toContain('t0')
-  })
-
-  it('stays quiet while the agent is still working', async () => {
-    storeSessions = [
-      meta({
-        issueId: 'i1',
-        agentState: { phase: 'working', since: '2026-06-03T00:00:00.000Z', nativeSubagentCount: 0 },
-      }),
-    ]
-    storeIssues = [issueWithTodos('i1', 3, 7)]
-    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'hello')])
-    expect(container.querySelector('.chat-todo-notice')).toBeNull()
-  })
-
-  it('stays quiet when the plan is finished', async () => {
-    storeSessions = [
-      meta({
-        issueId: 'i1',
-        agentState: { phase: 'idle', since: '2026-06-03T00:00:00.000Z', nativeSubagentCount: 0 },
-      }),
-    ]
-    storeIssues = [issueWithTodos('i1', 7, 7)]
-    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'hello')])
-    expect(container.querySelector('.chat-todo-notice')).toBeNull()
   })
 })

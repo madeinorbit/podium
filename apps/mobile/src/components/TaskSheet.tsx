@@ -10,7 +10,7 @@ import {
 import { ISSUE_STAGES, type IssueWire, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { Check, ChevronDown, ChevronRight } from 'lucide-react-native'
+import { ChevronDown, ChevronRight } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../client/hooks'
@@ -64,7 +64,6 @@ export function TaskSheet({
   sessions,
   onClose,
   onOpenSession,
-  onToggleTodo,
   onOpenIssue,
 }: {
   issue: IssueWire | null
@@ -72,13 +71,6 @@ export function TaskSheet({
   sessions: readonly SessionMeta[]
   onClose: () => void
   onOpenSession: (session: SessionMeta) => void
-  /**
-   * Check an agent's plan item off from inside the sheet. Supplied wherever the
-   * caller holds the live issue row, so the checkbox updates in the OPEN sheet
-   * instead of waiting to be reopened — the plan bridge is the one thing an
-   * operator reaches for mid-transcript.
-   */
-  onToggleTodo?: (index1: number, done: boolean) => void
   /** Retarget the sheet at another task (a subtask row). Absent = navigate. */
   onOpenIssue?: (issue: IssueWire) => void
 }) {
@@ -120,7 +112,6 @@ export function TaskSheet({
           issues={issues}
           sessions={sessions}
           onOpenSession={onOpenSession}
-          {...(onToggleTodo ? { onToggleTodo } : {})}
           onOpenIssue={(target) => {
             if (onOpenIssue) return onOpenIssue(target)
             onClose()
@@ -258,14 +249,12 @@ function SheetBody({
   issues,
   sessions,
   onOpenSession,
-  onToggleTodo,
   onOpenIssue,
 }: {
   issue: IssueWire
   issues: readonly IssueWire[]
   sessions: readonly SessionMeta[]
   onOpenSession: (s: SessionMeta) => void
-  onToggleTodo?: (index1: number, done: boolean) => void
   onOpenIssue: (issue: IssueWire) => void
 }) {
   const children = useMemo(() => subIssuesOf([...issues], issue.id), [issues, issue.id])
@@ -284,8 +273,6 @@ function SheetBody({
     [sessions, issue.id],
   )
   const store = useMobileStore()
-  const todos = issue.panel?.todos ?? []
-  const done = todos.filter((t) => t.done).length
   const artifacts = issue.panel?.artifacts ?? []
   const [openArtifact, setOpenArtifact] = useState<(typeof artifacts)[number] | null>(null)
   const git = issue.gitState
@@ -304,34 +291,6 @@ function SheetBody({
           {issue.activityNotes || 'No status posted yet.'}
         </Text>
       </Part>
-
-      {todos.length > 0 ? (
-        <Part title="Evidence & checks" meta={`${done} / ${todos.length}`}>
-          <View style={styles.meterTrack}>
-            <View style={[styles.meterFill, { width: `${(done / todos.length) * 100}%` }]} />
-          </View>
-          {todos.map((todo, index) => (
-            <PressableScale
-              // biome-ignore lint/suspicious/noArrayIndexKey: issue todos are positional; the mutation API addresses this exact 1-based index.
-              key={`${index}:${todo.text}`}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: todo.done, disabled: !onToggleTodo }}
-              accessibilityLabel={todo.text}
-              disabled={!onToggleTodo}
-              scaleTo={0.99}
-              onPress={() => onToggleTodo?.(index + 1, !todo.done)}
-              style={({ pressed }) => [styles.todo, pressed && styles.rowPressed]}
-            >
-              <View style={[styles.todoBox, todo.done ? styles.todoBoxDone : null]}>
-                {todo.done ? <Icon as={Check} size={9} color="#fff" /> : null}
-              </View>
-              <Text style={[styles.todoText, todo.done ? styles.todoTextDone : null]}>
-                {todo.text}
-              </Text>
-            </PressableScale>
-          ))}
-        </Part>
-      ) : null}
 
       {artifacts.length > 0 ? (
         <Part title="Artifacts" meta={String(artifacts.length)}>
@@ -359,9 +318,7 @@ function SheetBody({
       ) : null}
       <ArtifactViewer
         artifact={openArtifact}
-        url={
-          openArtifact ? issueArtifactHref(issue, openArtifact, store.httpOrigin) : null
-        }
+        url={openArtifact ? issueArtifactHref(issue, openArtifact, store.httpOrigin) : null}
         onClose={() => setOpenArtifact(null)}
       />
 
@@ -556,36 +513,6 @@ const styles = StyleSheet.create({
   partTitle: { ...monoLabel(font.micro), color: color.label },
   partMeta: { ...mono(400), fontSize: font.micro, color: color.textMicro },
   rule: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: color.hairline },
-
-  meterTrack: {
-    height: 3,
-    marginBottom: space.sm,
-    borderRadius: radius.full,
-    overflow: 'hidden',
-    backgroundColor: alpha(color.border, 0.7),
-  },
-  meterFill: { height: '100%', backgroundColor: color.working },
-
-  todo: {
-    flexDirection: 'row',
-    gap: 9,
-    paddingVertical: 7,
-    minHeight: 34,
-    borderRadius: radius.sm,
-  },
-  todoBox: {
-    width: 17,
-    height: 17,
-    borderRadius: 5,
-    borderWidth: 1.5,
-    borderColor: color.borderStrong,
-    marginTop: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  todoBoxDone: { backgroundColor: color.working, borderColor: color.working },
-  todoText: { ...sans(400), flex: 1, fontSize: font.tiny, lineHeight: 19, color: color.textDim },
-  todoTextDone: { color: color.textMicro, textDecorationLine: 'line-through' },
 
   row: {
     flexDirection: 'row',
