@@ -558,12 +558,29 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'node-only',
     features: ['agent-runtime-contract'],
-    // `packages/pty` is DELIBERATELY ABSENT until W3 needs it. The contract
-    // package imports no PTY today, and a declared edge nobody exercises is
-    // mechanism-presence rather than coverage — the same argument this file
-    // makes about open entrypoints. W3's terminal driver adds it in the commit
-    // that first wraps the durable-host stack.
-    deps: ['packages/protocol', 'packages/model', 'packages/harness'],
+    // `packages/pty` is DELIBERATELY ABSENT until a driver here needs it. The
+    // contract package imports no PTY today, and a declared edge nobody
+    // exercises is mechanism-presence rather than coverage — the same argument
+    // this file makes about open entrypoints. W3's terminal driver did NOT add
+    // it: its concrete half lives in the daemon because it is composed of daemon
+    // internals, so the PTY import stayed there. W5's opencode driver does not
+    // need it either — its process management is likewise in the daemon.
+    //
+    // `packages/transcript` IS here as of POD-2023 (W5), and the edge is
+    // deliberate rather than incidental. The opencode server driver's SSE
+    // payloads are the SAME message+part pair the sqlite transcript source has
+    // always read, so it calls `opencodePartToItems`/`stampOpencodeItems`
+    // instead of writing a second opencode→TranscriptItem mapper. Two mappers
+    // for one harness is two renderings of the same tool call, diverging on the
+    // first tool opencode adds — which is exactly the drift a shared port
+    // exists to prevent. The edge points from a PORT to a PARSER, both L2, and
+    // carries no capability: `@podium/transcript` is pure normalization.
+    deps: [
+      'packages/protocol',
+      'packages/model',
+      'packages/harness',
+      'packages/transcript',
+    ],
     consumers: ['apps/daemon', 'scripts'],
     openEntrypoints: ['@podium/agent-runtime/metadata'],
   },
@@ -649,6 +666,10 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // The `-> packages/pty` edge is deliberately NOT declared yet: W3's terminal
   // driver adds it in the commit that first wraps the durable-host stack.
   'packages/agent-runtime -> packages/harness',
+  /** POD-2023 (W5): the opencode driver reuses the sqlite source's own
+   *  message+part → `TranscriptItem` mapper rather than writing a second one.
+   *  Port → parser, both L2, no capability crosses. See the workspace entry. */
+  'packages/agent-runtime -> packages/transcript',
   // L3: the React adapter binds hooks to client-core's transport port; it owns no
   // socket protocol state of its own.
   'packages/terminal-client-react -> packages/client-core',

@@ -177,7 +177,13 @@ describe('machine scope and the writer class', () => {
     // stream for a flagged session — a per-session observation like every other
     // frame here, and one whose ownership check is exactly what stops a machine
     // from narrating a session it does not hold.
-    expect(sessionFrames.length).toBe(24)
+    //
+    // 25 since POD-2023. `runtimeInteractionAsked` is a server-family driver's
+    // protocol ask on its way to the interactions aggregate. Session-owned for
+    // the same reason and with more at stake: the ownership check is what stops
+    // a machine from opening a blocking ask against a session it does not hold,
+    // and an ask nobody can answer is the stuck session §4 exists to abolish.
+    expect(sessionFrames.length).toBe(25)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
@@ -225,16 +231,18 @@ describe('machine scope and the writer class', () => {
     // ratchet — a new rpc reply must be added here DELIBERATELY, which is how
     // this test noticed POD-1466's frame rather than absorbing it silently.
     //
-    // 29 since POD-2021, and the arithmetic is worth writing down because it is
-    // not all one item's: `shippingJobResult` had already joined the rpc set
-    // without this ratchet being moved (25 → 26), and the Agent Runtime
-    // contract's three correlated receipts take it to 29. Each of those three is
-    // an ordinary request/reply against a session's driver — no new transport,
-    // no private door into the rpc port, which is the property below.
+    // 32 after composing POD-2021 with current main: 26 pre-shipping replies,
+    // the shipping job/evidence/repair replies, and the Agent Runtime contract
+    // three correlated receipts. Each takes the same rpc door; no private
+    // transport appeared.
+    //
+    // 33 since POD-2023: `runtimeSnapshotResult`, the observation bootstrap a
+    // server re-reads after a stream gap. It is the fourth runtime verb of the
+    // same shape and moves the ratchet by one rather than adding a port.
     const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
       (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
     )
-    expect(rpcFrames.length).toBe(32)
+    expect(rpcFrames.length).toBe(33)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

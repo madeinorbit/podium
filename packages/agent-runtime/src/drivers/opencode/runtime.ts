@@ -232,6 +232,22 @@ interface DriverSession {
 
 export interface OpencodeRuntime {
   driver: RuntimeDriver
+  /**
+   * Start a session under an id the CALLER already minted.
+   *
+   * WHY THIS EXISTS BESIDE `driver.create()`, which mints its own. The contract
+   * has no session id on `SessionSpec` — `FakeDriver` and the terminal driver
+   * both mint one — because at the contract's altitude the driver IS the thing
+   * that brings a session into existence. A daemon is not at that altitude: the
+   * SERVER minted the row's id before the spawn frame was ever sent, and a
+   * driver that registered its handle under a different one is a driver every
+   * subsequent verb fails to find. W3 solved the same problem with `register()`;
+   * this is its shape for this family.
+   *
+   * `driver.create()` delegates here with `host.mintSessionId()`, so there is
+   * one construction path and not two.
+   */
+  createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   /** Drop a session's handle and stop its stream, without touching the process.
    *  What a supervisor restart looks like from inside this process. */
@@ -1314,14 +1330,10 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     }
   }
 
-  const driver: RuntimeDriver = {
-    id: OPENCODE_SERVER_DRIVER_ID,
-    harness: 'opencode',
-    family: 'server',
-    capabilities: () => capabilities,
-
-    async create(spec: SessionSpec): Promise<AgentSessionHandle> {
-      const sessionId = host.mintSessionId()
+  async function createWithId(
+    sessionId: SessionId,
+    spec: SessionSpec,
+  ): Promise<AgentSessionHandle> {
       const secret = host.randomSecret()
       const username = 'podium'
       const endpoint = await host.launch({
@@ -1364,6 +1376,17 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         await handle.send({ text: spec.initialPrompt }, { origin: 'human', delivery: 'when-ready' })
       }
       return handle
+
+  }
+
+  const driver: RuntimeDriver = {
+    id: OPENCODE_SERVER_DRIVER_ID,
+    harness: 'opencode',
+    family: 'server',
+    capabilities: () => capabilities,
+
+    async create(spec: SessionSpec): Promise<AgentSessionHandle> {
+      return createWithId(host.mintSessionId(), spec)
     },
 
     async resume(ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle> {
@@ -1438,6 +1461,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
 
   return {
     driver,
+    createWithId,
     handleFor: (sessionId) => handles.get(sessionId),
     forget: (sessionId) => {
       const session = sessions.get(sessionId)

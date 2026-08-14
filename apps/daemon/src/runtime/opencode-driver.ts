@@ -164,7 +164,16 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
     has: (sessionId) => live.has(sessionId),
 
     async launch(input) {
-      const handle = await runtime.driver.create({
+      /**
+       * THE SERVER'S ID, NOT A FRESH ONE.
+       *
+       * `driver.create()` mints its own — that is right at the contract's
+       * altitude, where the driver is what brings a session into existence. Here
+       * the session row already exists and its id is on the spawn frame, so
+       * registering the handle under anything else makes every subsequent verb
+       * answer `not_running` for a session that is running perfectly.
+       */
+      const handle = await runtime.createWithId(input.sessionId, {
         harness: 'opencode',
         selection: {
           auth: 'api-key',

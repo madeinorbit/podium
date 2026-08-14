@@ -59,7 +59,11 @@ import {
   type SessionMeta,
   type UserId,
 } from '@podium/model'
-import type { AgentInstruction, SessionBindingSpawnInstruction } from '@podium/protocol'
+import type {
+  AgentInstruction,
+  RuntimeContractRequest,
+  SessionBindingSpawnInstruction,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import { harnessSupportsInitialPrompt } from '../../harness-manifest'
@@ -176,6 +180,25 @@ export class SessionStart {
     use?: MachineUseResolver
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
     loginHarness?: Exclude<AgentKind, 'shell'>
+    /**
+     * THE OPERATOR'S PER-SPAWN DRIVER CHOICE (POD-1761 W5; spec §9 phase 3).
+     *
+     * `true` drives this session through the Agent Runtime contract with
+     * whatever the harness manifest's `select()` policy picks — which is the
+     * terminal driver for every harness today. A DRIVER ID names one
+     * explicitly, and is how a single opencode session runs on
+     * `opencode-server` while every other session on the same daemon stays
+     * terminal.
+     *
+     * ABSENT IS THE DEFAULT AND CHANGES NOTHING. The daemon takes the OR of this
+     * and its machine-wide flag, so a spawn that says nothing is byte-for-byte
+     * the spawn it was before this field existed.
+     *
+     * NO UI, deliberately (the epic's non-goals): a settings/CLI lever and this
+     * field are what an operator needs to test a driver, and a picker in the
+     * spawn dialog would be a product decision nobody has made.
+     */
+    runtimeContract?: RuntimeContractRequest
   }): SessionSpawnResult {
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
@@ -273,6 +296,7 @@ export class SessionStart {
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
+      ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
@@ -338,6 +362,9 @@ export class SessionStart {
     /** The attribution pair, already derived from the binding principal by the
      *  caller. Optional only for the in-process spawn paths that predate it. */
     createdBy?: Attribution
+    /** The operator's per-spawn driver choice — see `create()`'s field of the
+     *  same name. Carried straight onto the spawn frame; absent changes nothing. */
+    runtimeContract?: RuntimeContractRequest
   }): SessionSpawnResult {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
@@ -453,6 +480,7 @@ export class SessionStart {
       // The suffix is durable session attribution only; launch with the selected account unchanged.
       ...this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
+      ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
     })
     this.ports.broadcastSessions()
     return {
