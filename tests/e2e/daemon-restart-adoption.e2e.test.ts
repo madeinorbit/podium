@@ -61,7 +61,11 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { gateOpencodeVersion, type RuntimeEvent } from '@podium/agent-runtime'
+import {
+  gateOpencodeVersion,
+  OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+  type RuntimeEvent,
+} from '@podium/agent-runtime'
 import type { MachineId, SessionId } from '@podium/model'
 import {
   readOrCreateDaemonSecret,
@@ -87,16 +91,23 @@ afterAll(() => reapHarnessSessions(ISOLATION_PORT))
 const hostMachineId = (): MachineId => readOrCreateLocalMachineId()
 
 /**
- * A GENEROUS BUDGET, and the number is a measurement rather than a guess.
+ * THE SHARED BUDGET, imported rather than restated.
  *
- * `opencode --version` forks a ~180MB single-file bundle, which was measured at
- * ~10s cold on this project's build host — and longer while contending with a
- * vitest fork still transforming its module graph. A 15s budget sits inside that
- * variance: the probe throws ETIMEDOUT, the whole live lane skips, and nothing
- * distinguishes "there is no opencode here" from "the box was busy". Ninety
- * seconds is far past any honest version probe and still bounded.
+ * This lane used to carry its own 90s number, and separately a copy of the
+ * daemon's 15s one to compare against. POD-2023 collapsed both into
+ * `OPENCODE_VERSION_PROBE_TIMEOUT_MS` beside the version gate precisely so no
+ * caller could drift from the others — and the copy here HAD drifted: the
+ * daemon's budget moved to 60s and this file's failure text still told the
+ * reader it was 15s, which is a wrong number in the one message written to stop
+ * someone inspecting a good binary.
+ *
+ * The reason the budget is generous at all is unchanged and still a
+ * measurement: `opencode --version` forks a ~180MB single-file bundle, measured
+ * at 11-26s on this project's build host under load. A budget inside that
+ * variance means the probe throws ETIMEDOUT and the whole live lane skips, with
+ * nothing distinguishing "there is no opencode here" from "the box was busy".
  */
-const VERSION_PROBE_TIMEOUT_MS = 90_000
+const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
 
 /**
  * Why the live half of this file is, or is not, running.
@@ -109,19 +120,6 @@ const VERSION_PROBE_TIMEOUT_MS = 90_000
  * skipped on the probe timeout above and said nothing about it.
  */
 type OpencodeGate = { live: true; probeMs: number } | { live: false; why: string }
-
-/**
- * THE DAEMON'S OWN BUDGET FOR THE SAME PROBE, restated here as a number this
- * lane can compare against.
- *
- * `opencodeVersionDiagnostic()` in `apps/daemon/src/runtime/opencode-server.ts`
- * spawns `opencode --version` with a 15s timeout, and a machine whose probe does
- * not answer inside it is reported as not able to run the driver at all. This
- * lane measures its own probe so a failure downstream can say whether the box
- * was inside that budget — the difference between "this driver is broken" and
- * "this host was too slow to be asked".
- */
-const DAEMON_VERSION_PROBE_BUDGET_MS = 15_000
 
 function opencodeGate(): OpencodeGate {
   if (process.env.PODIUM_OPENCODE_LIVE !== '1') {
@@ -387,7 +385,7 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
         [
           'the session is live but has no opencode binding journal, so the `opencode-server` override did NOT take and this lane would be measuring the PTY path.',
           `row runtimeContract: ${sessions.sessions.get(sessionId)?.runtimeContract} (true here means SOME contract, not necessarily this family)`,
-          `this process probed \`opencode --version\` in ${gate.live ? gate.probeMs : -1}ms; the daemon allows ${DAEMON_VERSION_PROBE_BUDGET_MS}ms before reporting the driver unavailable`,
+          `this process probed \`opencode --version\` in ${gate.live ? gate.probeMs : -1}ms, against the ${VERSION_PROBE_TIMEOUT_MS}ms budget the daemon and this lane now SHARE — so a probe that fit here fit there too, and the driver being unavailable is not a lost race`,
           // DISCOUNT THE LOG LINE BELOW BEFORE ANYONE ACTS ON IT. When the probe
           // loses its race the daemon warns "opencode is outside the server
           // driver range" with `observedVersion: "(no output)"` — for a binary

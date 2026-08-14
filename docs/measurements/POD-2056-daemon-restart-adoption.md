@@ -156,7 +156,15 @@ unparseable-version arm.
 POD-2023 raised the budget to 60s, split the verdict into drivable /
 `unsupported` / `unprobeable`, stopped memoizing `unprobeable`, and made an
 explicit server-driver request on an unprobeable machine a `spawnError` rather
-than a PTY session.
+than a PTY session. It later collapsed every copy of that number into one
+exported `OPENCODE_VERSION_PROBE_TIMEOUT_MS`.
+
+**This lane had already drifted from it**, which is the argument for that
+constant in miniature: it carried a private 90s budget for its own probe and a
+hand-copied `DAEMON_VERSION_PROBE_BUDGET_MS = 15_000` to compare against. The
+second was stale the moment the daemon moved to 60s, and it was stale *inside the
+failure message written to stop someone inspecting a perfectly good binary* — the
+one place a wrong number costs the most. Both are now the shared import.
 
 ### What the lane keeps from it
 
