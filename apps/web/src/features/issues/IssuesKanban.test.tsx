@@ -102,10 +102,22 @@ describe('IssuesKanban pointer drag lifecycle', () => {
     const props = boardProps()
     render(<IssuesKanban {...props} />)
 
+    // A press that never becomes a drag must NEVER take pointer capture: the
+    // browser retargets the compatibility mouse events to the capture element,
+    // so `click` would fire on this wrapper instead of the card's own <button>
+    // and `onOpen` would never run (POD-1087).
+    const setCapture = vi.fn()
+    Object.assign(dragHandle(), {
+      setPointerCapture: setCapture,
+      hasPointerCapture: () => false,
+      releasePointerCapture: vi.fn(),
+    })
+
     fireEvent(dragHandle(), pointer('pointerdown', 10, 10))
     fireEvent(window, pointer('pointermove', 13, 13))
     fireEvent(window, pointer('pointerup', 13, 13))
 
+    expect(setCapture).not.toHaveBeenCalled()
     expect(document.querySelector('[aria-hidden="true"].will-change-transform')).toBeNull()
     fireEvent.click(card())
     expect(props.onOpen).toHaveBeenCalledWith('source')

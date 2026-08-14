@@ -160,11 +160,19 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
     let latest = origin
     let currentOver: DragState['over'] = null
 
-    try {
-      handle.setPointerCapture(pointerId)
-    } catch {
-      // A disappearing handle can race pointer capture. Window listeners are
-      // still the lifecycle backstop, including in DOM test environments.
+    /** Capture is taken when the press BECOMES a drag, never on the press
+     *  itself. Pointer capture retargets the compatibility mouse events too, so
+     *  capturing here would make `click` fire on this wrapper instead of the
+     *  card's own <button> — and the button is where `onOpen` lives, so every
+     *  plain click on a card silently did nothing (POD-1087). A drag needs the
+     *  capture; a click must never pay for it. */
+    const capture = (): void => {
+      try {
+        handle.setPointerCapture(pointerId)
+      } catch {
+        // A disappearing handle can race pointer capture. Window listeners are
+        // still the lifecycle backstop, including in DOM test environments.
+      }
     }
 
     const resolveOver = (x: number, y: number): DragState['over'] => {
@@ -255,6 +263,7 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
       if (!armed) {
         if (!passedDragThreshold(move.clientX - origin.x, move.clientY - origin.y)) return
         armed = true
+        capture()
         document.body.style.cursor = 'grabbing'
         window.addEventListener('selectstart', stopSelection)
         setDrag({ issue, grab, width: card.width, over: null })

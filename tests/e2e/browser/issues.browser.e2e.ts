@@ -111,6 +111,40 @@ test('proposed lane approves a card into Backlog through the real UI', async ({
   })
 })
 
+/**
+ * A PLAIN CLICK ON A CARD OPENS IT (POD-1087).
+ *
+ * This is the board's primary gesture and it broke without a single unit test
+ * turning red: the card's drag wrapper took `setPointerCapture` on pointerdown,
+ * and a captured pointer retargets the compatibility mouse events, so the
+ * generated `click` fired on the wrapper instead of the card's own <button>.
+ * jsdom/happy-dom do not model that retarget, so only a real browser can hold
+ * this line. It creates its issue over tRPC rather than through the composer so
+ * a broken dialog cannot mask the gesture it is here to protect.
+ */
+test('issues board: a plain click on a card opens its task page', async ({ page, request }) => {
+  const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
+  const repoPath = repos[0]
+  if (!repoPath) throw new Error('harness registered no repo')
+  const title = `E2E click-to-open ${Date.now()}`
+  await rpc(request, 'issues.create', { repoPath, title, description: 'click me', startNow: false })
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
+  const card = page.locator('[data-issue-id]').filter({ hasText: title }).first()
+  await expect(card).toBeVisible({ timeout: 30_000 })
+
+  await card.click()
+
+  // The page replaces the board in place, so "opened" is both halves: the detail
+  // header is up AND the board is gone. Asserting only the first would pass on a
+  // board that merely rendered a peek beside itself.
+  await expect(page.locator('button[title="Back"]')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('issues-board')).toBeHidden()
+  expect(page.url()).toContain('/issues/')
+})
+
 test('issues board: renders the stage columns, creates a Backlog issue, and moves its stage', async ({
   page,
 }) => {
