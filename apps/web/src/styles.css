@@ -4950,6 +4950,9 @@ html[data-density="balanced"] .header-quota-pools {
 .offer-fold-root--expanded .offer-fold-chevron svg {
   transform: rotate(180deg);
 }
+/* IN-FLOW FOLD. Still the right shape where the offer is one card in a
+   scrolling list (the issue dock) and there is nothing above it to disturb.
+   Where an overlay layer exists, `--overlaid` takes over below. */
 .offer-fold-detail {
   display: grid;
   grid-template-rows: 0fr;
@@ -4966,6 +4969,7 @@ html[data-density="balanced"] .header-quota-pools {
   min-height: 0;
   overflow: hidden;
 }
+
 .offer-fold-detail-body {
   padding: 2px 40px 15px 31px;
 }
@@ -5010,6 +5014,85 @@ html[data-density="balanced"] .header-quota-pools {
   }
 }
 
+/* OVERLAID FOLD (POD-1017). Opening the fold used to take its height out of
+   the box above — the PTY in native mode — so every toggle re-gridded a live
+   terminal and made the TUI repaint its whole frame. The detail is portalled
+   into `.offer-overlay-layer` instead and slides UP out of the offer row: the
+   row, the terminal and the transcript keep the exact boxes they had.
+
+   Two elements, two jobs. The CLIP is placed by JS at the row's own left/right
+   edges with its bottom on the row's top edge, and runs up to the layer's top
+   — which is the underside of the panel header. The PANEL is parked below that
+   window and translates into it, so a tall panel disappears under the header
+   rather than over it. */
+.offer-overlay-layer {
+  position: absolute;
+  /* The panel header is a fixed 36px band; the layer starts under it so the
+     tab strip, archive and overflow controls always stay reachable. */
+  top: 36px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 21;
+  pointer-events: none;
+}
+.offer-overlay-clip {
+  position: absolute;
+  top: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.offer-overlay-panel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--hairline-soft);
+  background: var(--background);
+  /* The lift that says "over, not in". Cast upward only — the row below is the
+     panel's own seat, and a shadow on it would read as a seam. */
+  box-shadow: 0 -14px 30px -12px var(--carve-popover-far, rgb(0 0 0 / 0.65));
+  opacity: 0;
+  transform: translateY(100%);
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 140ms ease-out;
+  /* The body is portalled out of `.offer-fold-root`, so it is out of that row's
+     inline-size container and its narrow fallback has to be restated below. The
+     panel is exactly as wide as the row it rises from, so it is the same
+     breakpoint, measured here instead. */
+  container-type: inline-size;
+}
+.offer-overlay-clip--open {
+  pointer-events: auto;
+}
+.offer-overlay-clip--open .offer-overlay-panel {
+  opacity: 1;
+  transform: none;
+}
+/* Closed, the panel is parked outside the clip window and must not be a scroll
+   or hit target on the way there. `visibility` waits out the slide so the exit
+   animates; `inert` on the element itself keeps it off the tab order. */
+.offer-overlay-clip:not(.offer-overlay-clip--open) .offer-overlay-panel {
+  visibility: hidden;
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 140ms ease-out,
+    visibility 0s linear 240ms;
+}
+/* Top padding replaces the seam the in-flow fold inherited from the row. */
+.offer-overlay-panel .offer-fold-detail-body {
+  padding: 11px 40px 15px 31px;
+}
+@container (max-width: 560px) {
+  .offer-overlay-panel .offer-fold-detail-body {
+    padding: 11px 13px 14px 31px;
+  }
+}
+
 @keyframes offer-feedback-reveal {
   from {
     max-height: 0;
@@ -5036,7 +5119,9 @@ html[data-density="balanced"] .header-quota-pools {
   .offer-fold-root,
   .offer-fold-detail,
   .offer-fold-chevron svg,
-  .offer-fold-undo {
+  .offer-fold-undo,
+  .offer-overlay-panel,
+  .offer-overlay-clip:not(.offer-overlay-clip--open) .offer-overlay-panel {
     transition: none;
   }
   .offer-feedback {

@@ -50,6 +50,7 @@ import {
 import { ChatView } from '@/features/chat/ChatView'
 import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
+import { OfferOverlayContext } from '@/features/chat/offer-overlay'
 import { agentBrandDot } from '@/lib/agent-tone'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
@@ -350,6 +351,9 @@ export function AgentPanel({
   // by one frame so a freshly mounted dock still gets its enter transition.
   const dockOpenTarget = Boolean(nativeOffer)
   const [dockOpen, setDockOpen] = useState(false)
+  // The element an expanded offer paints into (POD-1017). State, not a ref: the
+  // OfferBars below only learn the layer exists through a re-render.
+  const [offerOverlayHost, setOfferOverlayHost] = useState<HTMLDivElement | null>(null)
   const panelRootRef = useRef<HTMLDivElement | null>(null)
   const termSurfaceRef = useRef<HTMLDivElement | null>(null)
   const dockInnerRef = useRef<HTMLDivElement | null>(null)
@@ -678,9 +682,9 @@ export function AgentPanel({
     mountedRef.current?.connection.sendInput(keySequence(key))
   }
 
-  return (
-    // `relative` anchors the handover veil below the header (the terminal surface
-    // positions its own overlays against itself, so nothing else moves).
+  // `relative` anchors the handover veil below the header (the terminal surface
+  // positions its own overlays against itself, so nothing else moves).
+  const panel = (
     <div ref={panelRootRef} className="relative flex min-w-0 flex-1 flex-col">
       <SessionDraftRef sessionId={sessionId} valueRef={draftRef} />
       {/* Session header [POD-121, remetered POD-725]: 36px, no surface of its own
@@ -1099,7 +1103,10 @@ export function AgentPanel({
                 // any in-place-repaint ghost frame scrolls away. Unpin the
                 // surface FIRST so flex resumes before the settled-size fit
                 // (on open this fit is a no-op — the grid snapped at start).
-                if (e.propertyName !== 'grid-template-rows') return
+                // Own transition only. React's synthetic transitionend BUBBLES,
+                // so without the target check any descendant animating the same
+                // property re-grids the PTY behind the user's back.
+                if (e.target !== e.currentTarget || e.propertyName !== 'grid-template-rows') return
                 dockUnpinRef.current?.()
                 setTimeout(() => {
                   const m = mountedRef.current
@@ -1187,6 +1194,19 @@ export function AgentPanel({
           />
         </>
       )}
+      {/* Offer overlay layer (POD-1017). Empty until an offer's fold is opened,
+          at which point OfferBar portals its detail here. It starts BELOW the
+          header, so a tall panel slides up and stops beneath the tab strip
+          instead of pushing the terminal — the fold no longer changes any box
+          the PTY is measured against. Last child + a z-rung above the rail
+          popovers so it paints over both the terminal and the chat feed;
+          pointer-events are handed back by the panel itself. */}
+      <div ref={setOfferOverlayHost} className="offer-overlay-layer" />
     </div>
+  )
+  // The offer overlay layer lives inside the panel; every OfferBar below —
+  // native dock and chat composer alike — reaches it through this provider.
+  return (
+    <OfferOverlayContext.Provider value={offerOverlayHost}>{panel}</OfferOverlayContext.Provider>
   )
 }

@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OfferBar } from './OfferBar'
+import { OfferOverlayContext } from './offer-overlay'
 
 // ---------------------------------------------------------------------------
 // Agent action offer bar [spec:SP-c7f1]: shared between ChatView and the
@@ -318,5 +319,67 @@ describe('OfferBar', () => {
     )
     expect(container.textContent).toContain('Tests are red on main')
     expect(container.querySelector('[data-testid="offer-primary-action"]')).toBeNull()
+  })
+
+  // POD-1017: given an overlay layer, the opened fold must leave the offer row —
+  // and therefore the PTY and transcript above it — at exactly the size it had.
+  it('paints the opened fold into the overlay layer, seated on the row', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    // The layer starts under the 36px header and runs to the panel's floor; the
+    // row is the bottom 48px of it, inset by the dock's own 13px padding.
+    const rects = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element,
+    ): DOMRect {
+      const box =
+        this === host
+          ? { top: 36, left: 0, right: 800, bottom: 600 }
+          : this.classList.contains('offer-fold-root')
+            ? { top: 552, left: 13, right: 787, bottom: 600 }
+            : { top: 0, left: 0, right: 0, bottom: 0 }
+      return {
+        ...box,
+        x: box.left,
+        y: box.top,
+        width: box.right - box.left,
+        height: box.bottom - box.top,
+        toJSON: () => box,
+      }
+    })
+    try {
+      act(() =>
+        root.render(
+          <OfferOverlayContext.Provider value={host}>
+            <OfferBar offer={offer} disabled={false} onAction={() => {}} />
+          </OfferOverlayContext.Provider>,
+        ),
+      )
+      // Nothing foldable is left inside the row itself.
+      expect(container.querySelector('[data-testid="offer-detail"]')).toBeNull()
+      expect(container.querySelector('.offer-fold-detail')).toBeNull()
+
+      const clip = host.querySelector<HTMLElement>('[data-testid="offer-overlay"]')
+      expect(clip?.style.left).toBe('13px')
+      expect(clip?.style.right).toBe('13px')
+      expect(clip?.style.bottom).toBe('48px')
+      expect(clip?.className).not.toContain('offer-overlay-clip--open')
+      expect(host.querySelector('[data-testid="offer-detail"]')?.getAttribute('aria-hidden')).toBe(
+        'true',
+      )
+
+      act(() => {
+        container.querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
+      })
+      expect(host.querySelector<HTMLElement>('[data-testid="offer-overlay"]')?.className).toContain(
+        'offer-overlay-clip--open',
+      )
+      expect(host.querySelector('[data-testid="offer-detail"]')?.getAttribute('aria-hidden')).toBe(
+        'false',
+      )
+      expect(host.textContent).toContain('Show failures')
+    } finally {
+      rects.mockRestore()
+      host.remove()
+    }
   })
 })
