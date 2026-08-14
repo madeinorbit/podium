@@ -651,9 +651,8 @@ export async function createDaemonHostRuntime(args: {
       memory: sampleHostMemory(),
       load: sampleHostLoad(),
       // What this machine can give back WITHOUT parking a session (spec §5).
-      // Always present, including as 0: the server distinguishes "nothing to
-      // reclaim" from "a daemon too old to have attachments", and only the
-      // second may fall through to hibernating an agent unasked.
+      // Always sent, including as 0 — which the server treats exactly as an
+      // absent field, since both mean "nothing here to reclaim first".
       reclaimableAttachments: clientTerminals.reclaimable(),
     })
   }

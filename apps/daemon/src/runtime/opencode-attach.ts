@@ -48,10 +48,16 @@
  * computed from the live client set and sent on every change. So the clock here
  * is armed while the session is UNWATCHED and held off while a viewer has it
  * open — {@link OpencodeClientTerminals.viewers}, called from the daemon's
- * `sessionPriority` handler. Armed is the default: an attachment nobody has said
- * anything about is one nobody is watching.
+ * `sessionPriority` handler.
  *
- * That signal is an association, not a subscription: it says a viewer has the
+ * It is remembered per SESSION, not just per attachment, and a new attachment is
+ * SEEDED from it. The frame is sent only on change, so a session already on
+ * screen when its terminal is attached announces nothing — and an attachment
+ * born unwatched under a live viewer is one the pressure sweep may close while
+ * somebody is looking at it. Unwatched stays the default for a session nobody
+ * has ever mentioned, which is the honest reading of silence.
+ *
+ * The signal is an association, not a subscription: it says a viewer has the
  * SESSION open, not that anything is rendering this attachment's stream (see the
  * gap below). It is the right clock anyway — the alternative, a timer from the
  * last `attach()`, kills a terminal out from under someone who has watched it
@@ -249,6 +255,31 @@ export function createOpencodeClientTerminals(
 
   const attachments = new Map<SessionId, Attachment>()
 
+  /**
+   * SESSIONS A VIEWER CURRENTLY HAS OPEN, remembered whether or not they have an
+   * attachment yet.
+   *
+   * Without this the seeding is backwards in the one case that matters. Viewer
+   * state arrives as `sessionPriority`, which the server sends ONLY ON CHANGE —
+   * so a session already on screen when its terminal is attached produces no
+   * frame at all, `watched` stays unset, and the attachment is born armed and
+   * counted as reclaimable. Under host pressure that is a terminal closed while
+   * somebody is looking at it: the exact guarantee the reclaim-first design was
+   * accepted on.
+   *
+   * SEEDED FROM THIS SET, NEVER FROM THE OUTPUT SCHEDULER's priority. That map
+   * defaults a session it has never heard of to tier 1, so an unopened session
+   * would read as watched and its terminal would never arm at all — a leak
+   * dressed as caution.
+   *
+   * Only the watched are stored, so a viewer leaving REMOVES the entry and the
+   * set stays the size of what is on screen. A session that ends while watched
+   * can leave one behind; session ids are never reused, so a stale entry can
+   * only ever describe the session it was recorded for, and no later attachment
+   * can inherit it.
+   */
+  const watchedSessions = new Set<SessionId>()
+
   const disarm = (record: Attachment): void => {
     if (record.timer !== undefined) clearTimer(record.timer)
     record.timer = undefined
@@ -344,7 +375,12 @@ export function createOpencodeClientTerminals(
     async attach({ sessionId, target }) {
       let record = attachments.get(sessionId)
       if (!record) {
-        record = { streamId: randomUUID(), label: opencodeAttachLabel(sessionId) }
+        record = {
+          streamId: randomUUID(),
+          label: opencodeAttachLabel(sessionId),
+          // Born knowing whether anyone is looking: see `watchedSessions`.
+          watched: watchedSessions.has(sessionId),
+        }
         attachments.set(sessionId, record)
       }
       // Armed BEFORE the spawn: a start that hangs must not leave an unreaped
@@ -391,7 +427,11 @@ export function createOpencodeClientTerminals(
       if (attachments.has(sessionId)) return
       const label = opencodeAttachLabel(sessionId)
       if (!hasMaster(label)) return
-      const record: Attachment = { streamId: randomUUID(), label }
+      const record: Attachment = {
+        streamId: randomUUID(),
+        label,
+        watched: watchedSessions.has(sessionId),
+      }
       attachments.set(sessionId, record)
       arm(sessionId, record)
       log.info('adopted a client terminal that outlived the daemon', { sessionId, label })
@@ -400,6 +440,12 @@ export function createOpencodeClientTerminals(
     close,
 
     viewers(sessionId, watched) {
+      // RECORDED FIRST, AND WHETHER OR NOT THERE IS AN ATTACHMENT. The frame
+      // that says "somebody opened this session" usually arrives BEFORE anyone
+      // asks for its terminal, and it is sent only on change — so a return here
+      // would throw away the only notice this module ever gets.
+      if (watched) watchedSessions.add(sessionId)
+      else watchedSessions.delete(sessionId)
       const record = attachments.get(sessionId)
       if (!record || record.watched === watched) return
       record.watched = watched

@@ -212,8 +212,14 @@ export class HostsService {
        *
        * The count is the machine's own (it holds the viewer state, so a WATCHED
        * terminal is never in it); which ones to close is the machine's too. A
-       * daemon too old to report the field is `undefined`, not 0 — it has no
-       * attachments to give and falls straight through to the session sweep.
+       * daemon too old to report the field reads as 0 and falls straight through
+       * to the session sweep, exactly as it did before this existed.
+       *
+       * IT SPENDS THE SHARED COOLDOWN, so a host under memory AND load pressure
+       * at the same sample delays its load park by one 60s window: the load
+       * branch below re-reads that cooldown deliberately (one resource park per
+       * window). That is the same trade the memory branch's own park has always
+       * made, and it buys the cheaper reclaim first.
        */
       const reclaimable = sample.reclaimableAttachments ?? 0
       if (reclaimable > 0) {

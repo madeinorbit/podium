@@ -323,6 +323,49 @@ describe('warm-parking', () => {
     expect(state.armed).toBe(2)
   })
 
+  /**
+   * THE SEEDING BUG THE SECOND ROUND CAUGHT, and the reason the reclaim-first
+   * design was accepted at all.
+   *
+   * `sessionPriority` is sent ONLY ON CHANGE, so a session already on screen when
+   * its terminal is attached announces nothing. An attachment that defaulted to
+   * unwatched would be armed AND offered to the pressure sweep — closing a
+   * terminal somebody is looking at, which is exactly the guarantee that made
+   * "attachments first" safe.
+   */
+  it('is born WATCHED when the viewer arrived before the attachment did', async () => {
+    const { terminals, state } = harness()
+    terminals.viewers(SESSION, true)
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    expect(state.armed).toBe(0)
+    expect(terminals.reclaimable()).toBe(0)
+  })
+
+  it('is born watched on ADOPT too, when a viewer had the session open', () => {
+    const { terminals, state } = harness({ hasMaster: () => true })
+    terminals.viewers(SESSION, true)
+
+    terminals.adopt(SESSION)
+
+    expect(state.armed).toBe(0)
+    expect(terminals.reclaimable()).toBe(0)
+  })
+
+  it('is born unwatched once the viewer has left again', async () => {
+    const { terminals, state } = harness()
+    terminals.viewers(SESSION, true)
+    terminals.viewers(SESSION, false)
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    // Silence about a session nobody has mentioned means nobody is watching —
+    // and so does an explicit "the last viewer left".
+    expect(state.armed).toBe(1)
+    expect(terminals.reclaimable()).toBe(1)
+  })
+
   it('does not re-arm on a repeated viewer signal, so a watched terminal cannot be reaped', async () => {
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
