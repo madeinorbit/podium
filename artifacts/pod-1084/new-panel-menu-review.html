@@ -1,0 +1,748 @@
+<title>New-Panel Menu</title>
+<style>
+  /* Superade Dark — the review sheet wears the system it is arguing about. */
+  :root {
+    --background: #16171a;
+    --engraved: #191a1e;
+    --bar: #1b1d21;
+    --tabstrip: #202228;
+    --panel: #23262d;
+    --chip: #252830;
+    --secondary: #2c3038;
+    --text-strong: #f2f3f5;
+    --foreground: #d7dae0;
+    --muted-foreground: #a8adb6;
+    --label: #949aa4;
+    --text-dim: #848a94;
+    --text-faint: #6f7580;
+    --hairline-soft: #24272d;
+    --hairline-bar: #26292f;
+    --border-strong: #3a3f48;
+    --primary: #f5c518;
+    --attention: #e3ba52;
+    --success: #2a62f0;
+    --destructive: #e5303f;
+    --shadow-popover: 0 14px 34px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.32);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  body {
+    margin: 0;
+    padding: 44px 28px 96px;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--sans);
+    font-size: 12px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1140px; margin: 0 auto; }
+
+  /* ---- sheet chrome ---- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--label);
+  }
+  h1 {
+    margin: 10px 0 0;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.018em;
+    color: var(--text-strong);
+  }
+  .lede {
+    margin: 12px 0 0;
+    max-width: 66ch;
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: var(--muted-foreground);
+    text-wrap: pretty;
+  }
+  h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  section { margin-top: 52px; }
+  .rule {
+    height: 1px;
+    background: var(--hairline-bar);
+    border: 0;
+    margin: 0 0 22px;
+  }
+
+  /* ---- the two specimens ---- */
+  .stage {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 22px;
+    align-items: start;
+  }
+  .plate {
+    border: 1px solid var(--hairline-bar);
+    border-radius: 10px;
+    background: var(--engraved);
+    overflow: hidden;
+  }
+  .plate-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--hairline-soft);
+    background: var(--bar);
+  }
+  .plate-head .who {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .plate-head .what { font-size: 11.5px; color: var(--text-dim); }
+  .before .who { color: var(--text-dim); }
+  .after  .who { color: var(--attention); }
+  .plate-body {
+    /* The tab strip the menu drops out of, so both specimens are judged against
+       the surface they actually open over. */
+    display: flex;
+    justify-content: center;
+    padding: 20px 20px 34px;
+    background:
+      linear-gradient(var(--tabstrip) 0 38px, transparent 38px),
+      var(--background);
+  }
+  .paper .plate-body {
+    background:
+      linear-gradient(#faf9f7 0 38px, transparent 38px),
+      #f2f1ed;
+  }
+
+  /* =========================================================================
+     BEFORE — stock shadcn dropdown tokens, transcribed literally
+     ========================================================================= */
+  .b-panel {
+    width: 224px;
+    padding: 4px;
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: var(--shadow-md), 0 0 0 1px rgb(215 218 224 / 0.1);
+    color: var(--foreground);
+  }
+  .b-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 4.8px;
+    font-size: 14px;
+  }
+  .b-item.hot { background: #2a2d33; color: var(--text-strong); }
+  .b-item .g { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); }
+  .b-item .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .b-sec {
+    padding: 8px 10px 2px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgb(168 173 182 / 0.7);
+  }
+  .b-field {
+    height: 32px;
+    margin: 2px 6px 4px;
+    padding: 4px 10px;
+    border: 1px solid #2a2d33;
+    border-radius: 6px;
+    background: transparent;
+    font-family: var(--sans);
+    font-size: 12px;
+    color: var(--text-faint);
+    display: flex;
+    align-items: center;
+  }
+  .b-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4.8px;
+    font-size: 14px;
+  }
+  .b-row .nm { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .b-row .ts {
+    margin-left: auto;
+    padding-left: 8px;
+    flex: none;
+    font-size: 11px;
+    color: rgb(168 173 182 / 0.7);
+  }
+  .b-empty { padding: 12px; font-size: 12px; color: rgb(168 173 182 / 0.7); }
+
+  /* =========================================================================
+     AFTER — lib/menu-surface (POD-380) through the Base-UI bridge
+     ========================================================================= */
+  .a-panel {
+    width: 248px;
+    padding: 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--chip);
+    box-shadow: var(--shadow-popover);
+    color: var(--foreground);
+  }
+  .a-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 9px;
+    padding: 0 5px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    color: var(--label);
+  }
+  .a-head .ref {
+    margin-left: auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: normal;
+    color: var(--text-faint);
+  }
+  .a-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4.5px 5px;
+    border-radius: 4.8px;
+    font-size: 11.5px;
+    text-align: left;
+  }
+  .a-item.hot { background: var(--hairline-soft); color: var(--text-strong); }
+  .a-item.off { color: var(--text-dim); }
+  .a-item.warn { color: var(--attention); }
+  .a-item .g { width: 14px; height: 14px; flex: none; color: var(--text-dim); }
+  .a-item.warn .g { color: var(--attention); }
+  .a-item .dot { width: 6px; height: 6px; flex: none; margin: 0 4px; }
+  .a-item .nm { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a-item .hint {
+    margin-left: auto;
+    padding-left: 8px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .a-sec {
+    margin: 6px 0 3px;
+    padding: 7px 5px 0;
+    border-top: 1px solid var(--hairline-soft);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    color: var(--label);
+  }
+  .a-field {
+    position: relative;
+    margin: 0 5px 5px;
+  }
+  .a-field input {
+    box-sizing: border-box;
+    width: 100%;
+    height: 26px;
+    padding: 0 8px 0 23px;
+    border: 1px solid var(--hairline-soft);
+    border-radius: 4.8px;
+    background: var(--background);
+    font-family: var(--sans);
+    font-size: 11.5px;
+    color: var(--foreground);
+    outline: none;
+  }
+  .a-field input::placeholder { color: var(--text-faint); }
+  .a-field .mag {
+    position: absolute;
+    top: 50%;
+    left: 7px;
+    width: 12px;
+    height: 12px;
+    transform: translateY(-50%);
+    color: var(--text-faint);
+    pointer-events: none;
+  }
+  .a-empty { padding: 4.5px 5px; font-size: 11.5px; color: var(--text-dim); }
+
+  /* Paper variant — the same markup, the light theme's own inks. */
+  .paper .a-panel {
+    background: #ffffff;
+    border-color: #e2e0d9;
+    color: #38362f;
+    box-shadow: 0 14px 34px rgb(29 28 25 / 0.3), 0 2px 8px rgb(29 28 25 / 0.12);
+  }
+  .paper .a-head { color: #8f8d85; }
+  .paper .a-head .ref { color: #a3a199; }
+  .paper .a-sec { color: #8f8d85; border-top-color: #eeede8; }
+  .paper .a-item .g { color: #8f8d85; }
+  .paper .a-item.hot { background: #eeede8; color: #1d1c19; }
+  .paper .a-item.off { color: #8f8d85; }
+  .paper .a-item.warn, .paper .a-item.warn .g { color: #8a6200; }
+  .paper .a-item .hint { color: #a3a199; }
+  .paper .a-field input {
+    background: #f2f1ed;
+    border-color: #eeede8;
+    color: #38362f;
+  }
+  .paper .a-field input::placeholder, .paper .a-field .mag { color: #a3a199; }
+  .paper .a-empty { color: #8f8d85; }
+
+  /* ---- findings ---- */
+  .findings {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+    gap: 1px;
+    background: var(--hairline-soft);
+    border: 1px solid var(--hairline-soft);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .finding { background: var(--engraved); padding: 16px 18px 18px; }
+  .finding .n {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+  }
+  .finding h3 {
+    margin: 7px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .finding p {
+    margin: 7px 0 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--muted-foreground);
+    text-wrap: pretty;
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 0.92em;
+    color: var(--foreground);
+  }
+  .swap {
+    margin-top: 11px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 9px;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.45;
+  }
+  .swap dt { color: var(--text-faint); letter-spacing: 0.08em; }
+  .swap dd { margin: 0; color: var(--foreground); word-break: break-word; }
+  .swap dd s { color: var(--text-faint); text-decoration-color: var(--destructive); }
+
+  .note {
+    margin-top: 22px;
+    padding: 14px 16px;
+    border-left: 1px solid var(--attention);
+    background: rgb(227 186 82 / 0.06);
+    border-radius: 0 6px 6px 0;
+  }
+  .note p { margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted-foreground); }
+  .note strong { color: var(--attention); font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  th, td {
+    padding: 7px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--hairline-soft);
+    vertical-align: top;
+  }
+  th {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--label);
+    font-weight: 500;
+  }
+  td code { color: var(--muted-foreground); }
+  td.done { color: var(--text-dim); }
+  .scroll { overflow-x: auto; }
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">POD-1084 · REVIEW SHEET</p>
+  <h1>The new-panel menu joins the family</h1>
+  <p class="lede">
+    The menu behind an empty tab and the tab strip’s <code>+</code> wore stock shadcn popover
+    tokens: <code>--popover</code> instead of the raised chip, a <code>ring-foreground/10</code>
+    hairline instead of the seam, <code>shadow-md</code> instead of the popover lift, 14px rows in
+    a 12px shell, and section headings invented locally in Geist Sans small caps. It opened one
+    pixel from the tab strip’s own context menu and did not look like it. Everything below is
+    <code>lib/menu-surface</code> — the vocabulary POD-380 wrote and the session menu, the issue
+    menu and the colour picker already share.
+  </p>
+
+  <section>
+    <hr class="rule" />
+    <div class="stage">
+
+      <!-- ============================== BEFORE ============================== -->
+      <div class="plate before">
+        <div class="plate-head">
+          <span class="who">Before</span>
+          <span class="what">stock dropdown tokens</span>
+        </div>
+        <div class="plate-body">
+          <div class="b-panel">
+            <div class="b-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+              <span class="nm">New Claude</span>
+            </div>
+            <div class="b-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+              <span class="nm">New Codex</span>
+            </div>
+            <div class="b-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>
+              <span class="nm">New Shell</span>
+            </div>
+
+            <div class="b-sec">Recent files</div>
+            <div class="b-row">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;color:var(--muted-foreground)"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>
+              <span class="nm">NewPanelMenu.tsx</span>
+              <span class="ts">12m</span>
+            </div>
+
+            <div class="b-sec">Resume</div>
+            <div class="b-field">Search history…</div>
+            <div class="b-row"><span class="nm">↻ Fix the tab strip overflow</span><span class="ts">2h</span></div>
+            <div class="b-row"><span class="nm">↻ Paper theme audit</span><span class="ts">1d</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================== AFTER ============================== -->
+      <div class="plate after">
+        <div class="plate-head">
+          <span class="who">After</span>
+          <span class="what">lib/menu-surface, dark</span>
+        </div>
+        <div class="plate-body">
+          <div class="a-panel">
+            <div class="a-head">
+              <span>NEW PANEL</span>
+              <span class="ref">issue/1084-new-tab-menu</span>
+            </div>
+
+            <div class="a-item hot">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+              <span class="nm">New Claude</span>
+            </div>
+            <div class="a-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+              <span class="nm">New Codex</span>
+            </div>
+            <div class="a-item warn">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 20h18Z"/></svg>
+              <span class="nm">New Cursor</span>
+            </div>
+            <div class="a-item off">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>
+              <span class="nm">New Shell</span>
+              <span class="hint">not installed</span>
+            </div>
+
+            <div class="a-sec">MACHINES</div>
+            <div class="a-item">
+              <svg class="dot" viewBox="0 0 24 24" fill="var(--success)" stroke="var(--success)"><circle cx="12" cy="12" r="10"/></svg>
+              <span class="nm">workstation</span>
+              <svg style="width:14px;height:14px;flex:none;color:var(--text-faint)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </div>
+            <div class="a-item off">
+              <svg class="dot" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" stroke-width="3"><circle cx="12" cy="12" r="9"/></svg>
+              <span class="nm">thinkpad</span>
+              <span class="hint">offline</span>
+            </div>
+
+            <div class="a-sec">RECENT FILES</div>
+            <div class="a-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>
+              <span class="nm">NewPanelMenu.tsx</span>
+              <span class="hint">12m</span>
+            </div>
+
+            <div class="a-sec">RESUME</div>
+            <div class="a-field">
+              <svg class="mag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="text" placeholder="Search history…" aria-label="Search history" />
+            </div>
+            <div class="a-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+              <span class="nm">Fix the tab strip overflow</span>
+              <span class="hint">2h</span>
+            </div>
+            <div class="a-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+              <span class="nm">Paper theme audit</span>
+              <span class="hint">1d</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================== PAPER ============================== -->
+      <div class="plate after paper">
+        <div class="plate-head">
+          <span class="who">After</span>
+          <span class="what">the same panel, Paper</span>
+        </div>
+        <div class="plate-body">
+          <div class="a-panel">
+            <div class="a-head">
+              <span>NEW PANEL</span>
+              <span class="ref">issue/1084-new-tab-menu</span>
+            </div>
+            <div class="a-item hot">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+              <span class="nm">New Claude</span>
+            </div>
+            <div class="a-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+              <span class="nm">New Codex</span>
+            </div>
+            <div class="a-item warn">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 20h18Z"/></svg>
+              <span class="nm">New Cursor</span>
+            </div>
+            <div class="a-item off">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>
+              <span class="nm">New Shell</span>
+              <span class="hint">not installed</span>
+            </div>
+            <div class="a-sec">RECENT FILES</div>
+            <div class="a-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg>
+              <span class="nm">NewPanelMenu.tsx</span>
+              <span class="hint">12m</span>
+            </div>
+            <div class="a-sec">RESUME</div>
+            <div class="a-field">
+              <svg class="mag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="text" placeholder="Search history…" aria-label="Search history" />
+            </div>
+            <div class="a-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+              <span class="nm">Fix the tab strip overflow</span>
+              <span class="hint">2h</span>
+            </div>
+            <div class="a-item">
+              <svg class="g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+              <span class="nm">Paper theme audit</span>
+              <span class="hint">1d</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="note">
+      <p>
+        <strong>The search field did not move.</strong> It stays inside the Resume region and keeps
+        its autofocus on open — that was a deliberate behaviour decision and this pass is a
+        re-skin, not a re-plan.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What changed, and why</h2>
+    <hr class="rule" style="margin-top:14px" />
+    <div class="findings">
+
+      <div class="finding">
+        <p class="n">01 · SURFACE</p>
+        <h3>The panel was one tier too low</h3>
+        <p>
+          It sat on <code>--popover</code> (#23262d) — the same tone as the stage sheet it floats
+          over — under <code>shadow-md</code>, which is a resting shadow. The house panel is the
+          raised chip over a real seam, under the one transient lift the system reserves for things
+          that will disappear.
+        </p>
+        <dl class="swap">
+          <dt>SURFACE</dt><dd><s>#23262d</s> → #252830</dd>
+          <dt>EDGE</dt><dd><s>ring foreground/10</s> → 1px #3a3f48</dd>
+          <dt>LIFT</dt><dd><s>shadow-md</s> → --shadow-popover</dd>
+          <dt>RADIUS</dt><dd><s>6px</s> → 10px (tray)</dd>
+        </dl>
+      </div>
+
+      <div class="finding">
+        <p class="n">02 · TYPE</p>
+        <h3>14px rows in a 12px shell</h3>
+        <p>
+          Stock <code>text-sm</code> made every row of this menu a point and a half larger than the
+          identical row in the session menu beside it. The preset's 11.5px is the size the rest of
+          the overlay family is set in.
+        </p>
+        <dl class="swap">
+          <dt>ROW</dt><dd><s>14px</s> → 11.5px</dd>
+          <dt>PAD</dt><dd><s>4/6px</s> → 4.5/5px</dd>
+          <dt>WIDTH</dt><dd><s>224px</s> → 248px</dd>
+        </dl>
+      </div>
+
+      <div class="finding">
+        <p class="n">03 · VOICE</p>
+        <h3>Section headings were invented here</h3>
+        <p>
+          <code>Recent files</code> and <code>Resume</code> were 11px Geist Sans small caps at
+          <code>muted-foreground/70</code> — a label recipe that exists nowhere else in the app, and
+          Sans where the system speaks Mono. <code>MENU_SECTION</code> is mono micro-caps in Label
+          Grey and carries the hairline that makes a region read as a region; the anonymous gaps
+          between the four groups are now named rules.
+        </p>
+        <dl class="swap">
+          <dt>WAS</dt><dd><s>Recent files · Sans 11px</s></dd>
+          <dt>NOW</dt><dd>RECENT FILES · Mono 10.5px / .12em, over a rule</dd>
+        </dl>
+      </div>
+
+      <div class="finding">
+        <p class="n">04 · ALIGNMENT</p>
+        <h3>Three text columns in one menu</h3>
+        <p>
+          Agent rows were indented by a 16px icon, file rows by a 13px one, and resume rows by the
+          literal character <code>↻</code> typed into the label — which sits on the baseline at the
+          body font's weight and lands nowhere near either. Every glyph is now 14px on one column,
+          and the resume arrow is a drawn icon like its neighbours.
+        </p>
+        <dl class="swap">
+          <dt>GLYPH</dt><dd><s>16 / 13 / “↻”</s> → 14px, one column</dd>
+          <dt>ALIGN</dt><dd><s>items-baseline</s> → items-center</dd>
+        </dl>
+      </div>
+
+      <div class="finding">
+        <p class="n">05 · MACHINE VOICE</p>
+        <h3>Timestamps were prose</h3>
+        <p>
+          <code>12m</code> and <code>2h</code> are the system talking about itself, so they take
+          Geist Mono at micro scale in Faint ink — <code>MENU_HINT</code>, the same trailing slot
+          the session menu states a handoff refusal in — with <code>tabular-nums</code> so a
+          ticking list does not shuffle sideways.
+        </p>
+        <dl class="swap">
+          <dt>WAS</dt><dd><s>Sans 11px, muted/70</s></dd>
+          <dt>NOW</dt><dd>Mono 10.5px, faint, tabular</dd>
+        </dl>
+      </div>
+
+      <div class="finding">
+        <p class="n">06 · KEYBOARD</p>
+        <h3>Arrow keys lit a different colour than the mouse</h3>
+        <p>
+          Base UI moves real DOM focus onto the highlighted row, so the stock
+          <code>focus:bg-accent</code> fired on arrow-key navigation while the preset's
+          <code>hover:</code> fired under the pointer. The bridge restates <code>focus:</code> and
+          the submenu's held <code>data-popup-open:</code> state, so one row reads one way.
+        </p>
+        <dl class="swap">
+          <dt>KEYBOARD</dt><dd><s>#2a2d33 accent</s> → #24272d</dd>
+          <dt>POINTER</dt><dd>#24272d (unchanged)</dd>
+        </dl>
+      </div>
+
+      <div class="finding">
+        <p class="n">07 · REFUSALS</p>
+        <h3>A refusal that only a mouse could read</h3>
+        <p>
+          An offline machine and a capability-blocked agent dimmed to 50% and explained themselves
+          in a tooltip — the one affordance a touch pointer never opens, on the one kind of row that
+          is declining to respond. Each now states its short reason inline, the way the sidebar's
+          new-agent menu already does, and keeps the sentence on hover.
+        </p>
+        <dl class="swap">
+          <dt>ADDED</dt><dd>offline · no access · not installed · no host</dd>
+        </dl>
+      </div>
+
+      <div class="finding">
+        <p class="n">08 · STRUCTURE</p>
+        <h3>Two copies of the Resume region</h3>
+        <p>
+          The single-machine and multi-machine panels each carried a byte-identical copy of the
+          heading, the field, the empty state and the hit rows — which is how their headings drifted
+          apart to begin with. One <code>ResumeSection</code>, one <code>HistoryItem</code>, three
+          call sites. Net −55 lines.
+        </p>
+        <dl class="swap">
+          <dt>HEADER</dt><dd>+ NEW PANEL · target checkout</dd>
+        </dl>
+      </div>
+
+      <div class="finding">
+        <p class="n">09 · UNCHANGED</p>
+        <h3>Everything the menu does</h3>
+        <p>
+          No row was added, removed or reordered, and nothing about what a click starts moved. The
+          capability gates, the machine resolution, the sibling-worktree filter on the history
+          search, the <code>modal={false}</code> that keeps the mobile keyboard pinned, and the
+          autofocus on open are all exactly as they were.
+        </p>
+        <dl class="swap">
+          <dt>TESTS</dt><dd>33 passing across the three suites that reach this menu</dd>
+        </dl>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>The other menus wearing the stock look</h2>
+    <hr class="rule" style="margin-top:14px" />
+    <p class="lede" style="margin-bottom:20px">
+      Scoped out of this change by choice. <code>components/ui/dropdown-menu</code> still ships the
+      shadcn tokens, so every Base-UI popup below opens in the look POD-380 retired. Each is a
+      one-line fix now that the bridge exists — <code>className={MENU_DROPDOWN_PANEL}</code> on the
+      content, <code>MENU_DROPDOWN_ITEM</code> on the rows — or one edit to the primitive if you
+      want them all at once.
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>File</th><th>Line</th><th>Surface</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>features/superagent/ConciergeButton.tsx</code></td><td>66</td><td>Concierge actions</td></tr>
+          <tr><td><code>features/issues/IssuesFilters.tsx</code></td><td>73, 224, 343</td><td>Filter · Display · sort menus</td></tr>
+          <tr><td><code>features/issues/IssuesFilters.tsx</code></td><td>227–281</td><td>Six filter submenus</td></tr>
+          <tr><td><code>features/issues/issue-page/IssueSessionsBlock.tsx</code></td><td>172</td><td>Session actions</td></tr>
+          <tr><td><code>features/issues/issue-page/DateProperty.tsx</code></td><td>94, 173</td><td>Date property menus</td></tr>
+          <tr><td><code>features/issues/issue-page/IssueDetailHeader.tsx</code></td><td>248, 258</td><td>Issue overflow + submenu</td></tr>
+          <tr><td><code>features/worklist/NewAgentMenu.tsx</code></td><td>145, 191, 201</td><td>Sidebar spawn row — the closest sibling of this menu</td></tr>
+          <tr><td><code>lib/PropertyMenu.tsx</code></td><td>53</td><td>Shared property picker</td></tr>
+          <tr><td><code>app/FlightDeck.tsx</code></td><td>132</td><td>Deck overflow</td></tr>
+          <tr><td><code>features/terminal/AgentPanel.tsx</code></td><td>880</td><td>Pane menu</td></tr>
+          <tr><td><code>features/issues/IssueCompactControls.tsx</code></td><td>702</td><td>Compact controls (its 507 already wears <code>MENU_PANEL</code>)</td></tr>
+          <tr><td class="done"><code>app/NewPanelMenu.tsx</code></td><td class="done">220, 297, 507</td><td class="done">This change</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>

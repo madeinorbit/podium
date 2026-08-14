@@ -60,3 +60,30 @@ export const MENU_SUBTEXT = 'pl-[22px] text-[10.5px] text-text-dim'
 
 /** Non-interactive filler inside a submenu ("No sibling issues"). */
 export const MENU_EMPTY = 'block px-[5px] py-[4.5px] text-[11.5px] text-text-dim'
+
+/* ---------------------------------------------------------------------------
+ * The Base-UI bridge (POD-1084)
+ * ---------------------------------------------------------------------------
+ *
+ * The three overlays above are hand-rolled portals, so they wear the preset
+ * directly. `components/ui/dropdown-menu` is a Base UI menu that still ships the
+ * stock shadcn popover tokens — `bg-popover`, `shadow-md`, a `ring-foreground/10`
+ * hairline, `rounded-lg`, 14px rows — which is exactly the look this file was
+ * written to retire. Until the primitive itself is rebased onto the preset, a
+ * dropdown joins the family by wearing these two.
+ */
+
+/** A `DropdownMenuContent` in the house vocabulary. `ring-0` is not redundant:
+ *  the stock hairline is a RING and the preset's seam is a BORDER, so the border
+ *  cannot override it — the ring has to be switched off by name or the panel
+ *  wears both edges. */
+export const MENU_DROPDOWN_PANEL = `ring-0 ${MENU_PANEL}`
+
+/** A `DropdownMenuItem` / `DropdownMenuSubTrigger` in the house vocabulary.
+ *
+ *  `focus:` is restated because Base UI moves real DOM focus to the highlighted
+ *  row, so the stock `focus:bg-accent` fires on arrow-key navigation while the
+ *  preset's `hover:` fires under the pointer — leaving keyboard and mouse to
+ *  light the same row two different colours. `data-popup-open:` is the submenu
+ *  trigger's held state, which the stock class also paints in accent. */
+export const MENU_DROPDOWN_ITEM = `${MENU_ITEM} focus:bg-hairline-soft focus:text-text-strong data-popup-open:bg-hairline-soft data-popup-open:text-text-strong`
