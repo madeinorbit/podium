@@ -114,6 +114,19 @@ function fsyncDirectory(path: string): void {
   }
 }
 
+function ensureDirectoryDurable(path: string): void {
+  if (existsSync(path)) return
+  const parent = dirname(path)
+  if (parent === path) throw new Error(`cannot provision durable directory ${path}`)
+  ensureDirectoryDurable(parent)
+  try {
+    mkdirSync(path, { mode: 0o700 })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+  fsyncDirectory(parent)
+}
+
 function sameIdentity(left: DurableIdentity, right: DurableIdentity): boolean {
   return (
     left.sessionId === right.sessionId &&
@@ -127,8 +140,7 @@ function sameIdentity(left: DurableIdentity, right: DurableIdentity): boolean {
  * can be rewritten. A partial legacy journal without identity is unsafe. */
 function establishIdentity(paths: DurablePaths, expected: DurableIdentity): void {
   const existed = existsSync(paths.dir)
-  mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
-  if (!existed) fsyncDirectory(dirname(paths.dir))
+  ensureDirectoryDurable(paths.dir)
   if (!existsSync(paths.identity)) {
     if (existed) throw new Error('durable headless journal has no request identity')
     writeAtomic(paths.identity, JSON.stringify(expected))
@@ -268,7 +280,7 @@ function writeRunner(
   bins: HarnessBins,
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
 ): { knownSessionId?: string; env?: Record<string, string> } {
-  mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
+  ensureDirectoryDurable(paths.dir)
   if (!existsSync(paths.createdAt)) writeAtomic(paths.createdAt, String(Date.now()))
   const invocation = prepareInvocation(spec, paths, bins)
   if (invocation.stdin !== undefined) writeAtomic(paths.input, invocation.stdin)
@@ -278,6 +290,9 @@ function writeRunner(
 printf '%s\\n' "$$" > ${shellQuote(paths.running)}
 ${command}${stdin} > ${shellQuote(paths.stdout)} 2> ${shellQuote(paths.stderr)}
 code=$?
+sync ${shellQuote(paths.stdout)} 2>/dev/null || sync
+sync ${shellQuote(paths.stderr)} 2>/dev/null || sync
+sync ${shellQuote(paths.dir)} 2>/dev/null || sync
 tmp=${shellQuote(paths.exit)}.tmp-$$
 printf '%s\\n' "$code" > "$tmp"
 sync "$tmp" 2>/dev/null || sync

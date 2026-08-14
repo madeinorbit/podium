@@ -71,6 +71,13 @@ import {
   MCP_TOKEN_HEADER,
 } from './tools'
 
+export function hasDurableHeadlessResultIdentity(result: {
+  requestDigest?: string
+  accountId?: AccountId
+}): result is { requestDigest: string; accountId: AccountId } {
+  return /^[a-f0-9]{64}$/.test(result.requestDigest ?? '') && result.accountId !== undefined
+}
+
 /** Kill budget for one superagent harness turn (issue #84). Orchestration turns
  *  routinely run multiple minutes (the agent reads repos, steers sessions), so
  *  they get a far longer leash than the daemon's 240s harnessExec default —
@@ -957,7 +964,7 @@ export class SuperagentService {
       // Delete first: if the server dies before ACK, the daemon merely retains
       // an orphan journal; the accepted user turn can never be replayed twice.
       this.store.superagent.deletePendingTurn(pending.turnId)
-      if (result.requestDigest && result.accountId) {
+      if (hasDurableHeadlessResultIdentity(result)) {
         this.modules.headless.headlessTurnAck(
           pending.podiumSessionId,
           pending.turnId,

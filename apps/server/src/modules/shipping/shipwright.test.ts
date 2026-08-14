@@ -10,7 +10,11 @@ import {
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
-import { ShipwrightService, validateShipwrightPatch } from './shipwright'
+import {
+  ShipwrightService,
+  type ShipwrightEvidenceMaterializer,
+  validateShipwrightPatch,
+} from './shipwright'
 
 describe('bounded shipwright patch contract', () => {
   it('accepts an exact text patch and marks test changes for Inspector review', () => {
@@ -82,10 +86,11 @@ describe('bounded shipwright patch contract', () => {
   })
 
   it('accepts only opaque durable evidence references', () => {
-    expect(ShipwrightEvidenceRef.safeParse('artifact:gate-log').success).toBe(true)
+    expect(ShipwrightEvidenceRef.safeParse('artifact://validation/gate-log').success).toBe(true)
     expect(ShipwrightEvidenceRef.safeParse('/tmp/gate.log').success).toBe(false)
     expect(ShipwrightEvidenceRef.safeParse('the gate failed here').success).toBe(false)
     expect(ShipwrightEvidenceRef.safeParse('log:api-key-secret').success).toBe(false)
+    expect(ShipwrightEvidenceRef.safeParse('artifact://validation/../secret').success).toBe(false)
   })
 })
 
@@ -107,10 +112,14 @@ describe('durable shipwright model results', () => {
     operation: 'validate' as const,
     classification: 'validation-failed',
     summary: 'named gate failed',
-    artifactRefs: ['artifact:gate-log'],
+    artifactRefs: ['/executor/journal/gate.log'],
   }
 
-  function fixture(output: string | string[], budget?: typeof DEFAULT_SHIPWRIGHT_BUDGET) {
+  function fixture(
+    output: string | string[],
+    budget?: typeof DEFAULT_SHIPWRIGHT_BUDGET,
+    materialize?: ShipwrightEvidenceMaterializer['materialize'],
+  ) {
     const sessions = new Map<string, Record<string, unknown>>()
     const creates: Record<string, unknown>[] = []
     const turns: Record<string, unknown>[] = []
@@ -176,11 +185,21 @@ describe('durable shipwright model results', () => {
       },
       nativeAccountId: () => asAccountId('native:claude-code:fingerprint-1'),
       validationProfile: () => ({ id: 'gate' }) as never,
+      evidence: {
+        materialize:
+          materialize ??
+          (async ({ source }) =>
+            ShipwrightEvidenceRef.array().parse(
+              source === 'failure'
+                ? ['artifact://validation/gate-log']
+                : ['artifact://repair/applied-patch'],
+            )),
+      },
       context: async () => ({ output: 'failure output', relevantDiff: 'diff context' }),
       applyPatch: async () => ({
         ok: true,
         candidateHeadSha: 'candidate-sha',
-        evidenceRefs: ['artifact:applied-patch'],
+        evidenceRefs: ['/executor/journal/applied.patch'],
       }),
       ...(budget ? { budget } : {}),
     })
@@ -194,6 +213,24 @@ describe('durable shipwright model results', () => {
       },
     }
   }
+
+  it('fails closed when the materializer returns a raw executor path', async () => {
+    const h = fixture('{}', undefined, async () => ['/executor/journal/gate.log'] as never)
+    const result = await h.service.consider({
+      order,
+      attempt,
+      issue,
+      failure,
+      custody: { attemptId: attempt.id, generation: 4, machineId },
+    } as never)
+
+    expect(result).toMatchObject({
+      kind: 'needs-decision',
+      reasonCode: 'policy-refused',
+      evidenceRefs: [],
+    })
+    expect(h.turns).toHaveLength(0)
+  })
 
   it('replays the attempt-scoped result and acknowledges it only after durable consumption', async () => {
     const h = fixture(
@@ -274,7 +311,7 @@ describe('durable shipwright model results', () => {
     expect(result).toMatchObject({
       kind: 'needs-decision',
       headline: 'Needs your decision',
-      evidenceRefs: ['artifact:gate-log'],
+      evidenceRefs: ['artifact://validation/gate-log'],
     })
   })
 

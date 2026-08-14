@@ -50,8 +50,11 @@ export interface ShipwrightDeps {
     machineId: ShipAttempt['machineId'],
     agent: ShipwrightRoute['agent'],
     requested: AccountId,
-  ): AccountId
+  ): AccountId | null
   validationProfile(issue: IssueWire): ShippingValidationProfile
+  /** Future stable-port seam: copy/register only authorized executor artifacts
+   * and return repository-canonical opaque artifact:// references. */
+  evidence: ShipwrightEvidenceMaterializer
   /** Reads only the exact failed-effect artifacts and relevant target-side
    * hunks. The implementation owns remote-machine access and must honor the
    * byte limits supplied here. */
@@ -101,13 +104,23 @@ export interface ShipwrightRepairInput {
     operation: 'prepare-merge-group' | 'validate'
     classification: ShippingJobClassification
     summary: string
-    artifactRefs: ShipwrightEvidenceRefValue[]
+    artifactRefs: string[]
   }
   custody: {
     attemptId: ShipAttempt['id']
     generation: number
     machineId: ShipAttempt['machineId']
   }
+}
+
+export interface ShipwrightEvidenceMaterializer {
+  materialize(input: {
+    source: 'failure' | 'patch-application'
+    refs: readonly string[]
+    order: ShipOrder
+    attempt: ShipAttempt
+    custody: ShipwrightRepairInput['custody']
+  }): Promise<readonly ShipwrightEvidenceRefValue[]>
 }
 
 export type ShipwrightRepairRecommendation =
@@ -333,18 +346,7 @@ export class ShipwrightService {
           : null
     if (!kind) return { kind: 'not-applicable' }
     const receipts: ShipwrightResultReceipt[] = []
-    const parsedEvidence = ShipwrightEvidenceRef.array().safeParse(input.failure.artifactRefs)
-    const evidence = new Set<ShipwrightEvidenceRefValue>(
-      parsedEvidence.success ? parsedEvidence.data : [],
-    )
-    if (!parsedEvidence.success) {
-      return this.decision(
-        input,
-        'policy-refused',
-        'Repair evidence contained a non-durable or unsafe reference.',
-        evidence,
-      )
-    }
+    const evidence = new Set<ShipwrightEvidenceRefValue>()
     if (
       input.custody.attemptId !== input.attempt.id ||
       input.custody.generation !== input.attempt.leaseGeneration ||
@@ -357,6 +359,33 @@ export class ShipwrightService {
         evidence,
       )
     }
+    let materializedFailure: readonly string[]
+    try {
+      materializedFailure = await this.deps.evidence.materialize({
+        source: 'failure',
+        refs: input.failure.artifactRefs,
+        order: input.order,
+        attempt: input.attempt,
+        custody: input.custody,
+      })
+    } catch {
+      return this.decision(
+        input,
+        'policy-refused',
+        'Repair evidence could not be materialized into an authorized artifact.',
+        evidence,
+      )
+    }
+    const parsedEvidence = ShipwrightEvidenceRef.array().safeParse(materializedFailure)
+    if (!parsedEvidence.success) {
+      return this.decision(
+        input,
+        'policy-refused',
+        'Repair evidence contained a non-durable or unsafe reference.',
+        evidence,
+      )
+    }
+    for (const ref of parsedEvidence.data) evidence.add(ref)
     const context = await this.deps.context(input, {
       maxContextBytes: this.budget.maxContextBytes,
       maxFailureBytes: this.budget.maxFailureBytes,
@@ -454,7 +483,25 @@ export class ShipwrightService {
         patch: patch.patch,
         touchedPaths: patch.touchedPaths,
       })
-      const appliedEvidence = ShipwrightEvidenceRef.array().safeParse(applied.evidenceRefs ?? [])
+      let materializedApplied: readonly string[]
+      try {
+        materializedApplied = await this.deps.evidence.materialize({
+          source: 'patch-application',
+          refs: applied.evidenceRefs ?? [],
+          order: input.order,
+          attempt: input.attempt,
+          custody: input.custody,
+        })
+      } catch {
+        return this.decision(
+          input,
+          'policy-refused',
+          'Patch evidence could not be materialized into an authorized artifact.',
+          evidence,
+          receipts,
+        )
+      }
+      const appliedEvidence = ShipwrightEvidenceRef.array().safeParse(materializedApplied)
       if (!appliedEvidence.success) {
         return this.decision(
           input,

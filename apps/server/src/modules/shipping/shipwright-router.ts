@@ -35,7 +35,7 @@ export interface ShipwrightRouteInput {
   resolveAccount(
     agent: HarnessAgent,
     requested: ShipwrightRoute['accountId'],
-  ): ShipwrightRoute['accountId']
+  ): ShipwrightRoute['accountId'] | null
 }
 
 export function shipwrightModelFamily(agent: HarnessAgent, model: string): string {
@@ -158,13 +158,17 @@ export function routeShipwright(input: ShipwrightRouteInput): ShipwrightRoute | 
   const selectedId = selectShipwrightCandidate(input.level, candidates, input.priorFamilies)
   const selected = candidates.find((candidate) => candidate.id === selectedId)
   if (!selected) return null
+  const accountId = input.resolveAccount(selected.agent, preferred.accountId)
+  const accountPrefix = `native:${selected.agent}:`
+  if (!accountId?.startsWith(accountPrefix) || accountId.length === accountPrefix.length)
+    return null
   return {
     level: input.level,
     agent: selected.agent,
     model: selected.model,
     effort: effortFor(input.level, selected.efforts),
     family: selected.family,
-    accountId: input.resolveAccount(selected.agent, preferred.accountId),
+    accountId,
   }
 }
 
@@ -179,6 +183,7 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/fast', 'family-b/frontier'],
     exhausted: false,
     supported: true,
+    accountResolution: 'exact',
     budget: { maxTurns: 6, maxMechanicTurns: 2, maxSolverTurns: 1, maxInspectorTurns: 1 },
     expected: 'family-a/fast',
     expectedTurnCeiling: 6,
@@ -190,6 +195,7 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/fast', 'family-b/frontier'],
     exhausted: false,
     supported: true,
+    accountResolution: 'exact',
     budget: { maxTurns: 4, maxMechanicTurns: 1, maxSolverTurns: 1, maxInspectorTurns: 0 },
     expected: 'family-b/frontier',
     expectedTurnCeiling: 2,
@@ -201,6 +207,7 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/frontier', 'family-b/balanced'],
     exhausted: false,
     supported: true,
+    accountResolution: 'exact',
     budget: { maxTurns: 5, maxMechanicTurns: 1, maxSolverTurns: 1, maxInspectorTurns: 1 },
     expected: 'family-b/balanced',
     expectedTurnCeiling: 4,
@@ -212,6 +219,7 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/frontier'],
     exhausted: true,
     supported: true,
+    accountResolution: 'exact',
     budget: { maxTurns: 3, maxMechanicTurns: 0, maxSolverTurns: 2, maxInspectorTurns: 1 },
     expected: null,
     expectedTurnCeiling: 3,
@@ -223,9 +231,46 @@ export const SHIPWRIGHT_ROUTER_EVAL_SET = [
     models: ['family-a/fast'],
     exhausted: false,
     supported: false,
+    accountResolution: 'exact',
     budget: { maxTurns: 2, maxMechanicTurns: 1, maxSolverTurns: 0, maxInspectorTurns: 0 },
     expected: null,
     expectedTurnCeiling: 1,
+  },
+  {
+    id: 'missing-live-account',
+    level: 'mechanic',
+    priorFamilies: [],
+    models: ['family-a/fast'],
+    exhausted: false,
+    supported: true,
+    accountResolution: 'null',
+    budget: { maxTurns: 2, maxMechanicTurns: 1, maxSolverTurns: 0, maxInspectorTurns: 0 },
+    expected: null,
+    expectedTurnCeiling: 1,
+  },
+  {
+    id: 'stale-live-account',
+    level: 'solver',
+    priorFamilies: [],
+    models: ['family-a/frontier'],
+    exhausted: false,
+    supported: true,
+    accountResolution: 'stale',
+    budget: { maxTurns: 3, maxMechanicTurns: 0, maxSolverTurns: 1, maxInspectorTurns: 1 },
+    expected: null,
+    expectedTurnCeiling: 2,
+  },
+  {
+    id: 'mismatched-live-account',
+    level: 'inspector',
+    priorFamilies: [],
+    models: ['family-a/frontier'],
+    exhausted: false,
+    supported: true,
+    accountResolution: 'mismatch',
+    budget: { maxTurns: 2, maxMechanicTurns: 1, maxSolverTurns: 0, maxInspectorTurns: 1 },
+    expected: null,
+    expectedTurnCeiling: 2,
   },
 ] as const
 
@@ -274,7 +319,16 @@ export function evaluateShipwrightRouterCase(input: (typeof SHIPWRIGHT_ROUTER_EV
     quota,
     level: input.level,
     priorFamilies: input.priorFamilies,
-    resolveAccount: (agent) => `native:${agent}:eval-fingerprint` as ShipwrightRoute['accountId'],
+    resolveAccount: (agent) => {
+      if (input.accountResolution === 'null') return null
+      if (input.accountResolution === 'stale') {
+        return `native:${agent}` as ShipwrightRoute['accountId']
+      }
+      if (input.accountResolution === 'mismatch') {
+        return 'native:wrong-harness:eval-fingerprint' as ShipwrightRoute['accountId']
+      }
+      return `native:${agent}:eval-fingerprint` as ShipwrightRoute['accountId']
+    },
   })
   return {
     route: selected?.model ?? null,

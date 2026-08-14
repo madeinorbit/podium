@@ -9,12 +9,15 @@ export type ShipwrightLevel = z.infer<typeof ShipwrightLevel>
 export const ShipwrightFailureKind = z.enum(['merge-conflict', 'validation-failed'])
 export type ShipwrightFailureKind = z.infer<typeof ShipwrightFailureKind>
 
-/** Human-visible repair evidence is always an opaque reference to a durable
- * artifact, log, or diff. Paths, prose, and secret-shaped strings are not refs. */
+/** Human-visible repair evidence uses the repository's opaque artifact URI.
+ * Raw executor paths/log text must be materialized before entering this type. */
 export const ShipwrightEvidenceRef = z
   .string()
-  .regex(/^(?:artifact|log|diff):[A-Za-z0-9][A-Za-z0-9._:@-]{0,511}$/)
-  .refine((value) => !/(?:secret|token|password|api[-_]?key|sk-)/i.test(value))
+  .regex(/^artifact:\/\/[A-Za-z0-9][A-Za-z0-9._:@/-]{0,511}$/)
+  .refine(
+    (value) =>
+      !value.split('/').includes('..') && !/(?:secret|token|password|api[-_]?key|sk-)/i.test(value),
+  )
   .brand<'ShipwrightEvidenceRef'>()
 export type ShipwrightEvidenceRef = z.infer<typeof ShipwrightEvidenceRef>
 

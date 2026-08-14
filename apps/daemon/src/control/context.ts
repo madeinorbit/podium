@@ -3,6 +3,7 @@ import type { MachineId, SessionId, UsageBucketWire } from '@podium/model'
 import type { ServerTransferServingProof } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
+import type { ProvisionedAccountHome } from '../account-home'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
 import type { BindingStore } from '../binding-store'
@@ -48,10 +49,7 @@ export interface DaemonContext {
   homeDir: string | undefined
   /** Separately provisioned native-account HOME. Ambient/default HOME is never
    * sufficient for tool-less repair execution. */
-  accountHome?: {
-    path: string
-    source: 'configured' | 'named-instance' | 'test-override'
-  }
+  accountHome?: ProvisionedAccountHome
 
   // -- per-session runtime state ---------------------------------------------
   /** Live PTY bridges by Podium session id. */

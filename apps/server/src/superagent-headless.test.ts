@@ -20,6 +20,7 @@ import { harnessResumeKind } from './harness-manifest'
 import {
   buildHandoffSeed,
   explicitlyRequestsExpandedResponse,
+  hasDurableHeadlessResultIdentity,
   NORMAL_RESPONSE_WORD_LIMIT,
   SuperagentService,
   superagentResponseContract,
@@ -43,11 +44,13 @@ async function harness() {
   registries.push(registry)
   const turnReqs: TurnReq[] = []
   const bindReqs: BindReq[] = []
+  const turnAcks: TurnAck[] = []
   const spawns: SpawnMsg[] = []
   const interrupts: string[] = []
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
     if (m.type === 'headlessTurnRequest') turnReqs.push(m)
     if (m.type === 'headlessBind') bindReqs.push(m)
+    if (m.type === 'headlessTurnAck') turnAcks.push(m)
     if (m.type === 'spawn') spawns.push(m)
     if (m.type === 'headlessInterrupt') interrupts.push(m.sessionId)
     if (m.type === 'repoOpRequest') {
@@ -103,6 +106,7 @@ async function harness() {
     sa,
     turnReqs,
     bindReqs,
+    turnAcks,
     spawns,
     interrupts,
     activity,
@@ -112,6 +116,15 @@ async function harness() {
 }
 
 describe('superagent response contract', () => {
+  it('retains a complete durable identity when a legacy generic account is empty', () => {
+    expect(
+      hasDurableHeadlessResultIdentity({
+        requestDigest: 'a'.repeat(64),
+        accountId: asAccountId(''),
+      }),
+    ).toBe(true)
+  })
+
   it.each([
     'Why?',
     'How did this happen?',
@@ -470,6 +483,29 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
 })
 
 describe('sendTurn (headless harness turns)', () => {
+  it('cleans up an ordinary durable turn with the empty generic-account sentinel', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      threadId: asThreadId('global'),
+      text: 'ordinary turn',
+    })
+    const request = h.turnReqs[0]!
+    expect(request.accountId).toBe('')
+
+    h.resolveTurn(request, { harnessSessionId: 'ordinary-harness' })
+    await h.settle()
+
+    expect(h.registry.sessionStore.superagent.listPendingTurns()).toHaveLength(0)
+    expect(h.turnAcks).toContainEqual({
+      type: 'headlessTurnAck',
+      sessionId: request.sessionId,
+      turnId: request.turnId,
+      requestDigest: request.requestDigest,
+      accountId: asAccountId(''),
+    })
+  })
+
   it('acks before completion, creates the headless session, and dispatches the turn', async () => {
     const h = await harness()
     const ack = await h.sa.sendTurn({

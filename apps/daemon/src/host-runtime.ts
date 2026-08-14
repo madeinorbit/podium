@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { mkdir, stat } from 'node:fs/promises'
-import { hostname } from 'node:os'
+import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { createLogger } from '@podium/logger'
@@ -31,6 +31,7 @@ import {
 } from '@podium/runtime/update-delivery-git'
 import type { RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
+import { provisionedAccountHome, type ProvisionedAccountHomeSource } from './account-home'
 import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
@@ -118,13 +119,27 @@ export async function createDaemonHostRuntime(args: {
   })
   const sessionBinding = new SessionBinding(bindingStore)
   const homeDir = opts.discovery?.homeDir ?? resolveAgentHomeDir(config)
-  const accountHomeSource = opts.discovery?.homeDir
-    ? ('test-override' as const)
-    : process.env.PODIUM_AGENT_HOME || config.agentHome
-      ? ('configured' as const)
-      : instance.instanceId !== 'default'
-        ? ('named-instance' as const)
+  const configuredAccountHome = process.env.PODIUM_AGENT_HOME || config.agentHome
+  const namedInstanceAccountHome =
+    instance.instanceId !== 'default' ? resolveAgentHomeDir(config) : undefined
+  const accountHomePath =
+    configuredAccountHome ?? namedInstanceAccountHome ?? opts.discovery?.homeDir
+  const accountHomeSource: ProvisionedAccountHomeSource | undefined = configuredAccountHome
+    ? 'configured'
+    : namedInstanceAccountHome
+      ? 'named-instance'
+      : opts.discovery?.homeDir
+        ? 'test-override'
         : undefined
+  if (accountHomePath) await mkdir(accountHomePath, { recursive: true, mode: 0o700 })
+  const accountHome =
+    accountHomePath && accountHomeSource
+      ? provisionedAccountHome({
+          path: accountHomePath,
+          source: accountHomeSource,
+          ambientHome: process.env.HOME || homedir(),
+        })
+      : undefined
   const replayPendingBindingReceipts = async (): Promise<number> => {
     let replayed = 0
     for (const owner of await bindingStore.ownersWithPendingReceipts()) {
@@ -420,7 +435,7 @@ export async function createDaemonHostRuntime(args: {
     launch,
     settingsDir: instance.settingsDir,
     homeDir,
-    ...(accountHomeSource ? { accountHome: { path: homeDir, source: accountHomeSource } } : {}),
+    ...(accountHome ? { accountHome } : {}),
     bridges,
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     composerEngine,
