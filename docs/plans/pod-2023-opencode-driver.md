@@ -145,13 +145,54 @@ Attach v2 (client-terminal spawning). Codex (W6). Superagent/headless-thread mig
 Pooling. UI beyond what testing needs. Anthropic-subscription anything (opencode + Anthropic
 subscription is ToS-barred; provider keys only — this is recorded in the spec).
 
-## Acceptance checklist
-- [ ] Conformance green, zero exemptions, incl. secret-refusal test.
-- [ ] E2E flow above demonstrated on the integration branch.
-- [ ] Daemon restart mid-session: `adopt()` rebinds via journal, one bootstrap snapshot,
-      session continues.
-- [ ] Version gate refuses an out-of-range opencode with a diagnostic (unit-tested).
-- [ ] Default-path sessions (no override) are byte-identical to before.
+## Acceptance checklist — as landed (POD-2023)
+
+- [x] **Conformance green**, including the secret-refusal test. 26 properties against the
+      REAL driver over a REAL loopback listener speaking recorded 1.18.16 shapes; the
+      connect-without-secret probe is an actual credential-free request, not a stub.
+      ONE exemption, argued: `no-native-steer`. The two that matter —
+      `unverified-send`, `at-least-once-interactions` — are refused in both directions.
+      Steering turned out to be a per-HARNESS protocol verb (Codex has `turn/steer`,
+      opencode does not: a prompt POSTed into an open turn becomes a second turn that
+      runs afterwards), so no per-family value is true of both drivers. The corpus stops
+      leaning on that permission and now pins `deliveredAs` against each driver's declared
+      `send.native` in both directions, which bites on every family.
+- [x] **E2E flow demonstrated** — `tests/e2e/opencode-server.e2e.test.ts`, run against a
+      real `opencode serve`: spawn on the server driver, `accepted` proven by
+      `protocol-ack`, badge working → idle, the assistant reply rendering in the SESSION's
+      transcript (the UI's own buffer), interrupt, hibernate, parked-session refusal.
+      Opt-in via `PODIUM_OPENCODE_LIVE=1` — it needs a model credential, and a lane that
+      is occasionally red because a provider was slow is a lane people stop reading.
+- [x] **Version gate** refuses an out-of-range opencode with a machine diagnostic, unit
+      tested in both directions incl. an unreadable version and a throwing probe. Range
+      `>=1.18 <1.25`, pinned to the recorded fixtures and memoized one probe per daemon.
+- [x] **Default-path sessions unchanged.** The spawn fork is `resolveRuntimeDriver`, whose
+      ranking is untouched — terminal first for every harness — so a spawn that names no
+      driver never reaches the branch. Pinned by `apps/daemon/src/runtime/opencode-server.test.ts`
+      ("DEFAULTS TO TERMINAL, even with the server driver available").
+- [~] **Daemon restart mid-session.** `adopt()` is implemented against the 0600 binding
+      journal (exact process key, then a health probe with the stored secret) and its
+      round-trip — same session, monotonic epoch, higher observer generation, refusal for a
+      process that did not survive — is proved by four conformance properties against the
+      real driver. What is NOT covered by an automated lane is killing a live DAEMON with a
+      real opencode behind it and watching it rebind; that needs a two-process e2e the
+      harness does not have today. Recorded as the one gap rather than implied.
+
+## What the plan said and what landed differently
+
+- **Resume is a server restart, not `--session`.** `opencode serve` has no such flag and
+  needs none: the conversation is rows in a database that outlives the process.
+- **Attach is implemented, not declared-unimplemented.** The server family is not permitted
+  `no-attach` (that is embedded's), so declaring it would have failed a property this driver
+  is not entitled to fail. It returns the family's own `{kind:'client'}` variant through a
+  host port; the daemon's port is unbound, so the verb refuses per-machine rather than
+  claiming a capability.
+- **Shared SQLite is safe** — 40 concurrent writes across two `serve` processes, zero
+  failures, full cross-process visibility, WAL + a 5s busy timeout. No per-session
+  `XDG_DATA_HOME`, no rewire of the transcript source.
+- **The permission reply route is `POST /permission/{id}/reply`**, not the
+  `POST /session/:id/permissions/:id` the plan guessed; both exist in 1.18.16 and only the
+  first was exercised end to end. `/event` without `?directory=` is SILENTLY empty.
 
 ## Pitfalls
 - Pin shapes from the live `/doc`, not from memory or web docs — community docs of this API
