@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 import {
+  LIVE_HEARTBEAT_MS,
   RENDER_WINDOW,
   type UseTranscriptWindowOptions,
   type UseTranscriptWindowResult,
@@ -146,6 +147,7 @@ afterEach(() => {
   container.remove()
   resetSwitchTraces()
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 async function flush(): Promise<void> {
@@ -562,6 +564,70 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
     }
     await settleDebounce()
     expect(reads).toHaveLength(2)
+  })
+
+  it('lets a delivered live delta satisfy the matching activity update', async () => {
+    await mountLoaded()
+    act(() => {
+      root.render(
+        <Probe active={true} session={meta({ lastActiveAt: '2026-06-03T00:05:00.000Z' })} />,
+      )
+    })
+    act(() => {
+      fakeHub.subscribes[0]?.cb([item('b', 'c2', 'arrived live')], { reset: false })
+    })
+    await settleDebounce()
+
+    expect(reads).toHaveLength(1)
+    expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
+  })
+
+  it('uses a single-flight one-item heartbeat and expands only when the tail changed', async () => {
+    vi.useFakeTimers()
+    await mountLoaded()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS)
+    })
+    expect(reads).toHaveLength(2)
+    expect(reads[1]?.input.limit).toBe(1)
+
+    // Several timer ticks while the daemon is slow must not queue more reads.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS * 3)
+    })
+    expect(reads).toHaveLength(2)
+
+    await act(async () => {
+      reads[1]?.resolve({ items: [item('a', 'c1', 'first')], tail: 'c1', hasMore: true })
+    })
+    await flush()
+    expect(reads).toHaveLength(2)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS)
+    })
+    expect(reads[2]?.input.limit).toBe(1)
+    await act(async () => {
+      reads[2]?.resolve({
+        items: [item('b', 'c2', 'missed by the live feed')],
+        tail: 'c2',
+        hasMore: true,
+      })
+    })
+    await flush()
+
+    expect(reads[3]?.input.limit).toBe(200)
+    await act(async () => {
+      reads[3]?.resolve({
+        items: [item('a', 'c1', 'first'), item('b', 'c2', 'missed by the live feed')],
+        head: 'c1',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+    expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
   })
 
   it('does not re-read while the pane is in the BACKGROUND — only the foreground pays', async () => {

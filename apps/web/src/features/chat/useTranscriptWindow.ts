@@ -10,6 +10,7 @@ import {
   type ChatRow,
   dedupeByCursor,
   freshOlderPage,
+  itemKey,
   mergeByCursor,
   reconcileReset,
   sameItems,
@@ -49,11 +50,11 @@ const PAGE_LIMIT = 400
 const SEARCH_DEPTH = 1000
 // The floor under a live foreground chat [POD-701]: how often it reconciles its
 // window against disk when nothing on the session row has moved. Long enough
-// that an idle pane is not polling in any meaningful sense (one 200-item read,
-// p50 21ms server-side, and no re-render unless the transcript actually grew),
-// short enough that a reader never sits in front of a silent feed wondering
-// whether the agent is alive.
-const LIVE_HEARTBEAT_MS = 6_000
+// that an idle pane is not polling in any meaningful sense (one newest-item
+// tail probe, with a full reconcile only when that tail changed), short enough
+// that a reader never sits in front of a silent feed wondering whether the
+// agent is alive.
+export const LIVE_HEARTBEAT_MS = 6_000
 
 const EMPTY_TRANSCRIPT_SEARCH: TranscriptSearchState = {
   matches: [],
@@ -223,6 +224,11 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // on every delta). Same render-time ref-mirror pattern as headCursorRef above.
   const windowLenRef = useRef(0)
   windowLenRef.current = items.length
+  // The heartbeat only needs to answer "does disk have a tail we have not
+  // seen?" Keep the held window in a ref so its one-item probe can compare
+  // without binding the probe callback to every live delta.
+  const heldItemsRef = useRef<TranscriptItem[]>([])
+  heldItemsRef.current = items
 
   // Mirror the live sessionId so an in-flight read can bail if the session
   // switched out from under it (the held window now belongs to a different
@@ -237,6 +243,20 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // reconcile below for what reads them.
   const activitySignalRef = useRef('')
   const reconciledSignalRef = useRef<string | null>(null)
+  // A slow daemon read must not turn the activity debounce and heartbeat into
+  // overlapping 200-item responses. Scheduled calls for the same session share
+  // one reconcile; lifecycle boundaries (initial load, reset, activation) force
+  // their own read because each establishes a fresh subscription/window epoch.
+  const reconcileInFlightRef = useRef<{
+    sessionId: SessionId
+    promise: Promise<{
+      items: TranscriptItem[]
+      head?: string
+      tail?: string
+      hasMore: boolean
+    }>
+  } | null>(null)
+  const probeInFlightRef = useRef<{ sessionId: SessionId; promise: Promise<void> } | null>(null)
 
   // Read the newest window off disk and reconcile it into the held window — never a
   // blind replace. `reconcileReset` keeps any live-tailed in-flight record the disk
@@ -244,47 +264,94 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // so the newest messages can't flash in then vanish on a reattach re-seed (e.g.
   // after a server/daemon redeploy). Stable identity (keyed on session) so other
   // effects can call it to refresh the window without re-mounting the subscription.
-  const readNewest = useCallback(async () => {
+  const readNewest = useCallback(
+    (force = false) => {
+      const sid = sessionId
+      const current = reconcileInFlightRef.current
+      if (!force && current?.sessionId === sid) return current.promise
+      const promise = (async () => {
+        // These marks intentionally enclose only the awaited tRPC read. The interval
+        // therefore includes browser↔server transport and response decoding; JS/React
+        // materialization is measured separately by `chat:rows-built` below.
+        markSwitch(sid, 'transcript:read-start')
+        const r = await trpc.sessions.transcriptRead.query({
+          sessionId: sid,
+          direction: 'before',
+          limit: INITIAL_LIMIT,
+        })
+        markSwitch(sid, 'transcript:read-end', { items: r.items.length })
+        if (sessionIdRef.current !== sid) return r // session switched mid-read — drop it
+        // This read IS the window being brought current, whatever the session row
+        // says right now — so the liveness reconcile has nothing left to chase.
+        reconciledSignalRef.current = activitySignalRef.current
+        // Keep the OLD array when the re-read changed nothing (POD-701): a refresh
+        // that returns the same transcript must cost nothing, or the liveness
+        // reconcile below would re-derive and re-render the whole feed on a timer.
+        setItems((prev) => {
+          const next = reconcileReset(prev, r.items, r.tail)
+          return sameItems(prev, next) ? prev : next
+        })
+        // Identity-preserving when there is nothing to clear, for the same reason:
+        // a fresh `[]` re-runs the `effectiveItems` memo on every refresh.
+        setOlder((prev) => (prev.length === 0 ? prev : []))
+        setHeadCursor(r.head)
+        setHasMoreOlder(r.hasMore)
+        setInitialLoaded(true)
+        // A fresh read is server truth again — drop the offline-copy notice and
+        // write the window through into the replica so an offline reopen can serve
+        // it (bounded per spec §2.3; a no-op when persistence is unavailable).
+        setOfflineAsOf(null)
+        // A fresh, non-empty server read with the subscription intact is a healthy
+        // window a later warm activation can reuse; an empty read is not (nothing to
+        // paint from — the next activation must re-read).
+        windowHealthy.current = r.items.length > 0
+        // Optional-chained: some test harnesses mock a partial store without a replica.
+        if (r.items.length > 0) replica?.putTranscriptWindow(sid, r.items)
+        return r
+      })()
+      const entry = { sessionId: sid, promise }
+      reconcileInFlightRef.current = entry
+      const clear = (): void => {
+        if (reconcileInFlightRef.current === entry) reconcileInFlightRef.current = null
+      }
+      void promise.then(clear, clear)
+      return promise
+    },
+    [trpc, sessionId, replica],
+  )
+
+  // The fixed heartbeat used to deserialize the full 200-item window every six
+  // seconds even when the WebSocket feed was healthy. A one-item newest-tail
+  // read is enough to prove the held window current. Only a missing or changed
+  // tail escalates to the full reconcile, preserving the dropped-feed recovery
+  // while making the steady state one tiny response. Probes are single-flight;
+  // a slow daemon cannot accumulate timer work behind the main thread.
+  const probeNewest = useCallback((): Promise<void> => {
     const sid = sessionId
-    // These marks intentionally enclose only the awaited tRPC read. The interval
-    // therefore includes browser↔server transport and response decoding; JS/React
-    // materialization is measured separately by `chat:rows-built` below.
-    markSwitch(sid, 'transcript:read-start')
-    const r = await trpc.sessions.transcriptRead.query({
-      sessionId: sid,
-      direction: 'before',
-      limit: INITIAL_LIMIT,
-    })
-    markSwitch(sid, 'transcript:read-end', { items: r.items.length })
-    if (sessionIdRef.current !== sid) return r // session switched mid-read — drop it
-    // This read IS the window being brought current, whatever the session row
-    // says right now — so the liveness reconcile has nothing left to chase.
-    reconciledSignalRef.current = activitySignalRef.current
-    // Keep the OLD array when the re-read changed nothing (POD-701): a refresh
-    // that returns the same transcript must cost nothing, or the liveness
-    // reconcile below would re-derive and re-render the whole feed on a timer.
-    setItems((prev) => {
-      const next = reconcileReset(prev, r.items, r.tail)
-      return sameItems(prev, next) ? prev : next
-    })
-    // Identity-preserving when there is nothing to clear, for the same reason:
-    // a fresh `[]` re-runs the `effectiveItems` memo on every refresh.
-    setOlder((prev) => (prev.length === 0 ? prev : []))
-    setHeadCursor(r.head)
-    setHasMoreOlder(r.hasMore)
-    setInitialLoaded(true)
-    // A fresh read is server truth again — drop the offline-copy notice and
-    // write the window through into the replica so an offline reopen can serve
-    // it (bounded per spec §2.3; a no-op when persistence is unavailable).
-    setOfflineAsOf(null)
-    // A fresh, non-empty server read with the subscription intact is a healthy
-    // window a later warm activation can reuse; an empty read is not (nothing to
-    // paint from — the next activation must re-read).
-    windowHealthy.current = r.items.length > 0
-    // Optional-chained: some test harnesses mock a partial store without a replica.
-    if (r.items.length > 0) replica?.putTranscriptWindow(sid, r.items)
-    return r
-  }, [trpc, sessionId, replica])
+    if (reconcileInFlightRef.current?.sessionId === sid) return Promise.resolve()
+    const current = probeInFlightRef.current
+    if (current?.sessionId === sid) return current.promise
+    const promise = (async () => {
+      const r = await trpc.sessions.transcriptRead.query({
+        sessionId: sid,
+        direction: 'before',
+        limit: 1,
+      })
+      if (sessionIdRef.current !== sid) return
+      const remote = r.items.at(-1)
+      if (remote === undefined) return
+      const held = heldItemsRef.current.find((item) => itemKey(item) === itemKey(remote))
+      if (held !== undefined && sameItems([held], [remote])) return
+      await readNewest()
+    })()
+    const entry = { sessionId: sid, promise }
+    probeInFlightRef.current = entry
+    const clear = (): void => {
+      if (probeInFlightRef.current === entry) probeInFlightRef.current = null
+    }
+    void promise.then(clear, clear)
+    return promise
+  }, [readNewest, sessionId, trpc])
 
   // Read-then-subscribe: the single source of the transcript window for ANY
   // status. (1) Read the newest window off disk via tRPC — this alone populates a
@@ -341,7 +408,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     if (cachedSeed !== undefined && cachedSeed.items.length > 0) setItems(cachedSeed.items)
 
     ;(async () => {
-      const r = await readNewest()
+      const r = await readNewest(true)
       if (cancelled) return
       unsub = hub.subscribeTranscript(sessionId, r.tail, (delta, meta) => {
         if (meta.reset) {
@@ -354,9 +421,13 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
           // A reset breaks subscription continuity — the held cursors may no longer
           // be current, so the window is no longer skip-safe until the re-read heals it.
           windowHealthy.current = false
-          void readNewest().catch(() => {}) // transient failure — keep the held window
+          void readNewest(true).catch(() => {}) // transient failure — keep the held window
           return
         }
+        // A delivered delta proves the held window is current through this
+        // activity signal. Re-check in the debounce callback below so a row
+        // update and its transcript delta collapse to the live-feed fast path.
+        reconciledSignalRef.current = activitySignalRef.current
         setItems((prev) => mergeByCursor(prev, delta))
       })
     })().catch(() => {
@@ -424,7 +495,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
       reconciledSignalRef.current = activitySignalRef.current
       return
     }
-    if (wokeToLive || becameActive) void readNewest().catch(() => {}) // keep the held window
+    if (wokeToLive || becameActive) void readNewest(true).catch(() => {}) // keep the held window
   }, [session?.status, active, initialLoaded, readNewest, sessionId])
 
   // -------------------------------------------------------------------------
@@ -476,25 +547,27 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     if (reconciledSignalRef.current === activitySignal) return
     // Trailing debounce: a working agent moves these fields several times a
     // second, and the point is to be current, not to re-read once per tick.
-    const t = setTimeout(() => void readNewestRef.current().catch(() => {}), 400)
+    const t = setTimeout(() => {
+      if (reconciledSignalRef.current === activitySignal) return
+      void readNewestRef.current().catch(() => {})
+    }, 400)
     return () => clearTimeout(t)
   }, [active, initialLoaded, pagedBack, activitySignal])
   useEffect(() => {
     if (!active || !initialLoaded || !live || pagedBack) return
     if (typeof document === 'undefined') return
-    const refresh = (): void => void readNewestRef.current().catch(() => {})
-    const beat = setInterval(refresh, LIVE_HEARTBEAT_MS)
+    const beat = setInterval(() => void probeNewest().catch(() => {}), LIVE_HEARTBEAT_MS)
     // A tab that was hidden may have had its timers throttled to nothing and
     // its socket dropped; coming back is the moment to be sure.
     const onVisible = (): void => {
-      if (document.visibilityState === 'visible') refresh()
+      if (document.visibilityState === 'visible') void readNewestRef.current(true).catch(() => {})
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       clearInterval(beat)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [active, initialLoaded, live, pagedBack])
+  }, [active, initialLoaded, live, pagedBack, probeNewest])
 
   // The full loaded list: older pages prepended to the held window. A small
   // cursor-dedupe at the seam guards a one-item paging/live overlap.
