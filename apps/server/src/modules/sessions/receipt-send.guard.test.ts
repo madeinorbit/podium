@@ -129,6 +129,49 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     expect(forwarded).toEqual([])
   })
 
+  it('carries the idempotency key and the ledger id into the durable row', () => {
+    // REGRESSION. The port originally carried neither, and nothing about a send
+    // would have looked wrong: a dropped `mutationId` turns every steward or
+    // automation retry from a no-op into a duplicate turn, and a dropped
+    // `sourceMessageId` leaves the row invisible to the ledger that must confirm
+    // it, uncancellable, and re-pushed by the next sweep. Both failures surface
+    // far from the cause, as duplicated or stuck work.
+    const rows: Record<string, unknown>[] = []
+    const s = new ReceiptSender({
+      legacy: {
+        sendText: () => ({ ok: true }),
+        queueText: () => ({ ok: true, queued: true }),
+        interruptText: () => ({ ok: true }),
+        resumeAndSend: () => ({ ok: true }),
+      },
+      contract: { send: async () => ({ outcome: 'refused', refusal: { reason: 'not_running' } }) },
+      queue: {
+        enqueue: (input) => {
+          rows.push(input as unknown as Record<string, unknown>)
+          return { ok: true, position: 1 }
+        },
+      },
+      onContract: () => true,
+      liveWithEmptyQueue: () => false,
+      systemPrincipal: () => ({
+        kind: 'system',
+        attribution: { actor: { kind: 'system', job: 'guard' }, onBehalfOf: null },
+        principalRef: 'guard',
+        delegation: null,
+      }),
+      now: () => 0,
+    })
+
+    s.send('queue', {
+      sessionId: asSessionId('s1'),
+      text: 'nudge',
+      mutationId: 'fact-key-1' as never,
+      sourceMessageId: 'msg-1',
+    })
+
+    expect(rows[0]).toMatchObject({ mutationId: 'fact-key-1', sourceMessageId: 'msg-1' })
+  })
+
   it('completes a parked wake on the server too — the resurrect the driver cannot do', () => {
     const { s, forwarded, enqueued } = sender(true)
     s.send('wake', { sessionId: asSessionId('s1'), text: 'wake up' })

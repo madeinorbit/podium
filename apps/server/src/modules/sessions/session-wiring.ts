@@ -478,6 +478,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         // turn as system, which is a privilege escalation the moment W4 routes
         // a real caller.
         principal: input.principal,
+        // CARRIED THROUGH, not defaulted away: the idempotency key that makes a
+        // steward/automation retry a no-op, and the ledger id the messages
+        // module confirms, cancels and sweep-guards a queued row by.
+        ...(input.mutationId ? { mutationId: input.mutationId } : {}),
+        ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
       })
       if (!queued.ok) {
         return {

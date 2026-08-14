@@ -231,6 +231,14 @@ export class ReceiptSender {
       text: input.text,
       origin: input.inputOrigin ?? 'controller',
       principal: input.principal ?? this.ports.systemPrincipal(),
+      // EVERYTHING THE LEGACY VERB CARRIED, CARRIED. A queued turn that lost its
+      // `mutationId` makes every steward/automation retry a duplicate rather
+      // than a no-op; one that lost its `sourceMessageId` is invisible to the
+      // ledger that has to confirm it, uncancellable, and re-pushed by the next
+      // sweep. Neither failure would surface at the send — both surface later,
+      // as duplicated or stuck work.
+      ...(input.mutationId ? { mutationId: input.mutationId } : {}),
+      ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
     })
     if (!queued.ok) {
       onReceipt?.(

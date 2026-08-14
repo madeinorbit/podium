@@ -31,7 +31,7 @@
  * that nothing routes through it yet and everything still works.
  */
 
-import type { MachineId, SessionId } from '@podium/model'
+import type { MachineId, MutationId, SessionId } from '@podium/model'
 import type {
   InteractionAnswerOutcome,
   ObservationInputOrigin,
@@ -67,6 +67,27 @@ export interface RuntimeDurableQueuePort {
      * sender never had.
      */
     principal: InboxPrincipalReference
+    /**
+     * IDEMPOTENCY, CARRIED (POD-1761 W4).
+     *
+     * The durable row's primary key. Steward nudges and automation runs key it
+     * to a fact/run id precisely so a crash-retry or a second poll re-enqueues
+     * NOTHING — `queueText` recognises the id as already applied. Dropping it on
+     * the way through would turn every retry into a duplicate turn.
+     */
+    mutationId?: MutationId
+    /**
+     * WHICH LEDGER ROW THIS TURN IS (POD-1761 W4).
+     *
+     * The messages module correlates the queued row back to its message by this
+     * id: it is how a drain confirms the right row (`onQueuedInputApplied`), how
+     * a cancellation finds the still-pending turns to delete
+     * (`cancelQueuedMessage`), and how the sweep knows not to re-push something
+     * already sitting in the queue (`hasQueuedMessage`). A queued turn that
+     * forgot it would be undeliverable-to-the-ledger, uncancellable, and
+     * re-pushed by the next sweep.
+     */
+    sourceMessageId?: string
   }): { ok: true; position: number } | { ok: false; reason: Refusal['reason']; detail?: string }
 }
 
