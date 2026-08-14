@@ -160,7 +160,7 @@ export function SetupUnreachable({
               }}
             >
               <RotateCw size={12} aria-hidden="true" />
-              automatic retries exhausted
+              retrying automatically — this screen clears itself
             </div>
             <button
               data-pressable

@@ -2,6 +2,7 @@ import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
 import { isServerReadiness, type ServerReadiness } from '@podium/model'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
+import { hasSyncedReplica } from '@/lib/replica-presence'
 import { SetupUnreachable } from './SetupUnreachable'
 import { restartPodiumShell } from './restart-shell'
 import { checkServerVersion } from './version-guard'
@@ -15,7 +16,11 @@ type Phase =
   | 'remote-setup'
   | 'restart-required'
   | 'ready'
+  /** Backoff exhausted and nothing on this device to render: the recovery console. */
   | 'unreachable'
+  /** Backoff exhausted, but this device has synced before — render the cached app
+   *  (see the fall-through below) and keep asking the backend in the background. */
+  | 'degraded'
 
 export interface SetupStatus extends Partial<ServerReadiness> {
   needsSetup?: unknown
@@ -25,6 +30,9 @@ export interface SetupStatus extends Partial<ServerReadiness> {
 const MAX_RETRIES = 5
 const BASE_DELAY_MS = 250
 const MAX_DELAY_MS = 4000
+/** How often a gate that gave up re-asks. The browser's `online` event is the fast
+ *  path, but it never fires for a server that came back behind a healthy network. */
+const RECOVERY_POLL_MS = 15_000
 
 /** Desktop shell exposes a restart hook so a mode change re-runs the shell (re-reads config);
  *  a web reload alone would keep the same shell process. Browser → plain reload. */
@@ -173,7 +181,12 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
               if (alive) run(tries + 1)
             }, delay)
           } else {
-            setPhase('unreachable')
+            // A machine that has synced before cannot need first-run setup, so an
+            // unreachable backend is no reason to withhold the workspace it already
+            // holds: fall through to the app and let it render from its replica
+            // (POD-2057). Without that local slice there is nothing to fall through
+            // TO, and the recovery console is the honest screen.
+            setPhase(hasSyncedReplica() ? 'degraded' : 'unreachable')
           }
         })
     }
@@ -192,9 +205,41 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
     }
   }, [httpOrigin, attempt])
 
-  // The splash, not nothing: this used to `return null` for the /setup/config
-  // round-trip — the boot's second blank phase (POD-1249). The reload-in-flight
-  // case stays on 'loading' too, and a splash beats a blank page there as well.
+  // AUTO-RECOVERY, for both ways the probe can end badly. Neither phase is a
+  // resting place: 'degraded' still owes the user the answer it could not get,
+  // and 'unreachable' has nothing to show until the backend speaks. So keep
+  // asking — on the OS's own signal that the network returned, and on a timer
+  // for the restarts it never announces — instead of waiting for a human to
+  // press a button that may be on a screen nobody is looking at.
+  //
+  // A failed re-probe is deliberately silent: it leaves the phase alone, so a
+  // degraded app is never yanked back to a loading screen and the recovery
+  // console never flickers. Only an ANSWER moves the gate — including a
+  // `needsSetup` one, which sends even a degraded app to the wizard: it is the
+  // same answer a reload would get, and an unconfigured backend has no session
+  // to sync with anyway.
+  useEffect(() => {
+    if (phase !== 'degraded' && phase !== 'unreachable') return
+    let alive = true
+    const reprobe = (): void => {
+      probeSetup(httpOrigin)
+        .then((next) => {
+          if (alive) setPhase(next)
+        })
+        .catch(() => {})
+    }
+    const timer = setInterval(reprobe, RECOVERY_POLL_MS)
+    window.addEventListener('online', reprobe)
+    return () => {
+      alive = false
+      clearInterval(timer)
+      window.removeEventListener('online', reprobe)
+    }
+  }, [phase, httpOrigin])
+
+  // The splash, not nothing: this used to return null for the setup probe
+  // round-trip. The reload-in-flight case stays on loading too, and a splash
+  // beats a blank page there as well (POD-1249).
   if (phase === 'loading') return <LoadingScreen />
   if (phase === 'unreachable') {
     return <SetupUnreachable httpOrigin={httpOrigin} onRetry={() => setAttempt((n) => n + 1)} />
@@ -231,5 +276,5 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
       </Suspense>
     )
   }
-  return <>{children}</>
+  return <>{children}</> // 'ready', and 'degraded' — the offline fall-through
 }

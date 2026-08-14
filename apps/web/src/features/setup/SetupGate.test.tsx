@@ -23,12 +23,28 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.useRealTimers()
+  localStorage.clear()
   ;(globalThis as { __PODIUM_SKIP_SETUP__?: boolean }).__PODIUM_SKIP_SETUP__ = undefined
   ;(globalThis as { __PODIUM_LOCAL_SETUP__?: boolean }).__PODIUM_LOCAL_SETUP__ = undefined
   connect.mockClear()
 })
 
 const child = <div>APP-READY</div>
+
+/** The durable evidence a device has synced before: one principal namespace marker,
+ *  written at the address `preparePrincipalNamespace` uses (spelled out here so a
+ *  change to that address has to be a deliberate one). */
+function seedSyncedReplica(principal: string): void {
+  localStorage.setItem(
+    `podium.kernel-replica.principal.${encodeURIComponent(principal)}.namespace.v1`,
+    JSON.stringify({ principal, lastUsedAt: Date.now() }),
+  )
+}
+
+/** Drive the bounded backoff to exhaustion. */
+async function exhaustRetries(): Promise<void> {
+  for (let i = 0; i < 8; i++) await vi.advanceTimersByTimeAsync(4000)
+}
 
 describe('SetupGate', () => {
   it('trusts only loopback and bundled desktop origins for automatic local setup', () => {
@@ -243,5 +259,88 @@ describe('SetupGate', () => {
     await vi.advanceTimersByTimeAsync(1)
 
     expect(fetchMock.mock.calls.length).toBeGreaterThan(7)
+  })
+
+  it('renders the cached app when the backend is unreachable but this device has synced', async () => {
+    vi.useFakeTimers()
+    seedSyncedReplica('user-1')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    render(<SetupGate>{child}</SetupGate>)
+    await exhaustRetries()
+
+    expect(screen.getByText('APP-READY')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /the backend went quiet/i })).toBeNull()
+  })
+
+  it('keeps the recovery console when the device holds more than one principal', async () => {
+    // The replica gate refuses to pick a slice owner offline when two are retained,
+    // so falling through here would only trade this screen for its fatal one.
+    vi.useFakeTimers()
+    seedSyncedReplica('user-1')
+    seedSyncedReplica('user-2')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    render(<SetupGate>{child}</SetupGate>)
+    await exhaustRetries()
+
+    expect(screen.getByRole('heading', { name: /the backend went quiet/i })).toBeTruthy()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+  })
+
+  it('keeps probing after the offline fall-through, and honours a backend that needs setup', async () => {
+    vi.useFakeTimers()
+    seedSyncedReplica('user-1')
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<SetupGate>{child}</SetupGate>)
+    await exhaustRetries()
+    expect(screen.getByText('APP-READY')).toBeTruthy()
+
+    fetchMock.mockResolvedValue({ status: 200, ok: true, json: async () => ({ needsSetup: true }) })
+    await vi.advanceTimersByTimeAsync(20_000)
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(screen.getByText(/welcome to podium/i)).toBeTruthy()
+  })
+
+  it('recovers on its own when the network returns while the recovery console is up', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<SetupGate>{child}</SetupGate>)
+    await exhaustRetries()
+    expect(screen.getByRole('heading', { name: /the backend went quiet/i })).toBeTruthy()
+
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ needsSetup: false }),
+    })
+    window.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(1)
+
+    // Only 2ms of clock has passed since the event: far too little for the
+    // periodic poll, so this recovery is the listener's doing.
+    expect(screen.getByText('APP-READY')).toBeTruthy()
+  })
+
+  it('keeps retrying on a timer while the recovery console is up', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<SetupGate>{child}</SetupGate>)
+    await exhaustRetries()
+    expect(screen.getByRole('heading', { name: /the backend went quiet/i })).toBeTruthy()
+
+    // No 'online' event: a server that came back behind a healthy network is the
+    // case the browser never announces.
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ needsSetup: false }),
+    })
+    await vi.advanceTimersByTimeAsync(20_000)
+
+    expect(screen.getByText('APP-READY')).toBeTruthy()
   })
 })
