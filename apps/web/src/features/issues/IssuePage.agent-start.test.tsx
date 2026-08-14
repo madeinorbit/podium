@@ -6,7 +6,7 @@ import { IssuePage } from './IssuePage'
 const addSession = vi.fn(async () => ({}))
 const addShell = vi.fn(async () => ({}))
 const start = vi.fn(async () => ({}))
-const update = vi.fn(async () => ({}))
+const update = vi.fn(async (_input: unknown) => ({}))
 
 vi.mock('@/app/store', () => {
   const state = () =>

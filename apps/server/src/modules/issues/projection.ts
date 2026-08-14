@@ -6,6 +6,7 @@ import {
   asAgentIdentityId,
   asUserId,
   IssueDep,
+  type IssueDepId,
   type IssueDepProjection,
   type IssueProjection,
   issueDepId,
@@ -254,12 +255,12 @@ export function issueDepToProjection(dep: {
  */
 export function issueDepProjectionRows(
   deps: Iterable<{ fromId: string; toId: string; type: string }>,
-): { id: IssueId; value: IssueDepProjection }[] | undefined {
-  const out: { id: IssueId; value: IssueDepProjection }[] = []
+): { id: IssueDepId; value: IssueDepProjection }[] | undefined {
+  const out: { id: IssueDepId; value: IssueDepProjection }[] = []
   for (const dep of deps) {
     try {
       const value = issueDepToProjection(dep)
-      out.push({ id: value.fromId, value })
+      out.push({ id: value.id, value })
     } catch (err) {
       log.warn(
         'a dependency could not be projected — skipping the whole issueDep publish so reconcile cannot mistake a partial list for deleted dependencies',

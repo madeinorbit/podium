@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePage } from './IssuePage'
 
-const update = vi.fn(async () => ({}))
+const update = vi.fn(async (_input: unknown) => ({}))
 const panelApply = vi.fn(async () => ({}))
 const openFileInWorktree = vi.fn()
 const openArtifact = vi.fn()

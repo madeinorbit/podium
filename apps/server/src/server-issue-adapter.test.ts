@@ -38,7 +38,7 @@ describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
     expect(list).toHaveLength(1)
   })
 
-  it('panelApply artifact-add pulls a snapshot — errors cleanly with no worktree/session ([spec:SP-0fc9])', async () => {
+  it('panelApply artifact-add pulls a snapshot — errors cleanly with no owning worktree ([spec:SP-0fc9])', async () => {
     const c = client()
     const created = (await c.issues.create.mutate({
       repoPath: '/r',
@@ -49,7 +49,7 @@ describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
       Promise.resolve(
         c.issues.panelApply.mutate({ id: created.id, op: 'artifact-add', path: 'shot.png' }),
       ),
-    ).rejects.toThrow(/no worktree or session/)
+    ).rejects.toThrow(/no owning worktree/)
     // nothing half-registered
     const got = (await c.issues.get.query({ id: created.id })) as {
       panel?: { artifacts: unknown[] }

@@ -322,7 +322,7 @@ describe('oracle: kill', () => {
 })
 
 describe('oracle: sendText / resumeAndSend', () => {
-  it('interrupt sends one bare Esc to the PTY and no replacement text', async () => {
+  it(`${MUST_NOT_CHANGE}: interrupt sends one bare Esc to the PTY and no replacement text`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId, 'working')

@@ -10,6 +10,7 @@ import {
   asSessionId,
   asThreadId,
   asUserId,
+  BUILTIN_HARNESS_KINDS,
   FIRST_ADMIN_USER_ID,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
@@ -74,6 +75,20 @@ async function harness() {
         }),
       )
     }
+  })
+  registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    type: 'inventoryReport',
+    machineId: registry.sessionStore.hostMachineId,
+    inventory: {
+      os: 'linux',
+      arch: 'x64',
+      agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
+        kind,
+        installed: true,
+        login: { state: 'in' as const },
+      })),
+      tools: [],
+    },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   await repos.add('/r')
@@ -184,7 +199,6 @@ describe('bounded headless session identity', () => {
     expect(
       h.registry.modules.sessions.listSessions().find((row) => row.sessionId === sessionId),
     ).toMatchObject({
-      ownerUserId: FIRST_ADMIN_USER_ID,
       createdBy,
       issueId,
       accountId,

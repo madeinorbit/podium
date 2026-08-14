@@ -2110,7 +2110,11 @@ export class SessionRegistry {
       },
     })
     this.shipping = shipping
-    this.bus.on('machine.connected', () => void shipping.reconcile())
+    this.bus.on('machine.connected', () => {
+      void shipping
+        .reconcile()
+        .catch((error) => log.warn('shipping machine recovery deferred', { err: error }))
+    })
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
     const layout = new LayoutService({ layout: this.store.layout, ledger })

@@ -556,14 +556,14 @@ describe('Shipping command boundary', () => {
     await expect(
       dispatcher.run(agentCaller(root.id), 'ship', issueRegistry.defs.ship, {}),
     ).resolves.toBeDefined()
-    await expect(
+    expect(() =>
       dispatcher.run(
         { capability: agentCaller(root.id).capability },
         'ship',
         issueRegistry.defs.ship,
         {},
       ),
-    ).rejects.toThrow(/missing authenticated command principal/)
+    ).toThrow(/missing authenticated command principal/)
     expect(enqueueCurrent).toHaveBeenCalledTimes(1)
   })
 

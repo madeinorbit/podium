@@ -16,7 +16,7 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type { IssueUpdatePatch } from '@podium/commands'
+import type { IssueUpdatePatch, SuperagentUserFocus } from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
@@ -34,7 +34,7 @@ import type {
   ThreadId,
 } from '@podium/model'
 import type { LockWire, SyncChangesSinceResult } from '@podium/protocol'
-import type { PodiumSettings } from '@podium/runtime'
+import type { HarnessAgent, PodiumSettings } from '@podium/runtime'
 import type { SuperThreadView } from './viewmodels/slices/superagent'
 import type { PinKind, PinState } from './viewmodels/types'
 
@@ -272,12 +272,13 @@ export interface PodiumClientApi {
     startBtw: ApiMutation<{ sessionId: SessionId }>
     sendTurn: ApiMutation<
       {
-        threadId: ThreadId
+        threadId?: ThreadId
         text: string
+        focus?: SuperagentUserFocus
         /** Prompt-box backend (POD-782). Omitted leaves the thread's choice. */
         model?: string
         effort?: string
-        agentKind?: AgentKind
+        agentKind?: HarnessAgent
       },
       { threadId: ThreadId; podiumSessionId?: SessionId }
     >

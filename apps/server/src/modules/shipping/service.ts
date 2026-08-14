@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import {
   type Attribution,
   asDeliveryReceiptId,
@@ -58,6 +59,7 @@ import {
 
 const LEASE_MS = 45_000
 const SCHEDULER_INTERVAL_MS = 2_000
+const log = createLogger('server:shipping')
 
 export interface ApprovedShipOrderInput {
   issueId: IssueId
@@ -381,7 +383,9 @@ export class ShippingService {
 
   start(): void {
     if (this.timer) return
-    this.timer = setInterval(() => void this.tick(), SCHEDULER_INTERVAL_MS)
+    this.timer = setInterval(() => {
+      void this.tick().catch((err) => log.warn('scheduler tick failed', { err }))
+    }, SCHEDULER_INTERVAL_MS)
     this.timer.unref?.()
   }
 

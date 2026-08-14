@@ -423,8 +423,10 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
     // the line above asks: the per-command rows below run over this same list,
     // so `setPlacement` is already being asserted to declare a conflict class,
     // and it does. POD-781 added no command — its queued kinds all name
-    // contracts that were already here.
-    expect(mutations).toHaveLength(46)
+    // contracts that were already here. Shipping then added `ship`,
+    // `cancelShip`, and `resolveShipHold`; the per-command rows below verify all
+    // three declare a conflict class and agree with their input schemas.
+    expect(mutations).toHaveLength(49)
   })
 
   it.each(mutations)('%s declares a conflict class', (_name, def) => {
@@ -470,6 +472,8 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
       expect(def.conflictRule, `${name} is a query and has no rule to state`).toBeUndefined()
     }
     // Non-vacuity: the loop met the queries, not an empty registry.
-    expect(queries).toBe(25)
+    // Shipping's delivery receipt and durable artifact reads are the two query
+    // additions since this canary last moved.
+    expect(queries).toBe(27)
   })
 })
