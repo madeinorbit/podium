@@ -51,6 +51,22 @@ That return path is the next piece of work, filed as its own issue
 frame for attach, viewer connect/disconnect, and routing input to the
 attachment — which this epic scoped out of the current issue.
 
+## One thing this landing makes reachable
+
+Attaching in take-over mode claims the session's control lease, and the opencode
+driver writes that lease *unconditionally* — it does not refuse when someone else
+already holds it, where the terminal-family driver does. That code was
+unreachable until now, because the attach it sits behind always refused; wiring
+the port up is what puts it in the path of a real request.
+
+It matters more than bookkeeping: whose turns get delivered is decided by that
+lease, so a second attacher silently takes control from the first, and the first
+keeps sending and gets its messages queued with nothing telling it why. Confirmed
+as unintended by the driver's own issue and filed there as a fix before this is
+switched on for anyone; the fix is to route the take-over through the same
+lease-acquire that already refuses politely. Named here so it is not discovered
+later as a surprise.
+
 ## Warm-parking
 
 The client is parked rather than killed: it stays alive under abduco for a
