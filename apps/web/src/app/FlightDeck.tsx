@@ -30,6 +30,7 @@ import {
   reposToViews,
   reuseFlightDeckRows,
   type SessionRole,
+  sessionAsksOnIssue,
   sessionNeedsHuman,
   sessionRole,
   sessionSettled,
@@ -866,6 +867,7 @@ function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.El
  */
 function SessionRow({
   session,
+  issue = null,
   role = null,
   label = null,
   active,
@@ -876,6 +878,10 @@ function SessionRow({
   onOpenNative,
 }: {
   session: SessionMeta
+  /** The task this row hangs on. Needed to answer "is it asking?", which a
+   *  session cannot answer alone once the task has closed (POD-1072). Null
+   *  outside the tree, where the archived reveal draws rows on their own. */
+  issue?: IssueNavigationModel | null
   role?: SessionRole | null
   /** The role as a word, already resolved (a spawn parent needs a name). */
   label?: string | null
@@ -900,7 +906,8 @@ function SessionRow({
   const intent = useClickIntent()
   const retired = session.archived || session.status === 'exited'
   const starting = session.status === 'starting' || session.status === 'reconnecting'
-  const needs = !retired && sessionNeedsHuman(session)
+  const needs =
+    !retired && (issue ? sessionAsksOnIssue(issue, session) : sessionNeedsHuman(session))
   const phase = motionPhase(session)
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
   const now = useStoreSelector((store) => store.coarseNow)
@@ -1196,6 +1203,7 @@ function HungRows(ctx: HungContext): JSX.Element | null {
           <SessionRow
             key={session.sessionId}
             session={session}
+            issue={ctx.issue}
             role={role}
             label={roleLabel(role, ctx.nameOf)}
             active={ctx.activeSessionId === session.sessionId}

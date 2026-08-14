@@ -179,6 +179,28 @@ export function sessionNeedsHuman(session: SessionMeta): boolean {
   )
 }
 
+/** Closing is the operator's own "this is finished" flip. `done` and an explicit
+ *  `closedReason` are the two spellings of it, and every reader that asks "is
+ *  this over" must accept both — the board writes one, `issue close` the other. */
+export function issueClosed(issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>): boolean {
+  return issue.stage === 'done' || Boolean(issue.closedReason)
+}
+
+/**
+ * Does this session ask the operator for something ON THIS TASK?
+ *
+ * {@link sessionNeedsHuman} is about the session alone and cannot see the task,
+ * so it keeps saying yes to a standing offer long after the work closed. This is
+ * the version every attention surface should use (POD-1072): the same question,
+ * asked where the answer can account for the task being over.
+ */
+export function sessionAsksOnIssue(
+  issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>,
+  session: SessionMeta,
+): boolean {
+  return !issueClosed(issue) && !session.archived && sessionNeedsHuman(session)
+}
+
 export function issueNeedsHuman(
   issue: IssueNavigationModel,
   sessions: readonly SessionMeta[],
@@ -189,8 +211,9 @@ export function issueNeedsHuman(
   // decision: not a standing offer the agent posted a beat AFTER closing (which
   // the close-time sweep cannot see), not a session parked in `needs_user`, not
   // a question nobody got round to answering. The server retires those offers
-  // too — this is the rule that holds even when a race beats it.
-  if (issue.stage === 'done' || issue.closedReason) return false
+  // too — this is the rule that holds even when a race beats it, and the one
+  // that quiets the offers already sitting in the store from before it.
+  if (issueClosed(issue)) return false
   if (issue.needsHuman === true) return true
   if (sessions.some((session) => !session.archived && sessionNeedsHuman(session))) return true
   // An empty review whose session hopscotched is a signpost, not a review item.
@@ -949,11 +972,11 @@ export function deckIssueState(
  * the row claiming to be unattended when it is not.
  */
 export function deckSessions(
-  row: Pick<FlightDeckRow, 'sessions'>,
+  row: Pick<FlightDeckRow, 'issue' | 'sessions'>,
   mode: FlightDeckMode,
 ): SessionMeta[] {
   if (mode !== 'needs-you') return row.sessions
-  const asking = row.sessions.filter((session) => !session.archived && sessionNeedsHuman(session))
+  const asking = row.sessions.filter((session) => sessionAsksOnIssue(row.issue, session))
   return asking.length > 0 ? asking : row.sessions
 }
 

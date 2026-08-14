@@ -10,7 +10,7 @@ import {
   issueNote,
   motionPhase,
   presenceNote,
-  sessionNeedsHuman,
+  sessionAsksOnIssue,
   sessionRole,
   sessionSettled,
   sessionTitle,
@@ -494,7 +494,9 @@ function Band({
   onPress: () => void
 }) {
   const phase = motionPhase(session)
-  const asking = sessionNeedsHuman(session)
+  // Asked ON THIS TASK: a closed one never asks, however long its offer has been
+  // standing (POD-1072).
+  const asking = sessionAsksOnIssue(row.issue, session)
   const working = phase === 'working'
   const role = sessionRole(row.issue, session, {
     rootId: row.depth === 0 ? row.issue.id : null,

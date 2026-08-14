@@ -18,6 +18,7 @@ import {
   buildFlightDeckRows,
   coordinatorCount,
   deckIssueState,
+  deckSessions,
   type FlightDeckRow,
   issueContinuation,
   issueNeedsHuman,
@@ -39,6 +40,7 @@ import {
   presenceNote,
   relationNote,
   reuseFlightDeckRows,
+  sessionAsksOnIssue,
   sessionNeedsHuman,
   waitingNote,
 } from './mission'
@@ -1284,6 +1286,51 @@ describe('issueNeedsHuman', () => {
 
   it.each(cases)('is %s', (_name, target, sessions, expected) => {
     expect(issueNeedsHuman(target, sessions)).toBe(expected)
+  })
+})
+
+/**
+ * The session-level half of the same rule (POD-1072). `sessionNeedsHuman` cannot
+ * see the task, so every attention surface that draws a session — the deck's
+ * agent row, its `Needs you` filter — has to ask this one instead, or a closed
+ * task goes on flying an amber mark on the strength of an offer nobody can act
+ * on any more.
+ */
+describe('sessionAsksOnIssue', () => {
+  const asking = sess('a', { offer })
+
+  it('is true on an open task and false the moment it closes', () => {
+    expect(sessionAsksOnIssue(issue('i'), asking)).toBe(true)
+    expect(sessionAsksOnIssue(issue('i', { stage: 'done' }), asking)).toBe(false)
+    expect(sessionAsksOnIssue(issue('i', { closedReason: 'done' }), asking)).toBe(false)
+  })
+
+  it('still ignores an archived session and a session with nothing pending', () => {
+    expect(sessionAsksOnIssue(issue('i'), sess('a', { offer, archived: true }))).toBe(false)
+    expect(sessionAsksOnIssue(issue('i'), sess('a', { agentState: workingState }))).toBe(false)
+  })
+})
+
+describe('deckSessions', () => {
+  const row = (over: Parameters<typeof issue>[1], sessions: SessionMeta[]) =>
+    ({ issue: issue('i', over), sessions }) as Pick<FlightDeckRow, 'issue' | 'sessions'>
+
+  it('narrows an open task to the agents that asked', () => {
+    const quiet = sess('quiet', { agentState: workingState })
+    const loud = sess('loud', { offer })
+    expect(deckSessions(row({}, [quiet, loud]), 'needs-you')).toEqual([loud])
+    expect(deckSessions(row({}, [quiet, loud]), 'full')).toEqual([quiet, loud])
+  })
+
+  it('does not treat a closed task offer as an ask, so the row stays whole', () => {
+    const quiet = sess('quiet', { agentState: workingState })
+    const stale = sess('stale', { offer })
+    // Nothing on the row is asking any more, so the view keeps the row's agents
+    // rather than claiming it is unattended.
+    expect(deckSessions(row({ stage: 'done' }, [quiet, stale]), 'needs-you')).toEqual([
+      quiet,
+      stale,
+    ])
   })
 })
 
