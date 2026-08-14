@@ -45,7 +45,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } fr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gateOpencodeVersion, type RuntimeEvent } from '@podium/agent-runtime'
-import type { SessionId } from '@podium/model'
+import type { MachineId, SessionId } from '@podium/model'
 import {
   readOrCreateDaemonSecret,
   readOrCreateLocalMachineId,
@@ -63,7 +63,11 @@ reapHarnessSessions(ISOLATION_PORT)
 applyHarnessEnv(ISOLATION_PORT)
 afterAll(() => reapHarnessSessions(ISOLATION_PORT))
 
-const hostMachineId = (): string => readOrCreateLocalMachineId()
+/** NOT annotated `: string`. `readOrCreateLocalMachineId` already answers a
+ *  branded `MachineId`, and widening it here would mean re-branding it at every
+ *  `DaemonOptions` that needs one — a cast per call site to undo a loss this
+ *  line caused. */
+const hostMachineId = (): MachineId => readOrCreateLocalMachineId()
 
 /**
  * A GENEROUS BUDGET, and the number is a measurement rather than a guess.
@@ -446,6 +450,22 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
         () => adoptedEvents().length > 0,
         120_000,
         'the restarted daemon adopted the surviving opencode session',
+        // THE FAILURE THIS FILE EXISTS TO PRODUCE, so it says what it means
+        // rather than leaving a bare timeout to be interpreted. As of writing,
+        // no daemon code path calls the driver's `adopt()` at all: on restart
+        // `handleReattach` finds no bridge for a server-family session, falls
+        // into the durable-host branch, looks for an abduco socket or tmux
+        // session named for the durable label, finds neither — there is no PTY
+        // — and answers `reattachFailed: session not found`, while the
+        // `opencode serve` this lane just proved is alive keeps running with
+        // nothing bound to it.
+        () =>
+          [
+            'No `adopted` event arrived. The daemon came back and the opencode server survived — the two facts this lane checked before this point — so what is missing is the rebind between them.',
+            `journal still readable: ${existsSync(journalPath(sessionId))}; server still answering: awaited above`,
+            'If the daemon log below shows a reattach looking for an abduco socket, that is the known gap: nothing calls the driver adopt() on boot, so a session with no PTY is reattached down the PTY path and reported missing.',
+            `daemon log (tail):\n${daemon.output(8000)}`,
+          ].join('\n'),
       )
       // EXACTLY ONE. The contract's words are "emit one bootstrap snapshot", and
       // a second adoption would mean a second event stream over one session —
@@ -466,14 +486,20 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
       // bumped when the observer rebinds, so a stale one can be rejected rather
       // than merged. If it did not move, a frame from the dead daemon's fold
       // would still be indistinguishable from a live one.
-      const generationBefore = Math.max(
-        ...events
-          .slice(
-            0,
-            events.findIndex((e) => e.t === 'process' && e.ev.ev === 'adopted'),
-          )
-          .map((e) => e.observerGeneration),
+      const beforeAdoption = events.slice(
+        0,
+        events.findIndex((e) => e.t === 'process' && e.ev.ev === 'adopted'),
       )
+      // GUARDED, because `Math.max()` of nothing is -Infinity and every
+      // generation beats that. A vacuous pass here would be worse than no
+      // assertion: it would read, in the report, as evidence the observer
+      // rebound. The pre-crash turn guarantees these events exist, so an empty
+      // slice means something upstream is not reaching the tap at all.
+      expect(
+        beforeAdoption.length,
+        'no events were observed before adoption, so the generation comparison below would compare against -Infinity and pass without proving anything',
+      ).toBeGreaterThan(0)
+      const generationBefore = Math.max(...beforeAdoption.map((e) => e.observerGeneration))
       const adopted = adoptedEvents()[0]
       expect(adopted?.observerGeneration).toBeGreaterThan(generationBefore)
 
