@@ -64,6 +64,9 @@ function toRecord(r: Record<string, unknown>): MachineRecord {
     wireSchemaDigest: (r.wire_schema_digest as string | null | undefined) ?? null,
     installKind: (r.install_kind as string | null | undefined) ?? null,
     deliveryCaps: parseCaps(r.delivery_caps_json as string | null),
+    // A row written before the column existed reads NULL → false, which is the
+    // truthful answer: a supervised daemon re-asserts the flag on every hello.
+    supervised: r.supervised === 1 || r.supervised === true,
     buildReportedAt: (r.build_reported_at as string | null | undefined) ?? null,
   }
 }
@@ -115,7 +118,7 @@ export class MachinesRepository {
     return (
       this.db
         .prepare(
-          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at, podium_managed, update_channel_override FROM machines ORDER BY created_at ASC',
+          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, supervised, build_reported_at, podium_managed, update_channel_override FROM machines ORDER BY created_at ASC',
         )
         .all() as Record<string, unknown>[]
     ).map(toRecord)
@@ -124,7 +127,7 @@ export class MachinesRepository {
   getMachine(id: string): MachineRecord | undefined {
     const r = this.db
       .prepare(
-        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at, podium_managed, update_channel_override FROM machines WHERE id = ?',
+        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, supervised, build_reported_at, podium_managed, update_channel_override FROM machines WHERE id = ?',
       )
       .get(id) as Record<string, unknown> | undefined
     if (!r) return undefined
@@ -140,13 +143,17 @@ export class MachinesRepository {
   setMachineBuild(id: string, build: PeerBuild, caps: string[], at: string): void {
     this.db
       .prepare(
-        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, build_reported_at = ? WHERE id = ?',
+        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, supervised = ?, build_reported_at = ? WHERE id = ?',
       )
       .run(
         build.appVersion ?? null,
         build.wireSchemaDigest ?? null,
         build.installKind ?? null,
         JSON.stringify(caps),
+        // Written on EVERY report, not only when true: a machine that stops
+        // being desktop-supervised (the app uninstalled, a standalone daemon
+        // installed in its place) must lose the exclusion on its next hello.
+        build.supervised === true ? 1 : 0,
         at,
         id,
       )

@@ -256,6 +256,12 @@ export interface MachineRecord {
   wireSchemaDigest: string | null
   installKind: string | null
   deliveryCaps: string[]
+  /**
+   * The daemon reported that a desktop app supervises it (POD-2099). Boolean,
+   * not nullable: a stored NULL and an explicit `false` mean the same thing —
+   * this is an ordinary fleet machine — and only `true` may change a decision.
+   */
+  supervised: boolean
   buildReportedAt: string | null
 }
 

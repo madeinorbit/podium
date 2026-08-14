@@ -464,6 +464,9 @@ export class SessionRegistry {
           // it the wave grants updates a machine has already said it cannot
           // use, and the fleet learns by failing (POD-2004).
           ...(machine.deliveryCaps ? { deliveryCaps: machine.deliveryCaps } : {}),
+          // A daemon inside Podium Desktop is the shell's to update, never the
+          // wave's — the planner refuses to select it (POD-2099).
+          ...(machine.supervised ? { supervised: true } : {}),
         })),
       channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),

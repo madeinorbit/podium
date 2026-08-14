@@ -609,6 +609,9 @@ export class MachinesService {
         wireSchemaDigest: m.wireSchemaDigest,
         installKind: m.installKind,
         deliveryCaps: m.deliveryCaps,
+        // Present only when true, so the wire stays quiet for the fleet's
+        // ordinary machines and a supervised one is unmistakable (POD-2099).
+        ...(m.supervised ? { supervised: true } : {}),
         buildReportedAt: m.buildReportedAt,
         versionState: deriveVersionState(m.appVersion, target),
         ...(m.podiumManaged === false ? { podiumManaged: false } : {}),

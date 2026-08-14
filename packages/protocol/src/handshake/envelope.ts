@@ -177,6 +177,13 @@ export const PeerBuild = z
     appVersion: z.string().optional(),
     wireSchemaDigest: z.string().optional(),
     installKind: z.enum(['installed', 'source']).optional(),
+    /**
+     * This daemon lives inside a desktop app that supervises it, so its bytes
+     * belong to a signed application bundle no fleet wave may rewrite. ABSENT
+     * MEANS FALSE (frozen-contract law): every daemon that predates this field
+     * is a standalone one, which is the reading that keeps working.
+     */
+    supervised: z.boolean().optional(),
   })
   .passthrough()
 export type PeerBuild = z.infer<typeof PeerBuild>

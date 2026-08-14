@@ -365,7 +365,7 @@ export async function createDaemonHostRuntime(args: {
   // racing to swap the same binary.
   const grantRunner = createGrantRunner({
     currentVersion: () => build.appVersion ?? 'dev',
-    caps: deliveryCaps(build.installKind),
+    caps: deliveryCaps(build),
     fetchArtifact: (asset, delivery, signal) =>
       fetchArtifact(asset, delivery, {
         fetch: globalThis.fetch,

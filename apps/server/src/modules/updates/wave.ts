@@ -18,6 +18,11 @@ export interface WaveMachine {
    * Absent for a machine that has never reported a build.
    */
   deliveryCaps?: readonly string[]
+  /**
+   * This daemon lives inside Podium Desktop, which supervises and updates it as
+   * part of its signed bundle. Absent means an ordinary fleet machine.
+   */
+  supervised?: boolean
 }
 
 /**
@@ -61,11 +66,23 @@ export function offeredDeliveries(target: {
  * UNKNOWN CAPS MEAN YES. A machine that has never reported a build predates the
  * report or has not handshaken yet; refusing it would silently strand it
  * forever, which is worse than the failure this prevents.
+ *
+ * A SUPERVISED DAEMON IS NEVER YES, whatever its caps say (POD-2099). It lives
+ * inside Podium Desktop, so its bytes are part of a signed application bundle:
+ * on the macOS all-in-one it reports `installed` with feed+bundle caps, and
+ * granting it would send `swapHeadlessBundle` to rename directories INSIDE the
+ * .app; on Linux the copied sidecar reports source caps and a git grant would
+ * move a checkout the shell owns. The shell update carries that daemon
+ * atomically (spec §4, §5), which is why the exclusion is structural here
+ * rather than a platform check somewhere — no surface may update someone else's
+ * native app (P5). This precedes the caps question because it is not a question
+ * about delivery methods: there is no method by which the fleet may deliver.
  */
 export function machineCanTakeDelivery(
-  machine: Pick<WaveMachine, 'deliveryCaps'>,
+  machine: Pick<WaveMachine, 'deliveryCaps' | 'supervised'>,
   deliveries: readonly string[],
 ): boolean {
+  if (machine.supervised === true) return false
   if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
   if (deliveries.length === 0) return true
   return deliveries.some((delivery) =>
@@ -101,7 +118,11 @@ export function planWave(ctx: {
       machine.version !== ctx.targetVersion &&
       !IN_FLIGHT.has(machine.state) &&
       !TERMINAL_FAILURE.has(machine.state) &&
-      // Never hand a machine an update it has already told us it cannot take.
+      // Never hand a machine an update it has already told us it cannot take,
+      // and never hand one to a daemon a desktop app owns. Both live in one
+      // predicate, and it is applied to the ELIGIBLE set — so a supervised
+      // machine cannot be picked as the canary either, which is the selection
+      // that would otherwise slip past a filter placed further down.
       machineCanTakeDelivery(machine, deliveries),
   )
 

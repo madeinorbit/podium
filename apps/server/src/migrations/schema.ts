@@ -654,6 +654,12 @@ export const machines = sqliteTable('machines', {
   wireSchemaDigest: text('wire_schema_digest'),
   installKind: text('install_kind'),
   deliveryCapsJson: text('delivery_caps_json'),
+  // POD-2099. The daemon says a desktop app supervises it, so its bytes belong
+  // to a signed application bundle and no convergence wave may deliver to it.
+  // NULL is the honest reading for every row written before the field existed
+  // AND for a daemon that has not reported since: not supervised, because a
+  // supervised one is exactly the daemon that now says so on every hello.
+  supervised: integer('supervised'),
   buildReportedAt: text('build_reported_at'),
 })
 

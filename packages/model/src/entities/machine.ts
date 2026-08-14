@@ -324,6 +324,13 @@ export const MachineWire = z.object({
   installKind: z.string().nullable().optional(),
   /** Delivery methods the daemon offered in its last authenticated hello. */
   deliveryCaps: z.array(z.string()).optional(),
+  /**
+   * This daemon runs inside Podium Desktop, which owns its bytes (POD-2099).
+   * Fleet waves never deliver to it; the shell update does. Absent means an
+   * ordinary fleet machine, so a reader that ignores this field is never wrong
+   * about a machine that predates it.
+   */
+  supervised: z.boolean().optional(),
   /** When the server last accepted the build report. */
   buildReportedAt: z.string().nullable().optional(),
   /** Derived relative state; never persisted. */

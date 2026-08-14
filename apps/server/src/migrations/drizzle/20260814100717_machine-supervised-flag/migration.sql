@@ -1,0 +1,1 @@
+ALTER TABLE `machines` ADD `supervised` integer;

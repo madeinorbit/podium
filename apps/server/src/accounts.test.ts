@@ -70,6 +70,7 @@ function machineWithLogin(
     wireSchemaDigest: null,
     installKind: null,
     deliveryCaps: [],
+    supervised: false,
     buildReportedAt: null,
     inventory: Inventory.parse({
       os: 'linux',
@@ -333,6 +334,7 @@ describe('accountViews catalog', () => {
       wireSchemaDigest: null,
       installKind: null,
       deliveryCaps: [],
+      supervised: false,
       buildReportedAt: null,
       inventory: Inventory.parse({
         os: 'linux',

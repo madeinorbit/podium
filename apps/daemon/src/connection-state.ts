@@ -354,7 +354,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     return createHandshakeDialer({
       peerRole: 'machine',
       credential: selected,
-      caps: deliveryCaps(deps.build.installKind),
+      caps: deliveryCaps(deps.build),
       build: deps.build,
       claims: {
         machineId: deps.machineId,

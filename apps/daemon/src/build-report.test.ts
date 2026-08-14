@@ -66,9 +66,60 @@ describe('buildReport', () => {
   })
 })
 
+/**
+ * A DESKTOP-SUPERVISED DAEMON IS THE SHELL'S, NOT THE FLEET'S (POD-2099).
+ *
+ * Three shapes, because the two platforms disagree about what a supervised
+ * daemon looks like and neither disagreement may decide the outcome:
+ * - macOS all-in-one runs the sidecar IN PLACE inside `Podium.app` and looks
+ *   `installed` (feed+bundle caps — a grant would rename dirs in the signature);
+ * - Linux copies the sidecar to `~/.podium/bin`, where it looks like a plain
+ *   run and nothing about the path says "desktop";
+ * - a standalone installed daemon on the same machine is an ordinary fleet
+ *   machine and must keep its caps.
+ */
+describe('desktop-supervised build report', () => {
+  const supervisedEnv = { PODIUM_APP_VERSION: '0.4.2', PODIUM_DESKTOP_SUPERVISED: '1' }
+
+  it('flags the macOS all-in-one sidecar running in place inside the .app', () => {
+    const r = buildReport(supervisedEnv, '/Applications/Podium.app/Contents/Resources/podium')
+    expect(r).toMatchObject({ installKind: 'installed', supervised: true })
+    expect(deliveryCaps(r)).toEqual([])
+  })
+
+  it('flags the Linux sidecar copied out of the bundle, which looks like a plain run', () => {
+    const r = buildReport(supervisedEnv, undefined)
+    expect(r).toMatchObject({ installKind: 'source', supervised: true })
+    expect(deliveryCaps(r)).toEqual([])
+  })
+
+  it('leaves a standalone installed daemon on the same machine untouched', () => {
+    const r = buildReport({ PODIUM_APP_VERSION: '0.4.2' }, '/home/u/.local/share/podium')
+    expect(r.supervised).toBeUndefined()
+    expect(deliveryCaps(r)).toEqual([
+      'update.delivery.feed',
+      'update.delivery.bundle',
+      'shipping.train.v2',
+    ])
+  })
+
+  it('reads only the exact flag, never a truthy-looking value', () => {
+    expect(buildReport({ PODIUM_DESKTOP_SUPERVISED: '0' }, undefined).supervised).toBeUndefined()
+    expect(buildReport({ PODIUM_DESKTOP_SUPERVISED: 'true' }, undefined).supervised).toBeUndefined()
+  })
+
+  it('carries the flag through the one build captured at daemon boot', () => {
+    const boot = captureDaemonBootBuild(
+      { PODIUM_HOME: '/opt/podium', PODIUM_APP_VERSION: '0.4.2', PODIUM_DESKTOP_SUPERVISED: '1' },
+      '/usr/bin/bun',
+    )
+    expect(boot.build.supervised).toBe(true)
+  })
+})
+
 describe('deliveryCaps', () => {
   it('offers feed and bundle for an installed build', () => {
-    expect(deliveryCaps('installed')).toEqual([
+    expect(deliveryCaps({ installKind: 'installed' })).toEqual([
       'update.delivery.feed',
       'update.delivery.bundle',
       'shipping.train.v2',
@@ -76,6 +127,14 @@ describe('deliveryCaps', () => {
   })
 
   it('offers only git for a source run, which cannot swap a bundle', () => {
-    expect(deliveryCaps('source')).toEqual(['update.delivery.git', 'shipping.train.v2'])
+    expect(deliveryCaps({ installKind: 'source' })).toEqual([
+      'update.delivery.git',
+      'shipping.train.v2',
+    ])
+  })
+
+  it('offers nothing at all when a desktop shell owns the bytes', () => {
+    expect(deliveryCaps({ installKind: 'installed', supervised: true })).toEqual([])
+    expect(deliveryCaps({ installKind: 'source', supervised: true })).toEqual([])
   })
 })
