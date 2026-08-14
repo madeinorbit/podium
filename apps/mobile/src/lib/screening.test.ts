@@ -109,12 +109,12 @@ describe('applyScreeningDecision', () => {
     expect(commands.closeIssue).not.toHaveBeenCalled()
   })
 
-  it('decline closes the proposal as wontfix', async () => {
+  it('decline closes the proposal as cancelled', async () => {
     const { commands, calls } = fakeCommands()
 
     await applyScreeningDecision(commands, proposal, 'declined')
 
-    expect(calls).toEqual(['close:{"id":"iss_1","reason":"wontfix"}'])
+    expect(calls).toEqual(['close:{"id":"iss_1","reason":"cancelled"}'])
     expect(commands.promoteIssue).not.toHaveBeenCalled()
     expect(commands.startIssue).not.toHaveBeenCalled()
   })

@@ -1,6 +1,6 @@
 import type { ActivityComment, IssueEvent } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
-import type { IssueId, IssueWire } from '@podium/model'
+import { type IssueId, type IssueWire, parseIssueStatusValue } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 
 /**
@@ -189,13 +189,15 @@ export function issueCommands({
     },
 
     // ---- properties ----
-    /** Status menu value: `stage:<stage>` patches the stage; `close:<reason>`
-     *  closes. Mirrors the desktop verb exactly, including that reopen is not
-     *  offered from the close arm. */
+    /** Status sheet value: `stage:<lane>` patches the stage, `close:<reason>`
+     *  closes. Same encoding and same fork as the desktop, because both parse it
+     *  with the model's one `parseIssueStatusValue` (POD-1074) — including the
+     *  legacy `close:wontfix`, which lands as `cancelled`. */
     selectStatus: (value: string): void => {
-      if (value.startsWith('stage:')) update({ stage: value.slice('stage:'.length) })
-      else if (value === 'close:done') void run(() => actions.closeIssue(id, 'done'))
-      else if (value === 'close:wontfix') void run(() => actions.closeIssue(id, 'wontfix'))
+      const intent = parseIssueStatusValue(value)
+      if (!intent) return
+      if (intent.kind === 'stage') update({ stage: intent.stage })
+      else void run(() => actions.closeIssue(id, intent.reason))
     },
     addLabel: (label: string): void => {
       const next = label.trim()

@@ -7,13 +7,15 @@ import {
 import {
   DEFER_NEXT_MESSAGE,
   ISSUE_COLOR_HEX,
-  ISSUE_STAGES,
   type IssueColorSlot,
   type IssueId,
   type IssueStage,
   isIssueColorSlot,
-  snoozeUntil1h,
+  isIssueStatus,
+  issueStatusIntent,
+  issueStatusOf,
   type MachineId,
+  snoozeUntil1h,
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Check, ChevronRight } from 'lucide-react'
@@ -53,7 +55,7 @@ import {
   issueMenuEligibility,
   toggleLabelAcross,
 } from './issue-context-menu'
-import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { PriorityGlyph, StatusGlyph } from './issue-glyphs'
 import type { IssueCloseReason } from './issue-lifecycle'
 import {
   createIssueMenuData,
@@ -335,12 +337,6 @@ export function IssueContextMenu({
       case 'markRead':
         run(() => markIssueRead(first.id))
         return
-      case 'closeDone':
-        close('done')
-        return
-      case 'closeWontfix':
-        close('wontfix')
-        return
       case 'pin':
         run(() => updateIssue(first.id, { pinned: !first.pinned }))
         return
@@ -372,9 +368,13 @@ export function IssueContextMenu({
 
   const runSubmenu = (kind: IssueMenuSubmenu, value: string): void => {
     switch (kind) {
-      case 'stage':
-        if ((ISSUE_STAGES as readonly string[]).includes(value)) setStage(value as IssueStage)
+      case 'status': {
+        const intent = isIssueStatus(value) ? issueStatusIntent(value) : null
+        if (!intent) return
+        if (intent.kind === 'close') close(intent.reason)
+        else setStage(intent.stage)
         return
+      }
       case 'priority': {
         const priority = Number(value)
         if (Number.isInteger(priority) && priority >= 0 && priority <= 4) setPriority(priority)
@@ -440,7 +440,7 @@ export function IssueContextMenu({
 
   const entryIcon = (entry: IssueMenuConfig): ReactNode => {
     if (entry.kind === 'submenu') {
-      if (entry.id === 'stage') return <StageGlyph stage={first.stage} />
+      if (entry.id === 'status') return <StatusGlyph status={issueStatusOf(first)} />
       if (entry.id === 'priority') return <PriorityGlyph priority={first.priority} />
       if (entry.id === 'color') return colorGlyph()
       if (entry.id === 'agent') return renderIcon(isIssueStartable(first) ? 'play' : 'agent')
@@ -458,8 +458,8 @@ export function IssueContextMenu({
     entry: Extract<IssueMenuConfig, { kind: 'submenu' }>,
     option: IssueMenuOption,
   ): ReactNode => {
-    if (entry.id === 'stage' && option.value)
-      return <StageGlyph stage={option.value as IssueStage} />
+    if (entry.id === 'status' && option.value && isIssueStatus(option.value))
+      return <StatusGlyph status={option.value} />
     if (entry.id === 'priority' && option.value)
       return <PriorityGlyph priority={Number(option.value)} />
     if (entry.id === 'agent') return issueAgentIcon(option.value || first.defaultAgent)

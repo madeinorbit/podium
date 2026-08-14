@@ -14,7 +14,7 @@
 
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
-import type { IssueId, IssueStage, MachineId } from '@podium/model/browser'
+import { type IssueId, type MachineId, parseIssueStatusValue } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
@@ -161,12 +161,15 @@ export function issuePageCommands({
     },
 
     // ---- properties ----
-    /** Status menu value: `stage:<stage>` patches the stage; `close:<reason>`
-     *  closes. (Reopen is intentionally not offered — see the status options.) */
+    /** Status menu value: `stage:<lane>` patches the stage, `close:<reason>`
+     *  closes. The encoding and the fork both belong to the model (POD-1074) —
+     *  this only routes the two arms at the two different mutations. Legacy
+     *  `close:wontfix` still parses, as `cancelled`. */
     selectStatus: (value: string): void => {
-      if (value.startsWith('stage:')) update({ stage: value.slice('stage:'.length) as IssueStage })
-      else if (value === 'close:done') void run(() => closeIssue(id, 'done'))
-      else if (value === 'close:wontfix') void run(() => closeIssue(id, 'wontfix'))
+      const intent = parseIssueStatusValue(value)
+      if (!intent) return
+      if (intent.kind === 'stage') update({ stage: intent.stage })
+      else void run(() => closeIssue(id, intent.reason))
     },
     addLabel: (label: string): void => {
       const next = label.trim()

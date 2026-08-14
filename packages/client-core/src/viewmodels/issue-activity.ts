@@ -1,4 +1,8 @@
-import type { IssueStage } from '@podium/model'
+import {
+  canonicalIssueCloseReason,
+  ISSUE_STATUS_LABELS,
+  type IssueStage,
+} from '@podium/model'
 import { ISSUE_STAGE_LABELS } from './issue-reference'
 
 /**
@@ -107,8 +111,16 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
       return { icon: 'moved', text: `moved to ${label}` }
     }
     case 'issue.closed': {
-      const reason = typeof p.reason === 'string' ? p.reason : 'done'
-      return { icon: 'closed', text: `closed (${reason})` }
+      // The vocabulary's word, not the stored one (POD-1074): an event logged
+      // years ago with `wontfix` reads back as "closed (cancelled)", matching
+      // what the status menu now calls that ending. An unrecognized reason is
+      // shown as-is rather than dropped.
+      const raw = typeof p.reason === 'string' ? p.reason : 'done'
+      const reason = canonicalIssueCloseReason(raw)
+      return {
+        icon: 'closed',
+        text: `closed (${reason ? ISSUE_STATUS_LABELS[reason].toLowerCase() : raw})`,
+      }
     }
     case 'issue.started':
       return { icon: 'started', text: 'agent started' }

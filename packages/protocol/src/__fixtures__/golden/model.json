@@ -3471,6 +3471,24 @@
       "encoded": "\"proposed\""
     },
     {
+      "schema": "IssueCloseReason",
+      "variant": "minimal",
+      "wire": "done",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"done\""
+    },
+    {
+      "schema": "IssueCloseReason",
+      "variant": "full",
+      "wire": "done",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"done\""
+    },
+    {
       "schema": "IssueColor",
       "variant": "minimal",
       "wire": "rose",
@@ -5244,6 +5262,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"total\":1,\"open\":1,\"closed\":1,\"ready\":1,\"blocked\":1,\"deferred\":1}"
+    },
+    {
+      "schema": "IssueStatus",
+      "variant": "minimal",
+      "wire": "proposed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"proposed\""
+    },
+    {
+      "schema": "IssueStatus",
+      "variant": "full",
+      "wire": "proposed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"proposed\""
     },
     {
       "schema": "IssueText",

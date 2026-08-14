@@ -39,7 +39,7 @@ import {
   treeGuides,
 } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
-import type { AgentKind, IssueId, SessionId, SessionMeta } from '@podium/model/browser'
+import { type AgentKind, type IssueId, issueStatusOf, type SessionId, type SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,
@@ -75,7 +75,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
-import { StageGlyph } from '@/features/issues/issue-glyphs'
+import { StageGlyph, StatusGlyph } from '@/features/issues/issue-glyphs'
 import { type IssueAgentKind, issueAgentOptions } from '@/lib/issue-agents'
 import { BrailleSpinner, PhaseTimer, useArrivals } from '@/lib/motion'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
@@ -1429,7 +1429,7 @@ const TaskRow = memo(
               intent.commit(() => onSelectIssue(true))
             }}
           >
-            <StageGlyph stage={row.issue.stage} size={13} />
+            <StatusGlyph status={issueStatusOf(row.issue)} size={13} />
             {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
               it is the only thing here that shrinks. Ref THEN title, in one
               truncating label — the ref is how the operator addresses the task
@@ -2445,7 +2445,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             onContextMenu={(event) => openIssueMenu(root.id, event)}
           >
             <div className="shell-type-micro flex h-8 items-center gap-1.5 px-4 pr-11 font-mono text-text-dim">
-              <StageGlyph stage={root.stage} size={12} />
+              <StatusGlyph status={issueStatusOf(root)} size={12} />
               <span>{issueDisplayRef(root)}</span>
               <span>{STAGE_LABELS[root.stage].toLowerCase()}</span>
               {/* The mission's own dependency or provenance, and the seat it is

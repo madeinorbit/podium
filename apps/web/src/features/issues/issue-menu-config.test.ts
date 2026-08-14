@@ -44,7 +44,7 @@ describe('declarative issue menu projections', () => {
       .sort()
 
     expect(paletteKeys).toEqual(menuKeys)
-    expect(issueMenuEntries(data).map((entry) => entry.id)).toContain('stage')
+    expect(issueMenuEntries(data).map((entry) => entry.id)).toContain('status')
     expect(issueMenuEntries(data).map((entry) => entry.id)).toContain('duplicate')
   })
 

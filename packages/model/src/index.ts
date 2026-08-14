@@ -27,6 +27,10 @@ export * from './entities/conversation'
 export * from './entities/handoff'
 export * from './entities/issue'
 export * from './entities/issue-color'
+// The flat STATUS vocabulary (POD-1074): `stage` and `closedReason` joined into
+// the one list every picker renders, plus the legacy `wontfix` → `cancelled`
+// canonicalization. A leaf module beside `issue-color`, for the same reason.
+export * from './entities/issue-status'
 // The issue DEPENDENCY EDGE and the LOGICAL REPO as first-class entities
 // (POD-822; decided POD-1254, ported from main at the POD-1246 catch-up). Each
 // carries R1, its R4 projection and one mapping pair. First-class because

@@ -97,7 +97,7 @@ describe('filter chips', () => {
       'type',
     ])
     expect(chips.find((c) => c.key === 'priority')?.label).toBe('Priority: P1')
-    expect(chips.find((c) => c.key === 'stage')?.label).toBe('Stage: Review')
+    expect(chips.find((c) => c.key === 'stage')?.label).toBe('Status: Review')
     expect(chips.find((c) => c.key === 'archived')?.label).toBe('Archived')
     expect(chips.find((c) => c.key === 'deleted')?.label).toBe('Deleted')
   })

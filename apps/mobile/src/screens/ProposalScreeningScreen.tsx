@@ -43,7 +43,7 @@ const sameDeck = (a: Deck, b: Deck) =>
  * couple of seconds from the couch.
  *
  * Right (or the Start button) promotes the proposal and starts its agent; left
- * (or Decline) closes it as `wontfix`; Skip advances without touching the issue,
+ * (or Decline) closes it as `cancelled`; Skip advances without touching the issue,
  * so it stays proposed for the next pass. Decisions apply optimistically — the
  * next card is immediately live — and a mutation that fails surfaces as a
  * retryable banner rather than a silently lost decision.

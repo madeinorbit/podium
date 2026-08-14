@@ -1,5 +1,13 @@
 import { discoveredPlacement, type ProposalShape } from '@podium/client-core/viewmodels'
-import { ISSUE_COLOR_SLOTS, ISSUE_STAGES, type IssueStage, type SessionId } from '@podium/model/browser'
+import {
+  canonicalIssueCloseReason,
+  ISSUE_COLOR_SLOTS,
+  ISSUE_STATUS_LABELS,
+  type IssueStatus,
+  isIssueStatus,
+  PICKABLE_ISSUE_STATUSES,
+  type SessionId,
+} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 import {
@@ -8,7 +16,6 @@ import {
   issueAgentLabel,
   issueDefaultAgentKind,
 } from '@/lib/issue-agents'
-import { STAGE_LABELS } from './issue-card'
 import type { IssueMenuSurface, issueMenuEligibility } from './issue-context-menu'
 import { isIssueStartable } from './issue-startable'
 
@@ -42,8 +49,6 @@ export type IssueMenuAction =
   | 'rename'
   | 'markUnread'
   | 'markRead'
-  | 'closeDone'
-  | 'closeWontfix'
   | 'pin'
   | 'archive'
   | 'restore'
@@ -52,7 +57,7 @@ export type IssueMenuAction =
   | 'placeInMission'
 
 export type IssueMenuSubmenu =
-  | 'stage'
+  | 'status'
   | 'priority'
   | 'agent'
   | 'labels'
@@ -182,14 +187,30 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
     when: has('canMarkRead'),
   },
   {
+    // ONE status submenu (POD-1074), replacing "Set stage" plus the two
+    // "Close (…)" actions that sat further down under `lifecycle`. Same list the
+    // dock and the full page render, same order. The terminal half is disabled
+    // rather than hidden when the selection cannot be closed — a multi-select
+    // can move lanes in bulk but closing stays a single-issue decision, and an
+    // entry that vanishes teaches nothing about why.
     kind: 'submenu',
-    id: 'stage',
-    label: 'Set stage',
+    id: 'status',
+    label: 'Set status',
     icon: 'check',
     section: 'main',
     when: has('canSetStage'),
-    options: () =>
-      ISSUE_STAGES.map((stage) => ({ id: stage, value: stage, label: STAGE_LABELS[stage] })),
+    options: (data) =>
+      PICKABLE_ISSUE_STATUSES.map((status) => {
+        const closing = canonicalIssueCloseReason(status) !== null
+        return {
+          id: status,
+          value: status,
+          label: ISSUE_STATUS_LABELS[status],
+          ...(closing && !data.eligibility.canClose
+            ? { disabled: true, hint: 'one open task' }
+            : {}),
+        }
+      }),
   },
   {
     kind: 'submenu',
@@ -308,22 +329,6 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
     icon: 'arrow-right-left',
     section: 'lifecycle',
     when: (data) => menuPlacement(data)?.placement === 'own',
-  },
-  {
-    kind: 'action',
-    id: 'closeDone',
-    label: 'Close (done)',
-    icon: 'check',
-    section: 'lifecycle',
-    when: has('canClose'),
-  },
-  {
-    kind: 'action',
-    id: 'closeWontfix',
-    label: 'Close (wontfix)',
-    icon: 'x',
-    section: 'lifecycle',
-    when: has('canClose'),
   },
   {
     kind: 'submenu',
@@ -457,6 +462,10 @@ export function issueMenuCommandKeys(data: IssueMenuData): string[] {
   })
 }
 
-export function stageValue(value: string): IssueStage | null {
-  return (ISSUE_STAGES as readonly string[]).includes(value) ? (value as IssueStage) : null
+/** Narrow a `status` submenu value back to the vocabulary. The submenu carries
+ *  BARE status keys (`review`, `cancelled`) rather than the `stage:`/`close:`
+ *  encoding the property menus use — a context-menu row has one job and the
+ *  glyph is picked straight off the key. */
+export function statusValue(value: string): IssueStatus | null {
+  return isIssueStatus(value) ? value : null
 }

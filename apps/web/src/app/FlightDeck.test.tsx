@@ -501,7 +501,7 @@ describe('flight deck task menu (POD-771)', () => {
   it('right-clicking a task opens the shared task menu on THAT task', () => {
     deck()
     fireEvent.contextMenu(stripOf('t1'))
-    expect(screen.getByText('Set stage')).toBeTruthy()
+    expect(screen.getByText('Set status')).toBeTruthy()
     // The menu's header names the task it will act on, not the mission.
     expect(screen.getByText('Task t1')).toBeTruthy()
   })
@@ -524,7 +524,7 @@ describe('flight deck task menu (POD-771)', () => {
     const proposal = document.querySelector('[data-flight-issue="p1"] button')
     expect(proposal).not.toBeNull()
     fireEvent.contextMenu(proposal as HTMLElement)
-    expect(screen.getByText('Set stage')).toBeTruthy()
+    expect(screen.getByText('Set status')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: 'Start issue' })).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: /Run now/ })).toBeNull()
   })

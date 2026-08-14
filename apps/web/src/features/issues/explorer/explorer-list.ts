@@ -1,5 +1,5 @@
 import { issueIsActionable } from '@podium/client-core/viewmodels'
-import type { IssueStage, SessionMeta } from '@podium/model/browser'
+import { ISSUE_STATUS_LABELS, type IssueStage, type SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 
@@ -17,12 +17,16 @@ export type ExplorerTab = 'needs' | IssueStage
 
 export const EXPLORER_TABS: readonly { id: ExplorerTab; label: string }[] = [
   { id: 'needs', label: 'Needs you' },
-  { id: 'in_progress', label: 'In progress' },
-  { id: 'review', label: 'Review' },
-  { id: 'planning', label: 'Planning' },
-  { id: 'backlog', label: 'Backlog' },
-  { id: 'proposed', label: 'Proposed' },
-  { id: 'done', label: 'Done' },
+  { id: 'in_progress', label: ISSUE_STATUS_LABELS.in_progress },
+  { id: 'review', label: ISSUE_STATUS_LABELS.review },
+  { id: 'planning', label: ISSUE_STATUS_LABELS.planning },
+  { id: 'backlog', label: ISSUE_STATUS_LABELS.backlog },
+  { id: 'proposed', label: ISSUE_STATUS_LABELS.proposed },
+  // "Closed", not "Done" (POD-1074). The tab buckets by STAGE, and every ending
+  // — done, cancelled, duplicate, superseded — parks on the done lane. Calling
+  // the bucket Done said the cancelled rows in it had been completed; each row's
+  // own glyph and pill now say which ending it actually was.
+  { id: 'done', label: 'Closed' },
 ]
 
 /** Sessions per issue, by the same membership rule the rest of the shell uses

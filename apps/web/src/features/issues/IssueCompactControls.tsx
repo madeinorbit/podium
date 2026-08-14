@@ -7,7 +7,16 @@ import {
   type ProposalPlacement,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
+import {
+  type IssueId,
+  type IssueStage,
+  issueStatusLabel,
+  issueStatusMenuEntries,
+  issueStatusOf,
+  issueStatusValueOf,
+  parseIssueStatusValue,
+  type SessionMeta,
+} from '@podium/model/browser'
 import {
   ArrowUpRight,
   Check,
@@ -18,7 +27,7 @@ import {
   MoreHorizontal,
   RotateCcw,
 } from 'lucide-react'
-import { type JSX, useMemo, useState } from 'react'
+import { Fragment, type JSX, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -37,18 +46,9 @@ import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContext
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { IssueContextMenu } from './IssueContextMenu'
-import { STAGE_LABELS } from './issue-card'
-import { StageGlyph } from './issue-glyphs'
+import { StatusGlyph } from './issue-glyphs'
 import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 
-/** Every stage a live issue can be moved between. `done` is not one of them —
- *  see the close dialog. */
-const OPEN_STAGES = [
-  'backlog',
-  'planning',
-  'in_progress',
-  'review',
-] as const satisfies readonly IssueStage[]
 const isSystemOwnedIssueStage = (stage: IssueStage): boolean => stage === 'shipping'
 
 /**
@@ -602,10 +602,25 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           aria-label="Shipping controls are managed by the shipping service"
           className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
         >
-          <StageGlyph stage={issue.stage} size={12} />
-          {STAGE_LABELS[issue.stage]}
+          <StatusGlyph status={issue.stage} size={12} />
+          {issueStatusLabel(issue)}
         </Button>
       </div>
+    )
+  }
+
+  /** Apply one picked status. The fork between "move the lane" and "close with
+   *  a reason" is the model's, not this menu's — see `issueStatusIntent`. */
+  const currentStatusValue = issueStatusValueOf(issue)
+  const selectStatus = (value: string): void => {
+    const intent = parseIssueStatusValue(value)
+    if (!intent) return
+    if (intent.kind === 'close') {
+      setCloseReason(intent.reason)
+      return
+    }
+    updateIssue(issue.id, { stage: intent.stage }).catch((error: unknown) =>
+      toast.error(error instanceof Error ? error.message : String(error)),
     )
   }
 
@@ -674,11 +689,14 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
 
   return (
     <div className="mt-2.5 flex items-center gap-2">
-      {/* Stage, exposed as a first-class dock action. Built from the shell's
+      {/* STATUS, exposed as a first-class dock action. Built from the shell's
           own dropdown rather than a native <select>, which exists nowhere in
-          this chrome. `done` is absent as a plain stage: closing is reachable
-          from here, but the close entries route through the dialog so a reason
-          is always recorded — the same split the full page's Status menu makes.
+          this chrome. One flat Linear-shaped list (POD-1074): the open lanes,
+          a rule, then the terminal outcomes as STATES — Done, Cancelled,
+          Duplicate — rather than the operations they used to be named after
+          ("Close: wontfix"). The terminal entries still route through the close
+          dialog so a reason is always recorded and the guard always runs; that
+          split is invisible in the menu, which is the point.
           `ghost` + an explicit card fill rather than `outline`: the dock's
           surface is --engraved, which sits ABOVE --background in the paper
           ramp, so the outline variant's --background fill made the pill sink
@@ -690,48 +708,35 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
               type="button"
               variant="ghost"
               size="sm"
-              aria-label="Stage"
+              aria-label="Status"
               className="h-7 flex-none gap-1.5 border-border bg-card px-2.5 text-[11.5px] font-medium text-text-strong"
             >
-              <StageGlyph stage={issue.stage} size={12} />
-              {STAGE_LABELS[issue.stage]}
+              <StatusGlyph status={issueStatusOf(issue)} size={12} />
+              {issueStatusLabel(issue)}
               <ChevronDown size={13} className="size-[13px] text-text-faint" aria-hidden="true" />
             </Button>
           }
         />
+        {/* The closed row keeps the WHOLE list rather than hiding the terminal
+            half: correcting a closure (done → duplicate) is one pick, and
+            picking an open lane reopens, which is what the reopen button beside
+            this does in one step. */}
         <DropdownMenuContent align="start">
-          {OPEN_STAGES.map((stage) => (
-            <DropdownMenuItem
-              key={stage}
-              onClick={() =>
-                updateIssue(issue.id, { stage }).catch((error: unknown) =>
-                  toast.error(error instanceof Error ? error.message : String(error)),
-                )
-              }
-            >
-              <StageGlyph stage={stage} size={12} />
-              {STAGE_LABELS[stage]}
-            </DropdownMenuItem>
+          {issueStatusMenuEntries().map((entry) => (
+            <Fragment key={entry.status}>
+              {entry.startsGroup && <DropdownMenuSeparator />}
+              <DropdownMenuItem
+                className="whitespace-nowrap"
+                onClick={() => selectStatus(entry.value)}
+              >
+                <StatusGlyph status={entry.status} size={12} />
+                {entry.label}
+                {currentStatusValue === entry.value && (
+                  <Check size={12} className="ml-auto text-text-faint" aria-hidden="true" />
+                )}
+              </DropdownMenuItem>
+            </Fragment>
           ))}
-          {!closed && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="whitespace-nowrap"
-                onClick={() => setCloseReason('done')}
-              >
-                <StageGlyph stage="done" size={12} />
-                Close: done
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="whitespace-nowrap"
-                onClick={() => setCloseReason('wontfix')}
-              >
-                <StageGlyph stage="done" size={12} />
-                Close: wontfix
-              </DropdownMenuItem>
-            </>
-          )}
         </DropdownMenuContent>
       </DropdownMenu>
       {closed ? (

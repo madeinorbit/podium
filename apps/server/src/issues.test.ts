@@ -2654,9 +2654,20 @@ describe('IssueService field mutations (P1)', () => {
     const claimed = svc.claim(a.id, asUserId('agent:claude'))
     expect(claimed.assignee).toBe('agent:claude')
     expect(claimed.stage).toBe('in_progress')
-    const closed = svc.close(a.id, 'wontfix')
+    const closed = svc.close(a.id, 'cancelled')
     expect(closed.stage).toBe('done')
-    expect(closed.closedReason).toBe('wontfix')
+    expect(closed.closedReason).toBe('cancelled')
+  })
+
+  // POD-1074: `wontfix` was the only word available for "deliberately not
+  // doing this". It is now spelled `cancelled`, and a caller still saying the
+  // old word stores the new one so the vocabulary stops growing legacy rows.
+  it('canonicalizes a legacy close reason on write, and keeps an unknown one verbatim', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(svc.close(a.id, 'wontfix').closedReason).toBe('cancelled')
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    expect(svc.close(b.id, 'shipped').closedReason).toBe('shipped')
   })
 
   it('setCoordinator claims/sets/clears coordinatorSessionId on the wire (bare session id)', () => {

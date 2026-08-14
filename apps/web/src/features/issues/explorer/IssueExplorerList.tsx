@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { operationalState } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+import { issueStatusOf, type SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Search, X } from 'lucide-react'
 import type { JSX } from 'react'
@@ -10,7 +10,7 @@ import { GhostBar, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
 import { DOCK_ROW, DOCK_STAMP } from '../IssueCompactControls'
 import { issueIdTitle } from '../issue-card'
-import { StageGlyph } from '../issue-glyphs'
+import { StatusGlyph } from '../issue-glyphs'
 import { useBoundedVirtualList } from '../use-bounded-virtual-list'
 import { useIssueExplorer } from './explorer-context'
 import { defaultTab, EXPLORER_TABS, explorerCounts, explorerRows } from './explorer-list'
@@ -339,7 +339,7 @@ function ExplorerRow({
         'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-2.5 py-1 text-left hover:bg-accent/40',
       )}
     >
-      <StageGlyph stage={issue.stage} size={13} />
+      <StatusGlyph status={issueStatusOf(issue)} size={13} />
       <span className="min-w-0 truncate">
         <span
           className="mr-1.5 font-mono shell-type-micro text-muted-foreground"

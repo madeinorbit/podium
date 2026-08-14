@@ -31,10 +31,12 @@ describe('formatIssueEvent', () => {
     )
   })
 
-  it('labels issue.closed with the reason', () => {
+  // A row stored under the pre-POD-1074 spelling reads back as its canonical
+  // ending, so the activity feed and the status menu say the same word.
+  it('labels issue.closed with the reason, canonicalized', () => {
     expect(formatIssueEvent(ev({ kind: 'issue.closed', payload: { reason: 'wontfix' } }))).toEqual({
       icon: 'closed',
-      text: 'closed (wontfix)',
+      text: 'closed (cancelled)',
     })
   })
 

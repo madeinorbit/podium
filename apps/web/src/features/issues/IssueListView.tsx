@@ -1,4 +1,4 @@
-import type { IssueId, IssueStage } from '@podium/model/browser'
+import { type IssueId, type IssueStage, issueStatusOf } from '@podium/model/browser'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import {
   type CSSProperties,
@@ -14,7 +14,7 @@ import { issueColorHex } from '@/lib/issueColors'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { cardAge, issueCardModel, issueIdTitle, STAGE_LABELS } from './issue-card'
-import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { AssigneeAvatar, PriorityGlyph, StageGlyph, StatusGlyph } from './issue-glyphs'
 import { type IssueRow, isEpic } from './issue-hierarchy'
 import type { IssuesDisplay } from './issues-display'
 import { useBoundedVirtualList } from './use-bounded-virtual-list'
@@ -235,7 +235,7 @@ function VirtualStageRows({
                   depth > 0 && (
                     // Child rows show their own stage glyph — a nested child may
                     // live in a different stage than the parent's group.
-                    <StageGlyph stage={issue.stage} size={12} />
+                    <StatusGlyph status={issueStatusOf(issue)} size={12} />
                   )
                 )}
               </span>

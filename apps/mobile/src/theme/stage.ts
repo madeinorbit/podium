@@ -1,4 +1,4 @@
-import type { IssueStage } from '@podium/model'
+import { ISSUE_STATUS_LABELS, type IssueStatus } from '@podium/model'
 import { color } from './theme'
 
 /**
@@ -15,7 +15,7 @@ import { color } from './theme'
  * Blue for `in_progress`/`review`, NOT amber: amber is reserved for "waiting on
  * you" (The Signal Rule), and a stage is never an ask.
  */
-export const STAGE_COLOR: Readonly<Record<IssueStage, string>> = {
+export const STAGE_COLOR: Readonly<Record<IssueStatus, string>> = {
   proposed: '#d946ef',
   backlog: color.textFaint,
   planning: color.textDim,
@@ -23,27 +23,28 @@ export const STAGE_COLOR: Readonly<Record<IssueStage, string>> = {
   review: '#0ea5e9',
   shipping: '#8b5cf6',
   done: color.success,
+  // The cancelled family is DIM, never green (POD-1074). Success is the colour
+  // of work that landed; an issue closed as cancelled, duplicate or superseded
+  // did not land, and wearing the same tick was the whole complaint.
+  cancelled: color.textFaint,
+  duplicate: color.textFaint,
+  superseded: color.textFaint,
 }
 
 /** A ref that parses but has no live row — muted, never a stage colour, so a
  *  replica gap cannot announce a task as something it is not (POD-676). */
 export const STAGE_UNKNOWN = color.textFaint
 
-export function stageColor(stage: IssueStage | null | undefined): string {
+export function stageColor(stage: IssueStatus | null | undefined): string {
   return stage ? STAGE_COLOR[stage] : STAGE_UNKNOWN
 }
 
-export const STAGE_LABEL: Readonly<Record<IssueStage, string>> = {
-  proposed: 'Proposed',
-  backlog: 'Backlog',
-  planning: 'Planning',
-  in_progress: 'In progress',
-  review: 'Review',
-  shipping: 'Shipping',
-  done: 'Done',
-}
+/** The phone's fourth copy of the stage words, retired (POD-1074): the labels
+ *  now come from the model's one status table, so "In Progress" cannot be title
+ *  cased here and sentence cased on the desktop. */
+export const STAGE_LABEL: Readonly<Record<IssueStatus, string>> = ISSUE_STATUS_LABELS
 
 /** Stage as one word for a dense strip — the sidebar/board vocabulary. */
-export function stageWord(stage: IssueStage): string {
+export function stageWord(stage: IssueStatus): string {
   return STAGE_LABEL[stage]
 }

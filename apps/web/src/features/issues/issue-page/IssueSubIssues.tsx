@@ -14,7 +14,7 @@
  * `branchRollup` note says the same thing about counts, since a count IS an
  * existence fact and §3.1.2 leaves that policy open.
  */
-import type { IssueId } from '@podium/model/browser'
+import { type IssueId, issueStatusOf } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { issueIdTitle, issueStateWord } from '../issue-card'
-import { AssigneeAvatar, StageGlyph } from '../issue-glyphs'
+import { AssigneeAvatar, StatusGlyph } from '../issue-glyphs'
 import { SectionHeading } from './chrome'
 
 /** A child is DONE for the fold when the issue slice's own finished predicate
@@ -67,7 +67,7 @@ function SubTaskRow({
       title={issueIdTitle(child)}
       onClick={() => onNavigate(child.id)}
     >
-      <StageGlyph stage={child.stage} size={12} />
+      <StatusGlyph status={issueStatusOf(child)} size={12} />
       <span className="w-[56px] flex-none font-mono shell-type-micro text-text-faint tabular-nums">
         {issueDisplayRef(child)}
       </span>

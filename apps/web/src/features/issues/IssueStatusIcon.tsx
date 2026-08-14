@@ -1,12 +1,12 @@
-import type { IssueStage } from '@podium/model/browser'
+import type { IssueStatus } from '@podium/model/browser'
 import { ListTodo } from 'lucide-react'
 import type { JSX } from 'react'
-import { StageGlyph } from './issue-glyphs'
+import { StatusGlyph } from './issue-glyphs'
 
 /**
  * The unified sidebar's leading icon for a real issue row: a NEUTRAL base task
  * glyph (muted, so a row's colour comes from its status dot rather than a
- * distracting stage hue) with the {@link StageGlyph} shrunk into the bottom-right
+ * distracting stage hue) with the {@link StatusGlyph} shrunk into the bottom-right
  * corner as a small badge — the stage is still legible, just demoted. Draft
  * agent-only rows keep their agent icon instead.
  */
@@ -15,7 +15,7 @@ export function IssueStatusIcon({
   size = 16,
   badge = true,
 }: {
-  stage: IssueStage
+  stage: IssueStatus
   size?: number
   /** Corner stage badge — off in the sidebar work list, where rows stay plain. */
   badge?: boolean
@@ -30,7 +30,7 @@ export function IssueStatusIcon({
           badge over the base glyph rather than blending into it. */}
       {badge && (
         <span className="absolute -right-1 -bottom-1 flex items-center justify-center rounded-full bg-background">
-          <StageGlyph stage={stage} size={8} />
+          <StatusGlyph status={stage} size={8} />
         </span>
       )}
     </span>

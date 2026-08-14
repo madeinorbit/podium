@@ -52,7 +52,7 @@ describe('RefChip', () => {
 
     expect(inkOf(/In Progress task POD-529/i)).toBe(rgb(STAGE_COLOR.in_progress))
     // …and carries the stage's shape, not only its colour.
-    expect(screen.getByLabelText('In progress')).toBeTruthy()
+    expect(screen.getByLabelText('In Progress')).toBeTruthy()
   })
 
   it('leaves a ref with no live row muted rather than guessing [POD-676]', () => {

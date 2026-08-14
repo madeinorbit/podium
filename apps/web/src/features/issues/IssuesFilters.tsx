@@ -1,4 +1,12 @@
-import { ISSUE_STAGES, type IssueId, type IssueStage, IssueType } from '@podium/model/browser'
+import {
+  ALL_ISSUE_STATUSES,
+  ISSUE_STAGES,
+  ISSUE_STATUS_LABELS,
+  type IssueId,
+  type IssueStage,
+  IssueType,
+  PICKABLE_OPEN_ISSUE_STATUSES,
+} from '@podium/model/browser'
 import { Check, ListFilter, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -21,8 +29,7 @@ import {
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import type { BoardFilter } from './issue-board-filter'
-import { STAGE_LABELS } from './issue-card'
-import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { PriorityGlyph, StatusGlyph } from './issue-glyphs'
 import type { IssuesDisplay, IssuesLayout, IssuesOrdering } from './issues-display'
 import type { IssuesDisplayPatch } from './issues-view-model'
 
@@ -74,8 +81,8 @@ export function AnchoredIssueMenu({
         {kind === 's' &&
           ISSUE_STAGES.map((stage) => (
             <DropdownMenuItem key={stage} onClick={() => onMoveIssue(issue.id, stage)}>
-              <StageGlyph stage={stage} />
-              {STAGE_LABELS[stage]}
+              <StatusGlyph status={stage} />
+              {ISSUE_STATUS_LABELS[stage]}
             </DropdownMenuItem>
           ))}
         {kind === 'p' &&
@@ -135,11 +142,16 @@ export function BulkBar({
     <div className="-translate-x-1/2 fixed bottom-4 left-1/2 z-40 flex items-center gap-2 rounded-lg border border-border bg-popover px-3 py-2 shadow-lg">
       <span className="text-[13px] text-foreground tabular-nums">{count} selected</span>
       <div className="mx-1 h-4 w-px bg-border" />
+      {/* Bulk stage move — the OPEN lanes only (POD-1074). `done` used to be in
+          this list, which let a whole selection be parked on the done lane with
+          no reason recorded: closed by the predicate, but with nothing to say
+          which ending it was. Closing stays a single-issue decision with a
+          dialog behind it. */}
       <PropertyMenu
-        options={ISSUE_STAGES.map((stage) => ({
+        options={PICKABLE_OPEN_ISSUE_STATUSES.map((stage) => ({
           value: stage,
-          label: STAGE_LABELS[stage],
-          icon: <StageGlyph stage={stage} />,
+          label: ISSUE_STATUS_LABELS[stage],
+          icon: <StatusGlyph status={stage} />,
         }))}
         onSelect={(value) => onStage(value as IssueStage)}
         trigger={
@@ -242,8 +254,12 @@ export function FilterMenu({
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        {/* Two axes, named apart (POD-1074). This one is the DERIVED state —
+            open/closed and the queue predicates — and it used to be called
+            "Status" while the list of actual statuses below it was called
+            "Stage". */}
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger>State</DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
             {STATUS_OPTIONS.map((status) => (
               <DropdownMenuItem key={status} onClick={() => set({ status })}>
@@ -253,11 +269,12 @@ export function FilterMenu({
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>Stage</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
-            {ISSUE_STAGES.map((stage) => (
+            {ALL_ISSUE_STATUSES.map((stage) => (
               <DropdownMenuItem key={stage} onClick={() => set({ stage })}>
-                {STAGE_LABELS[stage]}
+                <StatusGlyph status={stage} />
+                {ISSUE_STATUS_LABELS[stage]}
               </DropdownMenuItem>
             ))}
           </DropdownMenuSubContent>

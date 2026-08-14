@@ -27,13 +27,13 @@
 
 import { groupRelations } from '@podium/client-core/viewmodels'
 import type { IssueId } from '@podium/model/browser'
-import { ISSUE_DEP_TYPES } from '@podium/model/browser'
+import { ISSUE_DEP_TYPES, issueStatusOf } from '@podium/model/browser'
 import { Plus, X } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
-import { StageGlyph } from '../issue-glyphs'
+import { StatusGlyph } from '../issue-glyphs'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { MACHINE_LABEL, SectionHeading } from './chrome'
 import { edgeIssue, IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
@@ -82,7 +82,7 @@ export function IssueRelations({
                 className="group -mx-1.5 flex min-h-[24px] items-center justify-between gap-2 rounded-[4.8px] px-1.5 transition-colors hover:bg-accent"
               >
                 <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px]">
-                  {target && <StageGlyph stage={target.stage} size={12} />}
+                  {target && <StatusGlyph status={issueStatusOf(target)} size={12} />}
                   <IssueEdgeLink edge={edge} onNavigate={onNavigate} fallbackId={entry.id} />
                 </span>
                 <button

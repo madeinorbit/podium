@@ -21,7 +21,12 @@ import {
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
-import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
+import {
+  canonicalIssueCloseReason,
+  ISSUE_STATUS_LABELS,
+  isIssueDeferred,
+  issueReturnedFromDefer,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import {
@@ -99,16 +104,12 @@ function foldedMarker(issue: IssueWire, lane: 'closed' | 'snoozed', now: number)
     return hours < 24 ? `snoozed ${hours}h` : `snoozed ${Math.round(hours / 24)}d`
   }
   if (issue.gitState?.merged) return 'merged'
-  switch (issue.closedReason) {
-    case 'superseded':
-      return 'superseded'
-    case 'duplicate':
-      return 'duplicate'
-    case 'wontfix':
-      return "won't fix"
-    default:
-      return 'closed'
-  }
+  // One word from the shared status vocabulary (POD-1074), so a row stored as
+  // `wontfix` folds as "cancelled" here and on the desktop rather than as this
+  // screen's own "won't fix".
+  const reason = canonicalIssueCloseReason(issue.closedReason)
+  if (reason && reason !== 'done') return ISSUE_STATUS_LABELS[reason].toLowerCase()
+  return 'closed'
 }
 
 /** Line 2's timer stamp — the desktop PhaseTimer's exact vocabulary: a running

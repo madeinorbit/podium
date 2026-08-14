@@ -1,4 +1,4 @@
-import { asIssueId, type IssueId, type IssueWire } from '@podium/model'
+import { asIssueId, type IssueCloseReason, type IssueId, type IssueWire } from '@podium/model'
 
 /**
  * Proposal screening (POD-277) — the pure half of the phone's "Screen proposed"
@@ -15,8 +15,10 @@ import { asIssueId, type IssueId, type IssueWire } from '@podium/model'
 export type ScreeningOutcome = 'accepted' | 'declined' | 'skipped'
 
 /** The close reason a declined proposal is closed with — mirrors the desktop's
- *  "Close (wontfix)" so both surfaces write the same closure vocabulary. */
-export const DECLINE_REASON = 'wontfix'
+ *  "Cancelled" so both surfaces write the same closure vocabulary. Was the old
+ *  `wontfix` spelling until POD-1074 folded it into `cancelled`; rows already
+ *  stored under the old word still read back as cancelled. */
+export const DECLINE_REASON: IssueCloseReason = 'cancelled'
 
 /** The narrow command seam the flow needs, kept explicit so the ordered
  *  promote/start sequence and the optimistic close are testable without a UI. */
@@ -95,7 +97,7 @@ export function reconcileScreeningOrder(
  *  - accepted: promote the proposal into the backlog, then start it — the same
  *    two-step the desktop board's "Approve & start" runs, so the issue gets its
  *    worktree, branch, and default agent.
- *  - declined: close it as `wontfix` (the server writes stage `done` +
+ *  - declined: close it as `cancelled` (the server writes stage `done` +
  *    closedReason together — closing IS done).
  *  - skipped: nothing. The proposal stays proposed and comes back next time.
  *

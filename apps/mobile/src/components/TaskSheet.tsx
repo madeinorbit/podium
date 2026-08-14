@@ -7,7 +7,12 @@ import {
   sessionTitle,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES, type IssueWire, type SessionMeta } from '@podium/model'
+import {
+  type IssueWire,
+  issueStatusLabel,
+  PICKABLE_OPEN_ISSUE_STATUSES,
+  type SessionMeta,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { ChevronDown, ChevronRight } from 'lucide-react-native'
@@ -189,7 +194,7 @@ function SheetHead({
           accessibilityLabel="Change stage"
           onPress={() => setStageOpen(true)}
         >
-          <Text style={styles.stagePillText}>{STAGE_LABEL[issue.stage]}</Text>
+          <Text style={styles.stagePillText}>{issueStatusLabel(issue)}</Text>
           <Icon as={ChevronDown} size={11} color={color.text} />
         </PressableScale>
         {/* `Answer` is a ROUTE, not a second answering surface: the agent that
@@ -227,11 +232,16 @@ function SheetHead({
         <Text style={styles.presence}>{presence.text}</Text>
       ) : null}
 
+      {/* The deck's quick move is LANES only (POD-1074) — closing wants the
+          reason and the guard the task detail's Status sheet gives it, and a
+          swipe-up card is not where that decision belongs. `Done` is therefore
+          absent here, where it used to sit as a bare stage with no ending
+          recorded. */}
       <ActionSheet
         visible={stageOpen}
         title="Stage"
         onClose={() => setStageOpen(false)}
-        actions={ISSUE_STAGES.map((stage) => ({
+        actions={PICKABLE_OPEN_ISSUE_STATUSES.map((stage) => ({
           label: STAGE_LABEL[stage],
           selected: stage === issue.stage,
           disabled: stage === issue.stage,

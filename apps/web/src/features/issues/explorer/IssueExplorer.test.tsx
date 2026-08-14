@@ -183,7 +183,7 @@ describe('issue explorer navigation', () => {
     )
     expect(screen.getAllByRole('listitem')[0]?.getAttribute('aria-posinset')).not.toBe('1')
 
-    fireEvent.click(screen.getByRole('tab', { name: /In progress/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /In Progress/ }))
     fireEvent.click(screen.getByRole('tab', { name: /Backlog/ }))
     expect(scroll.scrollTop).toBe(10_000)
   })

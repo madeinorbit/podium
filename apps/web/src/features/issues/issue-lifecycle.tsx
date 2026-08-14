@@ -1,5 +1,5 @@
 import { isSessionWorking } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+import { ISSUE_STATUS_LABELS, type IssueCloseReason, type SessionMeta } from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -15,7 +15,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 
-export type IssueCloseReason = 'done' | 'wontfix'
+/** Re-exported from the model (POD-1074), where the vocabulary now lives with
+ *  its labels and its legacy `wontfix` → `cancelled` canonicalization. Kept as a
+ *  name here because every close call site in this feature already imports it. */
+export type { IssueCloseReason }
 
 export interface IssueCloseConcern {
   key: string
@@ -140,7 +143,14 @@ export function IssueCloseDialog({
             <AlertTriangle size={16} aria-hidden="true" />
           </div>
           <AlertDialogTitle>
-            {blockers.length > 0 ? 'This issue still needs attention' : 'Close this issue?'}
+            {/* The ending is named only when it is NOT the ordinary one:
+                "Close this issue?" already means done, and spelling that out
+                would make the common path read like a special case. */}
+            {blockers.length > 0
+              ? 'This issue still needs attention'
+              : reason && reason !== 'done'
+                ? `Close this issue as ${ISSUE_STATUS_LABELS[reason].toLowerCase()}?`
+                : 'Close this issue?'}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {blockers.length > 0
@@ -181,14 +191,16 @@ export function IssueCloseDialog({
             disabled={busy || reason === null}
             onClick={() => reason && onConfirm(reason)}
           >
+            {/* The button says which ENDING is being recorded, not just "close"
+                — the menu now offers three of them and the dialog is the last
+                place to catch a mispick. `done` keeps the plain wording so the
+                common path stays a plain sentence. */}
             {busy
               ? 'Closing…'
-              : blockers.length > 0
-                ? reason === 'wontfix'
-                  ? 'Close as not planned'
-                  : 'Close anyway'
-                : reason === 'wontfix'
-                  ? 'Close as not planned'
+              : reason && reason !== 'done'
+                ? `Close as ${ISSUE_STATUS_LABELS[reason].toLowerCase()}`
+                : blockers.length > 0
+                  ? 'Close anyway'
                   : 'Close issue'}
           </AlertDialogAction>
         </AlertDialogFooter>

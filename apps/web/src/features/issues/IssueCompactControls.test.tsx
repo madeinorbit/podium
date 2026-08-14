@@ -264,13 +264,14 @@ describe('IssueCompactControls', () => {
     })
   })
 
-  // Closing is reachable from the stage menu, but never as a bare stage write:
-  // the entry hands off to the guard dialog so a reason is recorded.
-  it('routes the stage menu close entries through the guard dialog', async () => {
+  // The terminal statuses are reachable from the status menu, but never as a
+  // bare stage write: the entry hands off to the guard dialog so a reason is
+  // recorded.
+  it('routes the status menu terminal entries through the guard dialog', async () => {
     render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
 
-    fireEvent.click(screen.getByLabelText('Stage'))
-    fireEvent.click(await screen.findByText('Close: done'))
+    fireEvent.click(screen.getByLabelText('Status'))
+    fireEvent.click(await screen.findByText('Done'))
 
     expect(await screen.findByText('Close this issue?')).toBeTruthy()
   })
@@ -278,11 +279,32 @@ describe('IssueCompactControls', () => {
   it('confirms the close through the optimistic store action', async () => {
     render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
 
-    fireEvent.click(screen.getByLabelText('Stage'))
-    fireEvent.click(await screen.findByText('Close: done'))
+    fireEvent.click(screen.getByLabelText('Status'))
+    fireEvent.click(await screen.findByText('Done'))
     fireEvent.click(await screen.findByText('Close issue'))
 
     expect(closeIssue).toHaveBeenCalledWith('i', 'done')
+  })
+
+  // POD-1074: cancelled and duplicate are their own endings, not one "wontfix".
+  it('closes as cancelled from the status menu', async () => {
+    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+
+    fireEvent.click(screen.getByLabelText('Status'))
+    fireEvent.click(await screen.findByText('Cancelled'))
+    fireEvent.click(await screen.findByText('Close as cancelled'))
+
+    expect(closeIssue).toHaveBeenCalledWith('i', 'cancelled')
+  })
+
+  it('closes as duplicate from the status menu', async () => {
+    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
+
+    fireEvent.click(screen.getByLabelText('Status'))
+    fireEvent.click(await screen.findByText('Duplicate'))
+    fireEvent.click(await screen.findByText('Close as duplicate'))
+
+    expect(closeIssue).toHaveBeenCalledWith('i', 'duplicate')
   })
 })
 

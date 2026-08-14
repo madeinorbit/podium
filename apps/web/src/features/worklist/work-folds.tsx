@@ -4,6 +4,7 @@ import type {
   UnifiedIssueRow as UnifiedIssueRowView,
   UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
+import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Archive, ChevronRight, Pin } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
@@ -216,16 +217,13 @@ export function foldedMarker(
     return `snoozed ${Math.round(hours / 24)}d`
   }
   if (issue.gitState?.merged) return 'merged'
-  switch (issue.closedReason) {
-    case 'superseded':
-      return 'superseded'
-    case 'duplicate':
-      return 'duplicate'
-    case 'wontfix':
-      return "won't fix"
-    default:
-      return 'closed'
-  }
+  // One word, lowercased from the shared status vocabulary (POD-1074) — so a
+  // row folded as `wontfix` in the store reads "cancelled" here, the same word
+  // the status menu offers, instead of the third spelling ("won't fix") this
+  // switch used to keep to itself.
+  const reason = canonicalIssueCloseReason(issue.closedReason)
+  if (reason && reason !== 'done') return ISSUE_STATUS_LABELS[reason].toLowerCase()
+  return 'closed'
 }
 
 /** A folded (closed / suspended) issue on ONE dim line (POD-293): ref · title ·

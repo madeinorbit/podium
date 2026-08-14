@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Status menu</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfaf8;
+    --panel: #ffffff;
+    --engraved: #f4f2ee;
+    --ink: #1a1917;
+    --dim: #6b6862;
+    --faint: #9a968e;
+    --hairline: #e6e2db;
+    --rule: #ded9d1;
+    --success: #1f9d55;
+    --accent: #2f6feb;
+    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a;
+      --panel: #1e2024;
+      --engraved: #1a1c20;
+      --ink: #e9e7e3;
+      --dim: #9b978f;
+      --faint: #6e6a63;
+      --hairline: #2b2e33;
+      --rule: #34383e;
+      --success: #37b96b;
+      --accent: #6f9bff;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.5);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 940px; margin: 0 auto; padding: 48px 24px 96px; }
+  h1 { font-size: 26px; line-height: 1.25; letter-spacing: -.015em; margin: 0 0 8px; }
+  h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--faint); font-weight: 600; margin: 56px 0 16px;
+  }
+  h3 { font-size: 14px; margin: 0 0 10px; font-weight: 600; }
+  p { margin: 0 0 14px; color: var(--dim); max-width: 68ch; }
+  p strong { color: var(--ink); font-weight: 600; }
+  code {
+    font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--engraved); border: 1px solid var(--hairline);
+    border-radius: 5px; padding: 1px 5px; color: var(--ink);
+  }
+  .lede { font-size: 16px; color: var(--dim); max-width: 66ch; margin-bottom: 4px; }
+
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; align-items: start; }
+
+  /* --- a menu, drawn the way the shell draws it --- */
+  .menu {
+    background: var(--panel); border: 1px solid var(--hairline);
+    border-radius: 10px; box-shadow: var(--shadow);
+    padding: 4px; width: 220px;
+  }
+  .menu.wide { width: 236px; }
+  .item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px;
+    font-size: 13px; white-space: nowrap;
+  }
+  .item .tick { margin-left: auto; color: var(--faint); }
+  .item.on { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .sep { height: 1px; background: var(--rule); margin: 4px 6px; }
+  .grouplabel {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--faint); padding: 6px 8px 2px; font-weight: 600;
+  }
+  .trigger {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--hairline); background: var(--panel);
+    border-radius: 7px; padding: 4px 9px; font-size: 12px; font-weight: 500;
+    margin-bottom: 10px;
+  }
+  .caption { font-size: 12px; color: var(--faint); margin-top: 10px; max-width: 30ch; }
+  .bad { color: #c2410c; }
+  @media (prefers-color-scheme: dark) { .bad { color: #f59e0b; } }
+
+  /* --- glyph table --- */
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th {
+    text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--faint); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--hairline);
+  }
+  td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--hairline); vertical-align: middle; color: var(--dim); }
+  td:first-child { width: 30px; }
+  td.name { color: var(--ink); font-weight: 500; width: 110px; }
+  .scroll { overflow-x: auto; }
+
+  ul { margin: 0 0 14px; padding-left: 20px; color: var(--dim); max-width: 68ch; }
+  li { margin-bottom: 5px; }
+  li strong { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Cancelled and duplicate, as real statuses</h1>
+<p class="lede">
+  The tracker stored lifecycle state in two fields — <code>stage</code> and <code>closedReason</code> —
+  and every status control joined them itself, slightly differently. This is one vocabulary of ten
+  statuses, one label table, and one Linear-shaped menu that every surface renders.
+</p>
+
+<h2>The question you asked</h2>
+<p>
+  <strong>Yes — <code>wontfix</code> was our cancelled.</strong> Same meaning: work we deliberately are
+  not doing. It is now spelled <code>cancelled</code>, and rows already stored under the old word read
+  back as Cancelled everywhere, forever. Nothing needs migrating.
+</p>
+<p>
+  <strong>Duplicate is <em>not</em> the same as cancelled</strong> — it is its own ending, the way Linear
+  treats it: both mean "this work will not happen here", but duplicate says the work is tracked
+  <em>somewhere else</em>. It gets its own word, its own glyph, and its own entry in the menu. The
+  existing <em>"Duplicate of…"</em> relation still exists and is the stronger statement — it names the
+  canonical issue. Picking the status is the judgement you make before, or without, finding it.
+</p>
+<p>
+  A fourth ending, <code>superseded</code>, already existed and is set by <code>supersede &lt;old&gt; &lt;new&gt;</code>.
+  It renders in the new vocabulary but is deliberately <em>not</em> in the picker: it needs a target issue,
+  so it belongs to the relations menu.
+</p>
+
+<h2>The right-sidebar menu</h2>
+<div class="cols">
+  <div>
+    <h3>Before</h3>
+    <div class="trigger">
+      <svg width="12" height="12" viewBox="0 0 14 14" style="color:#2f6feb"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 0 1 9.77 5.4 Z" fill="currentColor"/></svg>
+      In Progress ▾
+    </div>
+    <div class="menu">
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--faint)"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></svg> Backlog</div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg> Planning</div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:#2f6feb"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 0 1 9.77 5.4 Z" fill="currentColor"/></svg> In Progress</div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:#0ea5e9"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 1 1 4.23 5.4 Z" fill="currentColor"/></svg> Review</div>
+      <div class="sep"></div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--success)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.5 7.2 6.3 9l3.2-3.6" stroke="var(--panel)" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> <span class="bad">Close: done</span></div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--success)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.5 7.2 6.3 9l3.2-3.6" stroke="var(--panel)" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> <span class="bad">Close: wontfix</span></div>
+    </div>
+    <p class="caption">
+      The label leaked the mutation into the noun, <code>wontfix</code> was a word nobody picks on
+      purpose, and both endings wore the same green Done tick.
+    </p>
+  </div>
+
+  <div>
+    <h3>After</h3>
+    <div class="trigger">
+      <svg width="12" height="12" viewBox="0 0 14 14" style="color:#2f6feb"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 0 1 9.77 5.4 Z" fill="currentColor"/></svg>
+      In Progress ▾
+    </div>
+    <div class="menu wide">
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--faint)"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></svg> Backlog</div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg> Planning</div>
+      <div class="item on"><svg width="12" height="12" viewBox="0 0 14 14" style="color:#2f6feb"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 0 1 9.77 5.4 Z" fill="currentColor"/></svg> In Progress <span class="tick">✓</span></div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:#0ea5e9"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 1 1 4.23 5.4 Z" fill="currentColor"/></svg> Review</div>
+      <div class="sep"></div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--success)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.5 7.2 6.3 9l3.2-3.6" stroke="var(--panel)" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Done</div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M5 5l4 4M9 5l-4 4" stroke="var(--panel)" stroke-width="1.55" fill="none" stroke-linecap="round"/></svg> Cancelled</div>
+      <div class="item"><svg width="12" height="12" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.3 9.1V5.2a.95.95 0 0 1 .95-.95h3.9" stroke="var(--panel)" stroke-width="1.25" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="5.9" y="5.9" width="4.1" height="4.1" rx="1.05" fill="var(--panel)"/></svg> Duplicate</div>
+    </div>
+    <p class="caption">
+      Lanes, a rule, then the endings as states. Done moves below the rule because picking it
+      <em>is</em> a close — it records a reason and runs the close guard.
+    </p>
+  </div>
+</div>
+
+<h2>The glyph family</h2>
+<p>
+  The open ramp is unchanged. What is new is that the cancelled family is <strong>muted, never
+  green</strong>: success is the colour of work that landed, and an issue closed as cancelled or
+  duplicate did not land. That was the sharpest part of the old problem — the sidebar could not tell
+  "we did it" from "we decided not to".
+</p>
+<div class="scroll">
+<table>
+  <thead><tr><th></th><th>Status</th><th>Mark</th><th>Where it comes from</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><svg width="16" height="16" viewBox="0 0 14 14" style="color:var(--faint)"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></svg></td>
+      <td class="name">Backlog</td><td>dashed ring</td><td>stage</td>
+    </tr>
+    <tr>
+      <td><svg width="16" height="16" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></td>
+      <td class="name">Planning</td><td>open ring</td><td>stage</td>
+    </tr>
+    <tr>
+      <td><svg width="16" height="16" viewBox="0 0 14 14" style="color:#2f6feb"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 0 1 9.77 5.4 Z" fill="currentColor"/></svg></td>
+      <td class="name">In Progress</td><td>⅓ pie</td><td>stage</td>
+    </tr>
+    <tr>
+      <td><svg width="16" height="16" viewBox="0 0 14 14" style="color:#0ea5e9"><circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 7 L7 3.8 A3.2 3.2 0 1 1 4.23 5.4 Z" fill="currentColor"/></svg></td>
+      <td class="name">Review</td><td>⅔ pie</td><td>stage</td>
+    </tr>
+    <tr>
+      <td><svg width="16" height="16" viewBox="0 0 14 14" style="color:var(--success)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.5 7.2 6.3 9l3.2-3.6" stroke="var(--panel)" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+      <td class="name">Done</td><td>check — the only green ending</td><td>closedReason</td>
+    </tr>
+    <tr>
+      <td><svg width="16" height="16" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M5 5l4 4M9 5l-4 4" stroke="var(--panel)" stroke-width="1.55" fill="none" stroke-linecap="round"/></svg></td>
+      <td class="name">Cancelled</td><td>✕ — <em>was</em> <code>wontfix</code></td><td>closedReason</td>
+    </tr>
+    <tr>
+      <td><svg width="16" height="16" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.3 9.1V5.2a.95.95 0 0 1 .95-.95h3.9" stroke="var(--panel)" stroke-width="1.25" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="5.9" y="5.9" width="4.1" height="4.1" rx="1.05" fill="var(--panel)"/></svg></td>
+      <td class="name">Duplicate</td><td>copy mark</td><td>closedReason</td>
+    </tr>
+    <tr>
+      <td><svg width="16" height="16" viewBox="0 0 14 14" style="color:var(--dim)"><circle cx="7" cy="7" r="6" fill="currentColor"/><path d="M4.4 7h4.5M7.1 5.2 8.9 7l-1.8 1.8" stroke="var(--panel)" stroke-width="1.45" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></td>
+      <td class="name">Superseded</td><td>arrow out — rendered, not pickable</td><td>closedReason</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Where it lands</h2>
+<p>Every status control now renders the same list from the same place in the model.</p>
+<ul>
+  <li><strong>Right-sidebar issue panel</strong> — the dock's status pill and its menu (the one you asked about).</li>
+  <li><strong>Full issue page</strong> — the Status property, with a "Closed" heading over the endings.</li>
+  <li><strong>Board / sidebar right-click and the command palette</strong> — "Set stage" plus two "Close (…)" actions became one <em>Set status</em> submenu.</li>
+  <li><strong>Phone</strong> — the task Status sheet, each ending carrying a one-line hint.</li>
+  <li><strong>Board filters</strong> — the status axis now filters by <em>Cancelled</em> and <em>Duplicate</em>; "Done" stops meaning "anything on the done lane". The old open/closed/ready/blocked axis is renamed <em>State</em> so the two stop competing for one word.</li>
+  <li><strong>Folded rows</strong> — the sidebar and the phone's work list both said <code>won't fix</code> in their own spelling; both now say <em>cancelled</em>.</li>
+  <li><strong>Activity feed</strong> — an event logged years ago as <code>wontfix</code> reads back "closed (cancelled)".</li>
+  <li><strong>CLI</strong> — <code>podium issue close --reason done|cancelled|duplicate|superseded</code>. <code>wontfix</code> still works and stores <code>cancelled</code>.</li>
+</ul>
+
+<h2>Two smaller corrections that came with it</h2>
+<ul>
+  <li>The explorer's <strong>Done</strong> tab is now <strong>Closed</strong> — it buckets by stage, and every ending parks on the done lane, so calling the bucket Done told you the cancelled rows in it had been completed.</li>
+  <li><strong>Bulk stage move</strong> and the phone's quick deck move no longer offer <em>Done</em>. Setting the done lane in bulk closed issues with <em>no reason recorded at all</em> — the exact incoherence this issue is about. Closing stays a single-issue decision with the guard dialog behind it.</li>
+</ul>
+
+</main>
+</body>
+</html>

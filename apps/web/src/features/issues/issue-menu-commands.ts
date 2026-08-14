@@ -2,14 +2,15 @@ import type { IssueUpdatePatch } from '@podium/commands'
 import {
   asMachineId,
   DEFER_NEXT_MESSAGE,
-  type MachineId,
   isIssueColorSlot,
+  issueStatusIntent,
+  type MachineId,
   snoozeUntil1h,
 } from '@podium/model/browser'
 import type { Trpc } from '@/app/trpc'
 import { deferDateFromNow, toggleLabelAcross } from './issue-context-menu'
 import type { IssueMenuConfig, IssueMenuData } from './issue-menu-config'
-import { ISSUE_MENU_COLOR_NONE, stageValue } from './issue-menu-config'
+import { ISSUE_MENU_COLOR_NONE, statusValue } from './issue-menu-config'
 
 export interface IssueMenuCommandDeps {
   trpc: Trpc
@@ -63,10 +64,6 @@ export function runIssueMenuCommand(
         return deps.markIssueUnread(id)
       case 'markRead':
         return deps.markIssueRead(id)
-      case 'closeDone':
-        return deps.closeIssue(id, 'done')
-      case 'closeWontfix':
-        return deps.closeIssue(id, 'wontfix')
       case 'pin':
         return deps.updateIssue(id, { pinned: !data.first.pinned })
       case 'archive': {
@@ -100,12 +97,18 @@ export function runIssueMenuCommand(
 
   if (value === undefined) return
   switch (entry.id) {
-    case 'stage': {
-      const stage = stageValue(value)
-      if (stage) {
-        return Promise.all(data.issues.map((issue) => deps.updateIssue(issue.id, { stage })))
-      }
-      return
+    case 'status': {
+      // The lane arm bulk-applies across the selection, exactly as "Set stage"
+      // did; the close arm is single-issue by construction (the option is
+      // disabled unless the selection is one open task).
+      const status = statusValue(value)
+      if (!status) return
+      const intent = issueStatusIntent(status)
+      if (!intent) return
+      if (intent.kind === 'close') return deps.closeIssue(id, intent.reason)
+      return Promise.all(
+        data.issues.map((issue) => deps.updateIssue(issue.id, { stage: intent.stage })),
+      )
     }
     case 'priority': {
       const priority = Number(value)

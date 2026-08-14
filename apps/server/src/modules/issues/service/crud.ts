@@ -6,6 +6,7 @@ import {
   asRepoId,
   asSessionId,
   asUserId,
+  canonicalIssueCloseReason,
   type GrantVerb,
   type IssueId,
   type IssueWire,
@@ -1408,7 +1409,14 @@ export class IssueCrudModule {
   close(id: string, reason = 'done', opts?: { actorSessionId?: SessionId }): IssueWire {
     // update() emits issue.closed; actorSessionId rides through so the steward
     // can skip nudging the session that requested the close.
-    return this.update(id, { stage: 'done', closedReason: reason }, opts)
+    //
+    // CANONICALIZED ON WRITE (POD-1074): a caller that still says `wontfix`
+    // stores `cancelled`, so the vocabulary stops growing new legacy rows. An
+    // unrecognized reason is stored VERBATIM — the column is deliberately free
+    // text and an integration with its own word for an ending should not have
+    // it silently rewritten to "done".
+    const canonical = canonicalIssueCloseReason(reason) ?? reason
+    return this.update(id, { stage: 'done', closedReason: canonical }, opts)
   }
 
   applySuggestion(id: string): IssueWire {

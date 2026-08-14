@@ -813,7 +813,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'close',
     summary:
-      'Close an issue: close <id> [--reason done|superseded|duplicate|wontfix] [--note "handoff"].',
+      'Close an issue: close <id> [--reason done|cancelled|duplicate|superseded] [--note "handoff"]. `wontfix` is the old name for `cancelled` and is still accepted.',
     args: z.strictObject({
       id: idArg,
       reason: z.string().optional(),

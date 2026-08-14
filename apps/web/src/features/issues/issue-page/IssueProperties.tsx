@@ -33,15 +33,22 @@
  * `../issue-page-model.ts`.
  */
 import { shallowEqual } from '@podium/client-core'
-import { ISSUE_STAGES, type IssueId, IssueType } from '@podium/model/browser'
+import {
+  type IssueId,
+  IssueType,
+  issueStatusLabel,
+  issueStatusMenuEntries,
+  issueStatusOf,
+  issueStatusValueOf,
+  parseIssueStatusValue,
+} from '@podium/model/browser'
 import { ChevronRight, ExternalLink, Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
-import { STAGE_LABELS } from '../issue-card'
-import { PriorityGlyph, StageGlyph } from '../issue-glyphs'
+import { PriorityGlyph, StatusGlyph } from '../issue-glyphs'
 import type { IssueCloseReason } from '../issue-lifecycle'
 import type { IssuePageCommands } from '../issue-page-commands'
 import {
@@ -120,17 +127,17 @@ export function IssueProperties({
     (s) => s.refIssueId === issue.id && s.issueId != null && s.issueId !== issue.id && !s.archived,
   )
 
-  // ---- Status: lifecycle stages reopen a closed issue; close choices are guarded
-  // by the shared dialog mounted on the full page. ----
-  const statusOptions: PropertyOption[] = [
-    ...ISSUE_STAGES.map((s) => ({
-      value: `stage:${s}`,
-      label: STAGE_LABELS[s],
-      icon: <StageGlyph stage={s} />,
-    })),
-    { value: 'close:done', label: 'Close: done' },
-    { value: 'close:wontfix', label: 'Close: wontfix' },
-  ]
+  // ---- Status (POD-1074): ONE list, the lanes then the endings, exactly as the
+  // dock and the board context menu render it. Picking a lane on a closed issue
+  // reopens it; the endings are guarded by the shared close dialog mounted on
+  // the full page. The "Closed" heading is what earns the endings their plain
+  // nouns — nothing has to say "Close:" to be understood. ----
+  const statusOptions: PropertyOption[] = issueStatusMenuEntries().map((entry) => ({
+    value: entry.value,
+    label: entry.label,
+    icon: <StatusGlyph status={entry.status} />,
+    ...(entry.terminal ? { group: 'Closed' } : {}),
+  }))
 
   // The fold opens itself when it has something to say — see the module note.
   const hasLongTail =
@@ -145,17 +152,17 @@ export function IssueProperties({
       <div className="flex flex-col px-5 pt-5 pb-3">
         <PropertyRow label="Status">
           <PropertyMenu
-            selectedValue={`stage:${issue.stage}`}
+            selectedValue={issueStatusValueOf(issue)}
             options={statusOptions}
             onSelect={(value) => {
-              if (value === 'close:done') onRequestClose('done')
-              else if (value === 'close:wontfix') onRequestClose('wontfix')
+              const intent = parseIssueStatusValue(value)
+              if (intent?.kind === 'close') onRequestClose(intent.reason)
               else commands.selectStatus(value)
             }}
             trigger={
               <TriggerButton disabled={busy} testId="status-trigger">
-                <StageGlyph stage={issue.stage} />
-                {issue.closedReason ? `Closed — ${issue.closedReason}` : STAGE_LABELS[issue.stage]}
+                <StatusGlyph status={issueStatusOf(issue)} />
+                {issueStatusLabel(issue)}
               </TriggerButton>
             }
           />

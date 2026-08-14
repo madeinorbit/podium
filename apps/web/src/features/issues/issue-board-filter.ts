@@ -1,6 +1,5 @@
-import type { IssueStage } from '@podium/model/browser'
+import { ISSUE_STATUS_LABELS, type IssueStatus, issueStatusOf } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
-import { STAGE_LABELS } from './issue-card'
 
 export interface BoardFilter {
   text?: string
@@ -8,8 +7,13 @@ export interface BoardFilter {
   type?: string
   assignee?: string
   label?: string
+  /** The DERIVED state axis — open/closed plus the queue predicates. Named
+   *  "State" in the filter menu so it stops competing with `stage` below. */
   status?: 'open' | 'closed' | 'ready' | 'blocked' | 'deferred'
-  stage?: IssueStage
+  /** The STATUS axis (POD-1074): a member of the flat vocabulary, so `done`
+   *  narrows to issues that actually completed rather than to every row parked
+   *  on the done lane — `cancelled` and `duplicate` are now their own answers. */
+  stage?: IssueStatus
   /** Reveal archived issues. Off/unset → archived stay hidden (board default). */
   archived?: boolean
   /** Reveal recoverable soft-deleted issues. */
@@ -50,7 +54,7 @@ export function filterBoardIssues(issues: IssueViewModel[], f: BoardFilter): Iss
     if (f.type && i.type !== f.type) return false
     if (f.assignee && i.assignee !== f.assignee) return false
     if (f.label && !i.labels.includes(f.label)) return false
-    if (f.stage && i.stage !== f.stage) return false
+    if (f.stage && issueStatusOf(i) !== f.stage) return false
     const closed = i.stage === 'done' || !!i.closedReason
     if (f.status === 'open' && closed) return false
     if (f.status === 'closed' && !closed) return false
@@ -75,7 +79,7 @@ export function filterChips(f: BoardFilter): { key: keyof BoardFilter; label: st
   if (f.assignee) chips.push({ key: 'assignee', label: `Assignee: ${f.assignee}` })
   if (f.label) chips.push({ key: 'label', label: `Label: ${f.label}` })
   if (f.status) chips.push({ key: 'status', label: `Status: ${f.status}` })
-  if (f.stage) chips.push({ key: 'stage', label: `Stage: ${STAGE_LABELS[f.stage]}` })
+  if (f.stage) chips.push({ key: 'stage', label: `Status: ${ISSUE_STATUS_LABELS[f.stage]}` })
   if (f.archived) chips.push({ key: 'archived', label: 'Archived' })
   if (f.deleted) chips.push({ key: 'deleted', label: 'Deleted' })
   return chips

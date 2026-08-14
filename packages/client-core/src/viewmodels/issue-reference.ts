@@ -1,16 +1,21 @@
-import type { IssueId, IssueStage, IssueWire } from '@podium/model'
+import { ISSUE_STATUS_LABELS, type IssueId, type IssueStage, type IssueWire } from '@podium/model'
 import { issueDisplayRef, parseAnyRef } from '@podium/protocol'
 
 /** Human labels for the workflow glyph family. Kept with the reference model so
- * every adapter (web, terminal, native) announces the same state. */
+ * every adapter (web, terminal, native) announces the same state.
+ *
+ * The STAGE-shaped view of `ISSUE_STATUS_LABELS` (POD-1074): the words now live
+ * once, in the model, beside the close reasons they share a picker with. This
+ * name stays because ~30 call sites read a stage and only a stage; reach for
+ * the model's table directly when the closed outcome matters too. */
 export const ISSUE_STAGE_LABELS: Readonly<Record<IssueStage, string>> = {
-  proposed: 'Proposed',
-  backlog: 'Backlog',
-  planning: 'Planning',
-  in_progress: 'In Progress',
-  review: 'Review',
-  shipping: 'Shipping',
-  done: 'Done',
+  proposed: ISSUE_STATUS_LABELS.proposed,
+  backlog: ISSUE_STATUS_LABELS.backlog,
+  planning: ISSUE_STATUS_LABELS.planning,
+  in_progress: ISSUE_STATUS_LABELS.in_progress,
+  review: ISSUE_STATUS_LABELS.review,
+  shipping: ISSUE_STATUS_LABELS.shipping,
+  done: ISSUE_STATUS_LABELS.done,
 }
 
 /** The issue fields a compact reference is allowed to read. */

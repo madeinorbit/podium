@@ -1,6 +1,13 @@
 import { withoutShells } from '@podium/client-core/focus'
-import { ISSUE_STAGE_LABELS, subIssuesOf } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES, IssueType, type IssueWire, type SessionId, type IssueId } from '@podium/model'
+import { subIssuesOf } from '@podium/client-core/viewmodels'
+import {
+  type IssueId,
+  IssueType,
+  type IssueWire,
+  issueStatusMenuEntries,
+  issueStatusValueOf,
+  type SessionId,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react-native'
@@ -397,28 +404,19 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
       <ActionSheet
         visible={sheet?.kind === 'stage'}
         title="Status"
-        actions={[
-          // The glyph rides the row, exactly as it does in the desktop's status
-          // menu: the six stages are a shape language before they are six words,
-          // and a picker that drops the shape teaches a different vocabulary from
-          // the board the operator just came from.
-          ...ISSUE_STAGES.map((stage) => ({
-            label: ISSUE_STAGE_LABELS[stage],
-            icon: <StageGlyph stage={stage} size={15} ground={color.surface} />,
-            selected: issue.stage === stage && !issue.closedReason,
-            onPress: () => commands.selectStatus(`stage:${stage}`),
-          })),
-          {
-            label: 'Close: done',
-            hint: 'Records the closure reason as well as the stage.',
-            onPress: () => commands.selectStatus('close:done'),
-          },
-          {
-            label: 'Close: wontfix',
-            hint: 'Closed without the work being done.',
-            onPress: () => commands.selectStatus('close:wontfix'),
-          },
-        ]}
+        // ONE list, the desktop's (POD-1074): the open lanes, then the endings
+        // named as states — Done, Cancelled, Duplicate — each carrying its own
+        // hint. The glyph rides every row, exactly as it does in the desktop's
+        // status menu: the statuses are a shape language before they are words,
+        // and a picker that drops the shape teaches a different vocabulary from
+        // the board the operator just came from.
+        actions={issueStatusMenuEntries().map((entry) => ({
+          label: entry.label,
+          ...(entry.hint ? { hint: entry.hint } : {}),
+          icon: <StageGlyph stage={entry.status} size={15} ground={color.surface} />,
+          selected: entry.value === issueStatusValueOf(issue),
+          onPress: () => commands.selectStatus(entry.value),
+        }))}
         onClose={closeIf('stage')}
       />
 

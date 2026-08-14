@@ -1,7 +1,6 @@
-import type { IssueStage } from '@podium/model/browser'
+import { ISSUE_STATUS_LABELS, type IssueStage, type IssueStatus } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
-import { STAGE_LABELS } from './issue-card'
 
 /** First letters of the first two words ('.', '-', '_' count as separators). */
 export function assigneeInitials(name: string): string {
@@ -13,7 +12,8 @@ export function assigneeInitials(name: string): string {
   return s || '?'
 }
 
-// Fill fraction per stage for the Linear-style progress-circle glyph family.
+// Fill fraction per open stage for the Linear-style progress-circle glyph
+// family. The terminal statuses are not on this ramp — they are marks.
 const STAGE_FILL: Record<IssueStage, number> = {
   proposed: 0,
   backlog: 0,
@@ -24,7 +24,7 @@ const STAGE_FILL: Record<IssueStage, number> = {
   done: 1,
 }
 
-const STAGE_CLASS: Record<IssueStage, string> = {
+const STATUS_CLASS: Record<IssueStatus, string> = {
   proposed: 'text-fuchsia-500',
   backlog: 'text-muted-foreground/70',
   planning: 'text-muted-foreground',
@@ -32,22 +32,95 @@ const STAGE_CLASS: Record<IssueStage, string> = {
   review: 'text-sky-500',
   shipping: 'text-violet-500',
   done: 'text-success',
+  // THE CANCELLED FAMILY IS MUTED, NEVER GREEN (POD-1074). Success is the
+  // colour of work that landed. Before the split, an issue closed as `wontfix`
+  // wore the same filled green tick as one that shipped — the sidebar could not
+  // tell "we did it" from "we decided not to", which is exactly what a terminal
+  // status is for.
+  cancelled: 'text-muted-foreground',
+  duplicate: 'text-muted-foreground',
+  superseded: 'text-muted-foreground',
+}
+
+/** The knocked-out mark inside a filled circle, per terminal status. */
+function terminalMark(status: 'done' | 'cancelled' | 'duplicate' | 'superseded'): JSX.Element {
+  const ko = 'var(--background)'
+  if (status === 'done') {
+    return (
+      <path
+        d="M4.5 7.2 6.3 9l3.2-3.6"
+        stroke={ko}
+        strokeWidth="1.6"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    )
+  }
+  if (status === 'duplicate') {
+    // The copy mark: a filled front card with the back card's corner bracket
+    // showing behind it. Reads as "this one already exists over there" without
+    // borrowing the cancelled ✕, which would make two adjacent picker rows wear
+    // the same glyph.
+    return (
+      <>
+        <path
+          d="M4.3 9.1V5.2a.95.95 0 0 1 .95-.95h3.9"
+          stroke={ko}
+          strokeWidth="1.25"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <rect x="5.9" y="5.9" width="4.1" height="4.1" rx="1.05" fill={ko} />
+      </>
+    )
+  }
+  if (status === 'superseded') {
+    // Replaced, not abandoned: an arrow leaving the circle to the right.
+    return (
+      <path
+        d="M4.4 7h4.5M7.1 5.2 8.9 7l-1.8 1.8"
+        stroke={ko}
+        strokeWidth="1.45"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    )
+  }
+  return (
+    <path
+      d="M5 5l4 4M9 5l-4 4"
+      stroke={ko}
+      strokeWidth="1.55"
+      fill="none"
+      strokeLinecap="round"
+    />
+  )
 }
 
 /**
  * Linear-style workflow-state glyph: dashed circle (backlog), open circle
- * (planning), pie-fill circles (in_progress/review), check (done).
+ * (planning), pie-fill circles (in_progress/review), and a filled disc carrying
+ * a knocked-out mark for each terminal status — check (done), ✕ (cancelled),
+ * copy (duplicate), arrow (superseded).
  */
-export function StageGlyph({
-  stage,
+export function StatusGlyph({
+  status,
   size = 14,
 }: {
-  stage: IssueStage
+  status: IssueStatus
   size?: number
 }): JSX.Element {
-  const label = STAGE_LABELS[stage]
-  const cls = cn('shrink-0', STAGE_CLASS[stage])
-  if (stage === 'done') {
+  const label = ISSUE_STATUS_LABELS[status]
+  const cls = cn('shrink-0', STATUS_CLASS[status])
+  if (
+    status === 'done' ||
+    status === 'cancelled' ||
+    status === 'duplicate' ||
+    status === 'superseded'
+  ) {
     return (
       <svg
         width={size}
@@ -58,17 +131,11 @@ export function StageGlyph({
         aria-label={label}
       >
         <circle cx="7" cy="7" r="6" fill="currentColor" />
-        <path
-          d="M4.5 7.2 6.3 9l3.2-3.6"
-          stroke="var(--background)"
-          strokeWidth="1.6"
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        {terminalMark(status)}
       </svg>
     )
   }
+  const stage: IssueStage = status
   const fill = STAGE_FILL[stage]
   // Pie slice from 12 o'clock, clockwise, for the fractional stages.
   const angle = 2 * Math.PI * fill
@@ -98,6 +165,24 @@ export function StageGlyph({
       )}
     </svg>
   )
+}
+
+/**
+ * The STAGE-only door onto {@link StatusGlyph}, for the surfaces that hold a
+ * stage and nothing else — a resolved `POD-…` chip, a board column header, a
+ * filter row. Where the row's `closedReason` IS in hand, call `StatusGlyph`
+ * with `issueStatusOf(issue)` instead: a cancelled issue passed through here
+ * still draws the green Done tick, because a bare stage genuinely cannot tell
+ * the two apart.
+ */
+export function StageGlyph({
+  stage,
+  size = 14,
+}: {
+  stage: IssueStage
+  size?: number
+}): JSX.Element {
+  return <StatusGlyph status={stage} size={size} />
 }
 
 /**

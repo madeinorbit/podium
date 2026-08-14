@@ -61,7 +61,7 @@ describe('shared issue menu command execution', () => {
     const data = menuData()
     const { deps, mutate, actions } = commandDeps()
     const entries = issueMenuEntries(data)
-    const stage = entries.find((entry) => entry.id === 'stage')
+    const stage = entries.find((entry) => entry.id === 'status')
     const labels = entries.find((entry) => entry.id === 'labels')
     const agent = entries.find((entry) => entry.id === 'agent')
     if (
@@ -90,13 +90,14 @@ describe('shared issue menu command execution', () => {
     const data = menuData()
     const { deps, mutate, actions } = commandDeps()
     const entries = issueMenuEntries(data)
-    const closeDone = entries.find((entry) => entry.id === 'closeDone')
+    // Closing is a STATUS pick now (POD-1074), not its own menu action.
+    const status = entries.find((entry) => entry.id === 'status')
     const defer = entries.find((entry) => entry.id === 'defer')
-    if (!closeDone || closeDone.kind !== 'action' || !defer || defer.kind !== 'submenu') {
-      throw new Error('expected close and defer fixtures')
+    if (!status || status.kind !== 'submenu' || !defer || defer.kind !== 'submenu') {
+      throw new Error('expected status and defer fixtures')
     }
 
-    await runIssueMenuCommand(data, closeDone, undefined, deps)
+    await runIssueMenuCommand(data, status, 'done', deps)
     await runIssueMenuCommand(data, defer, 'next-message', deps)
     await runIssueMenuCommand(data, defer, 'undefer', deps)
 

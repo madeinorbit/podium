@@ -15,12 +15,13 @@ import {
   sessionNeedsHuman,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import type {
-  IssueComment,
-  IssueId,
-  MachineId,
-  SessionId,
-  SessionMeta,
+import {
+  type IssueComment,
+  type IssueId,
+  issueStatusOf,
+  type MachineId,
+  type SessionId,
+  type SessionMeta,
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -60,7 +61,7 @@ import {
   issueSessions,
 } from './IssueCompactControls'
 import { issueIdTitle } from './issue-card'
-import { StageGlyph } from './issue-glyphs'
+import { StatusGlyph } from './issue-glyphs'
 
 // Where the task's identity lives, since POD-743: the HEAD of this panel. The
 // dock title bar carried it between POD-516 and here, on the reasoning that the
@@ -217,7 +218,7 @@ function UnifiedRow({
         sub.archived && 'opacity-60',
       )}
     >
-      <StageGlyph stage={sub.stage} size={12} />
+      <StatusGlyph status={issueStatusOf(sub)} size={12} />
       <span className="min-w-0 truncate">
         {/* The ref is an address, not part of the sentence — mono, and the
             faintest ink on the row, so the title is what the eye lands on. */}

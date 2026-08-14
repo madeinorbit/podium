@@ -1,5 +1,5 @@
-import type { IssueStage } from '@podium/model'
-import Svg, { Circle, Path, Rect } from 'react-native-svg'
+import type { IssueStage, IssueStatus } from '@podium/model'
+import Svg, { Circle, G, Path, Rect } from 'react-native-svg'
 import { STAGE_LABEL, STAGE_UNKNOWN, stageColor } from '../theme/stage'
 import { color } from '../theme/theme'
 
@@ -7,8 +7,9 @@ import { color } from '../theme/theme'
  * The Linear-style workflow-state glyph, on the phone — a literal transcription
  * of `apps/web/src/features/issues/issue-glyphs.tsx`, geometry and all: dashed
  * circle (backlog), open circle (proposed/planning), a pie filled 1/3 and 2/3
- * (in progress / review), and a filled circle with a check punched out of it
- * (done). Same 14-unit viewBox, same r=6 ring at 1.6 stroke, same 3.2 pie
+ * (in progress / review), and a filled circle with a mark punched out of it for
+ * each terminal status — check (done), ✕ (cancelled), copy (duplicate), arrow
+ * (superseded). Same 14-unit viewBox, same r=6 ring at 1.6 stroke, same 3.2 pie
  * radius, so the two platforms draw the same shape at the same optical weight.
  *
  * Reproduced rather than shared because the web draws into the DOM and this
@@ -25,21 +26,73 @@ const STAGE_FILL: Record<IssueStage, number> = {
   done: 1,
 }
 
+/** The knocked-out mark inside a filled disc, per terminal status. Mirrors
+ *  `terminalMark` in the web's issue-glyphs.tsx path for path. */
+function TerminalMark({ status, ground }: { status: IssueStatus; ground: string }) {
+  if (status === 'duplicate') {
+    return (
+      <G>
+        <Path
+          d="M4.3 9.1V5.2a.95.95 0 0 1 .95-.95h3.9"
+          stroke={ground}
+          strokeWidth="1.25"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <Rect x="5.9" y="5.9" width="4.1" height="4.1" rx="1.05" fill={ground} />
+      </G>
+    )
+  }
+  if (status === 'superseded') {
+    return (
+      <Path
+        d="M4.4 7h4.5M7.1 5.2 8.9 7l-1.8 1.8"
+        stroke={ground}
+        strokeWidth="1.45"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    )
+  }
+  if (status === 'cancelled') {
+    return (
+      <Path d="M5 5l4 4M9 5l-4 4" stroke={ground} strokeWidth="1.55" fill="none" strokeLinecap="round" />
+    )
+  }
+  return (
+    <Path
+      d="M4.5 7.2 6.3 9l3.2-3.6"
+      stroke={ground}
+      strokeWidth="1.6"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  )
+}
+
 export function StageGlyph({
   stage,
   size = 14,
-  /** The surface the done-check is punched out of. */
+  /** The surface the terminal mark is punched out of. */
   ground = color.bg,
   tint,
 }: {
-  stage: IssueStage
+  stage: IssueStatus
   size?: number
   ground?: string
-  /** Override the stage hue — e.g. a chip that already carries the colour. */
+  /** Override the status hue — e.g. a chip that already carries the colour. */
   tint?: string
 }) {
   const ink = tint ?? stageColor(stage)
-  if (stage === 'done') {
+  if (
+    stage === 'done' ||
+    stage === 'cancelled' ||
+    stage === 'duplicate' ||
+    stage === 'superseded'
+  ) {
     return (
       <Svg
         width={size}
@@ -49,18 +102,12 @@ export function StageGlyph({
         accessibilityLabel={STAGE_LABEL[stage]}
       >
         <Circle cx="7" cy="7" r="6" fill={ink} />
-        <Path
-          d="M4.5 7.2 6.3 9l3.2-3.6"
-          stroke={ground}
-          strokeWidth="1.6"
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <TerminalMark status={stage} ground={ground} />
       </Svg>
     )
   }
-  const fill = STAGE_FILL[stage]
+  const openStage: IssueStage = stage
+  const fill = STAGE_FILL[openStage]
   const angle = 2 * Math.PI * fill
   const x = 7 + 3.2 * Math.sin(angle)
   const y = 7 - 3.2 * Math.cos(angle)
@@ -80,7 +127,7 @@ export function StageGlyph({
         fill="none"
         stroke={ink}
         strokeWidth="1.6"
-        {...(stage === 'backlog' ? { strokeDasharray: '2.2 2.2' } : {})}
+        {...(openStage === 'backlog' ? { strokeDasharray: '2.2 2.2' } : {})}
       />
       {fill > 0 ? <Path d={`M7 7 L7 3.8 A3.2 3.2 0 ${largeArc} 1 ${x} ${y} Z`} fill={ink} /> : null}
     </Svg>
