@@ -1327,7 +1327,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // trading a cold next boot for a broken current one. A cache write is
       // never worth that; the replica's own writes fail the same way, loudly in
       // the log and harmlessly to the app.
-      console.warn('[podium] could not cache the layout base for the next boot', err)
+      log.warn('could not cache the layout base for the next boot', { err })
     }
   }
 
