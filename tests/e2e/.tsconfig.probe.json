@@ -1,5 +1,0 @@
-{
-  "extends": "../../tooling/tsconfig/node.json",
-  "compilerOptions": { "incremental": false },
-  "include": ["daemon-process.ts", "daemon-restart-harness.ts", "daemon-restart-adoption.e2e.test.ts"]
-}
