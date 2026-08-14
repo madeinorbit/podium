@@ -158,34 +158,36 @@ export const ShippingJobRequestMessage = z
     providerRef: ProviderPullRequestRef.optional(),
   })
   .strict()
-  .superRefine((request, ctx) => {
-    if (!request.train) return
-    const manifest = 'manifest' in request.train ? request.train.manifest : request.train
-    const leader = manifest.members.at(-1)
-    const equalJson = (left: unknown, right: unknown): boolean =>
-      JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
-    const contradictions: [boolean, (string | number)[], string][] = [
-      [request.orderId !== manifest.leaderOrderId, ['orderId'], 'outer order must be train leader'],
-      [request.orderId !== leader?.orderId, ['orderId'], 'outer order must be final member'],
-      [request.attemptId !== leader?.attemptId, ['attemptId'], 'outer attempt must be leader custody'],
-      [request.generation !== leader?.generation, ['generation'], 'outer generation must be leader custody'],
-      [request.sourceBranch !== leader?.sourceBranch, ['sourceBranch'], 'outer source must be leader source'],
-      [request.approvedBaseSha !== leader?.approvedBaseSha, ['approvedBaseSha'], 'outer base must match leader'],
-      [request.approvedHeadSha !== leader?.approvedHeadSha, ['approvedHeadSha'], 'outer head must match leader'],
-      [request.repoId !== manifest.lane.repoId, ['repoId'], 'outer repository must match train lane'],
-      [request.repoPath !== manifest.lane.repoPath, ['repoPath'], 'outer repository path must match train lane'],
-      [request.targetBranch !== manifest.lane.targetBranch, ['targetBranch'], 'outer target must match train lane'],
-      [request.expectedTargetSha !== manifest.lane.expectedTargetSha, ['expectedTargetSha'], 'outer target SHA must match train lane'],
-      [canonicalShippingDestination(request.destination, request.targetBranch) !== manifest.lane.destination, ['destination'], 'outer destination must match train lane'],
-      [request.policyId !== manifest.lane.policyId, ['policyId'], 'outer policy must match train lane'],
-      [!equalJson(request.providerRef, manifest.lane.providerRef), ['providerRef'], 'outer provider must match train lane'],
-      [!equalJson(request.validationProfile, manifest.lane.validationProfile), ['validationProfile'], 'outer validation must match train lane'],
-    ]
-    for (const [contradiction, path, message] of contradictions) {
-      if (contradiction) ctx.addIssue({ code: 'custom', path, message })
-    }
-  })
 export type ShippingJobRequestMessage = z.infer<typeof ShippingJobRequestMessage>
+
+/** Cross-field authority fence kept separate from the object-shaped wire
+ * schema so this message remains usable in discriminated unions and `.omit`. */
+export const shippingJobRequestMatchesTrain = (request: ShippingJobRequestMessage): boolean => {
+  if (!request.train) return true
+  const manifest = 'manifest' in request.train ? request.train.manifest : request.train
+  const leader = manifest.members.at(-1)
+  if (!leader) return false
+  const equalJson = (left: unknown, right: unknown): boolean =>
+    JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+  return (
+    request.orderId === manifest.leaderOrderId &&
+    request.orderId === leader.orderId &&
+    request.attemptId === leader.attemptId &&
+    request.generation === leader.generation &&
+    request.sourceBranch === leader.sourceBranch &&
+    request.approvedBaseSha === leader.approvedBaseSha &&
+    request.approvedHeadSha === leader.approvedHeadSha &&
+    request.repoId === manifest.lane.repoId &&
+    request.repoPath === manifest.lane.repoPath &&
+    request.targetBranch === manifest.lane.targetBranch &&
+    request.expectedTargetSha === manifest.lane.expectedTargetSha &&
+    canonicalShippingDestination(request.destination, request.targetBranch) ===
+      manifest.lane.destination &&
+    request.policyId === manifest.lane.policyId &&
+    equalJson(request.providerRef, manifest.lane.providerRef) &&
+    equalJson(request.validationProfile, manifest.lane.validationProfile)
+  )
+}
 
 /** Canonical bytes hashed by server and daemon. Transport correlation/action
  * are excluded; every immutable effect input is included. */

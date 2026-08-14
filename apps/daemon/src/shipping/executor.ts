@@ -15,6 +15,7 @@ import type { ShippingJobClassification, ShippingJobRequestMessage, ShippingJobR
 import {
   SHIPPING_TRAIN_CAPABILITY,
   shippingJobRequestFingerprint,
+  shippingJobRequestMatchesTrain,
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
 import { ShippingJobJournal, type ShippingJournalCrashPoint } from './journal'
@@ -367,6 +368,7 @@ export class ShippingExecutionPlane {
 
   private trainRequestError(request: Request): string | null {
     if (!request.train) return null
+    if (!shippingJobRequestMatchesTrain(request)) return 'outer request contradicts train authority'
     const manifest = this.trainManifest(request)!
     if (!('manifest' in request.train)) {
       return manifest.members.length === 1 ? null : 'multi-member trains require shipping.train.v2'

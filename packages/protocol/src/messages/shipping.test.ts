@@ -4,11 +4,13 @@ import {
   DaemonMessage,
   ShippingTrainExecution,
   ShippingTrainRequest,
+  ShippingJobRequestMessage,
+  shippingJobRequestMatchesTrain,
   shippingTrainProofsMatch,
   shippingJobRequestFingerprint,
 } from '../daemon'
 
-const train = {
+const train = ShippingTrainExecution.parse({
   version: 2 as const,
   capability: 'shipping.train.v2' as const,
   manifest: {
@@ -55,20 +57,20 @@ const train = {
   memberOrderIds: ['order-1'],
   repairRound: 0,
   candidate: { kind: 'approved' as const },
-}
+})
 
 const requestFacts = {
   type: 'shippingJobRequest' as const,
   requestId: 'request-1',
   action: 'start' as const,
   jobId: 'job-1',
-  orderId: 'order-1',
-  attemptId: 'attempt-1',
+  orderId: train.manifest.leaderOrderId,
+  attemptId: train.manifest.members[0]!.attemptId,
   generation: 2,
   operation: 'preflight' as const,
   shippingProtocolVersion: 2 as const,
   repoPath: '/repo',
-  repoId: 'repo-1',
+  repoId: train.manifest.lane.repoId,
   sourceBranch: 'issue/1',
   targetBranch: 'main',
   approvedBaseSha: 'a'.repeat(40),
@@ -86,10 +88,10 @@ const requestFacts = {
   train,
 }
 const { type: _type, requestId: _requestId, action: _action, ...fingerprintFacts } = requestFacts
-const request = {
+const request = ShippingJobRequestMessage.parse({
   ...requestFacts,
   requestDigest: 'c'.repeat(64),
-}
+})
 
 describe('shipping machine protocol', () => {
   it('canonicalizes every immutable request fact without a Node-only hash dependency', () => {
@@ -187,7 +189,11 @@ describe('shipping machine protocol', () => {
         train: { ...train, manifest: reorderedManifest },
       }),
     ).toBe(shippingJobRequestFingerprint(fingerprintFacts as never))
-    expect(ControlMessage.safeParse({ ...request, orderId: 'other-order' }).success).toBe(false)
+    expect(
+      shippingJobRequestMatchesTrain(
+        ShippingJobRequestMessage.parse({ ...request, orderId: 'other-order' }),
+      ),
+    ).toBe(false)
     expect(
       ControlMessage.safeParse({ ...request, shippingProtocolVersion: 1 }).success,
     ).toBe(false)

@@ -1682,7 +1682,9 @@ describe('ShippingService enqueue transaction', () => {
       evidenceRefs: ['artifact:repair'],
       actions: ['return-to-issue' as const],
     }
-    const consider = vi.fn(async () => decision)
+    const consider = vi.fn(
+      async (_input: Parameters<ShippingRepairPort['consider']>[0]) => decision,
+    )
     const acknowledge = vi.fn(async (input: Parameters<ShippingRepairPort['acknowledge']>[0]) => {
       if (input.generation !== 1) throw new Error('stale repair generation')
     })

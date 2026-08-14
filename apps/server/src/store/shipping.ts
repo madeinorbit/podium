@@ -35,6 +35,7 @@ import {
   ShippingJobRequestMessage,
   ShippingJobResult,
   shippingJobRequestFingerprint,
+  shippingJobRequestMatchesTrain,
   shippingTrainProofsMatch,
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
@@ -2111,6 +2112,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       .digest('hex')
     if (
       request.requestDigest !== calculatedDigest ||
+      !shippingJobRequestMatchesTrain(request) ||
       result.state !== 'succeeded' ||
       result.classification !== 'proved' ||
       !result.finishedAt ||

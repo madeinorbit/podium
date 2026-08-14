@@ -178,13 +178,16 @@ const staleFacts = {
   attemptId: asShipAttemptId(`attempt:${order.id}:0`),
   generation: 0,
   operation: 'verify' as const,
+  shippingProtocolVersion: 2 as const,
   repoPath,
+  repoId: order.repoId,
   sourceBranch: issue.branch!,
   targetBranch: order.targetBranch,
   approvedBaseSha: order.approvedBaseSha,
   approvedHeadSha: order.approvedHeadSha,
   expectedTargetSha: order.approvedBaseSha,
   destination: order.destination,
+  policyId: order.policyId,
   validationProfile: recoveryPolicy.resolve(issue).validationProfile,
 }
 const staleGeneration = await rpc.shippingJob(
