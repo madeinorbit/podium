@@ -59,11 +59,31 @@ describeDriverConformance({
 // ---------------------------------------------------------------------------
 
 describe('the permitted-failures table', () => {
-  it('grants the server family NO exemptions', () => {
-    // Spec §3: the server family "must not need" any. If this ever gains an
-    // entry, the surface has absorbed a weakness rather than the driver fixing
-    // one — which is the reason to make it fail here.
-    expect(PERMITTED_FAILURES.server).toEqual([])
+  it('grants the server family NO FIDELITY exemption, ever', () => {
+    /**
+     * THE TRIPWIRE, NARROWED ONCE AND ONLY ONCE (POD-2023).
+     *
+     * This assertion was `toEqual([])`, on spec §3's "the server family must not
+     * need any" — and it did its job: W5 could not add a row without coming
+     * here and arguing for it. The argument, in full, is in
+     * `../../permitted-failures.ts`. In short: `no-native-steer` turned out to
+     * be a per-HARNESS protocol verb rather than a family property. Codex's
+     * app-server has `turn/steer`; opencode, measured at 1.18.16, has nothing
+     * like it — a prompt POSTed into an open turn becomes a separate turn that
+     * runs afterwards. No single value in a per-family table is true of both
+     * drivers.
+     *
+     * WHAT THE TRIPWIRE STILL GUARDS is the part spec §3 was actually about:
+     * FIDELITY. `unverified-send` and `at-least-once-interactions` are the two
+     * weaknesses that make a consumer distrust what a session reports, they are
+     * the terminal family's alone, and a server driver claiming either is
+     * refused by the corpus in both directions. Those two must never appear
+     * here, and an exact-equality check on the whole row is what stops a third
+     * name arriving without the same argument this one had to make.
+     */
+    expect(PERMITTED_FAILURES.server).toEqual(['no-native-steer'])
+    expect(PERMITTED_FAILURES.server).not.toContain('unverified-send')
+    expect(PERMITTED_FAILURES.server).not.toContain('at-least-once-interactions')
   })
 
   it('grants the terminal family exactly the two weaknesses the spec names', () => {

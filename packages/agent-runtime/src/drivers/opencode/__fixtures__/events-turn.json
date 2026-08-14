@@ -1,0 +1,930 @@
+[
+  {
+    "id": "evt_ffe975b8b001jBpO5YbbPrcOEv",
+    "type": "server.connected",
+    "properties": {}
+  },
+  {
+    "id": "evt_ffe975d5b001G2km7y2jVmpD1D",
+    "type": "session.created",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "slug": "silent-forest",
+        "version": "1.18.16",
+        "projectID": "global",
+        "directory": "/tmp/claude-1001/oc-work",
+        "path": "",
+        "title": "podium probe",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786682760537,
+          "updated": 1786682760537
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe975db0001x0BFPBzYP31LS4",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "slug": "silent-forest",
+        "projectID": "global",
+        "directory": "/tmp/claude-1001/oc-work",
+        "path": "",
+        "title": "podium probe",
+        "agent": "build",
+        "model": {
+          "id": "laguna-s-2.1-free",
+          "providerID": "opencode",
+          "variant": "default"
+        },
+        "version": "1.18.16",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786682760537,
+          "updated": 1786682760616
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe975dde001giHwYdie9mtdD6",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "msg_ffe975da7001iHRnIbjGC4B265",
+        "role": "user",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "time": {
+          "created": 1786682760616
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode",
+          "modelID": "laguna-s-2.1-free"
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe975e1a001oo7Q17sKLICNgk",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "type": "text",
+        "text": "Reply with exactly the word: pong",
+        "messageID": "msg_ffe975da7001iHRnIbjGC4B265",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "id": "prt_ffe975dd8001kIx4J7QV52PQnf"
+      },
+      "time": 1786682760730
+    }
+  },
+  {
+    "id": "evt_ffe975e4b001Q2rLUXvlywpQ4m",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "slug": "silent-forest",
+        "projectID": "global",
+        "directory": "/tmp/claude-1001/oc-work",
+        "path": "",
+        "title": "podium probe",
+        "agent": "build",
+        "model": {
+          "id": "laguna-s-2.1-free",
+          "providerID": "opencode",
+          "variant": "default"
+        },
+        "version": "1.18.16",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786682760537,
+          "updated": 1786682760775
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe975e73001htIsrM0F3XusXq",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe975e7e001Y6l0q9B33Z29JW",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "msg_ffe975e7e001nATbmeUJnP0DO7",
+        "parentID": "msg_ffe975da7001iHRnIbjGC4B265",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/claude-1001/oc-work",
+          "root": "/tmp/claude-1001/oc-work"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "modelID": "laguna-s-2.1-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1786682760830
+        },
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe975f2f001zAsTNkcpnhlNHR",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "slug": "silent-forest",
+        "projectID": "global",
+        "directory": "/tmp/claude-1001/oc-work",
+        "path": "",
+        "title": "podium probe",
+        "agent": "build",
+        "model": {
+          "id": "laguna-s-2.1-free",
+          "providerID": "opencode",
+          "variant": "default"
+        },
+        "version": "1.18.16",
+        "summary": {
+          "additions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786682760537,
+          "updated": 1786682761004
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe975f730012EtPGAALAJGwGa",
+    "type": "session.diff",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "diff": []
+    }
+  },
+  {
+    "id": "evt_ffe975f77001WmJHZxRz7p0cIY",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1786682760616
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode",
+          "modelID": "laguna-s-2.1-free"
+        },
+        "id": "msg_ffe975da7001iHRnIbjGC4B265",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "summary": {
+          "diffs": []
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe9760080013zYQdAp8X3QdrA",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe97636f001WWs9pn5T0RWG4C",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "msg_ffe976361001wl6f9Xzwhljj9K",
+        "role": "user",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "time": {
+          "created": 1786682762081
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode",
+          "modelID": "laguna-s-2.1-free"
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe97639a0015ts7qjNIwgJwl1",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "type": "text",
+        "text": "Also say: steered",
+        "messageID": "msg_ffe976361001wl6f9Xzwhljj9K",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "id": "prt_ffe97636d001Oco6oXpcEl0WCa"
+      },
+      "time": 1786682762138
+    }
+  },
+  {
+    "id": "evt_ffe9763ba001BHTQj2cLa3aM5b",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "slug": "silent-forest",
+        "projectID": "global",
+        "directory": "/tmp/claude-1001/oc-work",
+        "path": "",
+        "title": "podium probe",
+        "agent": "build",
+        "model": {
+          "id": "laguna-s-2.1-free",
+          "providerID": "opencode",
+          "variant": "default"
+        },
+        "version": "1.18.16",
+        "summary": {
+          "additions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786682760537,
+          "updated": 1786682762166
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe97681600175HYbP9WAX28tP",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "id": "prt_ffe976815001KQX7AH06mONJkP",
+        "messageID": "msg_ffe975e7e001nATbmeUJnP0DO7",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "snapshot": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "type": "step-start"
+      },
+      "time": 1786682763286
+    }
+  },
+  {
+    "id": "evt_ffe976834001jI5fMD3gAzEwQJ",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "id": "prt_ffe976833001k3TvlV4c5sheAE",
+        "messageID": "msg_ffe975e7e001nATbmeUJnP0DO7",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "type": "text",
+        "text": "",
+        "time": {
+          "start": 1786682763315
+        }
+      },
+      "time": 1786682763316
+    }
+  },
+  {
+    "id": "evt_ffe97684d0015iLECO5hUD7NJA",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "messageID": "msg_ffe975e7e001nATbmeUJnP0DO7",
+      "partID": "prt_ffe976833001k3TvlV4c5sheAE",
+      "field": "text",
+      "delta": "p"
+    }
+  },
+  {
+    "id": "evt_ffe976ee4001SOftL2HQUkMbl0",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "messageID": "msg_ffe975e7e001nATbmeUJnP0DO7",
+      "partID": "prt_ffe976833001k3TvlV4c5sheAE",
+      "field": "text",
+      "delta": "ong"
+    }
+  },
+  {
+    "id": "evt_ffe977471001pIsgBUvH6Xnp75",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "id": "prt_ffe976833001k3TvlV4c5sheAE",
+        "messageID": "msg_ffe975e7e001nATbmeUJnP0DO7",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "type": "text",
+        "text": "pong",
+        "time": {
+          "start": 1786682763315,
+          "end": 1786682766449
+        }
+      },
+      "time": 1786682766449
+    }
+  },
+  {
+    "id": "evt_ffe9774e7001Yi26f2dYvxQz1t",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "id": "prt_ffe9774e6001yS9DYaPbmvUp2u",
+        "reason": "stop",
+        "snapshot": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "messageID": "msg_ffe975e7e001nATbmeUJnP0DO7",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "type": "step-finish",
+        "tokens": {
+          "total": 8062,
+          "input": 6203,
+          "output": 3,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 1856
+          }
+        },
+        "cost": 0
+      },
+      "time": 1786682766567
+    }
+  },
+  {
+    "id": "evt_ffe9774fe001mZzKQxG3teFbLP",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "msg_ffe975e7e001nATbmeUJnP0DO7",
+        "parentID": "msg_ffe975da7001iHRnIbjGC4B265",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/claude-1001/oc-work",
+          "root": "/tmp/claude-1001/oc-work"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 8062,
+          "input": 6203,
+          "output": 3,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 1856
+          }
+        },
+        "modelID": "laguna-s-2.1-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1786682760830
+        },
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "finish": "stop"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe9775f3001YODl4tDqYh70Xi",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "msg_ffe975e7e001nATbmeUJnP0DO7",
+        "parentID": "msg_ffe975da7001iHRnIbjGC4B265",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/claude-1001/oc-work",
+          "root": "/tmp/claude-1001/oc-work"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 8062,
+          "input": 6203,
+          "output": 3,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 1856
+          }
+        },
+        "modelID": "laguna-s-2.1-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1786682760830,
+          "completed": 1786682766834
+        },
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "finish": "stop"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe9776090017Rs3AGOTkY4O7o",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe977613001aCaBDXyCjVb0yM",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "msg_ffe977610001xLszEBngU67muU",
+        "parentID": "msg_ffe976361001wl6f9Xzwhljj9K",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/claude-1001/oc-work",
+          "root": "/tmp/claude-1001/oc-work"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "modelID": "laguna-s-2.1-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1786682766864
+        },
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe977648001tMuPxNTg9CgwbV",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "slug": "silent-forest",
+        "projectID": "global",
+        "directory": "/tmp/claude-1001/oc-work",
+        "path": "",
+        "title": "podium probe",
+        "agent": "build",
+        "model": {
+          "id": "laguna-s-2.1-free",
+          "providerID": "opencode",
+          "variant": "default"
+        },
+        "version": "1.18.16",
+        "summary": {
+          "additions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 6203,
+          "output": 3,
+          "reasoning": 0,
+          "cache": {
+            "read": 1856,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786682760537,
+          "updated": 1786682766918
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe977659001Pu9SHknNWR3tOO",
+    "type": "session.diff",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "diff": []
+    }
+  },
+  {
+    "id": "evt_ffe97774d001UUoAaoE4EO3KOm",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1786682760616
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode",
+          "modelID": "laguna-s-2.1-free"
+        },
+        "summary": {
+          "diffs": []
+        },
+        "id": "msg_ffe975da7001iHRnIbjGC4B265",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe9777920015rurNAtqXhppPw",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe977d2b001Tjye9Quj1XUG9a",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "id": "prt_ffe977d2a0013OH6w2tBURgxQ0",
+        "messageID": "msg_ffe977610001xLszEBngU67muU",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "snapshot": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "type": "step-start"
+      },
+      "time": 1786682768683
+    }
+  },
+  {
+    "id": "evt_ffe977d4b001wOHJV3aEMGPy5B",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "id": "prt_ffe977d49001Ayo75H4zqLNw61",
+        "messageID": "msg_ffe977610001xLszEBngU67muU",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "type": "text",
+        "text": "",
+        "time": {
+          "start": 1786682768714
+        }
+      },
+      "time": 1786682768714
+    }
+  },
+  {
+    "id": "evt_ffe977d68001gRT4iQ7nFzEoe0",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "messageID": "msg_ffe977610001xLszEBngU67muU",
+      "partID": "prt_ffe977d49001Ayo75H4zqLNw61",
+      "field": "text",
+      "delta": "st"
+    }
+  },
+  {
+    "id": "evt_ffe977d69001LwalvkxSk2lvjv",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "messageID": "msg_ffe977610001xLszEBngU67muU",
+      "partID": "prt_ffe977d49001Ayo75H4zqLNw61",
+      "field": "text",
+      "delta": "eer"
+    }
+  },
+  {
+    "id": "evt_ffe977d7c001fFyYT6aJRGEG04",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "messageID": "msg_ffe977610001xLszEBngU67muU",
+      "partID": "prt_ffe977d49001Ayo75H4zqLNw61",
+      "field": "text",
+      "delta": "ed"
+    }
+  },
+  {
+    "id": "evt_ffe977daa0017Soq0WJZ9KlqhD",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "id": "prt_ffe977d49001Ayo75H4zqLNw61",
+        "messageID": "msg_ffe977610001xLszEBngU67muU",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "type": "text",
+        "text": "steered",
+        "time": {
+          "start": 1786682768714,
+          "end": 1786682768809
+        }
+      },
+      "time": 1786682768809
+    }
+  },
+  {
+    "id": "evt_ffe977e36001Hg2poUuubLV8OD",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "part": {
+        "id": "prt_ffe977e34001S07rzTdd0UZGyU",
+        "reason": "stop",
+        "snapshot": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "messageID": "msg_ffe977610001xLszEBngU67muU",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "type": "step-finish",
+        "tokens": {
+          "total": 8082,
+          "input": 6222,
+          "output": 4,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 1856
+          }
+        },
+        "cost": 0
+      },
+      "time": 1786682768949
+    }
+  },
+  {
+    "id": "evt_ffe977e4d001qoRKhErfAx2Il4",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "msg_ffe977610001xLszEBngU67muU",
+        "parentID": "msg_ffe976361001wl6f9Xzwhljj9K",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/claude-1001/oc-work",
+          "root": "/tmp/claude-1001/oc-work"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 8082,
+          "input": 6222,
+          "output": 4,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 1856
+          }
+        },
+        "modelID": "laguna-s-2.1-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1786682766864
+        },
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "finish": "stop"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe977f1a001fONCJqO7vflAtO",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "msg_ffe977610001xLszEBngU67muU",
+        "parentID": "msg_ffe976361001wl6f9Xzwhljj9K",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/claude-1001/oc-work",
+          "root": "/tmp/claude-1001/oc-work"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 8082,
+          "input": 6222,
+          "output": 4,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 1856
+          }
+        },
+        "modelID": "laguna-s-2.1-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1786682766864,
+          "completed": 1786682769178
+        },
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "finish": "stop"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe977f25001GNkGe0zR868523",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe977f2b001rb86md7zBvbNun",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "status": {
+        "type": "idle"
+      }
+    }
+  },
+  {
+    "id": "evt_ffe977f2c001HN0WZFSv4fnb7g",
+    "type": "session.idle",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ"
+    }
+  },
+  {
+    "id": "evt_ffe977f2e001bOSN8nS0iDfJPZ",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "id": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "slug": "silent-forest",
+        "projectID": "global",
+        "directory": "/tmp/claude-1001/oc-work",
+        "path": "",
+        "title": "podium probe",
+        "agent": "build",
+        "model": {
+          "id": "laguna-s-2.1-free",
+          "providerID": "opencode",
+          "variant": "default"
+        },
+        "version": "1.18.16",
+        "summary": {
+          "additions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 12425,
+          "output": 7,
+          "reasoning": 0,
+          "cache": {
+            "read": 3712,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786682760537,
+          "updated": 1786682769197
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_ffe977f3e001qiNsItl4Zd5F10",
+    "type": "session.diff",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "diff": []
+    }
+  },
+  {
+    "id": "evt_ffe977fb1001kLiYTb4DJc8E23",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1786682762081
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode",
+          "modelID": "laguna-s-2.1-free"
+        },
+        "id": "msg_ffe976361001wl6f9Xzwhljj9K",
+        "sessionID": "ses_00168a2a6ffeSaazS4gOjwFgTJ",
+        "summary": {
+          "diffs": []
+        }
+      }
+    }
+  }
+]

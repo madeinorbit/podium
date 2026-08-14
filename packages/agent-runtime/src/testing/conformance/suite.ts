@@ -48,6 +48,7 @@ import {
   type SessionSpec,
   type TurnReceipt,
 } from '../../index.js'
+import { defaultAskFor } from '../fake-driver.js'
 import type { ConformanceControl, ConformanceOptions, ConformanceTarget } from './target.js'
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,44 @@ async function drain(
     const next = await Promise.race([iterator.next(), deadline])
     if (next === 'timeout' || next.done) break
     out.push(next.value)
+  }
+  await iterator.return?.()
+  return out
+}
+
+/**
+ * Collect events until one MATCHES, or the deadline passes.
+ *
+ * WHY THIS EXISTS ALONGSIDE {@link drain} (POD-2023). `drain(stream, 1)` takes
+ * the first event and nothing else, which silently made one property depend on
+ * the driver emitting NOTHING between the checkpoint and the event under test.
+ * That held for the in-memory fake and for the terminal fixture, and it does not
+ * hold for any driver whose provider publishes liveness: opencode emits a
+ * `session.status: busy` heartbeat several times per turn, so the first event
+ * after a checkpoint is a state change and the property failed for a reason that
+ * had nothing to do with fences.
+ *
+ * Waiting for the MATCH rather than for a count states what the property
+ * actually means — "an event of this kind arrives after provider confirmation" —
+ * and it stays fast, because it stops at the match instead of waiting out a
+ * quota that may never fill.
+ */
+async function drainUntil(
+  stream: AsyncIterable<RuntimeEvent>,
+  match: (event: RuntimeEvent) => boolean,
+  timeoutMs = 2000,
+): Promise<RuntimeEvent[]> {
+  const out: RuntimeEvent[] = []
+  const iterator = stream[Symbol.asyncIterator]()
+  const deadline = new Promise<'timeout'>((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), timeoutMs)
+    if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+  })
+  while (true) {
+    const next = await Promise.race([iterator.next(), deadline])
+    if (next === 'timeout' || next.done) break
+    out.push(next.value)
+    if (match(next.value)) break
   }
   await iterator.return?.()
   return out
@@ -253,6 +292,39 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(receipt.outcome === 'queued' || receipt.outcome === 'accepted').toBe(true)
         if (receipt.outcome === 'queued' || receipt.outcome === 'accepted') {
           expect(receipt.deliveredAs).not.toBe('steer')
+          expectDeclaredDelivery(driver.capabilities(), receipt)
+        }
+      })
+
+      it('never reports a delivery it did not declare native', async () => {
+        /**
+         * THE TEETH THAT REPLACE THE FAMILY PERMISSION (POD-2023).
+         *
+         * `no-native-steer` is now permitted to all three families — W5 measured
+         * opencode and found steering to be a per-HARNESS protocol verb rather
+         * than a family property (see `../../permitted-failures.ts`). That makes
+         * `permits(family, 'no-native-steer')` above true for everyone and
+         * therefore worth nothing on its own.
+         *
+         * What is worth something is the DECLARATION: `send.native` says, per
+         * driver, which deliveries are real. This property pins both directions
+         * of it across every delivery mode the corpus can reach — a driver may
+         * not answer with a `deliveredAs` it never claimed it could perform, and
+         * a driver that claims one must actually use it when asked. That bites
+         * on every family, which is exactly what the family permission stopped
+         * doing.
+         */
+        const { handle, driver } = setup()
+        const session = await handle
+        const capabilities = driver.capabilities()
+        const first = await session.send({ text: 'one' }, { origin: 'human', delivery: 'when-ready' })
+        expectDeclaredDelivery(capabilities, first)
+        const queued = await session.send({ text: 'two' }, { origin: 'human', delivery: 'queue' })
+        expectDeclaredDelivery(capabilities, queued)
+        // The requested mode, when the driver says it is native, is the mode
+        // that must come back. Otherwise the declaration describes nothing.
+        if (capabilities.send.native.includes('when-ready') && first.outcome !== 'refused') {
+          expect(first.deliveredAs).toBe('when-ready')
         }
       })
 
@@ -351,20 +423,32 @@ export function describeDriverConformance(target: ConformanceTarget): void {
       })
 
       it('may be asked in ANY phase, including before the first turn', async () => {
-        const { handle, control } = setup()
+        const { handle, control, driver } = setup()
         const session = await handle
-        // Resume-time recovery prompts are asked while the handle is still
-        // starting. A driver that gated interactions on a running turn would
-        // strand every background executor at boot.
-        const id = control.askInteraction(session.binding.sessionId, {
-          kind: 'recovery',
-          payload: {
-            v: 1,
-            reason: 'cache-miss',
-            prompt: 'resume from summary?',
-            offered: ['full-resume', 'summary-resume'],
-          },
-        })
+        const declared = driver.capabilities().interactions
+        if (!declared.supported) return
+        /**
+         * THE PROPERTY IS ABOUT PHASE, NOT ABOUT KIND COVERAGE — and it is asked
+         * in a kind THIS DRIVER DECLARES (POD-2023).
+         *
+         * Resume-time recovery prompts are the motivating case: they are asked
+         * while the handle is still STARTING, and a driver that gated
+         * interactions on a running turn would strand every background executor
+         * at boot. But `recovery` is a kind only some harnesses have a channel
+         * for — opencode's protocol carries `permission` and `question` and
+         * nothing else — and hardcoding it here would have forced a server
+         * driver to fabricate an ask its harness cannot produce in order to pass
+         * a property about timing.
+         *
+         * So the kind comes from the capability declaration, which makes this
+         * STRICTER rather than looser: a driver must now be able to produce, at
+         * boot, an ask of a kind it publicly claims — and a driver that claimed
+         * `recovery` still has to deliver `recovery`.
+         */
+        const kinds = declared.value.kinds
+        const kind = kinds.includes('recovery') ? 'recovery' : kinds[0]
+        if (!kind) return
+        const id = control.askInteraction(session.binding.sessionId, defaultAskFor(kind))
         expect((await session.interactions()).map((i) => i.id)).toContain(id)
       })
 
@@ -408,11 +492,13 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const afterRequest = await session.snapshot()
         expect(afterRequest.turnEpoch).toBe(before.turnEpoch)
 
-        // Provider confirmation is what fences it.
+        // Provider confirmation is what fences it. Everything the driver emits
+        // in between — liveness heartbeats, transcript items — is allowed; what
+        // is pinned is that a TURN event arrives only now, and the assertion
+        // above already proved none arrived before.
         control.completeTurn(session.binding.sessionId)
-        const events = await drain(session.events(before.cursor), 1)
-        const turnEvents = events.filter((e) => e.t === 'turn')
-        expect(turnEvents.length).toBeGreaterThan(0)
+        const events = await drainUntil(session.events(before.cursor), (e) => e.t === 'turn')
+        expect(events.filter((e) => e.t === 'turn').length).toBeGreaterThan(0)
       })
     })
 
@@ -643,6 +729,24 @@ export function describeDriverConformance(target: ConformanceTarget): void {
  * which is a tautology on any type-checked driver — the assertion named a
  * property it did not test.)
  */
+/**
+ * The receipt's delivery must be one the driver DECLARED it can perform.
+ *
+ * The `deliveredAs` twin of {@link expectDeclaredProof}, and it exists for the
+ * same reason one level down: `deliveredAs` is the field that makes a degraded
+ * delivery visible instead of silent, and a driver reporting a mode absent from
+ * its own `send.native` has described a mechanism it does not have. A consumer
+ * branching on the declaration then branches on a lie — which is precisely what
+ * the `steer` downgrade case is supposed to expose rather than commit.
+ */
+function expectDeclaredDelivery(capabilities: DriverCapabilities, receipt: TurnReceipt): void {
+  if (receipt.outcome === 'refused') return
+  expect(
+    capabilities.send.native,
+    `receipt claims delivery '${receipt.deliveredAs}', which this driver never declared native`,
+  ).toContain(receipt.deliveredAs)
+}
+
 function expectDeclaredProof(capabilities: DriverCapabilities, receipt: TurnReceipt): void {
   if (receipt.outcome !== 'accepted') return
   expect(

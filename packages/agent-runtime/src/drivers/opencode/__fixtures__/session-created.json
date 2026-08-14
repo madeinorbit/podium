@@ -1,0 +1,41 @@
+{
+    "id": "ses_0016629e4ffex6R17g25YMjzHr",
+    "slug": "kind-comet",
+    "projectID": "global",
+    "directory": "/tmp/claude-1001/oc-work",
+    "path": "",
+    "summary": {
+        "additions": 0,
+        "deletions": 0,
+        "files": 0
+    },
+    "cost": 0,
+    "tokens": {
+        "input": 77,
+        "output": 24,
+        "reasoning": 0,
+        "cache": {
+            "read": 16096,
+            "write": 0
+        }
+    },
+    "title": "perm probe",
+    "agent": "build",
+    "model": {
+        "id": "laguna-s-2.1-free",
+        "providerID": "opencode",
+        "variant": "default"
+    },
+    "version": "1.18.16",
+    "time": {
+        "created": 1786682922523,
+        "updated": 1786682930646
+    },
+    "permission": [
+        {
+            "permission": "bash",
+            "pattern": "**",
+            "action": "ask"
+        }
+    ]
+}

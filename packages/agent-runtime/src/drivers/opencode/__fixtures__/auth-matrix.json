@@ -1,0 +1,12 @@
+{
+  "recordedFrom": "opencode 1.18.16",
+  "recordedAt": "2026-08-14",
+  "how": "A real `opencode serve --port <N> --hostname 127.0.0.1` booted with OPENCODE_SERVER_USERNAME=podium and OPENCODE_SERVER_PASSWORD=<secret> in its ENV (never argv), then five requests with curl.",
+  "probes": [
+    { "case": "no credentials", "route": "GET /global/health", "authorization": null, "status": 401 },
+    { "case": "no credentials", "route": "GET /session", "authorization": null, "status": 401 },
+    { "case": "wrong password", "route": "GET /global/health", "authorization": "Basic podium:wrong", "status": 401 },
+    { "case": "bearer instead of basic", "route": "GET /global/health", "authorization": "Bearer <secret>", "status": 401 },
+    { "case": "correct basic", "route": "GET /global/health", "authorization": "Basic podium:<secret>", "status": 200 }
+  ]
+}

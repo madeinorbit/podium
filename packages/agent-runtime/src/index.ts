@@ -66,6 +66,13 @@ export * from './driver.js'
  *  assembly. The concrete `RuntimeDriver` lives in `apps/daemon/src/runtime`,
  *  because it is composed of daemon internals this layer may not import. */
 export * from './drivers/terminal/index.js'
+/** The opencode server driver, WHOLE (POD-1761 W5). Unlike the terminal family,
+ *  whose concrete driver had to live in the daemon because it is composed of
+ *  daemon internals, this one is composed of HTTP and SSE and so lives here in
+ *  full. What stayed in `apps/daemon/src/runtime/opencode-server.ts` is only the
+ *  part a package may not do: spawn a child under a systemd scope and write its
+ *  binding journal — reached through `OpencodeRuntimeHost`. */
+export * from './drivers/opencode/index.js'
 export * from './errors.js'
 export * from './events.js'
 export * from './families.js'

@@ -1,0 +1,501 @@
+/**
+ * `opencode serve`, ONE PER SESSION, UNDER A SYSTEMD SCOPE (POD-1761 W5; plan §1).
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT THIS FILE OWNS, AND WHY IT IS THE ONLY PART IN THE DAEMON
+ * ---------------------------------------------------------------------------
+ *
+ * The driver itself — client, SSE, receipts, interactions, events — is in
+ * `@podium/agent-runtime`, testable in-process. What could not go there is
+ * everything below: spawning a child, choosing its port, putting it in a
+ * transient cgroup, and writing the journal that lets `adopt()` find it again
+ * after the daemon dies. This is the `OpencodeRuntimeHost` implementation, and
+ * it is deliberately nothing but that.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SECRET (spec §6) — THREE RULES, ALL LOAD-BEARING
+ * ---------------------------------------------------------------------------
+ *
+ *   1. IT IS MANDATORY. Not configurable, not skippable on "just loopback". A
+ *      loopback port is reachable by every local process and every local user,
+ *      and this one fronts an agent with a shell and the filesystem.
+ *   2. IT RIDES THE ENV, NEVER ARGV. `/proc/<pid>/cmdline` is world-readable; a
+ *      secret in argv is a secret everyone on the box has.
+ *   3. IT IS PERSISTED 0600 AND NOWHERE ELSE. `adopt()` after a daemon restart
+ *      needs it to talk to a server that is still running, so it must survive —
+ *      which means the journal file's mode is part of the mechanism, not
+ *      hygiene.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE SCOPE RECLAIM IS NOT `reclaimStaleScope`
+ * ---------------------------------------------------------------------------
+ *
+ * `packages/pty` exports the pure argv/name builders (`systemdScopeArgv`,
+ * `scopeUnitName`, `scopeReclaimArgvs`) and this file reuses them directly. What
+ * it does NOT reuse is `reclaimStaleScope`, whose liveness guard asks abduco
+ * whether a master exists — an opencode server has no abduco socket, so that
+ * guard would answer "no master" for a perfectly live server and stop its scope.
+ * The guard here is the one that fits: health-probe the journalled port with the
+ * journalled secret, and only reclaim a unit whose server does not answer.
+ *
+ * Without a reclaim at all, the documented failure is specific and nasty: the
+ * unit name is deterministic, `systemd-run` refuses "unit already exists", the
+ * child SILENTLY falls back into the daemon's own cgroup, and the next redeploy's
+ * `KillMode=control-group` takes the agent down with the daemon.
+ */
+
+import { spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { join } from 'node:path'
+import type {
+  OpencodeJournal,
+  OpencodeJournalEntry,
+  OpencodeRuntimeHost,
+  OpencodeServerEndpoint,
+} from '@podium/agent-runtime'
+import { gateOpencodeVersion, type OpencodeVersionDiagnostic } from '@podium/agent-runtime'
+import { createLogger } from '@podium/logger'
+import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
+import { canScopeMaster, scopeReclaimArgvs, scopeUnitName, systemdScopeArgv } from '@podium/pty'
+import { stateDir } from '@podium/runtime/config'
+
+const log = createLogger('daemon:opencode-server')
+
+/** The account name the driver authenticates as. Constant because it is not a
+ *  secret and not a principal — the PASSWORD is the credential. */
+const USERNAME = 'podium'
+
+/** How long to wait for `opencode serve` to answer `/global/health`. Generous:
+ *  the binary is ~180MB and a cold start on a loaded box is seconds, not
+ *  milliseconds. */
+const READY_TIMEOUT_MS = 60_000
+const READY_POLL_MS = 250
+/**
+ * Every readiness probe is individually bounded.
+ *
+ * A probe with no timeout is how a readiness loop turns into a hang: a socket
+ * that accepts and never answers holds the whole loop on its first iteration,
+ * and the caller sees "spawn never returned" rather than "the server is not
+ * ready".
+ */
+const PROBE_TIMEOUT_MS = 2000
+
+/** Where a session's journal entry lives. Under the daemon's own state dir, so
+ *  it moves with the instance and is swept with it. */
+const journalDir = (): string => join(stateDir(), 'opencode-servers')
+const journalPath = (sessionId: SessionId): string =>
+  join(journalDir(), `${encodeURIComponent(sessionId)}.json`)
+
+/**
+ * Provider credentials that MUST NOT reach the child.
+ *
+ * The opencode reference warns that a provider key in the environment OVERRIDES
+ * the stored OAuth credential — so a daemon that happens to carry
+ * `ANTHROPIC_API_KEY` would silently bill a different account than the one the
+ * operator logged in as, and would do it invisibly. Stripping them makes the
+ * session use exactly the credential `opencode auth login` stored.
+ */
+const STRIPPED_PROVIDER_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'OPENAI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'GEMINI_API_KEY',
+  'GOOGLE_GENERATIVE_AI_API_KEY',
+  'GROQ_API_KEY',
+  'XAI_API_KEY',
+  'MISTRAL_API_KEY',
+  'DEEPSEEK_API_KEY',
+] as const
+
+// ---------------------------------------------------------------------------
+// The journal
+// ---------------------------------------------------------------------------
+
+/**
+ * A file per session, 0600, because it holds the secret.
+ *
+ * SYNCHRONOUS ON PURPOSE. It is written on the turn-open path, where the value
+ * it protects is the monotonic turn epoch: an async write that lost a race with
+ * a daemon crash would rebind the session at an older epoch, which is the one
+ * thing the causal envelope's monotonicity rule forbids. The payload is a few
+ * hundred bytes.
+ */
+export function createOpencodeJournal(): OpencodeJournal {
+  const cache = new Map<SessionId, OpencodeJournalEntry>()
+  return {
+    read(sessionId) {
+      const cached = cache.get(sessionId)
+      if (cached) return cached
+      try {
+        const parsed = JSON.parse(readFileSync(journalPath(sessionId), 'utf8')) as OpencodeJournalEntry
+        cache.set(sessionId, parsed)
+        return parsed
+      } catch {
+        return undefined
+      }
+    },
+    write(entry) {
+      cache.set(entry.sessionId, entry)
+      try {
+        mkdirSync(journalDir(), { recursive: true, mode: 0o700 })
+        writeFileSync(journalPath(entry.sessionId), JSON.stringify(entry), { mode: 0o600 })
+      } catch (err) {
+        // A journal we cannot write costs `adopt()` after a daemon restart, and
+        // nothing else — the live session is unaffected. Losing the session to
+        // an ENOSPC would be the worse trade.
+        log.warn('could not persist the opencode binding journal', { err, sessionId: entry.sessionId })
+      }
+    },
+    clear(sessionId) {
+      cache.delete(sessionId)
+      try {
+        rmSync(journalPath(sessionId), { force: true })
+      } catch {
+        // Best effort: a stale entry whose server is gone fails its health probe
+        // on the next adopt and is ignored anyway.
+      }
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ports, readiness, liveness
+// ---------------------------------------------------------------------------
+
+/**
+ * A free loopback port, chosen by the KERNEL and then handed to opencode.
+ *
+ * `opencode serve --port 0` exists, but reading back which port it chose means
+ * parsing its stdout banner — and a driver whose binding depends on scraping a
+ * log line has a binding that breaks when the log line changes. Binding a
+ * throwaway listener and releasing it has a race window measured in
+ * milliseconds, and losing that race is a clean failure (opencode fails to bind
+ * and never becomes ready) rather than a silent misbinding.
+ */
+async function freeLoopbackPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address()
+      if (typeof address === 'object' && address) {
+        const { port } = address
+        probe.close(() => resolve(port))
+        return
+      }
+      probe.close(() => reject(new Error('could not determine a free loopback port')))
+    })
+  })
+}
+
+const basicAuth = (secret: string): string =>
+  `Basic ${Buffer.from(`${USERNAME}:${secret}`).toString('base64')}`
+
+/** One bounded health probe. `false` covers dead, not-yet-listening AND wrong
+ *  secret — all three mean "not usable", which is the only question here. */
+async function probeHealth(baseUrl: string, secret: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${baseUrl}/global/health`, {
+      headers: { authorization: basicAuth(secret) },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+async function waitForReady(baseUrl: string, secret: string, deadlineMs: number): Promise<boolean> {
+  const deadline = Date.now() + deadlineMs
+  while (Date.now() < deadline) {
+    if (await probeHealth(baseUrl, secret)) return true
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, READY_POLL_MS)
+      timer.unref?.()
+    })
+  }
+  return false
+}
+
+// ---------------------------------------------------------------------------
+// The version gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Probe `opencode --version` ONCE per daemon life and cache the verdict.
+ *
+ * Memoized because the answer cannot change inside one process — the binary on
+ * PATH is not going to be swapped under a running daemon — and because the probe
+ * costs a process spawn that would otherwise be paid per session.
+ */
+let versionVerdict: { diagnostic: OpencodeVersionDiagnostic | null } | undefined
+
+export function opencodeVersionDiagnostic(
+  probe: () => string = defaultVersionProbe,
+): OpencodeVersionDiagnostic | null {
+  if (versionVerdict) return versionVerdict.diagnostic
+  let output: string
+  try {
+    output = probe()
+  } catch (err) {
+    output = String(err)
+  }
+  const diagnostic = gateOpencodeVersion(output)
+  versionVerdict = { diagnostic }
+  if (diagnostic) log.warn('opencode is outside the server driver range', { diagnostic })
+  return diagnostic
+}
+
+/** Reset the memo. Tests only — a daemon never needs it. */
+export function resetOpencodeVersionProbe(): void {
+  versionVerdict = undefined
+}
+
+function defaultVersionProbe(): string {
+  const result = spawnSyncVersion()
+  return `${result.stdout}${result.stderr}`.trim()
+}
+
+function spawnSyncVersion(): { stdout: string; stderr: string } {
+  // Imported lazily so a daemon that never spawns an opencode session never
+  // pays for the module.
+  const { spawnSync } = require('node:child_process') as typeof import('node:child_process')
+  const result = spawnSync('opencode', ['--version'], { encoding: 'utf8', timeout: 15_000 })
+  return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
+}
+
+// ---------------------------------------------------------------------------
+// The host
+// ---------------------------------------------------------------------------
+
+export interface OpencodeHostDeps {
+  /** Whole-subtree RSS for a session, from the daemon's own attribution. */
+  memoryBytes(input: { sessionId: SessionId; label: string; pid?: number }): number | undefined
+  /** Start `opencode attach <url>` under a durable host, for `attach()`.
+   *  `undefined` from the whole function = this machine cannot host one. */
+  attachClient?(input: {
+    sessionId: SessionId
+    url: string
+    mode: 'takeover' | 'peek'
+  }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
+  journal?: OpencodeJournal
+  now?(): number
+}
+
+/** The label a session's scope unit is named from. Same shape as the PTY side's
+ *  so an operator reading `systemctl --user list-units` sees one convention. */
+export const opencodeScopeLabel = (sessionId: SessionId): string => `podium-oc-${sessionId}`
+
+export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost {
+  const journal = deps.journal ?? createOpencodeJournal()
+  const children = new Map<SessionId, ReturnType<typeof spawn>>()
+
+  const endpointFor = (input: {
+    sessionId: SessionId
+    baseUrl: string
+    secret: string
+    pid: number | undefined
+    scopeUnit: string | undefined
+  }): OpencodeServerEndpoint => ({
+    baseUrl: input.baseUrl,
+    username: USERNAME,
+    password: input.secret,
+    process: {
+      /**
+       * EXACT IDENTITY, and deliberately not the port.
+       *
+       * A port is recycled by the kernel within seconds; a binding keyed on one
+       * would let `adopt()` bind to whatever process happened to inherit it —
+       * "a session that reports someone else's work", which the contract calls
+       * worse than not adopting. The key is the scope label, which is unique to
+       * this session for the machine's lifetime.
+       */
+      key: opencodeScopeLabel(input.sessionId),
+      ...(input.pid !== undefined ? { pid: input.pid } : {}),
+      ...(input.scopeUnit ? { scopeUnit: input.scopeUnit } : {}),
+    },
+    stop: async () => {
+      await terminate(input.sessionId, 'SIGTERM')
+    },
+    kill: async () => {
+      await terminate(input.sessionId, 'SIGKILL')
+      journal.clear(input.sessionId)
+    },
+    memoryBytes: () =>
+      deps.memoryBytes({
+        sessionId: input.sessionId,
+        label: opencodeScopeLabel(input.sessionId),
+        ...(input.pid !== undefined ? { pid: input.pid } : {}),
+      }),
+  })
+
+  async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL'): Promise<void> {
+    children.get(sessionId)?.kill(signal)
+    children.delete(sessionId)
+    // AND THE SCOPE. Signalling the direct child leaves its cgroup — and any
+    // grandchild the agent spawned — behind, which is exactly the state that
+    // squats the deterministic unit name and pushes the NEXT spawn into the
+    // daemon's own cgroup.
+    if (!canScopeMaster()) return
+    const unit = scopeUnitName(opencodeScopeLabel(sessionId))
+    for (const args of scopeReclaimArgvs(unit)) {
+      await runSystemctl(args)
+    }
+  }
+
+  async function runSystemctl(args: readonly string[]): Promise<void> {
+    await new Promise<void>((resolve) => {
+      const child = spawn('systemctl', [...args], { stdio: 'ignore' })
+      const done = (): void => resolve()
+      child.once('exit', done)
+      child.once('error', done)
+      const timer = setTimeout(done, 8000)
+      timer.unref?.()
+    })
+  }
+
+  return {
+    journal,
+    now: deps.now ?? (() => Date.now()),
+    /** 32 bytes from the CSPRNG. Not a uuid, not a timestamp: this is the only
+     *  thing between a local process and a credentialed agent. */
+    randomSecret: () => randomBytes(32).toString('hex'),
+    mintSessionId: () => asSessionId(crypto.randomUUID()),
+
+    async launch(input) {
+      const diagnostic = opencodeVersionDiagnostic()
+      if (diagnostic) {
+        // REFUSED, NOT DEGRADED. A driver written against shapes this binary may
+        // not speak would fail somewhere deep in a mapping, and the operator
+        // would read it as a Podium bug.
+        throw new Error(`${diagnostic.title}: ${diagnostic.body}`)
+      }
+
+      const port = await freeLoopbackPort()
+      const baseUrl = `http://127.0.0.1:${port}`
+      const label = opencodeScopeLabel(input.sessionId)
+      const scoped = canScopeMaster()
+      const unit = scopeUnitName(label)
+
+      if (scoped) {
+        // Free a unit name a previous life of this session left squatted, but
+        // ONLY when nothing is answering behind it — the journalled entry is
+        // what tells us. Stopping a live server here would kill a session we
+        // were about to adopt.
+        const previous = journal.read(input.sessionId)
+        const stillAlive = previous
+          ? await probeHealth(previous.baseUrl, previous.secret)
+          : false
+        if (!stillAlive) {
+          for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
+        }
+      }
+
+      const serveArgv = [
+        'opencode',
+        'serve',
+        '--port',
+        String(port),
+        '--hostname',
+        // LOOPBACK, NOT A SETTING. `--hostname 0.0.0.0` would put spec §6's whole
+        // argument in a config file, so the driver does not offer it.
+        '127.0.0.1',
+      ]
+      const [command, ...args] = scoped
+        ? ['systemd-run', ...systemdScopeArgv(unit, serveArgv)]
+        : serveArgv
+
+      const env: NodeJS.ProcessEnv = { ...process.env, ...input.env }
+      for (const key of STRIPPED_PROVIDER_KEYS) delete env[key]
+      env.OPENCODE_SERVER_USERNAME = USERNAME
+      // RULE 2: the secret is HERE. It appears in `serveArgv` nowhere, and this
+      // is the assertion `opencode-server.test.ts` pins.
+      env.OPENCODE_SERVER_PASSWORD = input.secret
+      // opencode only publishes `question.asked` when its question tool is on,
+      // and a driver that maps question interactions but never receives one is
+      // a feature that exists only in the type system.
+      env.OPENCODE_ENABLE_QUESTION_TOOL = env.OPENCODE_ENABLE_QUESTION_TOOL ?? '1'
+
+      const child = spawn(command ?? 'opencode', args, {
+        cwd: input.workdir,
+        env,
+        /**
+         * PIPED, NOT IGNORED, and this is a bug that cost an hour: with
+         * `stdio: 'ignore'` the child was observed not to come up on this host.
+         * The banner is also the only thing a "did not become ready" failure has
+         * to report, so it is captured rather than dropped.
+         */
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: false,
+      })
+      children.set(input.sessionId, child)
+      let banner = ''
+      child.stdout?.on('data', (chunk: Buffer) => {
+        banner = `${banner}${chunk.toString('utf8')}`.slice(-2000)
+      })
+      child.stderr?.on('data', (chunk: Buffer) => {
+        banner = `${banner}${chunk.toString('utf8')}`.slice(-2000)
+      })
+
+      const ready = await waitForReady(baseUrl, input.secret, READY_TIMEOUT_MS)
+      if (!ready) {
+        child.kill('SIGKILL')
+        children.delete(input.sessionId)
+        throw new Error(
+          `opencode serve did not answer /global/health on ${baseUrl} within ${READY_TIMEOUT_MS}ms${banner ? `: ${banner.trim()}` : ''}`,
+        )
+      }
+      if (!scoped) {
+        // DECLARED, NOT HIDDEN. Without a systemd user manager the session runs
+        // in the daemon's cgroup: it still works, but per-session memory
+        // accounting and OOM isolation are gone, and a redeploy's
+        // KillMode=control-group reaches it.
+        log.warn('opencode session is running unscoped', { sessionId: input.sessionId })
+      }
+      return endpointFor({
+        sessionId: input.sessionId,
+        baseUrl,
+        secret: input.secret,
+        pid: child.pid,
+        scopeUnit: scoped ? unit : undefined,
+      })
+    },
+
+    async adopt(binding) {
+      const entry = journal.read(binding.sessionId)
+      if (!entry) return undefined
+      /**
+       * EXACT IDENTITY BEFORE LIVENESS. A journal entry whose process key does
+       * not match the binding describes a DIFFERENT incarnation of this session,
+       * and adopting it would rebind to a server that may be running someone
+       * else's conversation.
+       */
+      if (entry.process.key !== binding.process.key) return undefined
+      // …and then: is anything still answering, with the secret we stored? A
+      // port that has been recycled answers nothing on this credential, which is
+      // exactly the discrimination we need.
+      if (!(await probeHealth(entry.baseUrl, entry.secret))) return undefined
+      return endpointFor({
+        sessionId: binding.sessionId,
+        baseUrl: entry.baseUrl,
+        secret: entry.secret,
+        pid: entry.process.pid,
+        scopeUnit: entry.process.scopeUnit,
+      })
+    },
+
+    async attachClient(input) {
+      return (
+        (await deps.attachClient?.({
+          sessionId: input.sessionId,
+          url: input.url,
+          mode: input.mode,
+        })) ?? undefined
+      )
+    },
+  }
+}
