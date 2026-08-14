@@ -1645,6 +1645,10 @@ describe('foldCodexRolloutBootstrap', () => {
 
 describe('observeCodexState rollout pinning', () => {
   const jsonl = (lines: unknown[]): string => `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`
+  const tempRoots: string[] = []
+  afterEach(async () => {
+    await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+  })
 
   const sessionFrom = (
     home: string,
@@ -1748,6 +1752,60 @@ describe('observeCodexState rollout pinning', () => {
       expect(scans).toBe(0)
     } finally {
       obs.stop()
+    }
+  })
+
+  it('ignores an older rollout transiently opened by an unprompted fresh Linux TUI', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-stale-process-rollout-'))
+    tempRoots.push(home)
+    const sessions = join(home, '.codex', 'sessions')
+    const day = join(sessions, '2026', '08', '12')
+    const procRoot = await mkdtemp(join(tmpdir(), 'podium-codex-stale-process-proc-'))
+    tempRoots.push(procRoot)
+    const processDir = join(procRoot, '1035')
+    const fdDir = join(processDir, 'fd')
+    const podiumSessionId = asSessionId('40c2cd07-7fe9-401e-8914-d5c118c7a4de')
+    const rollout = join(day, 'rollout-old-thread.jsonl')
+    await mkdir(day, { recursive: true })
+    await mkdir(fdDir, { recursive: true })
+    await writeFile(
+      rollout,
+      jsonl([
+        {
+          type: 'session_meta',
+          payload: {
+            id: '019ff720-c01b-7181-9c9f-4ff307c583f2',
+            cwd: '/repo/x',
+            source: 'cli',
+            timestamp: '2026-08-12T10:00:00.000Z',
+          },
+        },
+      ]),
+    )
+    await writeFile(join(processDir, 'cmdline'), 'codex\0')
+    await writeFile(
+      join(processDir, 'environ'),
+      `TERM=xterm\0PODIUM_SESSION_ID=${podiumSessionId}\0`,
+    )
+    await symlink(rollout, join(fdDir, '3'))
+
+    const onSession = vi.fn()
+    const observation = observeCodexState({
+      cwd: '/repo/x',
+      homeDir: home,
+      podiumSessionId,
+      startedAtMs: Date.parse('2026-08-14T13:16:56.000Z'),
+      procRoot,
+      platform: 'linux',
+      pollMs: 10,
+      onSession,
+      onEvents: () => {},
+    })
+    try {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 120))
+      expect(onSession).not.toHaveBeenCalled()
+    } finally {
+      observation.stop()
     }
   })
 

@@ -455,6 +455,85 @@ describe('causal session observation gate', () => {
     store.close()
   })
 
+  it('rejects a fresh rebind to a provider thread already owned by another session', () => {
+    const store = new SessionStore(':memory:')
+    const sent: ControlMessage[] = []
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
+    const owner = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId: owner.sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-owned' },
+      confidence: 'exact',
+    })
+    const fresh = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentObservationRebind',
+      sessionId: fresh.sessionId,
+      provider: 'codex',
+      providerSessionId: null,
+      observerGeneration: 1,
+      bindingVersion: 1,
+      nextProviderSessionId: 'thread-owned',
+      resumeKind: 'codex-thread',
+      rebindId: 'cross-session-rebind',
+    })
+
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebindAck',
+      sessionId: fresh.sessionId,
+      result: 'rejected',
+      rejectionReason: 'provider_binding_mismatch',
+      providerSessionId: null,
+      observerGeneration: 1,
+      bindingVersion: 1,
+    })
+    expect(store.observationCheckpoints.get(fresh.sessionId)).toMatchObject({
+      providerSessionId: null,
+      observationGeneration: 1,
+      bindingVersion: 1,
+    })
+    expect(
+      reg.modules.sessions.listSessions().find((session) => session.sessionId === fresh.sessionId)
+        ?.resume,
+    ).toBeUndefined()
+    expect(
+      reg.modules.sessions.listSessions().find((session) => session.sessionId === owner.sessionId)
+        ?.resume,
+    ).toEqual({ kind: 'codex-thread', value: 'thread-owned' })
+
+    // Resume/handoff launch paths pre-bind the target before the observer starts.
+    // That server-authored intent is allowed even while the source row still
+    // projects the same native id during the transfer window.
+    const explicitlyResumed = reg.modules.sessions.sessions.get(fresh.sessionId)
+    expect(explicitlyResumed).toBeDefined()
+    explicitlyResumed!.resume = { kind: 'codex-thread', value: 'thread-owned' }
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentObservationRebind',
+      sessionId: fresh.sessionId,
+      provider: 'codex',
+      providerSessionId: null,
+      observerGeneration: 1,
+      bindingVersion: 1,
+      nextProviderSessionId: 'thread-owned',
+      resumeKind: 'codex-thread',
+      rebindId: 'explicit-resume-rebind',
+    })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebindAck',
+      sessionId: fresh.sessionId,
+      result: 'accepted',
+      providerSessionId: 'thread-owned',
+      observerGeneration: 2,
+      bindingVersion: 2,
+    })
+
+    reg.dispose()
+    store.close()
+  })
+
   it('rolls back resume and lease when conversation linking throws', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })

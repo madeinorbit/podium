@@ -309,11 +309,27 @@ export class SessionDaemonLifecycle {
           (session.resume.kind === msg.resumeKind &&
             (session.resume.value === msg.providerSessionId ||
               session.resume.value === msg.nextProviderSessionId))
+        // A pre-existing target binding is authority only when THIS session was
+        // explicitly launched to resume/handoff that exact thread. Otherwise a
+        // fresh observer's exact-looking rebind can cross-wire two Podium rows
+        // onto one provider transcript.
+        const explicitlyExpectedTarget =
+          session.resume?.kind === msg.resumeKind &&
+          session.resume.value === msg.nextProviderSessionId
+        const targetOwnedByAnotherSession =
+          !explicitlyExpectedTarget &&
+          [...this.sessions.values()].some(
+            (other) =>
+              other.sessionId !== session.sessionId &&
+              other.resume?.kind === msg.resumeKind &&
+              other.resume.value === msg.nextProviderSessionId,
+          )
         if (
           !lease ||
           expectedProvider !== msg.provider ||
           lease.provider !== msg.provider ||
-          !sessionBindingCompatible
+          !sessionBindingCompatible ||
+          targetOwnedByAnotherSession
         ) {
           if (!lease) break
           this.toMachine(session.machineId, {

@@ -46,6 +46,7 @@ const FILESYSTEM_ROLLOUT_POLL_MS = 10_000
 const NATIVE_TITLE_POLL_MS = 10_000
 const PROCESS_SCAN_CACHE_MS = 9_000
 const PROCESS_SCAN_BATCH = 64
+const ROLLOUT_START_SLOP_MS = 2_000
 // Bound the polled tail read: a long session's rollout can be many MB, but the
 // state observer only needs the recent tail (the latest event wins). Matches the
 // transcript tailer's seek-to-tail so a redeploy/reattach doesn't slurp the file.
@@ -1418,6 +1419,14 @@ export function observeCodexState(opts: {
         )
         if (
           processBound &&
+          // A fresh Codex TUI can briefly open a recent thread while booting.
+          // Process/FD correlation proves which process opened the file, not
+          // that the file belongs to this Podium session. Preserve intentional
+          // resumes, but never let a fresh session adopt a rollout that predates
+          // its own start (with the same clock-skew allowance as cwd discovery).
+          (opts.resumeValue !== undefined ||
+            startedAtMs <= 0 ||
+            processBound.createdMs >= startedAtMs - ROLLOUT_START_SLOP_MS) &&
           (rolloutPath === undefined ||
             processBound.path === rolloutPath ||
             rolloutConfidence === 'heuristic' ||
@@ -1893,12 +1902,13 @@ export async function findLiveCodexRollout(
     podiumSessionId: SessionId | undefined
   }[] = []
   // Day-directory pruning (POD-601): rollouts live under sessions/YYYY/MM/DD and a
-  // candidate must satisfy `createdMs >= startedAtMs - 2000`, so a date directory
+  // candidate must satisfy the start floor (minus ROLLOUT_START_SLOP_MS), so a date directory
   // that ENDS more than PRUNE_SLACK_MS before the floor cannot contain one — skip
   // it without listing. The slack absorbs timezone skew between the dir's (local)
   // date and the session_meta (UTC) timestamp. This is what keeps an UNBOUND
   // observer's every-700ms walk from touching months of history.
-  const pruneBeforeMs = startedAtMs > 0 ? startedAtMs - 2000 - PRUNE_SLACK_MS : 0
+  const pruneBeforeMs =
+    startedAtMs > 0 ? startedAtMs - ROLLOUT_START_SLOP_MS - PRUNE_SLACK_MS : 0
   // One reusable probe buffer for the whole walk — the walk previously allocated a
   // fresh 256 KB buffer PER FILE (~400 MB of churn per tick on a ~1000-rollout
   // tree; the POD-601 heap oscillation). allocUnsafe is fine: only bytesRead are read.
@@ -1943,7 +1953,7 @@ export async function findLiveCodexRollout(
           }
           const s = await stat(full)
           const createdMs = sessionMetaStartedAtMs(meta, payload) ?? s.birthtimeMs
-          if (startedAtMs > 0 && createdMs < startedAtMs - 2000) continue
+          if (startedAtMs > 0 && createdMs < startedAtMs - ROLLOUT_START_SLOP_MS) continue
           if (prefix === undefined) prefix = await readPrefix(full)
           candidates.push({
             path: full,
