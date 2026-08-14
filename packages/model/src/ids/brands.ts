@@ -364,6 +364,16 @@ export type ShipAttemptId = z.infer<typeof ShipAttemptId>
 export const ShipAttemptIdField = idField<'ShipAttemptId'>()
 export const asShipAttemptId = (s: string): ShipAttemptId => s as ShipAttemptId
 
+export const ShipTrainId = z.string().min(1).brand<'ShipTrainId'>()
+export type ShipTrainId = z.infer<typeof ShipTrainId>
+export const ShipTrainIdField = idField<'ShipTrainId'>()
+export const asShipTrainId = (s: string): ShipTrainId => s as ShipTrainId
+
+export const ShipTrainSubsetId = z.string().min(1).brand<'ShipTrainSubsetId'>()
+export type ShipTrainSubsetId = z.infer<typeof ShipTrainSubsetId>
+export const ShipTrainSubsetIdField = idField<'ShipTrainSubsetId'>()
+export const asShipTrainSubsetId = (s: string): ShipTrainSubsetId => s as ShipTrainSubsetId
+
 export const ShipStepId = z.string().min(1).brand<'ShipStepId'>()
 export type ShipStepId = z.infer<typeof ShipStepId>
 export const ShipStepIdField = idField<'ShipStepId'>()

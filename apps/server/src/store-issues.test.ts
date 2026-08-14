@@ -670,8 +670,20 @@ describe('shipping durable store', () => {
     const s = new SessionStore(':memory:')
     const lowerIssue = asIssueId('iss_lower')
     const coveringIssue = asIssueId('iss_covering')
-    s.issues.upsertIssue({ ...base(), id: lowerIssue, seq: 40 })
-    s.issues.upsertIssue({ ...base(), id: coveringIssue, seq: 41 })
+    s.issues.upsertIssue({
+      ...base(),
+      id: lowerIssue,
+      seq: 40,
+      branch: 'issue/lower',
+      machineId: asMachineId('machine-1'),
+    })
+    s.issues.upsertIssue({
+      ...base(),
+      id: coveringIssue,
+      seq: 41,
+      branch: 'issue/covering',
+      machineId: asMachineId('machine-1'),
+    })
     const lower = shipOrder({
       id: asShipOrderId('order-lower'),
       issueId: lowerIssue,
@@ -686,18 +698,23 @@ describe('shipping durable store', () => {
     s.shipping.createOrder(lower)
     s.shipping.createOrder(covering)
     const train = s.shipping.claimTrain({
-      id: 'train-1',
       leaderOrderId: covering.id,
       startedAt: '2026-08-12T10:01:00.000Z',
+      validationProfile: {
+        id: 'default',
+        argv: ['bun', 'run', 'test'],
+        cwd: 'integration-root',
+        timeoutMs: 60_000,
+        resourceLocks: [],
+      },
       members: [lower, covering].map((order) => ({
         orderId: order.id,
-        sourceBranch: `issue/${order.id}`,
-        machineId: asMachineId('machine-1'),
       })),
     })
     expect(train.manifest).toMatchObject({
       version: 1,
       leaderOrderId: covering.id,
+      repairRound: 0,
       members: [
         {
           orderId: lower.id,
@@ -757,7 +774,20 @@ describe('shipping durable store', () => {
       landedRefSha: lower.approvedHeadSha,
     }
 
-    expect(s.shipping.completeCoveredOrder(lowerReceipt, covering.id)).toEqual(lowerReceipt)
+    expect(
+      s.shipping.completeCoveredOrder(lowerReceipt, covering.id, {
+        issueId: lower.issueId,
+        orderId: lower.id,
+        attemptId: train.manifest.members[0]!.attemptId,
+        generation: train.manifest.members[0]!.generation,
+        sourceApprovedSha: lower.approvedHeadSha,
+        resultCommitSha: lower.approvedHeadSha,
+        testedIntegrationSha: coveringReceipt.testedIntegrationSha,
+        landedRefSha: coveringReceipt.landedRefSha,
+        providerLandedRefSha: coveringReceipt.landedRefSha,
+        destinationSha: coveringReceipt.destinationSha,
+      }),
+    ).toEqual(lowerReceipt)
     expect(s.shipping.getOrder(lower.id)?.state).toBe('shipped')
     s.close()
   })
@@ -826,6 +856,107 @@ describe('shipping durable store', () => {
       restarted.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha),
     ).toEqual(canonical)
     restarted.close()
+  })
+
+  it('atomically rejects cross-lane, non-prefix, and stale-member train custody', () => {
+    const s = new SessionStore(':memory:', asMachineId('machine-1'))
+    const issueIds = ['a', 'b', 'c'].map((suffix) => asIssueId(`iss_train_${suffix}`))
+    issueIds.forEach((id, index) =>
+      s.issues.upsertIssue({
+        ...base(),
+        id,
+        seq: 70 + index,
+        branch: `issue/train-${index}`,
+        machineId: asMachineId('machine-1'),
+      }),
+    )
+    const a = shipOrder({
+      id: asShipOrderId('order-train-a'),
+      issueId: issueIds[0],
+      requestedAt: '2026-08-12T10:00:00.000Z',
+    })
+    const b = shipOrder({
+      id: asShipOrderId('order-train-b'),
+      issueId: issueIds[1],
+      destination: 'origin/release',
+      requestedAt: '2026-08-12T10:01:00.000Z',
+    })
+    const c = shipOrder({
+      id: asShipOrderId('order-train-c'),
+      issueId: issueIds[2],
+      requestedAt: '2026-08-12T10:02:00.000Z',
+    })
+    for (const order of [a, b, c]) s.shipping.createOrder(order)
+    const validationProfile = {
+      id: 'default',
+      argv: ['bun', 'run', 'test'],
+      cwd: 'integration-root' as const,
+      timeoutMs: 60_000,
+      resourceLocks: [] as string[],
+    }
+    expect(() =>
+      s.shipping.claimTrain({
+        leaderOrderId: b.id,
+        startedAt: '2026-08-12T10:03:00.000Z',
+        validationProfile,
+        members: [a, b].map((order) => ({ orderId: order.id })),
+      }),
+    ).toThrow(/cross an immutable delivery lane/)
+    expect(() =>
+      s.shipping.claimTrain({
+        leaderOrderId: c.id,
+        startedAt: '2026-08-12T10:03:00.000Z',
+        validationProfile,
+        members: [{ orderId: c.id }],
+      }),
+    ).toThrow(/canonical contiguous dependency\/FIFO prefix/)
+    expect(s.shipping.listAttempts()).toEqual([])
+
+    const claimed = s.shipping.claimTrain({
+      leaderOrderId: c.id,
+      startedAt: '2026-08-12T10:04:00.000Z',
+      validationProfile,
+      members: [a, c].map((order) => ({ orderId: order.id })),
+    })
+    expect(s.shipping.activeTrainForOrder(a.id)?.id).toBe(claimed.manifest.id)
+    const first = claimed.claimed.find((item) => item.order.id === a.id)!.attempt
+    s.shipping.finishAttempt(first.id, first.leaseGeneration, {
+      finishedAt: '2026-08-12T10:05:00.000Z',
+      outcome: 'failed',
+    })
+    expect(s.shipping.activeTrainForOrder(c.id)).toBeNull()
+    s.close()
+
+    const cyclic = new SessionStore(':memory:', asMachineId('machine-1'))
+    const upperIssue = asIssueId('iss_cycle_upper')
+    const lowerIssue = asIssueId('iss_cycle_lower')
+    for (const [index, id] of [upperIssue, lowerIssue].entries()) {
+      cyclic.issues.upsertIssue({
+        ...base(),
+        id,
+        seq: 80 + index,
+        branch: `issue/cycle-${index}`,
+        machineId: asMachineId('machine-1'),
+      })
+    }
+    const upperId = asShipOrderId('order-cycle-upper')
+    const lowerId = asShipOrderId('order-cycle-lower')
+    cyclic.shipping.createOrder(
+      shipOrder({ id: upperId, issueId: upperIssue, deliveryDependsOn: [lowerId] }),
+    )
+    cyclic.shipping.createOrder(
+      shipOrder({ id: lowerId, issueId: lowerIssue, deliveryDependsOn: [upperId] }),
+    )
+    expect(() =>
+      cyclic.shipping.claimTrain({
+        leaderOrderId: upperId,
+        startedAt: '2026-08-12T10:06:00.000Z',
+        validationProfile,
+        members: [{ orderId: upperId }, { orderId: lowerId }],
+      }),
+    ).toThrow(/canonical contiguous dependency\/FIFO prefix/)
+    expect(cyclic.shipping.listAttempts()).toEqual([])
+    cyclic.close()
   })
 
   it('exposes exact current proof through the typed admission retrieval port', () => {

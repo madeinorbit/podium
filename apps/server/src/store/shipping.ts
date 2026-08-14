@@ -1,7 +1,11 @@
+import { createHash } from 'node:crypto'
 import {
+  asShipTrainId,
+  asShipTrainSubsetId,
   type ActorKind,
   actorColumns,
   actorFromColumns,
+  canonicalShippingDestination,
   DeliveryReceipt,
   type DeliveryReceipt as DeliveryReceiptValue,
   isLegalShipOrderTransition,
@@ -22,11 +26,26 @@ import {
   type ShipStep as ShipStepValue,
   ShipTrainManifest,
   type ShipTrainManifest as ShipTrainManifestValue,
+  ShipTrainValidationProfile,
+  serializeShipTrainManifest,
 } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 type SqlRow = Record<string, unknown>
 const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
+
+export interface CoveredTrainMemberProof {
+  issueId: ShipTrainManifestValue['members'][number]['issueId']
+  orderId: ShipTrainManifestValue['members'][number]['orderId']
+  attemptId: ShipTrainManifestValue['members'][number]['attemptId']
+  generation: number
+  sourceApprovedSha: string
+  resultCommitSha: string
+  testedIntegrationSha: string
+  landedRefSha: string
+  providerLandedRefSha: string
+  destinationSha: string
+}
 
 const frozenOrderFacts = (order: ShipOrderValue) => ({
   issueId: order.issueId,
@@ -538,118 +557,474 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   }
 
   claimTrain(input: {
-    id: string
     leaderOrderId: ShipOrderValue['id']
     startedAt: string
-    members: {
-      orderId: ShipOrderValue['id']
-      sourceBranch: string
-      machineId: ShipAttemptValue['machineId']
-    }[]
+    members: { orderId: ShipOrderValue['id'] }[]
+    validationProfile: ShipTrainValidationProfile
   }): {
     manifest: ShipTrainManifestValue
     claimed: { order: ShipOrderValue; attempt: ShipAttemptValue }[]
   } {
     return transaction(this.db, () => {
-      const claimed = input.members.map((member) => {
-        const order = this.getOrder(member.orderId)
+      const requestedIds = [...new Set(input.members.map((member) => member.orderId))]
+      if (requestedIds.length === 0 || requestedIds.length !== input.members.length) {
+        throw new Error('ship train claim requires unique non-empty order ids')
+      }
+      const selected = requestedIds.map((id) => {
+        const order = this.getOrder(id)
         if (!order || order.state !== 'queued') {
-          throw new Error(`ship train member ${member.orderId} is not queued`)
+          throw new Error(`ship train member ${id} is not queued`)
         }
+        return order
+      })
+      const leaderOrder = this.getOrder(input.leaderOrderId)
+      if (!leaderOrder || !requestedIds.includes(leaderOrder.id)) {
+        throw new Error('ship train leader is absent from its claimed prefix')
+      }
+      const laneDestination = canonicalShippingDestination(
+        leaderOrder.destination,
+        leaderOrder.targetBranch,
+      )
+      const providerKey = JSON.stringify(leaderOrder.providerRef ?? null)
+      const attributionKey = JSON.stringify(leaderOrder.requestedBy)
+      const sameLane = (order: ShipOrderValue): boolean =>
+        order.state === 'queued' &&
+        order.repoId === leaderOrder.repoId &&
+        order.targetBranch === leaderOrder.targetBranch &&
+        order.approvedBaseSha === leaderOrder.approvedBaseSha &&
+        canonicalShippingDestination(order.destination, order.targetBranch) === laneDestination &&
+        JSON.stringify(order.providerRef ?? null) === providerKey &&
+        order.policyId === leaderOrder.policyId &&
+        order.closeMode === leaderOrder.closeMode &&
+        JSON.stringify(order.requestedBy) === attributionKey
+      if (selected.some((order) => !sameLane(order))) {
+        throw new Error('ship train members cross an immutable delivery lane')
+      }
+      const issueFacts = new Map(
+        selected.map((order) => {
+          const row = this.db
+            .prepare('SELECT branch, machine_id AS machineId FROM issues WHERE id = ?')
+            .get(order.issueId) as { branch?: string; machineId?: string } | undefined
+          if (!row?.branch || !row.machineId) {
+            throw new Error(`ship train issue ${order.issueId} has no durable branch custody`)
+          }
+          return [order.id, { branch: row.branch, machineId: row.machineId }] as const
+        }),
+      )
+      if (new Set([...issueFacts.values()].map((facts) => facts.machineId)).size !== 1) {
+        throw new Error('ship train members cross machine custody')
+      }
+      if (new Set([...issueFacts.values()].map((facts) => facts.branch)).size !== selected.length) {
+        throw new Error('ship train source branches must be unique')
+      }
+      const stackEdges = this.db
+        .prepare(
+          `SELECT upper_order_id AS upperOrderId, lower_order_id AS lowerOrderId
+             FROM ship_order_stack_edges`,
+        )
+        .all() as { upperOrderId: ShipOrderValue['id']; lowerOrderId: ShipOrderValue['id'] }[]
+      const stackLower = new Map<ShipOrderValue['id'], ShipOrderValue['id'][]>()
+      for (const edge of stackEdges) {
+        const lower = stackLower.get(edge.upperOrderId) ?? []
+        lower.push(edge.lowerOrderId)
+        stackLower.set(edge.upperOrderId, lower)
+      }
+      const dependencies = (order: ShipOrderValue): ShipOrderValue['deliveryDependsOn'] =>
+        [
+          ...new Set([
+            ...order.deliveryDependsOn,
+            ...(stackLower.get(order.id) ?? []),
+          ]),
+        ].sort()
+      const laneOrders = this.listOrders().filter(sameLane)
+      const allOrders = new Map(this.listOrders().map((order) => [order.id, order]))
+      const remaining = new Map(laneOrders.map((order) => [order.id, order]))
+      const topological: ShipOrderValue[] = []
+      while (remaining.size > 0) {
+        const ready = [...remaining.values()]
+          .filter((order) =>
+            dependencies(order).every((dependencyId) => {
+              const dependency = allOrders.get(dependencyId)
+              return (
+                dependency?.state === 'shipped' ||
+                topological.some((candidate) => candidate.id === dependencyId)
+              )
+            }),
+          )
+          .sort(
+            (left, right) =>
+              left.requestedAt.localeCompare(right.requestedAt) || left.id.localeCompare(right.id),
+          )
+        const next = ready[0]
+        if (!next) break
+        topological.push(next)
+        remaining.delete(next.id)
+      }
+      const canonical: ShipOrderValue[] = []
+      const unordered = [...topological]
+      const laneIds = new Set(topological.map((order) => order.id))
+      while (unordered.length > 0) {
+        const run = [unordered.shift()!]
+        while (true) {
+          const predecessor = run.at(-1)!
+          const successorIndex = unordered.findIndex(
+            (order) =>
+              dependencies(order).includes(predecessor.id) &&
+              dependencies(order).every(
+                (id) => !laneIds.has(id) || run.some((member) => member.id === id),
+              ),
+          )
+          if (successorIndex < 0) break
+          run.push(unordered.splice(successorIndex, 1)[0]!)
+        }
+        canonical.push(...run)
+      }
+      const prefix = canonical.slice(0, selected.length)
+      if (
+        prefix.length !== selected.length ||
+        prefix.some((order) => !requestedIds.includes(order.id)) ||
+        prefix.at(-1)?.id !== input.leaderOrderId
+      ) {
+        throw new Error('ship train claim is not the canonical contiguous dependency/FIFO prefix')
+      }
+      const profile = ShipTrainValidationProfile.parse({
+        ...input.validationProfile,
+        resourceLocks: [...input.validationProfile.resourceLocks].sort(),
+      })
+      const machineId = issueFacts.get(prefix[0]!.id)!.machineId as ShipAttemptValue['machineId']
+      const claimed = prefix.map((order) => {
         const previous = this.latestAttemptForOrder(order.id)
         return this.claimAttempt({
           orderId: order.id,
           expectedState: 'queued',
           expectedAttemptId: previous?.id ?? null,
           expectedGeneration: previous?.leaseGeneration ?? 0,
-          machineId: member.machineId,
+          machineId,
           startedAt: input.startedAt,
         })
       })
       const byOrder = new Map(claimed.map((item) => [item.order.id, item]))
+      const members = prefix.map((order) => {
+        const item = byOrder.get(order.id)!
+        const issue = issueFacts.get(order.id)!
+        return {
+          orderId: order.id,
+          issueId: order.issueId,
+          attemptId: item.attempt.id,
+          generation: item.attempt.leaseGeneration,
+          machineId: item.attempt.machineId,
+          sourceBranch: issue.branch,
+          approvedBaseSha: order.approvedBaseSha,
+          approvedHeadSha: order.approvedHeadSha,
+          deliveryDependsOn: dependencies(order),
+        }
+      })
+      const lane = {
+        repoId: leaderOrder.repoId,
+        targetBranch: leaderOrder.targetBranch,
+        expectedTargetSha: leaderOrder.approvedBaseSha,
+        destination: laneDestination,
+        ...(leaderOrder.providerRef ? { providerRef: leaderOrder.providerRef } : {}),
+        policyId: leaderOrder.policyId,
+        validationProfile: profile,
+      }
+      const identity = JSON.stringify({ version: 1, repairRound: 0, lane, members })
+      const id = asShipTrainId(`train:${createHash('sha256').update(identity).digest('hex')}`)
+      const subsetId = asShipTrainSubsetId(
+        `subset:${createHash('sha256')
+          .update(
+            JSON.stringify({
+              trainId: id,
+              repairRound: 0,
+              orderIds: members.map((member) => member.orderId),
+            }),
+          )
+          .digest('hex')}`,
+      )
       const manifest = ShipTrainManifest.parse({
         version: 1,
-        id: input.id,
+        id,
+        subsetId,
+        repairRound: 0,
+        lane,
         leaderOrderId: input.leaderOrderId,
-        members: input.members.map((member) => {
-          const item = byOrder.get(member.orderId)!
-          return {
-            orderId: item.order.id,
-            issueId: item.order.issueId,
-            attemptId: item.attempt.id,
-            generation: item.attempt.leaseGeneration,
-            machineId: item.attempt.machineId,
-            sourceBranch: member.sourceBranch,
-            approvedBaseSha: item.order.approvedBaseSha,
-            approvedHeadSha: item.order.approvedHeadSha,
-            deliveryDependsOn: [...item.order.deliveryDependsOn].sort(),
-          }
-        }),
+        members,
       })
       const leader = byOrder.get(input.leaderOrderId)
-      if (!leader) throw new Error(`ship train ${input.id} has no claimed leader`)
-      for (const member of manifest.members) {
-        const claimedMember = byOrder.get(member.orderId)!
-        const effectKey = `train-membership:${manifest.id}:${member.attemptId}:${member.generation}`
-        this.appendStep({
-          id: `step:${member.attemptId}:${effectKey}:planned` as ShipStepValue['id'],
-          orderId: member.orderId,
-          attemptId: member.attemptId,
-          effectKey,
-          idempotencyKey: `${effectKey}:planned`,
-          generation: member.generation,
-          inputFence: {
-            sourceBaseSha: member.approvedBaseSha,
-            approvedHeadSha: member.approvedHeadSha,
-            targetSha: claimedMember.attempt.expectedTargetSha,
-          },
-          kind: 'train-membership',
-          state: 'planned',
-          summary: `${TRAIN_MANIFEST_PREFIX}${JSON.stringify(manifest)}`,
-          recordedAt: input.startedAt,
-        })
+      if (!leader) throw new Error(`ship train ${manifest.id} has no claimed leader`)
+      const canonicalJson = serializeShipTrainManifest(manifest)
+      const canonicalDigest = createHash('sha256').update(canonicalJson).digest('hex')
+      this.db
+        .prepare(
+          `INSERT INTO ship_train_manifests
+            (id, version, subset_id, repair_round, canonical_digest, canonical_json,
+             repo_id, target_branch, expected_target_sha, destination, provider_ref,
+             policy_id, validation_profile, leader_order_id, leader_attempt_id,
+             leader_generation, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          manifest.id,
+          manifest.version,
+          manifest.subsetId,
+          manifest.repairRound,
+          canonicalDigest,
+          canonicalJson,
+          manifest.lane.repoId,
+          manifest.lane.targetBranch,
+          manifest.lane.expectedTargetSha,
+          manifest.lane.destination,
+          manifest.lane.providerRef ? JSON.stringify(manifest.lane.providerRef) : null,
+          manifest.lane.policyId,
+          JSON.stringify(manifest.lane.validationProfile),
+          manifest.leaderOrderId,
+          leader.attempt.id,
+          leader.attempt.leaseGeneration,
+          input.startedAt,
+        )
+      for (const [ordinal, member] of manifest.members.entries()) {
+        this.db
+          .prepare(
+            `INSERT INTO ship_train_members
+              (train_id, ordinal, issue_id, order_id, attempt_id, generation, machine_id,
+               source_branch, approved_base_sha, approved_head_sha, delivery_depends_on)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            manifest.id,
+            ordinal,
+            member.issueId,
+            member.orderId,
+            member.attemptId,
+            member.generation,
+            member.machineId,
+            member.sourceBranch,
+            member.approvedBaseSha,
+            member.approvedHeadSha,
+            JSON.stringify(member.deliveryDependsOn),
+          )
       }
+      const effectKey = `train-membership:${manifest.id}:${canonicalDigest}`
+      this.appendStep({
+        id: `step:${leader.attempt.id}:${effectKey}:planned` as ShipStepValue['id'],
+        orderId: leader.order.id,
+        attemptId: leader.attempt.id,
+        effectKey,
+        idempotencyKey: `${effectKey}:planned`,
+        generation: leader.attempt.leaseGeneration,
+        inputFence: {
+          sourceBaseSha: leader.attempt.expectedSourceBaseSha,
+          approvedHeadSha: leader.attempt.approvedHeadSha,
+          targetSha: leader.attempt.expectedTargetSha,
+        },
+        kind: 'train-membership',
+        state: 'planned',
+        summary: `${TRAIN_MANIFEST_PREFIX}${canonicalDigest}`,
+        recordedAt: input.startedAt,
+      })
       return { manifest, claimed }
     })
   }
 
   trainManifestForAttempt(attemptId: ShipAttemptValue['id']): ShipTrainManifestValue | null {
-    for (const step of this.stepsForAttempt(attemptId)) {
-      if (!step.summary.startsWith(TRAIN_MANIFEST_PREFIX)) continue
-      try {
-        const manifest = ShipTrainManifest.parse(
-          JSON.parse(step.summary.slice(TRAIN_MANIFEST_PREFIX.length)),
-        )
-        const member = manifest.members.find((candidate) => candidate.attemptId === attemptId)
-        if (
-          !member ||
-          member.orderId !== step.orderId ||
-          member.generation !== step.generation ||
-          step.inputFence.sourceBaseSha !== member.approvedBaseSha ||
-          step.inputFence.approvedHeadSha !== member.approvedHeadSha
-        ) {
-          throw new Error('manifest does not bind the enclosing attempt step')
-        }
-        return manifest
-      } catch {
-        throw new Error(`ship train manifest for ${attemptId} is invalid`)
-      }
+    const row = this.db
+      .prepare(
+        `SELECT m.id, m.canonical_json AS canonicalJson, m.canonical_digest AS canonicalDigest,
+                m.repo_id AS repoId, m.target_branch AS targetBranch,
+                m.expected_target_sha AS expectedTargetSha, m.destination,
+                m.provider_ref AS providerRef, m.policy_id AS policyId,
+                m.validation_profile AS validationProfile, m.leader_order_id AS leaderOrderId,
+                m.leader_attempt_id AS leaderAttemptId, m.leader_generation AS leaderGeneration
+           FROM ship_train_manifests m
+           JOIN ship_train_members tm ON tm.train_id = m.id
+          WHERE tm.attempt_id = ?`,
+      )
+      .get(attemptId) as SqlRow | undefined
+    if (!row) return null
+    let manifest: ShipTrainManifestValue
+    try {
+      manifest = ShipTrainManifest.parse(JSON.parse(String(row.canonicalJson)))
+    } catch {
+      throw new Error(`ship train manifest for ${attemptId} is invalid`)
     }
-    return null
+    const canonicalJson = serializeShipTrainManifest(manifest)
+    if (
+      canonicalJson !== row.canonicalJson ||
+      createHash('sha256').update(canonicalJson).digest('hex') !== row.canonicalDigest ||
+      manifest.id !== row.id ||
+      manifest.lane.repoId !== row.repoId ||
+      manifest.lane.targetBranch !== row.targetBranch ||
+      manifest.lane.expectedTargetSha !== row.expectedTargetSha ||
+      manifest.lane.destination !== row.destination ||
+      JSON.stringify(manifest.lane.providerRef ?? null) !== String(row.providerRef ?? 'null') ||
+      manifest.lane.policyId !== row.policyId ||
+      JSON.stringify(manifest.lane.validationProfile) !== row.validationProfile ||
+      manifest.leaderOrderId !== row.leaderOrderId ||
+      manifest.members.at(-1)?.attemptId !== row.leaderAttemptId ||
+      manifest.members.at(-1)?.generation !== row.leaderGeneration
+    ) {
+      throw new Error(`ship train manifest ${manifest.id} normalized authority mismatch`)
+    }
+    const normalizedMembers = this.db
+      .prepare(
+        `SELECT ordinal, issue_id AS issueId, order_id AS orderId, attempt_id AS attemptId,
+                generation, machine_id AS machineId, source_branch AS sourceBranch,
+                approved_base_sha AS approvedBaseSha, approved_head_sha AS approvedHeadSha,
+                delivery_depends_on AS deliveryDependsOn
+           FROM ship_train_members WHERE train_id = ? ORDER BY ordinal`,
+      )
+      .all(manifest.id) as SqlRow[]
+    if (
+      normalizedMembers.length !== manifest.members.length ||
+      normalizedMembers.some(
+        (member, index) =>
+          JSON.stringify({
+            orderId: member.orderId,
+            issueId: member.issueId,
+            attemptId: member.attemptId,
+            generation: member.generation,
+            machineId: member.machineId,
+            sourceBranch: member.sourceBranch,
+            approvedBaseSha: member.approvedBaseSha,
+            approvedHeadSha: member.approvedHeadSha,
+            deliveryDependsOn: jsonArray(member.deliveryDependsOn),
+          }) !== JSON.stringify(manifest.members[index]),
+      )
+    ) {
+      throw new Error(`ship train manifest ${manifest.id} member authority mismatch`)
+    }
+    const leader = manifest.members.at(-1)!
+    const expectedEffectKey = `train-membership:${manifest.id}:${row.canonicalDigest}`
+    const auditMarker = this.stepsForAttempt(leader.attemptId).find(
+      (step) => step.effectKey === expectedEffectKey,
+    )
+    if (
+      !auditMarker ||
+      auditMarker.kind !== 'train-membership' ||
+      auditMarker.state !== 'planned' ||
+      auditMarker.orderId !== leader.orderId ||
+      auditMarker.attemptId !== leader.attemptId ||
+      auditMarker.generation !== leader.generation ||
+      auditMarker.summary !== `${TRAIN_MANIFEST_PREFIX}${row.canonicalDigest}` ||
+      auditMarker.inputFence.sourceBaseSha !== leader.approvedBaseSha ||
+      auditMarker.inputFence.approvedHeadSha !== leader.approvedHeadSha ||
+      auditMarker.inputFence.targetSha !== manifest.lane.expectedTargetSha
+    ) {
+      throw new Error(`ship train manifest ${manifest.id} audit marker mismatch`)
+    }
+    return manifest
+  }
+
+  private claimedTrainForOrder(orderId: ShipOrderValue['id']): ShipTrainManifestValue | null {
+    const row = this.db
+      .prepare(
+        `SELECT tm.attempt_id AS attemptId
+           FROM ship_train_members tm
+           JOIN ship_train_manifests m ON m.id = tm.train_id
+          WHERE tm.order_id = ? AND tm.released_at IS NULL AND m.released_at IS NULL`,
+      )
+      .get(orderId) as { attemptId: ShipAttemptValue['id'] } | undefined
+    if (!row) return null
+    return this.trainManifestForAttempt(row.attemptId)
   }
 
   activeTrainForOrder(orderId: ShipOrderValue['id']): ShipTrainManifestValue | null {
-    const attempts = (
-      this.db
-        .prepare(`${attemptSelect} WHERE order_id = ? ORDER BY started_at, id`)
-        .all(orderId) as SqlRow[]
-    ).map(mapAttempt)
-    for (const attempt of attempts.reverse()) {
-      if (attempt.finishedAt) continue
-      const manifest = this.trainManifestForAttempt(attempt.id)
-      if (manifest?.members.some((member) => member.orderId === orderId)) return manifest
+    const manifest = this.claimedTrainForOrder(orderId)
+    if (!manifest) return null
+    for (const member of manifest.members) {
+      const order = this.getOrder(member.orderId)
+      const attempt = this.getAttempt(member.attemptId)
+      const latest = this.latestAttemptForOrder(member.orderId)
+      if (
+        !order ||
+        order.state === 'held' ||
+        isTerminalShipOrderState(order.state) ||
+        !attempt ||
+        attempt.finishedAt ||
+        latest?.id !== member.attemptId ||
+        attempt.leaseGeneration !== member.generation ||
+        attempt.machineId !== member.machineId ||
+        this.hasCancellationIntent(member.attemptId, member.generation)
+      ) {
+        return null
+      }
     }
-    return null
+    return manifest
+  }
+
+  releaseTrain(trainId: ShipTrainManifestValue['id'], releasedAt: string, reason: string): void {
+    transaction(this.db, () => {
+      const row = this.db
+        .prepare(
+          `SELECT released_at AS releasedAt, release_reason AS releaseReason
+             FROM ship_train_manifests WHERE id = ?`,
+        )
+        .get(trainId) as { releasedAt?: string; releaseReason?: string } | undefined
+      if (!row) throw new Error(`unknown ship train ${trainId}`)
+      if (row.releasedAt) {
+        if (row.releasedAt === releasedAt && row.releaseReason === reason) return
+        throw new Error(`ship train ${trainId} was already released differently`)
+      }
+      this.db
+        .prepare(
+          `UPDATE ship_train_members SET released_at = ?
+            WHERE train_id = ? AND released_at IS NULL`,
+        )
+        .run(releasedAt, trainId)
+      const changed = this.db
+        .prepare(
+          `UPDATE ship_train_manifests SET released_at = ?, release_reason = ?
+            WHERE id = ? AND released_at IS NULL`,
+        )
+        .run(releasedAt, reason, trainId)
+      if (changed.changes !== 1) throw new Error(`ship train ${trainId} release fence failed`)
+    })
+  }
+
+  recordNativeStackEdge(input: {
+    upperOrderId: ShipOrderValue['id']
+    lowerOrderId: ShipOrderValue['id']
+    recordedAt: string
+  }): void {
+    transaction(this.db, () => {
+      const upper = this.getOrder(input.upperOrderId)
+      const lower = this.getOrder(input.lowerOrderId)
+      if (!upper || !lower || upper.id === lower.id) throw new Error('invalid native stack edge')
+      if (
+        upper.repoId !== lower.repoId ||
+        upper.targetBranch !== lower.targetBranch ||
+        canonicalShippingDestination(upper.destination, upper.targetBranch) !==
+          canonicalShippingDestination(lower.destination, lower.targetBranch)
+      ) {
+        throw new Error('native stack edge crosses a delivery lane')
+      }
+      const existing = this.db
+        .prepare(
+          `SELECT lower_order_id AS lowerOrderId,
+                  upper_approved_head_sha AS upperApprovedHeadSha,
+                  lower_approved_head_sha AS lowerApprovedHeadSha
+             FROM ship_order_stack_edges WHERE upper_order_id = ? AND lower_order_id = ?`,
+        )
+        .get(upper.id, lower.id) as SqlRow | undefined
+      if (existing) {
+        if (
+          existing.lowerOrderId === lower.id &&
+          existing.upperApprovedHeadSha === upper.approvedHeadSha &&
+          existing.lowerApprovedHeadSha === lower.approvedHeadSha
+        ) {
+          return
+        }
+        throw new Error(`native stack edge ${upper.id} → ${lower.id} is immutable`)
+      }
+      this.db
+        .prepare(
+          `INSERT INTO ship_order_stack_edges
+            (upper_order_id, lower_order_id, upper_approved_head_sha,
+             lower_approved_head_sha, recorded_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(upper.id, lower.id, upper.approvedHeadSha, lower.approvedHeadSha, input.recordedAt)
+    })
   }
 
   /** Claim one active order through its durable order/attempt winner. Recovery
@@ -1033,6 +1408,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           `ship order ${orderId} cancellation fence failed: expected ${expectedState}`,
         )
       }
+      const activeTrain = this.claimedTrainForOrder(order.id)
       const attempt = this.latestAttemptForOrder(orderId)
       if (
         custody &&
@@ -1050,7 +1426,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           outcome: 'cancelled',
         })
       }
-      return this.transitionOrder(orderId, expectedState, 'cancelled', cancelledAt)
+      const cancelled = this.transitionOrder(orderId, expectedState, 'cancelled', cancelledAt)
+      if (activeTrain) this.releaseTrain(activeTrain.id, cancelledAt, 'cancelled')
+      return cancelled
     })
   }
 
@@ -1209,6 +1587,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       if (!isLegalShipOrderTransition(order.state, 'held')) {
         throw new Error(`illegal ship order transition ${order.state} → held`)
       }
+      const activeTrain = this.activeTrainForOrder(order.id)
       const generationRow = this.db
         .prepare(
           'SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?',
@@ -1244,6 +1623,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         .run(hold.reasonCode, hold.raisedAt, hold.orderId)
       if (orderChanged.changes !== 1) {
         throw new Error(`ship order ${hold.orderId} hold fence failed`)
+      }
+      if (activeTrain) {
+        this.releaseTrain(activeTrain.id, hold.raisedAt, `held:${hold.reasonCode}`)
       }
       return this.openHoldForOrder(hold.orderId) as ShipHoldValue
     })
@@ -1316,6 +1698,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   completeCoveredOrder(
     input: DeliveryReceiptValue,
     coveringOrderId: ShipOrderValue['id'],
+    proof: CoveredTrainMemberProof,
   ): DeliveryReceiptValue {
     const receipt = DeliveryReceipt.parse(input)
     return transaction(this.db, () => {
@@ -1347,7 +1730,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         memberAttempt.finishedAt ||
         memberAttempt.leaseGeneration !== member.generation ||
         member.approvedBaseSha !== order.approvedBaseSha ||
-        member.approvedHeadSha !== order.approvedHeadSha
+        member.approvedHeadSha !== order.approvedHeadSha ||
+        proof.issueId !== member.issueId ||
+        proof.orderId !== member.orderId ||
+        proof.attemptId !== member.attemptId ||
+        proof.generation !== member.generation ||
+        proof.sourceApprovedSha !== member.approvedHeadSha
       ) {
         throw new Error(`ship order ${order.id} has no exact claimed train membership`)
       }
@@ -1359,6 +1747,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         receipt.approvedBaseSha !== order.approvedBaseSha ||
         receipt.approvedHeadSha !== order.approvedHeadSha ||
         receipt.destination !== order.destination ||
+        receipt.landedRefSha !== proof.resultCommitSha ||
+        receipt.testedIntegrationSha !== proof.testedIntegrationSha ||
+        proof.testedIntegrationSha !== coveringReceipt.testedIntegrationSha ||
+        proof.landedRefSha !== coveringReceipt.landedRefSha ||
+        proof.providerLandedRefSha !== coveringReceipt.landedRefSha ||
+        proof.destinationSha !== coveringReceipt.destinationSha ||
         receipt.testedIntegrationSha !== coveringReceipt.testedIntegrationSha ||
         receipt.destinationSha !== coveringReceipt.destinationSha ||
         receipt.validationProfileId !== coveringReceipt.validationProfileId

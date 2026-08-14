@@ -3,14 +3,31 @@ import {
   ControlMessage,
   DaemonMessage,
   ShippingTrainExecution,
+  shippingTrainProofsMatch,
   shippingJobRequestFingerprint,
 } from '../daemon'
 
 const train = {
-  version: 1 as const,
+  version: 2 as const,
   manifest: {
     version: 1 as const,
     id: 'train-1',
+    subsetId: 'subset-1',
+    repairRound: 0 as const,
+    lane: {
+      repoId: 'repo-1',
+      targetBranch: 'main',
+      expectedTargetSha: 'a'.repeat(40),
+      destination: 'local:main',
+      policyId: 'policy-1',
+      validationProfile: {
+        id: 'agent',
+        argv: ['bun', 'run', 'test'],
+        cwd: 'integration-root' as const,
+        timeoutMs: 60_000,
+        resourceLocks: ['validation:agent'],
+      },
+    },
     leaderOrderId: 'order-1',
     members: [
       {
@@ -41,13 +58,16 @@ const requestFacts = {
   attemptId: 'attempt-1',
   generation: 2,
   operation: 'preflight' as const,
+  shippingProtocolVersion: 2 as const,
   repoPath: '/repo',
+  repoId: 'repo-1',
   sourceBranch: 'issue/1',
   targetBranch: 'main',
   approvedBaseSha: 'a'.repeat(40),
   approvedHeadSha: 'b'.repeat(40),
   expectedTargetSha: 'a'.repeat(40),
   destination: 'local:main',
+  policyId: 'policy-1',
   validationProfile: {
     id: 'agent',
     argv: ['bun', 'run', 'test'],
@@ -76,13 +96,16 @@ describe('shipping machine protocol', () => {
         attemptId: 'attempt-1',
         generation: 2,
         operation: 'preflight',
+        shippingProtocolVersion: 2,
         repoPath: '/repo',
+        repoId: 'repo-1',
         sourceBranch: 'issue/1',
         targetBranch: 'main',
         approvedBaseSha: 'a'.repeat(40),
         approvedHeadSha: 'b'.repeat(40),
         expectedTargetSha: 'a'.repeat(40),
         destination: 'local:main',
+        policyId: 'policy-1',
         validationProfile: {
           id: 'agent',
           argv: ['bun', 'run', 'test'],
@@ -118,6 +141,84 @@ describe('shipping machine protocol', () => {
         },
       }),
     ).not.toBe(shippingJobRequestFingerprint(fingerprintFacts as never))
+  })
+
+  it('canonicalizes manifest property order and rejects outer leader contradictions', () => {
+    const reorderedManifest = {
+      members: train.manifest.members,
+      leaderOrderId: train.manifest.leaderOrderId,
+      lane: train.manifest.lane,
+      repairRound: train.manifest.repairRound,
+      subsetId: train.manifest.subsetId,
+      id: train.manifest.id,
+      version: train.manifest.version,
+    }
+    expect(
+      shippingJobRequestFingerprint({
+        ...(fingerprintFacts as Parameters<typeof shippingJobRequestFingerprint>[0]),
+        train: { ...train, manifest: reorderedManifest },
+      }),
+    ).toBe(shippingJobRequestFingerprint(fingerprintFacts as never))
+    expect(ControlMessage.safeParse({ ...request, orderId: 'other-order' }).success).toBe(false)
+    expect(
+      ControlMessage.safeParse({ ...request, shippingProtocolVersion: 1 }).success,
+    ).toBe(false)
+  })
+
+  it('requires exact ordered member identities and phase-complete verified proofs', () => {
+    const verifyRequest = ControlMessage.parse({
+      ...request,
+      operation: 'verify',
+      jobId: 'attempt-1:verify',
+    })
+    if (verifyRequest.type !== 'shippingJobRequest') throw new Error('expected shipping request')
+    const proof = {
+      issueId: 'issue-1' as (typeof train.manifest.members)[number]['issueId'],
+      orderId: 'order-1' as (typeof train.manifest.members)[number]['orderId'],
+      attemptId: 'attempt-1' as (typeof train.manifest.members)[number]['attemptId'],
+      generation: 2,
+      sourceApprovedSha: 'b'.repeat(40),
+      resultCommitSha: 'd'.repeat(40),
+      testedIntegrationSha: 'd'.repeat(40),
+      landedRefSha: 'd'.repeat(40),
+      providerLandedRefSha: 'd'.repeat(40),
+      destinationSha: 'd'.repeat(40),
+    }
+    const result = DaemonMessage.parse({
+      type: 'shippingJobResult',
+      requestId: 'request-1',
+      jobId: verifyRequest.jobId,
+      requestDigest: verifyRequest.requestDigest,
+      orderId: verifyRequest.orderId,
+      attemptId: verifyRequest.attemptId,
+      machineId: 'machine-1',
+      generation: verifyRequest.generation,
+      operation: 'verify',
+      state: 'succeeded',
+      classification: 'proved',
+      summary: 'verified',
+      trainProofs: [proof],
+      logs: [],
+      artifactRefs: [],
+      heartbeatedAt: '2026-08-13T10:00:00.000Z',
+      finishedAt: '2026-08-13T10:00:00.000Z',
+    })
+    if (result.type !== 'shippingJobResult') throw new Error('expected shipping result')
+    expect(shippingTrainProofsMatch(verifyRequest, result)).toBe(true)
+    expect(shippingTrainProofsMatch(verifyRequest, { ...result, trainProofs: [] })).toBe(false)
+    expect(
+      shippingTrainProofsMatch(verifyRequest, {
+        ...result,
+        trainProofs: [{ ...proof, attemptId: 'substituted-attempt' as typeof proof.attemptId }],
+      }),
+    ).toBe(false)
+    const { destinationSha: _destinationSha, ...incompleteProof } = proof
+    expect(
+      shippingTrainProofsMatch(verifyRequest, {
+        ...result,
+        trainProofs: [incompleteProof],
+      }),
+    ).toBe(false)
   })
 
   it('round-trips the purpose-built request and result frames', () => {

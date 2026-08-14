@@ -9,6 +9,8 @@ import {
   ShipHoldIdField,
   ShipOrderIdField,
   ShipStepIdField,
+  ShipTrainIdField,
+  ShipTrainSubsetIdField,
 } from './ids'
 import { ShipHoldAction, ShipHoldCode } from './shipping-projection'
 
@@ -50,6 +52,84 @@ export const DescendantTip = z.object({
 })
 export type DescendantTip = z.infer<typeof DescendantTip>
 
+export const ProviderPullRequestRef = z
+  .object({
+    provider: z.string().min(1),
+    id: z.string().min(1),
+    url: z.string().min(1).optional(),
+  })
+  .strict()
+export type ProviderPullRequestRef = z.infer<typeof ProviderPullRequestRef>
+
+export const ShipTrainValidationProfile = z
+  .object({
+    id: z.string().min(1),
+    argv: z.array(z.string().min(1)).min(1),
+    cwd: z.literal('integration-root'),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(60 * 60 * 1000),
+    resourceLocks: z.array(z.string().min(1)),
+  })
+  .strict()
+export type ShipTrainValidationProfile = z.infer<typeof ShipTrainValidationProfile>
+
+export const canonicalShippingDestination = (
+  destination: string,
+  targetBranch: string,
+): string => {
+  if (
+    destination === targetBranch ||
+    destination === `local:${targetBranch}` ||
+    destination === `refs/heads/${targetBranch}`
+  ) {
+    return `local:${targetBranch}`
+  }
+  const remote = /^(?:remote|git):([A-Za-z0-9][A-Za-z0-9._-]*)\/(.+)$/.exec(destination)
+  return remote ? `git:${remote[1]}/${remote[2]}` : destination
+}
+
+export const ShipTrainLane = z
+  .object({
+    repoId: RepoIdField,
+    targetBranch: z.string().min(1),
+    expectedTargetSha: z.string().min(1),
+    destination: z.string().min(1),
+    providerRef: ProviderPullRequestRef.optional(),
+    policyId: z.string().min(1),
+    validationProfile: ShipTrainValidationProfile,
+  })
+  .strict()
+  .superRefine((lane, ctx) => {
+    if (lane.destination !== canonicalShippingDestination(lane.destination, lane.targetBranch)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['destination'],
+        message: 'train destination must use its canonical lane spelling',
+      })
+    }
+    if ([...lane.validationProfile.resourceLocks].sort().join('\0') !== lane.validationProfile.resourceLocks.join('\0')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['validationProfile', 'resourceLocks'],
+        message: 'train validation resource locks must be canonically sorted',
+      })
+    }
+    if (
+      new Set(lane.validationProfile.resourceLocks).size !==
+      lane.validationProfile.resourceLocks.length
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['validationProfile', 'resourceLocks'],
+        message: 'train validation resource locks must be unique',
+      })
+    }
+  })
+export type ShipTrainLane = z.infer<typeof ShipTrainLane>
+
 export const ShipTrainMember = z
   .object({
     orderId: ShipOrderIdField,
@@ -68,7 +148,10 @@ export type ShipTrainMember = z.infer<typeof ShipTrainMember>
 export const ShipTrainManifest = z
   .object({
     version: z.literal(1),
-    id: z.string().min(1),
+    id: ShipTrainIdField,
+    subsetId: ShipTrainSubsetIdField,
+    repairRound: z.literal(0),
+    lane: ShipTrainLane,
     leaderOrderId: ShipOrderIdField,
     members: z.array(ShipTrainMember).min(1),
   })
@@ -93,6 +176,23 @@ export const ShipTrainManifest = z
         message: 'train attempt custody must be unique',
       })
     }
+    if (new Set(manifest.members.map((member) => member.issueId)).size !== manifest.members.length) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['members'],
+        message: 'train member issues must be unique',
+      })
+    }
+    if (
+      new Set(manifest.members.map((member) => member.sourceBranch)).size !==
+      manifest.members.length
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['members'],
+        message: 'train member source branches must be unique',
+      })
+    }
     if (new Set(manifest.members.map((member) => member.machineId)).size !== 1) {
       ctx.addIssue({
         code: 'custom',
@@ -104,11 +204,27 @@ export const ShipTrainManifest = z
       manifest.members.map((member, index) => [member.orderId, index] as const),
     )
     for (const [index, member] of manifest.members.entries()) {
+      if (member.approvedBaseSha !== manifest.lane.expectedTargetSha) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['members', index, 'approvedBaseSha'],
+          message: 'train member approval base must match the frozen target',
+        })
+      }
       if (new Set(member.deliveryDependsOn).size !== member.deliveryDependsOn.length) {
         ctx.addIssue({
           code: 'custom',
           path: ['members', index, 'deliveryDependsOn'],
           message: 'train member dependencies must be unique',
+        })
+      }
+      if (
+        [...member.deliveryDependsOn].sort().join('\0') !== member.deliveryDependsOn.join('\0')
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['members', index, 'deliveryDependsOn'],
+          message: 'train member dependencies must be canonically sorted',
         })
       }
       for (const dependency of member.deliveryDependsOn) {
@@ -124,6 +240,53 @@ export const ShipTrainManifest = z
     }
   })
 export type ShipTrainManifest = z.infer<typeof ShipTrainManifest>
+
+/** Stable canonical bytes for durable equality and hashing. Input object key
+ * order is deliberately ignored; array order remains semantic. */
+export const serializeShipTrainManifest = (input: ShipTrainManifest): string => {
+  const manifest = ShipTrainManifest.parse(input)
+  return JSON.stringify({
+    version: manifest.version,
+    id: manifest.id,
+    subsetId: manifest.subsetId,
+    repairRound: manifest.repairRound,
+    lane: {
+      repoId: manifest.lane.repoId,
+      targetBranch: manifest.lane.targetBranch,
+      expectedTargetSha: manifest.lane.expectedTargetSha,
+      destination: manifest.lane.destination,
+      ...(manifest.lane.providerRef
+        ? {
+            providerRef: {
+              provider: manifest.lane.providerRef.provider,
+              id: manifest.lane.providerRef.id,
+              ...(manifest.lane.providerRef.url ? { url: manifest.lane.providerRef.url } : {}),
+            },
+          }
+        : {}),
+      policyId: manifest.lane.policyId,
+      validationProfile: {
+        id: manifest.lane.validationProfile.id,
+        argv: [...manifest.lane.validationProfile.argv],
+        cwd: manifest.lane.validationProfile.cwd,
+        timeoutMs: manifest.lane.validationProfile.timeoutMs,
+        resourceLocks: [...manifest.lane.validationProfile.resourceLocks],
+      },
+    },
+    leaderOrderId: manifest.leaderOrderId,
+    members: manifest.members.map((member) => ({
+      orderId: member.orderId,
+      issueId: member.issueId,
+      attemptId: member.attemptId,
+      generation: member.generation,
+      machineId: member.machineId,
+      sourceBranch: member.sourceBranch,
+      approvedBaseSha: member.approvedBaseSha,
+      approvedHeadSha: member.approvedHeadSha,
+      deliveryDependsOn: [...member.deliveryDependsOn],
+    })),
+  })
+}
 
 const descendantTipKey = (tip: DescendantTip): string => `${tip.issueId}\0${tip.approvedHeadSha}`
 
@@ -158,13 +321,6 @@ export const integrationReceiptMatchesOrder = (
   receipt.rootIssueId === input.issueId &&
   receipt.approvedHeadSha === input.approvedHeadSha &&
   descendantTipsMatch(receipt.descendants, input.descendantManifest)
-
-export const ProviderPullRequestRef = z.object({
-  provider: z.string().min(1),
-  id: z.string().min(1),
-  url: z.string().min(1).optional(),
-})
-export type ProviderPullRequestRef = z.infer<typeof ProviderPullRequestRef>
 
 export const ShipAttemptOutcome = z.enum(['succeeded', 'failed', 'cancelled'])
 export type ShipAttemptOutcome = z.infer<typeof ShipAttemptOutcome>

@@ -63,6 +63,8 @@ import type {
   ShipHoldId,
   ShipOrderId,
   ShipStepId,
+  ShipTrainId,
+  ShipTrainSubsetId,
   ThreadId,
   UserId,
 } from '@podium/model'
@@ -1323,6 +1325,135 @@ export const shipAttempts = sqliteTable(
       'ship_attempts_validation_result_check',
       sql`validation_result IS NULL OR validation_result IN ('passed', 'failed')`,
     ),
+  ],
+)
+
+/** Deterministically observed native Git-stack edges. The upper order depends
+ * on the nearest queued lower order; immutable approved heads make discovery
+ * order-independent across restarts and concurrent admission. */
+export const shipOrderStackEdges = sqliteTable(
+  'ship_order_stack_edges',
+  {
+    upperOrderId: brandedRef(
+      text('upper_order_id').$type<ShipOrderId>(),
+      () => shipOrders.id,
+      { onDelete: 'restrict' },
+    ).notNull(),
+    lowerOrderId: brandedRef(
+      text('lower_order_id').$type<ShipOrderId>(),
+      () => shipOrders.id,
+      { onDelete: 'restrict' },
+    ).notNull(),
+    upperApprovedHeadSha: text('upper_approved_head_sha').notNull(),
+    lowerApprovedHeadSha: text('lower_approved_head_sha').notNull(),
+    recordedAt: text('recorded_at').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.upperOrderId, table.lowerOrderId],
+      name: 'ship_order_stack_edges_pk',
+    }),
+    index('idx_ship_order_stack_edges_lower').on(table.lowerOrderId),
+    check('ship_order_stack_edges_distinct_check', sql`upper_order_id <> lower_order_id`),
+  ],
+)
+
+export const shipTrainManifests = sqliteTable(
+  'ship_train_manifests',
+  {
+    id: text().$type<ShipTrainId>().primaryKey(),
+    version: integer().notNull(),
+    subsetId: text('subset_id').$type<ShipTrainSubsetId>().notNull(),
+    repairRound: integer('repair_round').notNull(),
+    canonicalDigest: text('canonical_digest').notNull(),
+    canonicalJson: text('canonical_json').notNull(),
+    repoId: text('repo_id').$type<RepoId>().notNull(),
+    targetBranch: text('target_branch').notNull(),
+    expectedTargetSha: text('expected_target_sha').notNull(),
+    destination: text().notNull(),
+    providerRef: text('provider_ref', { mode: 'json' }),
+    policyId: text('policy_id').notNull(),
+    validationProfile: text('validation_profile', { mode: 'json' }).notNull(),
+    leaderOrderId: brandedRef(
+      text('leader_order_id').$type<ShipOrderId>(),
+      () => shipOrders.id,
+      { onDelete: 'restrict' },
+    ).notNull(),
+    leaderAttemptId: brandedRef(
+      text('leader_attempt_id').$type<ShipAttemptId>(),
+      () => shipAttempts.id,
+      { onDelete: 'restrict' },
+    ).notNull(),
+    leaderGeneration: integer('leader_generation').notNull(),
+    createdAt: text('created_at').notNull(),
+    releasedAt: text('released_at'),
+    releaseReason: text('release_reason'),
+  },
+  (table) => [
+    uniqueIndex('idx_ship_train_manifests_subset').on(table.subsetId),
+    uniqueIndex('idx_ship_train_manifests_digest').on(table.canonicalDigest),
+    index('idx_ship_train_manifests_leader').on(
+      table.leaderOrderId,
+      table.leaderAttemptId,
+      table.leaderGeneration,
+      table.releasedAt,
+    ),
+    check('ship_train_manifests_version_check', sql`version = 1`),
+    check('ship_train_manifests_repair_round_check', sql`repair_round = 0`),
+    check('ship_train_manifests_generation_check', sql`leader_generation > 0`),
+    check(
+      'ship_train_manifests_release_pair_check',
+      sql`(released_at IS NULL AND release_reason IS NULL) OR (released_at IS NOT NULL AND release_reason IS NOT NULL)`,
+    ),
+  ],
+)
+
+export const shipTrainMembers = sqliteTable(
+  'ship_train_members',
+  {
+    trainId: brandedRef(
+      text('train_id').$type<ShipTrainId>(),
+      () => shipTrainManifests.id,
+      { onDelete: 'restrict' },
+    ).notNull(),
+    ordinal: integer().notNull(),
+    issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    orderId: brandedRef(text('order_id').$type<ShipOrderId>(), () => shipOrders.id, {
+      onDelete: 'restrict',
+    }).notNull(),
+    attemptId: brandedRef(
+      text('attempt_id').$type<ShipAttemptId>(),
+      () => shipAttempts.id,
+      { onDelete: 'restrict' },
+    ).notNull(),
+    generation: integer().notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    sourceBranch: text('source_branch').notNull(),
+    approvedBaseSha: text('approved_base_sha').notNull(),
+    approvedHeadSha: text('approved_head_sha').notNull(),
+    deliveryDependsOn: text('delivery_depends_on', { mode: 'json' }).notNull(),
+    releasedAt: text('released_at'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.trainId, table.ordinal], name: 'ship_train_members_pk' }),
+    unique('idx_ship_train_members_order').on(table.trainId, table.orderId),
+    unique('idx_ship_train_members_issue').on(table.trainId, table.issueId),
+    unique('idx_ship_train_members_attempt').on(table.trainId, table.attemptId),
+    uniqueIndex('idx_ship_train_members_attempt_global').on(table.attemptId),
+    unique('idx_ship_train_members_source').on(table.trainId, table.sourceBranch),
+    uniqueIndex('idx_ship_train_members_one_active_order')
+      .on(table.orderId)
+      .where(sql`released_at IS NULL`),
+    index('idx_ship_train_members_live_custody').on(
+      table.orderId,
+      table.attemptId,
+      table.generation,
+      table.releasedAt,
+    ),
+    check('ship_train_members_ordinal_check', sql`ordinal >= 0`),
+    check('ship_train_members_generation_check', sql`generation > 0`),
   ],
 )
 
