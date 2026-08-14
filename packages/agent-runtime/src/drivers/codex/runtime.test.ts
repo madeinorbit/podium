@@ -349,6 +349,41 @@ describe('the watch levels, negotiated rather than filtered', () => {
   })
 })
 
+describe('the human take-over lease', () => {
+  it('DELIVERS a turn parked behind a takeover the moment the lease is released', async () => {
+    /**
+     * RELEASING THE LEASE IS A DRAIN EDGE. A `queue` that arrives while a human
+     * holds the take-over lease is parked rather than refused — headless drivers
+     * queue rather than interleave, and W3's F6 says the nudge lands AFTER the
+     * takeover ends. If the only drain edge is a turn completing, then on an
+     * IDLE session that nudge waits for a turn that may never come: the human
+     * releases, nothing is running, and the words sit there indefinitely.
+     *
+     * The same bug the opencode driver had; this one inherited it by mirroring
+     * that file's structure, which is exactly why it is pinned here too.
+     */
+    const w = await world()
+    const lease = await w.handle.lease.acquire('human-1', 'human-controller')
+    expect('holder' in lease).toBe(true)
+
+    // A steward nudge arriving mid-takeover, on an IDLE session.
+    const receipt = await w.handle.send(
+      { text: 'nudge while a human is driving' },
+      { origin: 'mail', delivery: 'queue', principal: { kind: 'system', ref: 'steward' } },
+    )
+    expect(receipt.outcome).toBe('queued')
+    expect(w.server.turnStarts).toBe(0)
+
+    await w.handle.lease.release('human-1')
+    await settle()
+    await settle()
+    // The words were handed over, without waiting for a turn edge that never
+    // arrives on an idle session.
+    expect(w.server.turnStarts).toBe(1)
+    w.dispose()
+  })
+})
+
 describe('the fine-watch upgrade, which reconnects', () => {
   it('starts ONE child when two viewers ask at once', async () => {
     /**

@@ -1322,7 +1322,26 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           return session.lease
         },
         async release(holder) {
-          if (session.lease?.holder === holder) session.lease = null
+          if (session.lease?.holder !== holder) return
+          session.lease = null
+          /**
+           * RELEASING THE LEASE IS A DRAIN EDGE — the same bug the opencode
+           * driver had, and this driver inherited it by mirroring that file's
+           * structure (POD-2059's review, fixed there in bec3f550).
+           *
+           * A `queue` that arrived while a human held the take-over lease is
+           * parked here rather than refused: the contract's note says headless
+           * drivers queue rather than interleave, and W3's F6 is explicit that
+           * the nudge lands AFTER the takeover ends. But `drainQueue` otherwise
+           * runs only from `closeTurn`, so on an IDLE session the queued turn
+           * waits for a turn edge that may never come — the human releases,
+           * nothing is running, and the nudge sits there until some unrelated
+           * turn happens to complete.
+           *
+           * "After the takeover ends" has to mean this moment, or the promise is
+           * only kept on sessions that happen to be busy.
+           */
+          void drainQueue(session)
         },
         async state() {
           return session.lease
